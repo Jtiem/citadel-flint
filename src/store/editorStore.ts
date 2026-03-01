@@ -24,6 +24,7 @@ import {
     buildVisualTree,
     generateCodeFromAST,
     updateJSXClassName,
+    updateJSXTextContent,
 } from '../core/ast-parser'
 import type { VisualLayer } from '../core/ast-parser'
 import {
@@ -207,15 +208,19 @@ export const useEditorStore = create<EditorStore>((set, get) => {
             propName: string,
             value: string
         ) => {
-            // Only className is supported in Phase 4.
-            if (propName !== 'className') return
-
             // Parse a FRESH copy of rawCode — never mutate the store's live ast.
             const freshAst = parseCodeToAST(get().rawCode)
             if (freshAst === null) return
 
-            // Mutate the fresh AST in-place (updateJSXClassName modifies the node)
-            updateJSXClassName(freshAst, nodeId, value)
+            // Mutate the fresh AST in-place based on the property name.
+            if (propName === 'className') {
+                updateJSXClassName(freshAst, nodeId, value)
+            } else if (propName === 'textContent') {
+                updateJSXTextContent(freshAst, nodeId, value)
+            } else {
+                // Unsupported property — abort silently.
+                return
+            }
 
             // Regenerate source from the mutated AST, then re-parse for a
             // clean canonical AST (Babel's generator output is always re-parseable)
@@ -321,6 +326,14 @@ export const useEditorStore = create<EditorStore>((set, get) => {
                 hoveredId: null,
                 jumpToLine: null,
             })
+
+            // EXPLICIT FLUSH: bypass React/IPC tick and kill the iframe DOM instantly
+            // to prevent Ghost Overlays from lingering during file switches.
+            if (typeof window !== 'undefined') {
+                for (let i = 0; i < window.frames.length; i++) {
+                    window.frames[i].postMessage({ type: 'CLEAR_PREVIEW' }, '*')
+                }
+            }
         },
     }
 })

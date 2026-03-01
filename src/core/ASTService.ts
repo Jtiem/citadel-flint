@@ -396,16 +396,17 @@ export function applyInversions(
 
 import type { File, JSXElement, JSXFragment } from '@babel/types'
 import {
-    isImportDeclaration,
     importDeclaration,
-    importSpecifier,
     importDefaultSpecifier,
-    importNamespaceSpecifier,
+    importSpecifier,
     identifier,
     stringLiteral,
+    isImportDeclaration,
+    importNamespaceSpecifier,
     jsxAttribute as jsxAttr,
     jsxIdentifier as jsxId,
 } from '@babel/types'
+import { dirname, resolvePath, relativePath } from '../utils/pathUtils'
 
 /**
  * Internal record for a single imported binding found in an origin file.
@@ -545,12 +546,16 @@ function hasImport(targetAST: File, sourceModule: string, localName: string): bo
  * @param originAST  Babel File AST of the file the element is moving FROM.
  * @param jsxNode    The JSX subtree being relocated.
  * @param targetAST  Babel File AST of the destination file (mutated in-place).
+ * @param sourcePath Absolute path of the origin file.
+ * @param targetPath Absolute path of the destination file.
  * @returns          The mutated `targetAST`.
  */
 export function synthesizeImports(
     originAST: File,
     jsxNode: JSXElement,
     targetAST: File,
+    sourcePath: string,
+    targetPath: string,
 ): File {
     const neededNames = collectComponentNames(jsxNode)
     if (neededNames.size === 0) return targetAST
@@ -567,25 +572,32 @@ export function synthesizeImports(
         const entry = originImports.get(name)
         if (entry === undefined) continue  // not found in origin — skip
 
-        if (hasImport(targetAST, entry.sourceModule, entry.localName)) continue  // already present
+        let finalSourceModule = entry.sourceModule
+        if (finalSourceModule.startsWith('.')) {
+            // It's a relative import. Resolve it via absolute paths.
+            const absImport = resolvePath(dirname(sourcePath), finalSourceModule)
+            finalSourceModule = relativePath(dirname(targetPath), absImport)
+        }
+
+        if (hasImport(targetAST, finalSourceModule, entry.localName)) continue  // already present
 
         // Build the appropriate import specifier node
         let newDecl: ReturnType<typeof importDeclaration>
         if (entry.specifierType === 'default') {
             newDecl = importDeclaration(
                 [importDefaultSpecifier(identifier(entry.localName))],
-                stringLiteral(entry.sourceModule),
+                stringLiteral(finalSourceModule),
             )
         } else if (entry.specifierType === 'namespace') {
             newDecl = importDeclaration(
                 [importNamespaceSpecifier(identifier(entry.localName))],
-                stringLiteral(entry.sourceModule),
+                stringLiteral(finalSourceModule),
             )
         } else {
             // named — preserve the original imported name in case of aliasing
             newDecl = importDeclaration(
                 [importSpecifier(identifier(entry.localName), identifier(entry.importedName))],
-                stringLiteral(entry.sourceModule),
+                stringLiteral(finalSourceModule),
             )
         }
 

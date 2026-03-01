@@ -21,9 +21,11 @@ import type { NodePath } from '@babel/traverse'
 import {
     jsxAttribute,
     jsxIdentifier,
+    jsxText,
     stringLiteral,
     isJSXAttribute,
     isJSXIdentifier,
+    isJSXText,
 } from '@babel/types'
 
 // ── CJS interop guards ────────────────────────────────────────────────────────
@@ -296,7 +298,7 @@ export function updateJSXClassName(
                     isJSXIdentifier(attr.name, { name: 'className' })
                 ) {
                     // Update existing className attribute value in-place
-                    ;(attr as JSXAttribute).value = stringLiteral(className)
+                    ; (attr as JSXAttribute).value = stringLiteral(className)
                     found = true
                     break
                 }
@@ -310,6 +312,88 @@ export function updateJSXClassName(
                         stringLiteral(className)
                     )
                 )
+            }
+
+            // Stop traversal — we found and updated our target
+            path.stop()
+        },
+    })
+}
+
+/**
+ * Mutates a Babel File AST in-place, updating the text content of the
+ * element identified by `nodeId`.
+ *
+ * `nodeId` format: "<tagName>:<line>:<col>" — the synthetic ID produced by
+ * buildVisualTree. We match on line and column so the operation is exact
+ * even when multiple elements share a tag name.
+ *
+ * The function:
+ *   1. Finds the element by line:col (or bridge-id)
+ *   2. Iterates through the element's children
+ *   3. Finds the first JSXText child with non-empty `value.trim()`
+ *   4. Replaces its `value` with `newText`
+ *   5. If none exists, pushes a new JSXText node to children
+ *
+ * The caller is responsible for passing a freshly-parsed copy of the AST —
+ * never the store's live `ast` reference — since this function mutates in-place.
+ */
+export function updateJSXTextContent(
+    ast: File,
+    nodeId: string,
+    newText: string
+): void {
+    const parts = nodeId.split(':')
+    const col = parseInt(parts[parts.length - 1], 10)
+    const line = parseInt(parts[parts.length - 2], 10)
+    // Structural IDs end with two numeric segments (line:col).
+    // Bridge IDs are short alphanumeric strings without that pattern.
+    const isStructuralId = parts.length >= 2 && !isNaN(col) && !isNaN(line)
+
+    traverse(ast, {
+        JSXElement(path: NodePath<JSXElement>) {
+            const loc = path.node.loc
+            let matched = false
+            if (isStructuralId) {
+                matched = loc?.start.line === line && loc.start.column === col
+            } else {
+                // Bridge-id lookup: scan attributes for data-bridge-id === nodeId.
+                for (const attr of path.node.openingElement.attributes) {
+                    if (
+                        isJSXAttribute(attr) &&
+                        attr.name.type === 'JSXIdentifier' &&
+                        attr.name.name === 'data-bridge-id' &&
+                        attr.value?.type === 'StringLiteral' &&
+                        attr.value.value === nodeId
+                    ) {
+                        matched = true
+                        break
+                    }
+                }
+            }
+            if (!matched) {
+                return
+            }
+
+            const children = path.node.children
+            let foundTextNode = false
+
+            // Find the first JSXText child with non-empty trimmed content
+            for (const child of children) {
+                if (isJSXText(child)) {
+                    const trimmed = child.value.trim()
+                    if (trimmed.length > 0) {
+                        // Replace the existing text content
+                        child.value = newText
+                        foundTextNode = true
+                        break
+                    }
+                }
+            }
+
+            // If no existing JSXText with content was found, create a new one
+            if (!foundTextNode) {
+                children.push(jsxText(newText))
             }
 
             // Stop traversal — we found and updated our target

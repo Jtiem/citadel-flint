@@ -421,7 +421,7 @@ describe('synthesizeImports (Phase B — Import Synthesizer)', () => {
         const targetAST = parseCodeToAST(targetCode)!
         const jsxNode = parseJSXElement('<Button />')
 
-        synthesizeImports(originAST, jsxNode, targetAST)
+        synthesizeImports(originAST, jsxNode, targetAST, '/src/A.tsx', '/src/B.tsx')
 
         const code = generateCodeFromAST(targetAST)
         expect(code).toContain('Button')
@@ -438,7 +438,7 @@ describe('synthesizeImports (Phase B — Import Synthesizer)', () => {
         const targetAST = parseCodeToAST(targetCode)!
         const jsxNode = parseJSXElement('<Button />')
 
-        synthesizeImports(originAST, jsxNode, targetAST)
+        synthesizeImports(originAST, jsxNode, targetAST, '/src/A.tsx', '/src/B.tsx')
 
         const code = generateCodeFromAST(targetAST)
         // There must be exactly one import of Button from './ui'
@@ -460,7 +460,7 @@ describe('synthesizeImports (Phase B — Import Synthesizer)', () => {
         const targetAST = parseCodeToAST(targetCode)!
         const jsxNode = parseJSXElement('<div><Button /><Card /></div>')
 
-        synthesizeImports(originAST, jsxNode, targetAST)
+        synthesizeImports(originAST, jsxNode, targetAST, '/src/A.tsx', '/src/B.tsx')
 
         const code = generateCodeFromAST(targetAST)
         expect(code).toContain('Button')
@@ -479,7 +479,7 @@ describe('synthesizeImports (Phase B — Import Synthesizer)', () => {
         const targetAST = parseCodeToAST(targetCode)!
         const jsxNode = parseJSXElement('<div />')
 
-        synthesizeImports(originAST, jsxNode, targetAST)
+        synthesizeImports(originAST, jsxNode, targetAST, '/src/A.tsx', '/src/B.tsx')
 
         const code = generateCodeFromAST(targetAST)
         expect(code).not.toContain('not-real')
@@ -495,7 +495,7 @@ describe('synthesizeImports (Phase B — Import Synthesizer)', () => {
         const targetAST = parseCodeToAST(targetCode)!
         const jsxNode = parseJSXElement('<Unknown />')
 
-        expect(() => synthesizeImports(originAST, jsxNode, targetAST)).not.toThrow()
+        expect(() => synthesizeImports(originAST, jsxNode, targetAST, '/src/A.tsx', '/src/B.tsx')).not.toThrow()
     })
 
     // ── 6. Lucide icon named imports ──────────────────────────────────────────
@@ -511,7 +511,7 @@ describe('synthesizeImports (Phase B — Import Synthesizer)', () => {
         const targetAST = parseCodeToAST(targetCode)!
         const jsxNode = parseJSXElement('<div><ChevronDown /><Loader2 /></div>')
 
-        synthesizeImports(originAST, jsxNode, targetAST)
+        synthesizeImports(originAST, jsxNode, targetAST, '/src/A.tsx', '/src/B.tsx')
 
         const code = generateCodeFromAST(targetAST)
         expect(code).toContain('lucide-react')
@@ -529,7 +529,7 @@ describe('synthesizeImports (Phase B — Import Synthesizer)', () => {
         const targetAST = parseCodeToAST(targetCode)!
         const jsxNode = parseJSXElement('<MyIcon />')
 
-        synthesizeImports(originAST, jsxNode, targetAST)
+        synthesizeImports(originAST, jsxNode, targetAST, '/src/A.tsx', '/src/B.tsx')
 
         const code = generateCodeFromAST(targetAST)
         expect(code).toContain('MyIcon')
@@ -549,7 +549,7 @@ describe('synthesizeImports (Phase B — Import Synthesizer)', () => {
         const targetAST = parseCodeToAST(targetCode)!
         const jsxNode = parseJSXElement('<div><Button /><Dialog /></div>')
 
-        synthesizeImports(originAST, jsxNode, targetAST)
+        synthesizeImports(originAST, jsxNode, targetAST, '/src/A.tsx', '/src/B.tsx')
 
         const code = generateCodeFromAST(targetAST)
         expect(code).toContain('Dialog')
@@ -570,7 +570,7 @@ describe('synthesizeImports (Phase B — Import Synthesizer)', () => {
         const jsxNode = parseJSXElement('<div><span /></div>')
 
         const before = generateCodeFromAST(targetAST)
-        synthesizeImports(originAST, jsxNode, targetAST)
+        synthesizeImports(originAST, jsxNode, targetAST, '/src/A.tsx', '/src/B.tsx')
         const after = generateCodeFromAST(targetAST)
 
         expect(after).toBe(before)
@@ -586,11 +586,38 @@ describe('synthesizeImports (Phase B — Import Synthesizer)', () => {
         const targetAST = parseCodeToAST(targetCode)!
         const jsxNode = parseJSXElement('<Arrow />')
 
-        synthesizeImports(originAST, jsxNode, targetAST)
+        synthesizeImports(originAST, jsxNode, targetAST, '/src/A.tsx', '/src/B.tsx')
 
         const code = generateCodeFromAST(targetAST)
         expect(code).toContain('Arrow')
         expect(code).toContain('ChevronRight')
         expect(code).toContain('lucide-react')
+    })
+
+    // ── 11. Relative path resolution ──────────────────────────────────────────
+
+    it('resolves and rewrites relative imports based on source and target paths', () => {
+        const originCode = `import { Button } from '../components/ui/Button'\nexport default function A() { return <Button /> }`
+        const targetCode = `export default function B() { return <div /> }`
+
+        const originAST = parseCodeToAST(originCode)!
+        const targetAST = parseCodeToAST(targetCode)!
+        const jsxNode = parseJSXElement('<Button />')
+
+        // Moving from /src/pages/Home.tsx to /src/App.tsx
+        // Original import: '../components/ui/Button' (resolves to /src/components/ui/Button)
+        // Target path: /src/App.tsx -> The import should become './components/ui/Button'
+        synthesizeImports(
+            originAST,
+            jsxNode,
+            targetAST,
+            '/src/pages/Home.tsx',
+            '/src/App.tsx'
+        )
+
+        const code = generateCodeFromAST(targetAST)
+        expect(code).toContain('Button')
+        // Vite handles paths with or without .tsx, but our resolver normalizes to ./
+        expect(code).toContain('./components/ui/Button')
     })
 })
