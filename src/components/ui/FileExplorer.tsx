@@ -2,59 +2,125 @@
  * FileExplorer — src/components/ui/FileExplorer.tsx
  *
  * Module F.1: Recursive file tree sidebar for the Bridge Project Workspace.
+ * Phase F.2: File nodes are drop targets for cross-file component moves.
  *
  * Architecture:
  *   - `FileExplorer` is the root component. It subscribes ONLY to `workspaceFiles`
  *     so it only re-renders when the folder is opened or refreshed.
- *   - `FileNode` is the recursive unit. Each instance subscribes to exactly the
- *     state it needs via granular Zustand selectors:
- *       • Directory nodes: `s.expandedFolders.has(node.path)` → boolean
- *       • File nodes:      `s.activeFilePath === node.path`   → boolean
- *     Because selectors return primitives compared with `===`, toggling one
- *     folder or switching one active file only re-renders the two affected
- *     FileNode instances — not the entire sidebar.
+ *   - `FileItem` renders a single file. It subscribes to its active-file status
+ *     and accepts drops from LayerTree rows (cross-file move).
+ *   - `DirectoryItem` renders a folder with expand/collapse. It subscribes only
+ *     to its own expanded state.
+ *   - `FileNode` dispatches to `FileItem` or `DirectoryItem` so hooks are never
+ *     called conditionally (Rules of Hooks compliance).
+ *
+ * Cross-file drop protocol:
+ *   When a LayerTree row is dragged over a file node, `FileItem` checks for
+ *   the `application/bridge-source-file` drag type before accepting the drop.
+ *   On a valid drop it calls `useASTBufferStore.getState().crossFileMove(...)`,
+ *   which buffers both files, performs Babel AST surgery, atomically saves via
+ *   `saveFileBatch`, and pushes tagged history entries.
+ *
+ * Zustand selector pattern:
+ *   Each `FileItem` uses `s.activeFilePath === node.path` — a boolean selector
+ *   that only re-renders that one instance when its active status changes.
+ *   Each `DirectoryItem` uses `s.expandedFolders.has(node.path)` with the same
+ *   single-instance re-render guarantee.
  */
 
+import { useState } from 'react'
 import { useCanvasStore } from '../../store/canvasStore'
+import { useASTBufferStore } from '../../store/astBufferStore'
 import type { FileTreeNode } from '../../types/bridge-api'
 
-// ── FileNode (recursive) ──────────────────────────────────────────────────────
+// ── FileItem ──────────────────────────────────────────────────────────────────
 
-interface FileNodeProps {
+interface FileItemProps {
     node: FileTreeNode
-    depth?: number
+    depth: number
 }
 
-function FileNode({ node, depth = 0 }: FileNodeProps) {
+/**
+ * Renders a single file node. Accepts drops from LayerTree rows to trigger
+ * cross-file component moves via `crossFileMove`.
+ */
+function FileItem({ node, depth }: FileItemProps) {
+    const isActive = useCanvasStore((s) => s.activeFilePath === node.path)
+    const setActiveFile = useCanvasStore((s) => s.setActiveFile)
+    const [isDragTarget, setIsDragTarget] = useState(false)
+
     const paddingLeft = depth * 12
 
-    if (node.type === 'file') {
-        // Granular selector: only re-renders when THIS file's active status changes.
-        const isActive = useCanvasStore((s) => s.activeFilePath === node.path)
-        const setActiveFile = useCanvasStore((s) => s.setActiveFile)
+    function handleDragOver(e: React.DragEvent<HTMLButtonElement>): void {
+        // Only accept drops that carry a bridge source file — i.e. LayerTree rows.
+        if (!e.dataTransfer.types.includes('application/bridge-source-file')) return
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'move'
+        setIsDragTarget(true)
+    }
 
-        return (
-            <button
-                type="button"
-                title={node.path}
-                onClick={() => { void setActiveFile(node.path) }}
-                style={{ paddingLeft: paddingLeft + 8 }}
-                className={`flex w-full items-center gap-1.5 py-[3px] pr-2 text-left text-[11px] transition-colors ${
-                    isActive
-                        ? 'bg-indigo-500/20 text-indigo-300'
-                        : 'text-gray-400 hover:bg-gray-800/60 hover:text-gray-200'
-                }`}
-            >
-                <span className="shrink-0 text-[8px] opacity-40">◆</span>
-                <span className="truncate font-mono">{node.name}</span>
-            </button>
+    function handleDragLeave(e: React.DragEvent<HTMLButtonElement>): void {
+        // Only clear when the cursor leaves the button itself, not its children.
+        const btn = e.currentTarget
+        if (btn.contains(e.relatedTarget as Node | null)) return
+        setIsDragTarget(false)
+    }
+
+    function handleDrop(e: React.DragEvent<HTMLButtonElement>): void {
+        e.preventDefault()
+        setIsDragTarget(false)
+
+        const sourceNodeId = e.dataTransfer.getData('application/bridge-source-id')
+        const sourceFilePath = e.dataTransfer.getData('application/bridge-source-file')
+
+        // Ignore drops from the same file (single-file moves stay in LayerTree)
+        // or drops that didn't originate from a LayerTree row.
+        if (!sourceNodeId || !sourceFilePath || sourceFilePath === node.path) return
+
+        void useASTBufferStore.getState().crossFileMove(
+            sourceFilePath,
+            node.path,
+            sourceNodeId,
+            null,      // no specific target node — append to root JSX element
+            'inside',
         )
     }
 
-    // Directory node — granular selector: only re-renders when THIS folder's
-    // expanded state changes.
+    return (
+        <button
+            type="button"
+            title={node.path}
+            onClick={() => { void setActiveFile(node.path) }}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            style={{ paddingLeft: paddingLeft + 8 }}
+            className={`flex w-full items-center gap-1.5 py-[3px] pr-2 text-left text-[11px] transition-colors ${
+                isDragTarget
+                    ? 'bg-indigo-400/20 text-indigo-300 outline outline-1 outline-indigo-400/50'
+                    : isActive
+                      ? 'bg-indigo-500/20 text-indigo-300'
+                      : 'text-gray-400 hover:bg-gray-800/60 hover:text-gray-200'
+            }`}
+        >
+            <span className="shrink-0 text-[8px] opacity-40">◆</span>
+            <span className="truncate font-mono">{node.name}</span>
+        </button>
+    )
+}
+
+// ── DirectoryItem ─────────────────────────────────────────────────────────────
+
+interface DirectoryItemProps {
+    node: FileTreeNode
+    depth: number
+}
+
+function DirectoryItem({ node, depth }: DirectoryItemProps) {
     const isExpanded = useCanvasStore((s) => s.expandedFolders.has(node.path))
     const toggleFolder = useCanvasStore((s) => s.toggleFolder)
+
+    const paddingLeft = depth * 12
 
     return (
         <div>
@@ -77,6 +143,22 @@ function FileNode({ node, depth = 0 }: FileNodeProps) {
     )
 }
 
+// ── FileNode (dispatcher) ─────────────────────────────────────────────────────
+
+interface FileNodeProps {
+    node: FileTreeNode
+    depth?: number
+}
+
+/**
+ * Dispatches to `FileItem` or `DirectoryItem` so hooks are never called
+ * conditionally inside either leaf component (Rules of Hooks compliance).
+ */
+function FileNode({ node, depth = 0 }: FileNodeProps) {
+    if (node.type === 'file') return <FileItem node={node} depth={depth} />
+    return <DirectoryItem node={node} depth={depth} />
+}
+
 // ── FileExplorer ──────────────────────────────────────────────────────────────
 
 /**
@@ -84,7 +166,8 @@ function FileNode({ node, depth = 0 }: FileNodeProps) {
  *
  * This component subscribes only to `workspaceFiles` — toggling a folder or
  * changing the active file does NOT cause FileExplorer itself to re-render;
- * only the specific FileNode instances whose selector output changed will update.
+ * only the specific FileItem / DirectoryItem instances whose selector output
+ * changed will update.
  */
 export function FileExplorer() {
     const workspaceFiles = useCanvasStore((s) => s.workspaceFiles)

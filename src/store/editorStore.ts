@@ -144,6 +144,14 @@ interface EditorActions {
      */
     clearAST: () => void
     /**
+     * Updates rawCode, ast, and visualTree without triggering auto-save or
+     * clearing undo/redo history. Used after programmatic mutations that have
+     * already been persisted externally (e.g., crossFileMove via astBufferStore).
+     *
+     * Silent no-op when `code` cannot be parsed.
+     */
+    syncCode: (code: string) => void
+    /**
      * Reverts the JSX element identified by `nodeId` to its last-committed
      * (HEAD) state using a surgical AST transplant (Phase D.1 / Commandment 11).
      *
@@ -331,6 +339,16 @@ export const useEditorStore = create<EditorStore>((set, get) => {
 
             // Record inverse for undo/redo.
             useHistoryStore.getState().push(inversions, mutations)
+        },
+
+        syncCode: (code: string) => {
+            const parsed = parseCodeToAST(code)
+            if (parsed === null) return
+            set({
+                rawCode: code,
+                ast: parsed,
+                visualTree: buildVisualTree(parsed),
+            })
         },
 
         clearAST: () => {

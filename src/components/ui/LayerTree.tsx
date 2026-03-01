@@ -38,6 +38,7 @@
 import { useState, useRef } from 'react'
 import { Diamond, Hash, Type, Code2, ChevronRight, ChevronDown } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
+import { useCanvasStore } from '../../store/canvasStore'
 import type { VisualLayer } from '../../core/ast-parser'
 import { getLayerName } from '../../utils/layerNaming'
 import type { LayerType } from '../../utils/layerNaming'
@@ -95,6 +96,13 @@ function LayerRow({ layer, depth, collapsedIds, onToggleCollapsed }: LayerRowPro
 
     function handleDragStart(e: React.DragEvent): void {
         e.dataTransfer.setData('text/plain', layer.id)
+        // Bridge-namespaced keys allow FileExplorer to identify cross-file drops
+        // without conflicting with other drag sources.
+        e.dataTransfer.setData('application/bridge-source-id', layer.id)
+        const sourceFile = useCanvasStore.getState().activeFilePath
+        if (sourceFile !== null) {
+            e.dataTransfer.setData('application/bridge-source-file', sourceFile)
+        }
         e.dataTransfer.effectAllowed = 'move'
         setIsDragging(true)
     }

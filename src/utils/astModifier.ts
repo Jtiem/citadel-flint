@@ -299,6 +299,74 @@ export function injectComponent(
     return fileAST
 }
 
+// ── Cross-file move helpers (Phase F.2) ───────────────────────────────────────
+
+/**
+ * Finds the JSX element identified by `nodeId`, removes it from its
+ * parent's children array, and returns the detached node.
+ *
+ * Returns null when:
+ *   · `nodeId` is not found in the AST.
+ *   · The matching element has no JSXElement parent (it is a root node
+ *     and cannot be extracted without destroying the return statement).
+ *
+ * Mutates `fileAST` in-place. The returned node is detached from the AST
+ * and can safely be inserted into a different AST via `insertNode`.
+ */
+export function extractNode(fileAST: File, nodeId: string): JSXElement | null {
+    const found = findNode(fileAST, nodeId)
+    if (found === null || found.parentChildren === null) return null
+
+    const idx = found.parentChildren.indexOf(found.node)
+    if (idx === -1) return null
+
+    found.parentChildren.splice(idx, 1)
+    return found.node
+}
+
+/**
+ * Inserts `node` into `fileAST` at `position` relative to the JSX element
+ * identified by `targetId`.
+ *
+ * Positions:
+ *   'before'  — insert as a sibling immediately before the target element.
+ *   'after'   — insert as a sibling immediately after the target element.
+ *   'inside'  — append as the last child of the target element.
+ *               Returns false when the target is self-closing.
+ *
+ * Returns true on success. Returns false when the target cannot be found,
+ * when the operation is structurally invalid (self-closing + 'inside'), or
+ * when 'before'/'after' is requested on a root element with no JSXElement
+ * parent.
+ *
+ * Mutates `fileAST` in-place. The caller is responsible for passing a
+ * freshly-parsed copy and calling generateCodeFromAST() afterwards.
+ */
+export function insertNode(
+    fileAST: File,
+    node: JSXElement,
+    targetId: string,
+    position: DropPosition
+): boolean {
+    const tgt = findNode(fileAST, targetId)
+    if (tgt === null) return false
+
+    if (position === 'inside') {
+        if (tgt.node.openingElement.selfClosing) return false
+        tgt.node.children.push(node)
+        return true
+    }
+
+    // before / after: target must have a JSXElement parent.
+    if (tgt.parentChildren === null) return false
+    const tgtIdx = tgt.parentChildren.indexOf(tgt.node)
+    if (tgtIdx === -1) return false
+
+    const insertAt = position === 'before' ? tgtIdx : tgtIdx + 1
+    tgt.parentChildren.splice(insertAt, 0, node)
+    return true
+}
+
 // ── Export ────────────────────────────────────────────────────────────────────
 
 /**
