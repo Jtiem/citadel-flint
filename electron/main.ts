@@ -509,6 +509,40 @@ app.whenReady().then(async () => {
         await fileTransactionManager.write(filePath, content)
     })
 
+    // ── Batch Save Handler ─────────────────────────────────────────────────────
+    // Atomically writes multiple files in one IPC call (Phase F.2 / Multi-file
+    // surgery). Each path undergoes the same security validation as ast:save-file.
+    // Writes to different paths execute concurrently; writes to the same path
+    // are serialised by FileTransactionManager's per-path FIFO queue.
+    //
+    // `batch` is a plain JSON object: { [absoluteFilePath]: content }.
+    ipcMain.handle('ast:save-batch', async (_event, batch: unknown): Promise<void> => {
+        if (typeof batch !== 'object' || batch === null || Array.isArray(batch)) {
+            throw new TypeError('ast:save-batch — batch must be a plain object')
+        }
+        const home = app.getPath('home')
+        const validated = new Map<string, string>()
+
+        for (const [filePath, content] of Object.entries(batch as Record<string, unknown>)) {
+            if (typeof content !== 'string') {
+                throw new TypeError(`ast:save-batch — content for "${filePath}" must be a string`)
+            }
+            if (!path.isAbsolute(filePath) || !/\.(tsx?|jsx?)$/.test(filePath)) {
+                throw new Error(
+                    `ast:save-batch — "${filePath}" must be an absolute path to a .tsx/.ts/.jsx/.js file`
+                )
+            }
+            if (!filePath.startsWith(home + path.sep)) {
+                throw new Error(
+                    `ast:save-batch — "${filePath}" is outside the user home directory`
+                )
+            }
+            validated.set(filePath, content)
+        }
+
+        await fileTransactionManager.writeBatch(validated)
+    })
+
     // ── Git Show Handler ───────────────────────────────────────────────────────
     // Returns the raw content of `filePath` at `commitHash` using `git show`.
     // Does NOT modify the working tree (no checkout).

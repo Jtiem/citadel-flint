@@ -31,8 +31,14 @@ import type { ASTMutation, InverseMutation } from '../core/ASTService'
  *
  * `inversions`    — apply these to the current code to undo the batch.
  * `redoMutations` — apply these to the restored code to redo the batch.
+ * `filePath`      — absolute path of the file the mutation was applied to.
+ *                   Present for headless-buffer mutations (Phase F.2 cross-file
+ *                   moves). Absent when the mutation targets the active editor
+ *                   file (legacy single-file path — backward compatible).
  */
 export interface HistoryEntry {
+    /** Absolute path of the mutated file. Absent for the active editor file. */
+    filePath?: string
     inversions: InverseMutation[]
     redoMutations: ASTMutation[]
 }
@@ -57,8 +63,11 @@ interface HistoryActions {
      *
      * @param inversions    InverseMutation[] returned by applyMutationBatch.
      * @param redoMutations The original ASTMutation[] that produced the batch.
+     * @param filePath      Absolute path of the mutated file. Omit for the
+     *                      active editor file; provide for headless-buffer
+     *                      mutations (Phase F.2 cross-file moves).
      */
-    push: (inversions: InverseMutation[], redoMutations: ASTMutation[]) => void
+    push: (inversions: InverseMutation[], redoMutations: ASTMutation[], filePath?: string) => void
 
     /**
      * Pops the most-recent undo entry. Returns it (or null if the stack is
@@ -86,8 +95,11 @@ export const useHistoryStore = create<HistoryState & HistoryActions>((set, get) 
     canUndo: false,
     canRedo: false,
 
-    push: (inversions, redoMutations) => {
-        const newPast = [...get().past, { inversions, redoMutations }]
+    push: (inversions, redoMutations, filePath?) => {
+        const entry: HistoryEntry = filePath
+            ? { filePath, inversions, redoMutations }
+            : { inversions, redoMutations }
+        const newPast = [...get().past, entry]
         set({ past: newPast, future: [], canUndo: true, canRedo: false })
     },
 

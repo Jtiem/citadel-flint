@@ -75,6 +75,28 @@ export class FileTransactionManager {
     }
 
     /**
+     * Enqueues atomic writes for every `(filePath, content)` pair in `batch`
+     * and resolves once **all** of them have been committed to disk.
+     *
+     * Each path is handled by the existing per-path FIFO queue, so:
+     *   • Rapid-fire batch calls for the same path are still serialised.
+     *   • Writes to different paths run concurrently (unchanged behaviour).
+     *   • A failure for one path rejects the returned Promise but does not
+     *     prevent the other paths from completing.
+     *
+     * Callers must pre-validate all paths (absolute, correct extension, within
+     * the home directory) before passing them in — this method does not
+     * re-validate.
+     */
+    writeBatch(batch: Map<string, string>): Promise<void> {
+        const writes: Promise<void>[] = []
+        for (const [filePath, content] of batch) {
+            writes.push(this.write(filePath, content))
+        }
+        return Promise.all(writes).then(() => undefined)
+    }
+
+    /**
      * Performs the two-phase atomic write:
      *   1. `writeFile(tmpPath, content)` — full content lands on disk before
      *      any rename; a crash here leaves the original untouched.

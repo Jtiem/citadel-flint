@@ -282,3 +282,84 @@ describe('Phase E.3 — Atomic Write Failure Recovery', () => {
         expect(mockUpsert).toHaveBeenCalledWith('bridge-id', 'className', 'text-blue-500')
     })
 })
+
+// ── writeBatch ─────────────────────────────────────────────────────────────────
+//
+// Validates the multi-file batch write method introduced for Phase F.2.
+// Guarantees mirror the per-file write guarantees: atomicity per path,
+// concurrent execution across paths, and error propagation on failure.
+
+describe('writeBatch', () => {
+    let dir: string
+    let mgr: FileTransactionManager
+
+    beforeEach(async () => {
+        dir = join(tmpdir(), `bridge-batch-test-${randomUUID()}`)
+        await mkdir(dir, { recursive: true })
+        mgr = new FileTransactionManager()
+    })
+
+    afterEach(async () => {
+        await rm(dir, { recursive: true, force: true })
+    })
+
+    it('resolves immediately and writes nothing for an empty map', async () => {
+        await expect(mgr.writeBatch(new Map())).resolves.toBeUndefined()
+    })
+
+    it('writes a single file correctly', async () => {
+        const file = join(dir, 'Button.tsx')
+        await mgr.writeBatch(new Map([[file, 'export default function Button() {}']]))
+        expect(await readFile(file, 'utf8')).toBe('export default function Button() {}')
+    })
+
+    it('writes multiple files concurrently and all land on disk', async () => {
+        const entries: [string, string][] = [
+            [join(dir, 'A.tsx'), 'content-a'],
+            [join(dir, 'B.tsx'), 'content-b'],
+            [join(dir, 'C.tsx'), 'content-c'],
+        ]
+        await mgr.writeBatch(new Map(entries))
+
+        for (const [filePath, expected] of entries) {
+            expect(await readFile(filePath, 'utf8')).toBe(expected)
+        }
+    })
+
+    it('leaves no .tmp artefacts after a successful batch', async () => {
+        const files = [join(dir, 'X.tsx'), join(dir, 'Y.tsx')]
+        await mgr.writeBatch(new Map(files.map((f, i) => [f, `content-${i}`])))
+        for (const f of files) {
+            expect(await fileExists(`${f}.tmp`)).toBe(false)
+        }
+    })
+
+    it('serialises rapid batch calls to the same path: last write wins', async () => {
+        const file = join(dir, 'Shared.tsx')
+        await Promise.all([
+            mgr.writeBatch(new Map([[file, 'batch-1']])),
+            mgr.writeBatch(new Map([[file, 'batch-2']])),
+            mgr.writeBatch(new Map([[file, 'batch-3']])),
+        ])
+        expect(await readFile(file, 'utf8')).toBe('batch-3')
+    })
+
+    it('evicts all queue entries after batch completes', async () => {
+        const files = [join(dir, 'P.tsx'), join(dir, 'Q.tsx')]
+        await mgr.writeBatch(new Map(files.map((f) => [f, 'x'])))
+        const queues = (mgr as unknown as { _queues: Map<string, Promise<void>> })._queues
+        expect(queues.size).toBe(0)
+    })
+
+    it('rejects when any path in the batch does not exist', async () => {
+        // Promise.all rejects as soon as one write fails. The good write may
+        // or may not have landed (race); only the rejection is guaranteed here.
+        const goodFile = join(dir, 'Good.tsx')
+        const badFile = join(dir, 'no-subdir', 'Bad.tsx')
+        const batch = new Map([
+            [goodFile, 'good content'],
+            [badFile, 'bad content'],
+        ])
+        await expect(mgr.writeBatch(batch)).rejects.toThrow()
+    })
+})

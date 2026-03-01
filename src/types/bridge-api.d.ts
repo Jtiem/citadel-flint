@@ -253,6 +253,21 @@ export interface BridgeAPI {
     saveFile: (filePath: string, content: string) => Promise<void>
 
     /**
+     * Atomically writes every `(filePath, content)` pair in `batch` via the
+     * main-process `FileTransactionManager`.
+     *
+     * Each path is validated by the main process (absolute, correct extension,
+     * inside the user's home directory). Writes to different paths run
+     * concurrently; writes to the same path are serialised in FIFO order.
+     *
+     * Rejects if any path fails validation or if any atomic rename fails.
+     *
+     * Use this for multi-file cross-component moves (Phase F.2) so a single
+     * IPC round-trip commits all dirty buffers at once.
+     */
+    saveFileBatch: (batch: Record<string, string>) => Promise<void>
+
+    /**
      * Shows the native OS directory picker. On success, recursively scans the
      * selected directory for `.tsx`, `.ts`, `.jsx`, and `.js` files and returns
      * a nested `FileTreeNode` tree rooted at the chosen folder.

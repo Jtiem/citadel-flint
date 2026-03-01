@@ -179,6 +179,20 @@ contextBridge.exposeInMainWorld('bridgeAPI', {
         ipcRenderer.invoke('ast:save-file', filePath, content),
 
     /**
+     * Atomically writes every `(filePath, content)` pair in `batch` via the
+     * main-process FileTransactionManager. Each path undergoes the same security
+     * validation as `saveFile`. Writes to different paths proceed concurrently;
+     * writes to the same path are serialised in FIFO order.
+     *
+     * `batch` is a plain object so it serialises cleanly across the IPC boundary.
+     *
+     * Security: the main process rejects any path that is outside the user's
+     * home directory or does not end with .tsx/.ts/.jsx/.js.
+     */
+    saveFileBatch: (batch: Record<string, string>): Promise<void> =>
+        ipcRenderer.invoke('ast:save-batch', batch),
+
+    /**
      * Shows the native OS directory picker and returns a recursive FileTreeNode
      * tree rooted at the chosen directory. Only `.tsx/.ts/.jsx/.js` files are
      * included; `node_modules`, `dist`, hidden directories, etc. are excluded.
