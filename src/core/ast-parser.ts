@@ -23,6 +23,7 @@ import {
     jsxIdentifier,
     jsxText,
     stringLiteral,
+    cloneNode,
     isJSXAttribute,
     isJSXIdentifier,
     isJSXText,
@@ -397,6 +398,232 @@ export function updateJSXTextContent(
             }
 
             // Stop traversal — we found and updated our target
+            path.stop()
+        },
+    })
+}
+
+/**
+ * Surgically replaces the JSX element identified by `nodeId` in `liveAST`
+ * with a deep clone of the matching element found in `historicAST`.
+ *
+ * This is the core of the Macro-Recovery Engine (Phase D.1). It allows a
+ * single ruined component node to be reverted to its last-committed state
+ * without a blanket `git checkout` that would discard all concurrent edits
+ * in the file (Commandment 11 — Surgical Git Transplants).
+ *
+ * Both ASTs must be independently parsed from their respective source strings.
+ * The function mutates `liveAST` in-place; callers are responsible for
+ * regenerating code with `generateCodeFromAST` after calling this.
+ *
+ * Silent no-op when `nodeId` cannot be located in either AST.
+ */
+export function transplantNode(
+    liveAST: File,
+    historicAST: File,
+    nodeId: string
+): void {
+    const parts = nodeId.split(':')
+    const col = parseInt(parts[parts.length - 1], 10)
+    const line = parseInt(parts[parts.length - 2], 10)
+    const isStructuralId = parts.length >= 2 && !isNaN(col) && !isNaN(line)
+
+    // ── Step 1: find and deep-clone the target node from historicAST ──────────
+    let historicClone: JSXElement | null = null
+
+    traverse(historicAST, {
+        JSXElement(path: NodePath<JSXElement>) {
+            const loc = path.node.loc
+            let matched = false
+            if (isStructuralId) {
+                matched = loc?.start.line === line && loc.start.column === col
+            } else {
+                for (const attr of path.node.openingElement.attributes) {
+                    if (
+                        isJSXAttribute(attr) &&
+                        attr.name.type === 'JSXIdentifier' &&
+                        attr.name.name === 'data-bridge-id' &&
+                        attr.value?.type === 'StringLiteral' &&
+                        attr.value.value === nodeId
+                    ) {
+                        matched = true
+                        break
+                    }
+                }
+            }
+            if (!matched) return
+            // Deep-clone so the historic node is completely detached from historicAST.
+            historicClone = cloneNode(path.node, true)
+            path.stop()
+        },
+    })
+
+    if (historicClone === null) return  // node absent from historic commit — abort
+
+    // ── Step 2: locate the same node in liveAST and replace it in-place ──────
+    const replacement = historicClone  // TypeScript: narrowed non-null above
+
+    traverse(liveAST, {
+        JSXElement(path: NodePath<JSXElement>) {
+            const loc = path.node.loc
+            let matched = false
+            if (isStructuralId) {
+                matched = loc?.start.line === line && loc.start.column === col
+            } else {
+                for (const attr of path.node.openingElement.attributes) {
+                    if (
+                        isJSXAttribute(attr) &&
+                        attr.name.type === 'JSXIdentifier' &&
+                        attr.name.name === 'data-bridge-id' &&
+                        attr.value?.type === 'StringLiteral' &&
+                        attr.value.value === nodeId
+                    ) {
+                        matched = true
+                        break
+                    }
+                }
+            }
+            if (!matched) return
+            path.replaceWith(replacement)
+            path.stop()
+        },
+    })
+}
+
+/**
+ * Traverses all JSXElement nodes in `ast` and injects a `data-bridge-id`
+ * attribute onto each element that does not already carry one.
+ *
+ * This makes the renderer self-sufficient for ID injection (Phase E.1 /
+ * HANDOFF 7D). Calling this before `generateCodeFromAST` and passing the
+ * result to the main-process `transformCode` IPC ensures bridge IDs survive
+ * even if the main-process Babel plugin fails or is bypassed.
+ *
+ * ID format: `"<tagName>:<1-based-line>:<0-based-col>"` — identical to the
+ * format produced by `buildVisualTree` and the main-process plugin.
+ *
+ * Mutates `ast` in-place. Idempotent: elements that already carry a
+ * `data-bridge-id` attribute are skipped.
+ */
+export function injectBridgeIds(ast: File): void {
+    traverse(ast, {
+        JSXElement(path: NodePath<JSXElement>) {
+            const opening = path.node.openingElement
+            const loc = path.node.loc
+            if (loc == null) return
+
+            // Compute tag name (mirrors buildVisualTree tag-name logic)
+            let tagName: string
+            const nameNode = opening.name
+            if (nameNode.type === 'JSXIdentifier') {
+                tagName = nameNode.name
+            } else if (nameNode.type === 'JSXMemberExpression') {
+                const obj =
+                    nameNode.object.type === 'JSXIdentifier'
+                        ? nameNode.object.name
+                        : '?'
+                tagName = `${obj}.${nameNode.property.name}`
+            } else {
+                tagName = 'unknown'
+            }
+
+            const bridgeId = `${tagName}:${loc.start.line}:${loc.start.column}`
+
+            // Idempotency guard — skip if already injected
+            const alreadySet = opening.attributes.some(
+                (attr) =>
+                    isJSXAttribute(attr) &&
+                    isJSXIdentifier(attr.name) &&
+                    attr.name.name === 'data-bridge-id'
+            )
+            if (alreadySet) return
+
+            opening.attributes.push(
+                jsxAttribute(jsxIdentifier('data-bridge-id'), stringLiteral(bridgeId))
+            )
+        },
+    })
+}
+
+/**
+ * Mutates a Babel File AST in-place, setting or removing an arbitrary JSX
+ * attribute on the element identified by `nodeId`.
+ *
+ * This generalises `updateJSXClassName` to cover any HTML/JSX attribute:
+ * `href`, `src`, `disabled`, `variant`, `onClick`, etc. (Phase E.2 / HANDOFF 7B).
+ *
+ * `nodeId` format: "<tagName>:<line>:<col>" — or a stable data-bridge-id.
+ *
+ * Value semantics:
+ *   string       → `propName="value"` (StringLiteral attribute)
+ *   true         → `propName` (valueless boolean attribute, e.g. `disabled`)
+ *   false | null → attribute removed entirely
+ *
+ * The caller is responsible for passing a freshly-parsed copy of the AST.
+ */
+export function updateJSXProp(
+    ast: File,
+    nodeId: string,
+    propName: string,
+    value: string | boolean | null
+): void {
+    const parts = nodeId.split(':')
+    const col = parseInt(parts[parts.length - 1], 10)
+    const line = parseInt(parts[parts.length - 2], 10)
+    const isStructuralId = parts.length >= 2 && !isNaN(col) && !isNaN(line)
+
+    traverse(ast, {
+        JSXElement(path: NodePath<JSXElement>) {
+            const loc = path.node.loc
+            let matched = false
+            if (isStructuralId) {
+                matched = loc?.start.line === line && loc.start.column === col
+            } else {
+                for (const attr of path.node.openingElement.attributes) {
+                    if (
+                        isJSXAttribute(attr) &&
+                        attr.name.type === 'JSXIdentifier' &&
+                        attr.name.name === 'data-bridge-id' &&
+                        attr.value?.type === 'StringLiteral' &&
+                        attr.value.value === nodeId
+                    ) {
+                        matched = true
+                        break
+                    }
+                }
+            }
+            if (!matched) return
+
+            const attrs = path.node.openingElement.attributes
+
+            // Locate any existing attribute with the given name
+            const existingIdx = attrs.findIndex(
+                (attr) =>
+                    isJSXAttribute(attr) &&
+                    isJSXIdentifier(attr.name, { name: propName })
+            )
+
+            if (value === false || value === null) {
+                // Remove the attribute entirely
+                if (existingIdx !== -1) attrs.splice(existingIdx, 1)
+            } else if (value === true) {
+                // Valueless boolean attribute: <button disabled>
+                const boolAttr = jsxAttribute(jsxIdentifier(propName), null)
+                if (existingIdx !== -1) {
+                    attrs[existingIdx] = boolAttr
+                } else {
+                    attrs.push(boolAttr)
+                }
+            } else {
+                // String attribute: propName="value"
+                const strAttr = jsxAttribute(jsxIdentifier(propName), stringLiteral(value))
+                if (existingIdx !== -1) {
+                    attrs[existingIdx] = strAttr
+                } else {
+                    attrs.push(strAttr)
+                }
+            }
+
             path.stop()
         },
     })

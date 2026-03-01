@@ -522,8 +522,10 @@ app.whenReady().then(async () => {
         async (_event, filePath: unknown, commitHash: unknown): Promise<string | null> => {
             if (typeof filePath !== 'string' || typeof commitHash !== 'string') return null
 
-            // Reject anything that isn't a plain hex SHA (4–64 chars).
-            if (!/^[0-9a-fA-F]{4,64}$/.test(commitHash)) return null
+            // Reject anything that isn't a plain hex SHA (4–64 chars) or the
+            // special "HEAD" ref. Using execFile with an array arg means "HEAD"
+            // carries no shell-injection risk.
+            if (!/^([0-9a-fA-F]{4,64}|HEAD)$/.test(commitHash)) return null
 
             if (!path.isAbsolute(filePath)) return null
             const home = app.getPath('home')

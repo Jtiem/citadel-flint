@@ -28,6 +28,11 @@ import type { DropPosition } from '../../utils/astModifier'
 import { generateTailwindConfig } from '../../utils/tokenAdapter'
 import { PAYMENT_CALCULATOR_CODE } from '../../templates/paymentCalculator'
 import {
+  parseCodeToAST,
+  injectBridgeIds,
+  generateCodeFromAST,
+} from '../../core/ast-parser'
+import {
   publishPresence,
   publishPresenceImmediate,
 } from '../../services/PresenceService'
@@ -303,8 +308,19 @@ export function LivePreview() {
   useEffect(() => {
     let cancelled = false
 
+    // Phase E.1: inject data-bridge-id attributes in the renderer before sending
+    // to the main process. This guarantees IDs exist even if the main-process
+    // Babel plugin fails. The main-process plugin's idempotency guard means
+    // double-injection is impossible. Fall back to rawCode when parsing fails
+    // (e.g. during live typing with a syntax error).
+    const freshAst = parseCodeToAST(rawCode)
+    const codeToTransform =
+      freshAst !== null
+        ? (() => { injectBridgeIds(freshAst); return generateCodeFromAST(freshAst) })()
+        : rawCode
+
     window.bridgeAPI
-      .transformCode(rawCode)
+      .transformCode(codeToTransform)
       .then(({ js, error }) => {
         if (cancelled) return
         if (error !== null || js === null) {

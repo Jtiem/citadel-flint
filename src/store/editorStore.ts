@@ -25,6 +25,8 @@ import {
     generateCodeFromAST,
     updateJSXClassName,
     updateJSXTextContent,
+    transplantNode,
+    updateJSXProp,
 } from '../core/ast-parser'
 import type { VisualLayer } from '../core/ast-parser'
 import {
@@ -141,6 +143,21 @@ interface EditorActions {
      * bleeding through (Clean Slate Protocol — Mithril Rule).
      */
     clearAST: () => void
+    /**
+     * Reverts the JSX element identified by `nodeId` to its last-committed
+     * (HEAD) state using a surgical AST transplant (Phase D.1 / Commandment 11).
+     *
+     * Flow:
+     *   1. Fetches the file's content at HEAD via `window.bridgeAPI.gitShow`.
+     *   2. Parses historic code to a Babel AST.
+     *   3. Calls `transplantNode` to replace the live node with a deep clone
+     *      of the corresponding historic node, leaving all other nodes intact.
+     *   4. Regenerates, re-parses, and updates store state.
+     *
+     * Silent no-op when no file is open, the file is not tracked by git, or
+     * `nodeId` cannot be resolved in either AST.
+     */
+    revertNodeToHead: (nodeId: string) => Promise<void>
 }
 
 type EditorStore = EditorState & EditorActions
@@ -218,8 +235,9 @@ export const useEditorStore = create<EditorStore>((set, get) => {
             } else if (propName === 'textContent') {
                 updateJSXTextContent(freshAst, nodeId, value)
             } else {
-                // Unsupported property — abort silently.
-                return
+                // Arbitrary JSX attribute (href, disabled, variant, src, etc.)
+                // Delegate to the general-purpose prop mutator.
+                updateJSXProp(freshAst, nodeId, propName, value)
             }
 
             // Regenerate source from the mutated AST, then re-parse for a
@@ -334,6 +352,37 @@ export const useEditorStore = create<EditorStore>((set, get) => {
                     window.frames[i].postMessage({ type: 'CLEAR_PREVIEW' }, '*')
                 }
             }
+        },
+
+        revertNodeToHead: async (nodeId: string) => {
+            const activeFilePath = useCanvasStore.getState().activeFilePath
+            if (activeFilePath === null) return
+
+            // Fetch the file's content at HEAD via IPC — non-destructive, no checkout.
+            const historicCode = await window.bridgeAPI.gitShow(activeFilePath, 'HEAD')
+            if (historicCode === null) return  // file not tracked or no git repo
+
+            // Parse both sides — always fresh copies per Commandment 3.
+            const historicAst = parseCodeToAST(historicCode)
+            if (historicAst === null) return  // historic source unparseable — abort
+
+            const freshAst = parseCodeToAST(get().rawCode)
+            if (freshAst === null) return
+
+            // Surgically swap the historic node into the live AST.
+            transplantNode(freshAst, historicAst, nodeId)
+
+            // Regenerate and re-parse for a clean canonical AST.
+            const newCode = generateCodeFromAST(freshAst)
+            const newAst = parseCodeToAST(newCode)
+            if (newAst === null) return
+
+            set({
+                rawCode: newCode,
+                ast: newAst,
+                visualTree: buildVisualTree(newAst),
+            })
+            useCanvasStore.getState().triggerAutoSave(newCode)
         },
     }
 })
