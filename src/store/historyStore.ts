@@ -35,10 +35,16 @@ import type { ASTMutation, InverseMutation } from '../core/ASTService'
  *                   Present for headless-buffer mutations (Phase F.2 cross-file
  *                   moves). Absent when the mutation targets the active editor
  *                   file (legacy single-file path — backward compatible).
+ * `batchId`       — UUID shared across all entries produced by a single atomic
+ *                   operation (e.g. a cross-file move that modifies two files).
+ *                   The RecoveryController uses this to pop and restore the full
+ *                   group with a single Cmd+Z.
  */
 export interface HistoryEntry {
     /** Absolute path of the mutated file. Absent for the active editor file. */
     filePath?: string
+    /** UUID grouping entries that must be undone atomically (Phase G). */
+    batchId?: string
     inversions: InverseMutation[]
     redoMutations: ASTMutation[]
 }
@@ -66,8 +72,19 @@ interface HistoryActions {
      * @param filePath      Absolute path of the mutated file. Omit for the
      *                      active editor file; provide for headless-buffer
      *                      mutations (Phase F.2 cross-file moves).
+     * @param batchId       Optional UUID shared across all entries from one
+     *                      atomic operation (e.g. a cross-file move). The
+     *                      RecoveryController pops all entries with the same
+     *                      batchId together on a single Cmd+Z.
      */
-    push: (inversions: InverseMutation[], redoMutations: ASTMutation[], filePath?: string) => void
+    push: (inversions: InverseMutation[], redoMutations: ASTMutation[], filePath?: string, batchId?: string) => void
+
+    /**
+     * Appends `entry` to the `future` stack without touching `past`.
+     * Called by the RecoveryController after a successful undo so that the
+     * operation can be re-applied with Cmd+Shift+Z.
+     */
+    pushFuture: (entry: HistoryEntry) => void
 
     /**
      * Pops the most-recent undo entry. Returns it (or null if the stack is
@@ -95,12 +112,17 @@ export const useHistoryStore = create<HistoryState & HistoryActions>((set, get) 
     canUndo: false,
     canRedo: false,
 
-    push: (inversions, redoMutations, filePath?) => {
-        const entry: HistoryEntry = filePath
-            ? { filePath, inversions, redoMutations }
-            : { inversions, redoMutations }
+    push: (inversions, redoMutations, filePath?, batchId?) => {
+        const entry: HistoryEntry = { inversions, redoMutations }
+        if (filePath !== undefined) entry.filePath = filePath
+        if (batchId !== undefined) entry.batchId = batchId
         const newPast = [...get().past, entry]
         set({ past: newPast, future: [], canUndo: true, canRedo: false })
+    },
+
+    pushFuture: (entry) => {
+        const newFuture = [...get().future, entry]
+        set({ future: newFuture, canRedo: true })
     },
 
     popUndo: () => {

@@ -11,6 +11,7 @@ import { useTokenStore } from './store/tokenStore'
 import { StatusBar } from './components/editor/StatusBar'
 import { useCanvasStore } from './store/canvasStore'
 import type { FileTreeNode } from './types/bridge-api'
+import { applyUndo, applyRedo } from './core/recoveryController'
 
 // ── Primary file selection ────────────────────────────────────────────────────
 // Walks the tree to find the most relevant entry point: App.tsx is preferred,
@@ -91,6 +92,40 @@ function App() {
             window.bridgeAPI.removeTokensUpdatedListener()
         }
     }, [fetchTokens])
+
+    // ── Global keyboard shortcuts (Phase G.1 Recovery Engine) ─────────────────
+    // Cmd+Z / Ctrl+Z  → AST-level undo via the RecoveryController.
+    // Cmd+Shift+Z / Ctrl+Shift+Z / Ctrl+Y → AST-level redo.
+    //
+    // Monaco coexistence: when the Monaco editor has focus we bail out and let
+    // Monaco handle its own text-level undo stack (character-by-character).
+    // Bridge undo only fires for structural AST mutations (drag reorder,
+    // property changes, cross-file moves) that went through applyBatch /
+    // crossFileMove and were recorded in historyStore.
+    useEffect(() => {
+        function handleKeyDown(e: KeyboardEvent): void {
+            // Let Monaco handle undo/redo when the editor textarea is focused.
+            if (document.activeElement?.closest('.monaco-editor') !== null) return
+
+            const meta = e.metaKey || e.ctrlKey
+            if (!meta) return
+
+            if (e.key === 'z' && !e.shiftKey) {
+                e.preventDefault()
+                void applyUndo()
+            } else if (
+                (e.key === 'z' && e.shiftKey) ||
+                // Ctrl+Y is the conventional redo shortcut on Windows/Linux.
+                (e.ctrlKey && !e.metaKey && e.key === 'y')
+            ) {
+                e.preventDefault()
+                void applyRedo()
+            }
+        }
+
+        window.addEventListener('keydown', handleKeyDown)
+        return () => { window.removeEventListener('keydown', handleKeyDown) }
+    }, [])
 
     return (
         <div className="flex h-screen flex-col bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950">

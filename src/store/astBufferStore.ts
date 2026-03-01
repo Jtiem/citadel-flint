@@ -284,6 +284,8 @@ export const useASTBufferStore = create<ASTBufferState & ASTBufferActions>((set,
         // ── 11. Push tagged history entries for cross-file undo ───────────────
         // Two entries — one per file — each carrying a restoreCode inversion
         // and tagged with its filePath for the future undo/redo engine.
+        // A shared batchId groups them so the RecoveryController can pop and
+        // restore both files atomically with a single Cmd+Z (Phase G).
         const srcInversions: InverseMutation[] = [
             { op: 'restoreCode', code: preMoveSourceCode },
         ]
@@ -291,8 +293,9 @@ export const useASTBufferStore = create<ASTBufferState & ASTBufferActions>((set,
             { op: 'restoreCode', code: preMoveTargetCode },
         ]
         const emptyRedo: ASTMutation[] = []
+        const batchId = crypto.randomUUID()
 
-        useHistoryStore.getState().push(srcInversions, emptyRedo, sourceFilePath)
-        useHistoryStore.getState().push(tgtInversions, emptyRedo, targetFilePath)
+        useHistoryStore.getState().push(srcInversions, emptyRedo, sourceFilePath, batchId)
+        useHistoryStore.getState().push(tgtInversions, emptyRedo, targetFilePath, batchId)
     },
 }))

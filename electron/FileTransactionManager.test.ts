@@ -300,7 +300,10 @@ describe('writeBatch', () => {
     })
 
     afterEach(async () => {
-        await rm(dir, { recursive: true, force: true })
+        // maxRetries handles the ENOTEMPTY race that can occur on macOS when the
+        // OS briefly holds the directory open (e.g. Spotlight indexing) between
+        // the recursive-delete scan and the final rmdir syscall.
+        await rm(dir, { recursive: true, force: true, maxRetries: 3 })
     })
 
     it('resolves immediately and writes nothing for an empty map', async () => {
