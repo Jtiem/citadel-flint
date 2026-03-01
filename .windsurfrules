@@ -1,0 +1,211 @@
+### **Architecture Specification (v4.2)**
+
+# Bridge IDE: The "Lunar Elevator"
+
+## **1. Core Identity & Philosophy**
+
+**Bridge** is a **local-first, visual-first IDE** specialized for building **drift-proof UI components**.
+
+- **Primary Output:** Framework-agnostic, single-file HTML "Blobs" for Google Sites (embed compatible).
+    
+- **Secondary Output:** Standard Multi-File Repositories (React, Vue, Svelte).
+    
+- **Core Philosophy:** "Mithril Clad" — the system actively prevents hallucinations and design drift through **rigid constraints**, while enabling a "Draft & Commit" workflow for rapid iteration.
+    
+- **Primary User:** Design Systems Leads & UX Designers who need to enforce consistency without sacrificing velocity.
+    
+
+---
+
+## **2. System Architecture: "The Secure Hybrid"**
+
+|**Layer**|**Technology**|**Role**|
+|---|---|---|
+|**App Shell**|**Electron (v29+)**|Native OS access (File System, Clipboard). Context isolation strictly enforced.|
+|**UI Framework**|**React 18 + Tailwind**|Bridge's own interface (Shadcn UI components).|
+|**Canvas Engine**|**`@xyflow/react` v12**|Infinite whiteboard for visual node manipulation.|
+|**Data Core**|**SQLite (`better-sqlite3`)**|Local DB — project state, tokens, mappings, **overrides**, assets.|
+|**Knowledge Base**|**`sqlite-vec`**|Local vector embeddings for Retrieval-Augmented Generation (RAG).|
+|**AI Runtime**|**Anthropic SDK (Claude 3.7)**|Code generation and refactoring.|
+|**Live Preview Engine**|**Iframe + Babel IPC**|Custom `srcdoc` iframe with local Babel compilation. 100% offline capable. Zero external dependencies. Replaced Sandpack to comply with strict CSP.|
+|**AST Factory**|**Babel / Vue / Svelte ASTs**|Universal parsing engine to support multi-stack bi-directional edits.|
+|**State**|**Zustand**|`canvasStore.ts` for React Flow and IDE state management.|
+|**Validation**|**Zod**|Enforces schemas on all data nodes.|
+|**Bundling**|**ESBuild WASM**|Blob Adapter — bundles to a single string client-side.|
+
+---
+
+## **3. Functional Modules**
+
+### **Module A: The Bridge Canvas & Context-Aware Inspector**
+
+Code is NOT hidden in files; it lives on the canvas as interactive cards.
+
+- **Component Node:** Holds raw code and renders a live preview via a secure srcdoc iframe and Babel IPC.
+    
+- **Context-Aware Property Inspector:**
+    
+    - **AST-Driven Filtering:** UI dynamically filters to only show valid CSS properties/attributes for the selected tag.
+        
+    - **Amber State (Drift Indication):** If a user types a raw value (e.g., `#123456`) instead of a token, the input glows **Amber**. A "Resolve Drift" button offers to snap it to the nearest valid token.
+        
+    - **Zero AI Tokens:** Edits snap to the _Bridge Token Profile_ and write directly back to the source code tree.
+        
+
+### **Module B: The Mithril Safety Layer (Middleware)**
+
+Intercepts AI code generation and User actions.
+
+- **Dependency Jail:** Blocks imports of `fs`, `axios`, and uninstalled packages.
+    
+- **The "Gatekeeper" (Draft & Commit):** - Users _can_ create local overrides in "Draft Mode."
+    
+    - **Export Block:** The system blocks "Export/Publish" if any active overrides exist in the `component_overrides` table. Users must resolve drift or promote the new value to a System Token before shipping.
+        
+
+### **Module C: Universal Framework Adapter (Compiler)**
+
+- **Tech Stack Profiles:** Teams configure their output target in SQLite.
+    
+- **AST Abstraction:** Uses an `ASTService` interface to dynamically load parsers (Babel/Vue/Svelte).
+    
+
+### **Module D: Bridge Link Figma Plugin & Normalizer**
+
+A stateless HTTP POST connection to `127.0.0.1:4545`.
+
+- **The Token Normalizer:** Strips Figma's internal IDs, flattens Modes (Light/Dark), and normalizes data to the W3C DTCG JSON schema.
+    
+
+### **Module E: Model Orchestrator & Knowledge Base**
+
+- **Model Agnosticism:** Uses a `ModelProvider` interface.
+    
+- **Knowledge Base:** Uses `sqlite-vec` to RAG-inject design system rules into the system prompt.
+    
+
+### **Module F: In-App Token Management**
+
+A dedicated SQLite-backed UI within the IDE.
+
+- **Source of Truth:** Manages the `design_tokens` table.
+    
+- **Overrides Table:** Manages the `component_overrides` table (Draft Layer) where temporary deviations are stored before being committed or reverted.
+    
+
+### **Module G: Git-Backed Sync (The "Async" Bridge)** 
+
+Bridge mirrors its internal SQLite state to a human-readable `bridge.json` manifest in the user's file system.
+
+- **Bi-Directional Sync:** On app launch, Bridge checks if `bridge.json` has changed (e.g., from a `git pull`). If the file is newer than the DB, it prompts to "Hydrate from Git," updating the local design tokens to match the team's committed version.
+    
+- **Conflict Resolution:** Relies on standard Git merge conflict flows, preventing Bridge from needing complex internal conflict logic.
+---
+
+## **4. Data Flow Pipelines**
+
+- **Pipeline 1 (Figma Ingestion):** User runs plugin → Bridge normalizes tokens (W3C schema) → Assets convert to Base64 → Claude scaffolds code.
+    
+- **Pipeline 2 (The "Draft Loop"):** User edits component → Code compiles locally and renders in Iframe → AST detects drift...
+    
+- **Pipeline 3 (Export):** User clicks Export → Mithril checks `component_overrides` → If clean, ESBuild bundles to Profile → Clipboard receives code.
+    
+
+---
+
+## **5. Advanced Features & UX Guardrails**
+
+- **The "Lens" Toggle:** A global view switch on the Canvas:
+    
+    - **Design View:** Shows the rendered UI.
+        
+    - **Implementation View (X-Ray):** Replaces UI with a wireframe. **Green** = Token Linked. **Red** = Hardcoded (Drift). **Blue** = Prop.
+        
+- **Auto-Mapping Engine:** Semantic matching algorithm links local components to Figma layers.
+    
+- **Live Theme Hot-Swapping:** Instantly swaps `design_tokens` (Light/Dark) in the preview.
+    
+## **5.5. The AST & Bi-Directional Editor Engine**
+- **Layer Naming Heuristic (`src/utils/layerNaming.ts`):** The Layers Panel uses a strict, single-pass AST traversal to generate human-readable names. It relies on `@babel/generator` to stringify complex `JSXExpressionContainer` nodes (e.g., `{fmt(result)}`). **Never revert to regex or naive string matching for layer names.**
+- **Code Navigation ('Jump to Code'):** The Layers Panel communicates with the Code Editor via `useEditorStore.jumpToLine`. 
+- **Monaco Integration:** The `CodeEditor.tsx` component captures the Monaco instance on mount and uses a `useEffect` listening to `jumpToLine` to trigger `editor.revealLineInCenter(line)` and highlight the specific line. 
+- **Modification Rule:** Any new features added to the Layers Panel must preserve the `div.group` DOM structure to prevent illegal nested HTML buttons and maintain the absolute-positioned `</>` code jump button.
+
+---
+
+## **6. Technical Constraints (Non-Negotiable)**
+
+|**Constraint**|**Detail**|
+|---|---|
+|**Local-First Preview Only**|NEVER introduce Sandpack, Vite, or external bundlers for the preview. The live preview uses a `srcdoc` iframe with a local Babel IPC transform. Tailwind/CSS is injected directly into the `srcdoc` string.|
+|**No External Assets**|All images must be Base64 from `assets_cache`.|
+|**Strict TypeScript**|No `any`. Interfaces required for all component props.|
+|**Electron Security**|`sandbox: false` required for Vite preload ESM resolution.|
+
+---
+
+## **7. The Bridge Token Profile Schema (W3C DTCG Standard)**
+
+Strictly enforces the W3C Design Tokens Community Group (DTCG) JSON schema.
+
+Tokens must have `$value` and `$type`.
+
+Supports **Modes** (Light/Dark) and **Collections** via SQLite composite unique constraints.
+
+---
+
+## **8. Directory Structure & AI Guardrails**
+
+Plaintext
+
+```
+/bridge-app
+├── .cursor/rules/                # AI Guardrails (.mdc files)
+├── .bridge-context/              # AI Context
+│   └── architecture.md           # This living spec document
+├── electron/                     # SECURE SHELL
+│   ├── main.ts                   # Orchestrator & ModelProvider interface
+│   ├── preload.ts                # Security Bridge
+│   ├── store.ts                  # SQLite Engine (better-sqlite3 + sqlite-vec)
+│   ├── ingestion-server.ts       # HTTP server 127.0.0.1:4545
+│   └── normalizer.ts             # Maps Figma Variables to W3C Token Profile
+├── src/                          # RENDERER (Sandboxed React)
+│   ├── components/               
+│   │   ├── editor/               # Live Preview (Sandpack) & Monaco Editor
+│   │   ├── nodes/                # React Flow Canvas Nodes
+│   │   └── ui/                   # Context-Aware Inspector & Token Management
+│   ├── core/                     
+│   │   └── ast-service.ts        # Universal AST abstraction (Babel/Vue/Svelte)
+│   ├── store/                    
+│   ├── App.tsx                   
+│   ├── main.tsx                  
+│   └── index.css                 
+```
+
+---
+
+## **9. The 12 AI Enforcement Commandments**
+
+1. **Anthropic SDK calls go in `electron/main.ts` only** — never in any `src/` file.
+    
+2. **No `any` in TypeScript** — use `unknown` + type guard or define the interface.
+    
+3. **No external URLs in generated component code** — images must be Base64.
+    
+4. **Mithril always fires before code reaches the canvas** — generation and validation are distinct steps.
+    
+5. Local Preview Constraints: The live preview MUST use the custom local srcdoc iframe + Babel IPC transform. NEVER install Sandpack, Vite, or Webpack.    
+6. **The canvas is React Flow nodes** — no other UI paradigm for the main surface.
+    
+7. **SQLite for persistent data** — no localStorage.
+    
+8. **Pipeline naming is canonical** — refer to Pipelines 1, 2, and 3.
+    
+9. **Module naming is canonical** — Module A (Canvas), B (Mithril), C (Adapter), D (Bridge Link), E (Orchestrator), F (Tokens).
+    
+10. **Phase 0 must complete before Phase 1 begins** — Figma CSP validation is a hard gate.
+    
+11. Node Inspector writes to source code, never to transient iframe state — AST source is the single source of truth.
+    
+12. **The "Gatekeeper" Rule:** Exports MUST be blocked if `component_overrides` table has active entries for the target component.
+    

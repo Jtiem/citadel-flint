@@ -1,0 +1,12 @@
+{
+  "name": "Bridge Link",
+  "id": "bridge-link",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": "ui.html",
+  "editorType": ["figma", "dev"],
+  "networkAccess": {
+    "allowedDomains": ["*"],
+    "reasoning": "Sends local Figma variable data to the Bridge IDE ingestion server running on localhost."
+  }
+}

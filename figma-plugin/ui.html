@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 12px;
+      background: #1e1e1e;
+      color: #e0e0e0;
+      padding: 16px;
+      height: 200px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    h2 { font-size: 13px; font-weight: 600; color: #fff; }
+    p  { color: #a0a0a0; line-height: 1.5; flex: 1; }
+
+    button {
+      padding: 8px 12px;
+      border: none;
+      border-radius: 6px;
+      background: #7c5cfc;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      width: 100%;
+      transition: opacity 0.15s;
+    }
+    button:hover:not(:disabled) { opacity: 0.85; }
+    button:disabled { background: #3a3a3a; color: #666; cursor: default; }
+
+    #status {
+      padding: 7px 10px;
+      border-radius: 4px;
+      font-size: 11px;
+      line-height: 1.4;
+      white-space: pre-wrap;
+      display: none;
+    }
+    #status.success { background: #162a16; color: #4caf50; border: 1px solid #2a4a2a; }
+    #status.error   { background: #2a1616; color: #f87171; border: 1px solid #4a2a2a; }
+  </style>
+</head>
+<body>
+  <h2>Bridge Link</h2>
+  <p>Syncs your Figma variables to the local Bridge IDE token database.</p>
+  <button id="syncBtn">Sync to Bridge</button>
+  <div id="status"></div>
+
+  <script>
+    // The dev secret must match BRIDGE_SECRET in electron/ingestion-server.ts.
+    // For production, this would be exchanged at runtime.
+    const BRIDGE_URL    = 'http://127.0.0.1:4545'
+    const BRIDGE_SECRET = 'bridge-dev-secret-phase2'
+
+    const btn    = document.getElementById('syncBtn')
+    const status = document.getElementById('status')
+
+    function showStatus(type, message) {
+      status.className    = type
+      status.textContent  = message
+      status.style.display = 'block'
+    }
+
+    function resetBtn() {
+      btn.disabled    = false
+      btn.textContent = 'Sync to Bridge'
+    }
+
+    // Receive payload or error from code.js (Figma main thread)
+    window.onmessage = async (event) => {
+      const msg = event.data && event.data.pluginMessage
+      if (!msg) return
+
+      if (msg.type === 'payload') {
+        try {
+          const res = await fetch(`${BRIDGE_URL}/ingest`, {
+            method:  'POST',
+            headers: {
+              'Content-Type':    'application/json',
+              'x-bridge-secret': BRIDGE_SECRET,
+            },
+            body: JSON.stringify(msg.data),
+          })
+
+          if (res.ok) {
+            const json = await res.json()
+            showStatus('success', `✓ Synced ${json.count} token${json.count === 1 ? '' : 's'} successfully.`)
+          } else {
+            const json = await res.json().catch(() => ({ error: res.statusText }))
+            showStatus('error', `Server error ${res.status}: ${json.error ?? 'Unknown'}`)
+          }
+        } catch (err) {
+          showStatus('error',
+            `Network error: ${String(err)}\n\nMake sure Bridge IDE is open and running.`
+          )
+        }
+        resetBtn()
+      }
+
+      if (msg.type === 'error') {
+        showStatus('error', `Plugin error: ${msg.message}`)
+        resetBtn()
+      }
+    }
+
+    btn.onclick = () => {
+      btn.disabled    = true
+      btn.textContent = 'Syncing…'
+      status.style.display = 'none'
+      // Ask code.js to collect variables and send them back as 'payload'
+      parent.postMessage({ pluginMessage: { type: 'sync' } }, '*')
+    }
+  </script>
+</body>
+</html>
