@@ -36,9 +36,10 @@
  */
 
 import { useState, useRef } from 'react'
-import { Diamond, Hash, Type, Code2, ChevronRight, ChevronDown, AlertTriangle } from 'lucide-react'
+import { Diamond, Hash, Type, Code2, ChevronRight, ChevronDown, AlertTriangle, Lock } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
 import { useCanvasStore } from '../../store/canvasStore'
+import { useLockedNodeIds } from '../../hooks/useRemotePresence'
 import type { VisualLayer } from '../../core/ast-parser'
 import { getLayerName } from '../../utils/layerNaming'
 import type { LayerType } from '../../utils/layerNaming'
@@ -62,9 +63,11 @@ interface LayerRowProps {
     /** Set of node IDs that are currently collapsed. */
     collapsedIds: Set<string>
     onToggleCollapsed: (id: string) => void
+    /** Set of node IDs actively locked by remote users (Phase C.2). */
+    lockedIds: Set<string>
 }
 
-function LayerRow({ layer, depth, collapsedIds, onToggleCollapsed }: LayerRowProps) {
+function LayerRow({ layer, depth, collapsedIds, onToggleCollapsed, lockedIds }: LayerRowProps) {
     const selectedNodeId = useEditorStore((state) => state.selectedNodeId)
     const setSelectedNode = useEditorStore((state) => state.setSelectedNode)
     const setJumpToLine = useEditorStore((state) => state.setJumpToLine)
@@ -77,6 +80,8 @@ function LayerRow({ layer, depth, collapsedIds, onToggleCollapsed }: LayerRowPro
     const hasViolation = mithrilViolations.includes(layer.id)
     const isCollapsed = collapsedIds.has(layer.id)
     const hasChildren = layer.children.length > 0
+    // Phase C.2: AST Conflict Arbiter — prevent edits on remotely locked nodes.
+    const isLocked = lockedIds.has(layer.id)
 
     const [dropPosition, setDropPosition] = useState<DropPosition | null>(null)
     const [isDragging, setIsDragging] = useState(false)
@@ -174,15 +179,17 @@ function LayerRow({ layer, depth, collapsedIds, onToggleCollapsed }: LayerRowPro
              */}
             <div
                 ref={rowRef}
-                draggable
-                className={`group relative flex w-full transition-opacity ${isDragging ? 'opacity-40' : ''}`}
+                draggable={!isLocked}
+                className={`group relative flex w-full transition-opacity ${isDragging ? 'opacity-40' : ''
+                    } ${isLocked ? 'cursor-not-allowed' : ''}`}
                 onMouseEnter={() => setHoveredId(layer.id)}
                 onMouseLeave={() => setHoveredId(null)}
-                onDragStart={handleDragStart}
-                onDragEnd={handleDragEnd}
+                onDragStart={isLocked ? undefined : handleDragStart}
+                onDragEnd={isLocked ? undefined : handleDragEnd}
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
+                title={isLocked ? 'Locked by a collaborator — editing disabled' : undefined}
             >
                 {/* Before indicator — thin blue line at the top of the row */}
                 {dropPosition === 'before' && (
@@ -196,19 +203,20 @@ function LayerRow({ layer, depth, collapsedIds, onToggleCollapsed }: LayerRowPro
 
                 <button
                     type="button"
-                    className={`flex min-w-0 flex-1 items-center gap-1.5 py-[3px] pl-[var(--indent)] pr-7 text-left text-xs transition-colors ${
-                        dropPosition === 'inside'
-                            ? 'bg-indigo-400/10 text-gray-200'
-                            : isSelected
-                              ? 'bg-indigo-600/30 text-indigo-300'
-                              : isHovered
+                    className={`flex min-w-0 flex-1 items-center gap-1.5 py-[3px] pl-[var(--indent)] pr-7 text-left text-xs transition-colors ${dropPosition === 'inside'
+                        ? 'bg-indigo-400/10 text-gray-200'
+                        : isSelected
+                            ? 'bg-indigo-600/30 text-indigo-300'
+                            : isHovered
                                 ? 'bg-gray-700/40 text-gray-200'
                                 : 'text-gray-400 hover:bg-gray-800/60 hover:text-gray-200'
-                    }`}
+                        }`}
                     style={
                         { '--indent': `${depth * 14 + 8}px` } as React.CSSProperties
                     }
                     onClick={() => {
+                        // Phase C.2: do not select a remotely locked node
+                        if (isLocked) return
                         setSelectedNode(layer.id)
                     }}
                 >
@@ -237,10 +245,15 @@ function LayerRow({ layer, depth, collapsedIds, onToggleCollapsed }: LayerRowPro
                     />
                     <span className="min-w-0 flex-1 truncate font-medium">{name}</span>
                     {hasViolation && (
-                        <AlertTriangle
-                            className="h-2.5 w-2.5 shrink-0 text-amber-500"
-                            title="Mithril Violation — colour drift detected"
-                        />
+                        <span title="Mithril Violation — colour drift detected">
+                            <AlertTriangle className="h-2.5 w-2.5 shrink-0 text-amber-500" />
+                        </span>
+                    )}
+                    {/* Phase C.2: lock badge — shows when a remote user holds this node */}
+                    {isLocked && (
+                        <span title="Locked by a collaborator">
+                            <Lock className="h-2.5 w-2.5 shrink-0 text-blue-400" />
+                        </span>
                     )}
                     {name !== tag && (
                         <span className="shrink-0 font-mono text-[9px] text-gray-600 opacity-70">
@@ -272,6 +285,7 @@ function LayerRow({ layer, depth, collapsedIds, onToggleCollapsed }: LayerRowPro
                         depth={depth + 1}
                         collapsedIds={collapsedIds}
                         onToggleCollapsed={onToggleCollapsed}
+                        lockedIds={lockedIds}
                     />
                 ))}
         </>
@@ -283,6 +297,8 @@ function LayerRow({ layer, depth, collapsedIds, onToggleCollapsed }: LayerRowPro
 export function LayerTree() {
     const visualTree = useEditorStore((state) => state.visualTree)
     const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set())
+    // Phase C.2: derive locked node IDs from the 5Hz presence poll.
+    const lockedIds = useLockedNodeIds()
 
     function toggleCollapsed(id: string): void {
         setCollapsedIds((prev) => {
@@ -310,6 +326,7 @@ export function LayerTree() {
                     depth={0}
                     collapsedIds={collapsedIds}
                     onToggleCollapsed={toggleCollapsed}
+                    lockedIds={lockedIds}
                 />
             ))}
         </div>

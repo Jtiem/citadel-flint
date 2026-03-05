@@ -11,7 +11,7 @@
  * Renderer Process only — no Node.js imports.
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import type { PresenceRow } from '../types/bridge-api'
 import { presenceSessionId } from '../services/PresenceService'
 
@@ -41,4 +41,39 @@ export function useRemotePresence(): PresenceRow[] {
     }, [])
 
     return rows
+}
+
+// ── Phase C.2: AST Conflict Arbiter ───────────────────────────────────────────
+
+/**
+ * Returns the Set of `locked_node_id` values currently held by remote users.
+ * An empty string in `locked_node_id` means the user is idle (not dragging).
+ * Only non-empty values are included so callers can use `.has(bridgeId)`.
+ *
+ * This is derived from `useRemotePresence` — no additional IPC calls.
+ */
+export function useLockedNodeIds(): Set<string> {
+    const rows = useRemotePresence()
+    return useMemo(
+        () =>
+            new Set(
+                rows
+                    .map((r) => r.node_id ?? '')
+                    .filter((id) => id !== ''),
+            ),
+        [rows],
+    )
+}
+
+/**
+ * Returns `true` when `bridgeId` is currently locked by any remote user
+ * (i.e. they have started dragging it). Returns `false` for null/empty IDs.
+ *
+ * @example
+ * const isLocked = useIsNodeLocked(selectedNodeId)
+ */
+export function useIsNodeLocked(bridgeId: string | null | undefined): boolean {
+    const lockedIds = useLockedNodeIds()
+    if (!bridgeId) return false
+    return lockedIds.has(bridgeId)
 }

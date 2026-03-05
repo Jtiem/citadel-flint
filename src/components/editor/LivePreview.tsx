@@ -37,7 +37,7 @@ import {
   publishPresence,
   publishPresenceImmediate,
 } from '../../services/PresenceService'
-import { useRemotePresence } from '../../hooks/useRemotePresence'
+import { useRemotePresence, useLockedNodeIds } from '../../hooks/useRemotePresence'
 
 // ── srcdoc builder ────────────────────────────────────────────────────────────
 
@@ -312,6 +312,11 @@ export function LivePreview() {
   const [ghostPos, setGhostPos] = useState<{ x: number; y: number } | null>(null)
   /** Remote users' active presence rows — polled at 5 Hz for cursor overlay. */
   const remotePresence = useRemotePresence()
+  /** Phase C.2: Set of node IDs currently held by remote users — locks the canvas. */
+  const lockedNodeIds = useLockedNodeIds()
+  /** Stable ref so the message handler always reads the latest locked set. */
+  const lockedNodeIdsRef = useRef<Set<string>>(lockedNodeIds)
+  useEffect(() => { lockedNodeIdsRef.current = lockedNodeIds }, [lockedNodeIds])
 
   async function handleLoadDemo(): Promise<void> {
     setDemoLoading(true)
@@ -392,6 +397,8 @@ export function LivePreview() {
       if (msg.type === 'CANVAS_CLICK') {
         // In interact mode the IDE does not intercept clicks; native onClick fires instead.
         if (canvasMode === 'design' && typeof msg.id === 'string') {
+          // Phase C.2: do not select a node locked by a remote collaborator.
+          if (lockedNodeIdsRef.current.has(msg.id)) return
           setSelectedNode(msg.id)
           setActiveSelection(msg.id)
         }
@@ -401,9 +408,9 @@ export function LivePreview() {
         if (canvasMode === 'design') setHoveredId(null)
       } else if (msg.type === 'CANVAS_DRAG_START') {
         // Iframe mousedown fired — mount the Shield and record the source.
-        // No-op in interact mode (mousedown guard in srcdoc prevents this message,
-        // but guard here too for defence-in-depth).
         if (canvasMode === 'design' && typeof msg.id === 'string') {
+          // Phase C.2: do not start a drag on a node locked by a remote collaborator.
+          if (lockedNodeIdsRef.current.has(msg.id)) return
           dragSourceIdRef.current = msg.id
           startDrag(msg.id)
           // Broadcast lock: immediately publish the dragged element's ID.

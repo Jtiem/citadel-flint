@@ -27,10 +27,11 @@
  */
 
 import { useState, useCallback, startTransition } from 'react'
-import { Layers, AlertTriangle } from 'lucide-react'
+import { Layers, AlertTriangle, Lock } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
 import { useCanvasStore } from '../../store/canvasStore'
 import { useTokenStore } from '../../store/tokenStore'
+import { useIsNodeLocked } from '../../hooks/useRemotePresence'
 import type { LinterWarning } from '../../types/bridge-api'
 import { ClassBuilder } from '../inspector/ClassBuilder'
 import { LayoutPanel } from '../inspector/LayoutPanel'
@@ -111,11 +112,10 @@ function AmberPulse({ deltaE, tokenName }: AmberPulseProps) {
     const isCritical = deltaE > DRIFT_CRITICAL_THRESHOLD
     return (
         <span
-            className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] transition-colors ${
-                isCritical
+            className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] transition-colors ${isCritical
                     ? 'border-red-700/60 bg-red-900/30 text-red-400'
                     : 'border-amber-700/60 bg-amber-900/30 text-amber-400'
-            }`}
+                }`}
             title={`Perceptual Drift: ${deltaE.toFixed(1)}. Closest Token: ${tokenName}.`}
         >
             <AlertTriangle className="h-2.5 w-2.5 shrink-0" />
@@ -147,10 +147,10 @@ interface MithrilViolationCardProps {
 function MithrilViolationCard({ deltaE, tokenName, hexColor, tokenValue, onAutoFix }: MithrilViolationCardProps) {
     const isCritical = deltaE > DRIFT_CRITICAL_THRESHOLD
     const borderClass = isCritical ? 'border-red-900/50' : 'border-amber-900/50'
-    const bgClass     = isCritical ? 'bg-red-950/20'     : 'bg-amber-950/20'
-    const btnBorder   = isCritical ? 'border-red-700/50'  : 'border-amber-700/50'
-    const btnBg       = isCritical ? 'bg-red-900/20 hover:bg-red-900/40'   : 'bg-amber-900/20 hover:bg-amber-900/40'
-    const btnText     = isCritical ? 'text-red-300'       : 'text-amber-300'
+    const bgClass = isCritical ? 'bg-red-950/20' : 'bg-amber-950/20'
+    const btnBorder = isCritical ? 'border-red-700/50' : 'border-amber-700/50'
+    const btnBg = isCritical ? 'bg-red-900/20 hover:bg-red-900/40' : 'bg-amber-900/20 hover:bg-amber-900/40'
+    const btnText = isCritical ? 'text-red-300' : 'text-amber-300'
 
     return (
         <div className={`flex flex-col gap-2 border-b ${borderClass} ${bgClass} px-3 py-2`}>
@@ -318,6 +318,9 @@ export function PropertiesPanel() {
     const setLinterWarning = useEditorStore((s) => s.setLinterWarning)
     const clearLinterWarning = useEditorStore((s) => s.clearLinterWarning)
 
+    // Phase C.2: AST Conflict Arbiter — block editing when a remote user holds this node.
+    const isNodeLocked = useIsNodeLocked(effectiveId)
+
     const selectedLayer =
         effectiveId !== null
             ? findLayer(visualTree, effectiveId)
@@ -428,6 +431,8 @@ export function PropertiesPanel() {
      */
     function handleCommit(newClassName: string): void {
         if (effectiveId === null) return
+        // Phase C.2: hard block — cannot edit a remotely locked node.
+        if (isNodeLocked) return
         startTransition(() => {
             applyBatch([{ op: 'updateClassName', nodeId: effectiveId, className: newClassName }])
         })
@@ -458,10 +463,10 @@ export function PropertiesPanel() {
     /** Commits a style prop change via applyBatch and marks the node as overridden. */
     function handleStyleCommit(value: string): void {
         if (effectiveId === null) return
+        if (isNodeLocked) return
         startTransition(() => {
             applyBatch([{ op: 'updateProp', nodeId: effectiveId, propName: 'style', value }])
         })
-        // Optimistic update — Export Gate blocks immediately; IPC confirms async.
         setOverridesExist(true)
         if (typeof window !== 'undefined') {
             void window.bridgeAPI.tokens.upsertOverride?.(effectiveId, 'style', value)
@@ -471,10 +476,10 @@ export function PropertiesPanel() {
     /** Commits a textContent change via applyBatch and marks the node as overridden. */
     function handleTextCommit(value: string): void {
         if (effectiveId === null) return
+        if (isNodeLocked) return
         startTransition(() => {
             applyBatch([{ op: 'updateProp', nodeId: effectiveId, propName: 'textContent', value }])
         })
-        // Optimistic update — Export Gate blocks immediately; IPC confirms async.
         setOverridesExist(true)
         if (typeof window !== 'undefined') {
             void window.bridgeAPI.tokens.upsertOverride?.(effectiveId, 'textContent', value)
@@ -494,6 +499,19 @@ export function PropertiesPanel() {
 
     return (
         <div className="flex h-full flex-col gap-0">
+            {/* Phase C.2: Collaborator lock banner */}
+            {isNodeLocked && (
+                <div className="flex shrink-0 items-center gap-2 border-b border-blue-900/50 bg-blue-950/30 px-3 py-2">
+                    <Lock className="h-3 w-3 shrink-0 text-blue-400" />
+                    <span className="text-[10px] font-semibold text-blue-400">
+                        Locked by a collaborator
+                    </span>
+                    <span className="text-[9px] text-gray-500">
+                        — editing disabled until they release the node
+                    </span>
+                </div>
+            )}
+
             {/* Header */}
             <div className="flex shrink-0 items-baseline gap-2 border-b border-gray-800 px-3 py-2">
                 <span className="font-mono text-xs font-semibold text-gray-200">
@@ -527,11 +545,13 @@ export function PropertiesPanel() {
                 />
             </div>
 
-            {/* Token-driven class builder — Amber glow on Mithril Violation */}
+            {/* Token-driven class builder — Amber glow on Mithril Violation; dimmed when locked */}
             <div
-                className={`flex flex-1 flex-col overflow-hidden transition-shadow duration-200 ${hasAmberViolation
-                        ? 'ring-2 ring-inset ring-amber-500/70'
-                        : ''
+                className={`flex flex-1 flex-col overflow-hidden transition-shadow duration-200 ${isNodeLocked
+                        ? 'pointer-events-none opacity-40'
+                        : hasAmberViolation
+                            ? 'ring-2 ring-inset ring-amber-500/70'
+                            : ''
                     }`}
             >
                 {/* Mithril Violation card — visible when drift > MITHRIL_THRESHOLD */}
