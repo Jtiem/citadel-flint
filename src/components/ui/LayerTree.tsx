@@ -36,7 +36,7 @@
  */
 
 import { useState, useRef } from 'react'
-import { Diamond, Hash, Type, Code2, ChevronRight, ChevronDown } from 'lucide-react'
+import { Diamond, Hash, Type, Code2, ChevronRight, ChevronDown, AlertTriangle } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
 import { useCanvasStore } from '../../store/canvasStore'
 import type { VisualLayer } from '../../core/ast-parser'
@@ -71,8 +71,10 @@ function LayerRow({ layer, depth, collapsedIds, onToggleCollapsed }: LayerRowPro
     const moveLayerNode = useEditorStore((state) => state.moveLayerNode)
     const hoveredId = useEditorStore((state) => state.hoveredId)
     const setHoveredId = useEditorStore((state) => state.setHoveredId)
+    const mithrilViolations = useCanvasStore((s) => s.mithrilViolations)
     const isSelected = selectedNodeId === layer.id
     const isHovered = !isSelected && hoveredId === layer.id
+    const hasViolation = mithrilViolations.includes(layer.id)
     const isCollapsed = collapsedIds.has(layer.id)
     const hasChildren = layer.children.length > 0
 
@@ -234,6 +236,12 @@ function LayerRow({ layer, depth, collapsedIds, onToggleCollapsed }: LayerRowPro
                         className={`h-3 w-3 shrink-0 ${isSelected ? 'opacity-80' : 'opacity-40'}`}
                     />
                     <span className="min-w-0 flex-1 truncate font-medium">{name}</span>
+                    {hasViolation && (
+                        <AlertTriangle
+                            className="h-2.5 w-2.5 shrink-0 text-amber-500"
+                            title="Mithril Violation — colour drift detected"
+                        />
+                    )}
                     {name !== tag && (
                         <span className="shrink-0 font-mono text-[9px] text-gray-600 opacity-70">
                             {tag}

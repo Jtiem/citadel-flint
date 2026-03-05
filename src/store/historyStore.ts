@@ -23,8 +23,37 @@
 
 import { create } from 'zustand'
 import type { ASTMutation, InverseMutation } from '../core/ASTService'
+import type { DropPosition } from '../utils/astModifier'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
+
+// ── RedoPlan ───────────────────────────────────────────────────────────────────
+
+/**
+ * Deterministic replay instruction for a cross-file move (Phase H).
+ *
+ * Stores the exact parameters passed to `astBufferStore.crossFileMove` so the
+ * RecoveryController can re-invoke the operation on Cmd+Shift+Z without
+ * recalculating the AST diff. `targetNodeId` is always the resolved non-null
+ * bridge-id (the null-fallback is resolved inside crossFileMove before the
+ * plan is built).
+ */
+export interface CrossFileMoveRedoPlan {
+    readonly type: 'crossFileMove'
+    /** Absolute path of the file the moved node originated from. */
+    readonly sourceFilePath: string
+    /** bridge-id of the node that was moved. */
+    readonly sourceNodeId: string
+    /** Absolute path of the file the node was moved into. */
+    readonly targetFilePath: string
+    /** bridge-id of the insertion target (always resolved — never null). */
+    readonly targetNodeId: string
+    /** Relative position for the re-insertion. */
+    readonly position: DropPosition
+}
+
+/** Discriminated union of all re-executable cross-file operation plans. */
+export type RedoPlan = CrossFileMoveRedoPlan
 
 /**
  * A single entry on the undo/redo stacks.
@@ -39,6 +68,9 @@ import type { ASTMutation, InverseMutation } from '../core/ASTService'
  *                   operation (e.g. a cross-file move that modifies two files).
  *                   The RecoveryController uses this to pop and restore the full
  *                   group with a single Cmd+Z.
+ * `redoPlan`      — deterministic replay instruction for cross-file redo
+ *                   (Phase H). Carried by the source entry in a cross-file move
+ *                   batch; absent for single-file mutations.
  */
 export interface HistoryEntry {
     /** Absolute path of the mutated file. Absent for the active editor file. */
@@ -47,6 +79,8 @@ export interface HistoryEntry {
     batchId?: string
     inversions: InverseMutation[]
     redoMutations: ASTMutation[]
+    /** Deterministic replay instruction for cross-file redo (Phase H). */
+    redoPlan?: RedoPlan
 }
 
 // ── Store shape ────────────────────────────────────────────────────────────────
@@ -76,8 +110,22 @@ interface HistoryActions {
      *                      atomic operation (e.g. a cross-file move). The
      *                      RecoveryController pops all entries with the same
      *                      batchId together on a single Cmd+Z.
+     * @param redoPlan      Optional deterministic replay plan (Phase H).
+     *                      Pass on the source entry of a cross-file move so
+     *                      `applyRedo` can re-invoke the operation without
+     *                      recalculating the AST diff.
      */
-    push: (inversions: InverseMutation[], redoMutations: ASTMutation[], filePath?: string, batchId?: string) => void
+    push: (inversions: InverseMutation[], redoMutations: ASTMutation[], filePath?: string, batchId?: string, redoPlan?: RedoPlan) => void
+
+    /**
+     * Appends an entry to the `past` stack without clearing `future`.
+     * Called by the RecoveryController after a cross-file redo so that the
+     * redo operation is itself undoable without discarding any remaining
+     * redo chain (i.e. entries queued ahead of it in `future`).
+     *
+     * Signature mirrors `push` but intentionally omits the `future: []` clear.
+     */
+    pushPast: (inversions: InverseMutation[], redoMutations: ASTMutation[], filePath?: string, batchId?: string, redoPlan?: RedoPlan) => void
 
     /**
      * Appends `entry` to the `future` stack without touching `past`.
@@ -112,12 +160,22 @@ export const useHistoryStore = create<HistoryState & HistoryActions>((set, get) 
     canUndo: false,
     canRedo: false,
 
-    push: (inversions, redoMutations, filePath?, batchId?) => {
+    push: (inversions, redoMutations, filePath?, batchId?, redoPlan?) => {
         const entry: HistoryEntry = { inversions, redoMutations }
         if (filePath !== undefined) entry.filePath = filePath
         if (batchId !== undefined) entry.batchId = batchId
+        if (redoPlan !== undefined) entry.redoPlan = redoPlan
         const newPast = [...get().past, entry]
         set({ past: newPast, future: [], canUndo: true, canRedo: false })
+    },
+
+    pushPast: (inversions, redoMutations, filePath?, batchId?, redoPlan?) => {
+        const entry: HistoryEntry = { inversions, redoMutations }
+        if (filePath !== undefined) entry.filePath = filePath
+        if (batchId !== undefined) entry.batchId = batchId
+        if (redoPlan !== undefined) entry.redoPlan = redoPlan
+        const newPast = [...get().past, entry]
+        set({ past: newPast, canUndo: true })
     },
 
     pushFuture: (entry) => {

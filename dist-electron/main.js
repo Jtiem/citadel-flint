@@ -1,8 +1,9 @@
-import { app, ipcMain, dialog, BrowserWindow } from "electron";
+import { app, ipcMain, dialog, BrowserWindow, Menu } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeFile, rename, unlink, readFile, readdir } from "node:fs/promises";
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { promisify } from "node:util";
 import { transformSync } from "@babel/core";
 import { jsxAttribute, jsxIdentifier, stringLiteral } from "@babel/types";
@@ -32,6 +33,27 @@ class FileTransactionManager {
     queued = next.then(evict, evict);
     this._queues.set(filePath, queued);
     return next;
+  }
+  /**
+   * Enqueues atomic writes for every `(filePath, content)` pair in `batch`
+   * and resolves once **all** of them have been committed to disk.
+   *
+   * Each path is handled by the existing per-path FIFO queue, so:
+   *   • Rapid-fire batch calls for the same path are still serialised.
+   *   • Writes to different paths run concurrently (unchanged behaviour).
+   *   • A failure for one path rejects the returned Promise but does not
+   *     prevent the other paths from completing.
+   *
+   * Callers must pre-validate all paths (absolute, correct extension, within
+   * the home directory) before passing them in — this method does not
+   * re-validate.
+   */
+  writeBatch(batch) {
+    const writes = [];
+    for (const [filePath, content] of batch) {
+      writes.push(this.write(filePath, content));
+    }
+    return Promise.all(writes).then(() => void 0);
   }
   /**
    * Performs the two-phase atomic write:
@@ -130,6 +152,46 @@ function injectBridgeIdPlugin() {
     }
   };
 }
+function buildAppMenu() {
+  const isMac = process.platform === "darwin";
+  const template = [
+    // macOS requires the first menu item to be the app menu (shows the app name).
+    ...isMac ? [{ role: "appMenu" }] : [],
+    // ── File ──────────────────────────────────────────────────────────────
+    {
+      label: "File",
+      submenu: [
+        {
+          label: "New Project…",
+          accelerator: "CmdOrCtrl+N",
+          click: () => {
+            mainWindow?.webContents.send("menu:new-project");
+          }
+        },
+        {
+          label: "Open Project…",
+          accelerator: "CmdOrCtrl+O",
+          click: () => {
+            mainWindow?.webContents.send("menu:open-project");
+          }
+        },
+        { type: "separator" },
+        {
+          label: "Close Project",
+          accelerator: "CmdOrCtrl+Shift+W",
+          click: () => {
+            mainWindow?.webContents.send("menu:close-project");
+          }
+        }
+      ]
+    },
+    // ── Edit / View / Window ─────────────────────────────────────────────
+    { role: "editMenu" },
+    { role: "viewMenu" },
+    { role: "windowMenu" }
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -159,7 +221,7 @@ ipcMain.handle(
   "dialog:openFolder",
   async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog({
-      properties: ["openDirectory"],
+      properties: ["openDirectory", "createDirectory"],
       title: "Open Project Folder",
       buttonLabel: "Open"
     });
@@ -252,6 +314,11 @@ app.whenReady().then(async () => {
     "DELETE FROM design_tokens WHERE id = ?"
   );
   const stmtClearAll = db.prepare("DELETE FROM design_tokens");
+  function broadcastTokensUpdated() {
+    BrowserWindow.getAllWindows().forEach((w) => {
+      if (!w.isDestroyed()) w.webContents.send("bridge:tokens-updated");
+    });
+  }
   ipcMain.handle("tokens:create", (_event, token) => {
     if (typeof token !== "object" || token === null || typeof token.token_path !== "string" || typeof token.token_type !== "string" || typeof token.token_value !== "string") {
       throw new Error("tokens:create — invalid payload shape");
@@ -267,6 +334,7 @@ app.whenReady().then(async () => {
       mode,
       collection_name
     );
+    broadcastTokensUpdated();
     return { id: result.lastInsertRowid };
   });
   ipcMain.handle("tokens:read-all", () => stmtReadAll.all());
@@ -298,6 +366,7 @@ app.whenReady().then(async () => {
     setClauses.push("updated_at = strftime('%s', 'now')");
     const sql = `UPDATE design_tokens SET ${setClauses.join(", ")} WHERE token_path = ?`;
     const result = db.prepare(sql).run(...params, tokenPath);
+    broadcastTokensUpdated();
     return { changes: result.changes };
   });
   ipcMain.handle("tokens:delete", (_event, id) => {
@@ -305,11 +374,13 @@ app.whenReady().then(async () => {
       throw new Error("tokens:delete — id must be an integer");
     }
     const result = stmtDelete.run(id);
+    broadcastTokensUpdated();
     return { changes: result.changes };
   });
   ipcMain.handle("tokens:clear-all", () => {
     const result = stmtClearAll.run();
     console.log(`[Bridge] tokens:clear-all: removed ${result.changes} tokens`);
+    broadcastTokensUpdated();
     return { changes: result.changes };
   });
   ipcMain.handle("tokens:clear-override", (_event, bridgeId) => {
@@ -365,11 +436,35 @@ app.whenReady().then(async () => {
     }
     await fileTransactionManager.write(filePath, content);
   });
+  ipcMain.handle("ast:save-batch", async (_event, batch) => {
+    if (typeof batch !== "object" || batch === null || Array.isArray(batch)) {
+      throw new TypeError("ast:save-batch — batch must be a plain object");
+    }
+    const home = app.getPath("home");
+    const validated = /* @__PURE__ */ new Map();
+    for (const [filePath, content] of Object.entries(batch)) {
+      if (typeof content !== "string") {
+        throw new TypeError(`ast:save-batch — content for "${filePath}" must be a string`);
+      }
+      if (!path.isAbsolute(filePath) || !/\.(tsx?|jsx?)$/.test(filePath)) {
+        throw new Error(
+          `ast:save-batch — "${filePath}" must be an absolute path to a .tsx/.ts/.jsx/.js file`
+        );
+      }
+      if (!filePath.startsWith(home + path.sep)) {
+        throw new Error(
+          `ast:save-batch — "${filePath}" is outside the user home directory`
+        );
+      }
+      validated.set(filePath, content);
+    }
+    await fileTransactionManager.writeBatch(validated);
+  });
   ipcMain.handle(
     "ast:git-show",
     async (_event, filePath, commitHash) => {
       if (typeof filePath !== "string" || typeof commitHash !== "string") return null;
-      if (!/^[0-9a-fA-F]{4,64}$/.test(commitHash)) return null;
+      if (!/^([0-9a-fA-F]{4,64}|HEAD)$/.test(commitHash)) return null;
       if (!path.isAbsolute(filePath)) return null;
       const home = app.getPath("home");
       if (!filePath.startsWith(home + path.sep)) return null;
@@ -393,11 +488,70 @@ app.whenReady().then(async () => {
       }
     }
   );
+  const { upsertProject, getRecentProjects, removeProject } = await import("./registry-94ZNgg_K.js");
+  const { initializeProject } = await import("./templateService-9yZ178UX.js");
+  ipcMain.handle("dialog:selectFolder", async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      properties: ["openDirectory", "createDirectory"],
+      title: "Select Empty Folder for New Project",
+      buttonLabel: "Select Folder"
+    });
+    if (canceled || filePaths.length === 0) return null;
+    const folderPath = path.normalize(filePaths[0]);
+    const home = app.getPath("home");
+    if (folderPath !== home && !folderPath.startsWith(home + path.sep)) return null;
+    return folderPath;
+  });
+  ipcMain.handle("project:initialize", async (_event, payload) => {
+    if (typeof payload !== "object" || payload === null || typeof payload.targetPath !== "string" || typeof payload.templateId !== "string") {
+      throw new TypeError("project:initialize — invalid payload shape");
+    }
+    const { targetPath, templateId } = payload;
+    if (!path.isAbsolute(targetPath)) {
+      throw new Error("project:initialize — targetPath must be absolute");
+    }
+    const home = app.getPath("home");
+    if (targetPath !== home && !targetPath.startsWith(home + path.sep)) {
+      throw new Error("project:initialize — targetPath must be inside the user home directory");
+    }
+    initializeProject(targetPath, templateId);
+    const projectName = path.basename(targetPath);
+    upsertProject(randomUUID(), projectName, targetPath);
+    return scanDirectory(targetPath);
+  });
+  ipcMain.handle("project:openPath", async (_event, folderPath) => {
+    if (typeof folderPath !== "string") return null;
+    const normalized = path.normalize(folderPath);
+    const home = app.getPath("home");
+    if (normalized !== home && !normalized.startsWith(home + path.sep)) return null;
+    try {
+      const tree = await scanDirectory(normalized);
+      const projectName = path.basename(normalized);
+      upsertProject(randomUUID(), projectName, normalized);
+      return tree;
+    } catch {
+      return null;
+    }
+  });
+  ipcMain.handle("registry:getRecent", () => {
+    return getRecentProjects();
+  });
+  ipcMain.handle("registry:upsertProject", (_event, payload) => {
+    if (typeof payload !== "object" || payload === null || typeof payload.name !== "string" || typeof payload.path !== "string") return;
+    const { name, path: projectPath } = payload;
+    if (!path.isAbsolute(projectPath)) return;
+    upsertProject(randomUUID(), name, projectPath);
+  });
+  ipcMain.handle("registry:removeProject", (_event, id) => {
+    if (typeof id !== "string" || id.length === 0) return;
+    removeProject(id);
+  });
   const { startIngestionServer, getServerStatus, stopIngestionServer } = await import("./ingestion-server-CG0NJExU.js");
   startIngestionServer();
   stopServer = stopIngestionServer;
   ipcMain.handle("server:get-status", () => getServerStatus());
   createWindow();
+  buildAppMenu();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();

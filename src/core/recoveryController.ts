@@ -19,11 +19,12 @@
  *      `restoreCode` snapshots, `saveFileBatch`, evict + reload affected
  *      buffers, sync the active editor if needed.
  *
- * ## Redo algorithm
+ * ## Redo algorithm (Phase H)
  *
  * 1. Pop the top `HistoryEntry` from `historyStore.future`.
- * 2. If `redoMutations` is empty (cross-file; Phase G redo is not implemented),
- *    exit silently.
+ * 2. If the entry carries a `redoPlan` (cross-file move), dispatch to
+ *    `applyRedoPlan` which re-invokes `astBufferStore.crossFileMove` with the
+ *    original parameters — no AST diff recalculation needed.
  * 3. Otherwise, call `editorStore.applyBatch(redoMutations)` which handles
  *    code generation, auto-save, and pushing a fresh inversion onto `past`.
  *
@@ -40,7 +41,7 @@
  */
 
 import { useHistoryStore } from '../store/historyStore'
-import type { HistoryEntry } from '../store/historyStore'
+import type { HistoryEntry, RedoPlan } from '../store/historyStore'
 import { applyInversions } from './ASTService'
 import { useEditorStore } from '../store/editorStore'
 import { useCanvasStore } from '../store/canvasStore'
@@ -138,7 +139,16 @@ async function applyCrossFileUndo(group: HistoryEntry[]): Promise<void> {
         useEditorStore.getState().syncCode(batch[activeFilePath])
     }
 
-    // Cross-file redo is deferred to Phase H — no pushFuture here.
+    // Phase H: extract the RedoPlan from the source entry (the one that has it)
+    // and push a single redo entry so Cmd+Shift+Z can replay the move.
+    const redoPlan = group.find((e) => e.redoPlan !== undefined)?.redoPlan
+    if (redoPlan !== undefined) {
+        useHistoryStore.getState().pushFuture({
+            inversions: [],
+            redoMutations: [],
+            redoPlan,
+        })
+    }
 }
 
 // ── Redo ───────────────────────────────────────────────────────────────────────
@@ -146,7 +156,10 @@ async function applyCrossFileUndo(group: HistoryEntry[]): Promise<void> {
 /**
  * Pops the most-recent redo entry and re-applies its original mutations.
  *
- * Cross-file redo entries carry `redoMutations: []` and are silently skipped.
+ * Cross-file redo (Phase H): entries that carry a `redoPlan` are dispatched
+ * to `applyRedoPlan`, which re-invokes `astBufferStore.crossFileMove` with
+ * the stored parameters — no AST diff recalculation needed.
+ *
  * Single-file redo delegates to `editorStore.applyBatch`, which handles code
  * generation, auto-save, and pushing a fresh inversion onto `past`.
  */
@@ -154,9 +167,50 @@ export async function applyRedo(): Promise<void> {
     const entry = useHistoryStore.getState().popRedo()
     if (entry === null) return
 
-    // Cross-file redo not yet implemented (emptyRedo stored in Phase F.2).
-    if (entry.redoMutations.length === 0) return
+    // Cross-file redo: re-invoke the original operation via its RedoPlan.
+    if (entry.redoPlan !== undefined) {
+        await applyRedoPlan(entry.redoPlan)
+        return
+    }
 
-    // Re-apply original mutations — applyBatch pushes fresh inversions to past.
+    // Single-file redo: re-apply original mutations.
+    if (entry.redoMutations.length === 0) return
     useEditorStore.getState().applyBatch(entry.redoMutations)
+}
+
+// ── Cross-file redo ─────────────────────────────────────────────────────────
+
+/**
+ * Re-executes a cross-file operation from its deterministic replay plan.
+ *
+ * `crossFileMove` handles all buffer loading, AST surgery, file writes, and
+ * editor sync. When called with `isRecovery: true` it skips its own history
+ * push and instead returns the computed inversions + batchId so THIS function
+ * can push them onto `past` via `pushPast` — preserving any remaining entries
+ * in `future` rather than clearing them (as the standard `push` would do).
+ *
+ * This makes every cross-file redo itself fully undoable, enabling the
+ * infinite Cmd+Z / Cmd+Shift+Z toggle described in Phase I.
+ */
+async function applyRedoPlan(plan: RedoPlan): Promise<void> {
+    if (plan.type === 'crossFileMove') {
+        const result = await useASTBufferStore.getState().crossFileMove(
+            plan.sourceFilePath,
+            plan.targetFilePath,
+            plan.sourceNodeId,
+            plan.targetNodeId,
+            plan.position,
+            { isRecovery: true },
+        )
+
+        // Push undo entries so this redo is itself undoable (Phase I).
+        // pushPast appends to `past` without clearing `future`, preserving
+        // any queued redo entries that sit ahead of this operation.
+        if (result !== undefined) {
+            const { srcInversions, tgtInversions, batchId } = result
+            const historyStore = useHistoryStore.getState()
+            historyStore.pushPast(srcInversions, [], plan.sourceFilePath, batchId, plan)
+            historyStore.pushPast(tgtInversions, [], plan.targetFilePath, batchId)
+        }
+    }
 }

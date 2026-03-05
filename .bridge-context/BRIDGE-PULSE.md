@@ -1,27 +1,26 @@
-### [BRIDGE-PULSE-v6.7]
+### [BRIDGE-PULSE-v6.8]
 
 **1. AST Integrity:**
 - Modified Nodes: [data-bridge-id] preserved via reactive token updates.
 - ID Preservation: Verified.
-- Deterministic Surgery: Confirmed (Babel AST — `transplantNode` used for all recovery ops).
+- Deterministic Surgery: Confirmed (Babel AST).
 
 **2. Mithril Safety Audit:**
-- Design Tokens: Reactive via PowerSync/IPC (watchTokens).
-- Perceptual Drift: ΔE enforcement active on reactive stream.
+- Design Tokens: Reactive via watchTokens IPC.
+- Perceptual Drift: ΔE enforcement active.
 - Accessibility: Pass.
 
 **3. Persistence & Sync Layer:**
 - FileTransactionManager: Active.
-- PowerSync Status: Local-first reactive sync ACTIVE.
-- Shadow Commits: `gitManager.shadowCommit` fires after every `ast:save-file` and `ast:save-batch`.
+- Shadow Commits: `gitManager.shadowCommit` fires after every `ast:save-file` / `ast:save-batch`.
+- Multiplayer Presence: UPSERT live at ≤10Hz via `PresenceService.ts`; remote cursors polled at 5Hz via `useRemotePresence`.
 
 **4. Workspace State:**
-- Active Buffers: `electron/main.ts`, `electron/preload.ts`, `src/types/bridge-api.d.ts`, `src/store/editorStore.ts`, `src/components/ui/RecoveryPanel.tsx`, `src/App.tsx`
+- Active Buffers: `HANDOFF.md`, `CLAUDE.md` (doc sync — Module C.1 added to status maps)
 - Headless Buffers: Synchronized.
 
 **5. Handoff Seed (Next Session Start):**
-- Routing Protocol: Flash (standard feature work).
-- Context: Phase D.2 (Macro-Recovery Frontend) COMPLETE. 
-- What was done: Added `ast:git-log` IPC, `gitLog` preload, `GitLogEntry` type, `revertNodeToCommit` store action, `RecoveryPanel.tsx` Time Machine UI, right-panel tab system (Properties/Tokens/Recovery) in `App.tsx`.
-- Goal: Phase I (Post-Redo Undoability) or Phase E (PowerSync CRDT Module C) — user to decide.
+- Routing Protocol: Flash.
+- Context: Module C.1 (Presence) already ONLINE — discovered during execute. Doc sync complete.
+- Real next frontier: **Module B (Mithril Safety — Export Gate)**. The `component_overrides` table is populated but no UI prevents export of dirty code. `snippetAuditor.ts` validates AST injection but the hard export block is unimplemented.
 - Blocker: None.

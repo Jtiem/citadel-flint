@@ -79,6 +79,31 @@ contextBridge.exposeInMainWorld("bridgeAPI", {
     ipcRenderer.removeAllListeners("bridge:tokens-updated");
   },
   /**
+   * Subscribes to live design token updates from the SQLite database.
+   *
+   * On call, immediately invokes `callback` with the current token list so
+   * the caller never starts with stale data. Subsequently, every time any
+   * token mutation (create / update / delete / clearAll / Figma ingest)
+   * commits to the design_tokens table the main process emits
+   * 'bridge:tokens-updated', which re-fetches the full list and calls
+   * `callback` again.
+   *
+   * Returns an unsubscribe function. Pass it to `useEffect` cleanup:
+   * ```ts
+   * useEffect(() => tokenStore.getState().initSync(), [])
+   * ```
+   */
+  watchTokens: (callback) => {
+    const onUpdate = () => {
+      void ipcRenderer.invoke("tokens:read-all").then(callback);
+    };
+    ipcRenderer.on("bridge:tokens-updated", onUpdate);
+    void ipcRenderer.invoke("tokens:read-all").then(callback);
+    return () => {
+      ipcRenderer.removeListener("bridge:tokens-updated", onUpdate);
+    };
+  },
+  /**
    * UPSERTs the local user's presence record (cursor position + selected node).
    *
    * The renderer is responsible for throttling calls to ≤ 1 per 50–100 ms.
@@ -112,6 +137,18 @@ contextBridge.exposeInMainWorld("bridgeAPI", {
    */
   saveFile: (filePath, content) => ipcRenderer.invoke("ast:save-file", filePath, content),
   /**
+   * Atomically writes every `(filePath, content)` pair in `batch` via the
+   * main-process FileTransactionManager. Each path undergoes the same security
+   * validation as `saveFile`. Writes to different paths proceed concurrently;
+   * writes to the same path are serialised in FIFO order.
+   *
+   * `batch` is a plain object so it serialises cleanly across the IPC boundary.
+   *
+   * Security: the main process rejects any path that is outside the user's
+   * home directory or does not end with .tsx/.ts/.jsx/.js.
+   */
+  saveFileBatch: (batch) => ipcRenderer.invoke("ast:save-batch", batch),
+  /**
    * Shows the native OS directory picker and returns a recursive FileTreeNode
    * tree rooted at the chosen directory. Only `.tsx/.ts/.jsx/.js` files are
    * included; `node_modules`, `dist`, hidden directories, etc. are excluded.
@@ -119,6 +156,52 @@ contextBridge.exposeInMainWorld("bridgeAPI", {
    * Returns null if the user cancels the picker.
    */
   openFolder: () => ipcRenderer.invoke("dialog:openFolder"),
+  /**
+   * Shows the native OS directory picker and returns only the selected path
+   * string — no file scan. Used by the "New Project" flow to pick an empty
+   * target directory before calling `project.initialize`.
+   *
+   * Returns null if the user cancels or selects outside their home directory.
+   */
+  selectFolder: () => ipcRenderer.invoke("dialog:selectFolder"),
+  /**
+   * Project Registry API — backed by the global `bridge-registry.db`.
+   * Tracks recently opened / created Bridge workspaces.
+   */
+  registry: {
+    /** Returns up to 10 recently opened projects, newest first. */
+    getRecent: () => ipcRenderer.invoke("registry:getRecent"),
+    /**
+     * Records or refreshes a project entry (upsert on `path`).
+     * Call after `openFolder` so manually opened folders appear in the list.
+     */
+    upsertProject: (payload) => ipcRenderer.invoke("registry:upsertProject", payload),
+    /**
+     * Removes the project with the given `id` from the registry.
+     * Called when the user dismisses a project from the Recent list.
+     */
+    removeProject: (id) => ipcRenderer.invoke("registry:removeProject", id)
+  },
+  /**
+   * Project lifecycle API — template scaffolding and path-based open.
+   */
+  project: {
+    /**
+     * Scaffolds a new Bridge workspace by copying a bundled template into
+     * an empty user-selected directory, upserts into the registry, and
+     * returns the scanned FileTreeNode tree.
+     *
+     * Throws if `targetPath` is non-empty, outside the home dir, or if
+     * `templateId` is unknown.
+     */
+    initialize: (payload) => ipcRenderer.invoke("project:initialize", payload),
+    /**
+     * Opens an existing project by its absolute path: scans for source
+     * files, upserts into the registry, and returns the FileTreeNode tree.
+     * Returns null when the path is outside the home dir or scan fails.
+     */
+    openPath: (folderPath) => ipcRenderer.invoke("project:openPath", folderPath)
+  },
   /**
    * Reads and returns the raw UTF-8 content of a `.tsx/.ts/.jsx/.js` source
    * file within the user's home directory.
@@ -137,5 +220,26 @@ contextBridge.exposeInMainWorld("bridgeAPI", {
    *
    * Does NOT modify the working tree.
    */
-  gitShow: (filePath, commitHash) => ipcRenderer.invoke("ast:git-show", filePath, commitHash)
+  gitShow: (filePath, commitHash) => ipcRenderer.invoke("ast:git-show", filePath, commitHash),
+  /**
+   * Native OS menu event subscriptions.
+   * The main process pushes these events when the user selects a File menu item.
+   * Call `removeMenuListeners()` in a useEffect cleanup to avoid duplicate handlers.
+   */
+  menu: {
+    onNewProject: (callback) => {
+      ipcRenderer.on("menu:new-project", () => callback());
+    },
+    onOpenProject: (callback) => {
+      ipcRenderer.on("menu:open-project", () => callback());
+    },
+    onCloseProject: (callback) => {
+      ipcRenderer.on("menu:close-project", () => callback());
+    },
+    removeMenuListeners: () => {
+      ipcRenderer.removeAllListeners("menu:new-project");
+      ipcRenderer.removeAllListeners("menu:open-project");
+      ipcRenderer.removeAllListeners("menu:close-project");
+    }
+  }
 });

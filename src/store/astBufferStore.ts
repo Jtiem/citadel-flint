@@ -39,6 +39,7 @@ import type { DropPosition } from '../utils/astModifier'
 import { synthesizeImports } from '../core/ASTService'
 import type { InverseMutation, ASTMutation } from '../core/ASTService'
 import { useHistoryStore } from './historyStore'
+import type { CrossFileMoveRedoPlan } from './historyStore'
 
 // ── Store shape ────────────────────────────────────────────────────────────────
 
@@ -100,7 +101,8 @@ interface ASTBufferActions {
      *   6. Atomically saves both files via `saveFileBatch` (Commandment 12).
      *   7. Re-parses and re-injects bridge IDs in both buffers (7D hardening).
      *   8. Syncs the active editor if either file is currently open.
-     *   9. Pushes two tagged `HistoryEntry` objects for cross-file undo.
+     *   9. Pushes two tagged `HistoryEntry` objects for cross-file undo
+     *      (skipped when `options.isRecovery` is true — Phase H).
      *
      * ### Abort conditions (silent no-op)
      *   • `sourceFilePath === targetFilePath` — use `editorStore.moveLayerNode`.
@@ -109,6 +111,17 @@ interface ASTBufferActions {
      *   • No resolvable target node (empty target file with no JSX).
      *   • `insertNode` fails (target node not found or structurally invalid).
      *   • `saveFileBatch` throws — both buffers are restored to pre-move state.
+     *
+     * @param options.isRecovery  When `true`, skip the `historyStore.push()`
+     *   calls so that a redo re-execution does not create duplicate entries on
+     *   the `past` stack, and instead return the computed inversions and batchId
+     *   to the RecoveryController so it can push the undo entry itself via
+     *   `historyStore.pushPast` (preserving the remaining future stack).
+     *
+     * @returns When `isRecovery` is true and the move succeeds, returns
+     *   `{ srcInversions, tgtInversions, batchId }` so the caller can push the
+     *   matching undo entry onto `past` without clearing `future`.
+     *   Returns `void` in all other cases (normal move or early abort).
      */
     crossFileMove: (
         sourceFilePath: string,
@@ -116,7 +129,8 @@ interface ASTBufferActions {
         sourceNodeId: string,
         targetNodeId: string | null,
         position: DropPosition,
-    ) => Promise<void>
+        options?: { isRecovery?: boolean },
+    ) => Promise<{ srcInversions: InverseMutation[], tgtInversions: InverseMutation[], batchId: string } | void>
 }
 
 // ── Store ──────────────────────────────────────────────────────────────────────
@@ -167,6 +181,7 @@ export const useASTBufferStore = create<ASTBufferState & ASTBufferActions>((set,
         sourceNodeId,
         targetNodeId,
         position,
+        options,
     ) => {
         // Guard: same-file moves belong to editorStore.moveLayerNode.
         if (sourceFilePath === targetFilePath) return
@@ -281,11 +296,17 @@ export const useASTBufferStore = create<ASTBufferState & ASTBufferActions>((set,
             if (activeFilePath === targetFilePath) editorStore.syncCode(newTargetCode)
         }
 
-        // ── 11. Push tagged history entries for cross-file undo ───────────────
+        // ── 11. Push tagged history entries for cross-file undo + redo ────────
         // Two entries — one per file — each carrying a restoreCode inversion
-        // and tagged with its filePath for the future undo/redo engine.
+        // and tagged with its filePath for the undo/redo engine.
         // A shared batchId groups them so the RecoveryController can pop and
         // restore both files atomically with a single Cmd+Z (Phase G).
+        //
+        // Phase H (Cross-File Redo): the source entry additionally carries a
+        // CrossFileMoveRedoPlan — a snapshot of the original call parameters.
+        // applyCrossFileUndo extracts this plan and stores it in the future
+        // stack so Cmd+Shift+Z can re-invoke crossFileMove deterministically
+        // without recalculating the AST diff.
         const srcInversions: InverseMutation[] = [
             { op: 'restoreCode', code: preMoveSourceCode },
         ]
@@ -295,7 +316,25 @@ export const useASTBufferStore = create<ASTBufferState & ASTBufferActions>((set,
         const emptyRedo: ASTMutation[] = []
         const batchId = crypto.randomUUID()
 
-        useHistoryStore.getState().push(srcInversions, emptyRedo, sourceFilePath, batchId)
-        useHistoryStore.getState().push(tgtInversions, emptyRedo, targetFilePath, batchId)
+        // effectiveTargetId is guaranteed non-null here — the null guard at
+        // step 3 would have returned before reaching this point.
+        const redoPlan: CrossFileMoveRedoPlan = {
+            type: 'crossFileMove',
+            sourceFilePath,
+            sourceNodeId,
+            targetFilePath,
+            targetNodeId: effectiveTargetId as string,
+            position,
+        }
+
+        if (!options?.isRecovery) {
+            // Normal move: push directly to historyStore (clears future).
+            useHistoryStore.getState().push(srcInversions, emptyRedo, sourceFilePath, batchId, redoPlan)
+            useHistoryStore.getState().push(tgtInversions, emptyRedo, targetFilePath, batchId)
+        } else {
+            // Recovery redo: return inversions to the RecoveryController so it
+            // can push them via pushPast (preserves the remaining future stack).
+            return { srcInversions, tgtInversions, batchId }
+        }
     },
 }))

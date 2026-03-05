@@ -30,7 +30,7 @@ Bridge is a performance-hardened, three-process Electron app designed for agenti
 
 ---
 
-## 2. Module Status Map (v6.6)
+## 2. Module Status Map (v6.7)
 | Module | ID | Status | Subsystem |
 |--------|----|--------|-----------|
 | Code-First Recovery | D.1 | **ONLINE** | `gitShow` IPC + `transplantNode` AST swap |
@@ -45,6 +45,7 @@ Bridge is a performance-hardened, three-process Electron app designed for agenti
 | Undo Void Fix | K | **ONLINE** | `editorStore.applyBatch` no-op guard + `setCode` Cmd-10 fix |
 | Post-Redo Undoability | L | **ONLINE** | `historyStore.pushPast` + `crossFileMove` inversions return |
 | Sharma Validation | B.1-b | **ONLINE** | `snippetAuditor.ts` with AST shadow/fragment safety |
+| Multiplayer Presence | C.1 | **ONLINE** | `PresenceService.ts` + `useRemotePresence` + SQLite UPSERT + remote cursor overlay |
 
 ---
 
@@ -82,6 +83,13 @@ Bridge is a performance-hardened, three-process Electron app designed for agenti
 | `FileExplorer.tsx` | Cross-file drag source (triggers `crossFileMove`). |
 | `LayerTree.tsx` | Single-file drag reorder (triggers `editorStore.moveLayerNode`). |
 | `RecoveryPanel.tsx` | **Phase D.2** — Time Machine UI. Queries `bridgeAPI.gitLog`, renders shadow-commit timeline, triggers `editorStore.revertNodeToCommit` for surgical node transplants. |
+| `SyncStatus.tsx` | **Module C.1** — PowerSync sync state badge + `useSyncPresence` hook for throttled cursor broadcasting. |
+
+### `src/services/` & `src/hooks/`
+| File | Role |
+|------|------|
+| `services/PresenceService.ts` | **Module C.1** — Module-level singleton. Throttled (100ms) `publishPresence` + immediate `publishPresenceImmediate` for drag-lock events. Generates stable `presenceSessionId` + `presenceUserId`. |
+| `hooks/useRemotePresence.ts` | **Module C.1** — Polls `bridgeAPI.readPresence` at 5 Hz; returns remote-user rows filtered to exclude the local session, driving cursor overlays in LivePreview. |
 
 ---
 

@@ -22,6 +22,7 @@
 
 import { useEffect, useRef, useCallback, useState } from 'react'
 import type { SyncState } from '../../types/bridge-api'
+import { useTokenStore } from '../../store/tokenStore'
 
 // ── Presence throttle constant ────────────────────────────────────────────────
 
@@ -132,21 +133,28 @@ const STATE_CONFIG: Record<SyncState, BadgeConfig> = {
  */
 export function SyncStatus() {
     const [syncState, setSyncState] = useState<SyncState>('CONNECTING')
+    const initSync = useTokenStore((s) => s.initSync)
 
     useEffect(() => {
-        let cancelled = false
+        let unsubscribe: (() => void) | null = null
+
+        // Verify the IPC bridge is reachable before activating the reactive
+        // token subscription. On success, initSync() delivers the current
+        // token list immediately and re-pushes on every subsequent DB write.
         window.bridgeAPI
             .ping()
             .then(() => {
-                if (!cancelled) setSyncState('CONNECTED')
+                setSyncState('CONNECTED')
+                unsubscribe = initSync()
             })
             .catch(() => {
-                if (!cancelled) setSyncState('OFFLINE_MODE')
+                setSyncState('OFFLINE_MODE')
             })
+
         return () => {
-            cancelled = true
+            unsubscribe?.()
         }
-    }, [])
+    }, [initSync])
 
     const cfg = STATE_CONFIG[syncState]
 

@@ -29,9 +29,9 @@ export {
 export type { VisualLayer } from './ast-parser'
 
 // ── Local imports from ast-parser (used by the batch engine) ─────────────────
-import { parseCodeToAST, generateCodeFromAST, updateJSXClassName } from './ast-parser'
+import { parseCodeToAST, generateCodeFromAST, updateJSXClassName, updateJSXTextContent } from './ast-parser'
 // ── Structural mutation helpers ───────────────────────────────────────────────
-import { moveNode } from '../utils/astModifier'
+import { moveNode, injectComponent, applyTokenFix } from '../utils/astModifier'
 // ── @babel/traverse (CJS interop — same pattern as ast-parser.ts) ────────────
 import _traverse from '@babel/traverse'
 import type { NodePath } from '@babel/traverse'
@@ -81,6 +81,37 @@ interface UpdatePropMutation {
     value: string
 }
 
+/** Updates the first direct JSXText child of a target element. */
+interface UpdateTextContentMutation {
+    op: 'updateTextContent'
+    /** `data-bridge-id` or structural `"tag:line:col"` ID of the element. */
+    nodeId: string
+    /** New text value to set. */
+    text: string
+}
+
+/** Appends a new JSX element as the last child of a target node. */
+interface InjectComponentMutation {
+    op: 'injectComponent'
+    /** `data-bridge-id` of the target element to append into. */
+    targetNodeId: string
+    /** Raw JSX snippet, e.g. `'<Button>OK</Button>'`. */
+    jsxSnippet: string
+    /** Optional bare import statement to prepend, e.g. `"import { Button } from './Button'"`. */
+    importSnippet?: string
+}
+
+/** Replaces a hardcoded Tailwind arbitrary-value class with a design-token class. */
+interface ApplyTokenFixMutation {
+    op: 'applyTokenFix'
+    /** `data-bridge-id` of the target element. */
+    nodeId: string
+    /** The exact hardcoded class to replace, e.g. `"bg-[#f3f3f3]"`. */
+    hardcodedClass: string
+    /** The token-derived replacement class, e.g. `"bg-brand-primary"`. */
+    tokenClass: string
+}
+
 /**
  * A single declarative AST mutation operation.
  * The discriminant `op` field lets the batch executor switch safely
@@ -91,6 +122,9 @@ export type ASTMutation =
     | MoveNodeMutation
     | DeleteNodeMutation
     | UpdatePropMutation
+    | UpdateTextContentMutation
+    | InjectComponentMutation
+    | ApplyTokenFixMutation
 
 // ── Inverse Mutation Types (Phase D) ─────────────────────────────────────────
 
@@ -115,6 +149,7 @@ interface RestoreCodeMutation {
 export type InverseMutation =
     | UpdateClassNameMutation
     | UpdatePropMutation
+    | UpdateTextContentMutation
     | RestoreCodeMutation
 
 // ── Private helpers for the batch engine ─────────────────────────────────────
@@ -180,6 +215,33 @@ function readCurrentPropValue(
         },
     })
     return value
+}
+
+/**
+ * Reads the first non-empty JSXText child value from the element identified
+ * by `nodeId`. Returns null when the element is absent or has no text child.
+ */
+function readCurrentTextContent(
+    ast: import('@babel/types').File,
+    nodeId: string
+): string | null {
+    let text: string | null = null
+    _tv(ast, {
+        JSXElement(path: NodePath<import('@babel/types').JSXElement>) {
+            if (!jsxMatchesId(path, nodeId)) return
+            for (const child of path.node.children) {
+                if (child.type === 'JSXText') {
+                    const trimmed = child.value.trim()
+                    if (trimmed.length > 0) {
+                        text = trimmed
+                        break
+                    }
+                }
+            }
+            path.stop()
+        },
+    })
+    return text
 }
 
 /**
@@ -296,6 +358,17 @@ export function applyMutationBatch(
                 break
             }
 
+            case 'updateTextContent': {
+                const oldText = readCurrentTextContent(ast, mutation.nodeId) ?? ''
+                inversions.push({
+                    op: 'updateTextContent',
+                    nodeId: mutation.nodeId,
+                    text: oldText,
+                })
+                updateJSXTextContent(ast, mutation.nodeId, mutation.text)
+                break
+            }
+
             case 'moveNode': {
                 // Re-generate from the current in-flight AST state so accumulated
                 // earlier mutations in this batch are included in the snapshot.
@@ -316,6 +389,24 @@ export function applyMutationBatch(
                 if (typeof window !== 'undefined') {
                     void window.bridgeAPI.tokens.clearOverride?.(mutation.nodeId)
                 }
+                break
+            }
+
+            case 'injectComponent': {
+                // Structural inverse: snapshot the pre-mutation code so that
+                // a single Cmd+Z restores both the import and the injected element
+                // atomically (Commandment 12 — Atomic Queuing).
+                inversions.push({ op: 'restoreCode', code: generateCodeFromAST(ast) })
+                injectComponent(ast, mutation.targetNodeId, mutation.jsxSnippet, mutation.importSnippet)
+                break
+            }
+
+            case 'applyTokenFix': {
+                // Snapshot-based inverse: captures the full pre-fix source so the
+                // token substitution can be reversed exactly, regardless of how
+                // many classes surround the target token.
+                inversions.push({ op: 'restoreCode', code: generateCodeFromAST(ast) })
+                applyTokenFix(ast, mutation.nodeId, mutation.hardcodedClass, mutation.tokenClass)
                 break
             }
         }

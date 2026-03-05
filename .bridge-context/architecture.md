@@ -55,6 +55,18 @@
 * **Transaction Batching:** Exposes `applyMutationBatch()` so AI agents can execute hundreds of AST surgeries in a single disk write/Undo entry, preventing IPC DDoS.
 * **Strict Garbage Collection:** Deleting a node immediately triggers `DELETE FROM component_overrides WHERE bridge_id = ?` to prevent "Zombie" export locks.
 
+
+### Module G.1: The Scaffolding Engine
+
+• Create a templates/ directory in the Electron main process containing a "Starter" .tsx and a default bridge.db schema.
+
+• Implement IPC project:initialize: copies template files to a user-selected directory.
+
+### Module G.2: The Demo Hydrator
+
+• Bundle your "Current Demo" as a static asset.
+
+•  Add a "Reset to Demo" button that wipes the current local .bridge folder and re-injects the demo state.
 ---
 
 ## **4. The 13 Commandments (Non-Negotiable Guardrails)**

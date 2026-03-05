@@ -10,7 +10,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "postinstall": "electron-rebuild -f -w better-sqlite3",
-    "test": "vitest run --config vitest.config.ts"
+    "test": "vitest run --config vitest.config.ts",
+    "bridge-clean": "npx tsx scripts/bridge-clean.ts"
   },
   "dependencies": {
     "@babel/plugin-transform-react-jsx": "^7.28.6",

@@ -17,8 +17,17 @@
  * Renderer Process only — no Node.js imports.
  */
 
+import _traverse from '@babel/traverse'
+import * as t from '@babel/types'
+import type { File } from '@babel/types'
 import { findClosestToken, SYSTEMIZABLE_THRESHOLD } from '../utils/tokenMatcher'
-import type { DesignToken } from '../types/bridge-api'
+import type { DesignToken, LinterWarning } from '../types/bridge-api'
+
+// CJS/ESM interop — mirrors the pattern used in astScanner.ts and ASTService.ts.
+const traverse =
+    typeof _traverse === 'function'
+        ? _traverse
+        : (_traverse as unknown as { default: typeof _traverse }).default
 
 export { SYSTEMIZABLE_THRESHOLD as MITHRIL_THRESHOLD }
 
@@ -144,4 +153,103 @@ export function calculateDrift(styleValue: string, tokenValue: string): number |
 
     const result = findClosestToken(hexA, [syntheticToken])
     return result?.deltaE ?? null
+}
+
+// ── JSX Visitor ───────────────────────────────────────────────────────────────
+
+/**
+ * Matches Tailwind arbitrary-value colour classes, e.g.:
+ *   `bg-[#f3f3f3]`, `hover:text-[#000]`, `border-l-[#aabbcc]`
+ *
+ * Named capture group `hex` extracts the raw hex value (without `#`).
+ */
+const ARBITRARY_COLOR_RE = /^(?:[\w-]+:)*[\w-]+-\[(?<hex>#[0-9a-fA-F]{3,8})\]$/
+
+/**
+ * Traverses a Babel File AST and returns a `Map<bridgeId, LinterWarning>` for
+ * every JSX element whose `className` contains at least one Tailwind
+ * arbitrary-value hex colour whose closest design token exceeds
+ * `MITHRIL_THRESHOLD` (2.0 ΔE).
+ *
+ * **Visitor pattern (Commandment 13 — Deterministic Surgery):**
+ *   - Intercepts `JSXAttribute` nodes where `name.name === 'className'`.
+ *   - Resolves the `data-bridge-id` from sibling attributes on the same element.
+ *   - Extracts hex values from arbitrary-value classes via `ARBITRARY_COLOR_RE`.
+ *   - Computes CIEDE2000 ΔE for each hex against `tokens` via `findClosestToken`.
+ *   - Reports the worst-offender per element as a `LinterWarning`.
+ *
+ * Returns an empty map when `tokens` has no colour entries.
+ *
+ * @param ast    - Babel File AST of the currently-open source file.
+ * @param tokens - Full design token list from `tokenStore.tokens`.
+ */
+export function visitClassNames(ast: File, tokens: DesignToken[]): Map<string, LinterWarning> {
+    const colorTokens = tokens.filter((tok) => tok.token_type === 'color')
+    const warnings = new Map<string, LinterWarning>()
+    if (colorTokens.length === 0) return warnings
+
+    traverse(ast, {
+        JSXAttribute(path) {
+            // Only handle `className` attributes.
+            if (!t.isJSXIdentifier(path.node.name, { name: 'className' })) return
+
+            // Resolve the parent JSXOpeningElement to look up `data-bridge-id`.
+            const openEl = path.parentPath?.node
+            if (!t.isJSXOpeningElement(openEl)) return
+
+            const bridgeAttr = openEl.attributes.find(
+                (a): a is t.JSXAttribute =>
+                    t.isJSXAttribute(a) &&
+                    t.isJSXIdentifier(a.name, { name: 'data-bridge-id' })
+            )
+            const nodeId =
+                bridgeAttr !== undefined && t.isStringLiteral(bridgeAttr.value)
+                    ? bridgeAttr.value.value
+                    : null
+            if (nodeId === null) return
+
+            // Extract the className string value — handles literal strings and
+            // JSX expressions wrapping a string literal (common after Prettier).
+            const valNode = path.node.value
+            const classStr = t.isStringLiteral(valNode)
+                ? valNode.value
+                : t.isJSXExpressionContainer(valNode) && t.isStringLiteral(valNode.expression)
+                  ? valNode.expression.value
+                  : null
+            if (classStr === null) return
+
+            // Find the worst-case arbitrary hex colour across all className tokens.
+            let worstDelta = 0
+            let worstMatch: ReturnType<typeof findClosestToken> = null
+
+            for (const cls of classStr.split(/\s+/)) {
+                const m = ARBITRARY_COLOR_RE.exec(cls)
+                if (m?.groups?.hex === undefined) continue
+                const match = findClosestToken(m.groups.hex, colorTokens)
+                if (match !== null && match.deltaE > worstDelta) {
+                    worstDelta = match.deltaE
+                    worstMatch = match
+                }
+            }
+
+            // Only record a warning when the worst offender exceeds the threshold.
+            if (worstDelta <= SYSTEMIZABLE_THRESHOLD) return
+
+            const severity: LinterWarning['severity'] = worstDelta > 10 ? 'critical' : 'amber'
+            const tokenLabel = worstMatch?.tokenPath ?? null
+            warnings.set(nodeId, {
+                id: nodeId,
+                type: 'drift',
+                severity,
+                value: worstDelta,
+                message: tokenLabel !== null
+                    ? `ΔE ${worstDelta.toFixed(1)} – use ${tokenLabel}`
+                    : `ΔE ${worstDelta.toFixed(1)} – no matching token`,
+                nearestToken: tokenLabel,
+                nearestTokenValue: worstMatch?.tokenValue ?? null,
+            })
+        },
+    })
+
+    return warnings
 }

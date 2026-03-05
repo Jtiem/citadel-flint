@@ -21,6 +21,7 @@
  */
 
 import { useState, useEffect, useRef, useMemo } from 'react'
+import { MousePointer2, Hand } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
 import { useTokenStore } from '../../store/tokenStore'
 import { useCanvasStore } from '../../store/canvasStore'
@@ -86,6 +87,14 @@ function buildSrcdoc(js: string, tailwindConfigJson: string): string {
   <div id="root"></div>
   <script id="__code" type="application/json">${safeJson}<\/script>
   <script>
+    // Expose React named exports as globals so stripped import statements resolve.
+    // e.g. "import { useState } from 'react'" is stripped by the transform, but
+    // the code still calls useState(...) -- this makes it work.
+    var { useState, useEffect, useRef, useMemo, useCallback, useContext,
+          useReducer, useLayoutEffect, useId, Fragment, createContext,
+          forwardRef, memo, cloneElement, Children, isValidElement } = React;
+  <\/script>
+  <script>
     // UI Component Registry Stubs for Live Preview
     // These mirror the shadcn/ui API surface so injected components render
     // without a bundler resolving the actual package imports.
@@ -125,9 +134,16 @@ function buildSrcdoc(js: string, tailwindConfigJson: string): string {
   <\/script>
   <script>
     // Bridge: bi-directional Layer Tree \u2194 Preview selection + drag indicators
+    // __bridgeInteractMode: when true, all IDE intercepts (selection, drag, hover)
+    // are disabled so native React events in the iframe fire unobstructed.
+    window.__bridgeInteractMode = false;
     window.addEventListener('message', function (e) {
       if (!e.data) return;
       var type = e.data.type;
+      if (type === 'SET_INTERACT_MODE') {
+        window.__bridgeInteractMode = !!e.data.enabled;
+        return;
+      }
       if (type === 'CLEAR_PREVIEW') {
         var root = document.getElementById('root');
         if (root) root.innerHTML = '';
@@ -218,6 +234,7 @@ function buildSrcdoc(js: string, tailwindConfigJson: string): string {
       }
     });
     document.addEventListener('click', function (e) {
+      if (window.__bridgeInteractMode) return;
       var el = e.target.closest('[data-bridge-id]');
       if (el) {
         window.parent.postMessage({ type: 'CANVAS_CLICK', id: el.getAttribute('data-bridge-id') }, '*');
@@ -225,6 +242,7 @@ function buildSrcdoc(js: string, tailwindConfigJson: string): string {
     });
     var _bridgeHoverId = null;
     document.body.addEventListener('mouseover', function (e) {
+      if (window.__bridgeInteractMode) return;
       var el = e.target.closest('[data-bridge-id]');
       var id = el ? el.getAttribute('data-bridge-id') : null;
       if (id !== _bridgeHoverId) {
@@ -236,6 +254,7 @@ function buildSrcdoc(js: string, tailwindConfigJson: string): string {
       }
     });
     document.body.addEventListener('mouseleave', function () {
+      if (window.__bridgeInteractMode) return;
       if (_bridgeHoverId !== null) {
         _bridgeHoverId = null;
         window.parent.postMessage({ type: 'CANVAS_HOVER_CLEAR' }, '*');
@@ -248,6 +267,7 @@ function buildSrcdoc(js: string, tailwindConfigJson: string): string {
     document.body.appendChild(_bridgeGhost);
     // Mousedown on any data-bridge-id element fires CANVAS_DRAG_START to the host.
     document.body.addEventListener('mousedown', function (e) {
+      if (window.__bridgeInteractMode) return;
       var el = e.target.closest('[data-bridge-id]');
       if (!el) return;
       e.preventDefault(); // prevent text-selection during drag
@@ -280,6 +300,8 @@ export function LivePreview() {
 
   // ── Ghost Proxy drag state + canvas selection ─────────────────────────────
   const { dragSourceId, startDrag, endDrag, setActiveSelection } = useCanvasStore()
+  const canvasMode = useCanvasStore((s) => s.canvasMode)
+  const setCanvasMode = useCanvasStore((s) => s.setCanvasMode)
   const moveLayerNode = useEditorStore((s) => s.moveLayerNode)
   const isDragging = dragSourceId !== null
   /** Stable ref so Shield callbacks never capture a stale sourceId. */
@@ -368,17 +390,20 @@ export function LivePreview() {
       if (typeof e.data !== 'object' || e.data === null) return
       const msg = e.data as { type?: unknown; id?: unknown; targetId?: unknown; position?: unknown }
       if (msg.type === 'CANVAS_CLICK') {
-        if (typeof msg.id === 'string') {
+        // In interact mode the IDE does not intercept clicks; native onClick fires instead.
+        if (canvasMode === 'design' && typeof msg.id === 'string') {
           setSelectedNode(msg.id)
           setActiveSelection(msg.id)
         }
       } else if (msg.type === 'CANVAS_HOVER') {
-        if (typeof msg.id === 'string') setHoveredId(msg.id)
+        if (canvasMode === 'design' && typeof msg.id === 'string') setHoveredId(msg.id)
       } else if (msg.type === 'CANVAS_HOVER_CLEAR') {
-        setHoveredId(null)
+        if (canvasMode === 'design') setHoveredId(null)
       } else if (msg.type === 'CANVAS_DRAG_START') {
         // Iframe mousedown fired — mount the Shield and record the source.
-        if (typeof msg.id === 'string') {
+        // No-op in interact mode (mousedown guard in srcdoc prevents this message,
+        // but guard here too for defence-in-depth).
+        if (canvasMode === 'design' && typeof msg.id === 'string') {
           dragSourceIdRef.current = msg.id
           startDrag(msg.id)
           // Broadcast lock: immediately publish the dragged element's ID.
@@ -404,7 +429,7 @@ export function LivePreview() {
     }
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
-  }, [setSelectedNode, setHoveredId, startDrag, endDrag, moveLayerNode, setActiveSelection])
+  }, [setSelectedNode, setHoveredId, startDrag, endDrag, moveLayerNode, setActiveSelection, canvasMode])
 
   // Forward bridge:dragOver / bridge:dragClear events from LayerTree to the iframe.
   // These are custom DOM events (not postMessages) dispatched by LayerRow handlers.
@@ -478,17 +503,56 @@ export function LivePreview() {
     }
   }
 
-  // Re-apply highlight after the iframe reloads (srcdoc change navigates it)
+  // Sync canvasMode to the iframe whenever it changes.
+  // The iframe initialises __bridgeInteractMode to false; this message keeps
+  // it in step if the user toggles the mode while a component is loaded.
+  useEffect(() => {
+    const iframe = iframeRef.current
+    if (iframe?.contentWindow == null) return
+    iframe.contentWindow.postMessage(
+      { type: 'SET_INTERACT_MODE', enabled: canvasMode === 'interact' },
+      '*'
+    )
+  }, [canvasMode])
+
+  // Re-apply highlight + current mode after the iframe reloads (srcdoc change navigates it)
   function handleIframeLoad(): void {
     const iframe = iframeRef.current
     if (iframe?.contentWindow == null) return
     iframe.contentWindow.postMessage({ type: 'HIGHLIGHT', id: selectedNodeId }, '*')
+    iframe.contentWindow.postMessage(
+      { type: 'SET_INTERACT_MODE', enabled: canvasMode === 'interact' },
+      '*'
+    )
   }
 
   return (
     <div className="relative flex h-full w-full flex-col">
-      {/* ── Demo loader bar ─────────────────────────────────── */}
+      {/* ── Preview toolbar ─────────────────────────────────── */}
       <div className="flex shrink-0 items-center gap-2 border-b border-gray-800/60 bg-gray-900/40 px-3 py-1.5">
+        {/* Mode toggle: Design vs Interact */}
+        <div className="flex items-center rounded border border-gray-700/60 p-0.5">
+          <button
+            type="button"
+            title="Design mode: click to select AST nodes"
+            onClick={() => setCanvasMode('design')}
+            className={`flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${canvasMode === 'design' ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:text-gray-400'}`}
+          >
+            <MousePointer2 size={10} />
+            Design
+          </button>
+          <button
+            type="button"
+            title="Interact mode: test native events"
+            onClick={() => setCanvasMode('interact')}
+            className={`flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${canvasMode === 'interact' ? 'bg-emerald-600 text-white' : 'text-gray-600 hover:text-gray-400'}`}
+          >
+            <Hand size={10} />
+            Interact
+          </button>
+        </div>
+
+        {/* Quick Load */}
         <span className="text-[9px] font-medium uppercase tracking-wider text-gray-700">
           Quick Load
         </span>
@@ -515,8 +579,9 @@ export function LivePreview() {
           className="absolute inset-0 h-full w-full border-0 bg-gray-900"
           onLoad={handleIframeLoad}
         />
-        {/* Shield: transparent overlay that captures pointer events during drag */}
-        {isDragging && (
+        {/* Shield: transparent overlay that captures pointer events during drag.
+            Hidden in interact mode so drags pass through to native components. */}
+        {isDragging && canvasMode === 'design' && (
           <div
             className="absolute inset-0 z-50 cursor-grabbing"
             onMouseMove={handleShieldMouseMove}

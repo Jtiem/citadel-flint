@@ -1,20 +1,52 @@
-# Project: Bridge
+# Project: Bridge IDE
 
-## The Identity
-Bridge is a local-first, visual-first IDE specialized for building drift-proof UI components. It uses a secure Electron shell to bridge local design data (via a Figma plugin) to a React Flow canvas, outputting single-file HTML "Blobs" or standard React repositories.
+## The Identity (v6.7)
+**Bridge** is the first Agentic UI Operating System. It is a strict "containment field" for high-velocity AI agents, ensuring brand, accessibility, and codebase integrity through deterministic AST-level enforcement (Mithril Philosophy).
 
 ## Tech Stack
-* **Shell:** Electron (v29+)
-* **Frontend:** React 18, TypeScript, Tailwind CSS, Vite
+* **Shell:** Electron (v40+)
+* **Frontend:** React 19, TypeScript, Tailwind CSS 4, Vite
 * **Canvas Engine:** `@xyflow/react` (React Flow v12)
-* **State Management:** Zustand
-* **Local Data Core:** `better-sqlite3` (Main Process only)
-* **Execution Sandbox:** Sandpack (Client-side evaluation)
+* **State Management:** Zustand v5
+* **Persistence:** SQLite (`better-sqlite3`) + PowerSync SDK (Sync Layer)
+* **Preview Engine:** Custom `srcdoc` iframe + Babel Renderer IPC (100% Offline)
+* **AST Factory:** Babel (TSX ↔ Visual Tree)
+
+## Core modules (v6.6 Architecture)
+* **Module A (AST Canvas):** ID-Indestructible Select (`data-bridge-id`) + Figma-Grade DnD.
+* **Module B (Mithril Safety):** CIEDE2000 ΔE Perceptual Drift calculations (Amber warnings if ΔE > 2.0).
+* **Module C (Sync Layer):** PowerSync CRDT partitioning (Global Tokens / Project Overrides / Presence).
+* **Module D (Recovery Engine):** Command-pattern AST inversions (Undo/Redo) + Surgical Git Transplants.
+* **Module E (Persistence):** Atomic Write Queue (`FileTransactionManager`) + Continuous Auto-Save.
+* **Module F (Multi-AST):** Headless AST buffers for cross-file surgery (Phase F.2).
+
+## Architecture Specification & Modules
+| Module | State | Notes |
+|--------|-------|-------|
+| Code-First Recovery (Phase D.1) | **ONLINE** | `gitShow` IPC and surgical `transplantNode` AST replacement. |
+| Git Time Machine UI (Phase D.2) | **ONLINE** | `ast:git-log` IPC + `RecoveryPanel.tsx` + `revertNodeToCommit` store action. |
+| Multiplayer Presence (Phase C.1) | **ONLINE** | `PresenceService.ts` throttled UPSERT + `useRemotePresence` 5Hz poll + remote cursor SVG overlay in LivePreview. |
+| Batch Mutation Engine (Phase E.1) | **ONLINE** | `ASTService.applyMutationBatch` + `applyInversions`. Single parse→mutate→generate cycle per batch. |
+| `FileTransactionManager` (Phase E.2) | **ONLINE** | `electron/FileTransactionManager.ts`. Atomic `.tmp`→`rename` writes, serialised per path. |
+| `canvasStore` + Auto-Save (Phase F.1) | **ONLINE** | `triggerAutoSave` debounced IPC save. `saveState: 'idle'｜'editing'｜'saving'｜'saved'`. |
+| Cross-File Move (Phase F.2) | **ONLINE** | `astBufferStore.crossFileMove` 11-step atomic operation. `FileExplorer` cross-file drag. |
+| Global Recovery Engine (Phase G.1) | **ONLINE** | `src/core/recoveryController.ts`. `Cmd+Z`/`Cmd+Shift+Z`. Single-file and cross-file undo. |
+| Scaffolding & Registry (Phase G.2) | **ONLINE** | `bridge-registry.db`, `templateService.ts`, `LaunchScreen.tsx`. Global workspace tracking. |
+| Cross-File Redo (Phase H) | **ONLINE** | `CrossFileMoveRedoPlan` schema. `isRecovery` flag prevents history duplication on redo. |
+| Interaction Modes (Phase I) | **ONLINE** | `canvasMode: 'design'|'interact'` in `canvasStore`. Shield gated on design mode. |
+| Native OS Menu (Phase J) | **ONLINE** | `menu:new/open/close-project` IPC channels. `MenuAPI` on `window.bridgeAPI`. |
+| Undo Void Fix (Phase K) | **ONLINE** | `applyBatch` no-op guard + `setCode` Commandment-10 fix + all property edits undoable. |
+| Post-Redo Undoability | **ONLINE** | `historyStore.pushPast` + `crossFileMove` inversions return. |
+| Sharma Validation (Module B.1-b) | **ONLINE** | `snippetAuditor.ts` AST-injection robust against Fragment/Shadow scope. |
 
 ## Critical AI Directives
-1.  **Read the Architecture First:** For high-level system design, always consult `.bridge-context/architecture.md`. 
-2.  **Strict Electron Security:** You MUST read and follow `.bridge-context/electron-rules.md`. Context Isolation is strictly enforced. Never attempt to use Node.js modules inside the `src/` directory.
-3.  **Native Modules (better-sqlite3):** Because `better-sqlite3` is a native module, it MUST be rebuilt for Electron's Node version. You must install `electron-rebuild` and add `"postinstall": "electron-rebuild -f -w better-sqlite3"` to `package.json`.
-4.  **AI Runtime Location:** The Anthropic SDK MUST be initialized and executed exclusively in the Main Process (`electron/main.ts`). The React frontend will only communicate with it via IPC.
-5.  **TypeScript Rigor:** Do not use `any`. All component props, IPC payloads, and Zustand state must have explicit Interfaces or Types.
-6.  **Stop and Ask:** If you encounter persistent IPC errors or port conflicts, DO NOT guess. Stop and ask the user to consult the Lead Architect (Gemini).
+1.  **Architecture Spec:** Always consult `.bridge-context/architecture.md` and `.antigravityrules`.
+2.  **Mithril Safety:** If ΔE > 2.0, code must be auto-fixed or Amber-flagged.
+3.  **Persistence Rule:** All mutations MUST be atomic and saved via the `FileTransactionManager` queue.
+4.  **No Hallucinations:** Use Babel AST traversal for all code changes. Never use Regex for source code.
+5.  **Documentation Autopilot:** No session ends without a `[BRIDGE-PULSE-v6.7]` block update.
+
+## Commands
+* `npm run dev`: Launch Bridge IDE (Vite + Electron)
+* `npm test`: Run Vitest suite
+* `npx tsc --noEmit`: Strict Type Check

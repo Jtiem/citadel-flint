@@ -27,14 +27,17 @@
  */
 
 import { useState, useCallback, startTransition } from 'react'
-import { Layers } from 'lucide-react'
+import { Layers, AlertTriangle } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
 import { useCanvasStore } from '../../store/canvasStore'
 import { useTokenStore } from '../../store/tokenStore'
+import type { LinterWarning } from '../../types/bridge-api'
 import { ClassBuilder } from '../inspector/ClassBuilder'
 import { LayoutPanel } from '../inspector/LayoutPanel'
 import { DriftDetector } from '../inspector/DriftDetector'
-import { calculateDrift, MITHRIL_THRESHOLD } from '../../core/MithrilLinter'
+import { MITHRIL_THRESHOLD } from '../../core/MithrilLinter'
+import { tokenToClass } from '../../utils/classMapper'
+import type { TokenType } from '../../types/bridge-api'
 import type { VisualLayer } from '../../core/ast-parser'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -66,6 +69,127 @@ function extractArbitraryHexColors(className: string): string[] {
         colors.push(`#${m[1]}`)
     }
     return colors
+}
+
+/**
+ * Finds the full Tailwind class token (e.g. "bg-[#ef4343]") in `className`
+ * that contains the given `hexColor` as its arbitrary value.
+ * Returns null when no matching class is found.
+ */
+function findHardcodedClassForHex(className: string, hexColor: string): string | null {
+    const lowerHex = hexColor.toLowerCase()
+    return className.split(/\s+/).find((c) => c.toLowerCase().includes(`[${lowerHex}]`)) ?? null
+}
+
+/**
+ * Extracts the Tailwind utility prefix from an arbitrary-value class.
+ * e.g. "bg-[#ef4343]" → "bg-", "hover:text-[#fff]" → "text-" (strips variant).
+ * Returns "" when the bracket index cannot be found.
+ */
+function extractClassPrefix(hardcodedClass: string): string {
+    // Strip variant chain (hover:, focus:, etc.) to isolate the utility
+    const utility = hardcodedClass.split(':').pop() ?? hardcodedClass
+    const bracketIdx = utility.indexOf('[')
+    return bracketIdx > 0 ? utility.slice(0, bracketIdx) : ''
+}
+
+// ── Mithril Perceptual Drift Badge + Violation Card ───────────────────────────
+
+/** ΔE threshold for escalating amber → red (Critical Violation). */
+const DRIFT_CRITICAL_THRESHOLD = 10.0
+
+interface AmberPulseProps {
+    deltaE: number
+    tokenName: string
+}
+
+/**
+ * Compact inline ΔE badge used inside `MithrilViolationCard`.
+ * Amber for ΔE 2–10, Red for ΔE > 10.
+ */
+function AmberPulse({ deltaE, tokenName }: AmberPulseProps) {
+    const isCritical = deltaE > DRIFT_CRITICAL_THRESHOLD
+    return (
+        <span
+            className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] transition-colors ${
+                isCritical
+                    ? 'border-red-700/60 bg-red-900/30 text-red-400'
+                    : 'border-amber-700/60 bg-amber-900/30 text-amber-400'
+            }`}
+            title={`Perceptual Drift: ${deltaE.toFixed(1)}. Closest Token: ${tokenName}.`}
+        >
+            <AlertTriangle className="h-2.5 w-2.5 shrink-0" />
+            ΔE {deltaE.toFixed(1)}
+        </span>
+    )
+}
+
+interface MithrilViolationCardProps {
+    deltaE: number
+    tokenName: string
+    /** Offending arbitrary-value hex colour, e.g. "#ef4343". */
+    hexColor: string
+    /** Closest token's hex value, e.g. "#ef4444". */
+    tokenValue: string
+    /** Called when the user clicks Auto-Fix. */
+    onAutoFix: () => void
+}
+
+/**
+ * Expanded violation card shown in the ClassBuilder header area when a
+ * Mithril Violation is active.
+ *
+ * Displays:
+ *   - Violation header with ΔE badge
+ *   - Side-by-side colour swatches: current hex → nearest token hex + path
+ *   - "Auto-Fix" button that calls back to replace the offending class via AST
+ */
+function MithrilViolationCard({ deltaE, tokenName, hexColor, tokenValue, onAutoFix }: MithrilViolationCardProps) {
+    const isCritical = deltaE > DRIFT_CRITICAL_THRESHOLD
+    const borderClass = isCritical ? 'border-red-900/50' : 'border-amber-900/50'
+    const bgClass     = isCritical ? 'bg-red-950/20'     : 'bg-amber-950/20'
+    const btnBorder   = isCritical ? 'border-red-700/50'  : 'border-amber-700/50'
+    const btnBg       = isCritical ? 'bg-red-900/20 hover:bg-red-900/40'   : 'bg-amber-900/20 hover:bg-amber-900/40'
+    const btnText     = isCritical ? 'text-red-300'       : 'text-amber-300'
+
+    return (
+        <div className={`flex flex-col gap-2 border-b ${borderClass} ${bgClass} px-3 py-2`}>
+            {/* Header: icon + label + ΔE badge */}
+            <div className="flex items-center gap-2">
+                <AlertTriangle className={`h-3 w-3 shrink-0 ${isCritical ? 'text-red-400' : 'text-amber-400'}`} />
+                <span className={`text-[10px] font-semibold ${isCritical ? 'text-red-400' : 'text-amber-400'}`}>
+                    Mithril Violation
+                </span>
+                <AmberPulse deltaE={deltaE} tokenName={tokenName} />
+            </div>
+
+            {/* Colour comparison: current hex → token hex + path */}
+            <div className="flex items-center gap-1.5 text-[10px] text-gray-400">
+                <div
+                    className="h-3.5 w-3.5 shrink-0 rounded-sm border border-gray-700"
+                    style={{ backgroundColor: hexColor }}
+                    title={`Current: ${hexColor}`}
+                />
+                <span className="font-mono text-gray-500">{hexColor}</span>
+                <span className="text-gray-700">→</span>
+                <div
+                    className="h-3.5 w-3.5 shrink-0 rounded-sm border border-gray-700"
+                    style={{ backgroundColor: tokenValue }}
+                    title={`Token: ${tokenValue}`}
+                />
+                <span className="min-w-0 truncate font-mono text-gray-500" title={tokenName}>{tokenName}</span>
+            </div>
+
+            {/* Auto-Fix button */}
+            <button
+                type="button"
+                onClick={onAutoFix}
+                className={`w-full rounded border ${btnBorder} ${btnBg} ${btnText} py-0.5 text-[10px] font-medium transition-colors`}
+            >
+                Auto-Fix → {tokenName}
+            </button>
+        </div>
+    )
 }
 
 // ── Read-only / Editable property row ─────────────────────────────────────────
@@ -188,9 +312,11 @@ export function PropertiesPanel() {
     const visualTree = useEditorStore((state) => state.visualTree)
     const applyBatch = useEditorStore((state) => state.applyBatch)
 
-    const tokens = useTokenStore((s) => s.tokens)
+    const getNearestToken = useTokenStore((s) => s.getNearestToken)
     const setMithrilViolations = useCanvasStore((s) => s.setMithrilViolations)
     const setOverridesExist = useCanvasStore((s) => s.setOverridesExist)
+    const setLinterWarning = useEditorStore((s) => s.setLinterWarning)
+    const clearLinterWarning = useEditorStore((s) => s.clearLinterWarning)
 
     const selectedLayer =
         effectiveId !== null
@@ -200,39 +326,99 @@ export function PropertiesPanel() {
     // Track whether the ClassBuilder is in a Mithril Violation state locally.
     // This drives the amber glow on the wrapper.
     const [hasAmberViolation, setHasAmberViolation] = useState(false)
+    // Full violation context — drives MithrilViolationCard and the Auto-Fix action.
+    const [driftResult, setDriftResult] = useState<{
+        deltaE: number
+        tokenName: string
+        tokenValue: string
+        hexColor: string
+        hardcodedClass: string
+        tokenClass: string
+    } | null>(null)
 
     /**
      * Checks the newly committed className for Mithril drift.
-     * If any arbitrary color class has ΔE > 2.0 against the token store,
-     * marks this node as a violator and glows Amber.
+     *
+     * For each arbitrary-value hex color found in `newClassName`, we find the
+     * NEAREST token (minimum ΔE). A class is only a Mithril Violation if its
+     * nearest token is still > 2.0 away — i.e. there is no perceptually close
+     * token it could be replaced with. We report the worst offender so the
+     * MithrilViolationCard can show the exact hex, target token, and ΔE, and
+     * offer a one-click Auto-Fix.
      */
     const checkMithrilDrift = useCallback(
         (newClassName: string, nodeId: string) => {
             const arbitraryColors = extractArbitraryHexColors(newClassName)
 
-            // Find the closest token value for each arbitrary color and check drift.
-            const isViolating = arbitraryColors.some((hexColor) => {
-                // Find the best-matching color token
-                const colorTokens = tokens.filter((t) => t.token_type === 'color')
-                for (const token of colorTokens) {
-                    const dE = calculateDrift(hexColor, token.token_value)
-                    if (dE !== null && dE > MITHRIL_THRESHOLD) {
-                        return true
+            if (arbitraryColors.length === 0) {
+                setHasAmberViolation(false)
+                setDriftResult(null)
+                setMithrilViolations([])
+                return
+            }
+
+            // Find the worst-case nearest-token drift across all hex colors.
+            // "Worst" = the color whose closest token is still farthest away.
+            let worst: {
+                deltaE: number
+                tokenName: string
+                tokenValue: string
+                tokenType: string
+                hexColor: string
+            } | null = null
+
+            for (const hexColor of arbitraryColors) {
+                const result = getNearestToken(hexColor)
+                if (result !== null && (worst === null || result.deltaE > worst.deltaE)) {
+                    worst = {
+                        deltaE: result.deltaE,
+                        tokenName: result.tokenName,
+                        tokenValue: result.tokenValue,
+                        tokenType: result.tokenType,
+                        hexColor,
                     }
                 }
-                return false
-            })
+            }
 
+            const isViolating = worst !== null && worst.deltaE > MITHRIL_THRESHOLD
             setHasAmberViolation(isViolating)
 
-            // Propagate to global Export Gate
-            if (isViolating) {
+            if (isViolating && worst !== null) {
+                // Build the Auto-Fix payload: find the exact class containing the
+                // offending hex and derive the token replacement using classMapper.
+                const hardcodedClass = findHardcodedClassForHex(newClassName, worst.hexColor) ?? worst.hexColor
+                const prefix = extractClassPrefix(hardcodedClass)
+                const tokenClass = prefix !== ''
+                    ? tokenToClass(worst.tokenName, worst.tokenType as TokenType, prefix)
+                    : worst.tokenName
+                setDriftResult({
+                    deltaE: worst.deltaE,
+                    tokenName: worst.tokenName,
+                    tokenValue: worst.tokenValue,
+                    hexColor: worst.hexColor,
+                    hardcodedClass,
+                    tokenClass,
+                })
                 setMithrilViolations([nodeId])
+                // Persist to the rich linterWarnings map so LayerTree, Export Gate,
+                // and any future consumers have immediate pre-commit feedback.
+                const severity: LinterWarning['severity'] = worst.deltaE > 10 ? 'critical' : 'amber'
+                setLinterWarning(nodeId, {
+                    id: nodeId,
+                    type: 'drift',
+                    severity,
+                    value: worst.deltaE,
+                    message: `ΔE ${worst.deltaE.toFixed(1)} – use ${worst.tokenName}`,
+                    nearestToken: worst.tokenName,
+                    nearestTokenValue: worst.tokenValue,
+                })
             } else {
+                setDriftResult(null)
                 setMithrilViolations([])
+                clearLinterWarning(nodeId)
             }
         },
-        [tokens, setMithrilViolations]
+        [getNearestToken, setMithrilViolations, setLinterWarning, clearLinterWarning]
     )
 
     /**
@@ -246,6 +432,27 @@ export function PropertiesPanel() {
             applyBatch([{ op: 'updateClassName', nodeId: effectiveId, className: newClassName }])
         })
         checkMithrilDrift(newClassName, effectiveId)
+    }
+
+    /**
+     * Applies a one-click token fix via applyBatch, replacing the offending
+     * arbitrary-value hex class with the closest design-token class.
+     * Clears the violation state immediately — the hardcoded hex is gone.
+     */
+    function handleAutoFix(): void {
+        if (effectiveId === null || driftResult === null) return
+        startTransition(() => {
+            applyBatch([{
+                op: 'applyTokenFix',
+                nodeId: effectiveId,
+                hardcodedClass: driftResult.hardcodedClass,
+                tokenClass: driftResult.tokenClass,
+            }])
+        })
+        setHasAmberViolation(false)
+        setDriftResult(null)
+        setMithrilViolations([])
+        clearLinterWarning(effectiveId)
     }
 
     /** Commits a style prop change via applyBatch and marks the node as overridden. */
@@ -322,15 +529,27 @@ export function PropertiesPanel() {
 
             {/* Token-driven class builder — Amber glow on Mithril Violation */}
             <div
-                className={`flex-1 overflow-y-auto transition-shadow duration-200 ${hasAmberViolation
+                className={`flex flex-1 flex-col overflow-hidden transition-shadow duration-200 ${hasAmberViolation
                         ? 'ring-2 ring-inset ring-amber-500/70'
                         : ''
                     }`}
             >
-                <ClassBuilder
-                    className={selectedLayer.className ?? ''}
-                    onCommit={handleCommit}
-                />
+                {/* Mithril Violation card — visible when drift > MITHRIL_THRESHOLD */}
+                {driftResult !== null && (
+                    <MithrilViolationCard
+                        deltaE={driftResult.deltaE}
+                        tokenName={driftResult.tokenName}
+                        hexColor={driftResult.hexColor}
+                        tokenValue={driftResult.tokenValue}
+                        onAutoFix={handleAutoFix}
+                    />
+                )}
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                    <ClassBuilder
+                        className={selectedLayer.className ?? ''}
+                        onCommit={handleCommit}
+                    />
+                </div>
             </div>
 
             {/* Soft Mithril drift detection */}

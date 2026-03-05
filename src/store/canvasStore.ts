@@ -35,6 +35,7 @@ import type { FileTreeNode } from '../types/bridge-api'
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 export type SaveState = 'idle' | 'editing' | 'saving' | 'saved'
+export type CanvasMode = 'design' | 'interact'
 
 // ── Store shape ────────────────────────────────────────────────────────────────
 
@@ -70,6 +71,12 @@ interface CanvasState {
      * Always create a new Set reference on mutation so Zustand detects the change.
      */
     expandedFolders: Set<string>
+    /**
+     * Current interaction mode for the Live Preview canvas.
+     *   'design'   — IDE selection active; clicks select AST nodes.
+     *   'interact' — Native events pass through; clicking tests the component.
+     */
+    canvasMode: CanvasMode
 }
 
 interface CanvasActions {
@@ -123,6 +130,16 @@ interface CanvasActions {
      */
     setOverridesExist: (exists: boolean) => void
     /**
+     * Switches the canvas between 'design' (IDE selection active) and
+     * 'interact' (native pointer events pass through to the iframe) mode.
+     */
+    setCanvasMode: (mode: CanvasMode) => void
+    /**
+     * Returns to the Launch Screen by nullifying all workspace state.
+     * Cancels any pending auto-save timer before clearing state.
+     */
+    closeWorkspace: () => void
+    /**
      * Export Gate selector (Phase E — Commandment 6).
      *
      * Returns `false` when any of the following are true:
@@ -149,6 +166,7 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     overridesExist: false,
     workspaceFiles: null,
     expandedFolders: new Set<string>(),
+    canvasMode: 'design' as CanvasMode,
 
     startDrag: (sourceId) => set({ dragSourceId: sourceId }),
     endDrag: () => set({ dragSourceId: null }),
@@ -214,6 +232,25 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
 
     setMithrilViolations: (ids) => set({ mithrilViolations: ids }),
     setOverridesExist: (exists) => set({ overridesExist: exists }),
+    setCanvasMode: (mode) => set({ canvasMode: mode }),
+
+    closeWorkspace: () => {
+        if (_saveTimer !== null) {
+            clearTimeout(_saveTimer)
+            _saveTimer = null
+        }
+        set({
+            workspaceFiles: null,
+            activeFilePath: null,
+            activeSelection: null,
+            dragSourceId: null,
+            mithrilViolations: [],
+            overridesExist: false,
+            saveState: 'idle',
+            expandedFolders: new Set<string>(),
+            canvasMode: 'design',
+        })
+    },
 
     canExport: () => {
         const { mithrilViolations, overridesExist } = get()

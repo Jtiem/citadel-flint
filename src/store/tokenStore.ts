@@ -12,6 +12,7 @@
 
 import { create } from 'zustand'
 import type { DesignToken, NewDesignToken, TokenType } from '../types/bridge-api'
+import { findClosestToken } from '../utils/tokenMatcher'
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
@@ -25,6 +26,18 @@ interface TokenState {
 
 interface TokenActions {
     fetchTokens: () => Promise<void>
+    /**
+     * Initialises a live subscription to the design_tokens table via
+     * `window.bridgeAPI.watchTokens`. Calls the callback immediately with the
+     * current token list, then re-syncs on every subsequent DB write
+     * (create / update / delete / clearAll / Figma ingest) without requiring
+     * a manual `fetchTokens()` call after each mutation.
+     *
+     * Returns an unsubscribe function — pass it to a `useEffect` cleanup.
+     *
+     * Silent no-op in test / SSR environments where `window` is undefined.
+     */
+    initSync: () => () => void
     addToken: (token: NewDesignToken) => Promise<void>
     /** Updates token_value for every token matching tokenPath. */
     updateToken: (tokenPath: string, value: string) => Promise<void>
@@ -46,6 +59,15 @@ interface TokenActions {
      * No-ops silently when tokens already exist — never overwrites user data.
      */
     ensureDemoTokens: () => Promise<void>
+    /**
+     * Synchronous selector: returns the nearest design token to `hex` and its
+     * CIEDE2000 perceptual distance. Reads the current store state — no IPC
+     * call needed. Returns null if no colour tokens exist or hex is unparsable.
+     *
+     * Used by the Mithril Perceptual Linter (Module B.1) to surface amber/red
+     * drift warnings in the PropertiesPanel.
+     */
+    getNearestToken: (hex: string) => { tokenName: string; tokenValue: string; tokenType: string; deltaE: number } | null
 }
 
 type TokenStore = TokenState & TokenActions
@@ -109,11 +131,18 @@ export const useTokenStore = create<TokenStore>((set, get) => ({
         }
     },
 
+    initSync: () => {
+        if (typeof window === 'undefined') return () => {}
+        return window.bridgeAPI.watchTokens((tokens) => {
+            set({ tokens, isLoading: false })
+        })
+    },
+
     addToken: async (token: NewDesignToken) => {
         set({ error: null })
         try {
             await window.bridgeAPI.tokens.create(token)
-            await get().fetchTokens()
+            // No manual fetchTokens() — watchTokens subscription delivers the update.
         } catch (err) {
             set({ error: String(err) })
         }
@@ -123,7 +152,7 @@ export const useTokenStore = create<TokenStore>((set, get) => ({
         set({ error: null })
         try {
             await window.bridgeAPI.tokens.update(tokenPath, { token_value: value })
-            await get().fetchTokens()
+            // No manual fetchTokens() — watchTokens subscription delivers the update.
         } catch (err) {
             set({ error: String(err) })
         }
@@ -167,9 +196,21 @@ export const useTokenStore = create<TokenStore>((set, get) => ({
                 { token_path: 'color.ui.border',         token_type: 'color', token_value: '#1f2937', description: 'UI border / divider color',       collection_name: 'Demo Tokens', mode: 'default' },
             ]
             await Promise.all(defaults.map((t) => window.bridgeAPI.tokens.create(t)))
-            await get().fetchTokens()
+            // No manual fetchTokens() — watchTokens subscription delivers the update.
         } catch (err) {
             set({ error: String(err), isLoading: false })
+        }
+    },
+
+    getNearestToken: (hex: string) => {
+        const match = findClosestToken(hex, get().tokens)
+        if (match === null) return null
+        const token = get().tokens.find(t => t.token_path === match.tokenPath)
+        return {
+            tokenName: match.tokenPath,
+            tokenValue: match.tokenValue,
+            tokenType: token?.token_type ?? 'color',
+            deltaE: match.deltaE,
         }
     },
 
@@ -188,7 +229,7 @@ export const useTokenStore = create<TokenStore>((set, get) => ({
             }
 
             await Promise.all(newTokens.map((t) => window.bridgeAPI.tokens.create(t)))
-            await get().fetchTokens()
+            // No manual fetchTokens() — watchTokens subscription delivers the update.
         } catch (err) {
             set({ error: String(err), isLoading: false })
         }
