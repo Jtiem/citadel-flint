@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import './index.css'
 import { CodeEditor } from './components/editor/CodeEditor'
-import { LivePreview } from './components/editor/LivePreview'
+import { XYCanvas } from './components/editor/XYCanvas'
 import { LayerTree } from './components/ui/LayerTree'
 import { AssetsPanel } from './components/editor/AssetsPanel'
 import { PropertiesPanel } from './components/ui/PropertiesPanel'
@@ -261,8 +261,8 @@ function App() {
                         onClick={() => setShowExportModal(true)}
                         title={canExport() ? 'Export-ready — click to export' : 'Export blocked by overrides or ΔE violations'}
                         className={`flex items-center gap-1.5 rounded border px-2.5 py-1 text-[11px] font-medium transition-colors ${canExport()
-                                ? 'border-emerald-700/50 bg-emerald-900/20 text-emerald-400 hover:bg-emerald-900/40'
-                                : 'border-amber-700/50 bg-amber-900/20 text-amber-400 hover:bg-amber-900/40'
+                            ? 'border-emerald-700/50 bg-emerald-900/20 text-emerald-400 hover:bg-emerald-900/40'
+                            : 'border-amber-700/50 bg-amber-900/20 text-amber-400 hover:bg-amber-900/40'
                             }`}
                     >
                         {canExport() ? (
@@ -341,20 +341,13 @@ function App() {
                     </div>
                 </section>
 
-                {/* Center panel: Live Preview (top) + Code Editor (bottom) (60%) */}
+                {/* Center panel: XY infinite canvas (top) + Code Editor (bottom) (60%) */}
                 <section className="flex min-h-0 w-3/5 flex-col border-r border-gray-800">
-                    {/* Top half: srcdoc live preview */}
+                    {/* Top: infinite whiteboard canvas */}
                     <div className="flex min-h-0 flex-1 flex-col border-b border-gray-800">
-                        <div className="flex shrink-0 items-center border-b border-gray-800 px-4 py-2">
-                            <span className="text-xs font-medium uppercase tracking-wider text-gray-500">
-                                Live Preview · srcdoc Engine
-                            </span>
-                        </div>
-                        <div className="min-h-0 flex-1">
-                            <MithrilProvider>
-                                <LivePreview />
-                            </MithrilProvider>
-                        </div>
+                        <MithrilProvider>
+                            <XYCanvas />
+                        </MithrilProvider>
                     </div>
 
                     {/* Bottom half: Monaco code editor */}

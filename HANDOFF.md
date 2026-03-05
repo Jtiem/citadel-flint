@@ -47,6 +47,7 @@ Bridge is a performance-hardened, three-process Electron app designed for agenti
 | Sharma Validation | B.1-b | **ONLINE** | `snippetAuditor.ts` with AST shadow/fragment safety |
 | Multiplayer Presence | C.1 | **ONLINE** | `PresenceService.ts` + `useRemotePresence` + SQLite UPSERT + remote cursor overlay |
 | AST Conflict Arbiter | C.2 | **ONLINE** | `useLockedNodeIds` + `useIsNodeLocked`. Locks Layer Tree, Properties Panel, and canvas drag for nodes held by remote users. |
+| Infinite Canvas | A | **ONLINE** | `XYCanvas.tsx` — `@xyflow/react` v12. `LivePreview` hosted as a draggable custom node with chrome bar, pan/zoom/minimap. |
 | Export Gate UI | B.2 | **ONLINE** | `ExportModal.tsx` + `tokens:read-overrides` IPC + Export button in top bar |
 | Accessibility Gate | B.3 | **ONLINE** | `A11yLinter.ts` — AST-level a11y checks (img/button/a/input). Runs on every parse; blocks exports. |
 
@@ -87,6 +88,7 @@ Bridge is a performance-hardened, three-process Electron app designed for agenti
 | `LayerTree.tsx` | Single-file drag reorder (triggers `editorStore.moveLayerNode`). |
 | `RecoveryPanel.tsx` | **Phase D.2** — Time Machine UI. Queries `bridgeAPI.gitLog`, renders shadow-commit timeline, triggers `editorStore.revertNodeToCommit` for surgical node transplants. |
 | `SyncStatus.tsx` | **Module C.1** — PowerSync sync state badge + `useSyncPresence` hook for throttled cursor broadcasting. |
+| `XYCanvas.tsx` | **Module A** — Infinite whiteboard. Mounts `@xyflow/react` v12; `LivePreview` is a `livePreview` custom node type. Drag handle isolated to chrome bar to preserve Shield DnD. |
 | `ExportModal.tsx` | **Phase B.2** — Mithril Safety Export Gate modal. Pre-flight audit of `component_overrides` rows + ΔE violations + accessibility violations (B.3). Clickable node IDs snap-select the offending element in the canvas. Pass state shows source + Copy button. |
 | **Core Services** | |
 | `A11yLinter.ts` | **Phase B.3** — Pure AST-level accessibility linter. Enforces Commandment 5. Rules: A11Y-001 (`<img>` alt), A11Y-002/003 (`<button>`/`<a>` accessible name), A11Y-004 (`<input>` label). Called inside `editorStore.setCode` on every successful parse. |

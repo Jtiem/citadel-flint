@@ -27,6 +27,7 @@
 | Git Time Machine UI (Phase D.2) | **ONLINE** | `ast:git-log` IPC + `RecoveryPanel.tsx` + `revertNodeToCommit` store action. |
 | Multiplayer Presence (Phase C.1) | **ONLINE** | `PresenceService.ts` throttled UPSERT + `useRemotePresence` 5Hz poll + remote cursor SVG overlay in LivePreview. |
 | AST Conflict Arbiter (Phase C.2) | **ONLINE** | `useLockedNodeIds` + `useIsNodeLocked`. Blocks drag, selection, and edits on nodes held by remote users. |
+| Infinite Canvas (Module A) | **ONLINE** | `XYCanvas.tsx` — `@xyflow/react` v12 whiteboard. LivePreview hosted as a draggable custom node; pan + zoom + minimap. |
 | Export Gate (Phase B.2) | **ONLINE** | `ExportModal.tsx` pre-flight audit — reads `component_overrides` + `mithrilViolations` + `a11yViolations`. |
 | Accessibility Gate (Phase B.3) | **ONLINE** | `A11yLinter.ts` — 4 WCAG rules checked on every AST parse. Blocks export via `canExport`. |
 | Batch Mutation Engine (Phase E.1) | **ONLINE** | `ASTService.applyMutationBatch` + `applyInversions`. Single parse→mutate→generate cycle per batch. |

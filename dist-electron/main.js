@@ -6,6 +6,7 @@ import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { promisify } from "node:util";
 import { transformSync } from "@babel/core";
+import { parse } from "@babel/parser";
 import { jsxAttribute, jsxIdentifier, stringLiteral } from "@babel/types";
 class FileTransactionManager {
   /** Active tail promise keyed by absolute file path. */
@@ -78,6 +79,161 @@ class FileTransactionManager {
   }
 }
 const fileTransactionManager = new FileTransactionManager();
+const execFileAsync$1 = promisify(execFile);
+const GITIGNORE_CONTENT = "node_modules\n.bridge/tmp\n";
+function findBridgeIdOffsets(node, targetId) {
+  if (node.type === "JSXElement") {
+    for (const attr of node.openingElement.attributes) {
+      if (attr.type === "JSXAttribute" && attr.name.type === "JSXIdentifier" && attr.name.name === "data-bridge-id" && attr.value?.type === "StringLiteral" && attr.value.value === targetId && node.start != null && node.end != null) {
+        return [node.start, node.end];
+      }
+    }
+  }
+  for (const key of Object.keys(node)) {
+    const child = node[key];
+    if (Array.isArray(child)) {
+      for (const item of child) {
+        if (item != null && typeof item === "object" && "type" in item) {
+          const found = findBridgeIdOffsets(item, targetId);
+          if (found) return found;
+        }
+      }
+    } else if (child != null && typeof child === "object" && "type" in child) {
+      const found = findBridgeIdOffsets(child, targetId);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+class GitManager {
+  /**
+   * Ensures `projectPath` has an initialised git repository.
+   *
+   * If `.git` is absent:
+   *   1. Runs `git init`
+   *   2. Writes `.gitignore` (node_modules, .bridge/tmp)
+   *   3. Configures repo-local identity (bridge@local / Bridge IDE) so commits
+   *      work in environments with no global git user config.
+   *   4. Stages all files with `git add .`
+   *   5. Creates an initial `bridge:init` commit (--allow-empty for safety).
+   *
+   * Idempotent — if `.git` already exists the method returns immediately.
+   */
+  async ensureRepo(projectPath) {
+    try {
+      await execFileAsync$1("git", ["rev-parse", "--git-dir"], { cwd: projectPath });
+      return;
+    } catch {
+    }
+    await execFileAsync$1("git", ["init"], { cwd: projectPath });
+    await writeFile(path.join(projectPath, ".gitignore"), GITIGNORE_CONTENT, "utf8");
+    await execFileAsync$1("git", ["config", "user.email", "bridge@local"], { cwd: projectPath });
+    await execFileAsync$1("git", ["config", "user.name", "Bridge IDE"], { cwd: projectPath });
+    await execFileAsync$1("git", ["add", "."], { cwd: projectPath });
+    await execFileAsync$1(
+      "git",
+      ["commit", "-m", "bridge:init", "--allow-empty"],
+      { cwd: projectPath }
+    );
+    console.log(`[Bridge] GitManager: initialised git repo at ${projectPath}`);
+  }
+  /**
+   * Stages all working-tree changes under the git root containing `cwd` and
+   * creates a shadow commit labelled "bridge:sync:{batchId}".
+   *
+   * Silent no-op when:
+   *   - `cwd` is not inside a git repository.
+   *   - The working tree has no staged or unstaged changes to commit.
+   *
+   * MUST be called only after `fileTransactionManager` resolves (Commandment 13)
+   * so the disk state is flushed before the commit is generated.
+   *
+   * @param cwd     — Any directory within the target project (used to find git root).
+   * @param batchId — Optional label appended to the commit message.
+   *                  Defaults to a random UUID if omitted.
+   */
+  async shadowCommit(cwd, batchId) {
+    const gitRoot = await this._getGitRoot(cwd);
+    if (!gitRoot) return;
+    const id = batchId ?? randomUUID();
+    await execFileAsync$1("git", ["add", "."], { cwd: gitRoot });
+    const { stdout: status } = await execFileAsync$1(
+      "git",
+      ["status", "--porcelain"],
+      { cwd: gitRoot }
+    );
+    if (!status.trim()) return;
+    await execFileAsync$1(
+      "git",
+      ["commit", "-m", `bridge:sync:${id}`],
+      { cwd: gitRoot }
+    );
+    console.log(`[Bridge] GitManager: shadow commit bridge:sync:${id}`);
+  }
+  /**
+   * Returns the JSX source text of the element with `dataBridgeId` from
+   * `filePath` at `commitHash`.
+   *
+   * Steps:
+   *   1. Resolves the git root from `filePath`'s directory.
+   *   2. Runs `git show <commitHash>:<relPath>` to retrieve historical content.
+   *   3. Parses with @babel/parser (TypeScript + JSX plugins).
+   *   4. Walks the AST to locate the JSXElement with the matching bridge ID.
+   *   5. Returns the raw source slice for that element.
+   *
+   * Returns null when:
+   *   - `filePath` is not in a git repository.
+   *   - The commit or file does not exist in git history.
+   *   - No element with the given bridge ID exists in the historical file.
+   *   - The file cannot be parsed as TypeScript/JSX.
+   *
+   * Read-only — never calls `git checkout` (Commandment 11).
+   */
+  async getGitNode(commitHash, filePath, dataBridgeId) {
+    const gitRoot = await this._getGitRoot(path.dirname(filePath));
+    if (!gitRoot) return null;
+    const relPath = path.relative(gitRoot, filePath);
+    let content;
+    try {
+      const { stdout } = await execFileAsync$1(
+        "git",
+        ["show", `${commitHash}:${relPath}`],
+        { cwd: gitRoot, maxBuffer: 2 * 1024 * 1024 }
+      );
+      content = stdout;
+    } catch {
+      return null;
+    }
+    try {
+      const ast = parse(content, {
+        sourceType: "module",
+        plugins: ["typescript", "jsx"]
+      });
+      const offsets = findBridgeIdOffsets(ast.program, dataBridgeId);
+      return offsets ? content.slice(offsets[0], offsets[1]) : null;
+    } catch {
+      return null;
+    }
+  }
+  // ── Private helpers ───────────────────────────────────────────────────────
+  /**
+   * Returns the absolute git root for `cwd`, or null if the directory is not
+   * inside a git repository.
+   */
+  async _getGitRoot(cwd) {
+    try {
+      const { stdout } = await execFileAsync$1(
+        "git",
+        ["rev-parse", "--show-toplevel"],
+        { cwd }
+      );
+      return stdout.trim();
+    } catch {
+      return null;
+    }
+  }
+}
+const gitManager = new GitManager();
 const EXCLUDED_DIRS = /* @__PURE__ */ new Set([
   "node_modules",
   "dist",
@@ -231,6 +387,9 @@ ipcMain.handle(
     if (folderPath !== home && !folderPath.startsWith(home + path.sep)) {
       return null;
     }
+    await gitManager.ensureRepo(folderPath).catch((err) => {
+      console.error(`[Bridge] main.ts: ensureRepo failed for ${folderPath}`, err);
+    });
     return scanDirectory(folderPath);
   }
 );
@@ -398,6 +557,12 @@ app.whenReady().then(async () => {
       ).run(bridgeId, propertyKey, propertyValue);
     }
   );
+  const stmtReadOverrides = db.prepare(`
+        SELECT bridge_id, property_key, property_value, updated_at
+        FROM component_overrides
+        ORDER BY updated_at DESC
+    `);
+  ipcMain.handle("tokens:read-overrides", () => stmtReadOverrides.all());
   const stmtUpsertPresence = db.prepare(`
         INSERT INTO presence (id, user_id, node_id, x, y, updated_at)
         VALUES (?, ?, ?, ?, ?, strftime('%s', 'now'))
@@ -435,6 +600,9 @@ app.whenReady().then(async () => {
       throw new Error("ast:save-file — path outside user home directory is not permitted");
     }
     await fileTransactionManager.write(filePath, content);
+    await gitManager.shadowCommit(path.dirname(filePath)).catch((err) => {
+      console.error("[Bridge] main.ts: ast:save-file shadowCommit failed", err);
+    });
   });
   ipcMain.handle("ast:save-batch", async (_event, batch) => {
     if (typeof batch !== "object" || batch === null || Array.isArray(batch)) {
@@ -459,6 +627,12 @@ app.whenReady().then(async () => {
       validated.set(filePath, content);
     }
     await fileTransactionManager.writeBatch(validated);
+    const firstPath = Object.keys(validated)[0];
+    if (firstPath) {
+      await gitManager.shadowCommit(path.dirname(firstPath)).catch((err) => {
+        console.error("[Bridge] main.ts: ast:save-batch shadowCommit failed", err);
+      });
+    }
   });
   ipcMain.handle(
     "ast:git-show",
@@ -485,6 +659,46 @@ app.whenReady().then(async () => {
         return stdout;
       } catch {
         return null;
+      }
+    }
+  );
+  ipcMain.handle(
+    "ast:git-log",
+    async (_event, filePath) => {
+      if (typeof filePath !== "string") return [];
+      if (!path.isAbsolute(filePath)) return [];
+      const home = app.getPath("home");
+      if (!filePath.startsWith(home + path.sep)) return [];
+      try {
+        const cwd = path.dirname(filePath);
+        const { stdout: rootRaw } = await execFileAsync(
+          "git",
+          ["rev-parse", "--show-toplevel"],
+          { cwd }
+        );
+        const gitRoot = rootRaw.trim();
+        const relPath = path.relative(gitRoot, filePath);
+        const { stdout } = await execFileAsync(
+          "git",
+          ["log", "--pretty=format:%h|%s|%at", "-n", "50", "--", relPath],
+          { cwd: gitRoot, maxBuffer: 1024 * 1024 }
+        );
+        const entries = [];
+        for (const line of stdout.split("\n")) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          const parts = trimmed.split("|");
+          if (parts.length < 3) continue;
+          const hash = parts[0];
+          const timestamp = parseInt(parts[parts.length - 1], 10);
+          const message = parts.slice(1, parts.length - 1).join("|");
+          if (hash && !isNaN(timestamp)) {
+            entries.push({ hash, message, timestamp });
+          }
+        }
+        return entries;
+      } catch {
+        return [];
       }
     }
   );
@@ -515,6 +729,9 @@ app.whenReady().then(async () => {
       throw new Error("project:initialize — targetPath must be inside the user home directory");
     }
     initializeProject(targetPath, templateId);
+    await gitManager.ensureRepo(targetPath).catch((err) => {
+      console.error(`[Bridge] main.ts: ensureRepo failed for new project ${targetPath}`, err);
+    });
     const projectName = path.basename(targetPath);
     upsertProject(randomUUID(), projectName, targetPath);
     return scanDirectory(targetPath);
@@ -525,6 +742,9 @@ app.whenReady().then(async () => {
     const home = app.getPath("home");
     if (normalized !== home && !normalized.startsWith(home + path.sep)) return null;
     try {
+      await gitManager.ensureRepo(normalized).catch((err) => {
+        console.error(`[Bridge] main.ts: ensureRepo failed for ${normalized}`, err);
+      });
       const tree = await scanDirectory(normalized);
       const projectName = path.basename(normalized);
       upsertProject(randomUUID(), projectName, normalized);

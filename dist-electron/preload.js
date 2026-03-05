@@ -53,7 +53,12 @@ contextBridge.exposeInMainWorld("bridgeAPI", {
      * The composite key (bridge_id, property_key) is idempotent: calling
      * this multiple times for the same element + property upserts in-place.
      */
-    upsertOverride: (bridgeId, propertyKey, propertyValue) => ipcRenderer.invoke("tokens:upsert-override", bridgeId, propertyKey, propertyValue)
+    upsertOverride: (bridgeId, propertyKey, propertyValue) => ipcRenderer.invoke("tokens:upsert-override", bridgeId, propertyKey, propertyValue),
+    /**
+     * Returns all rows in `component_overrides`, ordered by `updated_at` DESC.
+     * Used by `ExportModal` to list every bridge ID + property blocking export.
+     */
+    readOverrides: () => ipcRenderer.invoke("tokens:read-overrides")
   },
   /**
    * Transforms TSX source into preview-ready JS via Babel in the main process.
@@ -221,6 +226,17 @@ contextBridge.exposeInMainWorld("bridgeAPI", {
    * Does NOT modify the working tree.
    */
   gitShow: (filePath, commitHash) => ipcRenderer.invoke("ast:git-show", filePath, commitHash),
+  /**
+   * Returns a chronological list of up to 50 shadow commits that have touched
+   * `filePath` in the local git repository. Each entry exposes the abbreviated
+   * hash, the commit message, and a Unix timestamp (seconds since epoch).
+   *
+   * Used by RecoveryPanel to populate the file's Time Machine timeline.
+   *
+   * Returns an empty array when the file is not tracked by git or the repo
+   * does not exist yet.
+   */
+  gitLog: (filePath) => ipcRenderer.invoke("ast:git-log", filePath),
   /**
    * Native OS menu event subscriptions.
    * The main process pushes these events when the user selects a File menu item.
