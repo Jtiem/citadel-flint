@@ -665,6 +665,58 @@ app.whenReady().then(async () => {
         }
     )
 
+    // ── Git Log Handler ────────────────────────────────────────────────────────
+    // Returns a parsed list of shadow commits for `filePath`.
+    // Each commit is { hash, message, timestamp } where timestamp is Unix seconds.
+    //
+    // The log is limited to commits that touch `filePath` (git log -- <relpath>).
+    // Maximum 50 entries are returned to avoid unbounded IPC payloads.
+    //
+    // Security: same constraints as ast:git-show (absolute path, home dir, execFile).
+    ipcMain.handle(
+        'ast:git-log',
+        async (_event, filePath: unknown): Promise<{ hash: string; message: string; timestamp: number }[]> => {
+            if (typeof filePath !== 'string') return []
+            if (!path.isAbsolute(filePath)) return []
+            const home = app.getPath('home')
+            if (!filePath.startsWith(home + path.sep)) return []
+
+            try {
+                const cwd = path.dirname(filePath)
+                const { stdout: rootRaw } = await execFileAsync(
+                    'git', ['rev-parse', '--show-toplevel'],
+                    { cwd }
+                )
+                const gitRoot = rootRaw.trim()
+                const relPath = path.relative(gitRoot, filePath)
+
+                // %h = abbreviated hash | %s = subject | %at = author timestamp (Unix)
+                const { stdout } = await execFileAsync(
+                    'git',
+                    ['log', '--pretty=format:%h|%s|%at', '-n', '50', '--', relPath],
+                    { cwd: gitRoot, maxBuffer: 1024 * 1024 }
+                )
+
+                const entries: { hash: string; message: string; timestamp: number }[] = []
+                for (const line of stdout.split('\n')) {
+                    const trimmed = line.trim()
+                    if (!trimmed) continue
+                    const parts = trimmed.split('|')
+                    if (parts.length < 3) continue
+                    const hash = parts[0]
+                    const timestamp = parseInt(parts[parts.length - 1], 10)
+                    const message = parts.slice(1, parts.length - 1).join('|')
+                    if (hash && !isNaN(timestamp)) {
+                        entries.push({ hash, message, timestamp })
+                    }
+                }
+                return entries
+            } catch {
+                return []
+            }
+        }
+    )
+
     // ── Project Registry + Template Scaffolding ───────────────────────────────
     const { upsertProject, getRecentProjects, removeProject } = await import('./registry.js')
     const { initializeProject } = await import('./templateService.js')

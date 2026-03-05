@@ -62,6 +62,32 @@ export interface NewDesignToken {
 }
 
 /**
+ * A single perceptual-drift warning produced by the Mithril Linter.
+ *
+ * Stored in `editorStore.linterWarnings` as a `Map<string, LinterWarning>`
+ * keyed by the element's `data-bridge-id`. The Map is the single source of
+ * truth for every violation badge in the PropertiesPanel and the Export Gate.
+ *
+ * severity:
+ *   'amber'    — ΔE 2.0 – 10.0  (perceptible drift; Mithril Violation)
+ *   'critical' — ΔE > 10.0      (severe drift; hard export block)
+ */
+export interface LinterWarning {
+    /** `data-bridge-id` of the violating JSX element. */
+    id: string
+    type: 'drift'
+    severity: 'amber' | 'critical'
+    /** CIEDE2000 ΔE value (worst offender across all className hex tokens). */
+    value: number
+    /** Human-readable summary, e.g. "ΔE 3.4 – use color.brand.primary". */
+    message: string
+    /** `token_path` of the nearest matching design token, or null if none found. */
+    nearestToken: string | null
+    /** Hex value of the nearest token, e.g. "#6366f1", or null if none found. */
+    nearestTokenValue: string | null
+}
+
+/**
  * The mutable fields accepted by `window.bridgeAPI.tokens.update()`.
  * `id`, `token_path`, `mode`, and `collection_name` are intentionally excluded —
  * they form the composite identity key.
@@ -180,9 +206,106 @@ export interface FileTreeNode {
     children?: FileTreeNode[]
 }
 
+// ── Project Registry types (Phase G) ─────────────────────────────────────────
+
+/**
+ * A row from the `recent_projects` table in `bridge-registry.db`.
+ * `last_opened` is a Unix timestamp (seconds since epoch).
+ */
+export interface RecentProject {
+    /** Stable UUID assigned on first project insertion. */
+    id: string
+    /** Human-readable project name (typically the root directory basename). */
+    name: string
+    /** Absolute path to the project root directory. */
+    path: string
+    /** Unix timestamp (seconds) of the most recent open. */
+    last_opened: number
+}
+
+/** IPC surface for the global bridge-registry.db (Launch Screen). */
+export interface RegistryAPI {
+    /** Returns up to 10 recently opened projects, newest first. */
+    getRecent: () => Promise<RecentProject[]>
+    /**
+     * Records or refreshes a project entry in the registry.
+     * Called after `openFolder` so manually opened folders appear in the list.
+     */
+    upsertProject: (payload: { name: string; path: string }) => Promise<void>
+    /**
+     * Removes the project with the given UUID from the registry.
+     * Called when the user dismisses a project from the Recent Projects list.
+     */
+    removeProject: (id: string) => Promise<void>
+}
+
+/** IPC surface for project lifecycle operations (Phase G). */
+export interface ProjectAPI {
+    /**
+     * Scaffolds a new Bridge workspace by copying a bundled template into an
+     * empty user-selected directory, then writes to the registry and scans.
+     *
+     * @param payload.targetPath — Absolute path to an **empty** directory.
+     * @param payload.templateId — Template name (e.g. `'base-vite-tailwind'`).
+     * @returns The FileTreeNode tree rooted at `targetPath`.
+     *
+     * Throws if the directory is non-empty, the path is outside the home dir,
+     * or the templateId is unknown.
+     */
+    initialize: (payload: { targetPath: string; templateId: string }) => Promise<FileTreeNode>
+    /**
+     * Opens an existing project by its absolute path: scans for source files,
+     * writes to the registry, and returns the FileTreeNode tree.
+     *
+     * Returns `null` when the path is outside the home directory or the scan
+     * fails (e.g. the directory was deleted).
+     */
+    openPath: (folderPath: string) => Promise<FileTreeNode | null>
+}
+
+/** IPC surface for native OS menu events pushed by the main process. */
+export interface MenuAPI {
+    /** Registers a callback for File → New Project… (Cmd+N). */
+    onNewProject: (callback: () => void) => void
+    /** Registers a callback for File → Open Project… (Cmd+O). */
+    onOpenProject: (callback: () => void) => void
+    /** Registers a callback for File → Close Project (Cmd+Shift+W). */
+    onCloseProject: (callback: () => void) => void
+    /** Removes all listeners for the three menu channels. Call in useEffect cleanup. */
+    removeMenuListeners: () => void
+}
+
+/**
+ * A single entry in the git shadow commit log for a file.
+ * Returned by `window.bridgeAPI.gitLog(filePath)`.
+ */
+export interface GitLogEntry {
+    /** Abbreviated git commit hash (7 chars). */
+    hash: string
+    /** Commit message, e.g. "bridge:sync:uuid". */
+    message: string
+    /** Unix timestamp in seconds (author timestamp from `--pretty=format:%at`). */
+    timestamp: number
+}
+
 export interface BridgeAPI {
     /** Health-check: verifies the IPC bridge is functional. */
     ping: () => Promise<string>
+
+    /**
+     * Shows the native OS directory picker and returns only the selected path
+     * string (no scan). Used by the "New Project" flow to pick an empty target
+     * directory before calling `project.initialize`.
+     *
+     * Returns `null` if the user cancels or selects outside their home dir.
+     */
+    selectFolder: () => Promise<string | null>
+
+    /** Project Registry CRUD — backed by the global bridge-registry.db. */
+    registry: RegistryAPI
+
+    /** Project lifecycle operations — scaffolding and path-based open. */
+    project: ProjectAPI
 
     /**
      * Transforms TSX source into preview-ready JS using Babel in the main process.
@@ -218,6 +341,23 @@ export interface BridgeAPI {
 
     /** Removes all listeners registered for the `tokens-updated` channel. */
     removeTokensUpdatedListener: () => void
+
+    /**
+     * Subscribes to live design token updates from the SQLite database.
+     *
+     * Calls `callback` immediately with the current token list, then again
+     * on every subsequent write to the design_tokens table — whether from a
+     * local CRUD operation (create / update / delete / clearAll) or a Figma
+     * ingestion sync.
+     *
+     * Returns an unsubscribe function — pass it to a `useEffect` cleanup to
+     * prevent memory leaks on component unmount.
+     *
+     * Replaces the manual `fetchTokens()` + `onTokensUpdated()` re-fetch cycle
+     * with a reactive, push-based model (Commandment 4 — Local-First: works
+     * fully offline with no backend required).
+     */
+    watchTokens: (callback: (tokens: DesignToken[]) => void) => () => void
 
     /**
      * UPSERTs the local user's presence record in the main-process SQLite DB.
@@ -300,6 +440,18 @@ export interface BridgeAPI {
      * Does NOT modify the working tree. Does NOT call `git checkout`.
      */
     gitShow: (filePath: string, commitHash: string) => Promise<string | null>
+
+    /**
+     * Returns a chronological list of up to 50 shadow commits that have touched
+     * `filePath` in the local git repository.
+     *
+     * Used by `RecoveryPanel` to populate the file's Time Machine timeline.
+     * Returns an empty array when the file is not tracked by git.
+     */
+    gitLog: (filePath: string) => Promise<GitLogEntry[]>
+
+    /** Native OS menu event subscriptions (File → New / Open / Close Project). */
+    menu: MenuAPI
 }
 
 declare global {

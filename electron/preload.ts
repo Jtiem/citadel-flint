@@ -129,6 +129,41 @@ contextBridge.exposeInMainWorld('bridgeAPI', {
     },
 
     /**
+     * Subscribes to live design token updates from the SQLite database.
+     *
+     * On call, immediately invokes `callback` with the current token list so
+     * the caller never starts with stale data. Subsequently, every time any
+     * token mutation (create / update / delete / clearAll / Figma ingest)
+     * commits to the design_tokens table the main process emits
+     * 'bridge:tokens-updated', which re-fetches the full list and calls
+     * `callback` again.
+     *
+     * Returns an unsubscribe function. Pass it to `useEffect` cleanup:
+     * ```ts
+     * useEffect(() => tokenStore.getState().initSync(), [])
+     * ```
+     */
+    watchTokens: (callback: (tokens: {
+        id: number
+        token_path: string
+        token_type: string
+        token_value: string
+        description: string | null
+        mode: string
+        collection_name: string
+    }[]) => void): (() => void) => {
+        const onUpdate = (): void => {
+            void ipcRenderer.invoke('tokens:read-all').then(callback)
+        }
+        ipcRenderer.on('bridge:tokens-updated', onUpdate)
+        // Deliver current state immediately so the caller is never empty on start.
+        void ipcRenderer.invoke('tokens:read-all').then(callback)
+        return (): void => {
+            ipcRenderer.removeListener('bridge:tokens-updated', onUpdate)
+        }
+    },
+
+    /**
      * UPSERTs the local user's presence record (cursor position + selected node).
      *
      * The renderer is responsible for throttling calls to ≤ 1 per 50–100 ms.
@@ -206,6 +241,70 @@ contextBridge.exposeInMainWorld('bridgeAPI', {
         ipcRenderer.invoke('dialog:openFolder'),
 
     /**
+     * Shows the native OS directory picker and returns only the selected path
+     * string — no file scan. Used by the "New Project" flow to pick an empty
+     * target directory before calling `project.initialize`.
+     *
+     * Returns null if the user cancels or selects outside their home directory.
+     */
+    selectFolder: (): Promise<string | null> =>
+        ipcRenderer.invoke('dialog:selectFolder'),
+
+    /**
+     * Project Registry API — backed by the global `bridge-registry.db`.
+     * Tracks recently opened / created Bridge workspaces.
+     */
+    registry: {
+        /** Returns up to 10 recently opened projects, newest first. */
+        getRecent: (): Promise<{
+            id: string; name: string; path: string; last_opened: number
+        }[]> =>
+            ipcRenderer.invoke('registry:getRecent'),
+
+        /**
+         * Records or refreshes a project entry (upsert on `path`).
+         * Call after `openFolder` so manually opened folders appear in the list.
+         */
+        upsertProject: (payload: { name: string; path: string }): Promise<void> =>
+            ipcRenderer.invoke('registry:upsertProject', payload),
+
+        /**
+         * Removes the project with the given `id` from the registry.
+         * Called when the user dismisses a project from the Recent list.
+         */
+        removeProject: (id: string): Promise<void> =>
+            ipcRenderer.invoke('registry:removeProject', id),
+    },
+
+    /**
+     * Project lifecycle API — template scaffolding and path-based open.
+     */
+    project: {
+        /**
+         * Scaffolds a new Bridge workspace by copying a bundled template into
+         * an empty user-selected directory, upserts into the registry, and
+         * returns the scanned FileTreeNode tree.
+         *
+         * Throws if `targetPath` is non-empty, outside the home dir, or if
+         * `templateId` is unknown.
+         */
+        initialize: (payload: { targetPath: string; templateId: string }): Promise<{
+            name: string; path: string; type: 'file' | 'directory'; children?: unknown[]
+        }> =>
+            ipcRenderer.invoke('project:initialize', payload),
+
+        /**
+         * Opens an existing project by its absolute path: scans for source
+         * files, upserts into the registry, and returns the FileTreeNode tree.
+         * Returns null when the path is outside the home dir or scan fails.
+         */
+        openPath: (folderPath: string): Promise<{
+            name: string; path: string; type: 'file' | 'directory'; children?: unknown[]
+        } | null> =>
+            ipcRenderer.invoke('project:openPath', folderPath),
+    },
+
+    /**
      * Reads and returns the raw UTF-8 content of a `.tsx/.ts/.jsx/.js` source
      * file within the user's home directory.
      *
@@ -227,4 +326,39 @@ contextBridge.exposeInMainWorld('bridgeAPI', {
      */
     gitShow: (filePath: string, commitHash: string): Promise<string | null> =>
         ipcRenderer.invoke('ast:git-show', filePath, commitHash),
+
+    /**
+     * Returns a chronological list of up to 50 shadow commits that have touched
+     * `filePath` in the local git repository. Each entry exposes the abbreviated
+     * hash, the commit message, and a Unix timestamp (seconds since epoch).
+     *
+     * Used by RecoveryPanel to populate the file's Time Machine timeline.
+     *
+     * Returns an empty array when the file is not tracked by git or the repo
+     * does not exist yet.
+     */
+    gitLog: (filePath: string): Promise<{ hash: string; message: string; timestamp: number }[]> =>
+        ipcRenderer.invoke('ast:git-log', filePath),
+
+    /**
+     * Native OS menu event subscriptions.
+     * The main process pushes these events when the user selects a File menu item.
+     * Call `removeMenuListeners()` in a useEffect cleanup to avoid duplicate handlers.
+     */
+    menu: {
+        onNewProject: (callback: () => void): void => {
+            ipcRenderer.on('menu:new-project', () => callback())
+        },
+        onOpenProject: (callback: () => void): void => {
+            ipcRenderer.on('menu:open-project', () => callback())
+        },
+        onCloseProject: (callback: () => void): void => {
+            ipcRenderer.on('menu:close-project', () => callback())
+        },
+        removeMenuListeners: (): void => {
+            ipcRenderer.removeAllListeners('menu:new-project')
+            ipcRenderer.removeAllListeners('menu:open-project')
+            ipcRenderer.removeAllListeners('menu:close-project')
+        },
+    },
 })

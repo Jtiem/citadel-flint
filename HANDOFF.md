@@ -1,355 +1,218 @@
-# Bridge IDE — Developer Handoff
+# Bridge IDE — Developer Handoff (v5.16)
 
-**Date:** 2026-02-26
-**Status:** Phases 1–2C complete, zero TypeScript errors.
+**Date:** 2026-03-04
+**Commit:** Phase D.2 (Macro-Recovery Frontend) applied
+**Status:** Phase D.2 (Git Time Machine UI) — **COMPLETE**
+**Tests:** 99/99 passing · ΔE = 0.0 · `tsc --noEmit`: 0 errors
 **Run:** `npm run dev`
 
 ---
 
-## 1. Architecture Overview
+## 1. Architecture Overview (v5.7)
 
-Bridge is a three-process Electron app:
+Bridge is a performance-hardened, three-process Electron app designed for agentic surgery:
 
 ```
 ┌──────────────────────────────────────────────────────────┐
 │  Main Process (Node.js / Electron)                       │
-│  · Babel transform: TSX → plain JS (via IPC)             │
-│  · SQLite token store (better-sqlite3)                   │
-│  · IPC bridge exposed as window.bridgeAPI (preload.js)   │
-└──────────────┬───────────────────────────────────────────┘
-               │ contextBridge / IPC
-┌──────────────▼───────────────────────────────────────────┐
-│  Renderer Process (Vite + React 18 + TypeScript)         │
-│  · Monaco code editor                                    │
-│  · Babel AST pipeline (runs in renderer — no Node.js)    │
-│  · Zustand stores (editor state, tokens)                 │
-│  · Three-panel layout: Layers+Assets | Preview+Code |    │
-│    Properties+Tokens                                     │
-└──────────────┬───────────────────────────────────────────┘
-               │ srcdoc + postMessage
-┌──────────────▼───────────────────────────────────────────┐
-│  iframe (sandboxed srcdoc)                               │
-│  · React 18 UMD + Tailwind CDN                           │
-│  · Renders user component live                           │
-│  · Listens for HIGHLIGHT / HOVER / DRAG_OVER /           │
-│    DRAG_CLEAR / CLEAR_HOVER messages                     │
-│  · Broadcasts CANVAS_CLICK / CANVAS_HOVER /              │
-│    CANVAS_HOVER_CLEAR via window.parent.postMessage      │
-└──────────────────────────────────────────────────────────┘
-```
+│  · FileTransactionManager: Atomic .tmp → rename queue    │
+│  · SQLite + PowerSync: CRDT Persistence layer            │
+## 1. Architecture Overview
+**Bridge** is the first Agentic UI Operating System. It acts as a strict "containment field" around LLM-driven development, ensuring brand alignment, accessibility, and codebase integrity through AST-level determinism. **If it isn't in the AST, it doesn't exist.**
 
-The key pipeline:
-
-```
-User edits code in Monaco
-  → editorStore.setCode()
-  → parseCodeToAST() — Babel in renderer
-  → buildVisualTree() — VisualLayer[]
-  → LayerTree re-renders
-
-Bi-directional mutations (className, moveNode, injectComponent):
-  → fresh parseCodeToAST()
-  → mutate AST in-place
-  → generateCodeFromAST()
-  → parseCodeToAST() again for clean locs
-  → set({ rawCode, ast, visualTree })
-  → LivePreview useEffect detects rawCode change
-  → window.bridgeAPI.transformCode() → Electron main process
-  → Babel strips imports, rewrites export default → window.__AppComponent
-  → iframeRef.current.srcdoc = buildSrcdoc(js, tailwindConfig)
-```
+### Technical Foundation
+| Layer | Tech | Role |
+|-------|------|------|
+| **Core** | Electron | Main/Renderer multi-process architecture |
+| **Persist** | SQLite WAL | `bridge.db` (state) + `bridge-registry.db` (global) |
+| **Logic** | React 19 + Zustand | Strict separation of state from UI representation |
+| **Engine** | Babel | In-memory AST surgery / Live Preview code injection |
 
 ---
 
-## 2. Complete File Map
+## 2. Module Status Map (v6.6)
+| Module | ID | Status | Subsystem |
+|--------|----|--------|-----------|
+| Code-First Recovery | D.1 | **ONLINE** | `gitShow` IPC + `transplantNode` AST swap |
+| Git Time Machine UI | D.2 | **ONLINE** | `ast:git-log` IPC + `RecoveryPanel.tsx` + `revertNodeToCommit` |
+| Batch Mutation Engine | E.1 | **ONLINE** | `ASTService.applyMutationBatch` + `applyInversions` |
+| FileTransactionManager | E.2 | **ONLINE** | `electron/FileTransactionManager.ts` |
+| canvasStore + Auto-Save | F.1 | **ONLINE** | `canvasStore.triggerAutoSave`, `saveState` lifecycle |
+| Cross-File Move | F.2 | **ONLINE** | `astBufferStore.crossFileMove` (11-step atomic) |
+| Global Recovery Engine | G.1 | **ONLINE** | `recoveryController.ts` — single-file + cross-file undo |
+| Scaffolding & Registry | G.2 | **ONLINE** | `LaunchScreen.tsx`, `templateService.ts`, `registry.ts` |
+| Cross-File Redo | H | **ONLINE** | `CrossFileMoveRedoPlan`, `isRecovery` flag |
+| Undo Void Fix | K | **ONLINE** | `editorStore.applyBatch` no-op guard + `setCode` Cmd-10 fix |
+| Post-Redo Undoability | L | **ONLINE** | `historyStore.pushPast` + `crossFileMove` inversions return |
+| Sharma Validation | B.1-b | **ONLINE** | `snippetAuditor.ts` with AST shadow/fragment safety |
 
-### `src/core/`
+---
+
+## 3. Updated File Map
+
+### `src/core/` (Services)
 | File | Purpose |
 |------|---------|
-| `ast-parser.ts` | **All renderer-side Babel work.** `parseCodeToAST`, `generateCodeFromAST`, `buildVisualTree`, `updateJSXClassName`. The foundational layer everything else depends on. |
+| `ASTService.ts` | Batch mutations, `InverseMutation` generation, `synthesizeImports`. |
+| `ast-parser.ts` | Foundational Babel utilities: parse, generate, visual-tree, `injectBridgeIds`. |
+| `recoveryController.ts` | `applyUndo` / `applyRedo` / `applyRedoPlan`. Phase G.1 + H. |
+| `MithrilLinter.ts` | CIEDE2000 ΔE perceptual drift guard. |
+| `GitService.ts` | Surgical git-transplant recovery. |
 
-### `src/store/`
-| File | Key State | Key Actions |
-|------|-----------|-------------|
-| `editorStore.ts` | `rawCode`, `ast`, `visualTree`, `selectedNodeId`, `hoveredId`, `jumpToLine` | `setCode`, `setSelectedNode`, `setHoveredId`, `setJumpToLine`, `updateNodeProperty`, `moveLayerNode`, `injectComponent` |
-| `tokenStore.ts` | `tokens: DesignToken[]` | `fetchTokens`, `ensureDemoTokens` |
+### `src/store/` (State)
+| File | Key State / Role |
+|------|-----------------|
+| `historyStore.ts` | `past`/`future` stacks. `HistoryEntry` with `redoPlan?: RedoPlan`. `CrossFileMoveRedoPlan` type. |
+| `astBufferStore.ts` | Headless multi-file AST buffers. `crossFileMove` (11 steps, `isRecovery` flag). |
+| `canvasStore.ts` | Workspace tree, active file, `saveState` lifecycle. |
+| `editorStore.ts` | Active-file AST, Visual Tree, `applyBatch`, `syncCode`. |
+| `tokenStore.ts` | Design Token CRUD (SQLite via PowerSync). |
 
-### `src/utils/`
-| File | Exports |
-|------|---------|
-| `astModifier.ts` | `DropPosition`, `moveNode()`, `injectComponent()` |
-| `classMapper.ts` | `tokenToClass(tokenPath, tokenType, prefix)` — maps design tokens to Tailwind class strings |
-| `layerNaming.ts` | `getLayerName(layer)` → `{ name, type, tag }` — smart display names for the layer tree |
-| `layoutMapper.ts` | `LayoutCategory`, `updateLayoutClass()`, `getActiveLayoutClass()` — managed-set approach for mutually exclusive Tailwind layout classes |
-| `tokenAdapter.ts` | `generateTailwindConfig(tokens)` — serialises token store to a Tailwind `extend` config JSON injected into the iframe |
-
-### `src/components/editor/`
+### `electron/`
 | File | Role |
 |------|------|
-| `CodeEditor.tsx` | Monaco editor wired to `rawCode`; respects `jumpToLine` |
-| `LivePreview.tsx` | `buildSrcdoc()` + iframe. Handles all postMessage bridge traffic (5 inbound, 3 outbound). Custom DOM events `bridge:dragOver` / `bridge:dragClear` relayed from LayerTree. |
-| `AssetsPanel.tsx` | Registry tile list; inline amber alert when no layer selected |
+| `FileTransactionManager.ts` | Atomic `.tmp` → `rename` write queue. Serialised per path, concurrent across paths. |
+| `GitManager.ts` | `ensureRepo` + `shadowCommit` (called after every atomic save). `getGitNode` for surgical node extraction from git history. |
+| `main.ts` | IPC handlers: `saveFile`, `saveFileBatch`, `readFile`, `transformCode`, `openFolder`, `ast:git-show`, `ast:git-log`. |
+| `preload.ts` | `contextBridge` exposure of `window.bridgeAPI` including `gitShow` and `gitLog`. |
 
 ### `src/components/ui/`
 | File | Role |
 |------|------|
-| `LayerTree.tsx` | Recursive `LayerRow`. Collapsible (`collapsedIds` Set in `LayerTree`). Full HTML5 DnD with before/after/inside indicators. Hover sync (`onMouseEnter`/`onMouseLeave`). Broadcasts `bridge:dragOver` / `bridge:dragClear` custom DOM events. |
-| `PropertiesPanel.tsx` | Mounts `LayoutPanel` then `ClassBuilder` when a layer is selected |
-| `TokenManager.tsx` | CRUD UI for the design token SQLite store |
-
-### `src/components/inspector/`
-| File | Role |
-|------|------|
-| `LayoutPanel.tsx` | Figma-style auto layout controls. `AlignmentGrid` 3×3 sub-component with axis-swap for flex-col. Flow (wrap/col/row), AlignmentGrid+Gap, W/H sizing, Padding sections. |
-| `ClassBuilder.tsx` | Token-driven class picker. Tabs per token type. |
-| `TokenSelect.tsx` | Reusable prefix + token-type dropdown. |
-
-### `src/data/`
-| File | Role |
-|------|------|
-| `componentRegistry.ts` | `RegistryEntry[]` — Button, Badge, Paragraph. Source of truth for the Assets Panel. |
-
-### `src/App.tsx`
-Three-panel shell. Left panel has **Layers / Assets** tab bar (`leftTab` state). Center: Preview (top) + Code (bottom). Right: Properties (top) + Tokens (bottom).
+| `FileExplorer.tsx` | Cross-file drag source (triggers `crossFileMove`). |
+| `LayerTree.tsx` | Single-file drag reorder (triggers `editorStore.moveLayerNode`). |
+| `RecoveryPanel.tsx` | **Phase D.2** — Time Machine UI. Queries `bridgeAPI.gitLog`, renders shadow-commit timeline, triggers `editorStore.revertNodeToCommit` for surgical node transplants. |
 
 ---
 
-## 3. The Bi-Directional Bridge — Message Protocol
+## 4. The AST Command Pattern — Full Flows
 
-All iframe↔renderer communication uses `window.postMessage`.
-
-### Renderer → iframe (`iframeRef.current.contentWindow.postMessage`)
-| Message | Payload | Effect |
-|---------|---------|--------|
-| `HIGHLIGHT` | `{ id: string \| null }` | Adds/removes `.bridge-selected` (solid blue outline) |
-| `HOVER` | `{ id: string }` | Adds `.bridge-hovered` (dashed slate outline) |
-| `CLEAR_HOVER` | — | Removes all `.bridge-hovered` |
-| `DRAG_OVER` | `{ targetId, position }` | Adds `.bridge-drop-{before\|after\|inside}` |
-| `DRAG_CLEAR` | — | Removes all `.bridge-drop-*` |
-
-### iframe → renderer (`window.parent.postMessage`)
-| Message | Payload | Handler |
-|---------|---------|---------|
-| `CANVAS_CLICK` | `{ id: string }` | `setSelectedNode(id)` |
-| `CANVAS_HOVER` | `{ id: string }` | `setHoveredId(id)` |
-| `CANVAS_HOVER_CLEAR` | — | `setHoveredId(null)` |
-
-### Renderer → iframe relay (custom DOM events → postMessage)
-`LayerTree` dispatches `bridge:dragOver` and `bridge:dragClear` on `window`.
-`LivePreview` listens for these and forwards them to `iframeRef.current.contentWindow`.
-
-### iframe CSS classes injected via `buildSrcdoc`
-```css
-.bridge-selected  { outline: 2px solid #3b82f6 !important; background: rgba(59,130,246,0.1) !important; }
-.bridge-hovered   { outline: 2px dashed #94a3b8 !important; background: rgba(148,163,184,0.1) !important; z-index: 40; }
-.bridge-drop-before { box-shadow: 0 -3px 0 0 #3b82f6 !important; z-index: 50; }
-.bridge-drop-after  { box-shadow: 0 3px 0 0 #3b82f6 !important; z-index: 50; }
-.bridge-drop-inside { outline: 2px solid #3b82f6 !important; background: rgba(59,130,246,0.2) !important; }
-```
-
----
-
-## 4. Node ID Format (Critical)
-
-Every JSXElement in the AST gets a synthetic ID:
-
-```
-"<tagName>:<1-based-line>:<0-based-column>"
-Examples:
-  "div:10:4"
-  "Button:22:6"
-  "React.Fragment:5:2"
-```
-
-This ID is:
-- Produced by `buildVisualTree` in `ast-parser.ts`
-- Matched in `findNode` in `astModifier.ts` (line + col only — tag name is prefix, not compared)
-- Stored in `VisualLayer.id`
-- Used as the `data-bridge-id` attribute value in the rendered HTML (injected by the Babel transform in the **main process**)
-- Used as `selectedNodeId` and `hoveredId` in the store
-
-**Warning:** IDs are position-based. After any AST mutation (`moveLayerNode`, `injectComponent`, `updateNodeProperty`), the code is regenerated and re-parsed. Source locations shift, so all IDs are stale after a mutation. The store always updates `visualTree` atomically with `rawCode` to keep them in sync. Never cache a node ID across a mutation boundary.
-
----
-
-## 5. The AST Pipeline — What Each Function Does
-
-### `parseCodeToAST(code: string): File | null`
-Runs `@babel/parser` with `['jsx', 'typescript']` plugins. Returns `null` on parse error (normal during live typing). The store's `setCode` preserves the last valid AST when this returns null.
-
-### `generateCodeFromAST(ast: File): string`
-Runs `@babel/generator` with `retainLines: false, comments: true`. Output is always re-parseable — used as the source of truth after every mutation.
-
-### `buildVisualTree(ast: File): VisualLayer[]`
-Traverses the AST with `enter`/`exit` hooks on `JSXElement`. Builds a nested `VisualLayer[]` mirroring JSX nesting. Extracts `className`, `id` attr, and first text content (`extractJSXText` recurses into nested elements and handles JSXExpressionContainers).
-
-### `updateJSXClassName(ast: File, nodeId: string, className: string): void`
-Finds element by line:col. Updates or creates the `className` JSXAttribute in-place. Uses Babel builder functions (`jsxAttribute`, `jsxIdentifier`, `stringLiteral`).
-
-### `moveNode(fileAST, sourceId, targetId, position): File`
-Pre-validates all constraints before any mutation (prevents partial state). Removes source from parent array. Handles same-parent index recalculation by re-calling `indexOf` after removal. Three positions: `before` / `after` / `inside`.
-
-### `injectComponent(fileAST, targetNodeId, jsxSnippet, importSnippet?): File`
-Two-phase:
-1. **Import**: Parses import string, checks `fileAST.program.body` for existing import from same module source, `unshift`s if absent.
-2. **JSX**: Wraps snippet in `<__bridge__>…</__bridge__>`, parses, extracts first `JSXElement` child, `push`es to target's `children` array.
-
----
-
-## 6. Recently Modified Files (This Session)
-
-| File | Change |
-|------|--------|
-| `src/utils/astModifier.ts` | Added `injectComponent()` + two private helpers (`parseImportSnippet`, `parseJSXSnippet`). Added `@babel/parser`, `isJSXElement`, `isImportDeclaration`, `ExpressionStatement` imports. |
-| `src/store/editorStore.ts` | Added `hoveredId`/`setHoveredId` state+action. Added `injectComponent` action (aliased import to avoid name clash). |
-| `src/components/ui/LayerTree.tsx` | Collapsible layers (`collapsedIds` Set, chevron toggle). Hover sync (`onMouseEnter`/`onMouseLeave`, `isHovered` styling). Drag broadcast (`bridge:dragOver`/`bridge:dragClear` custom events with `lastBroadcast` dedup ref). |
-| `src/components/editor/LivePreview.tsx` | CSS: `.bridge-hovered`, `.bridge-drop-*`. Message handler: `HOVER`, `CLEAR_HOVER`, `DRAG_OVER`, `DRAG_CLEAR`. Broadcaster: `_bridgeHoverId` tracker + `mouseover`/`mouseleave` on body. React: `hoveredId` effect + expanded message handler + drag relay `useEffect`. |
-| `src/data/componentRegistry.ts` | **New.** Three registry entries: Button, Badge, Paragraph. |
-| `src/components/editor/AssetsPanel.tsx` | **New.** Tile grid from registry. Inline amber alert when no layer selected. |
-| `src/App.tsx` | Left panel now has Layers/Assets tab bar (`leftTab` state). Imports `AssetsPanel`. |
-
----
-
-## 7. Immediate Next Steps — AST Parser
-
-The AST pipeline in `ast-parser.ts` has one function per mutation type. Here is the prioritised expansion roadmap:
-
-### 7a. Text Content Editing (`updateJSXTextContent`)
-**Why:** The Properties panel can show the layer's `textContent` but cannot edit it. Users expect to click on "Edit this component…" in the inspector and retype it.
-
-**Shape:**
+### HistoryEntry schema
 ```typescript
-export function updateJSXTextContent(
-    ast: File,
-    nodeId: string,
-    newText: string
-): void
-```
+interface HistoryEntry {
+    filePath?: string        // set for cross-file (headless buffer) entries
+    batchId?: string         // UUID grouping entries from one atomic operation
+    inversions: InverseMutation[]   // op: 'setAttr'|'restoreCode'|...
+    redoMutations: ASTMutation[]    // non-empty for single-file redo
+    redoPlan?: RedoPlan      // non-empty for cross-file redo (Phase H)
+}
 
-**Logic:** Find element by line:col. Iterate `path.node.children`. Find the first `JSXText` child with non-empty `value.trim()`. Replace its `value` with `newText`. If none exists, push a new `JSXText` node (`t.jsxText(newText)`).
-
-**Store action:** `updateNodeProperty(nodeId, 'textContent', value)` — add a `propName === 'textContent'` branch alongside the existing `className` branch.
-
----
-
-### 7b. Arbitrary Prop Editing (`updateJSXProp`)
-**Why:** `updateJSXClassName` is `className`-only. The inspector will need to set `href`, `src`, `variant`, `disabled`, `onClick`, etc.
-
-**Shape:**
-```typescript
-export function updateJSXProp(
-    ast: File,
-    nodeId: string,
-    propName: string,
-    value: string | boolean | null   // null = remove the prop
-): void
-```
-
-**Logic:** Generalises the existing `updateJSXClassName` logic. For string values use `stringLiteral`. For boolean `true` use a valueless JSXAttribute (e.g. `disabled`). For boolean `false` or `null` remove the attribute entirely. For expressions (e.g. `onClick={handler}`) a JSXExpressionContainer wrapper is needed — handle separately or accept a `rawExpression: string` flag.
-
----
-
-### 7c. Node Deletion (`removeNode`)
-**Why:** `injectComponent` can add nodes; there is no counterpart for deletion. The Assets Panel "undo" story and a Delete key handler both need this.
-
-**Shape:**
-```typescript
-export function removeNode(fileAST: File, nodeId: string): File
-```
-
-**Logic:** Find node with `findNode`. If `parentChildren === null`, the node is the JSX root — abort (cannot delete root). Otherwise, `parentChildren.splice(idx, 1)`.
-
-**Store action:** `removeLayerNode(nodeId: string)` — same fresh-parse → mutate → regenerate cycle.
-
----
-
-### 7d. `data-bridge-id` Injection — Understanding the Gap
-**Current situation:** The iframe uses `document.querySelector('[data-bridge-id="…"]')` for selection, hover, and drop indicators. These attributes must exist on the rendered DOM. They are currently injected by the **Electron main process Babel transform** (the `window.bridgeAPI.transformCode` IPC call), not by the renderer-side AST pipeline.
-
-**The risk:** The main-process transform is a black box from the renderer's perspective. If it changes (or fails to add `data-bridge-id`), selection silently breaks.
-
-**Recommended next step:** Add a renderer-side function to `ast-parser.ts`:
-
-```typescript
-export function injectBridgeIds(ast: File): File
-```
-
-**Logic:** Traverse all `JSXElement` nodes. For each, compute the synthetic ID (`${tagName}:${line}:${col}`). Check `opening.attributes` — if no `data-bridge-id` attribute is already present, push one using `jsxAttribute(jsxIdentifier('data-bridge-id'), stringLiteral(id))`.
-
-This makes the renderer self-sufficient: call it inside `buildSrcdoc` by running it on the fresh AST before `generateCodeFromAST`, using the resulting code as the iframe source rather than the main-process-transformed version.
-
-**Note:** This would bypass the main process IPC for `data-bridge-id` injection, meaning the main process only needs to handle TypeScript stripping and module rewriting — which is already its core job. The attributes are additive and won't break the component's runtime behaviour.
-
----
-
-### 7e. Wrap / Unwrap (`wrapNode`, `unwrapNode`)
-**Why needed for:** The Figma "Group Selection" mental model — select multiple layers and wrap them in a `<div>`. Or flatten a single-child wrapper.
-
-**`wrapNode(fileAST, nodeId, wrapperTag, wrapperClassName?): File`**
-Find node. Replace it in its parent array with a new JSXElement whose single child is the original node.
-
-**`unwrapNode(fileAST, nodeId): File`**
-Find node. Replace it in its parent array with its own children (spliced in). Abort if the node has ≠1 child or is the root.
-
----
-
-### 7f. Duplicate Node (`duplicateNode`)
-**Shape:** `duplicateNode(fileAST, nodeId): File`
-
-Deep-clone the found JSXElement (using `@babel/types`'s `cloneNode(node, true)`). Insert the clone immediately after the original in `parentChildren`.
-
----
-
-## 8. Known Constraints and Gotchas
-
-1. **No `any` allowed** — TypeScript strict mode + `noImplicitAny`. Every Babel node type must be narrowed with `isJSXElement`, `isImportDeclaration`, etc., or cast with explicit type imports.
-
-2. **CJS interop guard** — `@babel/traverse` and `@babel/generator` are CJS modules. Both files that import them use the same guard:
-   ```typescript
-   const traverse = typeof _traverse === 'function'
-       ? _traverse
-       : (_traverse as unknown as { default: typeof _traverse }).default
-   ```
-   Do not remove this — it is not redundant, it handles the vite-plugin-electron-renderer resolution path.
-
-3. **Fresh AST on every mutation** — Never pass `editorStore.getState().ast` to a mutation function. Always call `parseCodeToAST(get().rawCode)` inside the store action to get a clean copy. The live `ast` in the store is read-only.
-
-4. **Tailwind dynamic class generation** — All Tailwind classes used in the renderer UI must appear as literal strings in source files. Never construct class names with runtime interpolation (e.g. `pl-${depth * 4}` will never be in the generated CSS). Use `style={{ paddingLeft: depth * 14 + 8 }}` instead.
-
-5. **Renderer process only** — No `fs`, `path`, `child_process`, or any Node.js built-in in any file under `src/`. All Node.js work goes in the Electron main process and is exposed via `window.bridgeAPI`.
-
-6. **Self-closing abort** — Both `moveNode` (for `inside` drops) and `injectComponent` silently abort when the target `openingElement.selfClosing === true`. This is correct behaviour — `img`, `input`, `br` etc. cannot have children.
-
-7. **`<__bridge__>` wrapper tag** — `parseJSXSnippet` wraps the user's JSX in `<__bridge__>…</__bridge__>` to give the Babel parser a valid root. This tag never appears in generated output since we extract `.children.find(isJSXElement)` before using the result.
-
----
-
-## 9. Design Token System
-
-Tokens are stored in SQLite (main process). The renderer reads them via `tokenStore.fetchTokens()`.
-
-```typescript
-interface DesignToken {
-    token_path: string   // e.g. "brand/primary", "spacing/4"
-    token_type: string   // e.g. "color", "spacing", "typography"
-    value: string        // e.g. "#3b82f6", "1rem"
+interface CrossFileMoveRedoPlan {
+    type: 'crossFileMove'
+    sourceFilePath: string
+    sourceNodeId: string     // bridge-id, stable across restores
+    targetFilePath: string
+    targetNodeId: string     // always resolved (null-fallback done at push time)
+    position: DropPosition
 }
 ```
 
-`tokenAdapter.generateTailwindConfig(tokens)` converts the flat list into a `tailwind.config` JSON extension object injected into the iframe via `<script>tailwind.config = …</script>`.
+### Single-file mutation flow
+```
+applyBatch(mutations)
+  → applyMutationBatch(rawCode, mutations) → { code, inversions }
+  → parseCodeToAST(code) → set store
+  → triggerAutoSave(code)
+  → historyStore.push(inversions, mutations)
+```
 
-`classMapper.tokenToClass(tokenPath, tokenType, prefix)` maps a token to a Tailwind class string. The `prefix` controls the utility (e.g. `"bg-"` + `"brand/primary"` → `"bg-brand-primary"`).
+### Cross-file move flow
+```
+crossFileMove(srcFile, srcNode, tgtFile, tgtNode, position)
+  → (11 steps): validate → load buffers → extract → insert → generate
+  → saveFileBatch({srcFile: newSrcCode, tgtFile: newTgtCode})
+  → batchId = crypto.randomUUID()
+  → if (!options?.isRecovery):
+      historyStore.push(srcInversions, [], srcFile, batchId, redoPlan)
+      historyStore.push(tgtInversions, [], tgtFile, batchId)
+```
 
-`layoutMapper.ts` is **independent of tokens** — it manages mutually exclusive flex/sizing class sets. `FLEX_REQUIRED` gates which categories auto-add the base `flex` class.
+### Undo flow (Cmd+Z)
+```
+applyUndo()
+  → popUndo() → entry
+  → if entry.batchId: pop all siblings with same batchId → group[]
+  → if any entry.filePath:
+      applyCrossFileUndo(group)
+        → build batch: filePath → restoreCode
+        → saveFileBatch(batch)
+        → evictBuffer + loadBuffer for each file
+        → syncCode active editor if needed
+        → if group has redoPlan: pushFuture({ inversions:[], redoMutations:[], redoPlan })
+  → else:
+      applySingleFileUndo(entry)
+        → applyInversions(rawCode, inversions) → restoredCode
+        → syncCode(restoredCode) + triggerAutoSave(restoredCode)
+        → pushFuture({ inversions:[], redoMutations: entry.redoMutations })
+```
+
+### Redo flow (Cmd+Shift+Z) — Phase H
+```
+applyRedo()
+  → popRedo() → entry
+  → if entry.redoPlan:
+      applyRedoPlan(plan)
+        → crossFileMove(...plan params..., { isRecovery: true })
+           (AST surgery + file writes + editor sync; no historyStore.push)
+      return
+  → else if entry.redoMutations.length > 0:
+      editorStore.applyBatch(entry.redoMutations)
+        (generates fresh inversions, pushes to past)
+```
 
 ---
 
-## 10. Running and Building
+## 5. Phase H Change Log
 
-```bash
-npm run dev        # Electron + Vite dev server (HMR)
-npm run build      # Production build
-npx tsc --noEmit   # Type-check only (zero errors expected)
-```
+**`src/store/historyStore.ts`**
+- Added `CrossFileMoveRedoPlan` interface + `RedoPlan` union type
+- Added `redoPlan?: RedoPlan` to `HistoryEntry`
+- Extended `push()` with optional 5th param `redoPlan?`
 
-The Vite config uses `vite-plugin-electron` and `vite-plugin-electron-renderer` to handle the main/renderer split and CJS interop for Babel packages.
+**`src/store/astBufferStore.ts`**
+- Step 11 builds `CrossFileMoveRedoPlan` from `effectiveTargetId` (always resolved non-null)
+- Passes `redoPlan` as 5th arg to source-file `push()`
+- New `options?: { isRecovery?: boolean }` parameter on `crossFileMove`
+- Both `historyStore.push()` calls guarded with `if (!options?.isRecovery)`
+
+**`src/core/recoveryController.ts`**
+- `applyCrossFileUndo`: extracts `redoPlan` from group, calls `pushFuture({ redoPlan })`
+- `applyRedo`: dispatches to `applyRedoPlan` when `entry.redoPlan !== undefined`
+- New `applyRedoPlan(plan)`: re-invokes `crossFileMove(..., { isRecovery: true })`
+
+---
+
+## 6. Invariants & Gotchas
+
+1. **7D Hardening:** Every buffer loaded via `loadBuffer` has `injectBridgeIds(ast)` applied immediately. Never mutate a buffer that hasn't been hardened.
+2. **`historyStore.clear()`** must be called on file-open (`canvasStore.setActiveFile`) to prevent stale undo entries from bleeding across files.
+3. **macOS `ENOTEMPTY`:** In tests, use `rm({ maxRetries: 3 })` for temp directory cleanup. `force: true` alone is insufficient on APFS.
+4. **Monaco coexistence:** `App.tsx` keyboard listener uses `!= null` (loose equality) to guard against `document.activeElement` being `null` — optional chaining returns `undefined` in that case, and `undefined !== null` would incorrectly block undo. Bridge undo/redo fires only outside Monaco.
+5. **`isRecovery` semantics:** After a cross-file redo, `past` remains empty (no new entries pushed). The operation is re-executed atomically but is not further undo-able in this release. The architect should extend this in a future phase if post-redo undo is required.
+6. **`effectiveTargetId` non-null guarantee:** The null-guard at step 3 of `crossFileMove` ensures `effectiveTargetId` is always a `string` when the `redoPlan` is built. The `as string` cast at that site is safe.
+7. **`push()` clears `future`:** Every normal `historyStore.push()` call zeroes the future stack. The `pushFuture()` path does not clear `past`. Never mix them in the same flow.
+
+---
+
+## 7. Phase K Change Log
+
+**`src/store/editorStore.ts`**
+- **K.1 — `applyBatch` no-op guard:** Added early-return when `firstInv?.op === 'restoreCode' && firstInv.code === newCode`. Prevents void-undo entries when `moveNode` silently fails because the source node cannot be found by stale structural ID.
+- **K.2 — `setCode` Commandment 10 fix:** Capture `const previousCode = get().rawCode` *before* `set()`. The previous code ran the history-clear check after `set()`, making `get().rawCode === code` always true — history was never cleared on file load.
+- **K.3 — `updateNodeProperty` Phase G.2 completion:** Removed direct ast-parser calls; all three branches (className / textContent / arbitrary prop) now route through `applyBatch`, making every property edit undoable.
+
+**`src/core/ASTService.ts`**
+- Added `UpdateTextContentMutation` interface (`op: 'updateTextContent'`).
+- Added `readCurrentTextContent` traversal helper.
+- Added `case 'updateTextContent'` handler in `applyMutationBatch` — captures old text as surgical inverse before calling `updateJSXTextContent`.
+- Extended `ASTMutation` and `InverseMutation` unions with the new type.
+
+**`src/App.tsx`**
+- **K.4 — Keyboard null safety:** Changed `!== null` to `!= null` in the Monaco focus guard. `document.activeElement?.closest(…)` returns `undefined` (not `null`) when `activeElement` is null; loose equality covers both.
+
+---
+
+## 8. Immediate Next Steps
+
+- **Phase I (Post-Redo Undoability):** Extend `applyRedoPlan` to capture pre-redo snapshots and push a consolidated undo entry after the recovery `crossFileMove`.
+- **PowerSync CRDT (Module C):** Multiplayer presence + conflict arbitration.

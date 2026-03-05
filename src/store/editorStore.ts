@@ -23,22 +23,15 @@ import {
     parseCodeToAST,
     buildVisualTree,
     generateCodeFromAST,
-    updateJSXClassName,
-    updateJSXTextContent,
     transplantNode,
-    updateJSXProp,
 } from '../core/ast-parser'
 import type { VisualLayer } from '../core/ast-parser'
-import {
-    moveNode,
-    injectComponent as injectComponentAST,
-    applyTokenFix as applyTokenFixAST,
-} from '../utils/astModifier'
 import type { DropPosition } from '../utils/astModifier'
 import { applyMutationBatch } from '../core/ASTService'
 import type { ASTMutation } from '../core/ASTService'
 import { useCanvasStore } from './canvasStore'
 import { useHistoryStore } from './historyStore'
+import type { LinterWarning } from '../types/bridge-api'
 
 // ── Seed content ──────────────────────────────────────────────────────────────
 // A realistic React component with JSX nesting, TypeScript interfaces, and
@@ -76,6 +69,18 @@ interface EditorState {
      * the value to null. Clicking the same row twice therefore always jumps.
      */
     jumpToLine: number | null
+    /**
+     * Rich perceptual-drift warnings indexed by `data-bridge-id`.
+     *
+     * This is the single source of truth for all Mithril Violation state:
+     * - `MithrilProvider` populates it after every full-file AST scan.
+     * - `PropertiesPanel.checkMithrilDrift` upserts/removes single entries
+     *   immediately on className commit for pre-AST-update feedback.
+     * - The Export Gate reads `linterWarnings.size` via `canvasStore.canExport`.
+     *
+     * Cleared on `clearAST()` (file close / project switch).
+     */
+    linterWarnings: Map<string, LinterWarning>
 }
 
 interface EditorActions {
@@ -144,6 +149,26 @@ interface EditorActions {
      */
     clearAST: () => void
     /**
+     * Replaces the entire `linterWarnings` map with the provided one.
+     * Called by `MithrilProvider` after a full-file AST scan.
+     */
+    setLinterWarnings: (warnings: Map<string, LinterWarning>) => void
+    /**
+     * Upserts a single entry in `linterWarnings`.
+     * Called by `PropertiesPanel.checkMithrilDrift` for immediate pre-commit feedback.
+     */
+    setLinterWarning: (id: string, warning: LinterWarning) => void
+    /**
+     * Removes a single entry from `linterWarnings`.
+     * Called by `PropertiesPanel.checkMithrilDrift` when drift resolves.
+     */
+    clearLinterWarning: (id: string) => void
+    /**
+     * Wipes all entries from `linterWarnings`.
+     * Called by `clearAST` as part of the Clean Slate Protocol.
+     */
+    clearAllLinterWarnings: () => void
+    /**
      * Updates rawCode, ast, and visualTree without triggering auto-save or
      * clearing undo/redo history. Used after programmatic mutations that have
      * already been persisted externally (e.g., crossFileMove via astBufferStore).
@@ -154,18 +179,24 @@ interface EditorActions {
     /**
      * Reverts the JSX element identified by `nodeId` to its last-committed
      * (HEAD) state using a surgical AST transplant (Phase D.1 / Commandment 11).
+     * Thin wrapper over `revertNodeToCommit(nodeId, 'HEAD')`.
+     */
+    revertNodeToHead: (nodeId: string) => Promise<void>
+    /**
+     * Reverts the JSX element identified by `nodeId` to its state at
+     * `commitHash` using a surgical AST transplant.
      *
      * Flow:
-     *   1. Fetches the file's content at HEAD via `window.bridgeAPI.gitShow`.
+     *   1. Fetches the file's content at `commitHash` via `window.bridgeAPI.gitShow`.
      *   2. Parses historic code to a Babel AST.
      *   3. Calls `transplantNode` to replace the live node with a deep clone
      *      of the corresponding historic node, leaving all other nodes intact.
-     *   4. Regenerates, re-parses, and updates store state.
+     *   4. Regenerates, re-parses, and updates store state via `triggerAutoSave`.
      *
      * Silent no-op when no file is open, the file is not tracked by git, or
      * `nodeId` cannot be resolved in either AST.
      */
-    revertNodeToHead: (nodeId: string) => Promise<void>
+    revertNodeToCommit: (nodeId: string, commitHash: string) => Promise<void>
 }
 
 type EditorStore = EditorState & EditorActions
@@ -186,8 +217,13 @@ export const useEditorStore = create<EditorStore>((set, get) => {
         hoveredId: null,
         visualTree: initialTree,
         jumpToLine: null,
+        linterWarnings: new Map(),
 
         setCode: (code: string) => {
+            // Capture BEFORE set() so the file-load vs. typing check is
+            // comparing against the previous value (Commandment 10 fix —
+            // the old code ran after set(), making get().rawCode === code always).
+            const previousCode = get().rawCode
             const parsed = parseCodeToAST(code)
             if (parsed !== null) {
                 // Happy path: code is syntactically valid — update everything.
@@ -202,10 +238,10 @@ export const useEditorStore = create<EditorStore>((set, get) => {
 
                 // Clear undo/redo history when loading a different file.
                 // Prevents cross-file undo corruption (Commandment 10).
-                // We detect "file load" vs "typing" by comparing against rawCode:
-                // if the incoming code is completely different from what is
-                // currently in the store, treat it as a fresh file load.
-                if (code !== get().rawCode) {
+                // Comparing against `previousCode` (captured above) — after
+                // set() is called, get().rawCode already equals `code` and the
+                // comparison would always be false.
+                if (code !== previousCode) {
                     useHistoryStore.getState().clear()
                 }
             } else {
@@ -233,88 +269,25 @@ export const useEditorStore = create<EditorStore>((set, get) => {
             propName: string,
             value: string
         ) => {
-            // Parse a FRESH copy of rawCode — never mutate the store's live ast.
-            const freshAst = parseCodeToAST(get().rawCode)
-            if (freshAst === null) return
-
-            // Mutate the fresh AST in-place based on the property name.
             if (propName === 'className') {
-                updateJSXClassName(freshAst, nodeId, value)
+                get().applyBatch([{ op: 'updateClassName', nodeId, className: value }])
             } else if (propName === 'textContent') {
-                updateJSXTextContent(freshAst, nodeId, value)
+                get().applyBatch([{ op: 'updateTextContent', nodeId, text: value }])
             } else {
-                // Arbitrary JSX attribute (href, disabled, variant, src, etc.)
-                // Delegate to the general-purpose prop mutator.
-                updateJSXProp(freshAst, nodeId, propName, value)
+                get().applyBatch([{ op: 'updateProp', nodeId, propName, value }])
             }
-
-            // Regenerate source from the mutated AST, then re-parse for a
-            // clean canonical AST (Babel's generator output is always re-parseable)
-            const newCode = generateCodeFromAST(freshAst)
-            const newAst = parseCodeToAST(newCode)
-            if (newAst === null) return
-
-            set({
-                rawCode: newCode,
-                ast: newAst,
-                visualTree: buildVisualTree(newAst),
-            })
-            // Persist immediately — this is a discrete user mutation, not typing.
-            useCanvasStore.getState().triggerAutoSave(newCode)
         },
 
         moveLayerNode: (sourceId, targetId, position) => {
-            const freshAst = parseCodeToAST(get().rawCode)
-            if (freshAst === null) return
-
-            moveNode(freshAst, sourceId, targetId, position)
-
-            const newCode = generateCodeFromAST(freshAst)
-            const newAst = parseCodeToAST(newCode)
-            if (newAst === null) return
-
-            set({
-                rawCode: newCode,
-                ast: newAst,
-                visualTree: buildVisualTree(newAst),
-            })
-            useCanvasStore.getState().triggerAutoSave(newCode)
+            get().applyBatch([{ op: 'moveNode', sourceId, targetId, position }])
         },
 
         injectComponent: (targetNodeId, jsxSnippet, importSnippet) => {
-            const freshAst = parseCodeToAST(get().rawCode)
-            if (freshAst === null) return
-
-            injectComponentAST(freshAst, targetNodeId, jsxSnippet, importSnippet)
-
-            const newCode = generateCodeFromAST(freshAst)
-            const newAst = parseCodeToAST(newCode)
-            if (newAst === null) return
-
-            set({
-                rawCode: newCode,
-                ast: newAst,
-                visualTree: buildVisualTree(newAst),
-            })
-            useCanvasStore.getState().triggerAutoSave(newCode)
+            get().applyBatch([{ op: 'injectComponent', targetNodeId, jsxSnippet, importSnippet }])
         },
 
         applyTokenFix: (nodeId, hardcodedClass, tokenClass) => {
-            const freshAst = parseCodeToAST(get().rawCode)
-            if (freshAst === null) return
-
-            applyTokenFixAST(freshAst, nodeId, hardcodedClass, tokenClass)
-
-            const newCode = generateCodeFromAST(freshAst)
-            const newAst = parseCodeToAST(newCode)
-            if (newAst === null) return
-
-            set({
-                rawCode: newCode,
-                ast: newAst,
-                visualTree: buildVisualTree(newAst),
-            })
-            useCanvasStore.getState().triggerAutoSave(newCode)
+            get().applyBatch([{ op: 'applyTokenFix', nodeId, hardcodedClass, tokenClass }])
         },
 
         applyBatch: (mutations) => {
@@ -324,6 +297,17 @@ export const useEditorStore = create<EditorStore>((set, get) => {
                 get().rawCode,
                 mutations
             )
+
+            // No-op detection: a structural mutation (moveNode, deleteNode, etc.)
+            // silently failed when the restoreCode snapshot equals the output code.
+            // This happens when the source node cannot be found by ID (e.g., stale
+            // structural ID after a prior edit shifted line numbers). Bailing here
+            // prevents a void undo entry that restores to the identical source
+            // (the "Undo Void" bug — BRIDGE-PULSE-v5.8 History Stack DEGRADED).
+            const firstInv = inversions[0]
+            if (firstInv?.op === 'restoreCode' && firstInv.code === newCode) {
+                return
+            }
 
             const newAst = parseCodeToAST(newCode)
             if (newAst === null) return
@@ -361,6 +345,7 @@ export const useEditorStore = create<EditorStore>((set, get) => {
                 selectedNodeId: null,
                 hoveredId: null,
                 jumpToLine: null,
+                linterWarnings: new Map(),
             })
 
             // EXPLICIT FLUSH: bypass React/IPC tick and kill the iframe DOM instantly
@@ -372,13 +357,39 @@ export const useEditorStore = create<EditorStore>((set, get) => {
             }
         },
 
+        setLinterWarnings: (warnings) => {
+            set({ linterWarnings: warnings })
+        },
+
+        setLinterWarning: (id, warning) => {
+            const updated = new Map(get().linterWarnings)
+            updated.set(id, warning)
+            set({ linterWarnings: updated })
+        },
+
+        clearLinterWarning: (id) => {
+            const prev = get().linterWarnings
+            if (!prev.has(id)) return
+            const updated = new Map(prev)
+            updated.delete(id)
+            set({ linterWarnings: updated })
+        },
+
+        clearAllLinterWarnings: () => {
+            set({ linterWarnings: new Map() })
+        },
+
         revertNodeToHead: async (nodeId: string) => {
+            return get().revertNodeToCommit(nodeId, 'HEAD')
+        },
+
+        revertNodeToCommit: async (nodeId: string, commitHash: string) => {
             const activeFilePath = useCanvasStore.getState().activeFilePath
             if (activeFilePath === null) return
 
-            // Fetch the file's content at HEAD via IPC — non-destructive, no checkout.
-            const historicCode = await window.bridgeAPI.gitShow(activeFilePath, 'HEAD')
-            if (historicCode === null) return  // file not tracked or no git repo
+            // Fetch the file's content at the target commit via IPC — non-destructive.
+            const historicCode = await window.bridgeAPI.gitShow(activeFilePath, commitHash)
+            if (historicCode === null) return  // file not tracked or commit not found
 
             // Parse both sides — always fresh copies per Commandment 3.
             const historicAst = parseCodeToAST(historicCode)
@@ -386,6 +397,9 @@ export const useEditorStore = create<EditorStore>((set, get) => {
 
             const freshAst = parseCodeToAST(get().rawCode)
             if (freshAst === null) return
+
+            // Snapshot the pre-transplant code so the operation is undoable.
+            const preTransplantCode = get().rawCode
 
             // Surgically swap the historic node into the live AST.
             transplantNode(freshAst, historicAst, nodeId)
@@ -401,6 +415,12 @@ export const useEditorStore = create<EditorStore>((set, get) => {
                 visualTree: buildVisualTree(newAst),
             })
             useCanvasStore.getState().triggerAutoSave(newCode)
+
+            // Push a restoreCode inversion so Cmd+Z undoes the transplant.
+            useHistoryStore.getState().push(
+                [{ op: 'restoreCode', code: preTransplantCode }],
+                []
+            )
         },
     }
 })
