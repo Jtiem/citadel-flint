@@ -99,6 +99,17 @@ contextBridge.exposeInMainWorld('bridgeAPI', {
             propertyValue: string,
         ): Promise<void> =>
             ipcRenderer.invoke('tokens:upsert-override', bridgeId, propertyKey, propertyValue),
+
+        /**
+         * Returns all rows in `component_overrides`, ordered by `updated_at` DESC.
+         * Used by `ExportModal` to list every bridge ID + property blocking export.
+         */
+        readOverrides: (): Promise<{
+            bridge_id: string
+            property_key: string
+            property_value: string
+            updated_at: number
+        }[]> => ipcRenderer.invoke('tokens:read-overrides'),
     },
 
     /**

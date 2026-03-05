@@ -492,6 +492,24 @@ app.whenReady().then(async () => {
         }
     )
 
+    // ── Component Override Read Handler (Phase B.2 — Export Gate) ─────────────
+    // Returns every row in component_overrides so the ExportModal can surface
+    // exactly which bridge IDs and properties are blocking export.
+    // Results are ordered by updated_at DESC so the most recently dirtied nodes
+    // appear first in the violation list.
+    type OverrideRow = {
+        bridge_id: string
+        property_key: string
+        property_value: string
+        updated_at: number
+    }
+    const stmtReadOverrides = db.prepare<[], OverrideRow>(`
+        SELECT bridge_id, property_key, property_value, updated_at
+        FROM component_overrides
+        ORDER BY updated_at DESC
+    `)
+    ipcMain.handle('tokens:read-overrides', (): OverrideRow[] => stmtReadOverrides.all())
+
     // ── Presence UPSERT Handler ──────────────────────────────────────────────
     // Receives batched cursor/selection updates from the renderer (sent at most
     // every 50–100 ms via the renderer-side throttle in useSyncPresence).

@@ -148,6 +148,28 @@ export interface TokensAPI {
      * so Vitest / headless environments degrade gracefully.
      */
     upsertOverride?: (bridgeId: string, propertyKey: string, propertyValue: string) => Promise<void>
+
+    /**
+     * Returns all rows in `component_overrides`, ordered by `updated_at` DESC.
+     * Called by `ExportModal` during the pre-flight audit to list every
+     * property override that is blocking the export gate (Commandment 6).
+     */
+    readOverrides?: () => Promise<OverrideRow[]>
+}
+
+/**
+ * A single row from the `component_overrides` SQLite table.
+ * Represents one manually-overridden property on a specific element.
+ */
+export interface OverrideRow {
+    /** The `data-bridge-id` of the element with an active override. */
+    bridge_id: string
+    /** The overridden property name, e.g. `"style"` or `"textContent"`. */
+    property_key: string
+    /** The serialised override value stored for audit / diffing. */
+    property_value: string
+    /** Unix timestamp (seconds) of the last write. */
+    updated_at: number
 }
 
 // ── Sync / Presence types (Module G) ─────────────────────────────────────────

@@ -1,4 +1,4 @@
-### [BRIDGE-PULSE-v6.8]
+### [BRIDGE-PULSE-v6.9]
 
 **1. AST Integrity:**
 - Modified Nodes: [data-bridge-id] preserved via reactive token updates.

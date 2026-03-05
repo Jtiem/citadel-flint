@@ -8,6 +8,7 @@ import { PropertiesPanel } from './components/ui/PropertiesPanel'
 import { TokenManager } from './components/ui/TokenManager'
 import { FileExplorer } from './components/ui/FileExplorer'
 import { RecoveryPanel } from './components/ui/RecoveryPanel'
+import { ExportModal } from './components/ui/ExportModal'
 import { useTokenStore } from './store/tokenStore'
 import { StatusBar } from './components/editor/StatusBar'
 import { useCanvasStore } from './store/canvasStore'
@@ -15,6 +16,7 @@ import type { FileTreeNode } from './types/bridge-api'
 import { applyUndo, applyRedo } from './core/recoveryController'
 import { MithrilProvider } from './components/mithril/MithrilProvider'
 import { LaunchScreen } from './components/ui/LaunchScreen'
+import { ShieldAlert, ShieldCheck } from 'lucide-react'
 
 // ── Primary file selection ────────────────────────────────────────────────────
 // Walks the tree to find the most relevant entry point: App.tsx is preferred,
@@ -44,6 +46,7 @@ function App() {
     const [rightTab, setRightTab] = useState<'properties' | 'tokens' | 'recovery'>('properties')
     const [ipcStatus, setIpcStatus] = useState<string>('Connecting…')
     const [ipcOk, setIpcOk] = useState<boolean>(false)
+    const [showExportModal, setShowExportModal] = useState(false)
     const fetchTokens = useTokenStore((s) => s.fetchTokens)
 
     // Workspace persistence state
@@ -53,6 +56,7 @@ function App() {
     const saveState = useCanvasStore((s) => s.saveState)
     const activeFilePath = useCanvasStore((s) => s.activeFilePath)
     const closeWorkspace = useCanvasStore((s) => s.closeWorkspace)
+    const canExport = useCanvasStore((s) => s.canExport)
 
     // Extract the bare filename for display (no Node.js path module in renderer)
     const activeFileName = activeFilePath ? activeFilePath.split('/').pop() ?? null : null
@@ -251,6 +255,24 @@ function App() {
                         </div>
                     )}
 
+                    {/* Export Gate button — Commandment 6 */}
+                    <button
+                        type="button"
+                        onClick={() => setShowExportModal(true)}
+                        title={canExport() ? 'Export-ready — click to export' : 'Export blocked by overrides or ΔE violations'}
+                        className={`flex items-center gap-1.5 rounded border px-2.5 py-1 text-[11px] font-medium transition-colors ${canExport()
+                                ? 'border-emerald-700/50 bg-emerald-900/20 text-emerald-400 hover:bg-emerald-900/40'
+                                : 'border-amber-700/50 bg-amber-900/20 text-amber-400 hover:bg-amber-900/40'
+                            }`}
+                    >
+                        {canExport() ? (
+                            <ShieldCheck className="h-3 w-3" />
+                        ) : (
+                            <ShieldAlert className="h-3 w-3" />
+                        )}
+                        Export
+                    </button>
+
                     {/* Open Folder */}
                     <button
                         type="button"
@@ -358,8 +380,8 @@ function App() {
                                 type="button"
                                 onClick={() => setRightTab(tab)}
                                 className={`flex-1 py-2 text-[10px] font-medium uppercase tracking-wider transition-colors ${rightTab === tab
-                                        ? 'border-b-2 border-indigo-500 text-indigo-400'
-                                        : 'text-gray-600 hover:text-gray-400'
+                                    ? 'border-b-2 border-indigo-500 text-indigo-400'
+                                    : 'text-gray-600 hover:text-gray-400'
                                     }`}
                             >
                                 {tab === 'recovery' ? '⏱ Recover' : tab}
@@ -376,6 +398,11 @@ function App() {
                 </section>
             </main>
             <StatusBar />
+
+            {/* Export Gate Modal — rendered as an overlay above the entire UI */}
+            {showExportModal && (
+                <ExportModal onClose={() => setShowExportModal(false)} />
+            )}
         </div>
     )
 }
