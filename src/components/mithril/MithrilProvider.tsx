@@ -3,10 +3,9 @@
  *
  * Headless enforcement boundary for the Soft Mithril Safety Layer (Module B).
  *
- * On every AST change the provider scans the **full file** for Tailwind
- * arbitrary-value colour classes (e.g. `bg-[#f3f3f3]`, `hover:text-[#000]`)
- * and updates `canvasStore.mithrilViolations` with the `data-bridge-id` of
- * every element whose closest-token CIEDE2000 ΔE exceeds 2.0.
+ * On every AST change the provider runs the full Mithril safety audit across
+ * ALL design system dimensions — color, typography, spacing, shadow, opacity —
+ * and updates `canvasStore.mithrilViolations` and `editorStore.linterWarnings`.
  *
  * This keeps the Export Gate accurate continuously — not just when the user
  * opens the Properties Panel for a specific node and commits a class change.
@@ -33,7 +32,7 @@ import { useEffect, type ReactNode } from 'react'
 import { useEditorStore } from '../../store/editorStore'
 import { useTokenStore } from '../../store/tokenStore'
 import { useCanvasStore } from '../../store/canvasStore'
-import { visitClassNames } from '../../core/MithrilLinter'
+import { auditAll } from '../../core/MithrilLinter'
 
 interface MithrilProviderProps {
     children: ReactNode
@@ -54,9 +53,10 @@ export function MithrilProvider({ children }: MithrilProviderProps) {
             return
         }
 
-        // visitClassNames internally filters to colour tokens; an empty token
-        // list returns an empty map — clearing violations is handled below.
-        const warnings = visitClassNames(ast, tokens)
+        // auditAll runs all 5 Mithril visitors: color, typography, spacing,
+        // shadow, and opacity. Each returns a Map<bridgeId, LinterWarning>;
+        // auditAll merges them with color violations taking priority.
+        const warnings = auditAll(ast, tokens)
 
         // Populate the rich linterWarnings map (single source of truth).
         setLinterWarnings(warnings)

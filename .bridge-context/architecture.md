@@ -35,8 +35,14 @@
 
 ### **Module B: The Mithril Safety Layer**
 
-* **Soft Mithril Linter:** Uses CIEDE2000 $\Delta E$ to calculate perceptual drift. If $\Delta E > 2.0$, the UI glows Amber and prompts an AST Auto-Fix.
-* **The Export Gate (Hard Rule):** The system disables exports if any active entries exist in the `component_overrides` table or if critical WCAG accessibility (a11y) violations remain.
+* **Soft Mithril Linter (Enterprise-Grade):** Deterministic AST-level design system enforcement across every visual dimension:
+  * **Color drift:** CIEDE2000 $\Delta E$ perceptual distance ($\Delta E > 2.0$ = Amber warning).
+  * **Typography drift:** Font-family, font-size, font-weight, line-height, letter-spacing checked against tokens.
+  * **Spacing drift:** Padding, margin, gap, width, height validated against dimension tokens.
+  * **Shadow / Opacity drift:** Arbitrary values flagged when tokens exist for the category.
+* **Accessibility (WCAG 2.1 AA):** Static AST rules for `img`, `button`, `a`, `input`, `select`, `textarea`, `table`, heading hierarchy, `lang`, and `tabindex` misuse.
+* **The Export Gate (Hard Rule):** The system disables exports if any active entries exist in the `component_overrides` table, if any Mithril violations remain in any category, or if critical WCAG accessibility violations remain.
+
 
 ### **Module C: Multiplayer Sync & AI State**
 

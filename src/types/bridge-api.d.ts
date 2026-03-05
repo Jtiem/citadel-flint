@@ -20,8 +20,34 @@ export interface ServerStatus {
 
 // ── Token Types (renderer-side mirror of electron/token-types.ts) ─────────────
 
-/** The four W3C DTCG $type values that Bridge supports. */
-export type TokenType = 'color' | 'dimension' | 'string' | 'boolean'
+/**
+ * W3C DTCG $type values that Bridge supports.
+ * Expanded (v2) to cover all enterprise design system dimensions so that the
+ * Mithril Safety Linter can enforce every visual category, not just color.
+ *
+ * Mapping to Tailwind utilities:
+ *   color        → bg-, text-, border-, fill-, stroke-, from-, via-, to-
+ *   dimension    → p-, m-,  gap-, w-, h-, rounded-, text- (font-size)
+ *   fontFamily   → font-
+ *   fontWeight   → font-  (weight variant)
+ *   lineHeight   → leading-
+ *   letterSpacing → tracking-
+ *   shadow       → shadow-
+ *   opacity      → opacity-
+ *   string / boolean → no direct Tailwind mapping; stored for RAG / context use
+ */
+export type TokenType =
+    | 'color'
+    | 'dimension'
+    | 'fontFamily'
+    | 'fontWeight'
+    | 'lineHeight'
+    | 'letterSpacing'
+    | 'shadow'
+    | 'opacity'
+    | 'string'
+    | 'boolean'
+
 
 /**
  * A fully-persisted design token as returned from the database via IPC.
@@ -62,30 +88,43 @@ export interface NewDesignToken {
 }
 
 /**
- * A single perceptual-drift warning produced by the Mithril Linter.
+ * A single design system violation produced by the Mithril Linter or A11y Linter.
  *
  * Stored in `editorStore.linterWarnings` as a `Map<string, LinterWarning>`
  * keyed by the element's `data-bridge-id`. The Map is the single source of
  * truth for every violation badge in the PropertiesPanel and the Export Gate.
  *
+ * type:
+ *   'color-drift'       — CIEDE2000 ΔE ≥ 2.0 (arbitrary hex vs. color token)
+ *   'typography-drift'  — Arbitrary font-size/family/weight/leading/tracking vs. token
+ *   'spacing-drift'     — Arbitrary p/m/gap/w/h vs. dimension token
+ *   'shadow-drift'      — Arbitrary box-shadow vs. shadow token
+ *   'opacity-drift'     — Arbitrary opacity vs. opacity token
+ *   'a11y'              — WCAG accessibility violation (A11Y-* rules)
+ *
  * severity:
- *   'amber'    — ΔE 2.0 – 10.0  (perceptible drift; Mithril Violation)
- *   'critical' — ΔE > 10.0      (severe drift; hard export block)
+ *   'amber'    — Violation present; blocks export (Mithril Commandment 6)
+ *   'critical' — Color ΔE > 10.0 or mandatory a11y attr missing
  */
 export interface LinterWarning {
     /** `data-bridge-id` of the violating JSX element. */
     id: string
-    type: 'drift'
+    /** Which design system dimension was violated. */
+    type: 'color-drift' | 'typography-drift' | 'spacing-drift' | 'shadow-drift' | 'opacity-drift' | 'a11y'
     severity: 'amber' | 'critical'
-    /** CIEDE2000 ΔE value (worst offender across all className hex tokens). */
+    /**
+     * For color-drift: CIEDE2000 ΔE value.
+     * For all other types: 1 (presence indicator — the violation exists).
+     */
     value: number
-    /** Human-readable summary, e.g. "ΔE 3.4 – use color.brand.primary". */
+    /** Human-readable summary, e.g. "MITHRIL-TYP-001: arbitrary 'Comic Sans' not in token set". */
     message: string
     /** `token_path` of the nearest matching design token, or null if none found. */
     nearestToken: string | null
-    /** Hex value of the nearest token, e.g. "#6366f1", or null if none found. */
+    /** Serialized value of the nearest token (hex, CSS string, etc.), or null. */
     nearestTokenValue: string | null
 }
+
 
 /**
  * The mutable fields accepted by `window.bridgeAPI.tokens.update()`.

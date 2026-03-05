@@ -132,7 +132,7 @@ export const useTokenStore = create<TokenStore>((set, get) => ({
     },
 
     initSync: () => {
-        if (typeof window === 'undefined') return () => {}
+        if (typeof window === 'undefined') return () => { }
         return window.bridgeAPI.watchTokens((tokens) => {
             set({ tokens, isLoading: false })
         })
@@ -187,14 +187,43 @@ export const useTokenStore = create<TokenStore>((set, get) => ({
         try {
             // Semantic token set that maps directly to the payment calculator demo's
             // class names (bg-brand-primary, text-content-primary, etc.)
+            // Extended (v2) with enterprise typography, shadow, and opacity tokens
+            // so the Mithril Linter can enforce every visual dimension.
             const defaults: NewDesignToken[] = [
-                { token_path: 'color.brand.primary',     token_type: 'color', token_value: '#6366f1', description: 'Primary brand / accent color',  collection_name: 'Demo Tokens', mode: 'default' },
-                { token_path: 'color.content.primary',   token_type: 'color', token_value: '#f9fafb', description: 'Primary body text',              collection_name: 'Demo Tokens', mode: 'default' },
-                { token_path: 'color.content.secondary', token_type: 'color', token_value: '#9ca3af', description: 'Secondary / muted text',          collection_name: 'Demo Tokens', mode: 'default' },
-                { token_path: 'color.surface.card',      token_type: 'color', token_value: '#111827', description: 'Card / panel background',         collection_name: 'Demo Tokens', mode: 'default' },
-                { token_path: 'color.surface.base',      token_type: 'color', token_value: '#030712', description: 'Page / canvas background',        collection_name: 'Demo Tokens', mode: 'default' },
-                { token_path: 'color.ui.border',         token_type: 'color', token_value: '#1f2937', description: 'UI border / divider color',       collection_name: 'Demo Tokens', mode: 'default' },
+                // ── Color ─────────────────────────────────────────────────────
+                { token_path: 'color.brand.primary', token_type: 'color', token_value: '#6366f1', description: 'Primary brand / accent color', collection_name: 'Demo Tokens', mode: 'default' },
+                { token_path: 'color.content.primary', token_type: 'color', token_value: '#f9fafb', description: 'Primary body text', collection_name: 'Demo Tokens', mode: 'default' },
+                { token_path: 'color.content.secondary', token_type: 'color', token_value: '#9ca3af', description: 'Secondary / muted text', collection_name: 'Demo Tokens', mode: 'default' },
+                { token_path: 'color.surface.card', token_type: 'color', token_value: '#111827', description: 'Card / panel background', collection_name: 'Demo Tokens', mode: 'default' },
+                { token_path: 'color.surface.base', token_type: 'color', token_value: '#030712', description: 'Page / canvas background', collection_name: 'Demo Tokens', mode: 'default' },
+                { token_path: 'color.ui.border', token_type: 'color', token_value: '#1f2937', description: 'UI border / divider color', collection_name: 'Demo Tokens', mode: 'default' },
+                // ── Typography — fontFamily ────────────────────────────────────
+                { token_path: 'fontFamily.sans', token_type: 'fontFamily', token_value: 'Inter, ui-sans-serif, system-ui, sans-serif', description: 'Primary sans-serif stack', collection_name: 'Demo Tokens', mode: 'default' },
+                { token_path: 'fontFamily.mono', token_type: 'fontFamily', token_value: 'JetBrains Mono, ui-monospace, monospace', description: 'Monospace / code stack', collection_name: 'Demo Tokens', mode: 'default' },
+                // ── Typography — fontWeight ────────────────────────────────────
+                { token_path: 'fontWeight.regular', token_type: 'fontWeight', token_value: '400', description: 'Normal body weight', collection_name: 'Demo Tokens', mode: 'default' },
+                { token_path: 'fontWeight.medium', token_type: 'fontWeight', token_value: '500', description: 'Medium emphasis', collection_name: 'Demo Tokens', mode: 'default' },
+                { token_path: 'fontWeight.semibold', token_type: 'fontWeight', token_value: '600', description: 'Semibold headings', collection_name: 'Demo Tokens', mode: 'default' },
+                { token_path: 'fontWeight.bold', token_type: 'fontWeight', token_value: '700', description: 'Bold / strong text', collection_name: 'Demo Tokens', mode: 'default' },
+                // ── Typography — lineHeight ────────────────────────────────────
+                { token_path: 'lineHeight.tight', token_type: 'lineHeight', token_value: '1.25', description: 'Compact headings', collection_name: 'Demo Tokens', mode: 'default' },
+                { token_path: 'lineHeight.normal', token_type: 'lineHeight', token_value: '1.5', description: 'Standard body copy', collection_name: 'Demo Tokens', mode: 'default' },
+                { token_path: 'lineHeight.relaxed', token_type: 'lineHeight', token_value: '1.75', description: 'Relaxed reading text', collection_name: 'Demo Tokens', mode: 'default' },
+                // ── Typography — letterSpacing ─────────────────────────────────
+                { token_path: 'letterSpacing.tight', token_type: 'letterSpacing', token_value: '-0.025em', description: 'Tight headlines', collection_name: 'Demo Tokens', mode: 'default' },
+                { token_path: 'letterSpacing.normal', token_type: 'letterSpacing', token_value: '0em', description: 'Default tracking', collection_name: 'Demo Tokens', mode: 'default' },
+                { token_path: 'letterSpacing.wide', token_type: 'letterSpacing', token_value: '0.025em', description: 'Wide / label tracking', collection_name: 'Demo Tokens', mode: 'default' },
+                { token_path: 'letterSpacing.widest', token_type: 'letterSpacing', token_value: '0.1em', description: 'All-caps / display labels', collection_name: 'Demo Tokens', mode: 'default' },
+                // ── Shadow ────────────────────────────────────────────────────
+                { token_path: 'shadow.sm', token_type: 'shadow', token_value: '0 1px 2px 0 rgb(0 0 0 / 0.05)', description: 'Subtle shadow', collection_name: 'Demo Tokens', mode: 'default' },
+                { token_path: 'shadow.card', token_type: 'shadow', token_value: '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)', description: 'Card elevation', collection_name: 'Demo Tokens', mode: 'default' },
+                { token_path: 'shadow.lg', token_type: 'shadow', token_value: '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)', description: 'Modal / overlay elevation', collection_name: 'Demo Tokens', mode: 'default' },
+                // ── Opacity ───────────────────────────────────────────────────
+                { token_path: 'opacity.muted', token_type: 'opacity', token_value: '50', description: 'Disabled / muted state', collection_name: 'Demo Tokens', mode: 'default' },
+                { token_path: 'opacity.subtle', token_type: 'opacity', token_value: '75', description: 'Subtle background tint', collection_name: 'Demo Tokens', mode: 'default' },
+                { token_path: 'opacity.full', token_type: 'opacity', token_value: '100', description: 'Fully opaque', collection_name: 'Demo Tokens', mode: 'default' },
             ]
+
             await Promise.all(defaults.map((t) => window.bridgeAPI.tokens.create(t)))
             // No manual fetchTokens() — watchTokens subscription delivers the update.
         } catch (err) {

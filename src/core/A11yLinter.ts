@@ -6,32 +6,24 @@
  * Bridge Commandment 5 states: "Accessibility is a Compiler Error — Missing
  * a11y attributes trigger a 'Critical Block' for exports."
  *
- * This module enforces that rule entirely at the Babel AST level, so the check
- * is deterministic: it is independent of whether the Live Preview is running,
- * and it cannot be fooled by conditional rendering or dynamic class names.
+ * ## Rules Enforced (v2 — Enterprise WCAG 2.1 AA)
  *
- * ## Rules Enforced
+ * | Rule     | Element        | Requirement                                                             |
+ * |----------|----------------|-------------------------------------------------------------------------|
+ * | A11Y-001 | `<img>`        | Must have `alt` attribute                                               |
+ * | A11Y-002 | `<button>`     | Must have text content OR aria-label / title                            |
+ * | A11Y-003 | `<a>`          | Must have text content OR aria-label / title                            |
+ * | A11Y-004 | `<input>`      | Must have id, aria-label, aria-labelledby, or title                     |
+ * | A11Y-005 | `<select>`     | Must have aria-label, aria-labelledby, or title                         |
+ * | A11Y-006 | `<textarea>`   | Must have aria-label, aria-labelledby, or title                         |
+ * | A11Y-007 | Any            | tabIndex > 0 disrupts natural tab order — use 0 or -1                  |
+ * | A11Y-008 | `<table>`      | Must have aria-label, aria-labelledby, or a `<caption>` child           |
+ * | A11Y-009 | `<html>`       | Must have lang attribute                                                 |
+ * | A11Y-010 | Headings       | Must not skip heading levels (h1→h3 without h2)**                       |
  *
- * | Rule     | Element     | Requirement                                                                        |
- * |----------|-------------|------------------------------------------------------------------------------------|
- * | A11Y-001 | `<img>`     | Must have an `alt` attribute (empty string is valid for decorative images)         |
- * | A11Y-002 | `<button>`  | Must have visible text content OR `aria-label` / `title` attribute                 |
- * | A11Y-003 | `<a>`       | Must have visible text content OR `aria-label` / `title` attribute                 |
- * | A11Y-004 | `<input>`   | Must have `id`, `aria-label`, `aria-labelledby`, or `title` attribute              |
+ * ** A11Y-010 is document-scoped rather than per-element.
  *
- * ## Usage
- *
- * ```ts
- * import { A11yLinter } from '../core/A11yLinter'
- * const violations = A11yLinter.audit(parsedAst)
- * // violations → Record<bridgeId, string[]>
- * // e.g. { "img-hero-01": ["A11Y-001: <img> is missing an `alt` attribute."] }
- * ```
- *
- * Return value: An object mapping `data-bridge-id` string values
- * (extracted from JSX attributes) to an array of human-readable violation
- * messages. If a node lacks a `data-bridge-id`, it is keyed by a generated
- * fallback string so violations can still be surfaced in the Export Modal.
+ * All checks are deterministic Babel AST traversal — no runtime execution required.
  *
  * Renderer Process only — no Node.js imports.
  */
@@ -84,8 +76,7 @@ function getJsxAttr(
 
 /**
  * Returns true when `element` contains at least one non-whitespace text node
- * or a child expression that might resolve to text at runtime (we conservatively
- * assume any expression produces visible content to avoid false positives).
+ * or a child expression that might resolve to text at runtime.
  */
 function hasTextChildren(
     path: import('@babel/traverse').NodePath<import('@babel/types').JSXElement>,
@@ -95,7 +86,7 @@ function hasTextChildren(
         if (child.type === 'JSXExpressionContainer') {
             return child.expression.type !== 'JSXEmptyExpression'
         }
-        if (child.type === 'JSXElement') return true // nested element — count as content
+        if (child.type === 'JSXElement') return true
         return false
     })
 }
@@ -115,8 +106,23 @@ function getBridgeId(opening: JSXOpeningElement, fallback: string): string {
     ) {
         return val.expression.value
     }
-    // Template literals etc — use generic key but keep it unique
     return fallback
+}
+
+/** Checks for static accessible-name surface: aria-label, title. Returns true when safe to skip. */
+function hasDynamicLabel(opening: JSXOpeningElement): boolean {
+    return ['aria-label', 'aria-labelledby', 'title'].some((name) => {
+        const a = getJsxAttr(opening, name)
+        if (!a) return false
+        // dynamic expression — conservatively assume valid
+        if (a.type === 'JSXAttribute' && a.value?.type === 'JSXExpressionContainer') return true
+        return false
+    })
+}
+
+function getNonEmptyAttr(opening: JSXOpeningElement, name: string): boolean {
+    const val = getAttrStringValue(getJsxAttr(opening, name))
+    return typeof val === 'string' && val.trim() !== ''
 }
 
 // ── Linter ────────────────────────────────────────────────────────────────────
@@ -126,8 +132,6 @@ export const A11yLinter = {
      * Traverses the provided Babel AST and returns every accessibility violation
      * found, grouped by `data-bridge-id` (or a positional fallback key).
      *
-     * This is a **pure function** — it does not mutate the AST or any store.
-     *
      * @param ast - A Babel `File` node produced by `parseCodeToAST`.
      * @returns    An object mapping element keys to arrays of violation messages.
      *             An empty object means the file is fully accessible.
@@ -135,6 +139,9 @@ export const A11yLinter = {
     audit(ast: BabelFile): A11yViolations {
         const violations: A11yViolations = {}
         let elementIndex = 0
+
+        /** Heading levels encountered so far, for A11Y-010 ordering check. */
+        const headingsSeen: number[] = []
 
         const addViolation = (key: string, message: string): void => {
             if (!violations[key]) violations[key] = []
@@ -146,44 +153,53 @@ export const A11yLinter = {
                 const { openingElement: opening } = path.node
                 const nameNode = opening.name
 
-                // Only handle intrinsic HTML elements (lowercase tag names)
                 if (nameNode.type !== 'JSXIdentifier') return
                 const tag = nameNode.name.toLowerCase()
-                if (!['img', 'button', 'a', 'input'].includes(tag)) return
+
+                const AUDITED_TAGS = ['img', 'button', 'a', 'input', 'select', 'textarea', 'table', 'html']
+                const HEADING_TAGS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']
+
+                // ── A11Y-010: Heading level order ──────────────────────────────
+                if (HEADING_TAGS.includes(tag)) {
+                    const level = parseInt(tag[1], 10)
+                    const last = headingsSeen[headingsSeen.length - 1] ?? 0
+                    headingsSeen.push(level)
+                    if (level > last + 1) {
+                        elementIndex += 1
+                        const bridgeId = getBridgeId(opening, `heading-${elementIndex}`)
+                        addViolation(
+                            bridgeId,
+                            `A11Y-010: Heading <${tag}> skips level. Previous heading was <h${last}>. ` +
+                            'Heading levels must not be skipped — use sequential levels for screen readers.',
+                        )
+                    }
+                    return
+                }
+
+                if (!AUDITED_TAGS.includes(tag)) return
 
                 elementIndex += 1
                 const bridgeId = getBridgeId(opening, `${tag}-${elementIndex}`)
 
-                // ── A11Y-001: <img> must have alt ────────────────────────────
+                // ── A11Y-001: <img> must have alt ─────────────────────────────
                 if (tag === 'img') {
                     const altAttr = getJsxAttr(opening, 'alt')
                     if (altAttr === undefined) {
-                        // alt attribute entirely missing — hard violation
                         addViolation(
                             bridgeId,
                             'A11Y-001: <img> is missing an `alt` attribute. ' +
                             'Add alt="" for decorative images or a descriptive string for informational ones.',
                         )
                     }
-                    // If altAttr is present (even empty string): valid decorative usage.
-                    // If value is dynamic (null from getAttrStringValue): benign — skip.
-                    return // <img> is self-closing; no children to check
+                    return
                 }
 
-                // ── A11Y-002/003: <button> and <a> need an accessible name ──
+                // ── A11Y-002/003: <button> and <a> need an accessible name ────
                 if (tag === 'button' || tag === 'a') {
-                    const ariaLabel = getJsxAttr(opening, 'aria-label')
-                    const titleAttr = getJsxAttr(opening, 'title')
-                    const ariaLabelVal = getAttrStringValue(ariaLabel)
-                    const titleVal = getAttrStringValue(titleAttr)
+                    if (hasDynamicLabel(opening)) return
 
-                    // Dynamic aria-label / title (null) → skip (assume valid at runtime)
-                    if (ariaLabelVal === null || titleVal === null) return
-
-                    const hasAriaLabel =
-                        typeof ariaLabelVal === 'string' && ariaLabelVal.trim() !== ''
-                    const hasTitle =
-                        typeof titleVal === 'string' && titleVal.trim() !== ''
+                    const hasAriaLabel = getNonEmptyAttr(opening, 'aria-label')
+                    const hasTitle = getNonEmptyAttr(opening, 'title')
                     const hasText = hasTextChildren(path)
 
                     if (!hasAriaLabel && !hasTitle && !hasText) {
@@ -197,33 +213,13 @@ export const A11yLinter = {
                     return
                 }
 
-                // ── A11Y-004: <input> must have a programmatic label ─────────
+                // ── A11Y-004: <input> must have programmatic label ────────────
                 if (tag === 'input') {
-                    const idAttr = getJsxAttr(opening, 'id')
-                    const ariaLabel = getJsxAttr(opening, 'aria-label')
-                    const titleAttr = getJsxAttr(opening, 'title')
-                    const ariaLabelledBy = getJsxAttr(opening, 'aria-labelledby')
-
-                    const idVal = getAttrStringValue(idAttr)
-                    const ariaLabelVal = getAttrStringValue(ariaLabel)
-                    const titleVal = getAttrStringValue(titleAttr)
-                    const ariaLabelledByVal = getAttrStringValue(ariaLabelledBy)
-
-                    // If ANY attributeVal is dynamic (null), skip to avoid false positives
-                    if (
-                        idVal === null ||
-                        ariaLabelVal === null ||
-                        titleVal === null ||
-                        ariaLabelledByVal === null
-                    ) return
-
-                    const hasId = typeof idVal === 'string' && idVal.trim() !== ''
-                    const hasAriaLabel =
-                        typeof ariaLabelVal === 'string' && ariaLabelVal.trim() !== ''
-                    const hasTitle =
-                        typeof titleVal === 'string' && titleVal.trim() !== ''
-                    const hasAriaLabelledBy =
-                        typeof ariaLabelledByVal === 'string' && ariaLabelledByVal.trim() !== ''
+                    const hasId = getNonEmptyAttr(opening, 'id')
+                    const hasAriaLabel = getNonEmptyAttr(opening, 'aria-label')
+                    const hasTitle = getNonEmptyAttr(opening, 'title')
+                    const hasAriaLabelledBy = getNonEmptyAttr(opening, 'aria-labelledby')
+                    if (hasDynamicLabel(opening)) return
 
                     if (!hasId && !hasAriaLabel && !hasTitle && !hasAriaLabelledBy) {
                         addViolation(
@@ -232,7 +228,113 @@ export const A11yLinter = {
                             'Add id="…" (+ a matching <label htmlFor>), aria-label="…", or aria-labelledby="…".',
                         )
                     }
+                    return
                 }
+
+                // ── A11Y-005: <select> must have label ────────────────────────
+                if (tag === 'select') {
+                    if (hasDynamicLabel(opening)) return
+                    const hasAriaLabel = getNonEmptyAttr(opening, 'aria-label')
+                    const hasAriaLabelledBy = getNonEmptyAttr(opening, 'aria-labelledby')
+                    const hasTitle = getNonEmptyAttr(opening, 'title')
+                    if (!hasAriaLabel && !hasAriaLabelledBy && !hasTitle) {
+                        addViolation(
+                            bridgeId,
+                            'A11Y-005: <select> has no accessible label. ' +
+                            'Add aria-label="…", aria-labelledby="…", or pair with a <label htmlFor>.',
+                        )
+                    }
+                    return
+                }
+
+                // ── A11Y-006: <textarea> must have label ──────────────────────
+                if (tag === 'textarea') {
+                    if (hasDynamicLabel(opening)) return
+                    const hasAriaLabel = getNonEmptyAttr(opening, 'aria-label')
+                    const hasAriaLabelledBy = getNonEmptyAttr(opening, 'aria-labelledby')
+                    const hasTitle = getNonEmptyAttr(opening, 'title')
+                    if (!hasAriaLabel && !hasAriaLabelledBy && !hasTitle) {
+                        addViolation(
+                            bridgeId,
+                            'A11Y-006: <textarea> has no accessible label. ' +
+                            'Add aria-label="…", aria-labelledby="…", or pair with a <label htmlFor>.',
+                        )
+                    }
+                    return
+                }
+
+                // ── A11Y-008: <table> must have accessible summary ────────────
+                if (tag === 'table') {
+                    if (hasDynamicLabel(opening)) return
+                    const hasAriaLabel = getNonEmptyAttr(opening, 'aria-label')
+                    const hasAriaLabelledBy = getNonEmptyAttr(opening, 'aria-labelledby')
+                    // Check for a <caption> child element.
+                    const hasCaption = path.node.children.some(
+                        (child) =>
+                            child.type === 'JSXElement' &&
+                            child.openingElement.name.type === 'JSXIdentifier' &&
+                            child.openingElement.name.name.toLowerCase() === 'caption',
+                    )
+                    if (!hasAriaLabel && !hasAriaLabelledBy && !hasCaption) {
+                        addViolation(
+                            bridgeId,
+                            'A11Y-008: <table> has no accessible summary. ' +
+                            'Add a <caption> child, aria-label="…", or aria-labelledby="…".',
+                        )
+                    }
+                    return
+                }
+
+                // ── A11Y-009: <html> must have lang ──────────────────────────
+                if (tag === 'html') {
+                    const hasLang = getNonEmptyAttr(opening, 'lang')
+                    if (!hasLang) {
+                        addViolation(
+                            bridgeId,
+                            'A11Y-009: <html> is missing a `lang` attribute. ' +
+                            'Add lang="en" (or appropriate BCP 47 language tag) for screen reader language detection.',
+                        )
+                    }
+                    return
+                }
+            },
+
+            // ── A11Y-007: tabIndex > 0 disrupts tab order ─────────────────────
+            JSXAttribute(path) {
+                if (
+                    path.node.name.type !== 'JSXIdentifier' ||
+                    path.node.name.name !== 'tabIndex'
+                ) return
+
+                const val = path.node.value
+                let numericVal: number | null = null
+
+                if (val?.type === 'StringLiteral') {
+                    numericVal = parseInt(val.value, 10)
+                } else if (
+                    val?.type === 'JSXExpressionContainer' &&
+                    val.expression.type === 'NumericLiteral'
+                ) {
+                    numericVal = val.expression.value
+                } else if (
+                    val?.type === 'JSXExpressionContainer' &&
+                    val.expression.type === 'StringLiteral'
+                ) {
+                    numericVal = parseInt(val.expression.value, 10)
+                }
+
+                if (numericVal === null || numericVal <= 0) return
+
+                const openEl = path.parentPath?.node
+                if (!openEl || openEl.type !== 'JSXOpeningElement') return
+
+                elementIndex += 1
+                const bridgeId = getBridgeId(openEl, `tabindex-${elementIndex}`)
+                addViolation(
+                    bridgeId,
+                    `A11Y-007: tabIndex="${numericVal}" disrupts natural tab order. ` +
+                    'Use tabIndex={0} to include in natural order, or tabIndex={-1} to remove from flow.',
+                )
             },
         })
 

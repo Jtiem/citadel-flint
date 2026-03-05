@@ -33,19 +33,26 @@ interface SectionDef {
 
 const SECTIONS: ReadonlyArray<SectionDef> = [
     // Layout
-    { label: 'Padding',       prefix: 'p-',       tokenType: 'dimension', group: 'Layout' },
-    { label: 'Margin',        prefix: 'm-',       tokenType: 'dimension', group: 'Layout' },
+    { label: 'Padding', prefix: 'p-', tokenType: 'dimension', group: 'Layout' },
+    { label: 'Margin', prefix: 'm-', tokenType: 'dimension', group: 'Layout' },
     // Dimensions
-    { label: 'Width',         prefix: 'w-',       tokenType: 'dimension', group: 'Dimensions' },
-    { label: 'Height',        prefix: 'h-',       tokenType: 'dimension', group: 'Dimensions' },
+    { label: 'Width', prefix: 'w-', tokenType: 'dimension', group: 'Dimensions' },
+    { label: 'Height', prefix: 'h-', tokenType: 'dimension', group: 'Dimensions' },
     // Typography
-    { label: 'Text Color',    prefix: 'text-',    tokenType: 'color',     group: 'Typography' },
-    { label: 'Font Size',     prefix: 'text-',    tokenType: 'dimension', group: 'Typography' },
+    { label: 'Text Color', prefix: 'text-', tokenType: 'color', group: 'Typography' },
+    { label: 'Font Size', prefix: 'text-', tokenType: 'dimension', group: 'Typography' },
+    { label: 'Font Family', prefix: 'font-', tokenType: 'fontFamily', group: 'Typography' },
+    { label: 'Font Weight', prefix: 'font-', tokenType: 'fontWeight', group: 'Typography' },
+    { label: 'Line Height', prefix: 'leading-', tokenType: 'lineHeight', group: 'Typography' },
+    { label: 'Letter Spacing', prefix: 'tracking-', tokenType: 'letterSpacing', group: 'Typography' },
     // Appearance
-    { label: 'Background',    prefix: 'bg-',      tokenType: 'color',     group: 'Appearance' },
-    { label: 'Border Color',  prefix: 'border-',  tokenType: 'color',     group: 'Appearance' },
+    { label: 'Background', prefix: 'bg-', tokenType: 'color', group: 'Appearance' },
+    { label: 'Border Color', prefix: 'border-', tokenType: 'color', group: 'Appearance' },
     { label: 'Border Radius', prefix: 'rounded-', tokenType: 'dimension', group: 'Appearance' },
+    { label: 'Shadow', prefix: 'shadow-', tokenType: 'shadow', group: 'Appearance' },
+    { label: 'Opacity', prefix: 'opacity-', tokenType: 'opacity', group: 'Appearance' },
 ]
+
 
 const GROUP_ORDER = ['Layout', 'Dimensions', 'Typography', 'Appearance'] as const
 
