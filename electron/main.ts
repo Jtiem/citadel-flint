@@ -1,8 +1,10 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron'
+import type { MenuItemConstructorOptions } from 'electron'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { readdir, readFile } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 
 // ── FileTreeNode ───────────────────────────────────────────────────────────────
 // Mirrors the renderer-side type in src/types/bridge-api.d.ts.
@@ -64,6 +66,7 @@ import { transformSync } from '@babel/core'
 
 const execFileAsync = promisify(execFile)
 import { fileTransactionManager } from './FileTransactionManager.js'
+import { gitManager } from './GitManager.js'
 import { jsxAttribute, jsxIdentifier, stringLiteral } from '@babel/types'
 import type { JSXOpeningElement } from '@babel/types'
 import type { NodePath } from '@babel/traverse'
@@ -133,6 +136,49 @@ function injectBridgeIdPlugin() {
     }
 }
 
+// ── Application Menu ──────────────────────────────────────────────────────────
+// Builds and sets the native OS menu bar. File menu items send IPC push events
+// to the renderer via mainWindow.webContents.send so App.tsx can react without
+// any new ipcMain.handle round-trips.
+function buildAppMenu(): void {
+    const isMac = process.platform === 'darwin'
+
+    const template: MenuItemConstructorOptions[] = [
+        // macOS requires the first menu item to be the app menu (shows the app name).
+        ...(isMac ? [{ role: 'appMenu' as const }] : []),
+
+        // ── File ──────────────────────────────────────────────────────────────
+        {
+            label: 'File',
+            submenu: [
+                {
+                    label: 'New Project\u2026',
+                    accelerator: 'CmdOrCtrl+N',
+                    click: () => { mainWindow?.webContents.send('menu:new-project') },
+                },
+                {
+                    label: 'Open Project\u2026',
+                    accelerator: 'CmdOrCtrl+O',
+                    click: () => { mainWindow?.webContents.send('menu:open-project') },
+                },
+                { type: 'separator' },
+                {
+                    label: 'Close Project',
+                    accelerator: 'CmdOrCtrl+Shift+W',
+                    click: () => { mainWindow?.webContents.send('menu:close-project') },
+                },
+            ],
+        },
+
+        // ── Edit / View / Window ─────────────────────────────────────────────
+        { role: 'editMenu' },
+        { role: 'viewMenu' },
+        { role: 'windowMenu' },
+    ]
+
+    Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
 function createWindow(): void {
     mainWindow = new BrowserWindow({
         width: 1400,
@@ -179,7 +225,7 @@ ipcMain.handle(
     'dialog:openFolder',
     async (): Promise<FileTreeNode | null> => {
         const { canceled, filePaths } = await dialog.showOpenDialog({
-            properties: ['openDirectory'],
+            properties: ['openDirectory', 'createDirectory'],
             title: 'Open Project Folder',
             buttonLabel: 'Open',
         })
@@ -192,6 +238,11 @@ ipcMain.handle(
         if (folderPath !== home && !folderPath.startsWith(home + path.sep)) {
             return null
         }
+
+        // Ensure git repo exists so we can track shadow commits
+        await gitManager.ensureRepo(folderPath).catch(err => {
+            console.error(`[Bridge] main.ts: ensureRepo failed for ${folderPath}`, err)
+        })
 
         return scanDirectory(folderPath)
     }
@@ -314,6 +365,15 @@ app.whenReady().then(async () => {
     )
     const stmtClearAll = db.prepare('DELETE FROM design_tokens')
 
+    // Notifies all open renderer windows that the design_tokens table changed.
+    // Called after every mutating token IPC handler so reactive subscribers
+    // (watchTokens) receive updates regardless of which source triggered the write.
+    function broadcastTokensUpdated(): void {
+        BrowserWindow.getAllWindows().forEach((w) => {
+            if (!w.isDestroyed()) w.webContents.send('bridge:tokens-updated')
+        })
+    }
+
     ipcMain.handle('tokens:create', (_event, token: unknown) => {
         if (
             typeof token !== 'object' || token === null ||
@@ -342,6 +402,7 @@ app.whenReady().then(async () => {
             t.description ?? null,
             mode, collection_name
         )
+        broadcastTokensUpdated()
         return { id: result.lastInsertRowid }
     })
 
@@ -374,6 +435,7 @@ app.whenReady().then(async () => {
         // all user values are bound via ? parameterization.
         const sql = `UPDATE design_tokens SET ${setClauses.join(', ')} WHERE token_path = ?`
         const result = db.prepare(sql).run(...params, tokenPath)
+        broadcastTokensUpdated()
         return { changes: result.changes }
     })
 
@@ -382,12 +444,14 @@ app.whenReady().then(async () => {
             throw new Error('tokens:delete — id must be an integer')
         }
         const result = stmtDelete.run(id)
+        broadcastTokensUpdated()
         return { changes: result.changes }
     })
 
     ipcMain.handle('tokens:clear-all', () => {
         const result = stmtClearAll.run()
         console.log(`[Bridge] tokens:clear-all: removed ${result.changes} tokens`)
+        broadcastTokensUpdated()
         return { changes: result.changes }
     })
 
@@ -507,6 +571,11 @@ app.whenReady().then(async () => {
             throw new Error('ast:save-file — path outside user home directory is not permitted')
         }
         await fileTransactionManager.write(filePath, content)
+
+        // Commandment 13: Must shadowCommit only after fileTransactionManager resolves
+        await gitManager.shadowCommit(path.dirname(filePath)).catch((err: Error) => {
+            console.error('[Bridge] main.ts: ast:save-file shadowCommit failed', err)
+        })
     })
 
     // ── Batch Save Handler ─────────────────────────────────────────────────────
@@ -541,6 +610,14 @@ app.whenReady().then(async () => {
         }
 
         await fileTransactionManager.writeBatch(validated)
+
+        // Commandment 13: shadowCommit after successful batch
+        const firstPath = Object.keys(validated)[0]
+        if (firstPath) {
+            await gitManager.shadowCommit(path.dirname(firstPath)).catch((err: Error) => {
+                console.error('[Bridge] main.ts: ast:save-batch shadowCommit failed', err)
+            })
+        }
     })
 
     // ── Git Show Handler ───────────────────────────────────────────────────────
@@ -588,6 +665,145 @@ app.whenReady().then(async () => {
         }
     )
 
+    // ── Project Registry + Template Scaffolding ───────────────────────────────
+    const { upsertProject, getRecentProjects, removeProject } = await import('./registry.js')
+    const { initializeProject } = await import('./templateService.js')
+
+    // ── Select-Folder Dialog ───────────────────────────────────────────────────
+    // Shows the native OS directory picker and returns the selected path as a
+    // string (no scan). Used by the "New Project" flow in the LaunchScreen to
+    // choose an empty target directory before calling `project:initialize`.
+    //
+    // Returns null if the user cancels or selects a path outside their home dir.
+    ipcMain.handle('dialog:selectFolder', async (): Promise<string | null> => {
+        const { canceled, filePaths } = await dialog.showOpenDialog({
+            properties: ['openDirectory', 'createDirectory'],
+            title: 'Select Empty Folder for New Project',
+            buttonLabel: 'Select Folder',
+        })
+        if (canceled || filePaths.length === 0) return null
+
+        const folderPath = path.normalize(filePaths[0])
+        const home = app.getPath('home')
+        if (folderPath !== home && !folderPath.startsWith(home + path.sep)) return null
+
+        return folderPath
+    })
+
+    // ── project:initialize ────────────────────────────────────────────────────
+    // Scaffolds a new Bridge workspace by copying the bundled template into an
+    // empty user-selected directory.
+    //
+    // Payload: { targetPath: string, templateId: string }
+    //   targetPath  — absolute path to an empty directory inside the home dir.
+    //   templateId  — must match a known template (validated by templateService).
+    //
+    // Steps:
+    //   1. Validate payload shape, absolute path, and home-dir containment.
+    //   2. Delegate to initializeProject (Empty-Dir Gate + cpSync).
+    //   3. Upsert the project into the global registry.
+    //   4. Scan and return the FileTreeNode tree so the renderer can hydrate.
+    //
+    // Throws on any validation failure, non-empty directory, or I/O error.
+    ipcMain.handle('project:initialize', async (_event, payload: unknown): Promise<FileTreeNode> => {
+        if (
+            typeof payload !== 'object' || payload === null ||
+            typeof (payload as Record<string, unknown>).targetPath !== 'string' ||
+            typeof (payload as Record<string, unknown>).templateId !== 'string'
+        ) {
+            throw new TypeError('project:initialize — invalid payload shape')
+        }
+
+        const { targetPath, templateId } = payload as { targetPath: string; templateId: string }
+
+        // Security: absolute path + inside home directory
+        if (!path.isAbsolute(targetPath)) {
+            throw new Error('project:initialize — targetPath must be absolute')
+        }
+        const home = app.getPath('home')
+        if (targetPath !== home && !targetPath.startsWith(home + path.sep)) {
+            throw new Error('project:initialize — targetPath must be inside the user home directory')
+        }
+
+        // Empty-Dir Gate + cpSync (templateService throws if non-empty)
+        initializeProject(targetPath, templateId)
+
+        // Ensure git repo is initialized on the new workspace
+        await gitManager.ensureRepo(targetPath).catch(err => {
+            console.error(`[Bridge] main.ts: ensureRepo failed for new project ${targetPath}`, err)
+        })
+
+        // Write to registry (UUID is stable: path UNIQUE constraint preserves
+        // the first-inserted id on subsequent opens of the same directory)
+        const projectName = path.basename(targetPath)
+        upsertProject(randomUUID(), projectName, targetPath)
+
+        // Scan the newly populated directory and return the tree
+        return scanDirectory(targetPath)
+    })
+
+    // ── project:openPath ──────────────────────────────────────────────────────
+    // Opens an existing project by its absolute path: scans for source files
+    // and records the access in the global registry.
+    //
+    // Used by the "Recent Projects" list in the LaunchScreen — no dialog shown.
+    // Returns null when the path is outside the home dir or scan fails.
+    ipcMain.handle('project:openPath', async (_event, folderPath: unknown): Promise<FileTreeNode | null> => {
+        if (typeof folderPath !== 'string') return null
+
+        const normalized = path.normalize(folderPath)
+        const home = app.getPath('home')
+        if (normalized !== home && !normalized.startsWith(home + path.sep)) return null
+
+        try {
+            // Ensure git repo exists before returning the tree
+            await gitManager.ensureRepo(normalized).catch(err => {
+                console.error(`[Bridge] main.ts: ensureRepo failed for ${normalized}`, err)
+            })
+
+            const tree = await scanDirectory(normalized)
+            const projectName = path.basename(normalized)
+            upsertProject(randomUUID(), projectName, normalized)
+            return tree
+        } catch {
+            return null
+        }
+    })
+
+    // ── registry:getRecent ────────────────────────────────────────────────────
+    // Returns up to 10 recently opened projects (newest first) from the global
+    // registry. Called by LaunchScreen on mount to populate the recent list.
+    ipcMain.handle('registry:getRecent', (): ReturnType<typeof getRecentProjects> => {
+        return getRecentProjects()
+    })
+
+    // ── registry:upsertProject ────────────────────────────────────────────────
+    // Records or refreshes a project entry in the registry.
+    // Called by the renderer after a successful `dialog:openFolder` open so
+    // that manually opened folders appear in the Recent Projects list.
+    //
+    // Payload: { name: string, path: string }
+    ipcMain.handle('registry:upsertProject', (_event, payload: unknown): void => {
+        if (
+            typeof payload !== 'object' || payload === null ||
+            typeof (payload as Record<string, unknown>).name !== 'string' ||
+            typeof (payload as Record<string, unknown>).path !== 'string'
+        ) return
+
+        const { name, path: projectPath } = payload as { name: string; path: string }
+        if (!path.isAbsolute(projectPath)) return
+
+        upsertProject(randomUUID(), name, projectPath)
+    })
+
+    // ── registry:removeProject ────────────────────────────────────────────────
+    // Removes the project with the given UUID from the registry.
+    // Called when the user dismisses a project from the Recent Projects list.
+    ipcMain.handle('registry:removeProject', (_event, id: unknown): void => {
+        if (typeof id !== 'string' || id.length === 0) return
+        removeProject(id)
+    })
+
     // Start the ingestion server and register its IPC handler
     const { startIngestionServer, getServerStatus, stopIngestionServer } = await import('./ingestion-server.js')
     startIngestionServer()
@@ -596,6 +812,7 @@ app.whenReady().then(async () => {
     ipcMain.handle('server:get-status', () => getServerStatus())
 
     createWindow()
+    buildAppMenu()
 
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {
