@@ -26,7 +26,8 @@
 | Code-First Recovery (Phase D.1) | **ONLINE** | `gitShow` IPC and surgical `transplantNode` AST replacement. |
 | Git Time Machine UI (Phase D.2) | **ONLINE** | `ast:git-log` IPC + `RecoveryPanel.tsx` + `revertNodeToCommit` store action. |
 | Multiplayer Presence (Phase C.1) | **ONLINE** | `PresenceService.ts` throttled UPSERT + `useRemotePresence` 5Hz poll + remote cursor SVG overlay in LivePreview. |
-| Export Gate (Phase B.2) | **ONLINE** | `ExportModal.tsx` pre-flight audit — reads `component_overrides` + `mithrilViolations`. Blocked = amber list; Pass = copy-to-clipboard. |
+| Export Gate (Phase B.2) | **ONLINE** | `ExportModal.tsx` pre-flight audit — reads `component_overrides` + `mithrilViolations` + `a11yViolations`. |
+| Accessibility Gate (Phase B.3) | **ONLINE** | `A11yLinter.ts` — 4 WCAG rules checked on every AST parse. Blocks export via `canExport`. |
 | Batch Mutation Engine (Phase E.1) | **ONLINE** | `ASTService.applyMutationBatch` + `applyInversions`. Single parse→mutate→generate cycle per batch. |
 | `FileTransactionManager` (Phase E.2) | **ONLINE** | `electron/FileTransactionManager.ts`. Atomic `.tmp`→`rename` writes, serialised per path. |
 | `canvasStore` + Auto-Save (Phase F.1) | **ONLINE** | `triggerAutoSave` debounced IPC save. `saveState: 'idle'｜'editing'｜'saving'｜'saved'`. |
@@ -45,7 +46,7 @@
 2.  **Mithril Safety:** If ΔE > 2.0, code must be auto-fixed or Amber-flagged.
 3.  **Persistence Rule:** All mutations MUST be atomic and saved via the `FileTransactionManager` queue.
 4.  **No Hallucinations:** Use Babel AST traversal for all code changes. Never use Regex for source code.
-5.  **Documentation Autopilot:** No session ends without a `[BRIDGE-PULSE-v6.8]` block update.
+5.  **Documentation Autopilot:** No session ends without a `[BRIDGE-PULSE-v6.9]` block update.
 
 ## Commands
 * `npm run dev`: Launch Bridge IDE (Vite + Electron)

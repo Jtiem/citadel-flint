@@ -34,6 +34,7 @@ interface ExportModalProps {
 
 export function ExportModal({ onClose }: ExportModalProps) {
     const mithrilViolations = useCanvasStore((s) => s.mithrilViolations)
+    const a11yViolations = useCanvasStore((s) => s.a11yViolations)
     const setActiveSelection = useCanvasStore((s) => s.setActiveSelection)
     const setSelectedNode = useEditorStore((s) => s.setSelectedNode)
     const rawCode = useEditorStore((s) => s.rawCode)
@@ -60,7 +61,10 @@ export function ExportModal({ onClose }: ExportModalProps) {
             .finally(() => setLoading(false))
     }, [])
 
-    const canExport = overrideRows.length === 0 && mithrilViolations.length === 0
+    const canExport =
+        overrideRows.length === 0 &&
+        mithrilViolations.length === 0 &&
+        Object.keys(a11yViolations).length === 0
 
     // ── Snap-select a node when user clicks its ID in the violation list ───────
     const handleSelectNode = useCallback((bridgeId: string) => {
@@ -95,10 +99,10 @@ export function ExportModal({ onClose }: ExportModalProps) {
             <div className="relative flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-xl border border-gray-700 bg-gray-900 shadow-2xl">
                 {/* Header */}
                 <div className={`flex shrink-0 items-center gap-3 border-b px-5 py-4 ${loading
-                        ? 'border-gray-700'
-                        : canExport
-                            ? 'border-emerald-700/40 bg-emerald-900/10'
-                            : 'border-amber-700/40 bg-amber-900/10'
+                    ? 'border-gray-700'
+                    : canExport
+                        ? 'border-emerald-700/40 bg-emerald-900/10'
+                        : 'border-amber-700/40 bg-amber-900/10'
                     }`}>
                     {loading ? (
                         <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-600 border-t-indigo-400" />
@@ -198,6 +202,38 @@ export function ExportModal({ onClose }: ExportModalProps) {
                                                 </div>
                                             </li>
                                         ))}
+                                    </ul>
+                                </div>
+                            )}
+
+                            {/* Accessibility violations — A11Y rules (Commandment 5) */}
+                            {Object.keys(a11yViolations).length > 0 && (
+                                <div>
+                                    <h3 className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-red-400">
+                                        <AlertTriangle className="h-3 w-3" />
+                                        Accessibility Violations ({Object.keys(a11yViolations).length})
+                                    </h3>
+                                    <ul className="space-y-1.5">
+                                        {Object.entries(a11yViolations).map(([bridgeId, messages]) =>
+                                            messages.map((msg) => (
+                                                <li
+                                                    key={`${bridgeId}::${msg}`}
+                                                    className="rounded border border-red-900/40 bg-red-900/10 px-3 py-2"
+                                                >
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleSelectNode(bridgeId)}
+                                                        className="font-mono text-[10px] text-red-400 transition-colors hover:text-red-300 hover:underline"
+                                                        title={`Navigate to ${bridgeId}`}
+                                                    >
+                                                        {bridgeId}
+                                                    </button>
+                                                    <p className="mt-0.5 text-[9px] text-gray-400">
+                                                        {msg}
+                                                    </p>
+                                                </li>
+                                            ))
+                                        )}
                                     </ul>
                                 </div>
                             )}

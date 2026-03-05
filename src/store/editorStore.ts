@@ -32,6 +32,7 @@ import type { ASTMutation } from '../core/ASTService'
 import { useCanvasStore } from './canvasStore'
 import { useHistoryStore } from './historyStore'
 import type { LinterWarning } from '../types/bridge-api'
+import { A11yLinter } from '../core/A11yLinter'
 
 // ── Seed content ──────────────────────────────────────────────────────────────
 // A realistic React component with JSX nesting, TypeScript interfaces, and
@@ -235,6 +236,12 @@ export const useEditorStore = create<EditorStore>((set, get) => {
                 // Debounced auto-save (1 s) so rapid keystrokes don't flood IPC.
                 // No-op when no project folder is open (activeFilePath is null).
                 useCanvasStore.getState().triggerAutoSave(code, 1000)
+
+                // ── Phase B.3: Accessibility Gate ─────────────────────────
+                // Run the A11y linter on the fresh AST and push violations to
+                // canvasStore so canExport blocks dirty files (Commandment 5).
+                const a11yViolations = A11yLinter.audit(parsed)
+                useCanvasStore.getState().setA11yViolations(a11yViolations)
 
                 // Clear undo/redo history when loading a different file.
                 // Prevents cross-file undo corruption (Commandment 10).

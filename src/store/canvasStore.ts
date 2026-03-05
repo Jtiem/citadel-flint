@@ -1,30 +1,22 @@
 /**
  * Canvas Store — src/store/canvasStore.ts
  *
- * Zustand v5 store for cross-boundary drag state, canvas selection, and
- * workspace file persistence.
- *
- * dragSourceId    — non-null during a Ghost Proxy drag (Module H)
- * activeSelection — bridge-id of the selected element, drives Properties Panel
- * activeFilePath  — absolute path of the file currently open in the editor
- * saveState       — lifecycle of the auto-save pipeline
- * workspaceFiles  — recursive FileTreeNode tree returned by openFolder (Module F.1)
- * expandedFolders — Set of folder paths currently expanded in the FileExplorer;
- *                   uses a Set for O(1) per-node expanded checks during render.
+ * Phase E additions:
+ *   mithrilViolations — bridge IDs whose current style has ΔE > 2.0 against
+ *                       their closest design token.
+ *   overridesExist    — true when the component_overrides DB table is non-empty.
+ *   a11yViolations    — Record<bridgeId, string[]> from A11yLinter. Each key is
+ *                       a data-bridge-id (or fallback label) and each value is an
+ *                       array of human-readable rule violation messages.
+ *   canExport         — derived selector: false when any of the above are present.
+ *                       This is the Export Gate (Commandments 5 + 6).
  *
  * triggerAutoSave is called by editorStore mutations and by setCode (debounced).
  * It enqueues an atomic write via window.bridgeAPI.saveFile (IPC → main process
  * → FileTransactionManager) and transitions saveState accordingly:
  *
- *   idle ──(change)──► editing ──(debounce fires)──► saving ──(write ok)──► saved ──(2 s)──► idle
+ *   idle ──(change)──► editing ──(debounce fires)──► saving ──(write ok)──► saved ──(2s)──► idle
  *                                                              └──(write err)──► idle
- *
- * Phase E additions:
- *   mithrilViolations — bridge IDs whose current style has ΔE > 2.0 against
- *                       their closest design token.
- *   overridesExist    — true when the component_overrides DB table is non-empty.
- *   canExport         — derived selector: false when any violations or overrides
- *                       exist. This is the Export Gate (Commandment 6).
  *
  * The module-level _saveTimer variable is safe because this is a singleton store.
  */
@@ -71,6 +63,13 @@ interface CanvasState {
      * Always create a new Set reference on mutation so Zustand detects the change.
      */
     expandedFolders: Set<string>
+    /**
+     * Accessibility violations discovered by `A11yLinter.audit()` on the current AST.
+     * Keyed by `data-bridge-id` (or a positional fallback like `"img-3"`).
+     * Each value is an array of human-readable rule messages (e.g. A11Y-001 …).
+     * An empty object means the file passes all accessibility checks.
+     */
+    a11yViolations: Record<string, string[]>
     /**
      * Current interaction mode for the Live Preview canvas.
      *   'design'   — IDE selection active; clicks select AST nodes.
@@ -130,6 +129,12 @@ interface CanvasActions {
      */
     setOverridesExist: (exists: boolean) => void
     /**
+     * Replaces the full accessibility violations map produced by `A11yLinter.audit()`.
+     * Pass an empty object `{}` to clear all violations.
+     * Called from `editorStore.setCode` on every successful AST parse.
+     */
+    setA11yViolations: (violations: Record<string, string[]>) => void
+    /**
      * Switches the canvas between 'design' (IDE selection active) and
      * 'interact' (native pointer events pass through to the iframe) mode.
      */
@@ -140,11 +145,12 @@ interface CanvasActions {
      */
     closeWorkspace: () => void
     /**
-     * Export Gate selector (Phase E — Commandment 6).
+     * Export Gate selector (Phase E — Commandments 5 + 6).
      *
-     * Returns `false` when any of the following are true:
+     * Returns `false` when ANY of the following are true:
      *   - One or more elements have a CIEDE2000 ΔE > 2.0 MithrilViolation.
      *   - The `component_overrides` table has at least one active row.
+     *   - The `a11yViolations` map has at least one entry (Commandment 5).
      *
      * Returns `true` only when the file is fully clean and ready to export.
      */
@@ -164,6 +170,7 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     saveState: 'idle',
     mithrilViolations: [],
     overridesExist: false,
+    a11yViolations: {},
     workspaceFiles: null,
     expandedFolders: new Set<string>(),
     canvasMode: 'design' as CanvasMode,
@@ -232,6 +239,7 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
 
     setMithrilViolations: (ids) => set({ mithrilViolations: ids }),
     setOverridesExist: (exists) => set({ overridesExist: exists }),
+    setA11yViolations: (violations) => set({ a11yViolations: violations }),
     setCanvasMode: (mode) => set({ canvasMode: mode }),
 
     closeWorkspace: () => {
@@ -246,6 +254,7 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
             dragSourceId: null,
             mithrilViolations: [],
             overridesExist: false,
+            a11yViolations: {},
             saveState: 'idle',
             expandedFolders: new Set<string>(),
             canvasMode: 'design',
@@ -253,8 +262,12 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     },
 
     canExport: () => {
-        const { mithrilViolations, overridesExist } = get()
-        return mithrilViolations.length === 0 && !overridesExist
+        const { mithrilViolations, overridesExist, a11yViolations } = get()
+        return (
+            mithrilViolations.length === 0 &&
+            !overridesExist &&
+            Object.keys(a11yViolations).length === 0
+        )
     },
 
     triggerAutoSave: (code: string, debounceMs = 0) => {
