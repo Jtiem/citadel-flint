@@ -205,7 +205,12 @@ contextBridge.exposeInMainWorld("bridgeAPI", {
      * files, upserts into the registry, and returns the FileTreeNode tree.
      * Returns null when the path is outside the home dir or scan fails.
      */
-    openPath: (folderPath) => ipcRenderer.invoke("project:openPath", folderPath)
+    openPath: (folderPath) => ipcRenderer.invoke("project:openPath", folderPath),
+    /**
+     * Resets an existing project to the known-good 'bridge-demo' state.
+     * Overwrites existing files within targetPath.
+     */
+    resetToDemo: (targetPath) => ipcRenderer.invoke("project:reset-to-demo", targetPath)
   },
   /**
    * Reads and returns the raw UTF-8 content of a `.tsx/.ts/.jsx/.js` source
@@ -256,6 +261,69 @@ contextBridge.exposeInMainWorld("bridgeAPI", {
       ipcRenderer.removeAllListeners("menu:new-project");
       ipcRenderer.removeAllListeners("menu:open-project");
       ipcRenderer.removeAllListeners("menu:close-project");
+    }
+  },
+  // ── Phase L: AI Orchestration Engine ──────────────────────────────────────
+  /**
+   * Applies an array of AI-proposed AST mutations. The actual AST surgery is
+   * handled in the renderer (editorStore.applyBatch). This IPC hop provides a
+   * uniform surface so the orchestratorStore can trigger mutations identically
+   * to drag-and-drop or property panel edits.
+   */
+  applyBatch: (_mutations) => ipcRenderer.invoke("ai:apply-batch"),
+  /**
+   * AI Orchestration API.
+   * All LLM calls run in the main process; chunks stream back via ipcRenderer.on.
+   */
+  ai: {
+    /**
+     * Initiates a chat turn. The main process calls Anthropic and forwards
+     * streamed chunks back as 'ai:chunk' events. Listen via ai.onChunk().
+     */
+    chat: (messages, context) => ipcRenderer.invoke("ai:chat", messages, context),
+    /** Subscribe to streamed OrchestratorChunk events from the current turn. */
+    onChunk: (callback) => {
+      ipcRenderer.on("ai:chunk", (_event, chunk) => callback(chunk));
+    },
+    /** Remove all 'ai:chunk' listeners (call in useEffect cleanup). */
+    removeChunkListener: () => {
+      ipcRenderer.removeAllListeners("ai:chunk");
+    },
+    /** Returns { hasKey, provider, model, baseURL } so the UI can show a config prompt. */
+    getConfig: () => ipcRenderer.invoke("ai:get-config"),
+    /** Persist the full AI config (API key, provider, model, baseURL) to ~/.bridge/config.json. */
+    saveConfig: (config) => ipcRenderer.invoke("ai:save-config", config)
+  },
+  // ── Phase N.4: Preview Engine IPC ─────────────────────────────────────────
+  /**
+   * Preview engine API — drives the programmatic Vite dev server that powers
+   * the agnostic Live Preview (Phase N.4). The renderer calls `preview.start()`
+   * when a project folder is opened and `preview.stop()` on project close.
+   */
+  preview: {
+    /**
+     * Starts (or restarts) a Vite dev server at `projectRoot`.
+     * Returns `{ url }` on success or `{ error }` on failure.
+     *
+     * The URL should be loaded as the iframe `src` in LivePreview.tsx.
+     */
+    start: (projectRoot) => ipcRenderer.invoke("preview:start", projectRoot),
+    /** Gracefully shuts down the running preview server (idempotent). */
+    stop: () => ipcRenderer.invoke("preview:stop"),
+    /** Returns the current preview server URL, or null if not running. */
+    getUrl: () => ipcRenderer.invoke("preview:url")
+  },
+  // ── Phase P: Integrated Terminal ──────────────────────────────────────────
+  terminal: {
+    spawn: (cwd) => ipcRenderer.invoke("terminal:spawn", cwd),
+    write: (data) => ipcRenderer.invoke("terminal:data", data),
+    resize: (cols, rows) => ipcRenderer.invoke("terminal:resize", cols, rows),
+    onOutput: (callback) => {
+      const listener = (_event, data) => callback(data);
+      ipcRenderer.on("terminal:output", listener);
+      return () => {
+        ipcRenderer.removeListener("terminal:output", listener);
+      };
     }
   }
 });

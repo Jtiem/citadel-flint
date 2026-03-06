@@ -20,7 +20,7 @@
  */
 
 import { execFile } from 'node:child_process'
-import { writeFile } from 'node:fs/promises'
+import { writeFile, realpath } from 'node:fs/promises'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { promisify } from 'node:util'
@@ -46,6 +46,13 @@ function findBridgeIdOffsets(node: Node, targetId: string): [number, number] | n
             if (
                 attr.type === 'JSXAttribute' &&
                 attr.name.type === 'JSXIdentifier' &&
+                attr.name.name === 'data-bridge-id'
+            ) {
+                console.log('found data-bridge-id attr:', attr.value)
+            }
+            if (
+                attr.type === 'JSXAttribute' &&
+                attr.name.type === 'JSXIdentifier' &&
                 attr.name.name === 'data-bridge-id' &&
                 attr.value?.type === 'StringLiteral' &&
                 attr.value.value === targetId &&
@@ -59,7 +66,7 @@ function findBridgeIdOffsets(node: Node, targetId: string): [number, number] | n
 
     // Recurse into all child properties that are nodes or arrays of nodes
     for (const key of Object.keys(node)) {
-        const child = (node as Record<string, unknown>)[key]
+        const child = (node as unknown as Record<string, unknown>)[key]
         if (Array.isArray(child)) {
             for (const item of child) {
                 if (item != null && typeof item === 'object' && 'type' in item) {
@@ -181,7 +188,8 @@ export class GitManager {
         const gitRoot = await this._getGitRoot(path.dirname(filePath))
         if (!gitRoot) return null
 
-        const relPath = path.relative(gitRoot, filePath)
+        const realFilePath = await realpath(filePath).catch(() => filePath)
+        const relPath = path.relative(gitRoot, realFilePath)
         let content: string
         try {
             const { stdout } = await execFileAsync(
@@ -189,7 +197,8 @@ export class GitManager {
                 { cwd: gitRoot, maxBuffer: 2 * 1024 * 1024 }
             )
             content = stdout
-        } catch {
+        } catch (e) {
+            console.error('git show failed:', e)
             return null
         }
 
@@ -200,7 +209,8 @@ export class GitManager {
             })
             const offsets = findBridgeIdOffsets(ast.program, dataBridgeId)
             return offsets ? content.slice(offsets[0], offsets[1]) : null
-        } catch {
+        } catch (e) {
+            console.error('parse failed:', e)
             return null
         }
     }

@@ -322,6 +322,11 @@ export interface ProjectAPI {
      * fails (e.g. the directory was deleted).
      */
     openPath: (folderPath: string) => Promise<FileTreeNode | null>
+    /**
+     * Resets an existing project to the known-good 'bridge-demo' state.
+     * Overwrites existing files within targetPath.
+     */
+    resetToDemo: (targetPath: string) => Promise<FileTreeNode>
 }
 
 /** IPC surface for native OS menu events pushed by the main process. */
@@ -347,6 +352,28 @@ export interface GitLogEntry {
     message: string
     /** Unix timestamp in seconds (author timestamp from `--pretty=format:%at`). */
     timestamp: number
+}
+
+// ── Phase N.4: Preview Engine types ────────────────────────────────────────────
+
+/**
+ * IPC surface for the programmatic Vite preview server.
+ * Drives the agnostic Live Preview iframe (Phase N.4).
+ */
+export interface PreviewAPI {
+    /**
+     * Starts (or restarts) a Vite dev server at `projectRoot`.
+     * The URL returned should be set as `iframe.src` in LivePreview.
+     *
+     * Returns `{ url }` on success or `{ error }` on failure.
+     */
+    start: (projectRoot: string) => Promise<{ url: string } | { error: string }>
+
+    /** Gracefully shuts down the running preview server (idempotent). */
+    stop: () => Promise<void>
+
+    /** Returns the current preview server URL, or null if not running. */
+    getUrl: () => Promise<string | null>
 }
 
 export interface BridgeAPI {
@@ -513,6 +540,71 @@ export interface BridgeAPI {
 
     /** Native OS menu event subscriptions (File → New / Open / Close Project). */
     menu: MenuAPI
+
+    // ── Phase L: AI Orchestration Engine ──────────────────────────────────────
+
+    /**
+     * Applies an array of AST mutations to the active file via the main process.
+     * Thin IPC wrapper — the full safety pipeline (Mithril, a11y, FileTransactionManager)
+     * runs identically to a UI-initiated applyBatch call.
+     */
+    applyBatch: (mutations: unknown[]) => Promise<{ ok: boolean; error?: string }>
+
+    /** AI Orchestration API — Anthropic Claude backend, runs in main process. */
+    ai: AIAPI
+
+    // ── Phase N.4: Preview Engine ──────────────────────────────────────────────
+
+    /** Programmatic Vite dev server API — agnostic preview engine. */
+    preview: PreviewAPI
+    // ── Phase P: Integrated Terminal ──────────────────────────────────────────
+    terminal: {
+        spawn: (cwd: string) => Promise<void>
+        write: (data: string) => Promise<void>
+        resize: (cols: number, rows: number) => Promise<void>
+        onOutput: (callback: (data: string) => void) => () => void
+    }
+}
+
+// ── AI Types (Phase L) ────────────────────────────────────────────────────────
+
+export type AIProvider = 'anthropic' | 'openai' | 'gemini'
+
+export interface AIConfig {
+    hasKey: boolean
+    provider: AIProvider
+    model: string | null
+    baseURL: string | null
+}
+
+export interface ChatMessage {
+    role: 'user' | 'assistant' | 'tool_call' | 'tool_result'
+    content: string
+    toolUseId?: string
+    toolName?: string
+    toolInput?: Record<string, unknown>
+}
+
+export interface OrchestratorChunk {
+    type: 'text' | 'tool_call' | 'tool_result' | 'done' | 'error' | 'validation_error'
+    text?: string
+    toolName?: string
+    toolInput?: Record<string, unknown>
+    toolUseId?: string
+    error?: string
+}
+
+export interface AIAPI {
+    /** Start a chat turn — streams chunks back via onChunk. */
+    chat: (messages: ChatMessage[], context: Record<string, unknown>) => Promise<void>
+    /** Subscribe to streaming chunk events from the current ai:chat call. */
+    onChunk: (callback: (chunk: OrchestratorChunk) => void) => void
+    /** Remove the active chunk listener (call in useEffect cleanup). */
+    removeChunkListener: () => void
+    /** Returns current AI config: whether an API key is configured, the provider, and the selected model. */
+    getConfig: () => Promise<AIConfig>
+    /** Persist the full AI config (API key, provider, model, baseURL) to ~/.bridge/config.json. */
+    saveConfig: (config: { apiKey?: string; provider: AIProvider; model?: string; baseURL?: string }) => Promise<void>
 }
 
 declare global {
@@ -520,3 +612,4 @@ declare global {
         bridgeAPI: BridgeAPI
     }
 }
+

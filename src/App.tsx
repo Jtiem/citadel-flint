@@ -1,6 +1,19 @@
 import { useState, useEffect } from 'react'
 import './index.css'
-import { CodeEditor } from './components/editor/CodeEditor'
+// ── Phase N.1: Bootstrap the Abstract Syntax Protocol (ASP) ──────────────────
+// The LanguageRegistry MUST be populated before any Zustand store is created,
+// because editorStore calls LanguageRegistry.getAdapter() at initialisation time
+// (to parse INITIAL_CODE). Importing these here at the top of App.tsx guarantees
+// the adapters are registered synchronously before any component code runs.
+import { LanguageRegistry } from './core/adapters/types'
+import { reactAdapter } from './core/adapters/ReactAdapter'
+import { htmlAdapter } from './core/adapters/HtmlAdapter'
+import { vueAdapter } from './core/adapters/VueAdapter'
+LanguageRegistry.register(['ts', 'tsx', 'js', 'jsx'], reactAdapter)
+LanguageRegistry.register(['html'], htmlAdapter)
+LanguageRegistry.register(['vue'], vueAdapter)
+// ─────────────────────────────────────────────────────────────────────────────
+import { CodeEditorPanel } from './components/ui/CodeEditorPanel'
 import { XYCanvas } from './components/editor/XYCanvas'
 import { LayerTree } from './components/ui/LayerTree'
 import { AssetsPanel } from './components/editor/AssetsPanel'
@@ -8,6 +21,8 @@ import { PropertiesPanel } from './components/ui/PropertiesPanel'
 import { TokenManager } from './components/ui/TokenManager'
 import { FileExplorer } from './components/ui/FileExplorer'
 import { RecoveryPanel } from './components/ui/RecoveryPanel'
+import { AgentChatPanel } from './components/ui/AgentChatPanel'
+import { TerminalPanel } from './components/ui/TerminalPanel'
 import { ExportModal } from './components/ui/ExportModal'
 import { useTokenStore } from './store/tokenStore'
 import { StatusBar } from './components/editor/StatusBar'
@@ -43,7 +58,8 @@ function findPrimaryFile(tree: FileTreeNode): string | null {
 
 function App() {
     const [leftTab, setLeftTab] = useState<'layers' | 'files' | 'assets'>('layers')
-    const [rightTab, setRightTab] = useState<'properties' | 'tokens' | 'recovery'>('properties')
+    const [rightTab, setRightTab] = useState<'properties' | 'tokens' | 'recovery' | 'agent'>('properties')
+    const [centerBottomTab, setCenterBottomTab] = useState<'source' | 'terminal'>('terminal')
     const [ipcStatus, setIpcStatus] = useState<string>('Connecting…')
     const [ipcOk, setIpcOk] = useState<boolean>(false)
     const [showExportModal, setShowExportModal] = useState(false)
@@ -282,6 +298,20 @@ function App() {
                         Open Folder
                     </button>
 
+                    {/* Reset to Demo */}
+                    <button
+                        type="button"
+                        onClick={async () => {
+                            if (!workspaceFiles) return
+                            if (!window.confirm('Reset project to demo state? This overwrites files in ' + workspaceFiles.path)) return
+                            const tree = await window.bridgeAPI.project.resetToDemo(workspaceFiles.path)
+                            await hydrateWorkspace(tree as FileTreeNode)
+                        }}
+                        className="rounded border border-gray-700 bg-gray-800 px-2.5 py-1 text-[11px] font-medium text-gray-500 transition-colors hover:border-orange-500/40 hover:bg-gray-700 hover:text-orange-400"
+                    >
+                        Reset to Demo
+                    </button>
+
                     {/* Close Project */}
                     <button
                         type="button"
@@ -350,15 +380,32 @@ function App() {
                         </MithrilProvider>
                     </div>
 
-                    {/* Bottom half: Monaco code editor */}
+                    {/* Bottom half: Monaco code editor or Terminal */}
                     <div className="flex min-h-0 flex-1 flex-col">
-                        <div className="flex shrink-0 items-center border-b border-gray-800 px-4 py-2">
-                            <span className="text-xs font-medium uppercase tracking-wider text-gray-500">
+                        <div className="flex shrink-0 items-center border-b border-gray-800">
+                            <button
+                                type="button"
+                                onClick={() => setCenterBottomTab('source')}
+                                className={`px-4 py-2 text-xs font-medium uppercase tracking-wider transition-colors ${centerBottomTab === 'source'
+                                    ? 'border-b-2 border-indigo-500 text-indigo-400'
+                                    : 'text-gray-600 hover:text-gray-400'
+                                    }`}
+                            >
                                 Source
-                            </span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setCenterBottomTab('terminal')}
+                                className={`px-4 py-2 text-xs font-medium uppercase tracking-wider transition-colors ${centerBottomTab === 'terminal'
+                                    ? 'border-b-2 border-indigo-500 text-indigo-400'
+                                    : 'text-gray-600 hover:text-gray-400'
+                                    }`}
+                            >
+                                Terminal
+                            </button>
                         </div>
                         <div className="min-h-0 flex-1">
-                            <CodeEditor />
+                            {centerBottomTab === 'source' ? <CodeEditorPanel /> : <TerminalPanel />}
                         </div>
                     </div>
                 </section>
@@ -367,7 +414,7 @@ function App() {
                 <section className="flex min-h-0 w-1/5 flex-col">
                     {/* Tab bar */}
                     <div className="flex shrink-0 border-b border-gray-800">
-                        {(['properties', 'tokens', 'recovery'] as const).map((tab) => (
+                        {(['properties', 'tokens', 'recovery', 'agent'] as const).map((tab) => (
                             <button
                                 key={tab}
                                 type="button"
@@ -377,7 +424,7 @@ function App() {
                                     : 'text-gray-600 hover:text-gray-400'
                                     }`}
                             >
-                                {tab === 'recovery' ? '⏱ Recover' : tab}
+                                {tab === 'recovery' ? '⏱ Recover' : tab === 'agent' ? '🤖 Agent' : tab}
                             </button>
                         ))}
                     </div>
@@ -387,6 +434,7 @@ function App() {
                         {rightTab === 'properties' && <PropertiesPanel />}
                         {rightTab === 'tokens' && <TokenManager />}
                         {rightTab === 'recovery' && <RecoveryPanel />}
+                        {rightTab === 'agent' && <AgentChatPanel />}
                     </div>
                 </section>
             </main>

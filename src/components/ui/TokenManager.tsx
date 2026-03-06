@@ -249,6 +249,12 @@ function ImportModal({ onClose, onImport, isLoading, error }: ImportModalProps) 
 const TYPE_LABEL: Record<TokenType, string> = {
     color: 'Color',
     dimension: 'Dimension',
+    fontFamily: 'Font Family',
+    fontWeight: 'Font Weight',
+    lineHeight: 'Line Height',
+    letterSpacing: 'Letter Spacing',
+    shadow: 'Shadow',
+    opacity: 'Opacity',
     string: 'String',
     boolean: 'Boolean',
 }
@@ -256,6 +262,12 @@ const TYPE_LABEL: Record<TokenType, string> = {
 const TYPE_DOT: Record<TokenType, string> = {
     color: 'bg-purple-400',
     dimension: 'bg-blue-400',
+    fontFamily: 'bg-amber-400',
+    fontWeight: 'bg-amber-400',
+    lineHeight: 'bg-amber-400',
+    letterSpacing: 'bg-amber-400',
+    shadow: 'bg-indigo-400',
+    opacity: 'bg-indigo-400',
     string: 'bg-emerald-400',
     boolean: 'bg-amber-400',
 }
@@ -353,11 +365,10 @@ export function TokenManager() {
                         <button
                             type="button"
                             onClick={handleClearAll}
-                            className={`flex items-center gap-1 rounded border px-2 py-1 text-[11px] font-medium transition-colors ${
-                                confirmingClear
+                            className={`flex items-center gap-1 rounded border px-2 py-1 text-[11px] font-medium transition-colors ${confirmingClear
                                     ? 'border-red-700 bg-red-900/30 text-red-400 hover:bg-red-900/50'
                                     : 'border-gray-700 bg-gray-800/40 text-gray-600 hover:border-red-700/60 hover:text-red-500'
-                            }`}
+                                }`}
                             title="Delete all design tokens"
                         >
                             <Trash2 className="h-3 w-3" />

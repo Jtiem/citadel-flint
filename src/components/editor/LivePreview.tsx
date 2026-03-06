@@ -33,6 +33,7 @@ import {
   injectBridgeIds,
   generateCodeFromAST,
 } from '../../core/ast-parser'
+import { LanguageRegistry } from '../../core/adapters/types'
 import {
   publishPresence,
   publishPresenceImmediate,
@@ -283,7 +284,105 @@ function buildSrcdoc(js: string, tailwindConfigJson: string): string {
 </html>`
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
+// ── HTML srcdoc builder (Phase N.2) ─────────────────────────────────────────────
+
+/**
+ * Wraps a raw HTML string (with data-bridge-id attributes pre-injected)
+ * in a minimal srcdoc document that includes the Tailwind CDN and the
+ * full Bridge interaction proxy script (click-to-select, hover, drag).
+ */
+function buildHtmlSrcdoc(htmlCode: string, tailwindConfigJson: string): string {
+  // Extract <body> inner content to avoid duplicating the outer <html>/<head>.
+  const bodyMatch = htmlCode.match(/<body[^>]*>([\u200b\s\S]*?)<\/body>/i)
+  const bodyContent = bodyMatch ? bodyMatch[1] : htmlCode
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script src="https://cdn.tailwindcss.com"><\/script>
+  <script>tailwind.config = ${tailwindConfigJson};<\/script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; padding: 1rem; background: #111827; color: #f9fafb; font-family: system-ui, sans-serif; }
+    .bridge-selected { outline: 2px solid #3b82f6 !important; background-color: rgba(59,130,246,0.1) !important; }
+    .bridge-hovered { outline: 2px dashed #94a3b8 !important; background: rgba(148,163,184,0.1) !important; cursor: default; z-index: 40; transition: all 0.1s; }
+    .bridge-drop-before { box-shadow: 0 -3px 0 0 #3b82f6 !important; z-index: 50; }
+    .bridge-drop-after  { box-shadow: 0 3px 0 0 #3b82f6 !important; z-index: 50; }
+    .bridge-drop-inside { outline: 2px solid #3b82f6 !important; background: rgba(59,130,246,0.2) !important; }
+    #bridge-ghost { position: fixed; pointer-events: none; border: 2px solid #3b82f6; background: rgba(59,130,246,0.12); border-radius: 4px; z-index: 9999; display: none; width: 80px; height: 40px; }
+  <\/style>
+<\/head>
+<body>
+  ${bodyContent}
+  <script>
+    window.__bridgeInteractMode = false;
+    window.addEventListener('message', function(e) {
+      if (!e.data) return; var t = e.data.type;
+      if (t === 'SET_INTERACT_MODE') { window.__bridgeInteractMode = !!e.data.enabled; return; }
+      if (t === 'CLEAR_PREVIEW') { document.body.innerHTML = ''; return; }
+      if (t === 'HIGHLIGHT') {
+        document.querySelectorAll('.bridge-selected').forEach(function(el){el.classList.remove('bridge-selected');});
+        if (e.data.id) { var s=document.querySelector('[data-bridge-id="'+e.data.id+'"]'); if(s)s.classList.add('bridge-selected'); }
+        return;
+      }
+      if (t === 'HOVER') {
+        document.querySelectorAll('.bridge-hovered').forEach(function(el){el.classList.remove('bridge-hovered');});
+        if (e.data.id) { var h=document.querySelector('[data-bridge-id="'+e.data.id+'"]'); if(h)h.classList.add('bridge-hovered'); }
+        return;
+      }
+      if (t === 'CLEAR_HOVER') { document.querySelectorAll('.bridge-hovered').forEach(function(el){el.classList.remove('bridge-hovered');}); return; }
+      if (t === 'DRAG_OVER') {
+        document.querySelectorAll('.bridge-drop-before,.bridge-drop-after,.bridge-drop-inside').forEach(function(n){n.classList.remove('bridge-drop-before','bridge-drop-after','bridge-drop-inside');});
+        if (e.data.targetId){var d=document.querySelector('[data-bridge-id="'+e.data.targetId+'"]');if(d)d.classList.add('bridge-drop-'+e.data.position);}
+        return;
+      }
+      if (t === 'DRAG_CLEAR') {
+        var g=document.getElementById('bridge-ghost');if(g)g.style.display='none';
+        document.querySelectorAll('.bridge-drop-before,.bridge-drop-after,.bridge-drop-inside').forEach(function(n){n.classList.remove('bridge-drop-before','bridge-drop-after','bridge-drop-inside');});
+        return;
+      }
+      if (t === 'DRAG_MOVE') {
+        var gm=document.getElementById('bridge-ghost');if(gm){gm.style.display='block';gm.style.left=(e.data.x-40)+'px';gm.style.top=(e.data.y-20)+'px';}
+        document.querySelectorAll('.bridge-drop-before,.bridge-drop-after,.bridge-drop-inside').forEach(function(n){n.classList.remove('bridge-drop-before','bridge-drop-after','bridge-drop-inside');});
+        var dme=document.elementFromPoint(e.data.x,e.data.y);var dmt=dme?dme.closest('[data-bridge-id]'):null;
+        if(dmt){var r=dmt.getBoundingClientRect();var pct=(e.data.y-r.top)/r.height;dmt.classList.add('bridge-drop-'+(pct<0.25?'before':pct>0.75?'after':'inside'));}
+        return;
+      }
+      if (t === 'DRAG_END') {
+        var ge=document.getElementById('bridge-ghost');if(ge)ge.style.display='none';
+        document.querySelectorAll('.bridge-drop-before,.bridge-drop-after,.bridge-drop-inside').forEach(function(n){n.classList.remove('bridge-drop-before','bridge-drop-after','bridge-drop-inside');});
+        var de=document.elementFromPoint(e.data.x,e.data.y);var dt=de?de.closest('[data-bridge-id]'):null;
+        var dp='inside';if(dt){var dr=dt.getBoundingClientRect();var dpp=(e.data.y-dr.top)/dr.height;dp=dpp<0.25?'before':dpp>0.75?'after':'inside';}
+        window.parent.postMessage({type:'HIT_TEST_RESULT',targetId:dt?dt.getAttribute('data-bridge-id'):null,position:dp},'*');
+        return;
+      }
+    });
+    document.addEventListener('click', function(e) {
+      if (window.__bridgeInteractMode) return;
+      var el=e.target.closest('[data-bridge-id]');
+      if(el) window.parent.postMessage({type:'CANVAS_CLICK',id:el.getAttribute('data-bridge-id')},'*');
+    });
+    var _hid=null;
+    document.body.addEventListener('mouseover',function(e){
+      if(window.__bridgeInteractMode)return;
+      var el=e.target.closest('[data-bridge-id]');var id=el?el.getAttribute('data-bridge-id'):null;
+      if(id!==_hid){_hid=id;window.parent.postMessage(id?{type:'CANVAS_HOVER',id:id}:{type:'CANVAS_HOVER_CLEAR'},'*');}
+    });
+    document.body.addEventListener('mouseleave',function(){if(_hid!==null){_hid=null;window.parent.postMessage({type:'CANVAS_HOVER_CLEAR'},'*');}});
+    var _bg=document.createElement('div');_bg.id='bridge-ghost';document.body.appendChild(_bg);
+    document.body.addEventListener('mousedown',function(e){
+      if(window.__bridgeInteractMode)return;
+      var el=e.target.closest('[data-bridge-id]');if(!el)return;
+      e.preventDefault();
+      window.parent.postMessage({type:'CANVAS_DRAG_START',id:el.getAttribute('data-bridge-id'),x:e.clientX,y:e.clientY},'*');
+    });
+  <\/script>
+<\/body>
+<\/html>`
+}
+
 
 export function LivePreview() {
   const rawCode = useEditorStore((state) => state.rawCode)
@@ -302,6 +401,7 @@ export function LivePreview() {
   const { dragSourceId, startDrag, endDrag, setActiveSelection } = useCanvasStore()
   const canvasMode = useCanvasStore((s) => s.canvasMode)
   const setCanvasMode = useCanvasStore((s) => s.setCanvasMode)
+  const workspaceFiles = useCanvasStore((s) => s.workspaceFiles)
   const moveLayerNode = useEditorStore((s) => s.moveLayerNode)
   const isDragging = dragSourceId !== null
   /** Stable ref so Shield callbacks never capture a stale sourceId. */
@@ -317,6 +417,41 @@ export function LivePreview() {
   /** Stable ref so the message handler always reads the latest locked set. */
   const lockedNodeIdsRef = useRef<Set<string>>(lockedNodeIds)
   useEffect(() => { lockedNodeIdsRef.current = lockedNodeIds }, [lockedNodeIds])
+
+  // ── Phase N.4: Vite Preview Server lifecycle ────────────────────────────
+  //
+  // When a project folder is opened (workspaceFiles is non-null), start the
+  // programmatic Vite dev server pointed at the project root. The iframe will
+  // load the resulting URL as `src` instead of the Babel/srcdoc path.
+  //
+  // When the project is closed (workspaceFiles becomes null), or when this
+  // component unmounts, stop the server gracefully.
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    const api = window.bridgeAPI?.preview
+    if (!api) return   // Preload not yet available (e.g. Vitest environment)
+
+    if (workspaceFiles == null) {
+      // No project open — stop server and revert to srcdoc mode.
+      void api.stop().then(() => setPreviewUrl(null))
+      return
+    }
+
+    const projectRoot = workspaceFiles.path
+    void api.start(projectRoot).then((result) => {
+      if ('error' in result) {
+        console.warn('[Bridge] Vite preview failed to start:', result.error)
+        setPreviewUrl(null)
+      } else {
+        setPreviewUrl(result.url)
+      }
+    })
+
+    return () => {
+      void api.stop().then(() => setPreviewUrl(null))
+    }
+  }, [workspaceFiles?.path])   // Only restart when the project root changes
 
   async function handleLoadDemo(): Promise<void> {
     setDemoLoading(true)
@@ -335,11 +470,27 @@ export function LivePreview() {
   useEffect(() => {
     let cancelled = false
 
-    // Phase E.1: inject data-bridge-id attributes in the renderer before sending
-    // to the main process. This guarantees IDs exist even if the main-process
-    // Babel plugin fails. The main-process plugin's idempotency guard means
-    // double-injection is impossible. Fall back to rawCode when parsing fails
-    // (e.g. during live typing with a syntax error).
+    // ── Phase N.2: HTML native preview ────────────────────────────────────
+    // Bypass Babel/IPC entirely for raw .html files. The HtmlAdapter
+    // injects bridge IDs and generates the final source; we wrap it in
+    // a Tailwind + Bridge-script srcdoc and set it directly.
+    const activeFilePath = useCanvasStore.getState().activeFilePath ?? ''
+    if (activeFilePath.endsWith('.html')) {
+      const adapter = LanguageRegistry.getAdapter(activeFilePath)
+      const ast = adapter.parse(rawCode)
+      if (ast !== null) {
+        adapter.injectBridgeIds(ast)
+        const injectedHtml = adapter.generate(ast)
+        if (!cancelled && iframeRef.current !== null) {
+          setTransformError(null)
+          iframeRef.current.srcdoc = buildHtmlSrcdoc(injectedHtml, tailwindConfigJson)
+        }
+      }
+      return () => { cancelled = true }
+    }
+
+    // ── Phase E.1: React/TSX path (unchanged) ───────────────────────────
+    // Inject data-bridge-id attributes in renderer before IPC transform.
     const freshAst = parseCodeToAST(rawCode)
     const codeToTransform =
       freshAst !== null
@@ -356,8 +507,6 @@ export function LivePreview() {
         }
         setTransformError(null)
         if (iframeRef.current !== null) {
-          // Strip any remaining import statements from the execution string only.
-          // The AST source of truth (editorStore) is never modified here.
           const executeCode = js.replace(/import\s+.*?from\s+['"].*?['"];?/g, '')
           iframeRef.current.srcdoc = buildSrcdoc(executeCode, tailwindConfigJson)
         }
@@ -579,11 +728,54 @@ export function LivePreview() {
         </div>
       )}
       {/* Positioning context so the Shield can overlay exactly the iframe */}
-      <div className="relative min-h-0 flex-1">
+      <div
+        className="relative min-h-0 flex-1"
+        onDragOver={(e) => {
+          if (canvasMode !== 'design') return
+          // Only accept component files from FileExplorer
+          if (e.dataTransfer.types.includes('application/bridge-component-file')) {
+            e.preventDefault()
+            e.dataTransfer.dropEffect = 'copy'
+          }
+        }}
+        onDrop={(e) => {
+          if (canvasMode !== 'design') return
+          const sourceFile = e.dataTransfer.getData('application/bridge-component-file')
+          if (!sourceFile) return
+
+          e.preventDefault()
+
+          // Simple heuristic: file basename is the component name
+          const componentName = sourceFile.split(/[/\\]/).pop()?.replace(/\.tsx$/, '')
+          if (!componentName) return
+
+          // We insert into visualTree[0], which is the root node of the currently active file
+          const editorState = useEditorStore.getState()
+          if (!editorState.visualTree || editorState.visualTree.length === 0) return
+          const rootNodeId = editorState.visualTree[0].id
+
+          editorState.applyBatch([
+            {
+              op: 'injectComponent',
+              targetNodeId: rootNodeId,
+              jsxSnippet: `\n      <${componentName} data-bridge-id="bridge-injected-${Date.now()}" />\n`,
+              importSnippet: `import ${componentName} from './${componentName}'`
+            }
+          ])
+        }}
+      >
         <iframe
+          // Phase N.4: when a project is open, use the Vite dev server URL as
+          // src so HMR and the user's full framework pipeline are active.
+          // When previewUrl is null (no project / single-file mode), the
+          // iframe falls back to the existing imperative srcdoc assignments.
+          // The `key` forces React to unmount+remount the iframe when switching
+          // between src= and srcdoc= modes, avoiding cross-origin state leaks.
+          key={previewUrl ?? 'srcdoc'}
           ref={iframeRef}
           title="Live Preview"
           className="absolute inset-0 h-full w-full border-0 bg-gray-900"
+          {...(previewUrl != null ? { src: previewUrl } : {})}
           onLoad={handleIframeLoad}
         />
         {/* Shield: transparent overlay that captures pointer events during drag.

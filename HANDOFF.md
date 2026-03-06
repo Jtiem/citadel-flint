@@ -1,9 +1,9 @@
-# Bridge IDE — Developer Handoff (v5.16)
+# Bridge IDE — Developer Handoff (v5.18)
 
-**Date:** 2026-03-04
-**Commit:** Phase D.2 (Macro-Recovery Frontend) applied
-**Status:** Phase D.2 (Git Time Machine UI) — **COMPLETE**
-**Tests:** 99/99 passing · ΔE = 0.0 · `tsc --noEmit`: 0 errors
+**Date:** 2026-03-05
+**Commit:** Phase B.1-d (Export Gate Severity Escalation) applied
+**Status:** Phase B.1-d (Export Gate Severity Escalation) — **COMPLETE**
+**Tests:** 160/160 passing · ΔE = 0.0 · `tsc --noEmit`: 0 errors
 **Run:** `npm run dev`
 
 ---
@@ -49,7 +49,11 @@ Bridge is a performance-hardened, three-process Electron app designed for agenti
 | AST Conflict Arbiter | C.2 | **ONLINE** | `useLockedNodeIds` + `useIsNodeLocked`. Locks Layer Tree, Properties Panel, and canvas drag for nodes held by remote users. |
 | Infinite Canvas | A | **ONLINE** | `XYCanvas.tsx` — `@xyflow/react` v12. `LivePreview` hosted as a draggable custom node with chrome bar, pan/zoom/minimap. |
 | Export Gate UI | B.2 | **ONLINE** | `ExportModal.tsx` + `tokens:read-overrides` IPC + Export button in top bar |
+| Export Gate Severity Escalation | B.1-d | **ONLINE** | Critical (ΔE > 10) → red modal header + red row badge + "Critical" pill. Amber (2.0–10.0) → amber styling. `hasCriticalMithril` computed from `editorStore.linterWarnings`. |
 | Accessibility Gate | B.3 | **ONLINE** | `A11yLinter.ts` — AST-level a11y checks (img/button/a/input). Runs on every parse; blocks exports. |
+| Interaction Modes | I | **ONLINE** | `canvasMode` toggles pointer-events within LivePreview iframe via IPC message |
+| Bridge Auditor / Orchestration | L | **ONLINE** | `electron/orchestrator.ts` (Anthropic Claude streaming + Bridge Tool Catalog) · `src/store/orchestratorStore.ts` · `AgentChatPanel.tsx` (🤖 tab in right panel) · `ai:chat`, `ai:get-config`, `ai:save-config` IPC in `main.ts` · `applyBatch` + `ai` namespace in `preload.ts` · Store reads `~/.bridge/config.json` for API key. Every AI-proposed mutation requires user confirmation before touching the AST. |
+| AI Orchestrator Hardening | M | **ONLINE** | `orchestrator.ts` constrained to 7-op Bridge AST Tool Catalog (no raw code strings). In-memory TSC validation loop. Design system RAG via `sqlite-vec`. Structured Outputs / Tool Use API mode enforced. Commandments 15 & 16 active. |
 
 ---
 
@@ -80,6 +84,7 @@ Bridge is a performance-hardened, three-process Electron app designed for agenti
 | `GitManager.ts` | `ensureRepo` + `shadowCommit` (called after every atomic save). `getGitNode` for surgical node extraction from git history. |
 | `main.ts` | IPC handlers: `saveFile`, `saveFileBatch`, `readFile`, `transformCode`, `openFolder`, `ast:git-show`, `ast:git-log`. |
 | `preload.ts` | `contextBridge` exposure of `window.bridgeAPI` including `gitShow` and `gitLog`. |
+| `orchestrator.ts` | **Phase M** — Anthropic Claude streaming. Constrained to Bridge AST Tool Catalog. In-memory TSC validation loop. Fetches design system interfaces from `sqlite-vec` for RAG context injection. |
 
 ### `src/components/ui/`
 | File | Role |
@@ -89,7 +94,7 @@ Bridge is a performance-hardened, three-process Electron app designed for agenti
 | `RecoveryPanel.tsx` | **Phase D.2** — Time Machine UI. Queries `bridgeAPI.gitLog`, renders shadow-commit timeline, triggers `editorStore.revertNodeToCommit` for surgical node transplants. |
 | `SyncStatus.tsx` | **Module C.1** — PowerSync sync state badge + `useSyncPresence` hook for throttled cursor broadcasting. |
 | `XYCanvas.tsx` | **Module A** — Infinite whiteboard. Mounts `@xyflow/react` v12; `LivePreview` is a `livePreview` custom node type. Drag handle isolated to chrome bar to preserve Shield DnD. |
-| `ExportModal.tsx` | **Phase B.2** — Mithril Safety Export Gate modal. Pre-flight audit of `component_overrides` rows + ΔE violations + accessibility violations (B.3). Clickable node IDs snap-select the offending element in the canvas. Pass state shows source + Copy button. |
+| `ExportModal.tsx` | **Phase B.2 / B.1-d** — Mithril Safety Export Gate modal. Pre-flight audit of `component_overrides` rows + ΔE violations + accessibility violations (B.3). Clickable node IDs snap-select the offending element in the canvas. Pass state shows source + Copy button. Severity escalation (B.1-d): reads `editorStore.linterWarnings` per violation ID — critical (ΔE > 10) renders red header + red row badge; amber (2.0–10.0) renders amber styling. |
 | **Core Services** | |
 | `A11yLinter.ts` | **Phase B.3** — Pure AST-level accessibility linter. Enforces Commandment 5. Rules: A11Y-001 (`<img>` alt), A11Y-002/003 (`<button>`/`<a>` accessible name), A11Y-004 (`<input>` label). Called inside `editorStore.setCode` on every successful parse. |
 
@@ -228,7 +233,43 @@ applyRedo()
 
 ---
 
-## 8. Immediate Next Steps
+## 8. Phase M Change Log
 
-- **Phase I (Post-Redo Undoability):** Extend `applyRedoPlan` to capture pre-redo snapshots and push a consolidated undo entry after the recovery `crossFileMove`.
-- **PowerSync CRDT (Module C):** Multiplayer presence + conflict arbitration.
+**`.bridge-context/architecture.md` & `.antigravityrules`**
+- Updated spec to v6.0. Expanded to **16 Commandments**.
+- Added **Commandment 15:** Granular AST Tools Only. Orchestrator restricted to `updateProps`, `updateText`, `insertNode`, `wrapNode`, `deleteNode`, `addClassName`, `removeClassName`.
+- Added **Commandment 16:** In-Memory Validation Before Confirmation. `orchestrator.ts` must execute TSC type-check on synthesized AI output before confirmation UI; errors fed back to AI invisibly.
+- Added **Module M** section defining the full AST Tool Catalog JSON schemas, Design System RAG Injection requirement, and Structured Outputs Enforcement.
+
+**`CLAUDE.md`**
+- Updated to v6.9. Added Phase M row to module table.
+- Added Critical AI Directives 6 & 7 (Commandments 15 & 16).
+
+**`HANDOFF.md`**
+- Updated to Phase M status. Added `orchestrator.ts` to electron file map.
+- Extended Immediate Next Steps to call out Phase M implementation in `orchestrator.ts`.
+
+---
+
+## 9. Phase B.1-d Change Log
+
+**`src/components/ui/ExportModal.tsx`**
+- Added `linterWarnings` selector from `useEditorStore` (reads `Map<string, LinterWarning>`).
+- Added `hasCriticalMithril` derived boolean: `mithrilViolations.some(id => linterWarnings.get(id)?.severity === 'critical')`.
+- Modal header escalates from amber → red border/bg/icon/title when `hasCriticalMithril` is true ("Export Gate — Critical Violations").
+- Mithril violations section header color + "Critical" pill badge driven by `hasCriticalMithril`.
+- Per-row rendering: each violation looks up its `LinterWarning` from `linterWarnings`; critical rows get `border-red-700/50 bg-red-900/20` + red ID button + inline "Critical" badge; amber rows get `border-amber-900/40 bg-amber-900/10` + amber ID button.
+- Description line renders `warning.message` (includes exact ΔE from the linter) instead of the hardcoded "ΔE > 2.0 — token not applied" string.
+- Added `type { LinterWarning }` import from `bridge-api.d.ts`.
+
+**`src/core/MithrilLinter.severity.test.ts`** *(new file — 21 tests)*
+- `visitClassNames — severity bucketing`: 8 tests covering no-violation, below-threshold, amber assignment, critical assignment, no-bridge-id skip, mixed-severity pass, message format, empty-token list, worst-ΔE-wins-per-node.
+- `auditAll — severity preserved through full pipeline`: 4 tests — critical + amber preserved after all 5 merged visitors; clean nodes absent; no-JSX source → empty map.
+- `hasCriticalMithril — ExportModal gate computation`: 9 tests — all pure logic cases + 2 integration tests that feed real `auditAll` output directly into the gate boolean.
+
+---
+
+## 10. Immediate Next Steps
+
+- **C.1: Cloud PowerSync backend** — Wire `@powersync/node` when backend URL is provisioned. Schema + columns already ready in `electron/sync-schema.ts` + `design_tokens.version/last_modified`.
+- **`revertNodeToHead` undo support** — Currently bypasses history (intentional). Consider pushing a `restoreCode` inversion if post-git-revert undo becomes a requirement.

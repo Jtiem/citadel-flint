@@ -29,8 +29,13 @@ export default defineConfig({
               // static ESM imports which then fail if the target isn't installed.
               // Marking them external lets Node.js resolve them from node_modules
               // at runtime where CJS require() works correctly.
-              external: (id) =>
-                id === 'better-sqlite3' || id.startsWith('@babel/'),
+              // Also externalizing optional native modules used by 'ws' (required by OpenAI/Gemini SDKs).
+              external: (id) => {
+                if (id === 'vite' || id === 'node-pty' || id === 'better-sqlite3' || id === 'bufferutil' || id === 'utf-8-validate' || id === 'fsevents' || id.includes('lightningcss')) return true
+                if (id.startsWith('@babel/')) return true
+                if (id === '../pkg' || id === './pkg') return true
+                return false
+              },
             },
           },
         },
@@ -44,7 +49,7 @@ export default defineConfig({
           build: {
             outDir: 'dist-electron',
             rollupOptions: {
-              external: ['better-sqlite3'],
+              external: ['better-sqlite3', 'fsevents'],
             },
           },
         },
@@ -54,7 +59,7 @@ export default defineConfig({
   ],
   build: {
     rollupOptions: {
-      external: ['better-sqlite3'],
+      external: ['better-sqlite3', 'fsevents'],
     },
   },
 })

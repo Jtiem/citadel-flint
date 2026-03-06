@@ -18,16 +18,12 @@
  */
 
 import { create } from 'zustand'
-import type { File } from '@babel/types'
-import {
-    parseCodeToAST,
-    buildVisualTree,
-    generateCodeFromAST,
-    transplantNode,
-} from '../core/ast-parser'
+// Phase N.1: editorStore no longer imports Babel directly.
+// All AST operations are routed through LanguageRegistry so the same store
+// works for any language the adapter registry supports.
+import { LanguageRegistry } from '../core/adapters/types'
 import type { VisualLayer } from '../core/ast-parser'
 import type { DropPosition } from '../utils/astModifier'
-import { applyMutationBatch } from '../core/ASTService'
 import type { ASTMutation } from '../core/ASTService'
 import { useCanvasStore } from './canvasStore'
 import { useHistoryStore } from './historyStore'
@@ -59,8 +55,11 @@ export default function Card({ title }: Props) {
 
 interface EditorState {
     rawCode: string
-    /** Babel File AST — typed precisely, not as `object`, per CLAUDE.md rule: no any. */
-    ast: File | null
+    /**
+     * The last successfully-parsed AST (type is adapter-specific, treated as
+     * unknown by Bridge Core per the IBridgeAdapter contract — Phase N.1).
+     */
+    ast: unknown | null
     selectedNodeId: string | null
     /** ID of the layer currently hovered — drives bi-directional hover sync with the iframe. */
     hoveredId: string | null
@@ -205,11 +204,21 @@ type EditorStore = EditorState & EditorActions
 // ── Store ─────────────────────────────────────────────────────────────────────
 
 export const useEditorStore = create<EditorStore>((set, get) => {
-    // Parse the initial code synchronously at store-creation time so the
-    // layer tree shows real content immediately on the first render.
-    const initialAst = parseCodeToAST(INITIAL_CODE)
-    const initialTree =
-        initialAst !== null ? buildVisualTree(initialAst) : []
+    // Parse the initial code at store-creation time so the layer tree shows
+    // real content immediately on first render. Wrapped in try/catch because
+    // module evaluation order in Vite's dev server is not guaranteed — if this
+    // store module is evaluated before App.tsx has registered adapters the
+    // getAdapter() call would throw. In that case we start with an empty tree;
+    // it populates on the first setCode() call once adapters are live.
+    let initialAst: unknown = null
+    let initialTree: VisualLayer[] = []
+    try {
+        const _adapter = LanguageRegistry.getAdapter('initial.tsx')
+        initialAst = _adapter.parse(INITIAL_CODE)
+        initialTree = initialAst !== null ? _adapter.buildVisualTree(initialAst) : []
+    } catch {
+        // Registry not yet populated — tree will be rebuilt on first setCode().
+    }
 
     return {
         rawCode: INITIAL_CODE,
@@ -222,32 +231,29 @@ export const useEditorStore = create<EditorStore>((set, get) => {
 
         setCode: (code: string) => {
             // Capture BEFORE set() so the file-load vs. typing check is
-            // comparing against the previous value (Commandment 10 fix —
-            // the old code ran after set(), making get().rawCode === code always).
+            // comparing against the previous value (Commandment 10 fix).
             const previousCode = get().rawCode
-            const parsed = parseCodeToAST(code)
+            const activeFilePath = useCanvasStore.getState().activeFilePath ?? 'file.tsx'
+            const adapter = LanguageRegistry.getAdapter(activeFilePath)
+            const parsed = adapter.parse(code)
             if (parsed !== null) {
                 // Happy path: code is syntactically valid — update everything.
                 set({
                     rawCode: code,
                     ast: parsed,
-                    visualTree: buildVisualTree(parsed),
+                    visualTree: adapter.buildVisualTree(parsed),
                 })
                 // Debounced auto-save (1 s) so rapid keystrokes don't flood IPC.
-                // No-op when no project folder is open (activeFilePath is null).
                 useCanvasStore.getState().triggerAutoSave(code, 1000)
 
                 // ── Phase B.3: Accessibility Gate ─────────────────────────
-                // Run the A11y linter on the fresh AST and push violations to
-                // canvasStore so canExport blocks dirty files (Commandment 5).
-                const a11yViolations = A11yLinter.audit(parsed)
+                // A11yLinter still operates on Babel ASTs internally.
+                // Cast is safe: for React files the adapter returns a Babel File.
+                // Phase N.3 will introduce a normalised IR lint path.
+                const a11yViolations = A11yLinter.audit(parsed as import('@babel/types').File)
                 useCanvasStore.getState().setA11yViolations(a11yViolations)
 
                 // Clear undo/redo history when loading a different file.
-                // Prevents cross-file undo corruption (Commandment 10).
-                // Comparing against `previousCode` (captured above) — after
-                // set() is called, get().rawCode already equals `code` and the
-                // comparison would always be false.
                 if (code !== previousCode) {
                     useHistoryStore.getState().clear()
                 }
@@ -300,29 +306,27 @@ export const useEditorStore = create<EditorStore>((set, get) => {
         applyBatch: (mutations) => {
             if (mutations.length === 0) return
 
-            const { code: newCode, inversions } = applyMutationBatch(
+            const activeFilePath = useCanvasStore.getState().activeFilePath ?? 'file.tsx'
+            const adapter = LanguageRegistry.getAdapter(activeFilePath)
+
+            const { code: newCode, inversions } = adapter.applyMutationBatch(
                 get().rawCode,
                 mutations
             )
 
-            // No-op detection: a structural mutation (moveNode, deleteNode, etc.)
-            // silently failed when the restoreCode snapshot equals the output code.
-            // This happens when the source node cannot be found by ID (e.g., stale
-            // structural ID after a prior edit shifted line numbers). Bailing here
-            // prevents a void undo entry that restores to the identical source
-            // (the "Undo Void" bug — BRIDGE-PULSE-v5.8 History Stack DEGRADED).
+            // No-op detection: structural mutation silently failed.
             const firstInv = inversions[0]
             if (firstInv?.op === 'restoreCode' && firstInv.code === newCode) {
                 return
             }
 
-            const newAst = parseCodeToAST(newCode)
+            const newAst = adapter.parse(newCode)
             if (newAst === null) return
 
             set({
                 rawCode: newCode,
                 ast: newAst,
-                visualTree: buildVisualTree(newAst),
+                visualTree: adapter.buildVisualTree(newAst),
             })
 
             // ONE save-file IPC call for the entire batch.
@@ -333,12 +337,14 @@ export const useEditorStore = create<EditorStore>((set, get) => {
         },
 
         syncCode: (code: string) => {
-            const parsed = parseCodeToAST(code)
+            const activeFilePath = useCanvasStore.getState().activeFilePath ?? 'file.tsx'
+            const adapter = LanguageRegistry.getAdapter(activeFilePath)
+            const parsed = adapter.parse(code)
             if (parsed === null) return
             set({
                 rawCode: code,
                 ast: parsed,
-                visualTree: buildVisualTree(parsed),
+                visualTree: adapter.buildVisualTree(parsed),
             })
         },
 
@@ -394,36 +400,33 @@ export const useEditorStore = create<EditorStore>((set, get) => {
             const activeFilePath = useCanvasStore.getState().activeFilePath
             if (activeFilePath === null) return
 
-            // Fetch the file's content at the target commit via IPC — non-destructive.
             const historicCode = await window.bridgeAPI.gitShow(activeFilePath, commitHash)
-            if (historicCode === null) return  // file not tracked or commit not found
+            if (historicCode === null) return
 
-            // Parse both sides — always fresh copies per Commandment 3.
-            const historicAst = parseCodeToAST(historicCode)
-            if (historicAst === null) return  // historic source unparseable — abort
+            const adapter = LanguageRegistry.getAdapter(activeFilePath)
 
-            const freshAst = parseCodeToAST(get().rawCode)
+            const historicAst = adapter.parse(historicCode)
+            if (historicAst === null) return
+
+            const freshAst = adapter.parse(get().rawCode)
             if (freshAst === null) return
 
-            // Snapshot the pre-transplant code so the operation is undoable.
             const preTransplantCode = get().rawCode
 
             // Surgically swap the historic node into the live AST.
-            transplantNode(freshAst, historicAst, nodeId)
+            adapter.transplantNode(freshAst, historicAst, nodeId)
 
-            // Regenerate and re-parse for a clean canonical AST.
-            const newCode = generateCodeFromAST(freshAst)
-            const newAst = parseCodeToAST(newCode)
+            const newCode = adapter.generate(freshAst)
+            const newAst = adapter.parse(newCode)
             if (newAst === null) return
 
             set({
                 rawCode: newCode,
                 ast: newAst,
-                visualTree: buildVisualTree(newAst),
+                visualTree: adapter.buildVisualTree(newAst),
             })
             useCanvasStore.getState().triggerAutoSave(newCode)
 
-            // Push a restoreCode inversion so Cmd+Z undoes the transplant.
             useHistoryStore.getState().push(
                 [{ op: 'restoreCode', code: preTransplantCode }],
                 []

@@ -27,13 +27,14 @@
  */
 
 import { create } from 'zustand'
+// Phase N.1: astBufferStore no longer imports Babel parse/generate/inject directly.
+// Adapter resolution is done per-file via LanguageRegistry.
+import { LanguageRegistry } from '../core/adapters/types'
+// Internal Babel-specific helpers for the cross-file move pipeline.
+// These will be absorbed into IBridgeAdapter in a future Phase N sub-step
+// as the cross-file move gains multi-language support.
+// `File` is kept here for the explicit casts at the Babel call sites below.
 import type { File } from '@babel/types'
-import {
-    parseCodeToAST,
-    injectBridgeIds,
-    generateCodeFromAST,
-    buildVisualTree,
-} from '../core/ast-parser'
 import { extractNode, insertNode } from '../utils/astModifier'
 import type { DropPosition } from '../utils/astModifier'
 import { synthesizeImports } from '../core/ASTService'
@@ -47,15 +48,13 @@ interface ASTBufferState {
     /**
      * Headless AST buffers — keyed by absolute file path.
      *
-     * Each value is a Babel `File` AST produced by `parseCodeToAST` with
-     * `injectBridgeIds` applied (7D hardening). A buffer is:
-     *   • Loaded on demand by `loadBuffer(filePath)`.
-     *   • Evicted explicitly by `evictBuffer(filePath)` or bulk-cleared by
-     *     `clearBuffers()` when the workspace is closed.
+     * Each value is the adapter-specific AST for the file, produced by
+     * `LanguageRegistry.getAdapter(filePath).parse()` with
+     * `injectBridgeIds` applied (7D hardening) — Phase N.1.
      *
      * Always create a new Map reference on mutation — never mutate in-place.
      */
-    buffers: Map<string, File>
+    buffers: Map<string, unknown>
 }
 
 interface ASTBufferActions {
@@ -139,28 +138,21 @@ export const useASTBufferStore = create<ASTBufferState & ASTBufferActions>((set,
     buffers: new Map(),
 
     loadBuffer: async (filePath: string) => {
-        // Idempotency: skip if the file is already buffered.
         if (get().buffers.has(filePath)) return
-
         try {
             const content = await window.bridgeAPI.readFile(filePath)
-
-            const ast = parseCodeToAST(content)
-            if (ast === null) return  // unparseable file — skip silently
-
+            const adapter = LanguageRegistry.getAdapter(filePath)
+            const ast = adapter.parse(content)
+            if (ast === null) return
             // 7D Hardening: inject data-bridge-id attributes before storing.
-            // This mirrors the renderer-side injection in LivePreview (Phase E.1)
-            // and guarantees every headless AST is ID-complete for surgery.
-            injectBridgeIds(ast)
-
+            adapter.injectBridgeIds(ast)
             set((state) => {
                 const next = new Map(state.buffers)
                 next.set(filePath, ast)
                 return { buffers: next }
             })
         } catch {
-            // Silently suppress read errors — the file may have been deleted,
-            // moved, or may be temporarily inaccessible.
+            // Silently suppress read errors.
         }
     },
 
@@ -195,39 +187,38 @@ export const useASTBufferStore = create<ASTBufferState & ASTBufferActions>((set,
         if (!sourceAST || !targetAST) return
 
         // ── 2. Capture pre-mutation code (for history inversions + rollback) ───
-        const preMoveSourceCode = generateCodeFromAST(sourceAST)
-        const preMoveTargetCode = generateCodeFromAST(targetAST)
+        const srcAdapter = LanguageRegistry.getAdapter(sourceFilePath)
+        const tgtAdapter = LanguageRegistry.getAdapter(targetFilePath)
+        const preMoveSourceCode = srcAdapter.generate(sourceAST)
+        const preMoveTargetCode = tgtAdapter.generate(targetAST)
 
-        // ── 3. Resolve effective target node ID ───────────────────────────────
+        // ── 3. Resolve effective target node ID ─────────────────────────────
         // When no specific target is given, fall back to the first root JSX
         // element of the target file so the drop lands somewhere reasonable.
         let effectiveTargetId = targetNodeId
         if (effectiveTargetId === null) {
-            const targetTree = buildVisualTree(targetAST)
+            const targetTree = tgtAdapter.buildVisualTree(targetAST)
             effectiveTargetId = targetTree[0]?.id ?? null
         }
         if (effectiveTargetId === null) return  // target file has no JSX — abort
 
         // ── 4. Extract source node ─────────────────────────────────────────────
-        // extractNode removes the node from sourceAST's JSX tree and returns it.
-        // Aborts when the node is not found or is a root (no JSXElement parent).
-        const extracted = extractNode(sourceAST, sourceNodeId)
+        // extractNode / synthesizeImports / insertNode are Babel-specific internal
+        // helpers. The cast to File is safe: the cross-file move pipeline only
+        // runs on .tsx files via ReactAdapter, which always stores Babel File ASTs.
+        const extracted = extractNode(sourceAST as File, sourceNodeId)
         if (extracted === null) return
 
         // ── 5. Synthesize imports (Phase B Import Synthesizer) ─────────────────
-        // sourceAST still carries all original ImportDeclarations so
-        // synthesizeImports can find the component's dependencies. Relative
-        // import paths are re-rooted from sourceFilePath to targetFilePath.
-        synthesizeImports(sourceAST, extracted, targetAST, sourceFilePath, targetFilePath)
+        synthesizeImports(sourceAST as File, extracted, targetAST as File, sourceFilePath, targetFilePath)
 
         // ── 6. Insert extracted node into target AST ───────────────────────────
-        const inserted = insertNode(targetAST, extracted, effectiveTargetId, position)
+        const inserted = insertNode(targetAST as File, extracted, effectiveTargetId, position)
         if (!inserted) {
-            // Insertion failed — restore the source AST to its pre-move state
-            // because extractNode already mutated it.
-            const restoredSource = parseCodeToAST(preMoveSourceCode)
+            // Insertion failed — restore the source AST to its pre-move state.
+            const restoredSource = srcAdapter.parse(preMoveSourceCode)
             if (restoredSource !== null) {
-                injectBridgeIds(restoredSource)
+                srcAdapter.injectBridgeIds(restoredSource)
                 set((state) => {
                     const next = new Map(state.buffers)
                     next.set(sourceFilePath, restoredSource)
@@ -238,8 +229,8 @@ export const useASTBufferStore = create<ASTBufferState & ASTBufferActions>((set,
         }
 
         // ── 7. Generate new code from both mutated ASTs ────────────────────────
-        const newSourceCode = generateCodeFromAST(sourceAST)
-        const newTargetCode = generateCodeFromAST(targetAST)
+        const newSourceCode = srcAdapter.generate(sourceAST)
+        const newTargetCode = tgtAdapter.generate(targetAST)
 
         // ── 8. Atomic batch write (Commandment 12 — Atomic Queuing) ───────────
         try {
@@ -249,18 +240,17 @@ export const useASTBufferStore = create<ASTBufferState & ASTBufferActions>((set,
             })
         } catch (err) {
             console.error('[Bridge] crossFileMove: saveFileBatch failed:', err)
-            // Restore both buffers to pre-move state so the in-memory ASTs
-            // stay consistent with what is on disk.
-            const restoredSource = parseCodeToAST(preMoveSourceCode)
-            const restoredTarget = parseCodeToAST(preMoveTargetCode)
+            // Restore both buffers to pre-move state.
+            const restoredSource = srcAdapter.parse(preMoveSourceCode)
+            const restoredTarget = tgtAdapter.parse(preMoveTargetCode)
             set((state) => {
                 const next = new Map(state.buffers)
                 if (restoredSource !== null) {
-                    injectBridgeIds(restoredSource)
+                    srcAdapter.injectBridgeIds(restoredSource)
                     next.set(sourceFilePath, restoredSource)
                 }
                 if (restoredTarget !== null) {
-                    injectBridgeIds(restoredTarget)
+                    tgtAdapter.injectBridgeIds(restoredTarget)
                     next.set(targetFilePath, restoredTarget)
                 }
                 return { buffers: next }
@@ -268,17 +258,17 @@ export const useASTBufferStore = create<ASTBufferState & ASTBufferActions>((set,
             return
         }
 
-        // ── 9. Re-parse both ASTs (fresh canonical ASTs) + 7D hardening ───────
-        const finalSource = parseCodeToAST(newSourceCode)
-        const finalTarget = parseCodeToAST(newTargetCode)
+        // ── 9. Re-parse both ASTs (fresh canonical ASTs) + 7D hardening ────────
+        const finalSource = srcAdapter.parse(newSourceCode)
+        const finalTarget = tgtAdapter.parse(newTargetCode)
         set((state) => {
             const next = new Map(state.buffers)
             if (finalSource !== null) {
-                injectBridgeIds(finalSource)
+                srcAdapter.injectBridgeIds(finalSource)
                 next.set(sourceFilePath, finalSource)
             }
             if (finalTarget !== null) {
-                injectBridgeIds(finalTarget)
+                tgtAdapter.injectBridgeIds(finalTarget)
                 next.set(targetFilePath, finalTarget)
             }
             return { buffers: next }

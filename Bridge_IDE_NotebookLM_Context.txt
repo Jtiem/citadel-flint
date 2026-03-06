@@ -1,0 +1,2315 @@
+# Bridge IDE Source & Architecture Context
+
+This document contains the core architectural specifications and source code implementations for Bridge IDE.
+
+
+
+=======================================================
+FILE: CLAUDE.md
+=======================================================
+
+# Project: Bridge IDE
+
+## The Identity (v6.8)
+**Bridge** is the first Agentic UI Operating System. It is a strict "containment field" for high-velocity AI agents, ensuring brand, accessibility, and codebase integrity through deterministic AST-level enforcement (Mithril Philosophy).
+
+## Tech Stack
+* **Shell:** Electron (v40+)
+* **Frontend:** React 19, TypeScript, Tailwind CSS 4, Vite
+* **Canvas Engine:** `@xyflow/react` (React Flow v12)
+* **State Management:** Zustand v5
+* **Persistence:** SQLite (`better-sqlite3`) + PowerSync SDK (Sync Layer)
+* **Preview Engine:** Custom `srcdoc` iframe + Babel Renderer IPC (100% Offline)
+* **AST Factory:** Babel (TSX ↔ Visual Tree)
+
+## Core modules (v6.6 Architecture)
+* **Module A (AST Canvas):** ID-Indestructible Select (`data-bridge-id`) + Figma-Grade DnD.
+* **Module B (Mithril Safety):** CIEDE2000 ΔE Perceptual Drift calculations (Amber warnings if ΔE > 2.0).
+* **Module C (Sync Layer):** PowerSync CRDT partitioning (Global Tokens / Project Overrides / Presence).
+* **Module D (Recovery Engine):** Command-pattern AST inversions (Undo/Redo) + Surgical Git Transplants.
+* **Module E (Persistence):** Atomic Write Queue (`FileTransactionManager`) + Continuous Auto-Save.
+* **Module F (Multi-AST):** Headless AST buffers for cross-file surgery (Phase F.2).
+
+## Architecture Specification & Modules
+| Module | State | Notes |
+|--------|-------|-------|
+| Code-First Recovery (Phase D.1) | **ONLINE** | `gitShow` IPC and surgical `transplantNode` AST replacement. |
+| Git Time Machine UI (Phase D.2) | **ONLINE** | `ast:git-log` IPC + `RecoveryPanel.tsx` + `revertNodeToCommit` store action. |
+| Multiplayer Presence (Phase C.1) | **ONLINE** | `PresenceService.ts` throttled UPSERT + `useRemotePresence` 5Hz poll + remote cursor SVG overlay in LivePreview. |
+| AST Conflict Arbiter (Phase C.2) | **ONLINE** | `useLockedNodeIds` + `useIsNodeLocked`. Blocks drag, selection, and edits on nodes held by remote users. |
+| Infinite Canvas (Module A) | **ONLINE** | `XYCanvas.tsx` — `@xyflow/react` v12 whiteboard. LivePreview hosted as a draggable custom node; pan + zoom + minimap. |
+| Export Gate (Phase B.2) | **ONLINE** | `ExportModal.tsx` pre-flight audit — reads `component_overrides` + all Mithril violation categories + `a11yViolations`. |
+| Accessibility Gate (Phase B.3) | **ONLINE** | `A11yLinter.ts` — **10 WCAG 2.1 AA rules** (A11Y-001..010): img, button, a, input, select, textarea, table, html lang, tabIndex, heading skip. |
+| Mithril Enterprise Linter (Module B v2) | **ONLINE** | `MithrilLinter.ts` — 5 AST visitors + `auditAll()`: CIEDE2000 color drift + typography (TYP-001..005) + spacing (SPC-001) + shadow (SHD-001) + opacity (OPC-001). TokenType expanded to 10; 27 enterprise demo tokens seeded. |
+| Batch Mutation Engine (Phase E.1) | **ONLINE** | `ASTService.applyMutationBatch` + `applyInversions`. Single parse→mutate→generate cycle per batch. |
+| `FileTransactionManager` (Phase E.2) | **ONLINE** | `electron/FileTransactionManager.ts`. Atomic `.tmp`→`rename` writes, serialised per path. |
+| `canvasStore` + Auto-Save (Phase F.1) | **ONLINE** | `triggerAutoSave` debounced IPC save. `saveState: 'idle'｜'editing'｜'saving'｜'saved'`. |
+| Cross-File Move (Phase F.2) | **ONLINE** | `astBufferStore.crossFileMove` 11-step atomic operation. `FileExplorer` cross-file drag. |
+| Global Recovery Engine (Phase G.1) | **ONLINE** | `src/core/recoveryController.ts`. `Cmd+Z`/`Cmd+Shift+Z`. Single-file and cross-file undo. |
+| Scaffolding & Registry (Phase G.2) | **ONLINE** | `bridge-registry.db`, `templateService.ts`, `LaunchScreen.tsx`. Global workspace tracking. |
+| Cross-File Redo (Phase H) | **ONLINE** | `CrossFileMoveRedoPlan` schema. `isRecovery` flag prevents history duplication on redo. |
+| Interaction Modes (Phase I) | **ONLINE** | `canvasMode: 'design'|'interact'` in `canvasStore`. Shield gated on design mode. |
+| Native OS Menu (Phase J) | **ONLINE** | `menu:new/open/close-project` IPC channels. `MenuAPI` on `window.bridgeAPI`. |
+| Undo Void Fix (Phase K) | **ONLINE** | `applyBatch` no-op guard + `setCode` Commandment-10 fix + all property edits undoable. |
+| Post-Redo Undoability | **ONLINE** | `historyStore.pushPast` + `crossFileMove` inversions return. |
+| Sharma Validation (Module B.1-b) | **ONLINE** | `snippetAuditor.ts` AST-injection robust against Fragment/Shadow scope. |
+
+## Critical AI Directives
+1.  **Architecture Spec:** Always consult `.bridge-context/architecture.md` and `.antigravityrules`.
+2.  **Mithril Safety:** If ΔE > 2.0, code must be auto-fixed or Amber-flagged.
+3.  **Persistence Rule:** All mutations MUST be atomic and saved via the `FileTransactionManager` queue.
+4.  **No Hallucinations:** Use Babel AST traversal for all code changes. Never use Regex for source code.
+5.  **Documentation Autopilot:** No session ends without a `[BRIDGE-PULSE-v6.9]` block update.
+
+## Commands
+* `npm run dev`: Launch Bridge IDE (Vite + Electron)
+* `npm test`: Run Vitest suite
+* `npx tsc --noEmit`: Strict Type Check
+
+=======================================================
+FILE: .bridge-context/architecture.md
+=======================================================
+
+# Bridge IDE: The "Agentic UI Operating System"
+
+### **Architecture Specification (v5.7 — Lunar Elevator + Persistence)**
+
+## **1. Core Identity & Philosophy**
+
+**Bridge** is the first Agentic UI Operating System. It is the strict "containment field" for high-velocity AI agents (e.g., Claude Code, OpenAI Operator). It ensures that while agents generate code at 10x speed, they are physically incapable of violating brand, accessibility, or codebase integrity standards.
+
+* **The "Mithril" Philosophy:** Design integrity is enforced deterministically at the AST level, not via visual approximations.
+* **The "Soft Mithril" UX:** Developers and agents are guided by CIEDE2000 $\Delta E$ perceptual warnings. This allows high-speed drafting but physically blocks "dirty" code from production.
+
+---
+
+## **2. System Architecture: The "Secure Hybrid"**
+
+| **Layer** | **Technology** | **Strategic Role** |
+| --- | --- | --- |
+| **App Shell** | **Electron (v29+)** | Native OS access; strict IPC context isolation; native directory selection. |
+| **Data Engine** | **SQLite + `sqlite-vec**` | Local vector embeddings for design system RAG and privacy-first context. |
+| **Sync Layer** | **PowerSync SDK** | Real-time CRDT sync for team collaboration, Presence, and Tokens. |
+| **Orchestration** | **Bridge Auditor** | Complexity analysis that routes tasks to "Flash" or "Thinking" AI models. |
+| **Canvas** | **`@xyflow/react` v12** | Infinite whiteboard for visual node manipulation. |
+| **Preview Engine** | **Iframe + Babel IPC** | 100% offline `srcdoc` execution with zero external dependencies. |
+| **Bundling** | **ESBuild WASM** | Client-side bundler injected with React Fast Refresh for stateful hot-swapping. |
+
+---
+
+## **3. Functional Modules (The Hardened Core)**
+
+### **Module A: The AST-Driven Canvas & Ghost Proxy**
+
+* **ID-Indestructible Select:** A permanent `data-bridge-id` connects the AST, Layers Panel, and Iframe.
+* **Figma-Grade Drag & Drop:** A transparent "Shield" overlay captures `onMouseMove` events, bypassing Iframe event swallowing. IPC coordinates are throttled via `requestAnimationFrame` to render a Ghost Cursor.
+* **AST Surgery:** On drop, Babel performs deterministic traversal to move nodes and intelligently synthesizes required React imports to the new file.
+
+### **Module B: The Mithril Safety Layer**
+
+* **Soft Mithril Linter (Enterprise-Grade):** Deterministic AST-level design system enforcement across every visual dimension:
+  * **Color drift:** CIEDE2000 $\Delta E$ perceptual distance ($\Delta E > 2.0$ = Amber warning).
+  * **Typography drift:** Font-family, font-size, font-weight, line-height, letter-spacing checked against tokens.
+  * **Spacing drift:** Padding, margin, gap, width, height validated against dimension tokens.
+  * **Shadow / Opacity drift:** Arbitrary values flagged when tokens exist for the category.
+* **Accessibility (WCAG 2.1 AA):** Static AST rules for `img`, `button`, `a`, `input`, `select`, `textarea`, `table`, heading hierarchy, `lang`, and `tabindex` misuse.
+* **The Export Gate (Hard Rule):** The system disables exports if any active entries exist in the `component_overrides` table, if any Mithril violations remain in any category, or if critical WCAG accessibility violations remain.
+
+
+### **Module C: Multiplayer Sync & AI State**
+
+* **CRDT Bucketing:** PowerSync partitions SQLite into Global (Tokens), Project (Overrides), and Presence (Cursors).
+* **AST Conflict Arbiter:** Interacting with a node updates `active_bridge_id` in PowerSync, visually locking the node to prevent concurrent multiplayer or agent collisions.
+
+### **Module D: The Code-First Recovery Engine**
+
+* **Micro-Recovery (AST Command Pattern):** Standard `Ctrl+Z` Undo generates the mathematical *inverse* of a Babel mutation. Pre-flight checks guarantee the target `data-bridge-id` still exists before executing.
+* **Macro-Recovery (Git Transplants):** To revert an AI hallucination, Bridge extracts the specific target node from Git history (`git show HEAD`) and transplants it into the live AST, preserving concurrent teammates' work.
+
+### **Module E: Persistence & Edge-Case Hardening**
+
+* **Continuous Auto-Save:** The IDE operates strictly on local user directories. Every successful AST mutation triggers an immediate, automatic save to the local disk. There is no manual "Save" button.
+* **Atomic Write Queue:** All disk writes route through a `FileTransactionManager` (write to `.tmp` $\rightarrow$ `fs.rename`) to survive OS crashes.
+* **Transaction Batching:** Exposes `applyMutationBatch()` so AI agents can execute hundreds of AST surgeries in a single disk write/Undo entry, preventing IPC DDoS.
+* **Strict Garbage Collection:** Deleting a node immediately triggers `DELETE FROM component_overrides WHERE bridge_id = ?` to prevent "Zombie" export locks.
+
+
+### Module G.1: The Scaffolding Engine
+
+• Create a templates/ directory in the Electron main process containing a "Starter" .tsx and a default bridge.db schema.
+
+• Implement IPC project:initialize: copies template files to a user-selected directory.
+
+### Module G.2: The Demo Hydrator
+
+• Bundle your "Current Demo" as a static asset.
+
+•  Add a "Reset to Demo" button that wipes the current local .bridge folder and re-injects the demo state.
+---
+
+## **4. The 13 Commandments (Non-Negotiable Guardrails)**
+
+1. **Code is Truth (The Persistence Rule):** If it isn't saved to the local `.tsx` file via the AST, it doesn't exist. Ephemeral demo states are prohibited.
+2. **No Hallucinated Styling:** Every visual edit MUST be tied to a `design_token`.
+3. **Composite IDs for Arrays:** Dynamic lists (e.g., `Array.map`) MUST use injected composite template IDs (e.g., `data-bridge-id={`node-${index}`}`).
+4. **Local-First Only:** No external URLs, no Sandpack. Preview must remain 100% offline-capable.
+5. **Accessibility is a Compiler Error:** Missing a11y attributes trigger a "Critical Block" for exports.
+6. **The Gatekeeper Rule:** Exports are permanently blocked if any overrides or design drift remain.
+7. **Indestructible ID Preservation:** All mutations MUST preserve the `data-bridge-id`.
+8. **Audit-First Execution:** Every task is audited for complexity before selecting a model (Flash vs. Thinking).
+9. **CIEDE2000 $\Delta E$ Logic:** Use perceptual color distance for all design system drift detection.
+10. **Targeted Micro-Recovery:** Undo operations must run pre-flight AST checks before executing inverse surgery.
+11. **Surgical Git Transplants:** Never execute a raw `git checkout` on a shared file; extract and transplant specific nodes.
+12. **Atomic Queuing & Batching:** All file system saves must be atomic. AI mass-edits must be batched into a single transaction.
+13. **Deterministic Surgery:** Use Babel AST traversal for all code changes. Never use Regex to modify source code.
+
+
+=======================================================
+FILE: HANDOFF.md
+=======================================================
+
+# Bridge IDE — Developer Handoff (v5.16)
+
+**Date:** 2026-03-04
+**Commit:** Phase D.2 (Macro-Recovery Frontend) applied
+**Status:** Phase D.2 (Git Time Machine UI) — **COMPLETE**
+**Tests:** 99/99 passing · ΔE = 0.0 · `tsc --noEmit`: 0 errors
+**Run:** `npm run dev`
+
+---
+
+## 1. Architecture Overview (v5.7)
+
+Bridge is a performance-hardened, three-process Electron app designed for agentic surgery:
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  Main Process (Node.js / Electron)                       │
+│  · FileTransactionManager: Atomic .tmp → rename queue    │
+│  · SQLite + PowerSync: CRDT Persistence layer            │
+## 1. Architecture Overview
+**Bridge** is the first Agentic UI Operating System. It acts as a strict "containment field" around LLM-driven development, ensuring brand alignment, accessibility, and codebase integrity through AST-level determinism. **If it isn't in the AST, it doesn't exist.**
+
+### Technical Foundation
+| Layer | Tech | Role |
+|-------|------|------|
+| **Core** | Electron | Main/Renderer multi-process architecture |
+| **Persist** | SQLite WAL | `bridge.db` (state) + `bridge-registry.db` (global) |
+| **Logic** | React 19 + Zustand | Strict separation of state from UI representation |
+| **Engine** | Babel | In-memory AST surgery / Live Preview code injection |
+
+---
+
+## 2. Module Status Map (v6.7)
+| Module | ID | Status | Subsystem |
+|--------|----|--------|-----------|
+| Code-First Recovery | D.1 | **ONLINE** | `gitShow` IPC + `transplantNode` AST swap |
+| Git Time Machine UI | D.2 | **ONLINE** | `ast:git-log` IPC + `RecoveryPanel.tsx` + `revertNodeToCommit` |
+| Batch Mutation Engine | E.1 | **ONLINE** | `ASTService.applyMutationBatch` + `applyInversions` |
+| FileTransactionManager | E.2 | **ONLINE** | `electron/FileTransactionManager.ts` |
+| canvasStore + Auto-Save | F.1 | **ONLINE** | `canvasStore.triggerAutoSave`, `saveState` lifecycle |
+| Cross-File Move | F.2 | **ONLINE** | `astBufferStore.crossFileMove` (11-step atomic) |
+| Global Recovery Engine | G.1 | **ONLINE** | `recoveryController.ts` — single-file + cross-file undo |
+| Scaffolding & Registry | G.2 | **ONLINE** | `LaunchScreen.tsx`, `templateService.ts`, `registry.ts` |
+| Cross-File Redo | H | **ONLINE** | `CrossFileMoveRedoPlan`, `isRecovery` flag |
+| Undo Void Fix | K | **ONLINE** | `editorStore.applyBatch` no-op guard + `setCode` Cmd-10 fix |
+| Post-Redo Undoability | L | **ONLINE** | `historyStore.pushPast` + `crossFileMove` inversions return |
+| Sharma Validation | B.1-b | **ONLINE** | `snippetAuditor.ts` with AST shadow/fragment safety |
+| Multiplayer Presence | C.1 | **ONLINE** | `PresenceService.ts` + `useRemotePresence` + SQLite UPSERT + remote cursor overlay |
+| AST Conflict Arbiter | C.2 | **ONLINE** | `useLockedNodeIds` + `useIsNodeLocked`. Locks Layer Tree, Properties Panel, and canvas drag for nodes held by remote users. |
+| Infinite Canvas | A | **ONLINE** | `XYCanvas.tsx` — `@xyflow/react` v12. `LivePreview` hosted as a draggable custom node with chrome bar, pan/zoom/minimap. |
+| Export Gate UI | B.2 | **ONLINE** | `ExportModal.tsx` + `tokens:read-overrides` IPC + Export button in top bar |
+| Accessibility Gate | B.3 | **ONLINE** | `A11yLinter.ts` — AST-level a11y checks (img/button/a/input). Runs on every parse; blocks exports. |
+
+---
+
+## 3. Updated File Map
+
+### `src/core/` (Services)
+| File | Purpose |
+|------|---------|
+| `ASTService.ts` | Batch mutations, `InverseMutation` generation, `synthesizeImports`. |
+| `ast-parser.ts` | Foundational Babel utilities: parse, generate, visual-tree, `injectBridgeIds`. |
+| `recoveryController.ts` | `applyUndo` / `applyRedo` / `applyRedoPlan`. Phase G.1 + H. |
+| `MithrilLinter.ts` | CIEDE2000 ΔE perceptual drift guard. |
+| `GitService.ts` | Surgical git-transplant recovery. |
+
+### `src/store/` (State)
+| File | Key State / Role |
+|------|-----------------|
+| `historyStore.ts` | `past`/`future` stacks. `HistoryEntry` with `redoPlan?: RedoPlan`. `CrossFileMoveRedoPlan` type. |
+| `astBufferStore.ts` | Headless multi-file AST buffers. `crossFileMove` (11 steps, `isRecovery` flag). |
+| `canvasStore.ts` | Workspace tree, active file, `saveState` lifecycle. |
+| `editorStore.ts` | Active-file AST, Visual Tree, `applyBatch`, `syncCode`. |
+| `tokenStore.ts` | Design Token CRUD (SQLite via PowerSync). |
+
+### `electron/`
+| File | Role |
+|------|------|
+| `FileTransactionManager.ts` | Atomic `.tmp` → `rename` write queue. Serialised per path, concurrent across paths. |
+| `GitManager.ts` | `ensureRepo` + `shadowCommit` (called after every atomic save). `getGitNode` for surgical node extraction from git history. |
+| `main.ts` | IPC handlers: `saveFile`, `saveFileBatch`, `readFile`, `transformCode`, `openFolder`, `ast:git-show`, `ast:git-log`. |
+| `preload.ts` | `contextBridge` exposure of `window.bridgeAPI` including `gitShow` and `gitLog`. |
+
+### `src/components/ui/`
+| File | Role |
+|------|------|
+| `FileExplorer.tsx` | Cross-file drag source (triggers `crossFileMove`). |
+| `LayerTree.tsx` | Single-file drag reorder (triggers `editorStore.moveLayerNode`). |
+| `RecoveryPanel.tsx` | **Phase D.2** — Time Machine UI. Queries `bridgeAPI.gitLog`, renders shadow-commit timeline, triggers `editorStore.revertNodeToCommit` for surgical node transplants. |
+| `SyncStatus.tsx` | **Module C.1** — PowerSync sync state badge + `useSyncPresence` hook for throttled cursor broadcasting. |
+| `XYCanvas.tsx` | **Module A** — Infinite whiteboard. Mounts `@xyflow/react` v12; `LivePreview` is a `livePreview` custom node type. Drag handle isolated to chrome bar to preserve Shield DnD. |
+| `ExportModal.tsx` | **Phase B.2** — Mithril Safety Export Gate modal. Pre-flight audit of `component_overrides` rows + ΔE violations + accessibility violations (B.3). Clickable node IDs snap-select the offending element in the canvas. Pass state shows source + Copy button. |
+| **Core Services** | |
+| `A11yLinter.ts` | **Phase B.3** — Pure AST-level accessibility linter. Enforces Commandment 5. Rules: A11Y-001 (`<img>` alt), A11Y-002/003 (`<button>`/`<a>` accessible name), A11Y-004 (`<input>` label). Called inside `editorStore.setCode` on every successful parse. |
+
+### `src/services/` & `src/hooks/`
+| File | Role |
+|------|------|
+| `services/PresenceService.ts` | **Module C.1** — Module-level singleton. Throttled (100ms) `publishPresence` + immediate `publishPresenceImmediate` for drag-lock events. Generates stable `presenceSessionId` + `presenceUserId`. |
+| `hooks/useRemotePresence.ts` | **Module C.1/C.2** — Polls `bridgeAPI.readPresence` at 5 Hz. Exports `useRemotePresence`, `useLockedNodeIds`, and `useIsNodeLocked` for multiplayer cursor overlay and AST Conflict Arbiter locking. |
+
+---
+
+## 4. The AST Command Pattern — Full Flows
+
+### HistoryEntry schema
+```typescript
+interface HistoryEntry {
+    filePath?: string        // set for cross-file (headless buffer) entries
+    batchId?: string         // UUID grouping entries from one atomic operation
+    inversions: InverseMutation[]   // op: 'setAttr'|'restoreCode'|...
+    redoMutations: ASTMutation[]    // non-empty for single-file redo
+    redoPlan?: RedoPlan      // non-empty for cross-file redo (Phase H)
+}
+
+interface CrossFileMoveRedoPlan {
+    type: 'crossFileMove'
+    sourceFilePath: string
+    sourceNodeId: string     // bridge-id, stable across restores
+    targetFilePath: string
+    targetNodeId: string     // always resolved (null-fallback done at push time)
+    position: DropPosition
+}
+```
+
+### Single-file mutation flow
+```
+applyBatch(mutations)
+  → applyMutationBatch(rawCode, mutations) → { code, inversions }
+  → parseCodeToAST(code) → set store
+  → triggerAutoSave(code)
+  → historyStore.push(inversions, mutations)
+```
+
+### Cross-file move flow
+```
+crossFileMove(srcFile, srcNode, tgtFile, tgtNode, position)
+  → (11 steps): validate → load buffers → extract → insert → generate
+  → saveFileBatch({srcFile: newSrcCode, tgtFile: newTgtCode})
+  → batchId = crypto.randomUUID()
+  → if (!options?.isRecovery):
+      historyStore.push(srcInversions, [], srcFile, batchId, redoPlan)
+      historyStore.push(tgtInversions, [], tgtFile, batchId)
+```
+
+### Undo flow (Cmd+Z)
+```
+applyUndo()
+  → popUndo() → entry
+  → if entry.batchId: pop all siblings with same batchId → group[]
+  → if any entry.filePath:
+      applyCrossFileUndo(group)
+        → build batch: filePath → restoreCode
+        → saveFileBatch(batch)
+        → evictBuffer + loadBuffer for each file
+        → syncCode active editor if needed
+        → if group has redoPlan: pushFuture({ inversions:[], redoMutations:[], redoPlan })
+  → else:
+      applySingleFileUndo(entry)
+        → applyInversions(rawCode, inversions) → restoredCode
+        → syncCode(restoredCode) + triggerAutoSave(restoredCode)
+        → pushFuture({ inversions:[], redoMutations: entry.redoMutations })
+```
+
+### Redo flow (Cmd+Shift+Z) — Phase H
+```
+applyRedo()
+  → popRedo() → entry
+  → if entry.redoPlan:
+      applyRedoPlan(plan)
+        → crossFileMove(...plan params..., { isRecovery: true })
+           (AST surgery + file writes + editor sync; no historyStore.push)
+      return
+  → else if entry.redoMutations.length > 0:
+      editorStore.applyBatch(entry.redoMutations)
+        (generates fresh inversions, pushes to past)
+```
+
+---
+
+## 5. Phase H Change Log
+
+**`src/store/historyStore.ts`**
+- Added `CrossFileMoveRedoPlan` interface + `RedoPlan` union type
+- Added `redoPlan?: RedoPlan` to `HistoryEntry`
+- Extended `push()` with optional 5th param `redoPlan?`
+
+**`src/store/astBufferStore.ts`**
+- Step 11 builds `CrossFileMoveRedoPlan` from `effectiveTargetId` (always resolved non-null)
+- Passes `redoPlan` as 5th arg to source-file `push()`
+- New `options?: { isRecovery?: boolean }` parameter on `crossFileMove`
+- Both `historyStore.push()` calls guarded with `if (!options?.isRecovery)`
+
+**`src/core/recoveryController.ts`**
+- `applyCrossFileUndo`: extracts `redoPlan` from group, calls `pushFuture({ redoPlan })`
+- `applyRedo`: dispatches to `applyRedoPlan` when `entry.redoPlan !== undefined`
+- New `applyRedoPlan(plan)`: re-invokes `crossFileMove(..., { isRecovery: true })`
+
+---
+
+## 6. Invariants & Gotchas
+
+1. **7D Hardening:** Every buffer loaded via `loadBuffer` has `injectBridgeIds(ast)` applied immediately. Never mutate a buffer that hasn't been hardened.
+2. **`historyStore.clear()`** must be called on file-open (`canvasStore.setActiveFile`) to prevent stale undo entries from bleeding across files.
+3. **macOS `ENOTEMPTY`:** In tests, use `rm({ maxRetries: 3 })` for temp directory cleanup. `force: true` alone is insufficient on APFS.
+4. **Monaco coexistence:** `App.tsx` keyboard listener uses `!= null` (loose equality) to guard against `document.activeElement` being `null` — optional chaining returns `undefined` in that case, and `undefined !== null` would incorrectly block undo. Bridge undo/redo fires only outside Monaco.
+5. **`isRecovery` semantics:** After a cross-file redo, `past` remains empty (no new entries pushed). The operation is re-executed atomically but is not further undo-able in this release. The architect should extend this in a future phase if post-redo undo is required.
+6. **`effectiveTargetId` non-null guarantee:** The null-guard at step 3 of `crossFileMove` ensures `effectiveTargetId` is always a `string` when the `redoPlan` is built. The `as string` cast at that site is safe.
+7. **`push()` clears `future`:** Every normal `historyStore.push()` call zeroes the future stack. The `pushFuture()` path does not clear `past`. Never mix them in the same flow.
+
+---
+
+## 7. Phase K Change Log
+
+**`src/store/editorStore.ts`**
+- **K.1 — `applyBatch` no-op guard:** Added early-return when `firstInv?.op === 'restoreCode' && firstInv.code === newCode`. Prevents void-undo entries when `moveNode` silently fails because the source node cannot be found by stale structural ID.
+- **K.2 — `setCode` Commandment 10 fix:** Capture `const previousCode = get().rawCode` *before* `set()`. The previous code ran the history-clear check after `set()`, making `get().rawCode === code` always true — history was never cleared on file load.
+- **K.3 — `updateNodeProperty` Phase G.2 completion:** Removed direct ast-parser calls; all three branches (className / textContent / arbitrary prop) now route through `applyBatch`, making every property edit undoable.
+
+**`src/core/ASTService.ts`**
+- Added `UpdateTextContentMutation` interface (`op: 'updateTextContent'`).
+- Added `readCurrentTextContent` traversal helper.
+- Added `case 'updateTextContent'` handler in `applyMutationBatch` — captures old text as surgical inverse before calling `updateJSXTextContent`.
+- Extended `ASTMutation` and `InverseMutation` unions with the new type.
+
+**`src/App.tsx`**
+- **K.4 — Keyboard null safety:** Changed `!== null` to `!= null` in the Monaco focus guard. `document.activeElement?.closest(…)` returns `undefined` (not `null`) when `activeElement` is null; loose equality covers both.
+
+---
+
+## 8. Immediate Next Steps
+
+- **Phase I (Post-Redo Undoability):** Extend `applyRedoPlan` to capture pre-redo snapshots and push a consolidated undo entry after the recovery `crossFileMove`.
+- **PowerSync CRDT (Module C):** Multiplayer presence + conflict arbitration.
+
+
+=======================================================
+FILE: .bridge-context/BRIDGE-PULSE.md
+=======================================================
+
+### [BRIDGE-PULSE-v7.2]
+
+**1. AST Integrity:**
+- Modified Nodes: `data-bridge-id` preserved via reactive token updates.
+- ID Preservation: Verified. Deterministic Surgery: Confirmed (Babel AST).
+
+**2. Mithril Safety Audit (Enterprise v2):**
+- Color: CIEDE2000 ΔE, ONLINE.
+- Typography: fontFamily, fontWeight, lineHeight, letterSpacing drift, ONLINE (TYP-001..005).
+- Spacing: p/m/gap/w/h arbitrary-value enforcement, ONLINE (SPC-001).
+- Shadow + Opacity: arbitrary value gates, ONLINE (SHD-001, OPC-001).
+- Accessibility: **10 WCAG 2.1 AA rules** ONLINE (A11Y-001..010).
+- TokenType roster: 10 types. Demo tokens: 27 seeded entries.
+
+**3. Persistence & Sync Layer:**
+- FileTransactionManager: Active. PowerSync: Local-first ACTIVE.
+
+**4. Workspace State:**
+- Modules ONLINE: D.1, D.2, E.1, E.2, F.1, F.2, G.1, G.2, H, I, J, K, C.1, C.2, B.1-b, B.2, B.3, A, **B-v2**.
+- `tsc --noEmit`: 0 errors.
+
+**5. Handoff Seed (Next Session Start):**
+- Routing Protocol: Flash.
+- Context: Mithril Safety is now enterprise-complete. 5 AST visitors across all design token dimensions, 10 A11y rules, 10 TokenTypes, 27 demo tokens. MithrilProvider → `auditAll()`. ClassBuilder has 17 sections.
+- Blocker: None.
+
+
+
+=======================================================
+FILE: src/core/MithrilLinter.ts
+=======================================================
+
+/**
+ * MithrilLinter — src/core/MithrilLinter.ts
+ *
+ * Facade over the CIEDE2000 engine in tokenMatcher.ts that adds:
+ *   1. CSS color normalization: parses #hex, rgb(), rgba(), hsl() strings down
+ *      to clean 6-digit hex so drift calculations work on raw style values,
+ *      not just Tailwind arbitrary-value literals.
+ *   2. calculateDrift: compares any two CSS color strings and returns the
+ *      perceptual ΔE2000 distance (or null if either value cannot be parsed)
+ *   3. visitClassNames: AST color-drift visitor (MITHRIL-COL-*)
+ *   4. visitTypography: AST typography-drift visitor (MITHRIL-TYP-001..005)
+ *   5. visitSpacing:    AST spacing-drift visitor (MITHRIL-SPC-001)
+ *   6. visitShadows:    AST shadow-drift visitor (MITHRIL-SHD-001)
+ *   7. visitOpacity:    AST opacity-drift visitor (MITHRIL-OPC-001)
+ *   8. auditAll:        Runs every visitor in one pass and merges results.
+ *   9. MITHRIL_THRESHOLD re-export
+ *
+ * Soft Mithril rule (Commandment 9):
+ *   ΔE < 2.0  → perceptually indistinguishable — OK
+ *   ΔE ≥ 2.0  → 'Mithril Violation' — amber glow in Properties Panel,
+ *               export blocked via Export Gate
+ *
+ * For non-color dimensions (typography, spacing, shadow, opacity) the
+ * comparison is exact-match against token values rather than perceptual. Any
+ * arbitrary value that doesn't match a token is flagged immediately.
+ *
+ * Renderer Process only — no Node.js imports.
+ */
+
+import _traverse from '@babel/traverse'
+import * as t from '@babel/types'
+import type { File } from '@babel/types'
+import { findClosestToken, SYSTEMIZABLE_THRESHOLD } from '../utils/tokenMatcher'
+import type { DesignToken, LinterWarning } from '../types/bridge-api'
+
+// CJS/ESM interop — mirrors the pattern used in astScanner.ts and ASTService.ts.
+const traverse =
+    typeof _traverse === 'function'
+        ? _traverse
+        : (_traverse as unknown as { default: typeof _traverse }).default
+
+export { SYSTEMIZABLE_THRESHOLD as MITHRIL_THRESHOLD }
+
+// ── CSS Color Normalization ───────────────────────────────────────────────────
+
+/**
+ * Converts an arbitrary CSS color string to a clean 6-digit lowercase hex
+ * string (e.g. `"#6366f1"`).
+ *
+ * Supported formats:
+ *   - 3-digit hex:  `#abc`
+ *   - 6-digit hex:  `#aabbcc`
+ *   - rgb():        `rgb(99, 102, 241)`
+ *   - rgba():       `rgba(99, 102, 241, 0.5)` — alpha is discarded
+ *   - hsl():        `hsl(239, 84%, 67%)`
+ *   - hsla():       `hsla(239, 84%, 67%, 0.5)` — alpha is discarded
+ *
+ * Returns `null` for any unrecognised input.
+ */
+export function cssColorToHex(value: string): string | null {
+    const s = value.trim()
+
+    // ── Hex (#rgb / #rrggbb) ──────────────────────────────────────────────────
+    const hexMatch = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.exec(s)
+    if (hexMatch !== null) {
+        const h = hexMatch[1]
+        const expanded =
+            h.length === 3
+                ? `${h[0]}${h[0]}${h[1]}${h[1]}${h[2]}${h[2]}`
+                : h
+        return `#${expanded.toLowerCase()}`
+    }
+
+    // ── rgb() / rgba() ────────────────────────────────────────────────────────
+    const rgbMatch = /^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/.exec(s)
+    if (rgbMatch !== null) {
+        const r = clampByte(parseInt(rgbMatch[1], 10))
+        const g = clampByte(parseInt(rgbMatch[2], 10))
+        const b = clampByte(parseInt(rgbMatch[3], 10))
+        return toHex(r, g, b)
+    }
+
+    // ── hsl() / hsla() ────────────────────────────────────────────────────────
+    const hslMatch = /^hsla?\(\s*([\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%/.exec(s)
+    if (hslMatch !== null) {
+        const h = parseFloat(hslMatch[1])
+        const sl = parseFloat(hslMatch[2]) / 100
+        const l = parseFloat(hslMatch[3]) / 100
+        const [r, g, b] = hslToRgb(h, sl, l)
+        return toHex(r, g, b)
+    }
+
+    return null
+}
+
+// ── Private helpers ───────────────────────────────────────────────────────────
+
+function clampByte(n: number): number {
+    return Math.max(0, Math.min(255, Math.round(n)))
+}
+
+function toHex(r: number, g: number, b: number): string {
+    return `#${byteToHex(r)}${byteToHex(g)}${byteToHex(b)}`
+}
+
+function byteToHex(n: number): string {
+    return n.toString(16).padStart(2, '0')
+}
+
+/**
+ * Converts HSL (h in [0,360), s in [0,1], l in [0,1]) to RGB bytes [0–255].
+ * Algorithm: CSS Color Level 4 §4.2.
+ */
+function hslToRgb(h: number, s: number, l: number): [number, number, number] {
+    const a = s * Math.min(l, 1 - l)
+    function f(n: number): number {
+        const k = (n + h / 30) % 12
+        return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))
+    }
+    return [
+        clampByte(f(0) * 255),
+        clampByte(f(8) * 255),
+        clampByte(f(4) * 255),
+    ]
+}
+
+// ── Public API — calculateDrift ───────────────────────────────────────────────
+
+/**
+ * Calculates the CIEDE2000 perceptual colour distance (ΔE) between two
+ * arbitrary CSS color strings.
+ *
+ * Returns `null` if either value cannot be parsed as a colour.
+ */
+export function calculateDrift(styleValue: string, tokenValue: string): number | null {
+    const hexA = cssColorToHex(styleValue)
+    const hexB = cssColorToHex(tokenValue)
+    if (hexA === null || hexB === null) return null
+
+    const syntheticToken: DesignToken = {
+        id: 0,
+        token_path: '__mithril_ref__',
+        token_type: 'color',
+        token_value: hexB,
+        description: null,
+        collection_name: '__mithril__',
+        mode: 'default',
+    }
+
+    const result = findClosestToken(hexA, [syntheticToken])
+    return result?.deltaE ?? null
+}
+
+// ── Shared AST helpers ────────────────────────────────────────────────────────
+
+/** Resolves `data-bridge-id` from a JSXOpeningElement's attribute list. */
+function getBridgeId(openEl: t.JSXOpeningElement): string | null {
+    const attr = openEl.attributes.find(
+        (a): a is t.JSXAttribute =>
+            t.isJSXAttribute(a) &&
+            t.isJSXIdentifier(a.name, { name: 'data-bridge-id' })
+    )
+    if (attr === undefined || !t.isStringLiteral(attr.value)) return null
+    return attr.value.value
+}
+
+/** Extracts a static className string value from a JSXAttribute node. */
+function getClassString(classAttr: t.JSXAttribute): string | null {
+    const valNode = classAttr.value
+    if (t.isStringLiteral(valNode)) return valNode.value
+    if (t.isJSXExpressionContainer(valNode) && t.isStringLiteral(valNode.expression)) {
+        return valNode.expression.value
+    }
+    return null
+}
+
+/** Severity bucketing for violations — shared across all visitors. */
+function severity(delta: number): LinterWarning['severity'] {
+    return delta > 10 ? 'critical' : 'amber'
+}
+
+// ── JSX Visitor — Color (MITHRIL-COL-*) ──────────────────────────────────────
+
+/**
+ * Matches Tailwind arbitrary-value colour classes, e.g.:
+ *   `bg-[#f3f3f3]`, `hover:text-[#000]`, `border-l-[#aabbcc]`
+ *
+ * Named capture group `hex` extracts the raw hex value (without `#`).
+ */
+const ARBITRARY_COLOR_RE = /^(?:[\w-]+:)*[\w-]+-\[(?<hex>#[0-9a-fA-F]{3,8})\]$/
+
+/**
+ * MITHRIL-COL — Traverses a Babel File AST and returns a `Map<bridgeId, LinterWarning>` for
+ * every JSX element whose `className` contains at least one Tailwind
+ * arbitrary-value hex colour whose closest design token exceeds
+ * `MITHRIL_THRESHOLD` (2.0 ΔE).
+ */
+export function visitClassNames(ast: File, tokens: DesignToken[]): Map<string, LinterWarning> {
+    const colorTokens = tokens.filter((tok) => tok.token_type === 'color')
+    const warnings = new Map<string, LinterWarning>()
+    if (colorTokens.length === 0) return warnings
+
+    traverse(ast, {
+        JSXAttribute(path) {
+            if (!t.isJSXIdentifier(path.node.name, { name: 'className' })) return
+            const openEl = path.parentPath?.node
+            if (!t.isJSXOpeningElement(openEl)) return
+            const nodeId = getBridgeId(openEl)
+            if (nodeId === null) return
+
+            const classStr = getClassString(path.node)
+            if (classStr === null) return
+
+            let worstDelta = 0
+            let worstMatch: ReturnType<typeof findClosestToken> = null
+
+            for (const cls of classStr.split(/\s+/)) {
+                const m = ARBITRARY_COLOR_RE.exec(cls)
+                if (m?.groups?.hex === undefined) continue
+                const match = findClosestToken(m.groups.hex, colorTokens)
+                if (match !== null && match.deltaE > worstDelta) {
+                    worstDelta = match.deltaE
+                    worstMatch = match
+                }
+            }
+
+            if (worstDelta <= SYSTEMIZABLE_THRESHOLD) return
+
+            const tokenLabel = worstMatch?.tokenPath ?? null
+            warnings.set(nodeId, {
+                id: nodeId,
+                type: 'color-drift',
+                severity: severity(worstDelta),
+                value: worstDelta,
+                message: tokenLabel !== null
+                    ? `MITHRIL-COL: ΔE ${worstDelta.toFixed(1)} – use ${tokenLabel}`
+                    : `MITHRIL-COL: ΔE ${worstDelta.toFixed(1)} – no matching token`,
+                nearestToken: tokenLabel,
+                nearestTokenValue: worstMatch?.tokenValue ?? null,
+            })
+        },
+    })
+
+    return warnings
+}
+
+// ── JSX Visitor — Typography (MITHRIL-TYP-001..005) ─────────────────────────
+
+/**
+ * Arbitrary-value regexes for each typography dimension.
+ * These catch `font-[Comic_Sans_MS]`, `text-[37px]`, `font-[900]`,
+ * `leading-[1.3]`, `tracking-[0.05em]` etc.
+ *
+ * The `val` capture group extracts the raw arbitrary value (without brackets).
+ */
+const TYP_REGEXES: ReadonlyArray<{
+    rule: string
+    re: RegExp
+    tokenType: DesignToken['token_type']
+}> = [
+        { rule: 'MITHRIL-TYP-001', re: /^(?:[\w-]+:)*font-\[(?<val>[^\]]+)\]$/, tokenType: 'fontFamily' },
+        { rule: 'MITHRIL-TYP-002', re: /^(?:[\w-]+:)*text-\[(?<val>[\d.]+(?:px|rem|em|%|vw|vh))\]$/, tokenType: 'dimension' },
+        { rule: 'MITHRIL-TYP-003', re: /^(?:[\w-]+:)*font-\[(?<val>\d{3})\]$/, tokenType: 'fontWeight' },
+        { rule: 'MITHRIL-TYP-004', re: /^(?:[\w-]+:)*leading-\[(?<val>[^\]]+)\]$/, tokenType: 'lineHeight' },
+        { rule: 'MITHRIL-TYP-005', re: /^(?:[\w-]+:)*tracking-\[(?<val>[^\]]+)\]$/, tokenType: 'letterSpacing' },
+    ]
+
+/**
+ * MITHRIL-TYP — Flags elements with arbitrary typography values not represented
+ * in the token set (fontFamily, fontWeight, lineHeight, letterSpacing,
+ * or font-size as a dimension token).
+ */
+export function visitTypography(ast: File, tokens: DesignToken[]): Map<string, LinterWarning> {
+    const warnings = new Map<string, LinterWarning>()
+
+    traverse(ast, {
+        JSXAttribute(path) {
+            if (!t.isJSXIdentifier(path.node.name, { name: 'className' })) return
+            const openEl = path.parentPath?.node
+            if (!t.isJSXOpeningElement(openEl)) return
+            const nodeId = getBridgeId(openEl)
+            if (nodeId === null) return
+            const classStr = getClassString(path.node)
+            if (classStr === null) return
+
+            for (const cls of classStr.split(/\s+/)) {
+                for (const { rule, re, tokenType } of TYP_REGEXES) {
+                    const m = re.exec(cls)
+                    if (m?.groups?.val === undefined) continue
+
+                    const rawVal = m.groups.val
+                    // Check if this value matches any token of the relevant type.
+                    const typeTokens = tokens.filter((tok) => tok.token_type === tokenType)
+                    const hasMatch = typeTokens.some((tok) =>
+                        tok.token_value.toLowerCase() === rawVal.toLowerCase()
+                    )
+                    if (hasMatch) continue
+
+                    const suggestion = typeTokens[0]?.token_path ?? null
+                    const msg = suggestion !== null
+                        ? `${rule}: arbitrary '${rawVal}' not in token set — use ${suggestion}`
+                        : `${rule}: arbitrary '${rawVal}' not in token set — add a ${tokenType} token`
+
+                    // Worst-case per node: keep first violation per rule (don't overwrite).
+                    if (!warnings.has(nodeId)) {
+                        warnings.set(nodeId, {
+                            id: nodeId,
+                            type: 'typography-drift',
+                            severity: 'amber',
+                            value: 1,
+                            message: msg,
+                            nearestToken: suggestion,
+                            nearestTokenValue: suggestion !== null
+                                ? (typeTokens.find((t) => t.token_path === suggestion)?.token_value ?? null)
+                                : null,
+                        })
+                    }
+                }
+            }
+        },
+    })
+
+    return warnings
+}
+
+// ── JSX Visitor — Spacing (MITHRIL-SPC-001) ──────────────────────────────────
+
+/**
+ * Matches arbitrary spacing classes across all Tailwind spacing utilities.
+ * Examples: `p-[37px]`, `mt-[13px]`, `gap-[22px]`, `w-[400px]`.
+ *
+ * Only flags pixel/rem/em values — not Tailwind scale integers which are
+ * safe (they use the default scale, not arbitrary injection).
+ */
+const SPACING_RE = /^(?:[\w-]+:)*(?:p|px|py|pt|pr|pb|pl|m|mx|my|mt|mr|mb|ml|gap|space-x|space-y|w|h|min-w|min-h|max-w|max-h)-\[(?<val>[\d.]+(?:px|rem|em|%|vw|vh))\]$/
+
+/**
+ * MITHRIL-SPC-001 — Flags elements with arbitrary spacing / sizing values
+ * not found in the `dimension` token set.
+ */
+export function visitSpacing(ast: File, tokens: DesignToken[]): Map<string, LinterWarning> {
+    const dimTokens = tokens.filter((tok) => tok.token_type === 'dimension')
+    const warnings = new Map<string, LinterWarning>()
+
+    traverse(ast, {
+        JSXAttribute(path) {
+            if (!t.isJSXIdentifier(path.node.name, { name: 'className' })) return
+            const openEl = path.parentPath?.node
+            if (!t.isJSXOpeningElement(openEl)) return
+            const nodeId = getBridgeId(openEl)
+            if (nodeId === null) return
+            const classStr = getClassString(path.node)
+            if (classStr === null) return
+
+            for (const cls of classStr.split(/\s+/)) {
+                const m = SPACING_RE.exec(cls)
+                if (m?.groups?.val === undefined) continue
+
+                const rawVal = m.groups.val
+                const hasMatch = dimTokens.some((tok) =>
+                    tok.token_value === rawVal || tok.token_value === rawVal.replace('px', '')
+                )
+                if (hasMatch) continue
+
+                const suggestion = dimTokens[0]?.token_path ?? null
+                const msg = suggestion !== null
+                    ? `MITHRIL-SPC-001: arbitrary '${rawVal}' not in dimension tokens — use ${suggestion}`
+                    : `MITHRIL-SPC-001: arbitrary '${rawVal}' — no dimension tokens defined`
+
+                if (!warnings.has(nodeId)) {
+                    warnings.set(nodeId, {
+                        id: nodeId,
+                        type: 'spacing-drift',
+                        severity: 'amber',
+                        value: 1,
+                        message: msg,
+                        nearestToken: suggestion,
+                        nearestTokenValue: suggestion !== null
+                            ? (dimTokens.find((t) => t.token_path === suggestion)?.token_value ?? null)
+                            : null,
+                    })
+                }
+            }
+        },
+    })
+
+    return warnings
+}
+
+// ── JSX Visitor — Shadow (MITHRIL-SHD-001) ───────────────────────────────────
+
+/** Matches arbitrary Tailwind shadow classes, e.g. `shadow-[0_4px_6px_rgba(0,0,0,0.1)]` */
+const SHADOW_RE = /^(?:[\w-]+:)*shadow-\[(?<val>[^\]]+)\]$/
+
+/**
+ * MITHRIL-SHD-001 — Flags arbitrary box-shadow values not matching a shadow token.
+ */
+export function visitShadows(ast: File, tokens: DesignToken[]): Map<string, LinterWarning> {
+    const shadowTokens = tokens.filter((tok) => tok.token_type === 'shadow')
+    const warnings = new Map<string, LinterWarning>()
+    if (shadowTokens.length === 0) return warnings
+
+    traverse(ast, {
+        JSXAttribute(path) {
+            if (!t.isJSXIdentifier(path.node.name, { name: 'className' })) return
+            const openEl = path.parentPath?.node
+            if (!t.isJSXOpeningElement(openEl)) return
+            const nodeId = getBridgeId(openEl)
+            if (nodeId === null) return
+            const classStr = getClassString(path.node)
+            if (classStr === null) return
+
+            for (const cls of classStr.split(/\s+/)) {
+                const m = SHADOW_RE.exec(cls)
+                if (m?.groups?.val === undefined) continue
+
+                // Normalize underscores → spaces (Tailwind arbitrary value convention)
+                const rawVal = m.groups.val.replace(/_/g, ' ')
+                const hasMatch = shadowTokens.some((tok) => tok.token_value === rawVal)
+                if (hasMatch) continue
+
+                const suggestion = shadowTokens[0]?.token_path ?? null
+                if (!warnings.has(nodeId)) {
+                    warnings.set(nodeId, {
+                        id: nodeId,
+                        type: 'shadow-drift',
+                        severity: 'amber',
+                        value: 1,
+                        message: suggestion !== null
+                            ? `MITHRIL-SHD-001: arbitrary shadow not in token set — use ${suggestion}`
+                            : `MITHRIL-SHD-001: arbitrary shadow — add a shadow token`,
+                        nearestToken: suggestion,
+                        nearestTokenValue: suggestion !== null
+                            ? (shadowTokens.find((t) => t.token_path === suggestion)?.token_value ?? null)
+                            : null,
+                    })
+                }
+            }
+        },
+    })
+
+    return warnings
+}
+
+// ── JSX Visitor — Opacity (MITHRIL-OPC-001) ──────────────────────────────────
+
+/** Matches arbitrary Tailwind opacity classes, e.g. `opacity-[0.73]` */
+const OPACITY_RE = /^(?:[\w-]+:)*opacity-\[(?<val>[\d.]+%?)\]$/
+
+/**
+ * MITHRIL-OPC-001 — Flags arbitrary opacity values not matching an opacity token.
+ */
+export function visitOpacity(ast: File, tokens: DesignToken[]): Map<string, LinterWarning> {
+    const opacityTokens = tokens.filter((tok) => tok.token_type === 'opacity')
+    const warnings = new Map<string, LinterWarning>()
+    if (opacityTokens.length === 0) return warnings
+
+    traverse(ast, {
+        JSXAttribute(path) {
+            if (!t.isJSXIdentifier(path.node.name, { name: 'className' })) return
+            const openEl = path.parentPath?.node
+            if (!t.isJSXOpeningElement(openEl)) return
+            const nodeId = getBridgeId(openEl)
+            if (nodeId === null) return
+            const classStr = getClassString(path.node)
+            if (classStr === null) return
+
+            for (const cls of classStr.split(/\s+/)) {
+                const m = OPACITY_RE.exec(cls)
+                if (m?.groups?.val === undefined) continue
+
+                const rawVal = m.groups.val
+                const hasMatch = opacityTokens.some((tok) => tok.token_value === rawVal)
+                if (hasMatch) continue
+
+                const suggestion = opacityTokens[0]?.token_path ?? null
+                if (!warnings.has(nodeId)) {
+                    warnings.set(nodeId, {
+                        id: nodeId,
+                        type: 'opacity-drift',
+                        severity: 'amber',
+                        value: 1,
+                        message: suggestion !== null
+                            ? `MITHRIL-OPC-001: arbitrary opacity '${rawVal}' — use ${suggestion}`
+                            : `MITHRIL-OPC-001: arbitrary opacity '${rawVal}' — add an opacity token`,
+                        nearestToken: suggestion,
+                        nearestTokenValue: suggestion !== null
+                            ? (opacityTokens.find((t2) => t2.token_path === suggestion)?.token_value ?? null)
+                            : null,
+                    })
+                }
+            }
+        },
+    })
+
+    return warnings
+}
+
+// ── auditAll — unified entry point ────────────────────────────────────────────
+
+/**
+ * Runs all five Mithril visitors over `ast` and merges results into a single
+ * `Map<bridgeId, LinterWarning>`.
+ *
+ * When a node has multiple violations, the **color drift** warning takes
+ * precedence (ΔE is the most precise signal); other dimensions are recorded
+ * on the first-encountered basis.
+ *
+ * This is the canonical function called by `editorStore.setCode` on every
+ * successful parse.
+ */
+export function auditAll(ast: File, tokens: DesignToken[]): Map<string, LinterWarning> {
+    const merged = new Map<string, LinterWarning>()
+
+    // Priority order: color > typography > spacing > shadow > opacity.
+    // Each visitor only sets a warning on a node if not already set by a higher-priority visitor.
+    for (const visit of [
+        () => visitClassNames(ast, tokens),
+        () => visitTypography(ast, tokens),
+        () => visitSpacing(ast, tokens),
+        () => visitShadows(ast, tokens),
+        () => visitOpacity(ast, tokens),
+    ]) {
+        for (const [id, warning] of visit()) {
+            if (!merged.has(id)) merged.set(id, warning)
+        }
+    }
+
+    return merged
+}
+
+
+=======================================================
+FILE: src/core/A11yLinter.ts
+=======================================================
+
+/**
+ * A11yLinter — src/core/A11yLinter.ts
+ *
+ * Static AST-level accessibility linter (Phase B.3 — Commandment 5).
+ *
+ * Bridge Commandment 5 states: "Accessibility is a Compiler Error — Missing
+ * a11y attributes trigger a 'Critical Block' for exports."
+ *
+ * ## Rules Enforced (v2 — Enterprise WCAG 2.1 AA)
+ *
+ * | Rule     | Element        | Requirement                                                             |
+ * |----------|----------------|-------------------------------------------------------------------------|
+ * | A11Y-001 | `<img>`        | Must have `alt` attribute                                               |
+ * | A11Y-002 | `<button>`     | Must have text content OR aria-label / title                            |
+ * | A11Y-003 | `<a>`          | Must have text content OR aria-label / title                            |
+ * | A11Y-004 | `<input>`      | Must have id, aria-label, aria-labelledby, or title                     |
+ * | A11Y-005 | `<select>`     | Must have aria-label, aria-labelledby, or title                         |
+ * | A11Y-006 | `<textarea>`   | Must have aria-label, aria-labelledby, or title                         |
+ * | A11Y-007 | Any            | tabIndex > 0 disrupts natural tab order — use 0 or -1                  |
+ * | A11Y-008 | `<table>`      | Must have aria-label, aria-labelledby, or a `<caption>` child           |
+ * | A11Y-009 | `<html>`       | Must have lang attribute                                                 |
+ * | A11Y-010 | Headings       | Must not skip heading levels (h1→h3 without h2)**                       |
+ *
+ * ** A11Y-010 is document-scoped rather than per-element.
+ *
+ * All checks are deterministic Babel AST traversal — no runtime execution required.
+ *
+ * Renderer Process only — no Node.js imports.
+ */
+
+import traverse from '@babel/traverse'
+import type { File as BabelFile, JSXOpeningElement } from '@babel/types'
+
+// ── Types ──────────────────────────────────────────────────────────────────────
+
+/** Maps `data-bridge-id` → list of violation messages for that element. */
+export type A11yViolations = Record<string, string[]>
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/**
+ * Reads a JSX attribute value as a plain string.
+ * Handles `attr="value"` (StringLiteral) and `attr={"value"}` (JSXExpressionContainer
+ * wrapping a StringLiteral). Returns `null` for dynamic expressions.
+ */
+function getAttrStringValue(attr: ReturnType<typeof getJsxAttr>): string | null {
+    if (!attr) return null
+    if (attr.type !== 'JSXAttribute') return null
+    const { value } = attr
+    if (!value) return '' // bare boolean attribute, e.g. <input required />
+    if (value.type === 'StringLiteral') return value.value
+    if (
+        value.type === 'JSXExpressionContainer' &&
+        value.expression.type === 'StringLiteral'
+    ) {
+        return value.expression.value
+    }
+    return null // dynamic — we cannot statically evaluate it; skip the rule
+}
+
+/**
+ * Returns the JSXAttribute node for `attrName` from an opening-element's
+ * attribute list, or `undefined` if not present.
+ */
+function getJsxAttr(
+    opening: JSXOpeningElement,
+    attrName: string,
+): (typeof opening.attributes)[number] | undefined {
+    return opening.attributes.find(
+        (a) =>
+            a.type === 'JSXAttribute' &&
+            a.name.type === 'JSXIdentifier' &&
+            a.name.name === attrName,
+    )
+}
+
+/**
+ * Returns true when `element` contains at least one non-whitespace text node
+ * or a child expression that might resolve to text at runtime.
+ */
+function hasTextChildren(
+    path: import('@babel/traverse').NodePath<import('@babel/types').JSXElement>,
+): boolean {
+    return path.node.children.some((child) => {
+        if (child.type === 'JSXText') return /\S/.test(child.value)
+        if (child.type === 'JSXExpressionContainer') {
+            return child.expression.type !== 'JSXEmptyExpression'
+        }
+        if (child.type === 'JSXElement') return true
+        return false
+    })
+}
+
+/**
+ * Derives the label key used in violations: the `data-bridge-id` value if
+ * present, otherwise a positional fallback like `"img-3"`.
+ */
+function getBridgeId(opening: JSXOpeningElement, fallback: string): string {
+    const attr = getJsxAttr(opening, 'data-bridge-id')
+    if (!attr || attr.type !== 'JSXAttribute') return fallback
+    const val = attr.value
+    if (val?.type === 'StringLiteral') return val.value
+    if (
+        val?.type === 'JSXExpressionContainer' &&
+        val.expression.type === 'StringLiteral'
+    ) {
+        return val.expression.value
+    }
+    return fallback
+}
+
+/** Checks for static accessible-name surface: aria-label, title. Returns true when safe to skip. */
+function hasDynamicLabel(opening: JSXOpeningElement): boolean {
+    return ['aria-label', 'aria-labelledby', 'title'].some((name) => {
+        const a = getJsxAttr(opening, name)
+        if (!a) return false
+        // dynamic expression — conservatively assume valid
+        if (a.type === 'JSXAttribute' && a.value?.type === 'JSXExpressionContainer') return true
+        return false
+    })
+}
+
+function getNonEmptyAttr(opening: JSXOpeningElement, name: string): boolean {
+    const val = getAttrStringValue(getJsxAttr(opening, name))
+    return typeof val === 'string' && val.trim() !== ''
+}
+
+// ── Linter ────────────────────────────────────────────────────────────────────
+
+export const A11yLinter = {
+    /**
+     * Traverses the provided Babel AST and returns every accessibility violation
+     * found, grouped by `data-bridge-id` (or a positional fallback key).
+     *
+     * @param ast - A Babel `File` node produced by `parseCodeToAST`.
+     * @returns    An object mapping element keys to arrays of violation messages.
+     *             An empty object means the file is fully accessible.
+     */
+    audit(ast: BabelFile): A11yViolations {
+        const violations: A11yViolations = {}
+        let elementIndex = 0
+
+        /** Heading levels encountered so far, for A11Y-010 ordering check. */
+        const headingsSeen: number[] = []
+
+        const addViolation = (key: string, message: string): void => {
+            if (!violations[key]) violations[key] = []
+            violations[key].push(message)
+        }
+
+        traverse(ast, {
+            JSXElement(path) {
+                const { openingElement: opening } = path.node
+                const nameNode = opening.name
+
+                if (nameNode.type !== 'JSXIdentifier') return
+                const tag = nameNode.name.toLowerCase()
+
+                const AUDITED_TAGS = ['img', 'button', 'a', 'input', 'select', 'textarea', 'table', 'html']
+                const HEADING_TAGS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']
+
+                // ── A11Y-010: Heading level order ──────────────────────────────
+                if (HEADING_TAGS.includes(tag)) {
+                    const level = parseInt(tag[1], 10)
+                    const last = headingsSeen[headingsSeen.length - 1] ?? 0
+                    headingsSeen.push(level)
+                    if (level > last + 1) {
+                        elementIndex += 1
+                        const bridgeId = getBridgeId(opening, `heading-${elementIndex}`)
+                        addViolation(
+                            bridgeId,
+                            `A11Y-010: Heading <${tag}> skips level. Previous heading was <h${last}>. ` +
+                            'Heading levels must not be skipped — use sequential levels for screen readers.',
+                        )
+                    }
+                    return
+                }
+
+                if (!AUDITED_TAGS.includes(tag)) return
+
+                elementIndex += 1
+                const bridgeId = getBridgeId(opening, `${tag}-${elementIndex}`)
+
+                // ── A11Y-001: <img> must have alt ─────────────────────────────
+                if (tag === 'img') {
+                    const altAttr = getJsxAttr(opening, 'alt')
+                    if (altAttr === undefined) {
+                        addViolation(
+                            bridgeId,
+                            'A11Y-001: <img> is missing an `alt` attribute. ' +
+                            'Add alt="" for decorative images or a descriptive string for informational ones.',
+                        )
+                    }
+                    return
+                }
+
+                // ── A11Y-002/003: <button> and <a> need an accessible name ────
+                if (tag === 'button' || tag === 'a') {
+                    if (hasDynamicLabel(opening)) return
+
+                    const hasAriaLabel = getNonEmptyAttr(opening, 'aria-label')
+                    const hasTitle = getNonEmptyAttr(opening, 'title')
+                    const hasText = hasTextChildren(path)
+
+                    if (!hasAriaLabel && !hasTitle && !hasText) {
+                        const ruleId = tag === 'button' ? 'A11Y-002' : 'A11Y-003'
+                        addViolation(
+                            bridgeId,
+                            `${ruleId}: <${tag}> has no accessible name. ` +
+                            'Add text content, aria-label="…", or title="…".',
+                        )
+                    }
+                    return
+                }
+
+                // ── A11Y-004: <input> must have programmatic label ────────────
+                if (tag === 'input') {
+                    const hasId = getNonEmptyAttr(opening, 'id')
+                    const hasAriaLabel = getNonEmptyAttr(opening, 'aria-label')
+                    const hasTitle = getNonEmptyAttr(opening, 'title')
+                    const hasAriaLabelledBy = getNonEmptyAttr(opening, 'aria-labelledby')
+                    if (hasDynamicLabel(opening)) return
+
+                    if (!hasId && !hasAriaLabel && !hasTitle && !hasAriaLabelledBy) {
+                        addViolation(
+                            bridgeId,
+                            'A11Y-004: <input> has no programmatic label. ' +
+                            'Add id="…" (+ a matching <label htmlFor>), aria-label="…", or aria-labelledby="…".',
+                        )
+                    }
+                    return
+                }
+
+                // ── A11Y-005: <select> must have label ────────────────────────
+                if (tag === 'select') {
+                    if (hasDynamicLabel(opening)) return
+                    const hasAriaLabel = getNonEmptyAttr(opening, 'aria-label')
+                    const hasAriaLabelledBy = getNonEmptyAttr(opening, 'aria-labelledby')
+                    const hasTitle = getNonEmptyAttr(opening, 'title')
+                    if (!hasAriaLabel && !hasAriaLabelledBy && !hasTitle) {
+                        addViolation(
+                            bridgeId,
+                            'A11Y-005: <select> has no accessible label. ' +
+                            'Add aria-label="…", aria-labelledby="…", or pair with a <label htmlFor>.',
+                        )
+                    }
+                    return
+                }
+
+                // ── A11Y-006: <textarea> must have label ──────────────────────
+                if (tag === 'textarea') {
+                    if (hasDynamicLabel(opening)) return
+                    const hasAriaLabel = getNonEmptyAttr(opening, 'aria-label')
+                    const hasAriaLabelledBy = getNonEmptyAttr(opening, 'aria-labelledby')
+                    const hasTitle = getNonEmptyAttr(opening, 'title')
+                    if (!hasAriaLabel && !hasAriaLabelledBy && !hasTitle) {
+                        addViolation(
+                            bridgeId,
+                            'A11Y-006: <textarea> has no accessible label. ' +
+                            'Add aria-label="…", aria-labelledby="…", or pair with a <label htmlFor>.',
+                        )
+                    }
+                    return
+                }
+
+                // ── A11Y-008: <table> must have accessible summary ────────────
+                if (tag === 'table') {
+                    if (hasDynamicLabel(opening)) return
+                    const hasAriaLabel = getNonEmptyAttr(opening, 'aria-label')
+                    const hasAriaLabelledBy = getNonEmptyAttr(opening, 'aria-labelledby')
+                    // Check for a <caption> child element.
+                    const hasCaption = path.node.children.some(
+                        (child) =>
+                            child.type === 'JSXElement' &&
+                            child.openingElement.name.type === 'JSXIdentifier' &&
+                            child.openingElement.name.name.toLowerCase() === 'caption',
+                    )
+                    if (!hasAriaLabel && !hasAriaLabelledBy && !hasCaption) {
+                        addViolation(
+                            bridgeId,
+                            'A11Y-008: <table> has no accessible summary. ' +
+                            'Add a <caption> child, aria-label="…", or aria-labelledby="…".',
+                        )
+                    }
+                    return
+                }
+
+                // ── A11Y-009: <html> must have lang ──────────────────────────
+                if (tag === 'html') {
+                    const hasLang = getNonEmptyAttr(opening, 'lang')
+                    if (!hasLang) {
+                        addViolation(
+                            bridgeId,
+                            'A11Y-009: <html> is missing a `lang` attribute. ' +
+                            'Add lang="en" (or appropriate BCP 47 language tag) for screen reader language detection.',
+                        )
+                    }
+                    return
+                }
+            },
+
+            // ── A11Y-007: tabIndex > 0 disrupts tab order ─────────────────────
+            JSXAttribute(path) {
+                if (
+                    path.node.name.type !== 'JSXIdentifier' ||
+                    path.node.name.name !== 'tabIndex'
+                ) return
+
+                const val = path.node.value
+                let numericVal: number | null = null
+
+                if (val?.type === 'StringLiteral') {
+                    numericVal = parseInt(val.value, 10)
+                } else if (
+                    val?.type === 'JSXExpressionContainer' &&
+                    val.expression.type === 'NumericLiteral'
+                ) {
+                    numericVal = val.expression.value
+                } else if (
+                    val?.type === 'JSXExpressionContainer' &&
+                    val.expression.type === 'StringLiteral'
+                ) {
+                    numericVal = parseInt(val.expression.value, 10)
+                }
+
+                if (numericVal === null || numericVal <= 0) return
+
+                const openEl = path.parentPath?.node
+                if (!openEl || openEl.type !== 'JSXOpeningElement') return
+
+                elementIndex += 1
+                const bridgeId = getBridgeId(openEl, `tabindex-${elementIndex}`)
+                addViolation(
+                    bridgeId,
+                    `A11Y-007: tabIndex="${numericVal}" disrupts natural tab order. ` +
+                    'Use tabIndex={0} to include in natural order, or tabIndex={-1} to remove from flow.',
+                )
+            },
+        })
+
+        return violations
+    },
+}
+
+
+=======================================================
+FILE: src/core/ASTService.ts
+=======================================================
+
+/**
+ * ASTService — src/core/ASTService.ts
+ *
+ * Facade over ast-parser.ts that adds:
+ *   Phase A — batch-mutation stub (ASTMutation + applyMutationBatch).
+ *   Phase B — Import Synthesizer: given a JSX subtree being relocated,
+ *             discovers which PascalCase components / Lucide icons it uses,
+ *             finds their ImportDeclarations in the origin file's AST, and
+ *             injects missing declarations into the target file's AST without
+ *             creating duplicates (deduplicates at the specifier level).
+ *   Phase D — Recovery Engine:
+ *             applyMutationBatch: implemented (single parse→mutate→generate).
+ *             InverseMutation: type for Command-Pattern undo/redo history.
+ *             nodeExists: pre-flight zombie check before applying an undo.
+ *             applyInversions: restore prior state from an InverseMutation[].
+ *
+ * All existing parser utilities are re-exported unchanged so callers can
+ * migrate imports here incrementally without changing call-sites.
+ *
+ * Renderer Process only — no Node.js imports.
+ */
+
+export {
+    parseCodeToAST,
+    generateCodeFromAST,
+    buildVisualTree,
+    updateJSXClassName,
+} from './ast-parser'
+export type { VisualLayer } from './ast-parser'
+
+// ── Local imports from ast-parser (used by the batch engine) ─────────────────
+import { parseCodeToAST, generateCodeFromAST, updateJSXClassName, updateJSXTextContent } from './ast-parser'
+// ── Structural mutation helpers ───────────────────────────────────────────────
+import { moveNode, injectComponent, applyTokenFix } from '../utils/astModifier'
+// ── @babel/traverse (CJS interop — same pattern as ast-parser.ts) ────────────
+import _traverse from '@babel/traverse'
+import type { NodePath } from '@babel/traverse'
+
+const _tv =
+    typeof _traverse === 'function'
+        ? _traverse
+        : (_traverse as unknown as { default: typeof _traverse }).default
+
+// ── Mutation Types ────────────────────────────────────────────────────────────
+
+/** Updates the `className` JSX attribute on a target element. */
+interface UpdateClassNameMutation {
+    op: 'updateClassName'
+    /** The `data-bridge-id` or structural `"tag:line:col"` ID of the element. */
+    nodeId: string
+    /** Full Tailwind class string to set. */
+    className: string
+}
+
+/** Moves a JSX element relative to another element in the tree. */
+interface MoveNodeMutation {
+    op: 'moveNode'
+    /** `data-bridge-id` of the element to move. */
+    sourceId: string
+    /** `data-bridge-id` of the reference element. */
+    targetId: string
+    /** Insertion relationship relative to `targetId`. */
+    position: 'before' | 'after' | 'inside'
+}
+
+/** Removes a JSX element (and all its children) from the tree. */
+interface DeleteNodeMutation {
+    op: 'deleteNode'
+    /** `data-bridge-id` of the element to remove. */
+    nodeId: string
+}
+
+/** Sets an arbitrary JSX prop to a new serialised string value. */
+interface UpdatePropMutation {
+    op: 'updateProp'
+    /** `data-bridge-id` of the target element. */
+    nodeId: string
+    /** Prop name, e.g. `"aria-label"`, `"href"`, `"data-testid"`. */
+    propName: string
+    /** Serialised string value, e.g. `"true"`, `"#fff"`, a URL. */
+    value: string
+}
+
+/** Updates the first direct JSXText child of a target element. */
+interface UpdateTextContentMutation {
+    op: 'updateTextContent'
+    /** `data-bridge-id` or structural `"tag:line:col"` ID of the element. */
+    nodeId: string
+    /** New text value to set. */
+    text: string
+}
+
+/** Appends a new JSX element as the last child of a target node. */
+interface InjectComponentMutation {
+    op: 'injectComponent'
+    /** `data-bridge-id` of the target element to append into. */
+    targetNodeId: string
+    /** Raw JSX snippet, e.g. `'<Button>OK</Button>'`. */
+    jsxSnippet: string
+    /** Optional bare import statement to prepend, e.g. `"import { Button } from './Button'"`. */
+    importSnippet?: string
+}
+
+/** Replaces a hardcoded Tailwind arbitrary-value class with a design-token class. */
+interface ApplyTokenFixMutation {
+    op: 'applyTokenFix'
+    /** `data-bridge-id` of the target element. */
+    nodeId: string
+    /** The exact hardcoded class to replace, e.g. `"bg-[#f3f3f3]"`. */
+    hardcodedClass: string
+    /** The token-derived replacement class, e.g. `"bg-brand-primary"`. */
+    tokenClass: string
+}
+
+/**
+ * A single declarative AST mutation operation.
+ * The discriminant `op` field lets the batch executor switch safely
+ * without type assertions.
+ */
+export type ASTMutation =
+    | UpdateClassNameMutation
+    | MoveNodeMutation
+    | DeleteNodeMutation
+    | UpdatePropMutation
+    | UpdateTextContentMutation
+    | InjectComponentMutation
+    | ApplyTokenFixMutation
+
+// ── Inverse Mutation Types (Phase D) ─────────────────────────────────────────
+
+/**
+ * Restores the entire source file to a known-good snapshot.
+ * Used as the inverse of structural mutations (moveNode, deleteNode) where
+ * surgical reversal would require position tracking across re-parses.
+ */
+interface RestoreCodeMutation {
+    op: 'restoreCode'
+    code: string
+}
+
+/**
+ * An inverse mutation produced by `applyMutationBatch` for each applied
+ * operation. Passing an `InverseMutation[]` to `applyInversions` reconstructs
+ * the pre-batch source code.
+ *
+ * Property inverses (updateClassName / updateProp) carry the previous value.
+ * Structural inverses (moveNode / deleteNode) carry a full code snapshot.
+ */
+export type InverseMutation =
+    | UpdateClassNameMutation
+    | UpdatePropMutation
+    | UpdateTextContentMutation
+    | RestoreCodeMutation
+
+// ── Private helpers for the batch engine ─────────────────────────────────────
+
+/**
+ * Returns true when the JSX element at `path` matches `nodeId`.
+ * Supports both bridge IDs (data-bridge-id attribute) and structural IDs
+ * ("tagName:line:col" — matched by source location).
+ */
+function jsxMatchesId(
+    path: NodePath<import('@babel/types').JSXElement>,
+    nodeId: string
+): boolean {
+    const parts = nodeId.split(':')
+    const col = parseInt(parts[parts.length - 1], 10)
+    const line = parseInt(parts[parts.length - 2], 10)
+    const isStructural = parts.length >= 2 && !isNaN(col) && !isNaN(line)
+
+    if (isStructural) {
+        const loc = path.node.loc
+        return loc?.start.line === line && loc.start.column === col
+    }
+
+    for (const attr of path.node.openingElement.attributes) {
+        if (
+            attr.type === 'JSXAttribute' &&
+            attr.name.type === 'JSXIdentifier' &&
+            attr.name.name === 'data-bridge-id' &&
+            attr.value?.type === 'StringLiteral' &&
+            attr.value.value === nodeId
+        ) {
+            return true
+        }
+    }
+    return false
+}
+
+/**
+ * Reads the current StringLiteral value of `propName` from the JSX element
+ * identified by `nodeId`. Returns `null` when the element or prop is absent.
+ */
+function readCurrentPropValue(
+    ast: import('@babel/types').File,
+    nodeId: string,
+    propName: string
+): string | null {
+    let value: string | null = null
+    _tv(ast, {
+        JSXElement(path: NodePath<import('@babel/types').JSXElement>) {
+            if (!jsxMatchesId(path, nodeId)) return
+            for (const attr of path.node.openingElement.attributes) {
+                if (
+                    attr.type === 'JSXAttribute' &&
+                    attr.name.type === 'JSXIdentifier' &&
+                    attr.name.name === propName &&
+                    attr.value?.type === 'StringLiteral'
+                ) {
+                    value = attr.value.value
+                    break
+                }
+            }
+            path.stop()
+        },
+    })
+    return value
+}
+
+/**
+ * Reads the first non-empty JSXText child value from the element identified
+ * by `nodeId`. Returns null when the element is absent or has no text child.
+ */
+function readCurrentTextContent(
+    ast: import('@babel/types').File,
+    nodeId: string
+): string | null {
+    let text: string | null = null
+    _tv(ast, {
+        JSXElement(path: NodePath<import('@babel/types').JSXElement>) {
+            if (!jsxMatchesId(path, nodeId)) return
+            for (const child of path.node.children) {
+                if (child.type === 'JSXText') {
+                    const trimmed = child.value.trim()
+                    if (trimmed.length > 0) {
+                        text = trimmed
+                        break
+                    }
+                }
+            }
+            path.stop()
+        },
+    })
+    return text
+}
+
+/**
+ * Sets or creates `propName` to `value` as a StringLiteral on the JSX element
+ * identified by `nodeId`. Mutates `ast` in-place.
+ */
+function applyUpdateProp(
+    ast: import('@babel/types').File,
+    nodeId: string,
+    propName: string,
+    value: string
+): void {
+    _tv(ast, {
+        JSXElement(path: NodePath<import('@babel/types').JSXElement>) {
+            if (!jsxMatchesId(path, nodeId)) return
+            const attrs = path.node.openingElement.attributes
+            let found = false
+            for (const attr of attrs) {
+                if (
+                    attr.type === 'JSXAttribute' &&
+                    attr.name.type === 'JSXIdentifier' &&
+                    attr.name.name === propName
+                ) {
+                    ; (attr as import('@babel/types').JSXAttribute).value = stringLiteral(value)
+                    found = true
+                    break
+                }
+            }
+            if (!found) {
+                attrs.push(jsxAttr(jsxId(propName), stringLiteral(value)))
+            }
+            path.stop()
+        },
+    })
+}
+
+/**
+ * Removes the JSX element identified by `nodeId` from its parent's children
+ * array. Mutates `ast` in-place. Silent no-op if the node is not found.
+ */
+function applyDeleteNode(
+    ast: import('@babel/types').File,
+    nodeId: string
+): void {
+    _tv(ast, {
+        JSXElement(path: NodePath<import('@babel/types').JSXElement>) {
+            if (!jsxMatchesId(path, nodeId)) return
+            if (path.parent.type === 'JSXElement') {
+                const children = (path.parent as import('@babel/types').JSXElement).children
+                const idx = children.indexOf(path.node)
+                if (idx !== -1) children.splice(idx, 1)
+            }
+            path.stop()
+        },
+    })
+}
+
+// ── Batch Mutation API (Phase D) ──────────────────────────────────────────────
+
+/**
+ * Applies an ordered batch of AST mutations to `code` in a **single**
+ * parse → mutate → generate cycle, returning the new source and an
+ * `InverseMutation[]` that reconstructs the pre-batch state when passed to
+ * `applyInversions`.
+ *
+ * ### Inverse strategy
+ * - `updateClassName` / `updateProp`: reads the current attribute value before
+ *   mutation and stores it as a surgical reverse (old value → same prop).
+ * - `moveNode` / `deleteNode`: stores a full code snapshot as `restoreCode`
+ *   because structural changes cannot be inverted surgically without tracking
+ *   positions across re-parses.
+ *
+ * If `code` cannot be parsed, returns the original code with an empty
+ * inversions array (safe no-op).
+ *
+ * @param code      Raw TSX source string to mutate.
+ * @param mutations Ordered list of operations applied left-to-right.
+ * @returns         `{ code, inversions }` — mutated source and undo data.
+ */
+export function applyMutationBatch(
+    code: string,
+    mutations: ASTMutation[]
+): { code: string; inversions: InverseMutation[] } {
+    if (mutations.length === 0) return { code, inversions: [] }
+
+    const ast = parseCodeToAST(code)
+    if (ast === null) return { code, inversions: [] }
+
+    const inversions: InverseMutation[] = []
+
+    for (const mutation of mutations) {
+        switch (mutation.op) {
+            case 'updateClassName': {
+                const oldClass = readCurrentPropValue(ast, mutation.nodeId, 'className') ?? ''
+                inversions.push({
+                    op: 'updateClassName',
+                    nodeId: mutation.nodeId,
+                    className: oldClass,
+                })
+                updateJSXClassName(ast, mutation.nodeId, mutation.className)
+                break
+            }
+
+            case 'updateProp': {
+                const oldValue =
+                    readCurrentPropValue(ast, mutation.nodeId, mutation.propName) ?? ''
+                inversions.push({
+                    op: 'updateProp',
+                    nodeId: mutation.nodeId,
+                    propName: mutation.propName,
+                    value: oldValue,
+                })
+                applyUpdateProp(ast, mutation.nodeId, mutation.propName, mutation.value)
+                break
+            }
+
+            case 'updateTextContent': {
+                const oldText = readCurrentTextContent(ast, mutation.nodeId) ?? ''
+                inversions.push({
+                    op: 'updateTextContent',
+                    nodeId: mutation.nodeId,
+                    text: oldText,
+                })
+                updateJSXTextContent(ast, mutation.nodeId, mutation.text)
+                break
+            }
+
+            case 'moveNode': {
+                // Re-generate from the current in-flight AST state so accumulated
+                // earlier mutations in this batch are included in the snapshot.
+                inversions.push({ op: 'restoreCode', code: generateCodeFromAST(ast) })
+                moveNode(ast, mutation.sourceId, mutation.targetId, mutation.position)
+                break
+            }
+
+            case 'deleteNode': {
+                inversions.push({ op: 'restoreCode', code: generateCodeFromAST(ast) })
+                applyDeleteNode(ast, mutation.nodeId)
+                // Garbage Collection (Phase E — Commandment 12):
+                // After a successful AST deletion, fire the IPC cleanup so the
+                // main process can remove any dangling component_overrides row for
+                // this bridge ID, preventing a "Zombie" export lock.
+                // Optional-chained: degrades gracefully until the main-process
+                // handler is registered. Guarded against headless test environments.
+                if (typeof window !== 'undefined') {
+                    void window.bridgeAPI.tokens.clearOverride?.(mutation.nodeId)
+                }
+                break
+            }
+
+            case 'injectComponent': {
+                // Structural inverse: snapshot the pre-mutation code so that
+                // a single Cmd+Z restores both the import and the injected element
+                // atomically (Commandment 12 — Atomic Queuing).
+                inversions.push({ op: 'restoreCode', code: generateCodeFromAST(ast) })
+                injectComponent(ast, mutation.targetNodeId, mutation.jsxSnippet, mutation.importSnippet)
+                break
+            }
+
+            case 'applyTokenFix': {
+                // Snapshot-based inverse: captures the full pre-fix source so the
+                // token substitution can be reversed exactly, regardless of how
+                // many classes surround the target token.
+                inversions.push({ op: 'restoreCode', code: generateCodeFromAST(ast) })
+                applyTokenFix(ast, mutation.nodeId, mutation.hardcodedClass, mutation.tokenClass)
+                break
+            }
+        }
+    }
+
+    return { code: generateCodeFromAST(ast), inversions }
+}
+
+// ── Pre-flight Zombie Check (Phase D) ─────────────────────────────────────────
+
+/**
+ * Returns `true` when the JSX element identified by `bridgeId` (data-bridge-id
+ * attribute) still exists in `code`.
+ *
+ * Used before applying an undo to detect "zombie" nodes — elements that were
+ * deleted by a later edit and can therefore no longer receive a surgical
+ * property-level inverse.
+ *
+ * Always returns `false` when `code` cannot be parsed.
+ */
+export function nodeExists(code: string, bridgeId: string): boolean {
+    const ast = parseCodeToAST(code)
+    if (ast === null) return false
+
+    let found = false
+    _tv(ast, {
+        JSXElement(path: NodePath<import('@babel/types').JSXElement>) {
+            for (const attr of path.node.openingElement.attributes) {
+                if (
+                    attr.type === 'JSXAttribute' &&
+                    attr.name.type === 'JSXIdentifier' &&
+                    attr.name.name === 'data-bridge-id' &&
+                    attr.value?.type === 'StringLiteral' &&
+                    attr.value.value === bridgeId
+                ) {
+                    found = true
+                    path.stop()
+                    break
+                }
+            }
+        },
+    })
+    return found
+}
+
+// ── Inversion Applier (Phase D) ───────────────────────────────────────────────
+
+/**
+ * Restores `currentCode` to its pre-batch state by applying `inversions`.
+ *
+ * If any inversion is a `restoreCode` snapshot, the snapshot is returned
+ * immediately (structural mutations win — the entire pre-batch source is
+ * restored). Otherwise the property-level inverses are applied via
+ * `applyMutationBatch` in a single parse→generate cycle.
+ *
+ * Callers should run `nodeExists()` on each bridge ID before calling this
+ * to detect and block zombie-node undos.
+ */
+export function applyInversions(
+    currentCode: string,
+    inversions: InverseMutation[]
+): string {
+    // Structural inverse wins: return the snapshot immediately.
+    for (const inv of inversions) {
+        if (inv.op === 'restoreCode') return inv.code
+    }
+
+    // All-property batch: apply surgical inverses in a single cycle.
+    const result = applyMutationBatch(currentCode, inversions as ASTMutation[])
+    return result.code
+}
+
+// ── Import Synthesizer (Phase B) ──────────────────────────────────────────────
+//
+// @babel/types is a CJS package. Vite's electron-renderer plugin synthesises
+// named ESM exports from the CJS `exports` object, so named imports work here
+// in the renderer process exactly as they do in ast-parser.ts and astModifier.ts.
+
+import type { File, JSXElement, JSXFragment } from '@babel/types'
+import {
+    importDeclaration,
+    importDefaultSpecifier,
+    importSpecifier,
+    identifier,
+    stringLiteral,
+    isImportDeclaration,
+    importNamespaceSpecifier,
+    jsxAttribute as jsxAttr,
+    jsxIdentifier as jsxId,
+} from '@babel/types'
+import { dirname, resolvePath, relativePath } from '../utils/pathUtils'
+
+/**
+ * Internal record for a single imported binding found in an origin file.
+ * Stores enough info to recreate the appropriate specifier node in the target.
+ */
+interface ImportEntry {
+    /** The module path, e.g. `'lucide-react'` or `'./Button'`. */
+    sourceModule: string
+    /** How the binding is imported. */
+    specifierType: 'default' | 'named' | 'namespace'
+    /** The local binding name used in the file, e.g. `Bar` in `import { Foo as Bar }`. */
+    localName: string
+    /** The original exported name, e.g. `Foo` in `import { Foo as Bar }`. */
+    importedName: string
+}
+
+/**
+ * Recursively walks a JSXElement (and its JSX-element descendants) collecting
+ * every PascalCase tag name and the root of every JSXMemberExpression tag.
+ * Native HTML tags (all-lowercase) are excluded.
+ */
+function collectComponentNames(root: JSXElement): Set<string> {
+    const names = new Set<string>()
+
+    function walkChildren(children: JSXElement['children'] | JSXFragment['children']): void {
+        for (const child of children) {
+            if (child.type === 'JSXElement') {
+                const { name } = child.openingElement
+                if (name.type === 'JSXIdentifier' && /^[A-Z]/.test(name.name)) {
+                    names.add(name.name)
+                } else if (
+                    name.type === 'JSXMemberExpression' &&
+                    name.object.type === 'JSXIdentifier' &&
+                    /^[A-Z]/.test(name.object.name)
+                ) {
+                    names.add(name.object.name)
+                }
+                walkChildren(child.children)
+            } else if (child.type === 'JSXFragment') {
+                walkChildren(child.children)
+            }
+        }
+    }
+
+    // Register the root element itself
+    const { name } = root.openingElement
+    if (name.type === 'JSXIdentifier' && /^[A-Z]/.test(name.name)) {
+        names.add(name.name)
+    } else if (
+        name.type === 'JSXMemberExpression' &&
+        name.object.type === 'JSXIdentifier' &&
+        /^[A-Z]/.test(name.object.name)
+    ) {
+        names.add(name.object.name)
+    }
+
+    walkChildren(root.children)
+    return names
+}
+
+/**
+ * Scans all top-level ImportDeclarations in `ast` and builds a map from
+ * each local binding name to its import metadata.
+ */
+function buildImportMap(ast: File): Map<string, ImportEntry> {
+    const map = new Map<string, ImportEntry>()
+
+    for (const node of ast.program.body) {
+        if (!isImportDeclaration(node)) continue
+        const sourceModule = node.source.value
+
+        for (const spec of node.specifiers) {
+            if (spec.type === 'ImportDefaultSpecifier') {
+                map.set(spec.local.name, {
+                    sourceModule,
+                    specifierType: 'default',
+                    localName: spec.local.name,
+                    importedName: spec.local.name,
+                })
+            } else if (spec.type === 'ImportNamespaceSpecifier') {
+                map.set(spec.local.name, {
+                    sourceModule,
+                    specifierType: 'namespace',
+                    localName: spec.local.name,
+                    importedName: spec.local.name,
+                })
+            } else if (spec.type === 'ImportSpecifier') {
+                // spec.imported may be Identifier or StringLiteral
+                const importedName =
+                    spec.imported.type === 'StringLiteral'
+                        ? spec.imported.value
+                        : spec.imported.name
+                map.set(spec.local.name, {
+                    sourceModule,
+                    specifierType: 'named',
+                    localName: spec.local.name,
+                    importedName,
+                })
+            }
+        }
+    }
+
+    return map
+}
+
+/**
+ * Returns true if `targetAST` already imports `localName` from `sourceModule`.
+ * Checks at the specifier level so partial imports (e.g. `import { A }` when
+ * we need `B` from the same module) are handled correctly.
+ */
+function hasImport(targetAST: File, sourceModule: string, localName: string): boolean {
+    for (const node of targetAST.program.body) {
+        if (!isImportDeclaration(node)) continue
+        if (node.source.value !== sourceModule) continue
+        for (const spec of node.specifiers) {
+            if (spec.local.name === localName) return true
+        }
+    }
+    return false
+}
+
+/**
+ * Synthesizes and injects ImportDeclarations into `targetAST` for all
+ * PascalCase component names (custom components, Lucide icons, etc.) found
+ * in `jsxNode` and its descendants.
+ *
+ * Algorithm:
+ *   1. Collect every PascalCase JSX tag name used in the subtree.
+ *   2. For each name, look up its ImportDeclaration in `originAST`.
+ *   3. Skip if not found in origin (may be a global or built-in).
+ *   4. Skip if already imported in `targetAST` (specifier-level deduplication).
+ *   5. Otherwise inject a new ImportDeclaration after the last existing import
+ *      in `targetAST`.
+ *
+ * Mutates `targetAST` in-place and returns it. Pass a freshly-parsed copy.
+ *
+ * @param originAST  Babel File AST of the file the element is moving FROM.
+ * @param jsxNode    The JSX subtree being relocated.
+ * @param targetAST  Babel File AST of the destination file (mutated in-place).
+ * @param sourcePath Absolute path of the origin file.
+ * @param targetPath Absolute path of the destination file.
+ * @returns          The mutated `targetAST`.
+ */
+export function synthesizeImports(
+    originAST: File,
+    jsxNode: JSXElement,
+    targetAST: File,
+    sourcePath: string,
+    targetPath: string,
+): File {
+    const neededNames = collectComponentNames(jsxNode)
+    if (neededNames.size === 0) return targetAST
+
+    const originImports = buildImportMap(originAST)
+
+    // Locate insertion point: after the last existing import in targetAST.
+    let lastImportIdx = -1
+    for (let i = 0; i < targetAST.program.body.length; i++) {
+        if (isImportDeclaration(targetAST.program.body[i])) lastImportIdx = i
+    }
+
+    for (const name of neededNames) {
+        const entry = originImports.get(name)
+        if (entry === undefined) continue  // not found in origin — skip
+
+        let finalSourceModule = entry.sourceModule
+        if (finalSourceModule.startsWith('.')) {
+            // It's a relative import. Resolve it via absolute paths.
+            const absImport = resolvePath(dirname(sourcePath), finalSourceModule)
+            finalSourceModule = relativePath(dirname(targetPath), absImport)
+        }
+
+        if (hasImport(targetAST, finalSourceModule, entry.localName)) continue  // already present
+
+        // Build the appropriate import specifier node
+        let newDecl: ReturnType<typeof importDeclaration>
+        if (entry.specifierType === 'default') {
+            newDecl = importDeclaration(
+                [importDefaultSpecifier(identifier(entry.localName))],
+                stringLiteral(finalSourceModule),
+            )
+        } else if (entry.specifierType === 'namespace') {
+            newDecl = importDeclaration(
+                [importNamespaceSpecifier(identifier(entry.localName))],
+                stringLiteral(finalSourceModule),
+            )
+        } else {
+            // named — preserve the original imported name in case of aliasing
+            newDecl = importDeclaration(
+                [importSpecifier(identifier(entry.localName), identifier(entry.importedName))],
+                stringLiteral(finalSourceModule),
+            )
+        }
+
+        // Insert after the current last-import position, then advance the cursor.
+        lastImportIdx += 1
+        targetAST.program.body.splice(lastImportIdx, 0, newDecl)
+    }
+
+    return targetAST
+}
+
+
+=======================================================
+FILE: electron/FileTransactionManager.ts
+=======================================================
+
+/**
+ * FileTransactionManager — electron/FileTransactionManager.ts
+ *
+ * Atomic, race-condition-safe write queue for the Bridge "Code is Truth" engine.
+ *
+ * Design guarantees:
+ *   1. ATOMIC — every write goes to `<filePath>.tmp` first, then `fs.rename()`
+ *      overwrites the target in a single kernel operation. Readers never observe
+ *      a partially-written file, and a crash during the write leaves the original
+ *      intact (only the orphaned .tmp file needs cleanup).
+ *
+ *   2. SERIALISED PER PATH — rapid-fire IPC save requests for the same file are
+ *      chained into a sequential promise queue. The latest content always wins;
+ *      no two writes to the same path execute concurrently.
+ *
+ *   3. CONCURRENT ACROSS PATHS — writes to different files proceed independently
+ *      and never block each other.
+ *
+ *   4. SELF-CLEANING — promise-chain entries are evicted from the map once the
+ *      tail settles, keeping memory usage bounded even under sustained load.
+ *
+ * Electron Main Process only — never import from src/.
+ */
+
+import { writeFile, rename, unlink } from 'node:fs/promises'
+
+/**
+ * Manages serialised, atomic file writes.
+ * Export the module-level `fileTransactionManager` singleton rather than
+ * instantiating this class directly.
+ */
+export class FileTransactionManager {
+    /** Active tail promise keyed by absolute file path. */
+    private readonly _queues = new Map<string, Promise<void>>()
+
+    /**
+     * Enqueues an atomic write for `filePath`.
+     *
+     * If a write is already in flight for this path the new write is chained
+     * behind it, ensuring strict FIFO ordering without any external locking.
+     *
+     * @param filePath  Absolute path of the target file (must be pre-validated).
+     * @param content   Complete UTF-8 content to commit to disk.
+     * @returns         A Promise that resolves only once *this specific write*
+     *                  has been committed — not merely queued.
+     */
+    write(filePath: string, content: string): Promise<void> {
+        // Chain onto the existing tail so writes for the same path serialise.
+        const tail = this._queues.get(filePath) ?? Promise.resolve()
+
+        // `next` is returned to the caller — it propagates errors normally.
+        const next = tail.then(() => this._atomicWrite(filePath, content))
+
+        // `queued` is stored in the map as the new tail for subsequent writes.
+        //
+        // Two design rules:
+        //   a) It must NEVER reject — a failed write N must not block write N+1.
+        //      We achieve this by providing a rejection handler that returns void.
+        //      The original error still propagates to the caller through `next`.
+        //
+        //   b) Eviction runs in the SAME microtask hop as `next` settling.
+        //      Using `next.then(evict, evict)` instead of `next.catch().then(evict)`
+        //      avoids an extra microtask tick between resolution and map cleanup,
+        //      ensuring the map is empty by the time `await mgr.write(...)` resumes.
+        let queued: Promise<void>
+        const evict = (): void => {
+            if (this._queues.get(filePath) === queued) {
+                this._queues.delete(filePath)
+            }
+        }
+        queued = next.then(evict, evict)
+        this._queues.set(filePath, queued)
+
+        return next
+    }
+
+    /**
+     * Enqueues atomic writes for every `(filePath, content)` pair in `batch`
+     * and resolves once **all** of them have been committed to disk.
+     *
+     * Each path is handled by the existing per-path FIFO queue, so:
+     *   • Rapid-fire batch calls for the same path are still serialised.
+     *   • Writes to different paths run concurrently (unchanged behaviour).
+     *   • A failure for one path rejects the returned Promise but does not
+     *     prevent the other paths from completing.
+     *
+     * Callers must pre-validate all paths (absolute, correct extension, within
+     * the home directory) before passing them in — this method does not
+     * re-validate.
+     */
+    writeBatch(batch: Map<string, string>): Promise<void> {
+        const writes: Promise<void>[] = []
+        for (const [filePath, content] of batch) {
+            writes.push(this.write(filePath, content))
+        }
+        return Promise.all(writes).then(() => undefined)
+    }
+
+    /**
+     * Performs the two-phase atomic write:
+     *   1. `writeFile(tmpPath, content)` — full content lands on disk before
+     *      any rename; a crash here leaves the original untouched.
+     *   2. `rename(tmpPath, filePath)` — atomic replacement on POSIX/HFS+/APFS;
+     *      readers see either the old or the new file, never an in-between state.
+     *
+     * On any failure the .tmp file is silently removed (best-effort) so stale
+     * artefacts do not accumulate in the project directory.
+     */
+    private async _atomicWrite(filePath: string, content: string): Promise<void> {
+        const tmpPath = `${filePath}.tmp`
+        try {
+            await writeFile(tmpPath, content, 'utf8')
+            await rename(tmpPath, filePath)
+        } catch (err) {
+            // Best-effort cleanup — suppress secondary unlink errors.
+            await unlink(tmpPath).catch(() => { /* intentionally suppressed */ })
+            throw err
+        }
+    }
+}
+
+/** Module-level singleton — import this in electron/main.ts IPC handlers. */
+export const fileTransactionManager = new FileTransactionManager()
+
+
+=======================================================
+FILE: src/components/editor/XYCanvas.tsx
+=======================================================
+
+/**
+ * XYCanvas — src/components/editor/XYCanvas.tsx
+ *
+ * Module A: The Infinite Whiteboard Canvas.
+ *
+ * Mounts an @xyflow/react (React Flow v12) instance that hosts the Bridge IDE
+ * Live Preview as a draggable, resizable node on an infinite whiteboard.
+ *
+ * Design decisions:
+ *  - A *single* `livePreviewNode` is placed at the origin (0, 0) on first
+ *    render. Subsequent renders do NOT re-create it (stable initialNodes) so
+ *    the user can freely reposition it without the position snapping back.
+ *  - The LivePreview component is rendered via a custom XYFlow node type
+ *    (`livePreviewNodeType`). DOM events inside the iframe still propagate
+ *    through the Shield overlay exactly as before — XYFlow only controls the
+ *    surrounding whiteboard chrome (pan/zoom/handle).
+ *  - Panning is restricted to the mouse-wheel + spacebar-drag UX: this avoids
+ *    conflicts with the Shield overlay's drag handling in 'design' mode.
+ *  - The XYFlow `MiniMap` and `Controls` are rendered for navigation UX.
+ *  - MithrilProvider must wrap this component at the call site (in App.tsx),
+ *    since LivePreview reads from the MithrilContext.
+ */
+
+import { useCallback, useMemo } from 'react'
+import {
+    ReactFlow,
+    Background,
+    BackgroundVariant,
+    Controls,
+    MiniMap,
+    type NodeTypes,
+    type Node,
+} from '@xyflow/react'
+import '@xyflow/react/dist/style.css'
+import { LivePreview } from './LivePreview'
+
+// ── Custom node: LivePreview ────────────────────────────────────────────────
+
+type LivePreviewData = Record<string, never>
+
+/**
+ * XYFlow custom node that renders the Bridge LivePreview iframe.
+ *
+ * `nodrag` class on the wrapping div prevents XYFlow's built-in drag from
+ * interfering with the inner Shield overlay's drag logic. The node *header*
+ * (the chrome bar above) remains draggable via the `drag-handle` class.
+ */
+function LivePreviewNode() {
+    return (
+        <div
+            className="flex flex-col overflow-hidden rounded-xl border border-gray-700 bg-gray-950 shadow-2xl shadow-black/60"
+            style={{ width: 900, height: 600 }}
+        >
+            {/* ── Window chrome drag handle ───────────────────────────── */}
+            <div
+                /* `drag-handle` is the class React Flow uses when nodeDragThreshold
+                   and dragHandle are set to .drag-handle on the parent node.     */
+                className="drag-handle flex shrink-0 cursor-grab items-center gap-2 border-b border-gray-800 bg-gray-900 px-4 py-2 active:cursor-grabbing"
+            >
+                {/* Traffic-light pills */}
+                <span className="h-3 w-3 rounded-full bg-red-500/80" />
+                <span className="h-3 w-3 rounded-full bg-amber-500/80" />
+                <span className="h-3 w-3 rounded-full bg-emerald-500/80" />
+                <span className="ml-2 font-mono text-[10px] font-semibold uppercase tracking-widest text-gray-500">
+                    Live Preview · srcdoc Engine
+                </span>
+            </div>
+
+            {/* ── The actual preview — fills remaining height ─────────── */}
+            <div className="nodrag min-h-0 flex-1">
+                <LivePreview />
+            </div>
+        </div>
+    )
+}
+
+// ── Node types registry ─────────────────────────────────────────────────────
+
+const nodeTypes: NodeTypes = {
+    livePreview: LivePreviewNode as NodeTypes[string],
+}
+
+// ── Initial node placement ──────────────────────────────────────────────────
+
+const INITIAL_NODES: Node<LivePreviewData>[] = [
+    {
+        id: 'live-preview',
+        type: 'livePreview',
+        position: { x: 0, y: 0 },
+        data: {},
+        // Allow resize handles but lock content drag to the chrome bar only.
+        dragHandle: '.drag-handle',
+    },
+]
+
+// ── XYCanvas ────────────────────────────────────────────────────────────────
+
+/**
+ * XYCanvas
+ *
+ * Drop-in replacement for the raw `<LivePreview />` in the center panel.
+ * Renders the infinite React Flow whiteboard with the LivePreview node.
+ *
+ * The parent container must have an explicit height (e.g. `h-full` / flex-1)
+ * for React Flow to size itself correctly — React Flow relies on its parent's
+ * measured dimensions.
+ */
+export function XYCanvas() {
+    // Stable node-change handler — keeps node positions in sync after drag.
+    // We use the built-in `onNodesChange` but don't need external state because
+    // we never need to persist canvas layout to the AST (nodes are canvas chrome,
+    // not AST nodes). React Flow manages position internally when nodes are
+    // uncontrolled (initialNodes).
+    const onInit = useCallback(() => {
+        // Future: can expose fitView / zoom controls from here.
+    }, [])
+
+    const proOptions = useMemo(() => ({ hideAttribution: true }), [])
+
+    return (
+        <ReactFlow
+            defaultNodes={INITIAL_NODES}
+            nodeTypes={nodeTypes}
+            onInit={onInit}
+            fitView
+            fitViewOptions={{ padding: 0.15, maxZoom: 1 }}
+            panOnScroll
+            panOnDrag={[1, 2]} // middle-click or right-drag to pan
+            selectionOnDrag={false}
+            elementsSelectable={false}
+            zoomOnDoubleClick={false}
+            proOptions={proOptions}
+            className="bg-gray-950"
+        >
+            <Background
+                variant={BackgroundVariant.Dots}
+                gap={24}
+                size={1}
+                color="#374151"
+            />
+            <Controls
+                showInteractive={false}
+                className="[&>button]:border-gray-700 [&>button]:bg-gray-900 [&>button]:text-gray-400 [&>button:hover]:bg-gray-800"
+            />
+            <MiniMap
+                nodeColor="#4f46e5"
+                maskColor="rgba(0,0,0,0.6)"
+                style={{ background: '#111827', border: '1px solid #1f2937' }}
+            />
+        </ReactFlow>
+    )
+}

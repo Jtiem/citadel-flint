@@ -1,6 +1,6 @@
 # Bridge IDE: The "Agentic UI Operating System"
 
-### **Architecture Specification (v5.7 — Lunar Elevator + Persistence)**
+### **Architecture Specification (v6.0 — Phase M: AI Orchestrator Hardening)**
 
 ## **1. Core Identity & Philosophy**
 
@@ -18,7 +18,7 @@
 | **App Shell** | **Electron (v29+)** | Native OS access; strict IPC context isolation; native directory selection. |
 | **Data Engine** | **SQLite + `sqlite-vec**` | Local vector embeddings for design system RAG and privacy-first context. |
 | **Sync Layer** | **PowerSync SDK** | Real-time CRDT sync for team collaboration, Presence, and Tokens. |
-| **Orchestration** | **Bridge Auditor** | Complexity analysis that routes tasks to "Flash" or "Thinking" AI models. |
+| **Orchestration** | **Bridge Auditor** | Complexity analysis routes tasks to "Flash" or "Thinking" models. AI is restricted to granular AST Tool Calls only — no raw string generation. |
 | **Canvas** | **`@xyflow/react` v12** | Infinite whiteboard for visual node manipulation. |
 | **Preview Engine** | **Iframe + Babel IPC** | 100% offline `srcdoc` execution with zero external dependencies. |
 | **Bundling** | **ESBuild WASM** | Client-side bundler injected with React Fast Refresh for stateful hot-swapping. |
@@ -62,6 +62,20 @@
 * **Strict Garbage Collection:** Deleting a node immediately triggers `DELETE FROM component_overrides WHERE bridge_id = ?` to prevent "Zombie" export locks.
 
 
+### **Module M: AI Orchestrator Hardening (Phase M)**
+
+* **Granular AST Tool Catalog (Commandment 15):** The AI Orchestrator is constrained to a strict, versioned set of JSON Tool Calls. It is architecturally incapable of emitting raw source code strings or full-file replacements. The permitted Tool Catalog is:
+  * `updateProps({ targetId: string, props: Record<string, string> })` — Modify JSX attributes on a single node.
+  * `updateText({ targetId: string, text: string })` — Modify the text content of a single node.
+  * `insertNode({ targetId: string, position: 'before'|'after'|'firstChild'|'lastChild', nodeType: string, props?: Record<string, string> })` — Insert a new JSX node relative to a target.
+  * `wrapNode({ targetId: string, wrapperType: string, props?: Record<string, string> })` — Wrap an existing node in a new parent element.
+  * `deleteNode({ targetId: string })` — Remove a node from the AST.
+  * `addClassName({ targetId: string, className: string })` — Append a design-token class to a node's className.
+  * `removeClassName({ targetId: string, className: string })` — Remove a specific class from a node's className.
+* **In-Memory Validation Loop (Commandment 16):** After the AI emits a batch of Tool Calls, the `orchestrator.ts` synthesizes the resulting code in-memory and runs a lightweight TypeScript AST type-check pass before surfacing the confirmation UI to the user. If the AI hallucinates a component or prop that does not exist in the design system, the TS error is injected back into the AI context as a recovery prompt — the user never sees a broken diff.
+* **Design System RAG Injection:** Every orchestrator prompt is prefixed with the TypeScript interfaces of the project's registered UI components, sourced via `sqlite-vec` semantic lookup. This gives the AI the exact prop shapes available, eliminating the need for it to guess.
+* **Structured Outputs Enforcement:** The LLM API call is made with strict Structured Outputs / Tool Use mode enabled (Anthropic Tool Use or OpenAI `response_format: { type: 'json_schema' }`). Any non-JSON output is rejected before processing.
+
 ### Module G.1: The Scaffolding Engine
 
 • Create a templates/ directory in the Electron main process containing a "Starter" .tsx and a default bridge.db schema.
@@ -75,7 +89,7 @@
 •  Add a "Reset to Demo" button that wipes the current local .bridge folder and re-injects the demo state.
 ---
 
-## **4. The 13 Commandments (Non-Negotiable Guardrails)**
+## **4. The 16 Commandments (Non-Negotiable Guardrails)**
 
 1. **Code is Truth (The Persistence Rule):** If it isn't saved to the local `.tsx` file via the AST, it doesn't exist. Ephemeral demo states are prohibited.
 2. **No Hallucinated Styling:** Every visual edit MUST be tied to a `design_token`.
@@ -90,3 +104,14 @@
 11. **Surgical Git Transplants:** Never execute a raw `git checkout` on a shared file; extract and transplant specific nodes.
 12. **Atomic Queuing & Batching:** All file system saves must be atomic. AI mass-edits must be batched into a single transaction.
 13. **Deterministic Surgery:** Use Babel AST traversal for all code changes. Never use Regex to modify source code.
+14. **Documentation Autopilot (v5.7):** No code modification is "Done" until its architectural impact is mirrored in `CLAUDE.md`, `HANDOFF.md`, and `.bridge-context/BRIDGE-PULSE.md`.
+15. **Granular AST Tools Only (Phase M):** The AI Orchestrator MUST only emit operations from the versioned AST Tool Catalog (see Module M). Emitting raw code strings, full-file replacements, or regex-based patches is a hard violation.
+16. **In-Memory Validation Before Confirmation (Phase M):** The `orchestrator.ts` MUST execute an in-memory TypeScript type-check on synthesized AI output before surfacing any confirmation UI to the user. TS errors must be fed back to the AI in an invisible recovery loop — never presented as a broken diff to the user.
+
+---
+
+### **Module O: Enterprise Component Registry (Remote Git Access)**
+* **Secure Storage:** Remote repository Personal Access Tokens (PATs) and OAuth tokens are stored purely in Electron's OS-native `safeStorage` to fulfill enterprise security requirements.
+* **Headless Indexing:** Core design systems are cloned invisibly to a local `~/.bridge/cache` directory. An `IndexerWorker` strips and caches the exported component signatures and TypeScript interfaces.
+* **Semantic RAG Injection:** Using `sqlite-vec`, AST component shapes are vectorised. The AI Orchestrator executes a cosine similarity search against user prompts, injecting only relevant enterprise component props into the LLM context to prevent hallucinations.
+* **AST Auto-Importer:** Dragging a remote component onto the active canvas triggers `crossFileMove` logic that automatically injects the exact module import statement (e.g., `import { Card } from '@acme/core'`) and validates the local `package.json` dependencies.

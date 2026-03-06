@@ -1,6 +1,6 @@
 # Project: Bridge IDE
 
-## The Identity (v6.8)
+## The Identity (v6.9)
 **Bridge** is the first Agentic UI Operating System. It is a strict "containment field" for high-velocity AI agents, ensuring brand, accessibility, and codebase integrity through deterministic AST-level enforcement (Mithril Philosophy).
 
 ## Tech Stack
@@ -28,8 +28,9 @@
 | Multiplayer Presence (Phase C.1) | **ONLINE** | `PresenceService.ts` throttled UPSERT + `useRemotePresence` 5Hz poll + remote cursor SVG overlay in LivePreview. |
 | AST Conflict Arbiter (Phase C.2) | **ONLINE** | `useLockedNodeIds` + `useIsNodeLocked`. Blocks drag, selection, and edits on nodes held by remote users. |
 | Infinite Canvas (Module A) | **ONLINE** | `XYCanvas.tsx` — `@xyflow/react` v12 whiteboard. LivePreview hosted as a draggable custom node; pan + zoom + minimap. |
-| Export Gate (Phase B.2) | **ONLINE** | `ExportModal.tsx` pre-flight audit — reads `component_overrides` + `mithrilViolations` + `a11yViolations`. |
-| Accessibility Gate (Phase B.3) | **ONLINE** | `A11yLinter.ts` — 4 WCAG rules checked on every AST parse. Blocks export via `canExport`. |
+| Export Gate (Phase B.2) | **ONLINE** | `ExportModal.tsx` pre-flight audit — reads `component_overrides` + all Mithril violation categories + `a11yViolations`. |
+| Accessibility Gate (Phase B.3) | **ONLINE** | `A11yLinter.ts` — **10 WCAG 2.1 AA rules** (A11Y-001..010): img, button, a, input, select, textarea, table, html lang, tabIndex, heading skip. |
+| Mithril Enterprise Linter (Module B v2) | **ONLINE** | `MithrilLinter.ts` — 5 AST visitors + `auditAll()`: CIEDE2000 color drift + typography (TYP-001..005) + spacing (SPC-001) + shadow (SHD-001) + opacity (OPC-001). TokenType expanded to 10; 27 enterprise demo tokens seeded. |
 | Batch Mutation Engine (Phase E.1) | **ONLINE** | `ASTService.applyMutationBatch` + `applyInversions`. Single parse→mutate→generate cycle per batch. |
 | `FileTransactionManager` (Phase E.2) | **ONLINE** | `electron/FileTransactionManager.ts`. Atomic `.tmp`→`rename` writes, serialised per path. |
 | `canvasStore` + Auto-Save (Phase F.1) | **ONLINE** | `triggerAutoSave` debounced IPC save. `saveState: 'idle'｜'editing'｜'saving'｜'saved'`. |
@@ -42,6 +43,8 @@
 | Undo Void Fix (Phase K) | **ONLINE** | `applyBatch` no-op guard + `setCode` Commandment-10 fix + all property edits undoable. |
 | Post-Redo Undoability | **ONLINE** | `historyStore.pushPast` + `crossFileMove` inversions return. |
 | Sharma Validation (Module B.1-b) | **ONLINE** | `snippetAuditor.ts` AST-injection robust against Fragment/Shadow scope. |
+| AI Orchestrator Hardening (Phase M) | **ONLINE** | `orchestrator.ts` restricted to 7-tool AST Tool Catalog. No raw code strings. In-memory TSC validation loop before confirmation UI. Design system RAG via `sqlite-vec`. |
+| Export Gate Severity Escalation (Phase B.1-d) | **ONLINE** | `ExportModal.tsx` reads `editorStore.linterWarnings` per violation ID. Critical (ΔE > 10) → red header + red row badge. Amber (2.0–10.0) → amber styling. `hasCriticalMithril` gate computation. 21 new Vitest tests in `MithrilLinter.severity.test.ts`. |
 
 ## Critical AI Directives
 1.  **Architecture Spec:** Always consult `.bridge-context/architecture.md` and `.antigravityrules`.
@@ -49,6 +52,8 @@
 3.  **Persistence Rule:** All mutations MUST be atomic and saved via the `FileTransactionManager` queue.
 4.  **No Hallucinations:** Use Babel AST traversal for all code changes. Never use Regex for source code.
 5.  **Documentation Autopilot:** No session ends without a `[BRIDGE-PULSE-v6.9]` block update.
+6.  **Granular AST Tools Only (Commandment 15):** The AI Orchestrator MUST only emit ops from the versioned AST Tool Catalog (`updateProps`, `updateText`, `insertNode`, `wrapNode`, `deleteNode`, `addClassName`, `removeClassName`). Raw code string generation is prohibited.
+7.  **In-Memory Validation Loop (Commandment 16):** `orchestrator.ts` MUST run an in-memory TSC type-check on all AI output before surfacing a confirmation UI. Hallucinations feed back as an invisible prompt — never a broken diff.
 
 ## Commands
 * `npm run dev`: Launch Bridge IDE (Vite + Electron)

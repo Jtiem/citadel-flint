@@ -72,11 +72,14 @@ const generate =
  * Contains a human-readable `violations` list suitable for CLI / UI display.
  */
 export class MithrilViolationError extends Error {
+    public readonly violations: readonly string[]
+
     constructor(
         message: string,
-        public readonly violations: readonly string[]
+        violations: readonly string[]
     ) {
         super(message)
+        this.violations = violations
         this.name = 'MithrilViolationError'
     }
 }
@@ -301,8 +304,8 @@ export function auditSnippet(rawCode: string, tokens: DesignToken[] = []): strin
                         prop.key.type === 'Identifier'
                             ? prop.key.name
                             : prop.key.type === 'StringLiteral'
-                            ? prop.key.value
-                            : null
+                                ? prop.key.value
+                                : null
 
                     if (propKey === null || !CSS_COLOR_PROPS.has(propKey)) continue
 

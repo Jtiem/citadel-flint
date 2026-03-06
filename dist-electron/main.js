@@ -1,13 +1,17 @@
 import { app, ipcMain, dialog, BrowserWindow, Menu } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { writeFile, rename, unlink, readFile, readdir } from "node:fs/promises";
+import { writeFile, rename, unlink, realpath, readFile, readdir } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import os from "node:os";
+import * as pty from "node-pty";
 import { promisify } from "node:util";
 import { transformSync } from "@babel/core";
 import { parse } from "@babel/parser";
 import { jsxAttribute, jsxIdentifier, stringLiteral } from "@babel/types";
+import { resolveConfig, createServer } from "vite";
+import net from "node:net";
 class FileTransactionManager {
   /** Active tail promise keyed by absolute file path. */
   _queues = /* @__PURE__ */ new Map();
@@ -84,6 +88,9 @@ const GITIGNORE_CONTENT = "node_modules\n.bridge/tmp\n";
 function findBridgeIdOffsets(node, targetId) {
   if (node.type === "JSXElement") {
     for (const attr of node.openingElement.attributes) {
+      if (attr.type === "JSXAttribute" && attr.name.type === "JSXIdentifier" && attr.name.name === "data-bridge-id") {
+        console.log("found data-bridge-id attr:", attr.value);
+      }
       if (attr.type === "JSXAttribute" && attr.name.type === "JSXIdentifier" && attr.name.name === "data-bridge-id" && attr.value?.type === "StringLiteral" && attr.value.value === targetId && node.start != null && node.end != null) {
         return [node.start, node.end];
       }
@@ -192,7 +199,8 @@ class GitManager {
   async getGitNode(commitHash, filePath, dataBridgeId) {
     const gitRoot = await this._getGitRoot(path.dirname(filePath));
     if (!gitRoot) return null;
-    const relPath = path.relative(gitRoot, filePath);
+    const realFilePath = await realpath(filePath).catch(() => filePath);
+    const relPath = path.relative(gitRoot, realFilePath);
     let content;
     try {
       const { stdout } = await execFileAsync$1(
@@ -201,7 +209,8 @@ class GitManager {
         { cwd: gitRoot, maxBuffer: 2 * 1024 * 1024 }
       );
       content = stdout;
-    } catch {
+    } catch (e) {
+      console.error("git show failed:", e);
       return null;
     }
     try {
@@ -211,7 +220,8 @@ class GitManager {
       });
       const offsets = findBridgeIdOffsets(ast.program, dataBridgeId);
       return offsets ? content.slice(offsets[0], offsets[1]) : null;
-    } catch {
+    } catch (e) {
+      console.error("parse failed:", e);
       return null;
     }
   }
@@ -234,6 +244,169 @@ class GitManager {
   }
 }
 const gitManager = new GitManager();
+function findFreePort() {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.listen(0, "127.0.0.1", () => {
+      const addr = srv.address();
+      if (addr == null || typeof addr === "string") {
+        srv.close();
+        reject(new Error("Could not determine free port"));
+        return;
+      }
+      const { port } = addr;
+      srv.close(() => resolve(port));
+    });
+    srv.on("error", reject);
+  });
+}
+const BRIDGE_SCRIPT = (
+  /* html */
+  `
+<script id="__bridge_interact__">
+(function(){
+  if(document.getElementById('__bridge_interact_active__'))return;
+  var sentinel=document.createElement('meta');sentinel.id='__bridge_interact_active__';document.head.appendChild(sentinel);
+  window.__bridgeInteractMode=false;
+  window.addEventListener('message',function(e){
+    if(!e.data)return;var t=e.data.type;
+    if(t==='SET_INTERACT_MODE'){window.__bridgeInteractMode=!!e.data.enabled;return;}
+    if(t==='CLEAR_PREVIEW'){document.body.innerHTML='';return;}
+    if(t==='HIGHLIGHT'){
+      document.querySelectorAll('.bridge-selected').forEach(function(el){el.classList.remove('bridge-selected');});
+      if(e.data.id){var s=document.querySelector('[data-bridge-id="'+e.data.id+'"]');if(s)s.classList.add('bridge-selected');}return;
+    }
+    if(t==='HOVER'){
+      document.querySelectorAll('.bridge-hovered').forEach(function(el){el.classList.remove('bridge-hovered');});
+      if(e.data.id){var h=document.querySelector('[data-bridge-id="'+e.data.id+'"]');if(h)h.classList.add('bridge-hovered');}return;
+    }
+    if(t==='CLEAR_HOVER'){document.querySelectorAll('.bridge-hovered').forEach(function(el){el.classList.remove('bridge-hovered');});return;}
+    if(t==='DRAG_OVER'){
+      document.querySelectorAll('.bridge-drop-before,.bridge-drop-after,.bridge-drop-inside').forEach(function(n){n.classList.remove('bridge-drop-before','bridge-drop-after','bridge-drop-inside');});
+      if(e.data.targetId){var d=document.querySelector('[data-bridge-id="'+e.data.targetId+'"]');if(d)d.classList.add('bridge-drop-'+e.data.position);}return;
+    }
+    if(t==='DRAG_CLEAR'){
+      var g=document.getElementById('__bridge_ghost__');if(g)g.style.display='none';
+      document.querySelectorAll('.bridge-drop-before,.bridge-drop-after,.bridge-drop-inside').forEach(function(n){n.classList.remove('bridge-drop-before','bridge-drop-after','bridge-drop-inside');});return;
+    }
+    if(t==='DRAG_MOVE'){
+      var gm=document.getElementById('__bridge_ghost__');if(gm){gm.style.display='block';gm.style.left=(e.data.x-40)+'px';gm.style.top=(e.data.y-20)+'px';}
+      var dme=document.elementFromPoint(e.data.x,e.data.y);var dmt=dme?dme.closest('[data-bridge-id]'):null;
+      document.querySelectorAll('.bridge-drop-before,.bridge-drop-after,.bridge-drop-inside').forEach(function(n){n.classList.remove('bridge-drop-before','bridge-drop-after','bridge-drop-inside');});
+      if(dmt){var r=dmt.getBoundingClientRect();var pct=(e.data.y-r.top)/r.height;dmt.classList.add('bridge-drop-'+(pct<0.25?'before':pct>0.75?'after':'inside'));}return;
+    }
+    if(t==='DRAG_END'){
+      var ge=document.getElementById('__bridge_ghost__');if(ge)ge.style.display='none';
+      document.querySelectorAll('.bridge-drop-before,.bridge-drop-after,.bridge-drop-inside').forEach(function(n){n.classList.remove('bridge-drop-before','bridge-drop-after','bridge-drop-inside');});
+      var de=document.elementFromPoint(e.data.x,e.data.y);var dt=de?de.closest('[data-bridge-id]'):null;
+      var dp='inside';if(dt){var dr=dt.getBoundingClientRect();var dpp=(e.data.y-dr.top)/dr.height;dp=dpp<0.25?'before':dpp>0.75?'after':'inside';}
+      window.parent.postMessage({type:'HIT_TEST_RESULT',targetId:dt?dt.getAttribute('data-bridge-id'):null,position:dp},'*');return;
+    }
+  });
+  document.addEventListener('click',function(e){
+    if(window.__bridgeInteractMode)return;
+    var el=e.target.closest('[data-bridge-id]');
+    if(el)window.parent.postMessage({type:'CANVAS_CLICK',id:el.getAttribute('data-bridge-id')},'*');
+  });
+  var _hid=null;
+  document.body.addEventListener('mouseover',function(e){
+    if(window.__bridgeInteractMode)return;
+    var el=e.target.closest('[data-bridge-id]');var id=el?el.getAttribute('data-bridge-id'):null;
+    if(id!==_hid){_hid=id;window.parent.postMessage(id?{type:'CANVAS_HOVER',id:id}:{type:'CANVAS_HOVER_CLEAR'},'*');}
+  });
+  document.body.addEventListener('mouseleave',function(){if(_hid!==null){_hid=null;window.parent.postMessage({type:'CANVAS_HOVER_CLEAR'},'*');}});
+  var _bg=document.createElement('div');_bg.id='__bridge_ghost__';
+  _bg.style.cssText='position:fixed;pointer-events:none;border:2px solid #3b82f6;background:rgba(59,130,246,0.12);border-radius:4px;z-index:9999;display:none;width:80px;height:40px;';
+  document.body.appendChild(_bg);
+  document.body.addEventListener('mousedown',function(e){
+    if(window.__bridgeInteractMode)return;
+    var el=e.target.closest('[data-bridge-id]');if(!el)return;
+    e.preventDefault();
+    window.parent.postMessage({type:'CANVAS_DRAG_START',id:el.getAttribute('data-bridge-id'),x:e.clientX,y:e.clientY},'*');
+  });
+})();
+<\/script>
+<style id="__bridge_styles__">
+.bridge-selected{outline:2px solid #3b82f6!important;background-color:rgba(59,130,246,.1)!important;}
+.bridge-hovered{outline:2px dashed #94a3b8!important;background:rgba(148,163,184,.1)!important;cursor:default;z-index:40;transition:all .1s;}
+.bridge-drop-before{box-shadow:0 -3px 0 0 #3b82f6!important;z-index:50;}
+.bridge-drop-after{box-shadow:0 3px 0 0 #3b82f6!important;z-index:50;}
+.bridge-drop-inside{outline:2px solid #3b82f6!important;background:rgba(59,130,246,.2)!important;}
+</style>
+`
+);
+function bridgeInteractPlugin() {
+  return {
+    name: "bridge-interact",
+    transformIndexHtml(html) {
+      return html.replace("</body>", `${BRIDGE_SCRIPT}
+</body>`);
+    },
+    configureServer(server) {
+      server.middlewares.use((_req, res, next) => {
+        const originalSetHeader = res.setHeader;
+        res.setHeader = function(name, value) {
+          if (name.toLowerCase() === "content-security-policy") {
+            return this;
+          }
+          return originalSetHeader.call(this, name, value);
+        };
+        next();
+      });
+    }
+  };
+}
+let _server = null;
+let _port = null;
+async function startViteServer(projectRoot) {
+  if (_server !== null) {
+    await stopViteServer();
+  }
+  _port = await findFreePort();
+  let userPlugins = [];
+  try {
+    const resolved = await resolveConfig({ root: projectRoot }, "serve");
+    userPlugins = resolved.plugins ?? [];
+  } catch {
+  }
+  _server = await createServer({
+    root: projectRoot,
+    base: "/",
+    server: {
+      port: _port,
+      strictPort: false,
+      host: "127.0.0.1",
+      // Disable HMR overlay in favor of Bridge's own error panel.
+      hmr: { overlay: false }
+    },
+    plugins: [
+      ...userPlugins,
+      bridgeInteractPlugin()
+    ],
+    // Suppress Vite's banner — Bridge has its own status bar.
+    logLevel: "warn",
+    clearScreen: false,
+    // Required to allow Electron's renderer (file://) to iframe the preview
+    configFile: false
+    // Don't re-read vite.config — we already resolved it above
+  });
+  await _server.listen();
+  const url = `http://127.0.0.1:${_port}`;
+  console.info(`[Bridge] Preview engine (Vite N.4) listening at ${url}`);
+  return url;
+}
+async function stopViteServer() {
+  if (_server !== null) {
+    await _server.close();
+    _server = null;
+    _port = null;
+    console.info("[Bridge] Preview engine stopped.");
+  }
+}
+function getPreviewUrl() {
+  if (_server === null || _port === null) return null;
+  return `http://127.0.0.1:${_port}`;
+}
 const EXCLUDED_DIRS = /* @__PURE__ */ new Set([
   "node_modules",
   "dist",
@@ -452,6 +625,29 @@ window.__AppComponent = ${componentName};`;
   } catch (err) {
     return { js: null, error: String(err) };
   }
+});
+ipcMain.handle("preview:start", async (_event, projectRoot) => {
+  if (typeof projectRoot !== "string" || !path.isAbsolute(projectRoot)) {
+    return { error: "preview:start — projectRoot must be an absolute path" };
+  }
+  const home = app.getPath("home");
+  if (projectRoot !== home && !projectRoot.startsWith(home + path.sep)) {
+    return { error: "preview:start — path outside user home directory is not permitted" };
+  }
+  try {
+    const url = await startViteServer(projectRoot);
+    return { url };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[Bridge] preview:start failed:", msg);
+    return { error: `Preview server failed to start: ${msg}` };
+  }
+});
+ipcMain.handle("preview:stop", async () => {
+  await stopViteServer();
+});
+ipcMain.handle("preview:url", () => {
+  return getPreviewUrl();
 });
 app.whenReady().then(async () => {
   const { default: db } = await import("./store-CGFKLE71.js");
@@ -703,7 +899,7 @@ app.whenReady().then(async () => {
     }
   );
   const { upsertProject, getRecentProjects, removeProject } = await import("./registry-94ZNgg_K.js");
-  const { initializeProject } = await import("./templateService-9yZ178UX.js");
+  const { initializeProject, injectDemoState } = await import("./templateService-2vfX5BAz.js");
   ipcMain.handle("dialog:selectFolder", async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog({
       properties: ["openDirectory", "createDirectory"],
@@ -736,6 +932,23 @@ app.whenReady().then(async () => {
     upsertProject(randomUUID(), projectName, targetPath);
     return scanDirectory(targetPath);
   });
+  ipcMain.handle("project:reset-to-demo", async (_event, targetPath) => {
+    if (typeof targetPath !== "string") {
+      throw new TypeError("project:reset-to-demo — targetPath must be a string");
+    }
+    if (!path.isAbsolute(targetPath)) {
+      throw new Error("project:reset-to-demo — targetPath must be absolute");
+    }
+    const home = app.getPath("home");
+    if (targetPath !== home && !targetPath.startsWith(home + path.sep)) {
+      throw new Error("project:reset-to-demo — targetPath must be inside the user home directory");
+    }
+    injectDemoState(targetPath);
+    await gitManager.ensureRepo(targetPath).catch((err) => {
+      console.error(`[Bridge] main.ts: ensureRepo failed for reset project ${targetPath}`, err);
+    });
+    return scanDirectory(targetPath);
+  });
   ipcMain.handle("project:openPath", async (_event, folderPath) => {
     if (typeof folderPath !== "string") return null;
     const normalized = path.normalize(folderPath);
@@ -765,6 +978,83 @@ app.whenReady().then(async () => {
   ipcMain.handle("registry:removeProject", (_event, id) => {
     if (typeof id !== "string" || id.length === 0) return;
     removeProject(id);
+  });
+  const { sendChatMessage, readConfig: readAIConfig, writeConfig: writeAIConfig, hasApiKey } = await import("./orchestrator-1CiC-Z5n.js");
+  ipcMain.handle("ai:get-config", async () => {
+    const cfg = await readAIConfig();
+    return {
+      hasKey: await hasApiKey(),
+      provider: cfg.provider ?? "anthropic",
+      model: cfg.model ?? null,
+      baseURL: cfg.baseURL ?? null
+    };
+  });
+  ipcMain.handle("ai:save-config", async (_event, payload) => {
+    if (typeof payload !== "object" || payload === null) return;
+    const p = payload;
+    const patch = {
+      provider: typeof p.provider === "string" && p.provider ? p.provider : "anthropic"
+    };
+    if (typeof p.apiKey === "string" && p.apiKey.length > 0) patch.apiKey = p.apiKey;
+    if (typeof p.model === "string" && p.model.length > 0) patch.model = p.model;
+    if (typeof p.baseURL === "string") patch.baseURL = p.baseURL.trim() || void 0;
+    await writeAIConfig(patch);
+  });
+  ipcMain.handle("ai:chat", async (event, messages, _context) => {
+    if (!Array.isArray(messages)) return;
+    const chatMessages = messages.filter((m) => typeof m.content === "string" && ["user", "assistant", "tool_call", "tool_result"].includes(m.role)).map((m) => ({
+      role: m.role,
+      content: m.content,
+      ...m.toolUseId !== void 0 && { toolUseId: m.toolUseId },
+      ...m.toolName !== void 0 && { toolName: m.toolName },
+      ...m.toolInput !== void 0 && { toolInput: m.toolInput }
+    }));
+    await sendChatMessage(chatMessages, (chunk) => {
+      event.sender.send("ai:chunk", chunk);
+    });
+  });
+  ipcMain.handle("ai:apply-batch", () => ({ ok: true }));
+  let ptyProcess = null;
+  ipcMain.handle("terminal:spawn", (event, cwd) => {
+    if (typeof cwd !== "string") return;
+    const shell = process.env[os.platform() === "win32" ? "COMSPEC" : "SHELL"] || (os.platform() === "win32" ? "cmd.exe" : "bash");
+    if (ptyProcess) {
+      ptyProcess.kill();
+    }
+    try {
+      ptyProcess = pty.spawn(shell, [], {
+        name: "xterm-256color",
+        cols: 80,
+        rows: 24,
+        cwd,
+        env: process.env
+      });
+      ptyProcess.onData((data) => {
+        const window = BrowserWindow.fromWebContents(event.sender);
+        if (window && !window.isDestroyed()) {
+          window.webContents.send("terminal:output", data);
+        }
+      });
+      ptyProcess.onExit(() => {
+        ptyProcess = null;
+      });
+    } catch (err) {
+      console.error("[Bridge] terminal:spawn failed", err);
+    }
+  });
+  ipcMain.handle("terminal:data", (_event, data) => {
+    if (ptyProcess && typeof data === "string") {
+      ptyProcess.write(data);
+    }
+  });
+  ipcMain.handle("terminal:resize", (_event, cols, rows) => {
+    if (ptyProcess && typeof cols === "number" && typeof rows === "number") {
+      try {
+        ptyProcess.resize(cols, rows);
+      } catch (err) {
+        console.error("[Bridge] terminal:resize failed", err);
+      }
+    }
   });
   const { startIngestionServer, getServerStatus, stopIngestionServer } = await import("./ingestion-server-CG0NJExU.js");
   startIngestionServer();

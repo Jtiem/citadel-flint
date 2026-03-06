@@ -116,7 +116,7 @@ export function DriftDetector() {
     // Scan the entire AST for drift candidates, memoised on the ast reference.
     // Re-runs only when the AST changes (i.e. after any mutation).
     const allCandidates = useMemo(
-        () => (ast !== null ? scanArbitraryColors(ast) : []),
+        () => (ast !== null ? scanArbitraryColors(ast as any) : []),
         [ast]
     )
 

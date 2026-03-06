@@ -313,6 +313,15 @@ contextBridge.exposeInMainWorld('bridgeAPI', {
             name: string; path: string; type: 'file' | 'directory'; children?: unknown[]
         } | null> =>
             ipcRenderer.invoke('project:openPath', folderPath),
+
+        /**
+         * Resets an existing project to the known-good 'bridge-demo' state.
+         * Overwrites existing files within targetPath.
+         */
+        resetToDemo: (targetPath: string): Promise<{
+            name: string; path: string; type: 'file' | 'directory'; children?: unknown[]
+        }> =>
+            ipcRenderer.invoke('project:reset-to-demo', targetPath),
     },
 
     /**
@@ -370,6 +379,91 @@ contextBridge.exposeInMainWorld('bridgeAPI', {
             ipcRenderer.removeAllListeners('menu:new-project')
             ipcRenderer.removeAllListeners('menu:open-project')
             ipcRenderer.removeAllListeners('menu:close-project')
+        },
+    },
+
+    // ── Phase L: AI Orchestration Engine ──────────────────────────────────────
+
+    /**
+     * Applies an array of AI-proposed AST mutations. The actual AST surgery is
+     * handled in the renderer (editorStore.applyBatch). This IPC hop provides a
+     * uniform surface so the orchestratorStore can trigger mutations identically
+     * to drag-and-drop or property panel edits.
+     */
+    applyBatch: (_mutations: unknown[]): Promise<{ ok: boolean }> =>
+        ipcRenderer.invoke('ai:apply-batch'),
+
+    /**
+     * AI Orchestration API.
+     * All LLM calls run in the main process; chunks stream back via ipcRenderer.on.
+     */
+    ai: {
+        /**
+         * Initiates a chat turn. The main process calls Anthropic and forwards
+         * streamed chunks back as 'ai:chunk' events. Listen via ai.onChunk().
+         */
+        chat: (messages: unknown[], context: unknown): Promise<void> =>
+            ipcRenderer.invoke('ai:chat', messages, context),
+
+        /** Subscribe to streamed OrchestratorChunk events from the current turn. */
+        onChunk: (callback: (chunk: unknown) => void): void => {
+            ipcRenderer.on('ai:chunk', (_event, chunk: unknown) => callback(chunk))
+        },
+
+        /** Remove all 'ai:chunk' listeners (call in useEffect cleanup). */
+        removeChunkListener: (): void => {
+            ipcRenderer.removeAllListeners('ai:chunk')
+        },
+
+        /** Returns { hasKey, provider, model, baseURL } so the UI can show a config prompt. */
+        getConfig: (): Promise<{ hasKey: boolean; provider: string; model: string | null; baseURL: string | null }> =>
+            ipcRenderer.invoke('ai:get-config'),
+
+        /** Persist the full AI config (API key, provider, model, baseURL) to ~/.bridge/config.json. */
+        saveConfig: (config: { apiKey?: string; provider: string; model?: string; baseURL?: string }): Promise<void> =>
+            ipcRenderer.invoke('ai:save-config', config),
+    },
+
+    // ── Phase N.4: Preview Engine IPC ─────────────────────────────────────────
+
+    /**
+     * Preview engine API — drives the programmatic Vite dev server that powers
+     * the agnostic Live Preview (Phase N.4). The renderer calls `preview.start()`
+     * when a project folder is opened and `preview.stop()` on project close.
+     */
+    preview: {
+        /**
+         * Starts (or restarts) a Vite dev server at `projectRoot`.
+         * Returns `{ url }` on success or `{ error }` on failure.
+         *
+         * The URL should be loaded as the iframe `src` in LivePreview.tsx.
+         */
+        start: (projectRoot: string): Promise<{ url: string } | { error: string }> =>
+            ipcRenderer.invoke('preview:start', projectRoot),
+
+        /** Gracefully shuts down the running preview server (idempotent). */
+        stop: (): Promise<void> =>
+            ipcRenderer.invoke('preview:stop'),
+
+        /** Returns the current preview server URL, or null if not running. */
+        getUrl: (): Promise<string | null> =>
+            ipcRenderer.invoke('preview:url'),
+    },
+
+    // ── Phase P: Integrated Terminal ──────────────────────────────────────────
+    terminal: {
+        spawn: (cwd: string): Promise<void> =>
+            ipcRenderer.invoke('terminal:spawn', cwd),
+        write: (data: string): Promise<void> =>
+            ipcRenderer.invoke('terminal:data', data),
+        resize: (cols: number, rows: number): Promise<void> =>
+            ipcRenderer.invoke('terminal:resize', cols, rows),
+        onOutput: (callback: (data: string) => void): (() => void) => {
+            const listener = (_event: Electron.IpcRendererEvent, data: string) => callback(data)
+            ipcRenderer.on('terminal:output', listener)
+            return () => {
+                ipcRenderer.removeListener('terminal:output', listener)
+            }
         },
     },
 })

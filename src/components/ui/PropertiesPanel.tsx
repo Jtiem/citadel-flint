@@ -113,8 +113,8 @@ function AmberPulse({ deltaE, tokenName }: AmberPulseProps) {
     return (
         <span
             className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] transition-colors ${isCritical
-                    ? 'border-red-700/60 bg-red-900/30 text-red-400'
-                    : 'border-amber-700/60 bg-amber-900/30 text-amber-400'
+                ? 'border-red-700/60 bg-red-900/30 text-red-400'
+                : 'border-amber-700/60 bg-amber-900/30 text-amber-400'
                 }`}
             title={`Perceptual Drift: ${deltaE.toFixed(1)}. Closest Token: ${tokenName}.`}
         >
@@ -408,7 +408,7 @@ export function PropertiesPanel() {
                 const severity: LinterWarning['severity'] = worst.deltaE > 10 ? 'critical' : 'amber'
                 setLinterWarning(nodeId, {
                     id: nodeId,
-                    type: 'drift',
+                    type: 'color-drift',
                     severity,
                     value: worst.deltaE,
                     message: `ΔE ${worst.deltaE.toFixed(1)} – use ${worst.tokenName}`,
@@ -548,10 +548,10 @@ export function PropertiesPanel() {
             {/* Token-driven class builder — Amber glow on Mithril Violation; dimmed when locked */}
             <div
                 className={`flex flex-1 flex-col overflow-hidden transition-shadow duration-200 ${isNodeLocked
-                        ? 'pointer-events-none opacity-40'
-                        : hasAmberViolation
-                            ? 'ring-2 ring-inset ring-amber-500/70'
-                            : ''
+                    ? 'pointer-events-none opacity-40'
+                    : hasAmberViolation
+                        ? 'ring-2 ring-inset ring-amber-500/70'
+                        : ''
                     }`}
             >
                 {/* Mithril Violation card — visible when drift > MITHRIL_THRESHOLD */}

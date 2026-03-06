@@ -56,7 +56,7 @@ export function MithrilProvider({ children }: MithrilProviderProps) {
         // auditAll runs all 5 Mithril visitors: color, typography, spacing,
         // shadow, and opacity. Each returns a Map<bridgeId, LinterWarning>;
         // auditAll merges them with color violations taking priority.
-        const warnings = auditAll(ast, tokens)
+        const warnings = auditAll(ast as any, tokens)
 
         // Populate the rich linterWarnings map (single source of truth).
         setLinterWarnings(warnings)

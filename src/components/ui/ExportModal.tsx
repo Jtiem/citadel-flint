@@ -15,6 +15,10 @@
  * Clicking a blocked node ID snap-selects that node in the canvas so the
  * developer can immediately navigate to and fix the violation.
  *
+ * Severity escalation (Phase B.1-d):
+ *   - amber   — ΔE 2.0–10.0: amber badge, amber section header
+ *   - critical — ΔE > 10.0:  red badge, red section header, red modal header
+ *
  * Renderer Process only — no Node.js imports.
  */
 
@@ -22,7 +26,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { ShieldAlert, ShieldCheck, X, Copy, Check, AlertTriangle } from 'lucide-react'
 import { useCanvasStore } from '../../store/canvasStore'
 import { useEditorStore } from '../../store/editorStore'
-import type { OverrideRow } from '../../types/bridge-api'
+import type { LinterWarning, OverrideRow } from '../../types/bridge-api'
 
 // ── Props ──────────────────────────────────────────────────────────────────────
 
@@ -38,6 +42,7 @@ export function ExportModal({ onClose }: ExportModalProps) {
     const setActiveSelection = useCanvasStore((s) => s.setActiveSelection)
     const setSelectedNode = useEditorStore((s) => s.setSelectedNode)
     const rawCode = useEditorStore((s) => s.rawCode)
+    const linterWarnings = useEditorStore((s) => s.linterWarnings)
 
     const [overrideRows, setOverrideRows] = useState<OverrideRow[]>([])
     const [loading, setLoading] = useState(true)
@@ -65,6 +70,11 @@ export function ExportModal({ onClose }: ExportModalProps) {
         overrideRows.length === 0 &&
         mithrilViolations.length === 0 &&
         Object.keys(a11yViolations).length === 0
+
+    // B.1-d: Severity escalation — true when any Mithril violation is critical (ΔE > 10).
+    const hasCriticalMithril = mithrilViolations.some(
+        (id) => linterWarnings.get(id)?.severity === 'critical'
+    )
 
     // ── Snap-select a node when user clicks its ID in the violation list ───────
     const handleSelectNode = useCallback((bridgeId: string) => {
@@ -102,12 +112,16 @@ export function ExportModal({ onClose }: ExportModalProps) {
                     ? 'border-gray-700'
                     : canExport
                         ? 'border-emerald-700/40 bg-emerald-900/10'
-                        : 'border-amber-700/40 bg-amber-900/10'
+                        : hasCriticalMithril
+                            ? 'border-red-700/40 bg-red-900/10'
+                            : 'border-amber-700/40 bg-amber-900/10'
                     }`}>
                     {loading ? (
                         <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-600 border-t-indigo-400" />
                     ) : canExport ? (
                         <ShieldCheck className="h-5 w-5 text-emerald-400" />
+                    ) : hasCriticalMithril ? (
+                        <ShieldAlert className="h-5 w-5 text-red-400" />
                     ) : (
                         <ShieldAlert className="h-5 w-5 text-amber-400" />
                     )}
@@ -116,7 +130,9 @@ export function ExportModal({ onClose }: ExportModalProps) {
                             ? 'Running pre-flight audit…'
                             : canExport
                                 ? 'Export Gate — All Clear'
-                                : 'Export Gate — Blocked'}
+                                : hasCriticalMithril
+                                    ? 'Export Gate — Critical Violations'
+                                    : 'Export Gate — Blocked'}
                     </h2>
                     <button
                         type="button"
@@ -241,26 +257,59 @@ export function ExportModal({ onClose }: ExportModalProps) {
                             {/* Mithril ΔE violations */}
                             {mithrilViolations.length > 0 && (
                                 <div>
-                                    <h3 className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-red-400">
+                                    <h3 className={`mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider ${hasCriticalMithril ? 'text-red-400' : 'text-amber-400'}`}>
                                         <ShieldAlert className="h-3 w-3" />
-                                        Mithril ΔE Violations ({mithrilViolations.length})
+                                        Mithril Violations ({mithrilViolations.length})
+                                        {hasCriticalMithril && (
+                                            <span className="rounded bg-red-900/60 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-red-300">
+                                                Critical
+                                            </span>
+                                        )}
                                     </h3>
                                     <ul className="space-y-1.5">
-                                        {mithrilViolations.map((id) => (
-                                            <li key={id} className="rounded border border-red-900/40 bg-red-900/10 px-3 py-2">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleSelectNode(id)}
-                                                    className="font-mono text-[10px] text-red-400 transition-colors hover:text-red-300 hover:underline"
-                                                    title={`Navigate to ${id}`}
+                                        {mithrilViolations.map((id) => {
+                                            const warning: LinterWarning | undefined = linterWarnings.get(id)
+                                            const isCritical = warning?.severity === 'critical'
+                                            const deltaE = warning?.type === 'color-drift' && warning.value > 0
+                                                ? warning.value
+                                                : null
+                                            return (
+                                                <li
+                                                    key={id}
+                                                    className={`rounded border px-3 py-2 ${isCritical
+                                                        ? 'border-red-700/50 bg-red-900/20'
+                                                        : 'border-amber-900/40 bg-amber-900/10'
+                                                    }`}
                                                 >
-                                                    {id}
-                                                </button>
-                                                <p className="mt-0.5 text-[9px] text-gray-500">
-                                                    Color drift ΔE &gt; 2.0 — token not applied
-                                                </p>
-                                            </li>
-                                        ))}
+                                                    <div className="flex items-center gap-2">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleSelectNode(id)}
+                                                            className={`font-mono text-[10px] transition-colors hover:underline ${isCritical
+                                                                ? 'text-red-400 hover:text-red-300'
+                                                                : 'text-amber-400 hover:text-amber-300'
+                                                            }`}
+                                                            title={`Navigate to ${id}`}
+                                                        >
+                                                            {id}
+                                                        </button>
+                                                        {isCritical && (
+                                                            <span className="shrink-0 rounded bg-red-900/60 px-1 py-0.5 text-[8px] font-bold uppercase text-red-300">
+                                                                Critical
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <p className="mt-0.5 text-[9px] text-gray-500">
+                                                        {warning?.message
+                                                            ? warning.message
+                                                            : deltaE !== null
+                                                                ? `Color drift ΔE ${deltaE.toFixed(1)} — token not applied`
+                                                                : 'Design system violation — token not applied'
+                                                        }
+                                                    </p>
+                                                </li>
+                                            )
+                                        })}
                                     </ul>
                                 </div>
                             )}

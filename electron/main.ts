@@ -5,6 +5,9 @@ import { fileURLToPath } from 'node:url'
 import { readdir, readFile } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
+import os from 'node:os'
+import * as pty from 'node-pty'
+import type { IPty } from 'node-pty'
 
 // ── FileTreeNode ───────────────────────────────────────────────────────────────
 // Mirrors the renderer-side type in src/types/bridge-api.d.ts.
@@ -70,6 +73,7 @@ import { gitManager } from './GitManager.js'
 import { jsxAttribute, jsxIdentifier, stringLiteral } from '@babel/types'
 import type { JSXOpeningElement } from '@babel/types'
 import type { NodePath } from '@babel/traverse'
+import { startViteServer, stopViteServer, getPreviewUrl } from './preview/viteServer.js'
 
 // Must be called synchronously before app.whenReady() fires.
 // Suppresses the Chromium SharedImageManager / GPU mailbox errors that spam
@@ -330,6 +334,48 @@ ipcMain.handle('code:transform', (_event, code: unknown): { js: string | null; e
     } catch (err) {
         return { js: null, error: String(err) }
     }
+})
+
+// ── Preview Server IPC (Phase N.4) ───────────────────────────────────────────
+
+/**
+ * preview:start — Boots a programmatic Vite dev server at `projectRoot`.
+ * Returns the URL the renderer should load in the preview iframe.
+ *
+ * Security: projectRoot must be an absolute path within the user's home dir.
+ */
+ipcMain.handle('preview:start', async (_event, projectRoot: unknown): Promise<{ url: string } | { error: string }> => {
+    if (typeof projectRoot !== 'string' || !path.isAbsolute(projectRoot)) {
+        return { error: 'preview:start — projectRoot must be an absolute path' }
+    }
+    const home = app.getPath('home')
+    if (projectRoot !== home && !projectRoot.startsWith(home + path.sep)) {
+        return { error: 'preview:start — path outside user home directory is not permitted' }
+    }
+    try {
+        const url = await startViteServer(projectRoot)
+        return { url }
+    } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.error('[Bridge] preview:start failed:', msg)
+        return { error: `Preview server failed to start: ${msg}` }
+    }
+})
+
+/**
+ * preview:stop — Gracefully shuts down the running preview Vite server.
+ * Safe to call when no server is running (idempotent).
+ */
+ipcMain.handle('preview:stop', async (): Promise<void> => {
+    await stopViteServer()
+})
+
+/**
+ * preview:url — Returns the current preview server URL, or null.
+ * Used by the renderer to query the URL without triggering a restart.
+ */
+ipcMain.handle('preview:url', (): string | null => {
+    return getPreviewUrl()
 })
 
 // ── App Lifecycle ─────────────────────────────────────────────────────────────
@@ -737,7 +783,7 @@ app.whenReady().then(async () => {
 
     // ── Project Registry + Template Scaffolding ───────────────────────────────
     const { upsertProject, getRecentProjects, removeProject } = await import('./registry.js')
-    const { initializeProject } = await import('./templateService.js')
+    const { initializeProject, injectDemoState } = await import('./templateService.js')
 
     // ── Select-Folder Dialog ───────────────────────────────────────────────────
     // Shows the native OS directory picker and returns the selected path as a
@@ -812,6 +858,35 @@ app.whenReady().then(async () => {
         return scanDirectory(targetPath)
     })
 
+    // ── project:reset-to-demo ──────────────────────────────────────────────────
+    // Resets the provided targetPath to the bundled 'bridge-demo' state.
+    //
+    // Throws if path is not absolute or not inside home dir.
+    ipcMain.handle('project:reset-to-demo', async (_event, targetPath: unknown): Promise<FileTreeNode> => {
+        if (typeof targetPath !== 'string') {
+            throw new TypeError('project:reset-to-demo — targetPath must be a string')
+        }
+
+        // Security: absolute path + inside home directory
+        if (!path.isAbsolute(targetPath)) {
+            throw new Error('project:reset-to-demo — targetPath must be absolute')
+        }
+        const home = app.getPath('home')
+        if (targetPath !== home && !targetPath.startsWith(home + path.sep)) {
+            throw new Error('project:reset-to-demo — targetPath must be inside the user home directory')
+        }
+
+        injectDemoState(targetPath)
+
+        // Reset git repo
+        await gitManager.ensureRepo(targetPath).catch(err => {
+            console.error(`[Bridge] main.ts: ensureRepo failed for reset project ${targetPath}`, err)
+        })
+
+        // Return the fresh directory tree
+        return scanDirectory(targetPath)
+    })
+
     // ── project:openPath ──────────────────────────────────────────────────────
     // Opens an existing project by its absolute path: scans for source files
     // and records the access in the global registry.
@@ -872,6 +947,110 @@ app.whenReady().then(async () => {
     ipcMain.handle('registry:removeProject', (_event, id: unknown): void => {
         if (typeof id !== 'string' || id.length === 0) return
         removeProject(id)
+    })
+
+    // ── Phase L: AI Orchestration Engine ─────────────────────────────────────
+    // All LLM calls run in the main process so the API key never reaches the renderer.
+    const { sendChatMessage, readConfig: readAIConfig, writeConfig: writeAIConfig, hasApiKey } =
+        await import('./orchestrator.js')
+
+    ipcMain.handle('ai:get-config', async (): Promise<{ hasKey: boolean; provider: string; model: string | null; baseURL: string | null }> => {
+        const cfg = await readAIConfig()
+        return {
+            hasKey: await hasApiKey(),
+            provider: cfg.provider ?? 'anthropic',
+            model: cfg.model ?? null,
+            baseURL: cfg.baseURL ?? null,
+        }
+    })
+
+    ipcMain.handle('ai:save-config', async (_event, payload: unknown): Promise<void> => {
+        if (typeof payload !== 'object' || payload === null) return
+        const p = payload as Record<string, unknown>
+
+        // Use the provider provided by the client, fallback to anthropic
+        const patch: Record<string, unknown> = {
+            provider: (typeof p.provider === 'string' && p.provider ? p.provider : 'anthropic')
+        }
+
+        // apiKey is optional — allow saving just the model/baseURL without re-sending the key.
+        if (typeof p.apiKey === 'string' && p.apiKey.length > 0) patch.apiKey = p.apiKey
+        if (typeof p.model === 'string' && p.model.length > 0) patch.model = p.model
+        // Allow clearing the baseURL by saving an empty string (null-equivalent).
+        if (typeof p.baseURL === 'string') patch.baseURL = p.baseURL.trim() || undefined
+        await writeAIConfig(patch as Parameters<typeof writeAIConfig>[0])
+    })
+
+    ipcMain.handle('ai:chat', async (event, messages: unknown, _context: unknown): Promise<void> => {
+        if (!Array.isArray(messages)) return
+        // Phase M: pass the FULL message array, including tool_call and tool_result turns.
+        // The previous implementation incorrectly filtered these out, silently breaking
+        // the multi-turn AI tool loop. sendChatMessage handles all 4 role types.
+        const chatMessages = (messages as Array<{ role: string; content: string; toolUseId?: string; toolName?: string; toolInput?: Record<string, unknown> }>)
+            .filter((m) => typeof m.content === 'string' && ['user', 'assistant', 'tool_call', 'tool_result'].includes(m.role))
+            .map((m) => ({
+                role: m.role as 'user' | 'assistant' | 'tool_call' | 'tool_result',
+                content: m.content,
+                ...(m.toolUseId !== undefined && { toolUseId: m.toolUseId }),
+                ...(m.toolName !== undefined && { toolName: m.toolName }),
+                ...(m.toolInput !== undefined && { toolInput: m.toolInput }),
+            }))
+        await sendChatMessage(chatMessages, (chunk) => { event.sender.send('ai:chunk', chunk) })
+    })
+
+
+    // Sentinel ACK — actual AST surgery runs in editorStore.applyBatch in renderer.
+    ipcMain.handle('ai:apply-batch', (): { ok: boolean } => ({ ok: true }))
+
+    // ── Phase P: Integrated Terminal ──────────────────────────────────────────
+    let ptyProcess: IPty | null = null
+
+    ipcMain.handle('terminal:spawn', (event, cwd: unknown) => {
+        if (typeof cwd !== 'string') return
+        const shell = process.env[os.platform() === 'win32' ? 'COMSPEC' : 'SHELL'] || (os.platform() === 'win32' ? 'cmd.exe' : 'bash')
+
+        if (ptyProcess) {
+            ptyProcess.kill()
+        }
+
+        try {
+            ptyProcess = pty.spawn(shell, [], {
+                name: 'xterm-256color',
+                cols: 80,
+                rows: 24,
+                cwd: cwd,
+                env: process.env as Record<string, string>,
+            })
+
+            ptyProcess.onData((data) => {
+                const window = BrowserWindow.fromWebContents(event.sender)
+                if (window && !window.isDestroyed()) {
+                    window.webContents.send('terminal:output', data)
+                }
+            })
+
+            ptyProcess.onExit(() => {
+                ptyProcess = null
+            })
+        } catch (err) {
+            console.error('[Bridge] terminal:spawn failed', err)
+        }
+    })
+
+    ipcMain.handle('terminal:data', (_event, data: unknown) => {
+        if (ptyProcess && typeof data === 'string') {
+            ptyProcess.write(data)
+        }
+    })
+
+    ipcMain.handle('terminal:resize', (_event, cols: unknown, rows: unknown) => {
+        if (ptyProcess && typeof cols === 'number' && typeof rows === 'number') {
+            try {
+                ptyProcess.resize(cols, rows)
+            } catch (err) {
+                console.error('[Bridge] terminal:resize failed', err)
+            }
+        }
     })
 
     // Start the ingestion server and register its IPC handler

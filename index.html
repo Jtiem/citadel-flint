@@ -9,10 +9,10 @@
       content="
         default-src 'self';
         script-src 'self' 'unsafe-eval' 'unsafe-inline' https://sandpack-bundler.codesandbox.io https://cdn.jsdelivr.net https://unpkg.com https://cdn.tailwindcss.com;
-        frame-src 'self' https://*.codesandbox.io blob:;
+        frame-src 'self' https://*.codesandbox.io blob: http://localhost:* http://127.0.0.1:*;
         worker-src 'self' blob:;
         style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com;
-        connect-src 'self' ws://localhost:* http://localhost:* https:;
+        connect-src 'self' ws://localhost:* http://localhost:* ws://127.0.0.1:* http://127.0.0.1:* https:;
         img-src 'self' data: blob: https:;
         font-src 'self' data: https://cdn.jsdelivr.net https://unpkg.com;
       "

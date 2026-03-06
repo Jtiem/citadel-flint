@@ -86,22 +86,34 @@ function FileItem({ node, depth }: FileItemProps) {
         )
     }
 
+    function handleDragStart(e: React.DragEvent<HTMLButtonElement>): void {
+        // Only allow dragging .tsx files (components)
+        if (!node.name.endsWith('.tsx')) {
+            e.preventDefault()
+            return
+        }
+        e.dataTransfer.setData('application/bridge-component-file', node.path)
+        // Set visual drag image to the file name
+        e.dataTransfer.effectAllowed = 'copy'
+    }
+
     return (
         <button
             type="button"
             title={node.path}
             onClick={() => { void setActiveFile(node.path) }}
+            draggable={node.name.endsWith('.tsx')} // Only components are draggable
+            onDragStart={handleDragStart}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
             style={{ paddingLeft: paddingLeft + 8 }}
-            className={`flex w-full items-center gap-1.5 py-[3px] pr-2 text-left text-[11px] transition-colors ${
-                isDragTarget
+            className={`flex w-full items-center gap-1.5 py-[3px] pr-2 text-left text-[11px] transition-colors ${isDragTarget
                     ? 'bg-indigo-400/20 text-indigo-300 outline outline-1 outline-indigo-400/50'
                     : isActive
-                      ? 'bg-indigo-500/20 text-indigo-300'
-                      : 'text-gray-400 hover:bg-gray-800/60 hover:text-gray-200'
-            }`}
+                        ? 'bg-indigo-500/20 text-indigo-300'
+                        : 'text-gray-400 hover:bg-gray-800/60 hover:text-gray-200'
+                }`}
         >
             <span className="shrink-0 text-[8px] opacity-40">◆</span>
             <span className="truncate font-mono">{node.name}</span>

@@ -1,0 +1,250 @@
+/**
+ * viteServer.ts — electron/preview/viteServer.ts
+ *
+ * Phase N.4: Agnostic Preview Engine
+ *
+ * Manages a single headless Vite dev server that serves the user's open
+ * project. The server is started when a project root is set and stopped
+ * when the project is closed. Because Vite handles HMR natively, Bridge
+ * no longer needs to:
+ *   • Run Babel in the main process (code:transform)
+ *   • Build a hand-crafted srcdoc string for each keystroke
+ *   • Inject React/ReactDOM UMD globals manually
+ *
+ * Framework support is driven by the user's own vite.config.ts — this
+ * module does NOT hard-code React. Vue, Svelte, Angular (v17+), and any
+ * other Vite-compatible framework work automatically.
+ *
+ * Bridge interaction wiring (click-to-select, hover, drag-and-drop) is
+ * injected via a Vite plugin that appends a <script> to every HTML page
+ * served by the preview server.
+ *
+ * Main process only — never imported by the renderer.
+ */
+
+import { createServer, type ViteDevServer, type Plugin, resolveConfig } from 'vite'
+import net from 'node:net'
+
+// ── Port utilities ─────────────────────────────────────────────────────────────
+
+/** Returns a free TCP port by binding on :0 */
+function findFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer()
+    srv.listen(0, '127.0.0.1', () => {
+      const addr = srv.address()
+      if (addr == null || typeof addr === 'string') {
+        srv.close()
+        reject(new Error('Could not determine free port'))
+        return
+      }
+      const { port } = addr
+      srv.close(() => resolve(port))
+    })
+    srv.on('error', reject)
+  })
+}
+
+// ── Bridge interaction script ─────────────────────────────────────────────────
+//
+// The same event proxy that lives in buildHtmlSrcdoc / buildSrcdoc but injected
+// via the Vite HTML transform so it works for any framework.
+//
+// Injected as an inline <script> at the end of <body> so it runs after the
+// framework's own scripts have set up the DOM.
+
+const BRIDGE_SCRIPT = /* html */`
+<script id="__bridge_interact__">
+(function(){
+  if(document.getElementById('__bridge_interact_active__'))return;
+  var sentinel=document.createElement('meta');sentinel.id='__bridge_interact_active__';document.head.appendChild(sentinel);
+  window.__bridgeInteractMode=false;
+  window.addEventListener('message',function(e){
+    if(!e.data)return;var t=e.data.type;
+    if(t==='SET_INTERACT_MODE'){window.__bridgeInteractMode=!!e.data.enabled;return;}
+    if(t==='CLEAR_PREVIEW'){document.body.innerHTML='';return;}
+    if(t==='HIGHLIGHT'){
+      document.querySelectorAll('.bridge-selected').forEach(function(el){el.classList.remove('bridge-selected');});
+      if(e.data.id){var s=document.querySelector('[data-bridge-id="'+e.data.id+'"]');if(s)s.classList.add('bridge-selected');}return;
+    }
+    if(t==='HOVER'){
+      document.querySelectorAll('.bridge-hovered').forEach(function(el){el.classList.remove('bridge-hovered');});
+      if(e.data.id){var h=document.querySelector('[data-bridge-id="'+e.data.id+'"]');if(h)h.classList.add('bridge-hovered');}return;
+    }
+    if(t==='CLEAR_HOVER'){document.querySelectorAll('.bridge-hovered').forEach(function(el){el.classList.remove('bridge-hovered');});return;}
+    if(t==='DRAG_OVER'){
+      document.querySelectorAll('.bridge-drop-before,.bridge-drop-after,.bridge-drop-inside').forEach(function(n){n.classList.remove('bridge-drop-before','bridge-drop-after','bridge-drop-inside');});
+      if(e.data.targetId){var d=document.querySelector('[data-bridge-id="'+e.data.targetId+'"]');if(d)d.classList.add('bridge-drop-'+e.data.position);}return;
+    }
+    if(t==='DRAG_CLEAR'){
+      var g=document.getElementById('__bridge_ghost__');if(g)g.style.display='none';
+      document.querySelectorAll('.bridge-drop-before,.bridge-drop-after,.bridge-drop-inside').forEach(function(n){n.classList.remove('bridge-drop-before','bridge-drop-after','bridge-drop-inside');});return;
+    }
+    if(t==='DRAG_MOVE'){
+      var gm=document.getElementById('__bridge_ghost__');if(gm){gm.style.display='block';gm.style.left=(e.data.x-40)+'px';gm.style.top=(e.data.y-20)+'px';}
+      var dme=document.elementFromPoint(e.data.x,e.data.y);var dmt=dme?dme.closest('[data-bridge-id]'):null;
+      document.querySelectorAll('.bridge-drop-before,.bridge-drop-after,.bridge-drop-inside').forEach(function(n){n.classList.remove('bridge-drop-before','bridge-drop-after','bridge-drop-inside');});
+      if(dmt){var r=dmt.getBoundingClientRect();var pct=(e.data.y-r.top)/r.height;dmt.classList.add('bridge-drop-'+(pct<0.25?'before':pct>0.75?'after':'inside'));}return;
+    }
+    if(t==='DRAG_END'){
+      var ge=document.getElementById('__bridge_ghost__');if(ge)ge.style.display='none';
+      document.querySelectorAll('.bridge-drop-before,.bridge-drop-after,.bridge-drop-inside').forEach(function(n){n.classList.remove('bridge-drop-before','bridge-drop-after','bridge-drop-inside');});
+      var de=document.elementFromPoint(e.data.x,e.data.y);var dt=de?de.closest('[data-bridge-id]'):null;
+      var dp='inside';if(dt){var dr=dt.getBoundingClientRect();var dpp=(e.data.y-dr.top)/dr.height;dp=dpp<0.25?'before':dpp>0.75?'after':'inside';}
+      window.parent.postMessage({type:'HIT_TEST_RESULT',targetId:dt?dt.getAttribute('data-bridge-id'):null,position:dp},'*');return;
+    }
+  });
+  document.addEventListener('click',function(e){
+    if(window.__bridgeInteractMode)return;
+    var el=e.target.closest('[data-bridge-id]');
+    if(el)window.parent.postMessage({type:'CANVAS_CLICK',id:el.getAttribute('data-bridge-id')},'*');
+  });
+  var _hid=null;
+  document.body.addEventListener('mouseover',function(e){
+    if(window.__bridgeInteractMode)return;
+    var el=e.target.closest('[data-bridge-id]');var id=el?el.getAttribute('data-bridge-id'):null;
+    if(id!==_hid){_hid=id;window.parent.postMessage(id?{type:'CANVAS_HOVER',id:id}:{type:'CANVAS_HOVER_CLEAR'},'*');}
+  });
+  document.body.addEventListener('mouseleave',function(){if(_hid!==null){_hid=null;window.parent.postMessage({type:'CANVAS_HOVER_CLEAR'},'*');}});
+  var _bg=document.createElement('div');_bg.id='__bridge_ghost__';
+  _bg.style.cssText='position:fixed;pointer-events:none;border:2px solid #3b82f6;background:rgba(59,130,246,0.12);border-radius:4px;z-index:9999;display:none;width:80px;height:40px;';
+  document.body.appendChild(_bg);
+  document.body.addEventListener('mousedown',function(e){
+    if(window.__bridgeInteractMode)return;
+    var el=e.target.closest('[data-bridge-id]');if(!el)return;
+    e.preventDefault();
+    window.parent.postMessage({type:'CANVAS_DRAG_START',id:el.getAttribute('data-bridge-id'),x:e.clientX,y:e.clientY},'*');
+  });
+})();
+</script>
+<style id="__bridge_styles__">
+.bridge-selected{outline:2px solid #3b82f6!important;background-color:rgba(59,130,246,.1)!important;}
+.bridge-hovered{outline:2px dashed #94a3b8!important;background:rgba(148,163,184,.1)!important;cursor:default;z-index:40;transition:all .1s;}
+.bridge-drop-before{box-shadow:0 -3px 0 0 #3b82f6!important;z-index:50;}
+.bridge-drop-after{box-shadow:0 3px 0 0 #3b82f6!important;z-index:50;}
+.bridge-drop-inside{outline:2px solid #3b82f6!important;background:rgba(59,130,246,.2)!important;}
+</style>
+`
+
+// ── Bridge Interaction Plugin ─────────────────────────────────────────────────
+
+/**
+ * Vite plugin that appends the Bridge interaction script + styles to every
+ * HTML page served by the preview server.
+ *
+ * This is the equivalent of the hand-crafted srcdoc footer, but injected at
+ * the Vite HTML transform level so it works for any framework output.
+ */
+function bridgeInteractPlugin(): Plugin {
+  return {
+    name: 'bridge-interact',
+    transformIndexHtml(html: string) {
+      return html.replace('</body>', `${BRIDGE_SCRIPT}\n</body>`)
+    },
+    configureServer(server) {
+      server.middlewares.use((_req, res, next) => {
+        const originalSetHeader = res.setHeader;
+        res.setHeader = function (name: string, value: string | number | readonly string[]) {
+          if (name.toLowerCase() === 'content-security-policy') {
+            return this; // Drop the CSP header completely for preview
+          }
+          return originalSetHeader.call(this, name, value);
+        };
+        next();
+      });
+    }
+  }
+}
+
+// ── Singleton Server State ─────────────────────────────────────────────────────
+
+let _server: ViteDevServer | null = null
+let _port: number | null = null
+let _root: string | null = null
+
+// ── Public API ─────────────────────────────────────────────────────────────────
+
+/**
+ * Starts (or restarts) a headless Vite dev server rooted at `projectRoot`.
+ *
+ * Uses the user's own `vite.config.ts` when present — Bridge does NOT
+ * override the framework plugin. The Bridge interaction plugin is appended
+ * on top.
+ *
+ * @returns  The localhost URL the iframe should load (e.g. "http://localhost:5174").
+ */
+export async function startViteServer(projectRoot: string): Promise<string> {
+  // Tear down stale server before starting a new one.
+  if (_server !== null) {
+    await stopViteServer()
+  }
+
+  _port = await findFreePort()
+  _root = projectRoot
+
+  // Attempt to resolve the user's vite.config so their plugins (React, Vue…)
+  // are included automatically. Fall back to zero plugins on any error so
+  // plain-HTML projects still work.
+  let userPlugins: Plugin[] = []
+  try {
+    const resolved = await resolveConfig({ root: projectRoot }, 'serve')
+    userPlugins = (resolved.plugins ?? []) as Plugin[]
+  } catch {
+    // No vite.config found or resolution error — run bare.
+  }
+
+  _server = await createServer({
+    root: projectRoot,
+    base: '/',
+    server: {
+      port: _port,
+      strictPort: false,
+      host: '127.0.0.1',
+      // Disable HMR overlay in favor of Bridge's own error panel.
+      hmr: { overlay: false },
+    },
+    plugins: [
+      ...userPlugins,
+      bridgeInteractPlugin(),
+    ],
+    // Suppress Vite's banner — Bridge has its own status bar.
+    logLevel: 'warn',
+    clearScreen: false,
+    // Required to allow Electron's renderer (file://) to iframe the preview
+    configFile: false,   // Don't re-read vite.config — we already resolved it above
+  })
+
+  await _server.listen()
+  const url = `http://127.0.0.1:${_port}`
+  console.info(`[Bridge] Preview engine (Vite N.4) listening at ${url}`)
+  return url
+}
+
+/**
+ * Gracefully shuts down the preview server.
+ * Safe to call multiple times (idempotent).
+ */
+export async function stopViteServer(): Promise<void> {
+  if (_server !== null) {
+    await _server.close()
+    _server = null
+    _port = null
+    _root = null
+    console.info('[Bridge] Preview engine stopped.')
+  }
+}
+
+/**
+ * Returns the current preview server URL, or `null` if no server is running.
+ */
+export function getPreviewUrl(): string | null {
+  if (_server === null || _port === null) return null
+  return `http://127.0.0.1:${_port}`
+}
+
+/**
+ * Returns the project root the preview server is currently serving, or `null`.
+ */
+export function getPreviewRoot(): string | null {
+  return _root
+}

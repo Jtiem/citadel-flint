@@ -152,27 +152,31 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
                                     )
                                     return (
                                         <li key={project.id}>
-                                            <button
-                                                type="button"
-                                                onClick={() => { void handleOpenRecent(project) }}
-                                                disabled={isOpening}
-                                                className="group flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-gray-800/60 disabled:cursor-wait disabled:opacity-50"
+                                            <div
+                                                className="group flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-gray-800/60"
                                             >
-                                                <FolderOpen
-                                                    size={15}
-                                                    className="shrink-0 text-indigo-400/70 group-hover:text-indigo-400"
-                                                />
-                                                <div className="min-w-0 flex-1">
-                                                    <p className="truncate text-sm font-medium text-gray-200">
-                                                        {isOpening ? 'Opening…' : project.name}
-                                                    </p>
-                                                    <p
-                                                        className="truncate font-mono text-[10px] text-gray-600"
-                                                        title={project.path}
-                                                    >
-                                                        {shortPath}
-                                                    </p>
-                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => { void handleOpenRecent(project) }}
+                                                    disabled={isOpening}
+                                                    className="flex flex-1 items-center gap-3 min-w-0"
+                                                >
+                                                    <FolderOpen
+                                                        size={15}
+                                                        className="shrink-0 text-indigo-400/70 group-hover:text-indigo-400"
+                                                    />
+                                                    <div className="min-w-0 flex-1 text-left">
+                                                        <p className="truncate text-sm font-medium text-gray-200">
+                                                            {isOpening ? 'Opening…' : project.name}
+                                                        </p>
+                                                        <p
+                                                            className="truncate font-mono text-[10px] text-gray-600"
+                                                            title={project.path}
+                                                        >
+                                                            {shortPath}
+                                                        </p>
+                                                    </div>
+                                                </button>
                                                 <button
                                                     type="button"
                                                     aria-label="Remove from recent"
@@ -181,7 +185,7 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
                                                 >
                                                     <Trash2 size={12} />
                                                 </button>
-                                            </button>
+                                            </div>
                                         </li>
                                     )
                                 })}

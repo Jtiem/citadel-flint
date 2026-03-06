@@ -1,7 +1,7 @@
 
 # Bridge IDE: The "Agentic UI Operating System"
 
-### **Architecture Specification (v5.7 — Lunar Elevator + Persistence)**
+### **Architecture Specification (v6.0 — Phase M: AI Orchestrator Hardening)**
 
 ## **1. Core Identity & Philosophy**
 
@@ -19,7 +19,7 @@
 | **App Shell** | **Electron (v29+)** | Native OS access; strict IPC context isolation; native directory selection. |
 | **Data Engine** | **SQLite + `sqlite-vec**` | Local vector embeddings for design system RAG and privacy-first context. |
 | **Sync Layer** | **PowerSync SDK** | Real-time CRDT sync for team collaboration, Presence, and Tokens. |
-| **Orchestration** | **Bridge Auditor** | Complexity analysis that routes tasks to "Flash" or "Thinking" AI models. |
+| **Orchestration** | **Bridge Auditor** | Complexity analysis routes tasks to "Flash" or "Thinking" models. AI is restricted to granular AST Tool Calls only — no raw string generation. |
 | **Canvas** | **`@xyflow/react` v12** | Infinite whiteboard for visual node manipulation. |
 | **Preview Engine** | **Iframe + Babel IPC** | 100% offline `srcdoc` execution with zero external dependencies. |
 | **Bundling** | **ESBuild WASM** | Client-side bundler injected with React Fast Refresh for stateful hot-swapping. |
@@ -58,7 +58,7 @@
 
 ---
 
-## **4. The 13 Commandments (Non-Negotiable Guardrails)**
+## **4. The 16 Commandments (Non-Negotiable Guardrails)**
 
 1. **Code is Truth (The Persistence Rule):** If it isn't saved to the local `.tsx` file via the AST, it doesn't exist. Ephemeral demo states are prohibited.
 2. **No Hallucinated Styling:** Every visual edit MUST be tied to a `design_token`.
@@ -73,4 +73,6 @@
 11. **Surgical Git Transplants:** Never execute a raw `git checkout` on a shared file; extract and transplant specific nodes.
 12. **Atomic Queuing & Batching:** All file system saves must be atomic. AI mass-edits must be batched into a single transaction.
 13. **Deterministic Surgery:** Use Babel AST traversal for all code changes. Never use Regex to modify source code.
-14. **Documentation Autopilot (v5.7):** No code modification is considered "Done" until its architectural impact is mirrored in `CLAUDE.md`, `HANDOFF.md`, and the `.bridge-context/BRIDGE-PULSE.md` session pulse.
+14. **Documentation Autopilot (v5.7):** No code modification is "Done" until its architectural impact is mirrored in `CLAUDE.md`, `HANDOFF.md`, and `.bridge-context/BRIDGE-PULSE.md`.
+15. **Granular AST Tools Only (Phase M):** The AI Orchestrator MUST only emit operations from the versioned Bridge AST Tool Catalog: `updateProps`, `updateText`, `insertNode`, `wrapNode`, `deleteNode`, `addClassName`, `removeClassName`. Emitting raw code strings or full-file replacements is a hard violation that must be rejected by `orchestrator.ts`.
+16. **In-Memory Validation Before Confirmation (Phase M):** After receiving AI Tool Calls, `orchestrator.ts` MUST synthesize the output in-memory and run a TypeScript type-check pass before surfacing a confirmation UI to the user. Hallucinated props or components must trigger an invisible AI recovery loop, never a broken diff.

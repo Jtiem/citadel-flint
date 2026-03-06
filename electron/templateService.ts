@@ -63,3 +63,17 @@ export function initializeProject(targetPath: string, templateId: string): void 
     // Recursive copy: mirrors the full template directory tree into targetPath.
     cpSync(templateSrc, targetPath, { recursive: true })
 }
+
+/**
+ * Resets an existing directory to the known-good 'bridge-demo' state.
+ * Unlike `initializeProject`, this purposefully overwrites existing files.
+ *
+ * @param targetPath — Absolute path to the destination directory.
+ *                     Must be validated by the IPC handler (absolute + inside home dir).
+ */
+export function injectDemoState(targetPath: string): void {
+    const templateSrc = path.join(app.getAppPath(), 'electron', 'templates', 'bridge-demo')
+
+    // Copy the base demo over, overwriting existing files
+    cpSync(templateSrc, targetPath, { recursive: true, force: true })
+}
