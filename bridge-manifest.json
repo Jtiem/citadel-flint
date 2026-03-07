@@ -1,0 +1,147 @@
+{
+    "version": "2.0",
+    "resolvers": [
+        {
+            "match": { "Size": ["Small", "Medium", "Large"] },
+            "detect": ["Color", "Delete?", "Thumbnail?"],
+            "componentName": "_Chip",
+            "skip": true
+        },
+        {
+            "match": { "Variant": ["Outlined", "Filled", "Standard"] },
+            "detect": ["Has Value", "Placeholder", "Helper?", "Value?"],
+            "excludeDetect": ["Delete?", "Thumbnail?"],
+            "componentName": "TextField",
+            "importPath": "@/components/ui/TextField",
+            "leafComponent": true,
+            "propMap": {
+                "Label": "label",
+                "↳ Placeholder": "placeholder",
+                "↳ Value": "value",
+                "Helper Text": "helperText"
+            }
+        },
+        {
+            "match": { "Variant": ["body1", "body2", "subtitle1", "subtitle2", "h1", "h2", "h3", "h4", "h5", "h6"] },
+            "detect": ["Gutter Bottom", "Content"],
+            "componentName": "Heading",
+            "importPath": "@/components/ui/Heading",
+            "leafComponent": true,
+            "propMap": {
+                "Content": "children"
+            },
+            "variantToProp": {
+                "field": "Variant",
+                "map": {
+                    "h1": { "as": 1 },
+                    "h2": { "as": 2 },
+                    "h3": { "as": 3 },
+                    "h4": { "as": 4 },
+                    "h5": { "as": 5 },
+                    "h6": { "as": 6 },
+                    "body1": { "as": 3 },
+                    "body2": { "as": 4 },
+                    "subtitle1": { "as": 5 },
+                    "subtitle2": { "as": 6 }
+                }
+            }
+        },
+        {
+            "match": { "Variant": ["caption", "overline"] },
+            "detect": ["Gutter Bottom"],
+            "componentName": "Heading",
+            "importPath": "@/components/ui/Heading",
+            "leafComponent": true,
+            "propMap": {
+                "Content": "children"
+            },
+            "defaultProps": { "as": 6 }
+        },
+        {
+            "match": { "Direction": ["Row", "Column"] },
+            "detect": ["Spacing", "Slots"],
+            "componentName": "_Container",
+            "wrapperTag": "div",
+            "propMap": {}
+        },
+        {
+            "match": { "Variant": ["Contained", "Text", "Outlined"] },
+            "detect": ["Label", "Disabled"],
+            "excludeDetect": ["Has Value", "Placeholder", "Helper?"],
+            "componentName": "Button",
+            "importPath": "@/components/ui/Button",
+            "leafComponent": true,
+            "propMap": {
+                "Label": "children",
+                "Label Text": "children"
+            },
+            "variantToProp": {
+                "field": "Variant",
+                "map": {
+                    "Contained": { "variant": "primary" },
+                    "Text": { "variant": "secondary" },
+                    "Outlined": { "variant": "outline" }
+                }
+            }
+        },
+        {
+            "match": { "State": ["On", "Off"] },
+            "detect": ["Label"],
+            "componentName": "SwitchToggle",
+            "importPath": "@/components/ui/SwitchToggle",
+            "leafComponent": true,
+            "propMap": {
+                "Label": "label"
+            },
+            "variantToProp": {
+                "field": "State",
+                "map": {
+                    "On": { "checked": true },
+                    "Off": { "checked": false }
+                }
+            }
+        }
+    ],
+    "components": {
+        "Heading": {
+            "importPath": "@/components/ui/Heading",
+            "componentName": "Heading",
+            "propMap": { "content": "children", "level": "as" }
+        },
+        "Stack": {
+            "importPath": "@/components/ui/Layout",
+            "componentName": "Stack",
+            "propMap": { "direction": "direction", "gap": "spacing" }
+        },
+        "Input": {
+            "importPath": "@/components/ui/Input",
+            "componentName": "Input",
+            "propMap": { "placeholder": "placeholder", "type": "type" }
+        },
+        "Button": {
+            "importPath": "@/components/ui/Button",
+            "componentName": "Button",
+            "propMap": { "variant": "variant", "content": "children" }
+        },
+        "TextField": {
+            "importPath": "@/components/ui/TextField",
+            "componentName": "TextField",
+            "propMap": { "Label": "label", "Placeholder": "placeholder", "Value": "value" }
+        },
+        "SelectField": {
+            "importPath": "@/components/ui/SelectField",
+            "componentName": "SelectField",
+            "propMap": { "Label": "label", "Options": "options", "Value": "value" }
+        },
+        "SwitchToggle": {
+            "importPath": "@/components/ui/SwitchToggle",
+            "componentName": "SwitchToggle",
+            "propMap": { "Label": "label", "State": "checked" }
+        },
+        "IconButton": {
+            "importPath": "@/components/ui/IconButton",
+            "componentName": "IconButton",
+            "propMap": { "Icon": "icon", "Label": "label" }
+        }
+    }
+}

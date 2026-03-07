@@ -106,12 +106,52 @@ function buildSrcdoc(js: string, tailwindConfigJson: string): string {
         style: { pointerEvents: 'auto' }
       }, children);
     };
-    window.Button = function({ className, children, ...rest }) {
+    window.Button = function({ variant, className, children, ...rest }) {
+      var base = 'inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors h-9 px-4 py-2 ';
+      var variants = { primary: 'bg-blue-600 text-white shadow hover:bg-blue-700', secondary: 'text-blue-600 hover:bg-blue-50', outline: 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50' };
       return React.createElement('button', {
-        className: 'inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors bg-slate-900 text-white shadow hover:bg-slate-900/90 h-9 px-4 py-2 ' + (className || ''),
+        className: base + (variants[variant] || variants.primary) + ' ' + (className || ''),
         ...rest,
         style: { pointerEvents: 'auto' }
       }, children);
+    };
+    window.Heading = function({ as, className, children, ...rest }) {
+      var level = as || 1;
+      var sizes = { 1: 'text-2xl', 2: 'text-xl', 3: 'text-lg', 4: 'text-base', 5: 'text-sm', 6: 'text-xs' };
+      return React.createElement('h' + level, {
+        className: 'font-medium tracking-tight text-slate-800 ' + (sizes[level] || 'text-base') + ' ' + (className || ''),
+        ...rest
+      }, children);
+    };
+    window.TextField = function({ label, placeholder, value, helperText, className, ...rest }) {
+      return React.createElement('div', { className: 'flex flex-col gap-1 ' + (className || '') },
+        label ? React.createElement('label', { className: 'text-sm font-medium text-slate-700' }, label) : null,
+        React.createElement('input', { type: 'text', placeholder: placeholder || '', defaultValue: value || '', className: 'rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500', ...rest }),
+        helperText ? React.createElement('span', { className: 'text-xs text-slate-500' }, helperText) : null
+      );
+    };
+    window.SwitchToggle = function({ label, checked, className }) {
+      return React.createElement('label', { className: 'inline-flex items-center gap-3 cursor-pointer ' + (className || '') },
+        React.createElement('span', {
+          className: 'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ' + (checked ? 'bg-blue-600' : 'bg-slate-300'),
+        }, React.createElement('span', { className: 'inline-block h-3.5 w-3.5 rounded-full bg-white shadow transform transition-transform ' + (checked ? 'translate-x-4' : 'translate-x-0.5') })),
+        label ? React.createElement('span', { className: 'text-sm text-slate-700' }, label) : null
+      );
+    };
+    window.SelectField = function({ label, options, value, className }) {
+      return React.createElement('div', { className: 'flex flex-col gap-1 ' + (className || '') },
+        label ? React.createElement('label', { className: 'text-sm font-medium text-slate-700' }, label) : null,
+        React.createElement('select', { defaultValue: value || '', className: 'rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500' })
+      );
+    };
+    window.IconButton = function({ icon, label, size, className, ...rest }) {
+      var sizeClass = size === 'sm' ? 'h-5 w-5 p-0.5' : 'h-8 w-8 p-1.5';
+      return React.createElement('button', {
+        type: 'button',
+        'aria-label': label || icon,
+        className: 'inline-flex items-center justify-center rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors ' + sizeClass + ' ' + (className || ''),
+        ...rest
+      }, icon);
     };
   <\/script>
   <script>
@@ -538,12 +578,46 @@ export function LivePreview() {
     }
   }, [hoveredId])
 
-  // When the iframe posts CANVAS_CLICK / CANVAS_HOVER / CANVAS_HOVER_CLEAR → update store.
+  const handleHydroPaste = async (figmaPayload: string) => {
+    console.log('[HydroPaste] Received Figma AST Payload')
+    console.log('[HydroPaste] Raw payload (first 2000 chars):', figmaPayload.slice(0, 2000))
+    try {
+      const response = await window.bridgeAPI.ai.hydroPaste?.(figmaPayload)
+      console.log('[HydroPaste] Response from main:', JSON.stringify(response, null, 2))
+      if (!response || response.error || !response.ok) {
+        console.error('[HydroPaste Error]', response?.error || 'No valid components found in payload')
+        return
+      }
+      const editorState = useEditorStore.getState()
+      if (!editorState.visualTree || editorState.visualTree.length === 0) return
+      const rootNodeId = editorState.visualTree[0].id
+
+      const { elements } = response
+      if (elements && elements.length > 0) {
+        const mutations = elements.map((el: { code: string; import: string | null }) => ({
+          op: 'injectComponent' as const,
+          targetNodeId: rootNodeId,
+          jsxSnippet: el.code,
+          importSnippet: el.import || undefined
+        }))
+        editorState.applyBatch(mutations)
+      }
+    } catch (err) {
+      console.error('[HydroPaste Error]', err)
+    }
+  }
+
+  // When the iframe posts CANVAS_CLICK / CANVAS_HOVER / CANVAS_HOVER_CLEAR / FIGMA_PASTE → update store.
   useEffect(() => {
     function handleMessage(e: MessageEvent): void {
       if (typeof e.data !== 'object' || e.data === null) return
-      const msg = e.data as { type?: unknown; id?: unknown; targetId?: unknown; position?: unknown }
-      if (msg.type === 'CANVAS_CLICK') {
+      const msg = e.data as { type?: unknown; id?: unknown; targetId?: unknown; position?: unknown; payload?: unknown }
+
+      if (msg.type === 'FIGMA_PASTE') {
+        if (canvasMode === 'design' && typeof msg.payload === 'string') {
+          handleHydroPaste(msg.payload).catch(console.error)
+        }
+      } else if (msg.type === 'CANVAS_CLICK') {
         // In interact mode the IDE does not intercept clicks; native onClick fires instead.
         if (canvasMode === 'design' && typeof msg.id === 'string') {
           // Phase C.2: do not select a node locked by a remote collaborator.
@@ -584,7 +658,16 @@ export function LivePreview() {
       }
     }
     window.addEventListener('message', handleMessage)
-    return () => window.removeEventListener('message', handleMessage)
+
+    // Listen for automatic AST ingestion from the main process (via ingestion server)
+    const unsubscribe = window.bridgeAPI.ai.onHydroPasteAuto?.((payload: string) => {
+      handleHydroPaste(payload).catch(console.error)
+    })
+
+    return () => {
+      window.removeEventListener('message', handleMessage)
+      unsubscribe?.()
+    }
   }, [setSelectedNode, setHoveredId, startDrag, endDrag, moveLayerNode, setActiveSelection, canvasMode])
 
   // Forward bridge:dragOver / bridge:dragClear events from LayerTree to the iframe.
@@ -729,7 +812,8 @@ export function LivePreview() {
       )}
       {/* Positioning context so the Shield can overlay exactly the iframe */}
       <div
-        className="relative min-h-0 flex-1"
+        className="relative min-h-0 flex-1 outline-none"
+        tabIndex={0}
         onDragOver={(e) => {
           if (canvasMode !== 'design') return
           // Only accept component files from FileExplorer
@@ -737,6 +821,30 @@ export function LivePreview() {
             e.preventDefault()
             e.dataTransfer.dropEffect = 'copy'
           }
+        }}
+        onPaste={async (e) => {
+          if (canvasMode !== 'design') return
+
+          let figmaPayload = e.clipboardData.getData('application/x-bridge-figma-ast')
+
+          if (!figmaPayload) {
+            const textData = e.clipboardData.getData('text/plain')
+            try {
+              const parsed = JSON.parse(textData)
+              if (parsed && parsed.type === 'application/x-bridge-figma-ast') {
+                figmaPayload = typeof parsed.payload === 'string'
+                  ? parsed.payload
+                  : JSON.stringify(parsed.payload)
+              }
+            } catch (err) {
+              // Not our JSON payload
+            }
+          }
+
+          if (!figmaPayload) return
+          e.preventDefault()
+
+          handleHydroPaste(figmaPayload).catch(console.error)
         }}
         onDrop={(e) => {
           if (canvasMode !== 'design') return

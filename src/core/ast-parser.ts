@@ -65,6 +65,8 @@ export interface VisualLayer {
     idAttr?: string
     /** First non-whitespace direct text content (JSXText child), if any */
     textContent?: string
+    /** Arbitrary read-only props (excluding className, style, id, and data-bridge-id) */
+    props?: Record<string, string | boolean>
     /** Nested child layers (mirrors JSX nesting) */
     children: VisualLayer[]
 }
@@ -176,6 +178,7 @@ export function buildVisualTree(ast: File): VisualLayer[] {
                 let style: string | undefined
                 let idAttr: string | undefined
                 let bridgeId: string | undefined
+                const props: Record<string, string | boolean> = {}
                 for (const attr of opening.attributes) {
                     if (!isJSXAttribute(attr)) continue
                     // Extract the attribute name once to avoid TypeScript's
@@ -191,6 +194,8 @@ export function buildVisualTree(ast: File): VisualLayer[] {
                             idAttr = attr.value.value
                         } else if (attrName === 'data-bridge-id') {
                             bridgeId = attr.value.value
+                        } else if (attrName) {
+                            props[attrName] = attr.value.value
                         }
                     } else if (attr.value?.type === 'JSXExpressionContainer') {
                         if (attrName === 'data-bridge-id' && attr.value.expression.type === 'StringLiteral') {
@@ -200,6 +205,9 @@ export function buildVisualTree(ast: File): VisualLayer[] {
                             // e.g. style={{ color: 'red' }} → "{ color: 'red' }"
                             style = generate(attr.value.expression).code
                         }
+                    } else if (attr.value === null && attrName) {
+                        // Support valueless boolean attributes, e.g. <input disabled />
+                        props[attrName] = true
                     }
                 }
 
@@ -221,6 +229,7 @@ export function buildVisualTree(ast: File): VisualLayer[] {
                     ...(style !== undefined ? { style } : {}),
                     ...(idAttr !== undefined ? { idAttr } : {}),
                     ...(textContent !== undefined ? { textContent } : {}),
+                    ...(Object.keys(props).length > 0 ? { props } : {}),
                     children: [],
                 }
 

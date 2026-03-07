@@ -1,12 +1,16 @@
 {
   "compilerOptions": {
-    "target": "ES6",
-    "lib": ["ES6"],
+    "target": "ES2017",
+    "lib": [
+      "ES2017"
+    ],
     "strict": true,
-    "types": ["@figma/plugin-typings"],
-    "noEmit": false,
-    "outDir": ".",
-    "sourceMap": false
+    "moduleResolution": "node",
+    "types": [
+      "@figma/plugin-typings"
+    ]
   },
-  "include": ["code.ts"]
+  "include": [
+    "./code.ts"
+  ]
 }

@@ -292,7 +292,27 @@ contextBridge.exposeInMainWorld("bridgeAPI", {
     /** Returns { hasKey, provider, model, baseURL } so the UI can show a config prompt. */
     getConfig: () => ipcRenderer.invoke("ai:get-config"),
     /** Persist the full AI config (API key, provider, model, baseURL) to ~/.bridge/config.json. */
-    saveConfig: (config) => ipcRenderer.invoke("ai:save-config", config)
+    saveConfig: (config) => ipcRenderer.invoke("ai:save-config", config),
+    // ── Phase N: Figma-to-Bridge AST Hydration ─────────────────────────
+    /** Sends a Figma component JSON clipboard payload to be converted into an AST React String payload. */
+    hydroPaste: (payloadStr) => ipcRenderer.invoke("bridge:hydro-paste", payloadStr),
+    /** Listen for automatic hydro-paste events pushed from the ingestion server. Returns unsubscribe fn. */
+    onHydroPasteAuto: (callback) => {
+      const listener = (_event, payload) => callback(payload);
+      ipcRenderer.on("bridge:hydro-paste-auto", listener);
+      return () => {
+        ipcRenderer.removeListener("bridge:hydro-paste-auto", listener);
+      };
+    },
+    // ── Phase M: RAG endpoints ───────────────────────────────────────────
+    /** Semantic search over the design system knowledge base. */
+    queryRAG: (query) => ipcRenderer.invoke("ai:query-rag", query),
+    /** Ingest text chunks into the RAG vector store. */
+    ingestRAG: (chunks) => ipcRenderer.invoke("ai:ingest-rag", chunks),
+    /** Clear all RAG data for re-ingestion. */
+    clearRAG: () => ipcRenderer.invoke("ai:clear-rag"),
+    /** Return the current chunk count in the RAG store. */
+    ragCount: () => ipcRenderer.invoke("ai:rag-count")
   },
   // ── Phase N.4: Preview Engine IPC ─────────────────────────────────────────
   /**

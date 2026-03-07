@@ -70,15 +70,15 @@ interface DeleteNodeMutation {
     nodeId: string
 }
 
-/** Sets an arbitrary JSX prop to a new serialised string value. */
+/** Sets an arbitrary JSX prop to a new serialised string or boolean value. */
 interface UpdatePropMutation {
     op: 'updateProp'
     /** `data-bridge-id` of the target element. */
     nodeId: string
     /** Prop name, e.g. `"aria-label"`, `"href"`, `"data-testid"`. */
     propName: string
-    /** Serialised string value, e.g. `"true"`, `"#fff"`, a URL. */
-    value: string
+    /** Value to set. Null deletes the attribute. */
+    value: string | boolean | null
 }
 
 /** Updates the first direct JSXText child of a target element. */
@@ -188,15 +188,15 @@ function jsxMatchesId(
 }
 
 /**
- * Reads the current StringLiteral value of `propName` from the JSX element
+ * Reads the current value of `propName` from the JSX element
  * identified by `nodeId`. Returns `null` when the element or prop is absent.
  */
 function readCurrentPropValue(
     ast: import('@babel/types').File,
     nodeId: string,
     propName: string
-): string | null {
-    let value: string | null = null
+): string | boolean | null {
+    let value: string | boolean | null = null
     _tv(ast, {
         JSXElement(path: NodePath<import('@babel/types').JSXElement>) {
             if (!jsxMatchesId(path, nodeId)) return
@@ -204,10 +204,13 @@ function readCurrentPropValue(
                 if (
                     attr.type === 'JSXAttribute' &&
                     attr.name.type === 'JSXIdentifier' &&
-                    attr.name.name === propName &&
-                    attr.value?.type === 'StringLiteral'
+                    attr.name.name === propName
                 ) {
-                    value = attr.value.value
+                    if (attr.value?.type === 'StringLiteral') {
+                        value = attr.value.value
+                    } else if (attr.value === null) {
+                        value = true
+                    }
                     break
                 }
             }
@@ -252,26 +255,35 @@ function applyUpdateProp(
     ast: import('@babel/types').File,
     nodeId: string,
     propName: string,
-    value: string
+    value: string | boolean | null
 ): void {
     _tv(ast, {
         JSXElement(path: NodePath<import('@babel/types').JSXElement>) {
             if (!jsxMatchesId(path, nodeId)) return
-            const attrs = path.node.openingElement.attributes
+            const opening = path.node.openingElement
+
+            if (value === null) {
+                opening.attributes = opening.attributes.filter(attr =>
+                    !(attr.type === 'JSXAttribute' && attr.name.type === 'JSXIdentifier' && attr.name.name === propName)
+                )
+                path.stop()
+                return
+            }
+
             let found = false
-            for (const attr of attrs) {
+            for (const attr of opening.attributes) {
                 if (
                     attr.type === 'JSXAttribute' &&
                     attr.name.type === 'JSXIdentifier' &&
                     attr.name.name === propName
                 ) {
-                    ; (attr as import('@babel/types').JSXAttribute).value = stringLiteral(value)
+                    ; (attr as import('@babel/types').JSXAttribute).value = typeof value === 'boolean' ? null : stringLiteral(value)
                     found = true
                     break
                 }
             }
             if (!found) {
-                attrs.push(jsxAttr(jsxId(propName), stringLiteral(value)))
+                opening.attributes.push(jsxAttr(jsxId(propName), typeof value === 'boolean' ? null : stringLiteral(value)))
             }
             path.stop()
         },
@@ -335,7 +347,8 @@ export function applyMutationBatch(
     for (const mutation of mutations) {
         switch (mutation.op) {
             case 'updateClassName': {
-                const oldClass = readCurrentPropValue(ast, mutation.nodeId, 'className') ?? ''
+                const oldClassRaw = readCurrentPropValue(ast, mutation.nodeId, 'className')
+                const oldClass = typeof oldClassRaw === 'string' ? oldClassRaw : ''
                 inversions.push({
                     op: 'updateClassName',
                     nodeId: mutation.nodeId,
@@ -347,7 +360,7 @@ export function applyMutationBatch(
 
             case 'updateProp': {
                 const oldValue =
-                    readCurrentPropValue(ast, mutation.nodeId, mutation.propName) ?? ''
+                    readCurrentPropValue(ast, mutation.nodeId, mutation.propName)
                 inversions.push({
                     op: 'updateProp',
                     nodeId: mutation.nodeId,

@@ -594,6 +594,14 @@ export interface OrchestratorChunk {
     error?: string
 }
 
+export interface RAGChunk {
+    id: number
+    content: string
+    source: string
+    chunkType: string
+    distance: number
+}
+
 export interface AIAPI {
     /** Start a chat turn — streams chunks back via onChunk. */
     chat: (messages: ChatMessage[], context: Record<string, unknown>) => Promise<void>
@@ -605,6 +613,20 @@ export interface AIAPI {
     getConfig: () => Promise<AIConfig>
     /** Persist the full AI config (API key, provider, model, baseURL) to ~/.bridge/config.json. */
     saveConfig: (config: { apiKey?: string; provider: AIProvider; model?: string; baseURL?: string }) => Promise<void>
+
+    // Phase N: Figma AST Hydrator
+    hydroPaste?: (payloadStr: string) => Promise<{ ok?: boolean; imports?: string[]; codeSnippets?: string[]; error?: string }>
+    /** Listen for automatic hydro-paste events from the ingestion server. Returns unsubscribe fn. */
+    onHydroPasteAuto?: (callback: (payload: string) => void) => () => void
+
+    /** Phase M: Semantic search over the design system knowledge base. */
+    queryRAG?: (query: string) => Promise<RAGChunk[]>
+    /** Phase M: Ingest text chunks into the RAG vector store. */
+    ingestRAG?: (chunks: Array<{ content: string; source?: string; chunkType?: string }>) => Promise<{ ingested: number }>
+    /** Phase M: Clear all RAG data for re-ingestion. */
+    clearRAG?: () => Promise<void>
+    /** Phase M: Return the current chunk count in the RAG store. */
+    ragCount?: () => Promise<number>
 }
 
 declare global {

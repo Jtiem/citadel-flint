@@ -27,7 +27,7 @@
  */
 
 import { useState, useCallback, startTransition } from 'react'
-import { Layers, AlertTriangle, Lock } from 'lucide-react'
+import { Layers, AlertTriangle, Lock, Type, Image as ImageIcon, Box, LayoutTemplate } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
 import { useCanvasStore } from '../../store/canvasStore'
 import { useTokenStore } from '../../store/tokenStore'
@@ -36,6 +36,7 @@ import type { LinterWarning } from '../../types/bridge-api'
 import { ClassBuilder } from '../inspector/ClassBuilder'
 import { LayoutPanel } from '../inspector/LayoutPanel'
 import { DriftDetector } from '../inspector/DriftDetector'
+import { Accordion } from '../inspector/primitives'
 import { MITHRIL_THRESHOLD } from '../../core/MithrilLinter'
 import { tokenToClass } from '../../utils/classMapper'
 import type { TokenType } from '../../types/bridge-api'
@@ -92,6 +93,26 @@ function extractClassPrefix(hardcodedClass: string): string {
     const utility = hardcodedClass.split(':').pop() ?? hardcodedClass
     const bracketIdx = utility.indexOf('[')
     return bracketIdx > 0 ? utility.slice(0, bracketIdx) : ''
+}
+
+function getIconForTag(tagName: string) {
+    switch (tagName.toLowerCase()) {
+        case 'img': return <ImageIcon className="h-3.5 w-3.5 text-amber-400" />
+        case 'span':
+        case 'p':
+        case 'h1':
+        case 'h2':
+        case 'h3':
+        case 'h4':
+        case 'h5':
+        case 'h6':
+        case 'a':
+        case 'label':
+        case 'button': return <Type className="h-3.5 w-3.5 text-blue-400" />
+        case 'svg':
+        case 'path': return <Box className="h-3.5 w-3.5 text-purple-400" />
+        default: return <LayoutTemplate className="h-3.5 w-3.5 text-gray-400" />
+    }
 }
 
 // ── Mithril Perceptual Drift Badge + Violation Card ───────────────────────────
@@ -254,24 +275,26 @@ interface NodePropertiesProps {
     nodeId: string
     onCommitStyle: (value: string) => void
     onCommitText: (value: string) => void
+    onCommitProp: (propName: string, value: string | undefined) => void
 }
 
-function NodeProperties({ layer, onCommitStyle, onCommitText }: NodePropertiesProps) {
+function NodeProperties({ layer, onCommitStyle, onCommitText, onCommitProp }: NodePropertiesProps) {
+    const [addingProp, setAddingProp] = useState(false)
+    const [newPropName, setNewPropName] = useState('')
+
     const hasAnyProp =
         layer.className !== undefined ||
         layer.style !== undefined ||
-        layer.textContent !== undefined
-
-    if (!hasAnyProp) {
-        return (
-            <div className="px-3 py-2 text-[11px] text-gray-600">
-                No readable props on this element.
-            </div>
-        )
-    }
+        layer.textContent !== undefined ||
+        (layer.props && Object.keys(layer.props).length > 0)
 
     return (
         <div className="flex flex-col divide-y divide-gray-800/60">
+            {!hasAnyProp && (
+                <div className="px-3 py-2 text-[11px] text-gray-600">
+                    No readable props on this element.
+                </div>
+            )}
             {layer.className !== undefined && (
                 <div className="flex flex-col gap-0.5 px-3 py-1.5">
                     <span className="text-[9px] font-medium uppercase tracking-wider text-gray-600">
@@ -296,6 +319,52 @@ function NodeProperties({ layer, onCommitStyle, onCommitText }: NodePropertiesPr
                     onCommit={onCommitText}
                 />
             )}
+            {layer.props && Object.entries(layer.props).map(([propName, propValue]) => (
+                <EditablePropRow
+                    key={propName}
+                    label={propName}
+                    value={typeof propValue === 'boolean' ? (propValue ? 'true' : 'false') : propValue}
+                    onCommit={(val) => {
+                        onCommitProp(propName, val)
+                    }}
+                />
+            ))}
+
+            <div className="px-3 py-2">
+                {addingProp ? (
+                    <div className="flex items-center gap-2">
+                        <input
+                            autoFocus
+                            placeholder="prop name..."
+                            value={newPropName}
+                            onChange={(e) => setNewPropName(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' && newPropName.trim()) {
+                                    onCommitProp(newPropName.trim(), 'true')
+                                    setAddingProp(false)
+                                    setNewPropName('')
+                                } else if (e.key === 'Escape') {
+                                    setAddingProp(false)
+                                    setNewPropName('')
+                                }
+                            }}
+                            onBlur={() => {
+                                setAddingProp(false)
+                                setNewPropName('')
+                            }}
+                            className="flex-1 rounded border border-indigo-500/50 bg-gray-800/80 px-2 py-1 font-mono text-[10px] text-gray-100 outline-none"
+                        />
+                    </div>
+                ) : (
+                    <button
+                        type="button"
+                        onClick={() => setAddingProp(true)}
+                        className="text-[10px] font-medium text-indigo-400 transition-colors hover:text-indigo-300"
+                    >
+                        + Add Prop
+                    </button>
+                )}
+            </div>
         </div>
     )
 }
@@ -486,6 +555,26 @@ export function PropertiesPanel() {
         }
     }
 
+    /** Commits an arbitrary prop change via applyBatch and marks the node as overridden. */
+    function handlePropCommit(propName: string, value: string | undefined): void {
+        if (effectiveId === null) return
+        if (isNodeLocked) return
+
+        let parsedValue: string | boolean | null = value === undefined ? null : value
+        if (value === 'true') parsedValue = true
+        if (value === 'false') parsedValue = false
+        // Empty string -> delete
+        if (value === '') parsedValue = null
+
+        startTransition(() => {
+            applyBatch([{ op: 'updateProp', nodeId: effectiveId, propName, value: parsedValue }])
+        })
+        setOverridesExist(true)
+        if (typeof window !== 'undefined') {
+            void window.bridgeAPI.tokens.upsertOverride?.(effectiveId, propName, value ?? '')
+        }
+    }
+
     if (effectiveId === null || selectedLayer === undefined) {
         return (
             <div className="flex h-full flex-col items-center justify-center gap-3 px-4">
@@ -513,28 +602,16 @@ export function PropertiesPanel() {
             )}
 
             {/* Header */}
-            <div className="flex shrink-0 items-baseline gap-2 border-b border-gray-800 px-3 py-2">
-                <span className="font-mono text-xs font-semibold text-gray-200">
-                    &lt;{selectedLayer.tagName}&gt;
-                </span>
-                <span className="text-xs text-gray-600">
-                    line {selectedLayer.line}
-                </span>
-            </div>
-
-            {/* Read-only / Editable AST property grid */}
-            <div className="shrink-0 border-b border-gray-800/60">
-                <div className="px-3 pb-1 pt-2">
-                    <span className="text-[9px] font-medium uppercase tracking-wider text-gray-600">
-                        Node Properties
+            <div className="flex shrink-0 items-center justify-between border-b border-gray-800 bg-gray-900/40 px-3 py-2">
+                <div className="flex items-center gap-2">
+                    {getIconForTag(selectedLayer.tagName)}
+                    <span className="font-mono text-[11px] font-semibold text-gray-200">
+                        {selectedLayer.tagName}
                     </span>
                 </div>
-                <NodeProperties
-                    layer={selectedLayer}
-                    nodeId={effectiveId}
-                    onCommitStyle={handleStyleCommit}
-                    onCommitText={handleTextCommit}
-                />
+                <span className="text-[10px] text-gray-500 font-mono">
+                    L{selectedLayer.line}
+                </span>
             </div>
 
             {/* Auto Layout controls */}
@@ -569,6 +646,17 @@ export function PropertiesPanel() {
                         className={selectedLayer.className ?? ''}
                         onCommit={handleCommit}
                     />
+
+                    {/* Read-only / Editable AST property grid (bottom) */}
+                    <Accordion title="Raw Attributes" defaultOpen={false}>
+                        <NodeProperties
+                            layer={selectedLayer}
+                            nodeId={effectiveId}
+                            onCommitStyle={handleStyleCommit}
+                            onCommitText={handleTextCommit}
+                            onCommitProp={handlePropCommit}
+                        />
+                    </Accordion>
                 </div>
             </div>
 

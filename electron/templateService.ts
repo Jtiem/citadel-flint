@@ -58,10 +58,17 @@ export function initializeProject(targetPath: string, templateId: string): void 
         )
     }
 
+    // If this is the demo template, scaffold the base project first so we get
+    // package.json, index.html, and vite config, then overlay the demo source.
+    if (templateId === 'bridge-demo') {
+        const baseSrc = path.join(TEMPLATES_DIR, 'base-vite-tailwind')
+        cpSync(baseSrc, targetPath, { recursive: true, force: true })
+    }
+
     const templateSrc = path.join(TEMPLATES_DIR, templateId)
 
     // Recursive copy: mirrors the full template directory tree into targetPath.
-    cpSync(templateSrc, targetPath, { recursive: true })
+    cpSync(templateSrc, targetPath, { recursive: true, force: true })
 }
 
 /**
@@ -72,8 +79,13 @@ export function initializeProject(targetPath: string, templateId: string): void 
  *                     Must be validated by the IPC handler (absolute + inside home dir).
  */
 export function injectDemoState(targetPath: string): void {
-    const templateSrc = path.join(app.getAppPath(), 'electron', 'templates', 'bridge-demo')
+    const templatesDir = path.join(app.getAppPath(), 'electron', 'templates')
+    const baseSrc = path.join(templatesDir, 'base-vite-tailwind')
+    const demoSrc = path.join(templatesDir, 'bridge-demo')
 
-    // Copy the base demo over, overwriting existing files
-    cpSync(templateSrc, targetPath, { recursive: true, force: true })
+    // 1. Reset base files (restores package.json, index.html, etc., to known-good state)
+    cpSync(baseSrc, targetPath, { recursive: true, force: true })
+
+    // 2. Overlay the demo files (App.tsx, index.css, bridge-init.sql)
+    cpSync(demoSrc, targetPath, { recursive: true, force: true })
 }

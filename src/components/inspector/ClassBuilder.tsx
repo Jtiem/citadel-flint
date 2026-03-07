@@ -1,81 +1,45 @@
-/**
- * ClassBuilder — src/components/inspector/ClassBuilder.tsx
- *
- * Breaks the selected node's `className` string into categorised sections
- * (Layout, Dimensions, Typography, Appearance) and renders a TokenSelect
- * dropdown for each.
- *
- * Reconstruction logic:
- *   1. Compute the full set of "managed" class names — any token × any section.
- *   2. Keep all classes from the existing string that are NOT in the managed set
- *      ("unmanaged": standard Tailwind classes the user typed manually).
- *   3. Carry forward the active selection from every OTHER section unchanged.
- *   4. Append the newly selected class (or skip if null / "none").
- *   5. Pass the joined result to `onCommit`.
- *
- * This ensures manually-written classes (e.g. `flex`, `font-bold`, `rounded-xl`)
- * survive unchanged while token-derived classes are cleanly swapped.
- */
-
 import type { TokenType } from '../../types/bridge-api'
 import { useTokenStore } from '../../store/tokenStore'
-import { tokenToClass } from '../../utils/classMapper'
-import { TokenSelect } from './TokenSelect'
+import { normalizePath, tokenToClass } from '../../utils/classMapper'
+import { Accordion, CompactSelect, ColorPickerSwatch } from './primitives'
 
 // ── Section definitions ────────────────────────────────────────────────────────
 
 interface SectionDef {
-    label: string
     prefix: string
     tokenType: TokenType
-    group: string
 }
 
-const SECTIONS: ReadonlyArray<SectionDef> = [
-    // Layout
-    { label: 'Padding', prefix: 'p-', tokenType: 'dimension', group: 'Layout' },
-    { label: 'Margin', prefix: 'm-', tokenType: 'dimension', group: 'Layout' },
-    // Dimensions
-    { label: 'Width', prefix: 'w-', tokenType: 'dimension', group: 'Dimensions' },
-    { label: 'Height', prefix: 'h-', tokenType: 'dimension', group: 'Dimensions' },
+const SECTIONS: Record<string, SectionDef> = {
     // Typography
-    { label: 'Text Color', prefix: 'text-', tokenType: 'color', group: 'Typography' },
-    { label: 'Font Size', prefix: 'text-', tokenType: 'dimension', group: 'Typography' },
-    { label: 'Font Family', prefix: 'font-', tokenType: 'fontFamily', group: 'Typography' },
-    { label: 'Font Weight', prefix: 'font-', tokenType: 'fontWeight', group: 'Typography' },
-    { label: 'Line Height', prefix: 'leading-', tokenType: 'lineHeight', group: 'Typography' },
-    { label: 'Letter Spacing', prefix: 'tracking-', tokenType: 'letterSpacing', group: 'Typography' },
-    // Appearance
-    { label: 'Background', prefix: 'bg-', tokenType: 'color', group: 'Appearance' },
-    { label: 'Border Color', prefix: 'border-', tokenType: 'color', group: 'Appearance' },
-    { label: 'Border Radius', prefix: 'rounded-', tokenType: 'dimension', group: 'Appearance' },
-    { label: 'Shadow', prefix: 'shadow-', tokenType: 'shadow', group: 'Appearance' },
-    { label: 'Opacity', prefix: 'opacity-', tokenType: 'opacity', group: 'Appearance' },
-]
-
-
-const GROUP_ORDER = ['Layout', 'Dimensions', 'Typography', 'Appearance'] as const
-
-// ── Component ──────────────────────────────────────────────────────────────────
+    textColor: { prefix: 'text-', tokenType: 'color' },
+    fontSize: { prefix: 'text-', tokenType: 'dimension' },
+    fontFamily: { prefix: 'font-', tokenType: 'fontFamily' },
+    fontWeight: { prefix: 'font-', tokenType: 'fontWeight' },
+    lineHeight: { prefix: 'leading-', tokenType: 'lineHeight' },
+    letterSpacing: { prefix: 'tracking-', tokenType: 'letterSpacing' },
+    // Fill
+    background: { prefix: 'bg-', tokenType: 'color' },
+    // Stroke
+    borderColor: { prefix: 'border-', tokenType: 'color' },
+    borderRadius: { prefix: 'rounded-', tokenType: 'dimension' },
+    // Effects
+    shadow: { prefix: 'shadow-', tokenType: 'shadow' },
+    opacity: { prefix: 'opacity-', tokenType: 'opacity' },
+}
 
 interface Props {
-    /** The full className string of the currently selected node. */
     className: string
-    /** Called with the reconstructed className string when any dropdown changes. */
     onCommit: (newClassName: string) => void
 }
 
 export function ClassBuilder({ className, onCommit }: Props) {
     const tokens = useTokenStore((s) => s.tokens)
 
-    /**
-     * Computes the full set of Tailwind class names that ClassBuilder "owns" —
-     * every possible (token × section) pair. Used to identify which classes in
-     * `className` should be removed when rebuilding after a dropdown change.
-     */
     function computeManaged(): Set<string> {
         const managed = new Set<string>()
-        for (const section of SECTIONS) {
+        for (const key of Object.keys(SECTIONS)) {
+            const section = SECTIONS[key]
             for (const token of tokens.filter((t) => t.token_type === section.tokenType)) {
                 managed.add(tokenToClass(token.token_path, token.token_type, section.prefix))
             }
@@ -83,10 +47,6 @@ export function ClassBuilder({ className, onCommit }: Props) {
         return managed
     }
 
-    /**
-     * Returns the active Tailwind class for a section by checking which
-     * token-derived class (for this section's prefix + type) appears in `className`.
-     */
     function getActiveClass(section: SectionDef): string {
         const classList = new Set(className.split(' ').filter(Boolean))
         for (const token of tokens.filter((t) => t.token_type === section.tokenType)) {
@@ -99,20 +59,54 @@ export function ClassBuilder({ className, onCommit }: Props) {
     function handleChange(changedSection: SectionDef, newCls: string | null): void {
         const managed = computeManaged()
 
-        // Classes the user wrote manually (not derivable from any token × section).
         const unmanaged = className
             .split(' ')
             .filter((c) => c !== '' && !managed.has(c))
 
-        // Active selections from every other section — carry them forward.
-        const otherActives = SECTIONS.filter((s) => s !== changedSection)
+        const otherActives = Object.values(SECTIONS)
+            .filter((s) => s !== changedSection)
             .map((s) => getActiveClass(s))
             .filter((c) => c !== '')
 
         const parts = [...unmanaged, ...otherActives]
-        if (newCls !== null) parts.push(newCls)
+        if (newCls !== null && newCls !== '__none__') parts.push(newCls)
 
         onCommit(parts.join(' '))
+    }
+
+    // Helper to generate options for CompactSelect
+    function getOptionsFor(sectionKey: keyof typeof SECTIONS) {
+        const section = SECTIONS[sectionKey]
+        return tokens
+            .filter(t => t.token_type === section.tokenType)
+            .map(t => ({
+                label: normalizePath(t.token_path, t.token_type),
+                value: tokenToClass(t.token_path, t.token_type, section.prefix)
+            }))
+    }
+
+    // Helper to generate options for ColorPickerSwatch
+    function getColorOptionsFor(sectionKey: keyof typeof SECTIONS) {
+        const section = SECTIONS[sectionKey]
+        return tokens
+            .filter(t => t.token_type === section.tokenType)
+            .map(t => ({
+                id: t.id,
+                label: normalizePath(t.token_path, t.token_type),
+                value: tokenToClass(t.token_path, t.token_type, section.prefix),
+                hex: String(t.token_value)
+            }))
+    }
+
+    function getColorActive(sectionKey: keyof typeof SECTIONS) {
+        const section = SECTIONS[sectionKey]
+        const activeCls = getActiveClass(section)
+        const opts = getColorOptionsFor(sectionKey)
+        const found = opts.find(o => o.value === activeCls)
+        return {
+            colorHex: found?.hex || '',
+            display: found ? `${found.label}` : ''
+        }
     }
 
     if (tokens.length === 0) {
@@ -123,34 +117,121 @@ export function ClassBuilder({ className, onCommit }: Props) {
         )
     }
 
-    return (
-        <div className="flex flex-col gap-4 px-3 py-3">
-            {GROUP_ORDER.map((group) => {
-                const sections = SECTIONS.filter((s) => s.group === group)
-                // Only render the group if at least one section has tokens of its type.
-                const hasTokens = sections.some((s) =>
-                    tokens.some((t) => t.token_type === s.tokenType)
-                )
-                if (!hasTokens) return null
+    const txtColorActive = getColorActive('textColor')
+    const bgColorActive = getColorActive('background')
+    const brdColorActive = getColorActive('borderColor')
 
-                return (
-                    <div key={group} className="flex flex-col gap-1">
-                        <span className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-gray-600">
-                            {group}
-                        </span>
-                        {sections.map((section) => (
-                            <TokenSelect
-                                key={`${section.prefix}-${section.tokenType}`}
-                                label={section.label}
-                                tokenType={section.tokenType}
-                                classPrefix={section.prefix}
-                                value={getActiveClass(section)}
-                                onChange={(cls) => handleChange(section, cls)}
+    // Check if sections have active values for headerRight
+    const hasTypography = Object.values(SECTIONS).slice(0, 6).some(s => getActiveClass(s) !== '')
+    const hasFill = getActiveClass(SECTIONS.background) !== ''
+    const hasStroke = getActiveClass(SECTIONS.borderColor) !== '' || getActiveClass(SECTIONS.borderRadius) !== ''
+    const hasEffects = getActiveClass(SECTIONS.shadow) !== '' || getActiveClass(SECTIONS.opacity) !== ''
+
+    return (
+        <div className="flex flex-col">
+            <Accordion title="Typography" defaultOpen={hasTypography}>
+                <div className="flex flex-col gap-2">
+                    <div className="flex gap-2">
+                        <div className="flex-1 min-w-0" title="Font Family">
+                            <CompactSelect
+                                value={getActiveClass(SECTIONS.fontFamily)}
+                                onChange={(val) => handleChange(SECTIONS.fontFamily, val)}
+                                options={getOptionsFor('fontFamily')}
                             />
-                        ))}
+                        </div>
+                        <div className="flex-1 min-w-0" title="Font Weight">
+                            <CompactSelect
+                                value={getActiveClass(SECTIONS.fontWeight)}
+                                onChange={(val) => handleChange(SECTIONS.fontWeight, val)}
+                                options={getOptionsFor('fontWeight')}
+                            />
+                        </div>
                     </div>
-                )
-            })}
+                    <div className="flex gap-2">
+                        <div className="flex-1 min-w-0" title="Font Size">
+                            <CompactSelect
+                                value={getActiveClass(SECTIONS.fontSize)}
+                                onChange={(val) => handleChange(SECTIONS.fontSize, val)}
+                                options={getOptionsFor('fontSize')}
+                            />
+                        </div>
+                        <div className="flex-1 min-w-0" title="Line Height">
+                            <CompactSelect
+                                value={getActiveClass(SECTIONS.lineHeight)}
+                                onChange={(val) => handleChange(SECTIONS.lineHeight, val)}
+                                options={getOptionsFor('lineHeight')}
+                            />
+                        </div>
+                    </div>
+                    <div title="Text Color">
+                        <ColorPickerSwatch
+                            colorHex={txtColorActive.colorHex}
+                            activeTokenDisplay={txtColorActive.display}
+                            options={getColorOptionsFor('textColor')}
+                            onSelect={(val) => handleChange(SECTIONS.textColor, val)}
+                        />
+                    </div>
+                </div>
+            </Accordion>
+
+            <Accordion title="Fill" defaultOpen={hasFill} headerRight={
+                bgColorActive.colorHex && <div className="h-3 w-3 rounded-full border border-gray-600" style={{ backgroundColor: bgColorActive.colorHex }} />
+            }>
+                <ColorPickerSwatch
+                    colorHex={bgColorActive.colorHex}
+                    activeTokenDisplay={bgColorActive.display}
+                    options={getColorOptionsFor('background')}
+                    onSelect={(val) => handleChange(SECTIONS.background, val)}
+                />
+            </Accordion>
+
+            <Accordion title="Stroke" defaultOpen={hasStroke} headerRight={
+                brdColorActive.colorHex && <div className="h-3 w-3 rounded-full border border-gray-600" style={{ backgroundColor: brdColorActive.colorHex }} />
+            }>
+                <div className="flex flex-col gap-2">
+                    <ColorPickerSwatch
+                        colorHex={brdColorActive.colorHex}
+                        activeTokenDisplay={brdColorActive.display}
+                        options={getColorOptionsFor('borderColor')}
+                        onSelect={(val) => handleChange(SECTIONS.borderColor, val)}
+                    />
+                    <div className="flex gap-2 items-center">
+                        <span className="w-16 shrink-0 text-[10px] text-gray-500">Radius</span>
+                        <div className="flex-1 min-w-0">
+                            <CompactSelect
+                                value={getActiveClass(SECTIONS.borderRadius)}
+                                onChange={(val) => handleChange(SECTIONS.borderRadius, val)}
+                                options={getOptionsFor('borderRadius')}
+                            />
+                        </div>
+                    </div>
+                </div>
+            </Accordion>
+
+            <Accordion title="Effects" defaultOpen={hasEffects}>
+                <div className="flex flex-col gap-2">
+                    <div className="flex gap-2 items-center">
+                        <span className="w-16 shrink-0 text-[10px] text-gray-500">Shadow</span>
+                        <div className="flex-1 min-w-0">
+                            <CompactSelect
+                                value={getActiveClass(SECTIONS.shadow)}
+                                onChange={(val) => handleChange(SECTIONS.shadow, val)}
+                                options={getOptionsFor('shadow')}
+                            />
+                        </div>
+                    </div>
+                    <div className="flex gap-2 items-center">
+                        <span className="w-16 shrink-0 text-[10px] text-gray-500">Opacity</span>
+                        <div className="flex-1 min-w-0">
+                            <CompactSelect
+                                value={getActiveClass(SECTIONS.opacity)}
+                                onChange={(val) => handleChange(SECTIONS.opacity, val)}
+                                options={getOptionsFor('opacity')}
+                            />
+                        </div>
+                    </div>
+                </div>
+            </Accordion>
         </div>
     )
 }

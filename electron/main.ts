@@ -19,6 +19,9 @@ interface FileTreeNode {
     children?: FileTreeNode[]
 }
 
+/** Tracks the active project root so the main process can locate bridge-manifest.json. */
+let activeProjectRoot: string | null = null
+
 /** Directory names that are always excluded from the recursive scan. */
 const EXCLUDED_DIRS = new Set([
     'node_modules', 'dist', 'dist-electron', '.git', '.next',
@@ -248,6 +251,7 @@ ipcMain.handle(
             console.error(`[Bridge] main.ts: ensureRepo failed for ${folderPath}`, err)
         })
 
+        activeProjectRoot = folderPath
         return scanDirectory(folderPath)
     }
 )
@@ -909,6 +913,7 @@ app.whenReady().then(async () => {
             const tree = await scanDirectory(normalized)
             const projectName = path.basename(normalized)
             upsertProject(randomUUID(), projectName, normalized)
+            activeProjectRoot = normalized
             return tree
         } catch {
             return null
@@ -1001,6 +1006,299 @@ app.whenReady().then(async () => {
 
     // Sentinel ACK — actual AST surgery runs in editorStore.applyBatch in renderer.
     ipcMain.handle('ai:apply-batch', (): { ok: boolean } => ({ ok: true }))
+
+    // ── Phase N: Figma-to-Bridge AST Hydration (hydroPaste) ───────────────
+    ipcMain.handle('bridge:hydro-paste', async (_event, payloadStr: unknown) => {
+        if (typeof payloadStr !== 'string') return { error: 'Invalid payload' }
+
+        try {
+            const payload = JSON.parse(payloadStr)
+
+            // Read manifest — try project root first, then home dir
+            let manifest: any = { components: {} }
+            const searchPaths = [
+                activeProjectRoot ? path.join(activeProjectRoot, 'bridge-manifest.json') : null,
+                path.join(app.getPath('home'), 'bridge-manifest.json'),
+                path.join(process.cwd(), 'bridge-manifest.json'),
+                path.join(app.getAppPath(), 'bridge-manifest.json'),
+                path.join(app.getAppPath(), '..', 'bridge-manifest.json'),
+            ].filter(Boolean) as string[]
+
+            console.log('[HydroPaste] activeProjectRoot:', activeProjectRoot)
+            console.log('[HydroPaste] Searching for manifest in:', searchPaths)
+
+            let manifestLoaded = false
+            for (const manifestPath of searchPaths) {
+                try {
+                    const raw = await readFile(manifestPath, 'utf8')
+                    manifest = JSON.parse(raw)
+                    console.log(`[HydroPaste] Loaded manifest from ${manifestPath}`)
+                    manifestLoaded = true
+                    break
+                } catch { /* try next */ }
+            }
+            if (!manifestLoaded) {
+                console.warn('[HydroPaste] No bridge-manifest.json found in any search path')
+                return { error: `Manifest not found. Searched: ${searchPaths.join(', ')}. activeProjectRoot=${activeProjectRoot}` }
+            }
+
+            const components = manifest.components || {}
+            const resolvers: any[] = manifest.resolvers || []
+            const requiredImports = new Set<string>()
+
+            // ── Variant descriptor parser ──────────────────────────────────
+            // Parses "Variant=Outlined, Size=Medium*, State=Enabled" → { Variant: "Outlined", Size: "Medium*", State: "Enabled" }
+            function parseVariantDescriptor(desc: string): Record<string, string> {
+                const pairs: Record<string, string> = {}
+                for (const segment of desc.split(',')) {
+                    const eq = segment.indexOf('=')
+                    if (eq === -1) continue
+                    const key = segment.slice(0, eq).trim()
+                    const val = segment.slice(eq + 1).trim()
+                    if (key) pairs[key] = val
+                }
+                return pairs
+            }
+
+            // ── Resolver matcher ───────────────────────────────────────────
+            // Matches a parsed variant descriptor + props against the resolvers array
+            function resolveComponent(nodeData: any): any | null {
+                const descriptor = nodeData.figmaComponent || ''
+                const parsed = parseVariantDescriptor(descriptor)
+                const props = nodeData.props || {}
+
+                // 1. Try exact match in components map
+                if (components[descriptor]) return { ...components[descriptor], _resolvedVia: 'exact' }
+
+                // 2. Try resolver rules
+                for (const resolver of resolvers) {
+                    // Check if any match field has a matching value
+                    let matched = false
+                    for (const [field, values] of Object.entries(resolver.match as Record<string, string[]>)) {
+                        const parsedVal = parsed[field]
+                        if (parsedVal && (values as string[]).some(v =>
+                            v.toLowerCase() === parsedVal.toLowerCase() ||
+                            v.toLowerCase() === parsedVal.replace(/\*$/, '').toLowerCase()
+                        )) {
+                            matched = true
+                            break
+                        }
+                    }
+                    if (!matched) continue
+
+                    // Check detect fields exist in props (at least one)
+                    if (resolver.detect) {
+                        const hasDetectField = (resolver.detect as string[]).some(d => d in props || d in parsed)
+                        if (!hasDetectField) continue
+                    }
+
+                    // Check excludeDetect — if any of these are in props, skip this resolver
+                    if (resolver.excludeDetect) {
+                        const hasExcluded = (resolver.excludeDetect as string[]).some(d => d in props)
+                        if (hasExcluded) continue
+                    }
+
+                    // Skip nodes explicitly marked (e.g., Chips we can't render yet)
+                    if (resolver.skip) return { _skip: true }
+
+                    // Build resolved def
+                    const def: any = {
+                        componentName: resolver.componentName,
+                        importPath: resolver.importPath,
+                        propMap: { ...resolver.propMap },
+                        defaultProps: { ...resolver.defaultProps },
+                        leafComponent: resolver.leafComponent || false,
+                        _resolvedVia: 'resolver',
+                        _wrapperTag: resolver.wrapperTag,
+                    }
+
+                    // Apply variantToProp mapping
+                    if (resolver.variantToProp) {
+                        const { field, map } = resolver.variantToProp
+                        const variantVal = parsed[field] || props[field]
+                        if (variantVal && map[variantVal]) {
+                            def.defaultProps = { ...def.defaultProps, ...map[variantVal] }
+                        }
+                    }
+
+                    return def
+                }
+
+                // 3. Fallback: try component name fragments in the components map
+                for (const key of Object.keys(components)) {
+                    if (key.toLowerCase().replace(/\s+/g, '') === descriptor.toLowerCase().replace(/\s+/g, '')) {
+                        return { ...components[key], _resolvedVia: 'fuzzy' }
+                    }
+                }
+
+                return null
+            }
+
+            async function generateJsxElement(nodeData: any): Promise<any> {
+                const t = await import('@babel/types')
+
+                // Handle raw text nodes from Figma (type "_TextNode")
+                if (nodeData.figmaComponent === '_TextNode') {
+                    const text = nodeData.props?.content || ''
+                    if (!text) return null
+                    return { element: t.jsxText(text), name: '_TextNode' }
+                }
+
+                const componentDef = resolveComponent(nodeData)
+
+                // Skip nodes explicitly excluded by a resolver rule
+                if (componentDef?._skip) return null
+
+                // Handle wrapper/container nodes — emit a <div> and recurse children
+                if (componentDef?._wrapperTag || (!componentDef && nodeData.children?.length > 0)) {
+                    const tag = componentDef?._wrapperTag || 'div'
+                    const childNodes: any[] = []
+                    if (nodeData.children && Array.isArray(nodeData.children)) {
+                        for (const child of nodeData.children) {
+                            const generated = await generateJsxElement(child)
+                            if (generated) childNodes.push(generated)
+                        }
+                    }
+                    if (childNodes.length === 0) return null
+                    const opening = t.jsxOpeningElement(t.jsxIdentifier(tag), [], false)
+                    const closing = t.jsxClosingElement(t.jsxIdentifier(tag))
+                    return { element: t.jsxElement(opening, closing, childNodes.map(c => c.element)), name: tag }
+                }
+
+                if (!componentDef || !componentDef.importPath) {
+                    console.warn(`[HydroPaste] Unresolved: "${nodeData.figmaComponent}"`)
+                    return null
+                }
+
+                console.log(`[HydroPaste] Resolved "${nodeData.figmaComponent}" → ${componentDef.componentName} (via ${componentDef._resolvedVia})`)
+
+                // Track imports (both global set and per-element)
+                const elementImport = `import { ${componentDef.componentName} } from '${componentDef.importPath}'`
+                requiredImports.add(elementImport)
+
+                const jsxName = t.jsxIdentifier(componentDef.componentName)
+                const attributes: any[] = []
+                let childNodes: any[] = []
+                let textContent = ""
+
+                // Apply defaultProps from manifest/resolver (e.g., variant: "secondary", as: 3)
+                if (componentDef.defaultProps) {
+                    for (const [propName, value] of Object.entries(componentDef.defaultProps)) {
+                        if (propName === 'children') {
+                            textContent = String(value)
+                            continue
+                        }
+                        if (typeof value === 'boolean') {
+                            if (value) {
+                                attributes.push(t.jsxAttribute(t.jsxIdentifier(propName), null))
+                            } else {
+                                attributes.push(t.jsxAttribute(t.jsxIdentifier(propName), t.jsxExpressionContainer(t.booleanLiteral(false))))
+                            }
+                        } else if (typeof value === 'number') {
+                            attributes.push(t.jsxAttribute(t.jsxIdentifier(propName), t.jsxExpressionContainer(t.numericLiteral(value))))
+                        } else {
+                            attributes.push(t.jsxAttribute(t.jsxIdentifier(propName), t.stringLiteral(String(value))))
+                        }
+                    }
+                }
+
+                // Map Figma props → React props via propMap
+                if (nodeData.props) {
+                    for (const [figmaProp, value] of Object.entries(nodeData.props)) {
+                        const reactProp = componentDef.propMap[figmaProp]
+                        if (!reactProp) continue
+
+                        if (reactProp === 'children') {
+                            textContent = String(value)
+                            continue
+                        }
+
+                        let attrValue: any = t.stringLiteral(String(value))
+                        if (value === "true") attrValue = null
+                        if (value === "false") {
+                            attrValue = t.jsxExpressionContainer(t.booleanLiteral(false))
+                        }
+                        if (!isNaN(Number(value)) && value !== "") {
+                            attrValue = t.jsxExpressionContainer(t.numericLiteral(Number(value)))
+                        }
+
+                        attributes.push(t.jsxAttribute(t.jsxIdentifier(reactProp), attrValue))
+                    }
+                }
+
+                // Leaf components get text from props — skip recursing children to avoid duplication
+                if (!componentDef.leafComponent && nodeData.children && Array.isArray(nodeData.children)) {
+                    for (const child of nodeData.children) {
+                        const generated = await generateJsxElement(child)
+                        if (generated) childNodes.push(generated)
+                    }
+                }
+
+                const opening = t.jsxOpeningElement(jsxName, attributes, childNodes.length === 0 && !textContent)
+                const closing = childNodes.length === 0 && !textContent ? null : t.jsxClosingElement(jsxName)
+
+                const childrenBlock: any[] = childNodes.map((c: any) => c.element)
+                if (textContent) {
+                    childrenBlock.unshift(t.jsxText(textContent))
+                }
+
+                return { element: t.jsxElement(opening, closing, childrenBlock), name: componentDef.componentName, import: elementImport }
+            }
+
+            const rawElements = await Promise.all(payload.children.map(generateJsxElement))
+            const rootElements = rawElements.filter(Boolean)
+            if (rootElements.length === 0) return { error: 'No valid components found in payload' }
+
+            const _genMod: any = await import('@babel/generator')
+            const generate: any =
+                typeof _genMod === 'function' ? _genMod
+                : typeof _genMod.default === 'function' ? _genMod.default
+                : typeof _genMod.default?.default === 'function' ? _genMod.default.default
+                : _genMod.generate
+
+            // Generate per-element snippets paired with their imports
+            const elements = rootElements.map((result: any) => {
+                const { code } = generate(result.element)
+                return {
+                    code,
+                    import: result.import || null
+                }
+            })
+
+            return {
+                ok: true,
+                imports: Array.from(requiredImports),
+                elements
+            }
+
+        } catch (err) {
+            console.error('[HydroPaste Error]', err)
+            return { error: String(err) }
+        }
+    })
+
+    // ── Phase M: RAG endpoints ───────────────────────────────────────────────
+    ipcMain.handle('ai:query-rag', async (_event, query: unknown): Promise<unknown[]> => {
+        if (typeof query !== 'string') return []
+        const { queryRAG } = await import('./ragService.js')
+        return await queryRAG(query)
+    })
+
+    ipcMain.handle('ai:ingest-rag', async (_event, chunks: unknown): Promise<{ ingested: number }> => {
+        if (!Array.isArray(chunks)) return { ingested: 0 }
+        const { ingestChunks } = await import('./ragService.js')
+        return await ingestChunks(chunks)
+    })
+
+    ipcMain.handle('ai:clear-rag', async (): Promise<void> => {
+        const { clearRAG } = await import('./ragService.js')
+        clearRAG()
+    })
+
+    ipcMain.handle('ai:rag-count', async (): Promise<number> => {
+        const { ragChunkCount } = await import('./ragService.js')
+        return ragChunkCount()
+    })
 
     // ── Phase P: Integrated Terminal ──────────────────────────────────────────
     let ptyProcess: IPty | null = null

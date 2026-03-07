@@ -15,6 +15,68 @@
 
 import { create } from 'zustand'
 import type { ChatMessage } from '../types/bridge-api'
+import { useEditorStore } from './editorStore'
+import { useCanvasStore } from './canvasStore'
+
+// ── Phase M: Read-Only Tool Auto-Execution ────────────────────────────────────
+//
+// These tools gather context (code, tokens, violations) without mutating state.
+// When the AI calls them, we execute immediately and inject the tool_result
+// back into the conversation, then re-prompt the LLM — no user approval needed.
+
+const READ_ONLY_TOOLS = new Set([
+    'bridge_read_code',
+    'bridge_read_tokens',
+    'bridge_audit_mithril',
+    'bridge_audit_a11y',
+    'bridge_search_design_system',
+])
+
+interface PendingReadOnlyTool {
+    toolName: string
+    toolUseId: string
+    toolInput: Record<string, unknown>
+}
+
+/**
+ * Executes a read-only tool and returns the result string.
+ * All data is read from renderer-side Zustand stores or IPC.
+ */
+async function executeReadOnlyTool(toolName: string, toolInput: Record<string, unknown>): Promise<string> {
+    switch (toolName) {
+        case 'bridge_read_code': {
+            const code = useEditorStore.getState().rawCode
+            return code || '(no file open)'
+        }
+        case 'bridge_read_tokens': {
+            const tokens = await window.bridgeAPI.tokens.readAll()
+            return JSON.stringify(tokens, null, 2)
+        }
+        case 'bridge_audit_mithril': {
+            const warnings = useEditorStore.getState().linterWarnings
+            const violations = useCanvasStore.getState().mithrilViolations
+            return JSON.stringify({
+                violationCount: violations.length,
+                violations: violations.map((id) => {
+                    const w = warnings.get(id)
+                    return w ? { ...w } : { id, type: 'unknown', severity: 'amber' }
+                }),
+            }, null, 2)
+        }
+        case 'bridge_audit_a11y': {
+            const a11y = useCanvasStore.getState().a11yViolations
+            return JSON.stringify(a11y, null, 2)
+        }
+        case 'bridge_search_design_system': {
+            const query = typeof toolInput.query === 'string' ? toolInput.query : ''
+            if (!window.bridgeAPI.ai.queryRAG) return '(RAG not configured)'
+            const results = await window.bridgeAPI.ai.queryRAG(query)
+            return JSON.stringify(results, null, 2)
+        }
+        default:
+            return `Unknown read-only tool: ${toolName}`
+    }
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -128,20 +190,36 @@ async function _dispatchChat(
 
     window.bridgeAPI.ai.removeChunkListener()
 
+    // ── Phase M: Collect read-only tool calls during streaming ────────────────
+    // Deduplicates by toolUseId (backend emits tool_call at content_block_start
+    // AND message_stop — we only process each ID once).
+    const pendingReadOnly: PendingReadOnlyTool[] = []
+    const seenToolIds = new Set<string>()
+
     window.bridgeAPI.ai.onChunk((chunk) => {
         if (controller.signal.aborted) return
         const store = get()
         if (chunk.type === 'text' && chunk.text) {
             store._appendTextDelta(chunk.text)
             set({ activeStatus: 'Generating response...' })
-        } else if (chunk.type === 'tool_call' && chunk.toolInput && Object.keys(chunk.toolInput).length > 0) {
-            set({ activeStatus: `Preparing tool: ${chunk.toolName ?? '...'}` })
-            store._flushAssistantTurn()
-            store._addToolCallMessage(
-                chunk.toolName ?? '',
-                chunk.toolUseId ?? '',
-                chunk.toolInput ?? {},
-            )
+        } else if (chunk.type === 'tool_call') {
+            const toolName = chunk.toolName ?? ''
+            const toolUseId = chunk.toolUseId ?? ''
+
+            // Deduplicate: skip if we've already seen this tool_use ID
+            if (seenToolIds.has(toolUseId)) return
+            seenToolIds.add(toolUseId)
+
+            if (READ_ONLY_TOOLS.has(toolName)) {
+                // ── Phase M: Queue read-only tool for auto-execution on 'done' ──
+                set({ activeStatus: `Reading: ${toolName}...` })
+                pendingReadOnly.push({ toolName, toolUseId, toolInput: chunk.toolInput ?? {} })
+            } else if (chunk.toolInput && Object.keys(chunk.toolInput).length > 0) {
+                // Mutation tool — queue for user approval
+                set({ activeStatus: `Preparing tool: ${toolName}` })
+                store._flushAssistantTurn()
+                store._addToolCallMessage(toolName, toolUseId, chunk.toolInput ?? {})
+            }
         } else if (chunk.type === 'validation_error') {
             // ── Phase M Commandment 16: Invisible AI Recovery Loop ────────────
             // A tool call failed in-memory validation. Feed the error back to
@@ -149,8 +227,6 @@ async function _dispatchChat(
             // ever seeing a broken diff card.
             console.warn(`[Bridge] Invisible recovery: ${chunk.toolName} validation failed: ${chunk.error}`)
             store._flushAssistantTurn()
-            // Add a synthetic invisible tool_result error into the history.
-            // Use get() + imperative set to match the local typed set signature.
             const currentMessages = get().messages
             set({
                 messages: [
@@ -164,13 +240,71 @@ async function _dispatchChat(
                     },
                 ],
             })
-            // Re-dispatch immediately so the AI can correct itself
             void _dispatchChat(get, set)
 
         } else if (chunk.type === 'done') {
             store._flushAssistantTurn()
-            store._finishStream()
             window.bridgeAPI.ai.removeChunkListener()
+
+            if (pendingReadOnly.length > 0) {
+                // ── Phase M: Auto-execute read-only tools, then re-prompt ─────
+                void (async () => {
+                    for (const tool of pendingReadOnly) {
+                        set({ activeStatus: `Executing: ${tool.toolName}...` })
+                        try {
+                            const result = await executeReadOnlyTool(tool.toolName, tool.toolInput)
+                            const toolData: PendingToolCall = {
+                                id: tool.toolUseId,
+                                toolName: tool.toolName,
+                                input: tool.toolInput,
+                                status: 'approved',
+                                result,
+                            }
+                            // Inject tool_call + tool_result pair into history
+                            const currentMessages = get().messages
+                            set({
+                                messages: [
+                                    ...currentMessages,
+                                    {
+                                        id: uid(),
+                                        role: 'tool_call' as MessageRole,
+                                        content: tool.toolName,
+                                        toolData,
+                                        timestamp: Date.now(),
+                                    },
+                                    {
+                                        id: uid(),
+                                        role: 'tool_result' as MessageRole,
+                                        content: result,
+                                        toolData,
+                                        timestamp: Date.now(),
+                                    },
+                                ],
+                            })
+                        } catch (err) {
+                            const errMsg = err instanceof Error ? err.message : String(err)
+                            console.error(`[Bridge] Read-only tool ${tool.toolName} failed:`, errMsg)
+                            const currentMessages = get().messages
+                            set({
+                                messages: [
+                                    ...currentMessages,
+                                    {
+                                        id: uid(),
+                                        role: 'tool_result' as MessageRole,
+                                        content: `Error reading ${tool.toolName}: ${errMsg}`,
+                                        toolData: { id: tool.toolUseId, toolName: tool.toolName, input: tool.toolInput, status: 'approved' },
+                                        timestamp: Date.now(),
+                                    },
+                                ],
+                            })
+                        }
+                    }
+                    // Re-dispatch to continue the LLM conversation with tool results
+                    await _dispatchChat(get, set)
+                })()
+            } else {
+                store._finishStream()
+            }
         } else if (chunk.type === 'error') {
             store._flushAssistantTurn()
             store._addErrorMessage(chunk.error ?? 'Unknown error')

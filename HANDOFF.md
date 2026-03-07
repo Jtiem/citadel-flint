@@ -54,6 +54,7 @@ Bridge is a performance-hardened, three-process Electron app designed for agenti
 | Interaction Modes | I | **ONLINE** | `canvasMode` toggles pointer-events within LivePreview iframe via IPC message |
 | Bridge Auditor / Orchestration | L | **ONLINE** | `electron/orchestrator.ts` (Anthropic Claude streaming + Bridge Tool Catalog) · `src/store/orchestratorStore.ts` · `AgentChatPanel.tsx` (🤖 tab in right panel) · `ai:chat`, `ai:get-config`, `ai:save-config` IPC in `main.ts` · `applyBatch` + `ai` namespace in `preload.ts` · Store reads `~/.bridge/config.json` for API key. Every AI-proposed mutation requires user confirmation before touching the AST. |
 | AI Orchestrator Hardening | M | **ONLINE** | `orchestrator.ts` constrained to 7-op Bridge AST Tool Catalog (no raw code strings). In-memory TSC validation loop. Design system RAG via `sqlite-vec`. Structured Outputs / Tool Use API mode enforced. Commandments 15 & 16 active. |
+| Designer Experience & UX | N | **PLANNED** | "Logic Extraction" Scratchpad (JSX callback preservation). Destructive Logic Alerts preventing raw deletion of stateful logic nodes. Live file-system component auto-syncing (like Figma libraries). |
 
 ---
 

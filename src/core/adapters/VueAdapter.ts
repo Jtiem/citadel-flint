@@ -354,22 +354,63 @@ export class VueAdapter implements IBridgeAdapter {
                         (p) => p.type === NodeTypes.ATTRIBUTE && (p as AttributeNode).name === mutation.propName
                     ) as AttributeNode | undefined
 
-                    const oldVal = existingProp?.value?.content ?? ''
+                    // In a boolean attribute (like `disabled`), value might be absent, meaning true.
+                    const oldVal = existingProp ? (existingProp.value?.content ?? true) : null
                     inversions.push({ op: 'updateProp', nodeId: mutation.nodeId, propName: mutation.propName, value: oldVal })
 
-                    if (existingProp?.value) {
-                        current = applySplices(current, [{
-                            start: existingProp.value.loc.start.offset + 1,
-                            end: existingProp.value.loc.end.offset - 1,
-                            replacement: mutation.value,
-                        }])
+                    if (mutation.value === null || mutation.value === false) {
+                        // Delete the prop
+                        if (existingProp) {
+                            // Expand start slightly to consume the preceding space if possible
+                            let start = existingProp.loc.start.offset
+                            while (start > 0 && current[start - 1] === ' ') start--
+                            current = applySplices(current, [{
+                                start,
+                                end: existingProp.loc.end.offset,
+                                replacement: '',
+                            }])
+                        }
+                    } else if (mutation.value === true) {
+                        // Add boolean prop
+                        if (!existingProp) {
+                            const tagEnd = el.loc.start.offset + 1 + el.tag.length
+                            current = applySplices(current, [{
+                                start: tagEnd,
+                                end: tagEnd,
+                                replacement: ` ${mutation.propName}`,
+                            }])
+                        } else if (existingProp.value) {
+                            // Trim value to leave just the bare prop
+                            current = applySplices(current, [{
+                                start: existingProp.loc.start.offset,
+                                end: existingProp.loc.end.offset,
+                                replacement: mutation.propName,
+                            }])
+                        }
                     } else {
-                        const tagEnd = el.loc.start.offset + 1 + el.tag.length
-                        current = applySplices(current, [{
-                            start: tagEnd,
-                            end: tagEnd,
-                            replacement: ` ${mutation.propName}="${mutation.value}"`,
-                        }])
+                        // String mutation
+                        const strVal = String(mutation.value)
+                        if (existingProp?.value) {
+                            current = applySplices(current, [{
+                                start: existingProp.value.loc.start.offset + 1,
+                                end: existingProp.value.loc.end.offset - 1,
+                                replacement: strVal,
+                            }])
+                        } else if (existingProp) {
+                            // Prop exists without value (e.g. disabled) -> append value
+                            current = applySplices(current, [{
+                                start: existingProp.loc.start.offset,
+                                end: existingProp.loc.end.offset,
+                                replacement: `${mutation.propName}="${strVal}"`,
+                            }])
+                        } else {
+                            const tagEnd = el.loc.start.offset + 1 + el.tag.length
+                            current = applySplices(current, [{
+                                start: tagEnd,
+                                end: tagEnd,
+                                replacement: ` ${mutation.propName}="${strVal}"`,
+                            }])
+                        }
                     }
                     break
                 }

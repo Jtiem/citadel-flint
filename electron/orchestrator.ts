@@ -224,6 +224,19 @@ Only use element types that exist in the design system read from bridge_read_tok
             required: ['targetId', 'className', 'reasoning'],
         },
     },
+    // ── Phase M: Design System RAG Search ─────────────────────────────────────
+    {
+        name: 'bridge_search_design_system',
+        description:
+            'Search the design system knowledge base for component patterns, usage guidelines, and documentation. Use this when you need context about how components should be structured, which patterns to follow, or to find existing design system conventions before proposing changes.',
+        input_schema: {
+            type: 'object' as const,
+            properties: {
+                query: { type: 'string', description: 'Natural language search query describing what you need to know about the design system.' },
+            },
+            required: ['query'],
+        },
+    },
 ]
 
 // ── System Prompt (Phase M) ───────────────────────────────────────────────────

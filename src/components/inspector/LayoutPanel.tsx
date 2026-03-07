@@ -24,12 +24,12 @@
  * Renderer Process only — no Node.js imports.
  */
 
-import { WrapText, ArrowDown, ArrowRight } from 'lucide-react'
+import { WrapText, ArrowDown, ArrowRight, Grid, Maximize } from 'lucide-react'
 import type { TokenType } from '../../types/bridge-api'
 import { useTokenStore } from '../../store/tokenStore'
-import { tokenToClass } from '../../utils/classMapper'
+import { normalizePath, tokenToClass } from '../../utils/classMapper'
 import { updateLayoutClass, getActiveLayoutClass } from '../../utils/layoutMapper'
-import { TokenSelect } from './TokenSelect'
+import { CompactSelect } from './primitives'
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -81,9 +81,8 @@ function AlignmentGrid({
                     onClick={() => onCellClick(cellJustify, cellItems)}
                 >
                     <div
-                        className={`h-1.5 w-1.5 rounded-full transition-colors ${
-                            isActive ? 'bg-indigo-400' : 'bg-gray-600 hover:bg-gray-400'
-                        }`}
+                        className={`h-1.5 w-1.5 rounded-full transition-colors ${isActive ? 'bg-indigo-400' : 'bg-gray-600 hover:bg-gray-400'
+                            }`}
                     />
                 </button>
             )
@@ -165,8 +164,28 @@ export function LayoutPanel({ className, onChange }: Props) {
         const parts = className
             .split(/\s+/)
             .filter((c) => c !== '' && !allPossible.has(c))
-        if (newCls !== null) parts.push(newCls)
+        if (newCls !== null && newCls !== '__none__') parts.push(newCls)
         onChange(parts.join(' '))
+    }
+
+    // Generate options for CompactSelect
+    function getOptionsFor(tokenType: TokenType, prefix: string) {
+        return tokens
+            .filter(t => t.token_type === tokenType)
+            .map(t => ({
+                label: normalizePath(t.token_path, t.token_type),
+                value: tokenToClass(t.token_path, t.token_type, prefix)
+            }))
+    }
+
+    // Default W/H options mixed with tokens
+    function getSizingOptions(tokenType: TokenType, prefix: string) {
+        const options = [
+            { label: 'Hug', value: `${prefix}fit` },
+            { label: 'Fill', value: `${prefix}full` },
+            ...getOptionsFor(tokenType, prefix)
+        ]
+        return options
     }
 
     // ── Style helpers ─────────────────────────────────────────────────────────
@@ -181,22 +200,19 @@ export function LayoutPanel({ className, onChange }: Props) {
         ].join(' ')
     }
 
-    const selectCls =
-        'flex-1 appearance-none rounded border border-gray-700 bg-gray-800/60 px-1.5 py-0.5 text-[11px] text-gray-200 outline-none focus:border-indigo-500'
 
     // ── Render ────────────────────────────────────────────────────────────────
 
     return (
-        <div className="flex flex-col gap-3 border-b border-gray-800 px-3 py-3">
-            {/* Header */}
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-600">
-                Auto Layout
+        <div className="flex flex-col gap-2 border-b border-gray-800 px-3 py-3">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-600 mb-1">
+                Layout & Sizing
             </span>
 
-            {/* ── Section 1: Flow ─────────────────────────────────────────── */}
-            <div className="flex items-center gap-2">
-                <span className="w-16 shrink-0 text-[11px] text-gray-500">Flow</span>
-                <div className="flex gap-1">
+            {/* Top Row: Flow controls */}
+            <div className="flex items-center justify-between">
+                <span className="text-[11px] text-gray-500 font-medium">Auto Layout</span>
+                <div className="flex gap-1 justify-end">
                     <button
                         type="button"
                         title="Wrap (flex-wrap)"
@@ -224,65 +240,55 @@ export function LayoutPanel({ className, onChange }: Props) {
                 </div>
             </div>
 
-            {/* ── Section 2: Alignment grid + Gap ─────────────────────────── */}
-            <div className="flex items-start gap-3">
+            {/* Middle Row: Alignment Grid + Densified Padding/Gap/Sizing */}
+            <div className="flex gap-3">
                 <AlignmentGrid
                     isColumn={isColumn}
                     activeAlignment={activeAlignment}
                     activeJustification={activeJustification}
                     onCellClick={handleCellClick}
                 />
-                <div className="min-w-0 flex-1">
-                    <TokenSelect
-                        label="Gap"
-                        tokenType="dimension"
-                        classPrefix="gap-"
-                        value={getActiveTokenClass('gap-', 'dimension')}
-                        onChange={(cls) => handleTokenChange('gap-', 'dimension', cls)}
+                <div className="flex flex-col gap-2 flex-1 min-w-0">
+                    <div className="flex gap-2">
+                        <div className="flex-1 min-w-0" title="Gap">
+                            <CompactSelect
+                                icon={<Grid className="h-3 w-3" />}
+                                value={getActiveTokenClass('gap-', 'dimension')}
+                                onChange={(cls) => handleTokenChange('gap-', 'dimension', cls)}
+                                options={getOptionsFor('dimension', 'gap-')}
+                            />
+                        </div>
+                        <div className="flex-1 min-w-0" title="Padding">
+                            <CompactSelect
+                                icon={<Maximize className="h-3 w-3" />}
+                                value={getActiveTokenClass('p-', 'dimension')}
+                                onChange={(cls) => handleTokenChange('p-', 'dimension', cls)}
+                                options={getOptionsFor('dimension', 'p-')}
+                            />
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Bottom Row: W / H Size inputs */}
+            <div className="flex gap-2">
+                <div className="flex flex-1 items-center gap-1.5" title="Width">
+                    <CompactSelect
+                        icon={<span className="text-[9px] font-bold text-gray-500 w-3 text-center">W</span>}
+                        value={activeWidth}
+                        onChange={handleWidth}
+                        options={getSizingOptions('dimension', 'w-')}
+                    />
+                </div>
+                <div className="flex flex-1 items-center gap-1.5" title="Height">
+                    <CompactSelect
+                        icon={<span className="text-[9px] font-bold text-gray-500 w-3 text-center">H</span>}
+                        value={activeHeight}
+                        onChange={handleHeight}
+                        options={getSizingOptions('dimension', 'h-')}
                     />
                 </div>
             </div>
-
-            {/* ── Section 3: Resizing ──────────────────────────────────────── */}
-            <div className="flex gap-2">
-                <div className="flex flex-1 items-center gap-1.5">
-                    <span className="shrink-0 text-[10px] font-semibold text-gray-600">
-                        W
-                    </span>
-                    <select
-                        value={activeWidth}
-                        onChange={(e) => handleWidth(e.target.value)}
-                        className={selectCls}
-                    >
-                        <option value="">— default —</option>
-                        <option value="w-fit">Hug</option>
-                        <option value="w-full">Fill</option>
-                    </select>
-                </div>
-                <div className="flex flex-1 items-center gap-1.5">
-                    <span className="shrink-0 text-[10px] font-semibold text-gray-600">
-                        H
-                    </span>
-                    <select
-                        value={activeHeight}
-                        onChange={(e) => handleHeight(e.target.value)}
-                        className={selectCls}
-                    >
-                        <option value="">— default —</option>
-                        <option value="h-fit">Hug</option>
-                        <option value="h-full">Fill</option>
-                    </select>
-                </div>
-            </div>
-
-            {/* ── Section 4: Padding ───────────────────────────────────────── */}
-            <TokenSelect
-                label="Padding"
-                tokenType="dimension"
-                classPrefix="p-"
-                value={getActiveTokenClass('p-', 'dimension')}
-                onChange={(cls) => handleTokenChange('p-', 'dimension', cls)}
-            />
         </div>
     )
 }

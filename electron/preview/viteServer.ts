@@ -94,6 +94,23 @@ const BRIDGE_SCRIPT = /* html */`
       window.parent.postMessage({type:'HIT_TEST_RESULT',targetId:dt?dt.getAttribute('data-bridge-id'):null,position:dp},'*');return;
     }
   });
+  document.addEventListener('paste', function(e){
+    if(window.__bridgeInteractMode)return;
+    var f=e.clipboardData?e.clipboardData.getData('application/x-bridge-figma-ast'):null;
+    if(!f&&e.clipboardData){
+      var t=e.clipboardData.getData('text/plain');
+      if(t){
+        try{
+          var p=JSON.parse(t);
+          if(p&&p.type==='application/x-bridge-figma-ast'){f=typeof p.payload==='string'?p.payload:JSON.stringify(p.payload);}
+        }catch(err){}
+      }
+    }
+    if(f){
+      e.preventDefault();
+      window.parent.postMessage({type:'FIGMA_PASTE',payload:f},'*');
+    }
+  });
   document.addEventListener('click',function(e){
     if(window.__bridgeInteractMode)return;
     var el=e.target.closest('[data-bridge-id]');

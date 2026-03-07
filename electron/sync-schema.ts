@@ -97,20 +97,35 @@ export const ephemeralPresenceBucket: BucketDescriptor = {
 
 // ── Composite schema ──────────────────────────────────────────────────────────
 
+import { Schema, Table, column } from '@powersync/node'
+
 /**
  * The complete SyncRules schema object passed to the PowerSyncDatabase
  * initializer when a backend URL is configured.
- *
- * Usage (once @powersync/node is connected to a backend):
- * ```ts
- * import { SYNC_SCHEMA } from './sync-schema.js'
- * const db = new PowerSyncDatabase({ schema: SYNC_SCHEMA, ... })
- * ```
  */
-export const SYNC_SCHEMA = {
-    buckets: {
-        global_tokens: globalTokensBucket,
-        project_metadata: projectMetadataBucket,
-        ephemeral_presence: ephemeralPresenceBucket,
-    },
-} as const
+export const SYNC_SCHEMA = new Schema({
+    design_tokens: new Table({
+        token_path: column.text,
+        token_type: column.text,
+        token_value: column.text,
+        description: column.text,
+        mode: column.text,
+        collection_name: column.text,
+        version: column.text,
+        last_modified: column.integer,
+        created_at: column.integer,
+        updated_at: column.integer,
+    }),
+    project_state: new Table({
+        key: column.text,
+        value: column.text,
+        updated_at: column.integer,
+    }),
+    presence: new Table({
+        user_id: column.text,
+        node_id: column.text,
+        x: column.real,
+        y: column.real,
+        updated_at: column.integer,
+    })
+})

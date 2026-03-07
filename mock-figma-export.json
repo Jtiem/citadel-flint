@@ -1,0 +1,42 @@
+{
+    "screenName": "Login",
+    "children": [
+        {
+            "figmaComponent": "Heading",
+            "props": {
+                "level": "1",
+                "content": "Welcome Back"
+            }
+        },
+        {
+            "figmaComponent": "Stack",
+            "props": {
+                "direction": "vertical",
+                "gap": "4"
+            },
+            "children": [
+                {
+                    "figmaComponent": "Input",
+                    "props": {
+                        "placeholder": "Email Address",
+                        "type": "email"
+                    }
+                },
+                {
+                    "figmaComponent": "Input",
+                    "props": {
+                        "placeholder": "Password",
+                        "type": "password"
+                    }
+                },
+                {
+                    "figmaComponent": "Button",
+                    "props": {
+                        "variant": "primary",
+                        "content": "Sign In"
+                    }
+                }
+            ]
+        }
+    ]
+}

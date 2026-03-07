@@ -137,7 +137,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
                 if (tokens.length === 0) {
                     sendJson(res, 400, {
                         error: 'No tokens produced. Verify the payload contains ' +
-                               'variables and variableCollections keys.',
+                            'variables and variableCollections keys.',
                     })
                     return
                 }
@@ -211,7 +211,53 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         return
     }
 
-    // 5. Fallthrough — 404
+    // 5. Route: POST /ingest-ast — Figma AST payload → notify renderer
+    if (req.method === 'POST' && req.url === '/ingest-ast') {
+        let rawBody = ''
+
+        req.on('data', (chunk: Buffer) => {
+            rawBody += chunk.toString('utf8')
+            if (rawBody.length > 10 * 1024 * 1024) {
+                req.destroy()
+            }
+        })
+
+        req.on('end', () => {
+            try {
+                const payload = JSON.parse(rawBody)
+
+                // For /ingest-ast, the plugin sends { type, payload } where payload is the AST JSON string
+                // or just the AST JSON string directly. We'll handle both.
+                let figmaPayload: string;
+                if (payload && payload.type === 'application/x-bridge-figma-ast') {
+                    figmaPayload = typeof payload.payload === 'string'
+                        ? payload.payload
+                        : JSON.stringify(payload.payload)
+                } else {
+                    figmaPayload = rawBody
+                }
+
+                // Notify the renderer to perform AST hydration
+                const windows = BrowserWindow.getAllWindows()
+                if (windows.length > 0) {
+                    windows[0].webContents.send('bridge:hydro-paste-auto', figmaPayload)
+                }
+
+                console.log('[Bridge] /ingest-ast: received AST payload')
+                sendJson(res, 200, { success: true })
+            } catch {
+                sendJson(res, 400, { error: 'Invalid JSON payload' })
+            }
+        })
+
+        req.on('error', () => {
+            sendJson(res, 500, { error: 'Request stream error' })
+        })
+
+        return
+    }
+
+    // 6. Fallthrough — 404
     sendJson(res, 404, { error: `Route not found: ${req.method} ${req.url}` })
 }
 

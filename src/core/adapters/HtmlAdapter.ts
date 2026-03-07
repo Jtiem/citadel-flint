@@ -238,7 +238,17 @@ export class HtmlAdapter implements IBridgeAdapter {
                     const found = findById(ast, mutation.nodeId)
                     if (!found) { inversions.push({ op: 'restoreCode', code }); break }
                     found.node.properties ??= {}
-                    const oldVal = String(found.node.properties[mutation.propName] ?? '')
+                    const rawVal = found.node.properties[mutation.propName]
+                    let oldVal: string | boolean | null = null
+                    if (typeof rawVal === 'boolean') {
+                        oldVal = rawVal
+                    } else if (typeof rawVal === 'string') {
+                        oldVal = rawVal
+                    } else if (Array.isArray(rawVal)) {
+                        oldVal = String(rawVal[0])
+                    } else if (typeof rawVal === 'number') {
+                        oldVal = String(rawVal)
+                    }
                     inversions.push({ op: 'updateProp', nodeId: mutation.nodeId, propName: mutation.propName, value: oldVal })
                     found.node.properties[mutation.propName] = mutation.value
                     break

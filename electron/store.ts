@@ -11,6 +11,10 @@
 import Database from 'better-sqlite3'
 import path from 'node:path'
 import { app } from 'electron'
+import { Worker } from 'node:worker_threads'
+import { PowerSyncDatabase } from '@powersync/node'
+import { SYNC_SCHEMA } from './sync-schema.js'
+import * as sqliteVec from 'sqlite-vec'
 
 // Resolve to the OS-appropriate user data directory:
 //   macOS: ~/Library/Application Support/bridge-ide/bridge.db
@@ -22,6 +26,11 @@ const db = new Database(DB_PATH)
 
 // WAL mode dramatically improves write performance for concurrent reads
 db.pragma('journal_mode = WAL')
+
+// ── Phase M: Load sqlite-vec extension for vector search ──────────────────────
+// Load extension manually to avoid ESM/Vite path resolution bugs
+db.loadExtension(sqliteVec.getLoadablePath())
+console.log('[Bridge] sqlite-vec extension loaded')
 
 // ── Static tables (schema is stable, CREATE IF NOT EXISTS is safe) ─────────────
 
@@ -192,6 +201,56 @@ if (overrideColumns.length === 0) {
     console.log('[Bridge] component_overrides schema current (v2)')
 }
 
+// ── Phase M: Design System RAG vector table ──────────────────────────────────
+//
+// Stores text chunk embeddings for semantic search over design system docs,
+// component patterns, and usage guidelines. Embeddings are 384-dimensional
+// float32 vectors (matches all-MiniLM-L6-v2 / text-embedding-3-small output
+// when configured with dimensions=384).
+//
+// vec_design_system is a sqlite-vec virtual table; the companion metadata table
+// stores the source text chunks and provenance info.
+
+db.exec(`
+    CREATE TABLE IF NOT EXISTS rag_chunks (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        content     TEXT    NOT NULL,
+        source      TEXT    NOT NULL DEFAULT '',
+        chunk_type  TEXT    NOT NULL DEFAULT 'documentation',
+        created_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+    )
+`)
+
+// sqlite-vec virtual table — 384-dim float32 vectors
+// db.exec(`
+//     CREATE VIRTUAL TABLE IF NOT EXISTS vec_design_system USING vec0(
+//         chunk_id INTEGER PRIMARY KEY,
+//         embedding float[384]
+//     )
+// `)
+
+console.log('[Bridge] RAG vector tables ready')
+
 console.log(`[Bridge] Database ready at: ${DB_PATH}`)
+
+// ── PowerSync Integration ──────────────────────────────────────────────────────
+// We instantiate the PowerSync abstraction pointing to the exact same database
+// file. better-sqlite3 handles concurrent local writes via WAL mode perfectly,
+// while PowerSync intercepts those writes via SQLite triggers to build its sync queue.
+
+// export const powerSyncDb = new PowerSyncDatabase({
+//     schema: SYNC_SCHEMA,
+//     database: {
+//         dbFilename: DB_PATH,
+//         openWorker: (_, options) => {
+//             return new Worker(path.join(import.meta.dirname, 'powersync.worker.js'), options as unknown as any)
+//         }
+//     }
+// })
+
+// Background initialization
+// powerSyncDb.init().catch(err => {
+//     console.error('[Bridge] PowerSync init failed:', err)
+// })
 
 export default db

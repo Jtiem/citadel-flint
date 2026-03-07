@@ -1,5 +1,5 @@
 import { app, ipcMain, dialog, BrowserWindow, Menu } from "electron";
-import path from "node:path";
+import path__default from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeFile, rename, unlink, realpath, readFile, readdir } from "node:fs/promises";
 import { execFile } from "node:child_process";
@@ -133,7 +133,7 @@ class GitManager {
     } catch {
     }
     await execFileAsync$1("git", ["init"], { cwd: projectPath });
-    await writeFile(path.join(projectPath, ".gitignore"), GITIGNORE_CONTENT, "utf8");
+    await writeFile(path__default.join(projectPath, ".gitignore"), GITIGNORE_CONTENT, "utf8");
     await execFileAsync$1("git", ["config", "user.email", "bridge@local"], { cwd: projectPath });
     await execFileAsync$1("git", ["config", "user.name", "Bridge IDE"], { cwd: projectPath });
     await execFileAsync$1("git", ["add", "."], { cwd: projectPath });
@@ -197,10 +197,10 @@ class GitManager {
    * Read-only — never calls `git checkout` (Commandment 11).
    */
   async getGitNode(commitHash, filePath, dataBridgeId) {
-    const gitRoot = await this._getGitRoot(path.dirname(filePath));
+    const gitRoot = await this._getGitRoot(path__default.dirname(filePath));
     if (!gitRoot) return null;
     const realFilePath = await realpath(filePath).catch(() => filePath);
-    const relPath = path.relative(gitRoot, realFilePath);
+    const relPath = path__default.relative(gitRoot, realFilePath);
     let content;
     try {
       const { stdout } = await execFileAsync$1(
@@ -301,6 +301,23 @@ const BRIDGE_SCRIPT = (
       var de=document.elementFromPoint(e.data.x,e.data.y);var dt=de?de.closest('[data-bridge-id]'):null;
       var dp='inside';if(dt){var dr=dt.getBoundingClientRect();var dpp=(e.data.y-dr.top)/dr.height;dp=dpp<0.25?'before':dpp>0.75?'after':'inside';}
       window.parent.postMessage({type:'HIT_TEST_RESULT',targetId:dt?dt.getAttribute('data-bridge-id'):null,position:dp},'*');return;
+    }
+  });
+  document.addEventListener('paste', function(e){
+    if(window.__bridgeInteractMode)return;
+    var f=e.clipboardData?e.clipboardData.getData('application/x-bridge-figma-ast'):null;
+    if(!f&&e.clipboardData){
+      var t=e.clipboardData.getData('text/plain');
+      if(t){
+        try{
+          var p=JSON.parse(t);
+          if(p&&p.type==='application/x-bridge-figma-ast'){f=typeof p.payload==='string'?p.payload:JSON.stringify(p.payload);}
+        }catch(err){}
+      }
+    }
+    if(f){
+      e.preventDefault();
+      window.parent.postMessage({type:'FIGMA_PASTE',payload:f},'*');
     }
   });
   document.addEventListener('click',function(e){
@@ -407,6 +424,7 @@ function getPreviewUrl() {
   if (_server === null || _port === null) return null;
   return `http://127.0.0.1:${_port}`;
 }
+let activeProjectRoot = null;
 const EXCLUDED_DIRS = /* @__PURE__ */ new Set([
   "node_modules",
   "dist",
@@ -424,7 +442,7 @@ async function scanDirectory(dirPath) {
   const children = [];
   for (const entry of entries) {
     if (entry.name.startsWith(".")) continue;
-    const fullPath = path.join(dirPath, entry.name);
+    const fullPath = path__default.join(dirPath, entry.name);
     if (entry.isDirectory()) {
       if (EXCLUDED_DIRS.has(entry.name)) continue;
       const subtree = await scanDirectory(fullPath);
@@ -439,13 +457,13 @@ async function scanDirectory(dirPath) {
     if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
     return a.name.localeCompare(b.name);
   });
-  return { name: path.basename(dirPath), path: dirPath, type: "directory", children };
+  return { name: path__default.basename(dirPath), path: dirPath, type: "directory", children };
 }
 const execFileAsync = promisify(execFile);
 app.disableHardwareAcceleration();
-const __dirname$1 = path.dirname(fileURLToPath(import.meta.url));
-const RENDERER_DIST = path.join(__dirname$1, "../dist");
-const PRELOAD_PATH = path.join(__dirname$1, "preload.js");
+const __dirname$1 = path__default.dirname(fileURLToPath(import.meta.url));
+const RENDERER_DIST = path__default.join(__dirname$1, "../dist");
+const PRELOAD_PATH = path__default.join(__dirname$1, "preload.js");
 let mainWindow = null;
 let stopServer = null;
 function injectBridgeIdPlugin() {
@@ -542,7 +560,7 @@ function createWindow() {
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
   } else {
-    mainWindow.loadFile(path.join(RENDERER_DIST, "index.html"));
+    mainWindow.loadFile(path__default.join(RENDERER_DIST, "index.html"));
   }
 }
 ipcMain.handle("ping", () => "pong from Main Process ✓");
@@ -555,14 +573,15 @@ ipcMain.handle(
       buttonLabel: "Open"
     });
     if (canceled || filePaths.length === 0) return null;
-    const folderPath = path.normalize(filePaths[0]);
+    const folderPath = path__default.normalize(filePaths[0]);
     const home = app.getPath("home");
-    if (folderPath !== home && !folderPath.startsWith(home + path.sep)) {
+    if (folderPath !== home && !folderPath.startsWith(home + path__default.sep)) {
       return null;
     }
     await gitManager.ensureRepo(folderPath).catch((err) => {
       console.error(`[Bridge] main.ts: ensureRepo failed for ${folderPath}`, err);
     });
+    activeProjectRoot = folderPath;
     return scanDirectory(folderPath);
   }
 );
@@ -570,11 +589,11 @@ ipcMain.handle("file:read", async (_event, filePath) => {
   if (typeof filePath !== "string") {
     throw new TypeError("file:read — filePath must be a string");
   }
-  if (!path.isAbsolute(filePath) || !/\.(tsx?|jsx?)$/.test(filePath)) {
+  if (!path__default.isAbsolute(filePath) || !/\.(tsx?|jsx?)$/.test(filePath)) {
     throw new Error("file:read — filePath must be an absolute path to a .tsx/.ts/.jsx/.js file");
   }
   const home = app.getPath("home");
-  if (!filePath.startsWith(home + path.sep)) {
+  if (!filePath.startsWith(home + path__default.sep)) {
     throw new Error("file:read — path outside user home directory is not permitted");
   }
   return readFile(filePath, "utf-8");
@@ -627,11 +646,11 @@ window.__AppComponent = ${componentName};`;
   }
 });
 ipcMain.handle("preview:start", async (_event, projectRoot) => {
-  if (typeof projectRoot !== "string" || !path.isAbsolute(projectRoot)) {
+  if (typeof projectRoot !== "string" || !path__default.isAbsolute(projectRoot)) {
     return { error: "preview:start — projectRoot must be an absolute path" };
   }
   const home = app.getPath("home");
-  if (projectRoot !== home && !projectRoot.startsWith(home + path.sep)) {
+  if (projectRoot !== home && !projectRoot.startsWith(home + path__default.sep)) {
     return { error: "preview:start — path outside user home directory is not permitted" };
   }
   try {
@@ -650,7 +669,7 @@ ipcMain.handle("preview:url", () => {
   return getPreviewUrl();
 });
 app.whenReady().then(async () => {
-  const { default: db } = await import("./store-CGFKLE71.js");
+  const { default: db } = await import("./store-BF_pllbt.js");
   const stmtCreate = db.prepare(`
         INSERT INTO design_tokens
             (token_path, token_type, token_value, description, mode, collection_name)
@@ -788,15 +807,15 @@ app.whenReady().then(async () => {
     if (typeof filePath !== "string" || typeof content !== "string") {
       throw new TypeError("ast:save-file — filePath and content must be strings");
     }
-    if (!path.isAbsolute(filePath) || !/\.(tsx?|jsx?)$/.test(filePath)) {
+    if (!path__default.isAbsolute(filePath) || !/\.(tsx?|jsx?)$/.test(filePath)) {
       throw new Error("ast:save-file — filePath must be an absolute path to a .tsx/.ts/.jsx/.js file");
     }
     const home = app.getPath("home");
-    if (!filePath.startsWith(home + path.sep)) {
+    if (!filePath.startsWith(home + path__default.sep)) {
       throw new Error("ast:save-file — path outside user home directory is not permitted");
     }
     await fileTransactionManager.write(filePath, content);
-    await gitManager.shadowCommit(path.dirname(filePath)).catch((err) => {
+    await gitManager.shadowCommit(path__default.dirname(filePath)).catch((err) => {
       console.error("[Bridge] main.ts: ast:save-file shadowCommit failed", err);
     });
   });
@@ -810,12 +829,12 @@ app.whenReady().then(async () => {
       if (typeof content !== "string") {
         throw new TypeError(`ast:save-batch — content for "${filePath}" must be a string`);
       }
-      if (!path.isAbsolute(filePath) || !/\.(tsx?|jsx?)$/.test(filePath)) {
+      if (!path__default.isAbsolute(filePath) || !/\.(tsx?|jsx?)$/.test(filePath)) {
         throw new Error(
           `ast:save-batch — "${filePath}" must be an absolute path to a .tsx/.ts/.jsx/.js file`
         );
       }
-      if (!filePath.startsWith(home + path.sep)) {
+      if (!filePath.startsWith(home + path__default.sep)) {
         throw new Error(
           `ast:save-batch — "${filePath}" is outside the user home directory`
         );
@@ -825,7 +844,7 @@ app.whenReady().then(async () => {
     await fileTransactionManager.writeBatch(validated);
     const firstPath = Object.keys(validated)[0];
     if (firstPath) {
-      await gitManager.shadowCommit(path.dirname(firstPath)).catch((err) => {
+      await gitManager.shadowCommit(path__default.dirname(firstPath)).catch((err) => {
         console.error("[Bridge] main.ts: ast:save-batch shadowCommit failed", err);
       });
     }
@@ -835,18 +854,18 @@ app.whenReady().then(async () => {
     async (_event, filePath, commitHash) => {
       if (typeof filePath !== "string" || typeof commitHash !== "string") return null;
       if (!/^([0-9a-fA-F]{4,64}|HEAD)$/.test(commitHash)) return null;
-      if (!path.isAbsolute(filePath)) return null;
+      if (!path__default.isAbsolute(filePath)) return null;
       const home = app.getPath("home");
-      if (!filePath.startsWith(home + path.sep)) return null;
+      if (!filePath.startsWith(home + path__default.sep)) return null;
       try {
-        const cwd = path.dirname(filePath);
+        const cwd = path__default.dirname(filePath);
         const { stdout: rootRaw } = await execFileAsync(
           "git",
           ["rev-parse", "--show-toplevel"],
           { cwd }
         );
         const gitRoot = rootRaw.trim();
-        const relPath = path.relative(gitRoot, filePath);
+        const relPath = path__default.relative(gitRoot, filePath);
         const { stdout } = await execFileAsync(
           "git",
           ["show", `${commitHash}:${relPath}`],
@@ -862,18 +881,18 @@ app.whenReady().then(async () => {
     "ast:git-log",
     async (_event, filePath) => {
       if (typeof filePath !== "string") return [];
-      if (!path.isAbsolute(filePath)) return [];
+      if (!path__default.isAbsolute(filePath)) return [];
       const home = app.getPath("home");
-      if (!filePath.startsWith(home + path.sep)) return [];
+      if (!filePath.startsWith(home + path__default.sep)) return [];
       try {
-        const cwd = path.dirname(filePath);
+        const cwd = path__default.dirname(filePath);
         const { stdout: rootRaw } = await execFileAsync(
           "git",
           ["rev-parse", "--show-toplevel"],
           { cwd }
         );
         const gitRoot = rootRaw.trim();
-        const relPath = path.relative(gitRoot, filePath);
+        const relPath = path__default.relative(gitRoot, filePath);
         const { stdout } = await execFileAsync(
           "git",
           ["log", "--pretty=format:%h|%s|%at", "-n", "50", "--", relPath],
@@ -898,8 +917,8 @@ app.whenReady().then(async () => {
       }
     }
   );
-  const { upsertProject, getRecentProjects, removeProject } = await import("./registry-94ZNgg_K.js");
-  const { initializeProject, injectDemoState } = await import("./templateService-2vfX5BAz.js");
+  const { upsertProject, getRecentProjects, removeProject } = await import("./registry-tjjNUxSY.js");
+  const { initializeProject, injectDemoState } = await import("./templateService-BiF-1Cj-.js");
   ipcMain.handle("dialog:selectFolder", async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog({
       properties: ["openDirectory", "createDirectory"],
@@ -907,9 +926,9 @@ app.whenReady().then(async () => {
       buttonLabel: "Select Folder"
     });
     if (canceled || filePaths.length === 0) return null;
-    const folderPath = path.normalize(filePaths[0]);
+    const folderPath = path__default.normalize(filePaths[0]);
     const home = app.getPath("home");
-    if (folderPath !== home && !folderPath.startsWith(home + path.sep)) return null;
+    if (folderPath !== home && !folderPath.startsWith(home + path__default.sep)) return null;
     return folderPath;
   });
   ipcMain.handle("project:initialize", async (_event, payload) => {
@@ -917,18 +936,18 @@ app.whenReady().then(async () => {
       throw new TypeError("project:initialize — invalid payload shape");
     }
     const { targetPath, templateId } = payload;
-    if (!path.isAbsolute(targetPath)) {
+    if (!path__default.isAbsolute(targetPath)) {
       throw new Error("project:initialize — targetPath must be absolute");
     }
     const home = app.getPath("home");
-    if (targetPath !== home && !targetPath.startsWith(home + path.sep)) {
+    if (targetPath !== home && !targetPath.startsWith(home + path__default.sep)) {
       throw new Error("project:initialize — targetPath must be inside the user home directory");
     }
     initializeProject(targetPath, templateId);
     await gitManager.ensureRepo(targetPath).catch((err) => {
       console.error(`[Bridge] main.ts: ensureRepo failed for new project ${targetPath}`, err);
     });
-    const projectName = path.basename(targetPath);
+    const projectName = path__default.basename(targetPath);
     upsertProject(randomUUID(), projectName, targetPath);
     return scanDirectory(targetPath);
   });
@@ -936,11 +955,11 @@ app.whenReady().then(async () => {
     if (typeof targetPath !== "string") {
       throw new TypeError("project:reset-to-demo — targetPath must be a string");
     }
-    if (!path.isAbsolute(targetPath)) {
+    if (!path__default.isAbsolute(targetPath)) {
       throw new Error("project:reset-to-demo — targetPath must be absolute");
     }
     const home = app.getPath("home");
-    if (targetPath !== home && !targetPath.startsWith(home + path.sep)) {
+    if (targetPath !== home && !targetPath.startsWith(home + path__default.sep)) {
       throw new Error("project:reset-to-demo — targetPath must be inside the user home directory");
     }
     injectDemoState(targetPath);
@@ -951,16 +970,17 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle("project:openPath", async (_event, folderPath) => {
     if (typeof folderPath !== "string") return null;
-    const normalized = path.normalize(folderPath);
+    const normalized = path__default.normalize(folderPath);
     const home = app.getPath("home");
-    if (normalized !== home && !normalized.startsWith(home + path.sep)) return null;
+    if (normalized !== home && !normalized.startsWith(home + path__default.sep)) return null;
     try {
       await gitManager.ensureRepo(normalized).catch((err) => {
         console.error(`[Bridge] main.ts: ensureRepo failed for ${normalized}`, err);
       });
       const tree = await scanDirectory(normalized);
-      const projectName = path.basename(normalized);
+      const projectName = path__default.basename(normalized);
       upsertProject(randomUUID(), projectName, normalized);
+      activeProjectRoot = normalized;
       return tree;
     } catch {
       return null;
@@ -972,14 +992,14 @@ app.whenReady().then(async () => {
   ipcMain.handle("registry:upsertProject", (_event, payload) => {
     if (typeof payload !== "object" || payload === null || typeof payload.name !== "string" || typeof payload.path !== "string") return;
     const { name, path: projectPath } = payload;
-    if (!path.isAbsolute(projectPath)) return;
+    if (!path__default.isAbsolute(projectPath)) return;
     upsertProject(randomUUID(), name, projectPath);
   });
   ipcMain.handle("registry:removeProject", (_event, id) => {
     if (typeof id !== "string" || id.length === 0) return;
     removeProject(id);
   });
-  const { sendChatMessage, readConfig: readAIConfig, writeConfig: writeAIConfig, hasApiKey } = await import("./orchestrator-1CiC-Z5n.js");
+  const { sendChatMessage, readConfig: readAIConfig, writeConfig: writeAIConfig, hasApiKey } = await import("./orchestrator-Dr3IJ0jQ.js");
   ipcMain.handle("ai:get-config", async () => {
     const cfg = await readAIConfig();
     return {
@@ -1014,6 +1034,225 @@ app.whenReady().then(async () => {
     });
   });
   ipcMain.handle("ai:apply-batch", () => ({ ok: true }));
+  ipcMain.handle("bridge:hydro-paste", async (_event, payloadStr) => {
+    if (typeof payloadStr !== "string") return { error: "Invalid payload" };
+    try {
+      let parseVariantDescriptor = function(desc) {
+        const pairs = {};
+        for (const segment of desc.split(",")) {
+          const eq = segment.indexOf("=");
+          if (eq === -1) continue;
+          const key = segment.slice(0, eq).trim();
+          const val = segment.slice(eq + 1).trim();
+          if (key) pairs[key] = val;
+        }
+        return pairs;
+      }, resolveComponent = function(nodeData) {
+        const descriptor = nodeData.figmaComponent || "";
+        const parsed = parseVariantDescriptor(descriptor);
+        const props = nodeData.props || {};
+        if (components[descriptor]) return { ...components[descriptor], _resolvedVia: "exact" };
+        for (const resolver of resolvers) {
+          let matched = false;
+          for (const [field, values] of Object.entries(resolver.match)) {
+            const parsedVal = parsed[field];
+            if (parsedVal && values.some(
+              (v) => v.toLowerCase() === parsedVal.toLowerCase() || v.toLowerCase() === parsedVal.replace(/\*$/, "").toLowerCase()
+            )) {
+              matched = true;
+              break;
+            }
+          }
+          if (!matched) continue;
+          if (resolver.detect) {
+            const hasDetectField = resolver.detect.some((d) => d in props || d in parsed);
+            if (!hasDetectField) continue;
+          }
+          if (resolver.excludeDetect) {
+            const hasExcluded = resolver.excludeDetect.some((d) => d in props);
+            if (hasExcluded) continue;
+          }
+          if (resolver.skip) return { _skip: true };
+          const def = {
+            componentName: resolver.componentName,
+            importPath: resolver.importPath,
+            propMap: { ...resolver.propMap },
+            defaultProps: { ...resolver.defaultProps },
+            leafComponent: resolver.leafComponent || false,
+            _resolvedVia: "resolver",
+            _wrapperTag: resolver.wrapperTag
+          };
+          if (resolver.variantToProp) {
+            const { field, map } = resolver.variantToProp;
+            const variantVal = parsed[field] || props[field];
+            if (variantVal && map[variantVal]) {
+              def.defaultProps = { ...def.defaultProps, ...map[variantVal] };
+            }
+          }
+          return def;
+        }
+        for (const key of Object.keys(components)) {
+          if (key.toLowerCase().replace(/\s+/g, "") === descriptor.toLowerCase().replace(/\s+/g, "")) {
+            return { ...components[key], _resolvedVia: "fuzzy" };
+          }
+        }
+        return null;
+      };
+      const payload = JSON.parse(payloadStr);
+      let manifest = { components: {} };
+      const searchPaths = [
+        activeProjectRoot ? path__default.join(activeProjectRoot, "bridge-manifest.json") : null,
+        path__default.join(app.getPath("home"), "bridge-manifest.json"),
+        path__default.join(process.cwd(), "bridge-manifest.json"),
+        path__default.join(app.getAppPath(), "bridge-manifest.json"),
+        path__default.join(app.getAppPath(), "..", "bridge-manifest.json")
+      ].filter(Boolean);
+      console.log("[HydroPaste] activeProjectRoot:", activeProjectRoot);
+      console.log("[HydroPaste] Searching for manifest in:", searchPaths);
+      let manifestLoaded = false;
+      for (const manifestPath of searchPaths) {
+        try {
+          const raw = await readFile(manifestPath, "utf8");
+          manifest = JSON.parse(raw);
+          console.log(`[HydroPaste] Loaded manifest from ${manifestPath}`);
+          manifestLoaded = true;
+          break;
+        } catch {
+        }
+      }
+      if (!manifestLoaded) {
+        console.warn("[HydroPaste] No bridge-manifest.json found in any search path");
+        return { error: `Manifest not found. Searched: ${searchPaths.join(", ")}. activeProjectRoot=${activeProjectRoot}` };
+      }
+      const components = manifest.components || {};
+      const resolvers = manifest.resolvers || [];
+      const requiredImports = /* @__PURE__ */ new Set();
+      async function generateJsxElement(nodeData) {
+        const t = await import("@babel/types");
+        if (nodeData.figmaComponent === "_TextNode") {
+          const text = nodeData.props?.content || "";
+          if (!text) return null;
+          return { element: t.jsxText(text), name: "_TextNode" };
+        }
+        const componentDef = resolveComponent(nodeData);
+        if (componentDef?._skip) return null;
+        if (componentDef?._wrapperTag || !componentDef && nodeData.children?.length > 0) {
+          const tag = componentDef?._wrapperTag || "div";
+          const childNodes2 = [];
+          if (nodeData.children && Array.isArray(nodeData.children)) {
+            for (const child of nodeData.children) {
+              const generated = await generateJsxElement(child);
+              if (generated) childNodes2.push(generated);
+            }
+          }
+          if (childNodes2.length === 0) return null;
+          const opening2 = t.jsxOpeningElement(t.jsxIdentifier(tag), [], false);
+          const closing2 = t.jsxClosingElement(t.jsxIdentifier(tag));
+          return { element: t.jsxElement(opening2, closing2, childNodes2.map((c) => c.element)), name: tag };
+        }
+        if (!componentDef || !componentDef.importPath) {
+          console.warn(`[HydroPaste] Unresolved: "${nodeData.figmaComponent}"`);
+          return null;
+        }
+        console.log(`[HydroPaste] Resolved "${nodeData.figmaComponent}" → ${componentDef.componentName} (via ${componentDef._resolvedVia})`);
+        const elementImport = `import { ${componentDef.componentName} } from '${componentDef.importPath}'`;
+        requiredImports.add(elementImport);
+        const jsxName = t.jsxIdentifier(componentDef.componentName);
+        const attributes = [];
+        let childNodes = [];
+        let textContent = "";
+        if (componentDef.defaultProps) {
+          for (const [propName, value] of Object.entries(componentDef.defaultProps)) {
+            if (propName === "children") {
+              textContent = String(value);
+              continue;
+            }
+            if (typeof value === "boolean") {
+              if (value) {
+                attributes.push(t.jsxAttribute(t.jsxIdentifier(propName), null));
+              } else {
+                attributes.push(t.jsxAttribute(t.jsxIdentifier(propName), t.jsxExpressionContainer(t.booleanLiteral(false))));
+              }
+            } else if (typeof value === "number") {
+              attributes.push(t.jsxAttribute(t.jsxIdentifier(propName), t.jsxExpressionContainer(t.numericLiteral(value))));
+            } else {
+              attributes.push(t.jsxAttribute(t.jsxIdentifier(propName), t.stringLiteral(String(value))));
+            }
+          }
+        }
+        if (nodeData.props) {
+          for (const [figmaProp, value] of Object.entries(nodeData.props)) {
+            const reactProp = componentDef.propMap[figmaProp];
+            if (!reactProp) continue;
+            if (reactProp === "children") {
+              textContent = String(value);
+              continue;
+            }
+            let attrValue = t.stringLiteral(String(value));
+            if (value === "true") attrValue = null;
+            if (value === "false") {
+              attrValue = t.jsxExpressionContainer(t.booleanLiteral(false));
+            }
+            if (!isNaN(Number(value)) && value !== "") {
+              attrValue = t.jsxExpressionContainer(t.numericLiteral(Number(value)));
+            }
+            attributes.push(t.jsxAttribute(t.jsxIdentifier(reactProp), attrValue));
+          }
+        }
+        if (!componentDef.leafComponent && nodeData.children && Array.isArray(nodeData.children)) {
+          for (const child of nodeData.children) {
+            const generated = await generateJsxElement(child);
+            if (generated) childNodes.push(generated);
+          }
+        }
+        const opening = t.jsxOpeningElement(jsxName, attributes, childNodes.length === 0 && !textContent);
+        const closing = childNodes.length === 0 && !textContent ? null : t.jsxClosingElement(jsxName);
+        const childrenBlock = childNodes.map((c) => c.element);
+        if (textContent) {
+          childrenBlock.unshift(t.jsxText(textContent));
+        }
+        return { element: t.jsxElement(opening, closing, childrenBlock), name: componentDef.componentName, import: elementImport };
+      }
+      const rawElements = await Promise.all(payload.children.map(generateJsxElement));
+      const rootElements = rawElements.filter(Boolean);
+      if (rootElements.length === 0) return { error: "No valid components found in payload" };
+      const _genMod = await import("@babel/generator");
+      const generate = typeof _genMod === "function" ? _genMod : typeof _genMod.default === "function" ? _genMod.default : typeof _genMod.default?.default === "function" ? _genMod.default.default : _genMod.generate;
+      const elements = rootElements.map((result) => {
+        const { code } = generate(result.element);
+        return {
+          code,
+          import: result.import || null
+        };
+      });
+      return {
+        ok: true,
+        imports: Array.from(requiredImports),
+        elements
+      };
+    } catch (err) {
+      console.error("[HydroPaste Error]", err);
+      return { error: String(err) };
+    }
+  });
+  ipcMain.handle("ai:query-rag", async (_event, query) => {
+    if (typeof query !== "string") return [];
+    const { queryRAG } = await import("./ragService-ffskKj_m.js");
+    return await queryRAG(query);
+  });
+  ipcMain.handle("ai:ingest-rag", async (_event, chunks) => {
+    if (!Array.isArray(chunks)) return { ingested: 0 };
+    const { ingestChunks } = await import("./ragService-ffskKj_m.js");
+    return await ingestChunks(chunks);
+  });
+  ipcMain.handle("ai:clear-rag", async () => {
+    const { clearRAG } = await import("./ragService-ffskKj_m.js");
+    clearRAG();
+  });
+  ipcMain.handle("ai:rag-count", async () => {
+    const { ragChunkCount } = await import("./ragService-ffskKj_m.js");
+    return ragChunkCount();
+  });
   let ptyProcess = null;
   ipcMain.handle("terminal:spawn", (event, cwd) => {
     if (typeof cwd !== "string") return;
@@ -1056,7 +1295,7 @@ app.whenReady().then(async () => {
       }
     }
   });
-  const { startIngestionServer, getServerStatus, stopIngestionServer } = await import("./ingestion-server-CG0NJExU.js");
+  const { startIngestionServer, getServerStatus, stopIngestionServer } = await import("./ingestion-server-TEGQC2iA.js");
   startIngestionServer();
   stopServer = stopIngestionServer;
   ipcMain.handle("server:get-status", () => getServerStatus());

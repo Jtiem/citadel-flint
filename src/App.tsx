@@ -27,6 +27,7 @@ import { ExportModal } from './components/ui/ExportModal'
 import { useTokenStore } from './store/tokenStore'
 import { StatusBar } from './components/editor/StatusBar'
 import { useCanvasStore } from './store/canvasStore'
+import { useEditorStore } from './store/editorStore'
 import type { FileTreeNode } from './types/bridge-api'
 import { applyUndo, applyRedo } from './core/recoveryController'
 import { MithrilProvider } from './components/mithril/MithrilProvider'
@@ -166,6 +167,26 @@ function App() {
             // returns undefined when document.activeElement is null, and
             // `undefined !== null` is true, which would incorrectly block undo.
             if (document.activeElement?.closest('.monaco-editor') != null) return
+
+            // Don't intercept global shortcuts if the user is typing in an input
+            if (
+                document.activeElement?.tagName === 'INPUT' ||
+                document.activeElement?.tagName === 'TEXTAREA' ||
+                document.activeElement?.tagName === 'SELECT'
+            ) {
+                return
+            }
+
+            // Node Deletion
+            if (e.key === 'Backspace' || e.key === 'Delete') {
+                const activeSelection = useCanvasStore.getState().activeSelection
+                if (activeSelection) {
+                    e.preventDefault()
+                    useEditorStore.getState().applyBatch([{ op: 'deleteNode', nodeId: activeSelection }])
+                    useCanvasStore.getState().setActiveSelection(null)
+                }
+                return
+            }
 
             const meta = e.metaKey || e.ctrlKey
             if (!meta) return

@@ -3,6 +3,29 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import electron from 'vite-plugin-electron'
 import renderer from 'vite-plugin-electron-renderer'
+import path from 'path'
+
+const electronExternalMatcher = (id: string) => {
+  if (
+    id === 'vite' ||
+    id === 'node-pty' ||
+    id === 'better-sqlite3' ||
+    id === 'sqlite-vec' ||
+    id === 'bufferutil' ||
+    id === 'utf-8-validate' ||
+    id === 'fsevents' ||
+    id.includes('lightningcss') ||
+    id.includes('@powersync/node') ||
+    id.startsWith('node:') ||
+    id === 'worker_threads' ||
+    id.includes('node:worker_threads')
+  ) {
+    return true
+  }
+  if (id.startsWith('@babel/')) return true
+  if (id === '../pkg' || id === './pkg') return true
+  return false
+}
 
 export default defineConfig({
   // @babel/types (used by @babel/traverse and @babel/parser) references
@@ -12,6 +35,11 @@ export default defineConfig({
   // CJS packages that assume process is available.
   define: {
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
+  },
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
   },
   plugins: [
     react(),
@@ -30,12 +58,7 @@ export default defineConfig({
               // Marking them external lets Node.js resolve them from node_modules
               // at runtime where CJS require() works correctly.
               // Also externalizing optional native modules used by 'ws' (required by OpenAI/Gemini SDKs).
-              external: (id) => {
-                if (id === 'vite' || id === 'node-pty' || id === 'better-sqlite3' || id === 'bufferutil' || id === 'utf-8-validate' || id === 'fsevents' || id.includes('lightningcss')) return true
-                if (id.startsWith('@babel/')) return true
-                if (id === '../pkg' || id === './pkg') return true
-                return false
-              },
+              external: electronExternalMatcher,
             },
           },
         },
@@ -50,6 +73,17 @@ export default defineConfig({
             outDir: 'dist-electron',
             rollupOptions: {
               external: ['better-sqlite3', 'fsevents'],
+            },
+          },
+        },
+      },
+      {
+        entry: 'electron/powersync.worker.ts',
+        vite: {
+          build: {
+            outDir: 'dist-electron',
+            rollupOptions: {
+              external: electronExternalMatcher,
             },
           },
         },
