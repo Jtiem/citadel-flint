@@ -1046,6 +1046,124 @@ app.whenReady().then(async () => {
             const resolvers: any[] = manifest.resolvers || []
             const requiredImports = new Set<string>()
 
+            // ── Figma styles → Tailwind class converter ────────────────────
+            function stylesToTailwind(styles: Record<string, any> | undefined): string {
+                if (!styles) return ''
+                const cls: string[] = []
+
+                // Layout
+                if (styles.layoutMode === 'HORIZONTAL') { cls.push('flex', 'flex-row') }
+                else if (styles.layoutMode === 'VERTICAL') { cls.push('flex', 'flex-col') }
+
+                // Gap (itemSpacing)
+                if (styles.itemSpacing != null && styles.itemSpacing > 0) {
+                    const gap = spacingToTw(styles.itemSpacing)
+                    cls.push(gap ? `gap-${gap}` : `gap-[${styles.itemSpacing}px]`)
+                }
+
+                // Padding
+                const pt = styles.paddingTop, pr = styles.paddingRight, pb = styles.paddingBottom, pl = styles.paddingLeft
+                if (pt != null || pr != null || pb != null || pl != null) {
+                    if (pt === pr && pr === pb && pb === pl && pt > 0) {
+                        const p = spacingToTw(pt)
+                        cls.push(p ? `p-${p}` : `p-[${pt}px]`)
+                    } else {
+                        if (pt != null && pt > 0) { const v = spacingToTw(pt); cls.push(v ? `pt-${v}` : `pt-[${pt}px]`) }
+                        if (pr != null && pr > 0) { const v = spacingToTw(pr); cls.push(v ? `pr-${v}` : `pr-[${pr}px]`) }
+                        if (pb != null && pb > 0) { const v = spacingToTw(pb); cls.push(v ? `pb-${v}` : `pb-[${pb}px]`) }
+                        if (pl != null && pl > 0) { const v = spacingToTw(pl); cls.push(v ? `pl-${v}` : `pl-[${pl}px]`) }
+                    }
+                }
+
+                // Alignment
+                if (styles.primaryAxisAlignItems) {
+                    const map: Record<string, string> = { MIN: 'justify-start', CENTER: 'justify-center', MAX: 'justify-end', SPACE_BETWEEN: 'justify-between' }
+                    if (map[styles.primaryAxisAlignItems]) cls.push(map[styles.primaryAxisAlignItems])
+                }
+                if (styles.counterAxisAlignItems) {
+                    const map: Record<string, string> = { MIN: 'items-start', CENTER: 'items-center', MAX: 'items-end' }
+                    if (map[styles.counterAxisAlignItems]) cls.push(map[styles.counterAxisAlignItems])
+                }
+
+                // Sizing
+                if (styles.width != null && styles.width > 0) {
+                    const w = spacingToTw(styles.width)
+                    cls.push(w ? `w-${w}` : `w-[${styles.width}px]`)
+                }
+                if (styles.height != null && styles.height > 0) {
+                    const h = spacingToTw(styles.height)
+                    cls.push(h ? `h-${h}` : `h-[${styles.height}px]`)
+                }
+
+                // Fill color
+                if (styles.fillColor) {
+                    cls.push(`bg-[${styles.fillColor}]`)
+                    if (styles.fillOpacity != null) {
+                        cls.push(`bg-opacity-${roundOpacity(styles.fillOpacity)}`)
+                    }
+                }
+
+                // Stroke / border
+                if (styles.strokeColor) {
+                    cls.push('border', `border-[${styles.strokeColor}]`)
+                    if (styles.strokeWeight != null && styles.strokeWeight !== 1) {
+                        cls.push(`border-[${styles.strokeWeight}px]`)
+                    }
+                }
+
+                // Corner radius
+                if (styles.cornerRadius != null && styles.cornerRadius > 0) {
+                    const r = styles.cornerRadius
+                    const rMap: Record<number, string> = { 2: 'rounded-sm', 4: 'rounded', 6: 'rounded-md', 8: 'rounded-lg', 12: 'rounded-xl', 16: 'rounded-2xl', 9999: 'rounded-full' }
+                    cls.push(rMap[r] || `rounded-[${r}px]`)
+                }
+
+                // Opacity
+                if (styles.opacity != null && styles.opacity < 100) {
+                    cls.push(`opacity-${roundOpacity(styles.opacity)}`)
+                }
+
+                // Typography (for text nodes)
+                if (styles.fontSize) {
+                    const fsMap: Record<number, string> = { 12: 'text-xs', 14: 'text-sm', 16: 'text-base', 18: 'text-lg', 20: 'text-xl', 24: 'text-2xl', 30: 'text-3xl', 36: 'text-4xl', 48: 'text-5xl', 60: 'text-6xl' }
+                    cls.push(fsMap[styles.fontSize] || `text-[${styles.fontSize}px]`)
+                }
+                if (styles.fontStyle) {
+                    const weight = styles.fontStyle.toLowerCase()
+                    const fwMap: Record<string, string> = { thin: 'font-thin', extralight: 'font-extralight', light: 'font-light', regular: 'font-normal', medium: 'font-medium', semibold: 'font-semibold', bold: 'font-bold', extrabold: 'font-extrabold', black: 'font-black' }
+                    if (fwMap[weight]) cls.push(fwMap[weight])
+                }
+                if (styles.textColor) {
+                    cls.push(`text-[${styles.textColor}]`)
+                }
+                if (styles.letterSpacing && styles.letterSpacing !== 0) {
+                    cls.push(`tracking-[${styles.letterSpacing}px]`)
+                }
+                if (styles.lineHeight) {
+                    cls.push(`leading-[${styles.lineHeight}px]`)
+                }
+
+                return cls.join(' ')
+            }
+
+            // Tailwind spacing scale: px → Tailwind unit
+            function spacingToTw(px: number): string | null {
+                const scale: Record<number, string> = {
+                    0: '0', 1: 'px', 2: '0.5', 4: '1', 6: '1.5', 8: '2', 10: '2.5',
+                    12: '3', 14: '3.5', 16: '4', 20: '5', 24: '6', 28: '7', 32: '8',
+                    36: '9', 40: '10', 44: '11', 48: '12', 56: '14', 64: '16',
+                    80: '20', 96: '24', 112: '28', 128: '32', 144: '36',
+                    160: '40', 176: '44', 192: '48', 208: '52', 224: '56',
+                    240: '60', 256: '64', 288: '72', 320: '80', 384: '96'
+                }
+                return scale[px] ?? null
+            }
+
+            function roundOpacity(pct: number): number {
+                const steps = [0, 5, 10, 20, 25, 30, 40, 50, 60, 70, 75, 80, 90, 95, 100]
+                return steps.reduce((prev, curr) => Math.abs(curr - pct) < Math.abs(prev - pct) ? curr : prev)
+            }
+
             // ── Variant descriptor parser ──────────────────────────────────
             // Parses "Variant=Outlined, Size=Medium*, State=Enabled" → { Variant: "Outlined", Size: "Medium*", State: "Enabled" }
             function parseVariantDescriptor(desc: string): Record<string, string> {
@@ -1141,7 +1259,32 @@ app.whenReady().then(async () => {
                 if (nodeData.figmaComponent === '_TextNode') {
                     const text = nodeData.props?.content || ''
                     if (!text) return null
+                    const twClass = stylesToTailwind(nodeData.styles)
+                    if (twClass) {
+                        // Wrap text in a <span> with typography classes
+                        const attrs = [t.jsxAttribute(t.jsxIdentifier('className'), t.stringLiteral(twClass))]
+                        const opening = t.jsxOpeningElement(t.jsxIdentifier('span'), attrs, false)
+                        const closing = t.jsxClosingElement(t.jsxIdentifier('span'))
+                        return { element: t.jsxElement(opening, closing, [t.jsxText(text)]), name: '_TextNode' }
+                    }
                     return { element: t.jsxText(text), name: '_TextNode' }
+                }
+
+                // Handle _Frame wrapper nodes with layout styles
+                if (nodeData.figmaComponent === '_Frame') {
+                    const childNodes: any[] = []
+                    if (nodeData.children && Array.isArray(nodeData.children)) {
+                        for (const child of nodeData.children) {
+                            const generated = await generateJsxElement(child)
+                            if (generated) childNodes.push(generated)
+                        }
+                    }
+                    if (childNodes.length === 0 && !nodeData.styles) return null
+                    const twClass = stylesToTailwind(nodeData.styles)
+                    const attrs = twClass ? [t.jsxAttribute(t.jsxIdentifier('className'), t.stringLiteral(twClass))] : []
+                    const opening = t.jsxOpeningElement(t.jsxIdentifier('div'), attrs, childNodes.length === 0)
+                    const closing = childNodes.length === 0 ? null : t.jsxClosingElement(t.jsxIdentifier('div'))
+                    return { element: t.jsxElement(opening, closing, childNodes.map(c => c.element)), name: 'div' }
                 }
 
                 const componentDef = resolveComponent(nodeData)
@@ -1160,7 +1303,9 @@ app.whenReady().then(async () => {
                         }
                     }
                     if (childNodes.length === 0) return null
-                    const opening = t.jsxOpeningElement(t.jsxIdentifier(tag), [], false)
+                    const twClass = stylesToTailwind(nodeData.styles)
+                    const attrs = twClass ? [t.jsxAttribute(t.jsxIdentifier('className'), t.stringLiteral(twClass))] : []
+                    const opening = t.jsxOpeningElement(t.jsxIdentifier(tag), attrs, false)
                     const closing = t.jsxClosingElement(t.jsxIdentifier(tag))
                     return { element: t.jsxElement(opening, closing, childNodes.map(c => c.element)), name: tag }
                 }
@@ -1224,6 +1369,12 @@ app.whenReady().then(async () => {
 
                         attributes.push(t.jsxAttribute(t.jsxIdentifier(reactProp), attrValue))
                     }
+                }
+
+                // Inject Tailwind className from extracted Figma styles
+                const twClass = stylesToTailwind(nodeData.styles)
+                if (twClass) {
+                    attributes.push(t.jsxAttribute(t.jsxIdentifier('className'), t.stringLiteral(twClass)))
                 }
 
                 // Leaf components get text from props — skip recursing children to avoid duplication

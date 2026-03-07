@@ -1,28 +1,27 @@
-### [BRIDGE-PULSE-v7.4]
+### [BRIDGE-PULSE-v7.5]
 
 **1. AST Integrity:**
 - Modified Nodes: `data-bridge-id` preserved via reactive token updates.
 - ID Preservation: Verified. Deterministic Surgery: Confirmed (Babel AST).
 
-**2. Mithril Safety Audit (Enterprise v2):**
-- Color: CIEDE2000 ΔE, ONLINE. Severity escalation (amber/critical) WIRED to Export Gate UI.
-- Typography: fontFamily, fontWeight, lineHeight, letterSpacing drift, ONLINE (TYP-001..005).
-- Spacing: p/m/gap/w/h arbitrary-value enforcement, ONLINE (SPC-001).
-- Shadow + Opacity: arbitrary value gates, ONLINE (SHD-001, OPC-001).
-- Accessibility: **10 WCAG 2.1 AA rules** ONLINE (A11Y-001..010).
-- TokenType roster: 10 types. Demo tokens: 27 seeded entries.
-- **Export Gate UI (B.1-d):** Critical (ΔE > 10) violations escalate to red header + red row badges. Amber (2.0–10.0) remain amber. `linterWarnings` severity consumed by `ExportModal` per violation ID.
+**2. Figma Ingestion & Sync (Phase O):**
+- Ingestion Server: ONLINE (port 4545). Receives Variables, Assets, and AST payloads.
+- Normalizer: Figma Variables → W3C DTCG mapping implemented/idempotent.
+- AST Hydration: `/ingest-ast` endpoint triggers `bridge:hydro-paste-auto` IPC.
 
-**3. Persistence & Sync Layer:**
-- FileTransactionManager: Active. PowerSync: Local-first ACTIVE.
+**3. Designer Experience (Phase N.1):**
+- Layout Panel: Figma-grade controls for Flexbox/Grid alignment and Hug/Fill sizing.
+- Layout Mapper: Atomic management of Tailwind classes to prevent conflict.
 
-**4. Workspace State:**
-- Modules ONLINE: D.1, D.2, E.1, E.2, F.1, F.2, G.1, G.2, H, I, J, K, C.1, C.2, B.1-b, B.1-d, B.2, B.3, A, B-v2, **L**.
+**4. LSP Integration (Phase P):**
+- Orchestration: TypeScript and Vue LSP clients online for cross-file intellisense and validation.
+
+**5. Workspace State:**
+- Modules ONLINE: D.1, D.2, E.1, E.2, F.1, F.2, G.1, G.2, H, I, J, K, C.1, C.2, B.1-b, B.1-d, B.2, B.3, A, B-v2, L, M, **N.1**, **O**, **P**.
 - `tsc --noEmit`: 0 errors.
-- Tests: **160/160 passing** (21 new B.1-d severity tests in `MithrilLinter.severity.test.ts`).
+- Tests: **160/160 passing**.
 
-**5. Handoff Seed (Next Session Start):**
+**6. Handoff Seed (Next Session Start):**
 - Routing Protocol: Flash.
-- Context: Export Gate severity escalation (B.1-d) is ONLINE. `ExportModal` now reads `editorStore.linterWarnings` per violation ID to differentiate amber (ΔE 2–10) vs critical (ΔE > 10) with full visual escalation. 21 new headless tests cover `visitClassNames` severity bucketing, `auditAll` pipeline propagation, and `hasCriticalMithril` gate logic end-to-end.
+- Context: Documentation synced to v5.19 (Handoff) and v7.0 (Claude). Phase O (Figma Sync) and Phase N.1 (LayoutPanel) fully documented.
 - Blocker: None.
-

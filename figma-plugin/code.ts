@@ -60,8 +60,10 @@ figma.ui.onmessage = (msg: { type: 'sync' | 'export-ast' }) => {
             }
 
             const root = selection[0]
+            const rootStyles = extractStyles(root, /* isRoot */ true)
             const payload = {
                 screenName: root.name.replace(/[^a-zA-Z0-9]/g, ''),
+                rootStyles: rootStyles || {},
                 children: extractComponentTree(root)
             }
 
@@ -73,6 +75,125 @@ figma.ui.onmessage = (msg: { type: 'sync' | 'export-ast' }) => {
             figma.ui.postMessage({ type: 'error', message: String(err) })
         }
     }
+}
+
+// ── Visual style extraction ────────────────────────────────────────────────
+// Reads Figma node properties and returns a flat object of visual styles
+// that the Bridge hydration pipeline can convert to Tailwind classes.
+
+function rgbToHex(r: number, g: number, b: number): string {
+    const to256 = (v: number) => Math.round(v * 255)
+    return '#' + [to256(r), to256(g), to256(b)].map(c => c.toString(16).padStart(2, '0')).join('')
+}
+
+function extractStyles(node: SceneNode, isRoot = false): Record<string, any> | null {
+    const styles: Record<string, any> = {}
+    let hasAny = false
+
+    // ── Layout (auto-layout on frames) ──────────────────────────────
+    if ('layoutMode' in node && (node as FrameNode).layoutMode !== 'NONE') {
+        const f = node as FrameNode
+        styles.layoutMode = f.layoutMode               // 'HORIZONTAL' | 'VERTICAL'
+        styles.itemSpacing = f.itemSpacing              // gap between children
+        styles.paddingTop = f.paddingTop
+        styles.paddingRight = f.paddingRight
+        styles.paddingBottom = f.paddingBottom
+        styles.paddingLeft = f.paddingLeft
+        styles.primaryAxisAlignItems = f.primaryAxisAlignItems   // 'MIN'|'CENTER'|'MAX'|'SPACE_BETWEEN'
+        styles.counterAxisAlignItems = f.counterAxisAlignItems   // 'MIN'|'CENTER'|'MAX'
+        hasAny = true
+    }
+
+    // ── Sizing mode (FIXED / HUG / FILL) ────────────────────────────
+    if ('layoutSizingHorizontal' in node) {
+        styles.layoutSizingHorizontal = (node as FrameNode).layoutSizingHorizontal
+        styles.layoutSizingVertical = (node as FrameNode).layoutSizingVertical
+        hasAny = true
+    }
+
+    // ── Sizing ──────────────────────────────────────────────────────
+    if ('width' in node && 'height' in node) {
+        styles.width = Math.round(node.width)
+        styles.height = Math.round(node.height)
+        hasAny = true
+    }
+
+    // ── Fill color (first solid paint) ──────────────────────────────
+    if ('fills' in node) {
+        const fills = (node as GeometryMixin).fills
+        if (Array.isArray(fills)) {
+            const solid = fills.find((f: Paint) => f.type === 'SOLID' && f.visible !== false) as SolidPaint | undefined
+            if (solid) {
+                const r255 = Math.round(solid.color.r * 255)
+                const g255 = Math.round(solid.color.g * 255)
+                const b255 = Math.round(solid.color.b * 255)
+                // Skip near-white fills on non-root nodes — they're usually default container fills
+                if (isRoot || !(r255 > 250 && g255 > 250 && b255 > 250)) {
+                    styles.fillColor = rgbToHex(solid.color.r, solid.color.g, solid.color.b)
+                    if (solid.opacity !== undefined && solid.opacity < 1) {
+                        styles.fillOpacity = Math.round(solid.opacity * 100)
+                    }
+                    hasAny = true
+                }
+            }
+        }
+    }
+
+    // ── Stroke ──────────────────────────────────────────────────────
+    if ('strokes' in node) {
+        const strokes = (node as GeometryMixin).strokes
+        if (Array.isArray(strokes) && strokes.length > 0) {
+            const solid = strokes.find((s: Paint) => s.type === 'SOLID' && s.visible !== false) as SolidPaint | undefined
+            if (solid) {
+                styles.strokeColor = rgbToHex(solid.color.r, solid.color.g, solid.color.b)
+                hasAny = true
+            }
+        }
+        if ('strokeWeight' in node && typeof (node as any).strokeWeight === 'number') {
+            styles.strokeWeight = (node as any).strokeWeight
+            hasAny = true
+        }
+    }
+
+    // ── Corner radius ───────────────────────────────────────────────
+    if ('cornerRadius' in node && typeof (node as any).cornerRadius === 'number' && (node as any).cornerRadius > 0) {
+        styles.cornerRadius = (node as any).cornerRadius
+        hasAny = true
+    }
+
+    // ── Opacity ─────────────────────────────────────────────────────
+    if ('opacity' in node && typeof (node as any).opacity === 'number' && (node as any).opacity < 1) {
+        styles.opacity = Math.round((node as any).opacity * 100)
+        hasAny = true
+    }
+
+    // ── Typography (TEXT nodes) ──────────────────────────────────────
+    if (node.type === 'TEXT') {
+        const t = node as TextNode
+        if (typeof t.fontSize === 'number') { styles.fontSize = t.fontSize; hasAny = true }
+        if (t.fontName && typeof t.fontName !== 'symbol' && (t.fontName as FontName).style) {
+            styles.fontStyle = (t.fontName as FontName).style   // e.g. "Bold", "Medium", "Regular"
+            hasAny = true
+        }
+        if (t.letterSpacing !== figma.mixed && typeof t.letterSpacing === 'object') {
+            styles.letterSpacing = t.letterSpacing.value
+            hasAny = true
+        }
+        if (t.lineHeight !== figma.mixed && typeof t.lineHeight === 'object' && (t.lineHeight as any).unit !== 'AUTO') {
+            styles.lineHeight = (t.lineHeight as any).value
+            hasAny = true
+        }
+        // Text fill color
+        if (Array.isArray(t.fills)) {
+            const solid = (t.fills as Paint[]).find((f: Paint) => f.type === 'SOLID' && f.visible !== false) as SolidPaint | undefined
+            if (solid) {
+                styles.textColor = rgbToHex(solid.color.r, solid.color.g, solid.color.b)
+                hasAny = true
+            }
+        }
+    }
+
+    return hasAny ? styles : null
 }
 
 function extractComponentTree(node: SceneNode): any[] {
@@ -102,23 +223,36 @@ function extractComponentTree(node: SceneNode): any[] {
                     // Recursively get children if this instance wraps other things
                     const nestedChildren = extractComponentTree(child)
 
+                    // Extract visual styles from the instance node
+                    const styles = extractStyles(child)
+
                     childrenPayload.push({
-                        figmaComponent: mainComponent.parent?.name === 'Button' ? 'Button' : mainComponent.name, // Simplified matching
+                        figmaComponent: mainComponent.parent?.name === 'Button' ? 'Button' : mainComponent.name,
                         props,
+                        ...(styles ? { styles } : {}),
                         ...(nestedChildren.length > 0 ? { children: nestedChildren } : {})
                     })
                 }
             } else if (child.type === 'TEXT') {
-                // Raw Text node
+                // Raw Text node — include typography styles
+                const styles = extractStyles(child)
                 childrenPayload.push({
                     figmaComponent: "_TextNode",
-                    props: { content: child.characters }
+                    props: { content: child.characters },
+                    ...(styles ? { styles } : {})
                 })
             } else {
-                // If it's a normal frame/group, just pass through and look for instances inside
+                // Frame/Group: extract layout styles and wrap children
+                const styles = extractStyles(child)
                 const nested = extractComponentTree(child)
-                if (nested.length > 0) {
-                    childrenPayload.push(...nested)
+
+                if (nested.length > 0 || styles) {
+                    childrenPayload.push({
+                        figmaComponent: "_Frame",
+                        props: {},
+                        ...(styles ? { styles } : {}),
+                        ...(nested.length > 0 ? { children: nested } : {})
+                    })
                 }
             }
         }

@@ -1,8 +1,8 @@
-# Bridge IDE — Developer Handoff (v5.18)
+# Bridge IDE — Developer Handoff (v5.19)
 
-**Date:** 2026-03-05
-**Commit:** Phase B.1-d (Export Gate Severity Escalation) applied
-**Status:** Phase B.1-d (Export Gate Severity Escalation) — **COMPLETE**
+**Date:** 2026-03-07
+**Commit:** Phase O (Figma Ingestion) + Phase N.1 (LayoutPanel) synchronized
+**Status:** Phase O (Figma Ingestion) — **ONLINE** · Phase N.1 (Designer Experience) — **ONLINE**
 **Tests:** 160/160 passing · ΔE = 0.0 · `tsc --noEmit`: 0 errors
 **Run:** `npm run dev`
 
@@ -12,12 +12,11 @@
 
 Bridge is a performance-hardened, three-process Electron app designed for agentic surgery:
 
-```
 ┌──────────────────────────────────────────────────────────┐
 │  Main Process (Node.js / Electron)                       │
 │  · FileTransactionManager: Atomic .tmp → rename queue    │
 │  · SQLite + PowerSync: CRDT Persistence layer            │
-## 1. Architecture Overview
+```
 **Bridge** is the first Agentic UI Operating System. It acts as a strict "containment field" around LLM-driven development, ensuring brand alignment, accessibility, and codebase integrity through AST-level determinism. **If it isn't in the AST, it doesn't exist.**
 
 ### Technical Foundation
@@ -54,11 +53,17 @@ Bridge is a performance-hardened, three-process Electron app designed for agenti
 | Interaction Modes | I | **ONLINE** | `canvasMode` toggles pointer-events within LivePreview iframe via IPC message |
 | Bridge Auditor / Orchestration | L | **ONLINE** | `electron/orchestrator.ts` (Anthropic Claude streaming + Bridge Tool Catalog) · `src/store/orchestratorStore.ts` · `AgentChatPanel.tsx` (🤖 tab in right panel) · `ai:chat`, `ai:get-config`, `ai:save-config` IPC in `main.ts` · `applyBatch` + `ai` namespace in `preload.ts` · Store reads `~/.bridge/config.json` for API key. Every AI-proposed mutation requires user confirmation before touching the AST. |
 | AI Orchestrator Hardening | M | **ONLINE** | `orchestrator.ts` constrained to 7-op Bridge AST Tool Catalog (no raw code strings). In-memory TSC validation loop. Design system RAG via `sqlite-vec`. Structured Outputs / Tool Use API mode enforced. Commandments 15 & 16 active. |
-| Designer Experience & UX | N | **PLANNED** | "Logic Extraction" Scratchpad (JSX callback preservation). Destructive Logic Alerts preventing raw deletion of stateful logic nodes. Live file-system component auto-syncing (like Figma libraries). |
+| Designer Experience & UX | N.1 | **ONLINE** | `LayoutPanel.tsx` (Figma-grade Auto Layout controls) + `layoutMapper.ts` (Atomic class management). |
+| Figma Ingestion & Sync | O | **ONLINE** | `ingestion-server.ts` (Loopback HTTP server) + `normalizer.ts` (Figma Var → DTCG) + `ingest-ast` endpoint for direct plugin payloads. |
+| LSP Integration | P | **ONLINE** | `electron/lsp/*.ts` TypeScript and Vue LSP client orchestration for cross-file intellisense. |
 
 ---
 
 ## 3. Updated File Map
+### Root / Project
+| File | Purpose |
+|------|---------|
+| `bridge-manifest.json` | Project-level metadata + Component ID mapping for hydration. |
 
 ### `src/core/` (Services)
 | File | Purpose |
@@ -68,6 +73,7 @@ Bridge is a performance-hardened, three-process Electron app designed for agenti
 | `recoveryController.ts` | `applyUndo` / `applyRedo` / `applyRedoPlan`. Phase G.1 + H. |
 | `MithrilLinter.ts` | CIEDE2000 ΔE perceptual drift guard. |
 | `GitService.ts` | Surgical git-transplant recovery. |
+| `layoutMapper.ts` | Atomic management of Tailwind layout classes (flex/grid/alignment). |
 
 ### `src/store/` (State)
 | File | Key State / Role |
@@ -86,6 +92,9 @@ Bridge is a performance-hardened, three-process Electron app designed for agenti
 | `main.ts` | IPC handlers: `saveFile`, `saveFileBatch`, `readFile`, `transformCode`, `openFolder`, `ast:git-show`, `ast:git-log`. |
 | `preload.ts` | `contextBridge` exposure of `window.bridgeAPI` including `gitShow` and `gitLog`. |
 | `orchestrator.ts` | **Phase M** — Anthropic Claude streaming. Constrained to Bridge AST Tool Catalog. In-memory TSC validation loop. Fetches design system interfaces from `sqlite-vec` for RAG context injection. |
+| `ingestion-server.ts`| **Phase O** — Loopback HTTP server (port 4545). Receives Figma tokens/assets/AST. Authenticated via `x-bridge-secret`. |
+| `normalizer.ts` | **Phase O** — Maps Figma Variables payloads to W3C DTCG format for PowerSync ingestion. |
+| `lsp/types.ts` | **Phase P** — Shared types for LSP client implementations. |
 
 ### `src/components/ui/`
 | File | Role |
@@ -98,6 +107,7 @@ Bridge is a performance-hardened, three-process Electron app designed for agenti
 | `ExportModal.tsx` | **Phase B.2 / B.1-d** — Mithril Safety Export Gate modal. Pre-flight audit of `component_overrides` rows + ΔE violations + accessibility violations (B.3). Clickable node IDs snap-select the offending element in the canvas. Pass state shows source + Copy button. Severity escalation (B.1-d): reads `editorStore.linterWarnings` per violation ID — critical (ΔE > 10) renders red header + red row badge; amber (2.0–10.0) renders amber styling. |
 | **Core Services** | |
 | `A11yLinter.ts` | **Phase B.3** — Pure AST-level accessibility linter. Enforces Commandment 5. Rules: A11Y-001 (`<img>` alt), A11Y-002/003 (`<button>`/`<a>` accessible name), A11Y-004 (`<input>` label). Called inside `editorStore.setCode` on every successful parse. |
+| `LayoutPanel.tsx` | **Phase N.1** — Figma-grade Auto Layout panel. Multi-axis alignment grid + Hug/Fill sizing selects + token-bound padding/gap controls. |
 
 ### `src/services/` & `src/hooks/`
 | File | Role |
@@ -272,5 +282,6 @@ applyRedo()
 
 ## 10. Immediate Next Steps
 
-- **C.1: Cloud PowerSync backend** — Wire `@powersync/node` when backend URL is provisioned. Schema + columns already ready in `electron/sync-schema.ts` + `design_tokens.version/last_modified`.
+- **Phase N.2: Logic Extraction** — "Logic Extraction" Scratchpad (JSX callback preservation).
+- **Phase Q: Asset Management Hub** — Centralized asset library UI with Figma-Bridge sync status badges.
 - **`revertNodeToHead` undo support** — Currently bypasses history (intentional). Consider pushing a `restoreCode` inversion if post-git-revert undo becomes a requirement.

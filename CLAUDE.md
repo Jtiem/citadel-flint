@@ -1,6 +1,6 @@
 # Project: Bridge IDE
 
-## The Identity (v6.9)
+## The Identity (v7.0)
 **Bridge** is the first Agentic UI Operating System. It is a strict "containment field" for high-velocity AI agents, ensuring brand, accessibility, and codebase integrity through deterministic AST-level enforcement (Mithril Philosophy).
 
 ## Tech Stack
@@ -45,7 +45,9 @@
 | Sharma Validation (Module B.1-b) | **ONLINE** | `snippetAuditor.ts` AST-injection robust against Fragment/Shadow scope. |
 | AI Orchestrator Hardening (Phase M) | **ONLINE** | `orchestrator.ts` restricted to 7-tool AST Tool Catalog. No raw code strings. In-memory TSC validation loop before confirmation UI. Design system RAG via `sqlite-vec`. |
 | Export Gate Severity Escalation (Phase B.1-d) | **ONLINE** | `ExportModal.tsx` reads `editorStore.linterWarnings` per violation ID. Critical (ΔE > 10) → red header + red row badge. Amber (2.0–10.0) → amber styling. `hasCriticalMithril` gate computation. 21 new Vitest tests in `MithrilLinter.severity.test.ts`. |
-| Designer Experience (Phase N) | **PLANNED** | "Logic Extraction" Scratchpad (strip JSX callbacks/hooks from visual shell to safely swap components). "Destructive Logic Alert" preventing raw deletion of stateful nodes. Live File System component auto-syncing. |
+| Designer Experience (Phase N.1) | **ONLINE** | `LayoutPanel.tsx` Figma-grade layout controls. `layoutMapper.ts` Tailwind atomic management. |
+| Figma Ingestion (Phase O) | **ONLINE** | `ingestion-server.ts` loopback server + `normalizer.ts` Figma → DTCG mapping + `/ingest-ast` integration. |
+| LSP Orchestrator (Phase P) | **ONLINE** | TypeScript and Vue LSP clients for cross-file intelligence. |
 
 ## Critical AI Directives
 1.  **Architecture Spec:** Always consult `.bridge-context/architecture.md` and `.antigravityrules`.

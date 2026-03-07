@@ -153,6 +153,21 @@ function buildSrcdoc(js: string, tailwindConfigJson: string): string {
         ...rest
       }, icon);
     };
+    window.Stack = function({ direction, spacing, className, children }) {
+      var dir = direction === 'horizontal' ? 'flex-row' : 'flex-col';
+      var gap = spacing ? 'gap-' + spacing : 'gap-4';
+      return React.createElement('div', {
+        className: 'flex ' + dir + ' ' + gap + ' ' + (className || ''),
+      }, children);
+    };
+    window.Input = function({ placeholder, type, className, ...rest }) {
+      return React.createElement('input', {
+        type: type || 'text',
+        placeholder: placeholder || '',
+        className: 'rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 ' + (className || ''),
+        ...rest
+      });
+    };
   <\/script>
   <script>
     (function () {
@@ -589,19 +604,32 @@ export function LivePreview() {
         return
       }
       const editorState = useEditorStore.getState()
-      if (!editorState.visualTree || editorState.visualTree.length === 0) return
-      const rootNodeId = editorState.visualTree[0].id
 
-      const { elements } = response
-      if (elements && elements.length > 0) {
-        const mutations = elements.map((el: { code: string; import: string | null }) => ({
-          op: 'injectComponent' as const,
-          targetNodeId: rootNodeId,
-          jsxSnippet: el.code,
-          importSnippet: el.import || undefined
-        }))
-        editorState.applyBatch(mutations)
+      const { elements, imports } = response as { elements?: Array<{ code: string; import: string | null }>; imports?: string[] }
+
+      if (!elements || elements.length === 0) return
+
+      // If no file is open (empty visualTree), scaffold a new component file
+      if (!editorState.visualTree || editorState.visualTree.length === 0) {
+        const importBlock = (imports || []).join('\n')
+        const jsxBody = elements.map((el) => el.code).join('\n        ')
+        const wrapper = elements.length === 1 ? jsxBody : `<div>\n        ${jsxBody}\n      </div>`
+        const screenName = (() => {
+          try { return JSON.parse(figmaPayload).screenName || 'FigmaScreen' } catch { return 'FigmaScreen' }
+        })()
+        const code = `${importBlock ? importBlock + '\n\n' : ''}export default function ${screenName}() {\n  return (\n    ${wrapper}\n  )\n}\n`
+        editorState.setCode(code)
+        return
       }
+
+      const rootNodeId = editorState.visualTree[0].id
+      const mutations = elements.map((el) => ({
+        op: 'injectComponent' as const,
+        targetNodeId: rootNodeId,
+        jsxSnippet: el.code,
+        importSnippet: el.import || undefined
+      }))
+      editorState.applyBatch(mutations)
     } catch (err) {
       console.error('[HydroPaste Error]', err)
     }

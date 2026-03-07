@@ -615,7 +615,7 @@ export interface AIAPI {
     saveConfig: (config: { apiKey?: string; provider: AIProvider; model?: string; baseURL?: string }) => Promise<void>
 
     // Phase N: Figma AST Hydrator
-    hydroPaste?: (payloadStr: string) => Promise<{ ok?: boolean; imports?: string[]; codeSnippets?: string[]; error?: string }>
+    hydroPaste?: (payloadStr: string) => Promise<{ ok?: boolean; imports?: string[]; elements?: Array<{ code: string; import: string | null }>; error?: string }>
     /** Listen for automatic hydro-paste events from the ingestion server. Returns unsubscribe fn. */
     onHydroPasteAuto?: (callback: (payload: string) => void) => () => void
 

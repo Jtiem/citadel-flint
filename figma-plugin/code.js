@@ -70,6 +70,104 @@ figma.ui.onmessage = (msg) => {
         }
     }
 };
+// ── Visual style extraction ────────────────────────────────────────────────
+// Reads Figma node properties and returns a flat object of visual styles
+// that the Bridge hydration pipeline can convert to Tailwind classes.
+function rgbToHex(r, g, b) {
+    const to256 = (v) => Math.round(v * 255);
+    return '#' + [to256(r), to256(g), to256(b)].map(c => c.toString(16).padStart(2, '0')).join('');
+}
+function extractStyles(node) {
+    const styles = {};
+    let hasAny = false;
+    // ── Layout (auto-layout on frames) ──────────────────────────────
+    if ('layoutMode' in node && node.layoutMode !== 'NONE') {
+        const f = node;
+        styles.layoutMode = f.layoutMode; // 'HORIZONTAL' | 'VERTICAL'
+        styles.itemSpacing = f.itemSpacing; // gap between children
+        styles.paddingTop = f.paddingTop;
+        styles.paddingRight = f.paddingRight;
+        styles.paddingBottom = f.paddingBottom;
+        styles.paddingLeft = f.paddingLeft;
+        styles.primaryAxisAlignItems = f.primaryAxisAlignItems; // 'MIN'|'CENTER'|'MAX'|'SPACE_BETWEEN'
+        styles.counterAxisAlignItems = f.counterAxisAlignItems; // 'MIN'|'CENTER'|'MAX'
+        hasAny = true;
+    }
+    // ── Sizing ──────────────────────────────────────────────────────
+    if ('width' in node && 'height' in node) {
+        styles.width = Math.round(node.width);
+        styles.height = Math.round(node.height);
+        hasAny = true;
+    }
+    // ── Fill color (first solid paint) ──────────────────────────────
+    if ('fills' in node) {
+        const fills = node.fills;
+        if (Array.isArray(fills)) {
+            const solid = fills.find((f) => f.type === 'SOLID' && f.visible !== false);
+            if (solid) {
+                styles.fillColor = rgbToHex(solid.color.r, solid.color.g, solid.color.b);
+                if (solid.opacity !== undefined && solid.opacity < 1) {
+                    styles.fillOpacity = Math.round(solid.opacity * 100);
+                }
+                hasAny = true;
+            }
+        }
+    }
+    // ── Stroke ──────────────────────────────────────────────────────
+    if ('strokes' in node) {
+        const strokes = node.strokes;
+        if (Array.isArray(strokes) && strokes.length > 0) {
+            const solid = strokes.find((s) => s.type === 'SOLID' && s.visible !== false);
+            if (solid) {
+                styles.strokeColor = rgbToHex(solid.color.r, solid.color.g, solid.color.b);
+                hasAny = true;
+            }
+        }
+        if ('strokeWeight' in node && typeof node.strokeWeight === 'number') {
+            styles.strokeWeight = node.strokeWeight;
+            hasAny = true;
+        }
+    }
+    // ── Corner radius ───────────────────────────────────────────────
+    if ('cornerRadius' in node && typeof node.cornerRadius === 'number' && node.cornerRadius > 0) {
+        styles.cornerRadius = node.cornerRadius;
+        hasAny = true;
+    }
+    // ── Opacity ─────────────────────────────────────────────────────
+    if ('opacity' in node && typeof node.opacity === 'number' && node.opacity < 1) {
+        styles.opacity = Math.round(node.opacity * 100);
+        hasAny = true;
+    }
+    // ── Typography (TEXT nodes) ──────────────────────────────────────
+    if (node.type === 'TEXT') {
+        const t = node;
+        if (typeof t.fontSize === 'number') {
+            styles.fontSize = t.fontSize;
+            hasAny = true;
+        }
+        if (t.fontName && typeof t.fontName !== 'symbol' && t.fontName.style) {
+            styles.fontStyle = t.fontName.style; // e.g. "Bold", "Medium", "Regular"
+            hasAny = true;
+        }
+        if (t.letterSpacing !== figma.mixed && typeof t.letterSpacing === 'object') {
+            styles.letterSpacing = t.letterSpacing.value;
+            hasAny = true;
+        }
+        if (t.lineHeight !== figma.mixed && typeof t.lineHeight === 'object' && t.lineHeight.unit !== 'AUTO') {
+            styles.lineHeight = t.lineHeight.value;
+            hasAny = true;
+        }
+        // Text fill color
+        if (Array.isArray(t.fills)) {
+            const solid = t.fills.find((f) => f.type === 'SOLID' && f.visible !== false);
+            if (solid) {
+                styles.textColor = rgbToHex(solid.color.r, solid.color.g, solid.color.b);
+                hasAny = true;
+            }
+        }
+    }
+    return hasAny ? styles : null;
+}
 function extractComponentTree(node) {
     var _a;
     const childrenPayload = [];
@@ -94,22 +192,22 @@ function extractComponentTree(node) {
                     }
                     // Recursively get children if this instance wraps other things
                     const nestedChildren = extractComponentTree(child);
-                    childrenPayload.push(Object.assign({ figmaComponent: ((_a = mainComponent.parent) === null || _a === void 0 ? void 0 : _a.name) === 'Button' ? 'Button' : mainComponent.name, // Simplified matching
-                        props }, (nestedChildren.length > 0 ? { children: nestedChildren } : {})));
+                    // Extract visual styles from the instance node
+                    const styles = extractStyles(child);
+                    childrenPayload.push(Object.assign(Object.assign({ figmaComponent: ((_a = mainComponent.parent) === null || _a === void 0 ? void 0 : _a.name) === 'Button' ? 'Button' : mainComponent.name, props }, (styles ? { styles } : {})), (nestedChildren.length > 0 ? { children: nestedChildren } : {})));
                 }
             }
             else if (child.type === 'TEXT') {
-                // Raw Text node
-                childrenPayload.push({
-                    figmaComponent: "_TextNode",
-                    props: { content: child.characters }
-                });
+                // Raw Text node — include typography styles
+                const styles = extractStyles(child);
+                childrenPayload.push(Object.assign({ figmaComponent: "_TextNode", props: { content: child.characters } }, (styles ? { styles } : {})));
             }
             else {
-                // If it's a normal frame/group, just pass through and look for instances inside
+                // Frame/Group: extract layout styles and wrap children
+                const styles = extractStyles(child);
                 const nested = extractComponentTree(child);
-                if (nested.length > 0) {
-                    childrenPayload.push(...nested);
+                if (nested.length > 0 || styles) {
+                    childrenPayload.push(Object.assign(Object.assign({ figmaComponent: "_Frame", props: {} }, (styles ? { styles } : {})), (nested.length > 0 ? { children: nested } : {})));
                 }
             }
         }

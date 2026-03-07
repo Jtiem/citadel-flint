@@ -1037,7 +1037,140 @@ app.whenReady().then(async () => {
   ipcMain.handle("bridge:hydro-paste", async (_event, payloadStr) => {
     if (typeof payloadStr !== "string") return { error: "Invalid payload" };
     try {
-      let parseVariantDescriptor = function(desc) {
+      let stylesToTailwind = function(styles) {
+        if (!styles) return "";
+        const cls = [];
+        if (styles.layoutMode === "HORIZONTAL") {
+          cls.push("flex", "flex-row");
+        } else if (styles.layoutMode === "VERTICAL") {
+          cls.push("flex", "flex-col");
+        }
+        if (styles.itemSpacing != null && styles.itemSpacing > 0) {
+          const gap = spacingToTw(styles.itemSpacing);
+          cls.push(gap ? `gap-${gap}` : `gap-[${styles.itemSpacing}px]`);
+        }
+        const pt = styles.paddingTop, pr = styles.paddingRight, pb = styles.paddingBottom, pl = styles.paddingLeft;
+        if (pt != null || pr != null || pb != null || pl != null) {
+          if (pt === pr && pr === pb && pb === pl && pt > 0) {
+            const p = spacingToTw(pt);
+            cls.push(p ? `p-${p}` : `p-[${pt}px]`);
+          } else {
+            if (pt != null && pt > 0) {
+              const v = spacingToTw(pt);
+              cls.push(v ? `pt-${v}` : `pt-[${pt}px]`);
+            }
+            if (pr != null && pr > 0) {
+              const v = spacingToTw(pr);
+              cls.push(v ? `pr-${v}` : `pr-[${pr}px]`);
+            }
+            if (pb != null && pb > 0) {
+              const v = spacingToTw(pb);
+              cls.push(v ? `pb-${v}` : `pb-[${pb}px]`);
+            }
+            if (pl != null && pl > 0) {
+              const v = spacingToTw(pl);
+              cls.push(v ? `pl-${v}` : `pl-[${pl}px]`);
+            }
+          }
+        }
+        if (styles.primaryAxisAlignItems) {
+          const map = { MIN: "justify-start", CENTER: "justify-center", MAX: "justify-end", SPACE_BETWEEN: "justify-between" };
+          if (map[styles.primaryAxisAlignItems]) cls.push(map[styles.primaryAxisAlignItems]);
+        }
+        if (styles.counterAxisAlignItems) {
+          const map = { MIN: "items-start", CENTER: "items-center", MAX: "items-end" };
+          if (map[styles.counterAxisAlignItems]) cls.push(map[styles.counterAxisAlignItems]);
+        }
+        if (styles.width != null && styles.width > 0) {
+          const w = spacingToTw(styles.width);
+          cls.push(w ? `w-${w}` : `w-[${styles.width}px]`);
+        }
+        if (styles.height != null && styles.height > 0) {
+          const h = spacingToTw(styles.height);
+          cls.push(h ? `h-${h}` : `h-[${styles.height}px]`);
+        }
+        if (styles.fillColor) {
+          cls.push(`bg-[${styles.fillColor}]`);
+          if (styles.fillOpacity != null) {
+            cls.push(`bg-opacity-${roundOpacity(styles.fillOpacity)}`);
+          }
+        }
+        if (styles.strokeColor) {
+          cls.push("border", `border-[${styles.strokeColor}]`);
+          if (styles.strokeWeight != null && styles.strokeWeight !== 1) {
+            cls.push(`border-[${styles.strokeWeight}px]`);
+          }
+        }
+        if (styles.cornerRadius != null && styles.cornerRadius > 0) {
+          const r = styles.cornerRadius;
+          const rMap = { 2: "rounded-sm", 4: "rounded", 6: "rounded-md", 8: "rounded-lg", 12: "rounded-xl", 16: "rounded-2xl", 9999: "rounded-full" };
+          cls.push(rMap[r] || `rounded-[${r}px]`);
+        }
+        if (styles.opacity != null && styles.opacity < 100) {
+          cls.push(`opacity-${roundOpacity(styles.opacity)}`);
+        }
+        if (styles.fontSize) {
+          const fsMap = { 12: "text-xs", 14: "text-sm", 16: "text-base", 18: "text-lg", 20: "text-xl", 24: "text-2xl", 30: "text-3xl", 36: "text-4xl", 48: "text-5xl", 60: "text-6xl" };
+          cls.push(fsMap[styles.fontSize] || `text-[${styles.fontSize}px]`);
+        }
+        if (styles.fontStyle) {
+          const weight = styles.fontStyle.toLowerCase();
+          const fwMap = { thin: "font-thin", extralight: "font-extralight", light: "font-light", regular: "font-normal", medium: "font-medium", semibold: "font-semibold", bold: "font-bold", extrabold: "font-extrabold", black: "font-black" };
+          if (fwMap[weight]) cls.push(fwMap[weight]);
+        }
+        if (styles.textColor) {
+          cls.push(`text-[${styles.textColor}]`);
+        }
+        if (styles.letterSpacing && styles.letterSpacing !== 0) {
+          cls.push(`tracking-[${styles.letterSpacing}px]`);
+        }
+        if (styles.lineHeight) {
+          cls.push(`leading-[${styles.lineHeight}px]`);
+        }
+        return cls.join(" ");
+      }, spacingToTw = function(px) {
+        const scale = {
+          0: "0",
+          1: "px",
+          2: "0.5",
+          4: "1",
+          6: "1.5",
+          8: "2",
+          10: "2.5",
+          12: "3",
+          14: "3.5",
+          16: "4",
+          20: "5",
+          24: "6",
+          28: "7",
+          32: "8",
+          36: "9",
+          40: "10",
+          44: "11",
+          48: "12",
+          56: "14",
+          64: "16",
+          80: "20",
+          96: "24",
+          112: "28",
+          128: "32",
+          144: "36",
+          160: "40",
+          176: "44",
+          192: "48",
+          208: "52",
+          224: "56",
+          240: "60",
+          256: "64",
+          288: "72",
+          320: "80",
+          384: "96"
+        };
+        return scale[px] ?? null;
+      }, roundOpacity = function(pct) {
+        const steps = [0, 5, 10, 20, 25, 30, 40, 50, 60, 70, 75, 80, 90, 95, 100];
+        return steps.reduce((prev, curr) => Math.abs(curr - pct) < Math.abs(prev - pct) ? curr : prev);
+      }, parseVariantDescriptor = function(desc) {
         const pairs = {};
         for (const segment of desc.split(",")) {
           const eq = segment.indexOf("=");
@@ -1132,7 +1265,29 @@ app.whenReady().then(async () => {
         if (nodeData.figmaComponent === "_TextNode") {
           const text = nodeData.props?.content || "";
           if (!text) return null;
+          const twClass2 = stylesToTailwind(nodeData.styles);
+          if (twClass2) {
+            const attrs = [t.jsxAttribute(t.jsxIdentifier("className"), t.stringLiteral(twClass2))];
+            const opening2 = t.jsxOpeningElement(t.jsxIdentifier("span"), attrs, false);
+            const closing2 = t.jsxClosingElement(t.jsxIdentifier("span"));
+            return { element: t.jsxElement(opening2, closing2, [t.jsxText(text)]), name: "_TextNode" };
+          }
           return { element: t.jsxText(text), name: "_TextNode" };
+        }
+        if (nodeData.figmaComponent === "_Frame") {
+          const childNodes2 = [];
+          if (nodeData.children && Array.isArray(nodeData.children)) {
+            for (const child of nodeData.children) {
+              const generated = await generateJsxElement(child);
+              if (generated) childNodes2.push(generated);
+            }
+          }
+          if (childNodes2.length === 0 && !nodeData.styles) return null;
+          const twClass2 = stylesToTailwind(nodeData.styles);
+          const attrs = twClass2 ? [t.jsxAttribute(t.jsxIdentifier("className"), t.stringLiteral(twClass2))] : [];
+          const opening2 = t.jsxOpeningElement(t.jsxIdentifier("div"), attrs, childNodes2.length === 0);
+          const closing2 = childNodes2.length === 0 ? null : t.jsxClosingElement(t.jsxIdentifier("div"));
+          return { element: t.jsxElement(opening2, closing2, childNodes2.map((c) => c.element)), name: "div" };
         }
         const componentDef = resolveComponent(nodeData);
         if (componentDef?._skip) return null;
@@ -1146,7 +1301,9 @@ app.whenReady().then(async () => {
             }
           }
           if (childNodes2.length === 0) return null;
-          const opening2 = t.jsxOpeningElement(t.jsxIdentifier(tag), [], false);
+          const twClass2 = stylesToTailwind(nodeData.styles);
+          const attrs = twClass2 ? [t.jsxAttribute(t.jsxIdentifier("className"), t.stringLiteral(twClass2))] : [];
+          const opening2 = t.jsxOpeningElement(t.jsxIdentifier(tag), attrs, false);
           const closing2 = t.jsxClosingElement(t.jsxIdentifier(tag));
           return { element: t.jsxElement(opening2, closing2, childNodes2.map((c) => c.element)), name: tag };
         }
@@ -1198,6 +1355,10 @@ app.whenReady().then(async () => {
             }
             attributes.push(t.jsxAttribute(t.jsxIdentifier(reactProp), attrValue));
           }
+        }
+        const twClass = stylesToTailwind(nodeData.styles);
+        if (twClass) {
+          attributes.push(t.jsxAttribute(t.jsxIdentifier("className"), t.stringLiteral(twClass)));
         }
         if (!componentDef.leafComponent && nodeData.children && Array.isArray(nodeData.children)) {
           for (const child of nodeData.children) {
