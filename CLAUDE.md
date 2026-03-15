@@ -58,6 +58,20 @@
 6.  **Granular AST Tools Only (Commandment 15):** The AI Orchestrator MUST only emit ops from the versioned AST Tool Catalog (`updateProps`, `updateText`, `insertNode`, `wrapNode`, `deleteNode`, `addClassName`, `removeClassName`). Raw code string generation is prohibited.
 7.  **In-Memory Validation Loop (Commandment 16):** `orchestrator.ts` MUST run an in-memory TSC type-check on all AI output before surfacing a confirmation UI. Hallucinations feed back as an invisible prompt — never a broken diff.
 
+## Installed Plugin Skills (Auto-Use)
+When working on Bridge, automatically use these installed skills without being asked:
+* **`/vitest`** — Consult when writing or debugging tests. Bridge uses Vitest 3.x with `vitest.config.react.ts`.
+* **`/vite`** — Consult when touching `vite.config.ts`, build config, or HMR issues.
+* **`/ast-grep`** — Use for structural code search across the AST codebase (e.g., finding all Babel visitors, mutation patterns, or component structures). Prefer over regex for code pattern matching.
+* **`/agent-browser`** — Use for Electron app testing, browser automation, or E2E validation of the LivePreview.
+* **`accessibility-specialist`** agent — Spawn proactively when creating or modifying UI components to ensure WCAG 2.1 AA compliance (aligns with A11yLinter Phase B.3).
+* **`ui-ux-designer`** agent — Spawn when designing new panels, modals, or layout changes.
+
+### Plugin Marketplaces (installed at `~/.claude/plugins/marketplaces/`)
+* `claude-plugins-official` — Anthropic official plugins
+* `pleaseai` — Community plugins (vitest, vite, ast-grep, agent-browser, etc.)
+* `buildwithclaude` — 489+ extensions (agents, skills, hooks, commands)
+
 ## Commands
 * `npm run dev`: Launch Bridge IDE (Vite + Electron)
 * `npm test`: Run Vitest suite

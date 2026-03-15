@@ -22,7 +22,8 @@ export default defineConfig({
         environment: 'node',
         include: [
             'electron/**/*.test.ts',
-            'src/**/*.test.ts',
+            'src/core/**/*.test.ts',
+            'src/utils/**/*.test.ts',
         ],
         exclude: ['node_modules/**', 'dist/**', 'dist-electron/**'],
     },
