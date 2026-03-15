@@ -1,0 +1,21 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Bridge MCP Server",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["bridge-mcp/dist/cli.js", "serve"]
+    },
+    {
+      "name": "Figma Ingestion Server",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["bridge-mcp/dist/core/ingestion/server.js"],
+      "port": 4545
+    },
+    {
+      "name": "Vitest (Watch)",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vitest", "--watch", "--config", "bridge-mcp/vitest.config.ts"]
+    }
+  ]
+}
