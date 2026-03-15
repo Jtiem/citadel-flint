@@ -1,10 +1,6 @@
 import { useState, useEffect } from 'react'
 import './index.css'
 // ── Phase N.1: Bootstrap the Abstract Syntax Protocol (ASP) ──────────────────
-// The LanguageRegistry MUST be populated before any Zustand store is created,
-// because editorStore calls LanguageRegistry.getAdapter() at initialisation time
-// (to parse INITIAL_CODE). Importing these here at the top of App.tsx guarantees
-// the adapters are registered synchronously before any component code runs.
 import { LanguageRegistry } from './core/adapters/types'
 import { reactAdapter } from './core/adapters/ReactAdapter'
 import { htmlAdapter } from './core/adapters/HtmlAdapter'
@@ -13,32 +9,29 @@ LanguageRegistry.register(['ts', 'tsx', 'js', 'jsx'], reactAdapter)
 LanguageRegistry.register(['html'], htmlAdapter)
 LanguageRegistry.register(['vue'], vueAdapter)
 // ─────────────────────────────────────────────────────────────────────────────
-import { CodeEditorPanel } from './components/ui/CodeEditorPanel'
 import { XYCanvas } from './components/editor/XYCanvas'
 import { LayerTree } from './components/ui/LayerTree'
 import { AssetsPanel } from './components/editor/AssetsPanel'
 import { PropertiesPanel } from './components/ui/PropertiesPanel'
 import { TokenManager } from './components/ui/TokenManager'
-import { FileExplorer } from './components/ui/FileExplorer'
-import { RecoveryPanel } from './components/ui/RecoveryPanel'
 import { AgentChatPanel } from './components/ui/AgentChatPanel'
-import { TerminalPanel } from './components/ui/TerminalPanel'
 import { ExportModal } from './components/ui/ExportModal'
-import { useTokenStore } from './store/tokenStore'
+import { GovernancePanel } from './components/ui/GovernancePanel'
+import { NotificationCenter } from './components/ui/NotificationCenter'
+import { OnboardingOverlay } from './components/ui/OnboardingOverlay'
 import { StatusBar } from './components/editor/StatusBar'
+import { useTokenStore } from './store/tokenStore'
+import { useNotificationStore } from './store/notificationStore'
 import { useCanvasStore } from './store/canvasStore'
 import { useEditorStore } from './store/editorStore'
 import type { FileTreeNode } from './types/bridge-api'
 import { applyUndo, applyRedo } from './core/recoveryController'
 import { MithrilProvider } from './components/mithril/MithrilProvider'
 import { LaunchScreen } from './components/ui/LaunchScreen'
-import { ShieldAlert, ShieldCheck } from 'lucide-react'
+import { useContextSync } from './hooks/useContextSync'
+import { ShieldAlert, ShieldCheck, Settings2 } from 'lucide-react'
 
 // ── Primary file selection ────────────────────────────────────────────────────
-// Walks the tree to find the most relevant entry point: App.tsx is preferred,
-// then index.tsx, main.tsx, App.ts, index.ts, then the first file encountered.
-// Uses node:path logic is unavailable in the renderer; path.basename is not
-// needed here since FileTreeNode.name already contains just the filename.
 function findPrimaryFile(tree: FileTreeNode): string | null {
     const files: { name: string; path: string }[] = []
     function walk(node: FileTreeNode) {
@@ -46,7 +39,6 @@ function findPrimaryFile(tree: FileTreeNode): string | null {
         node.children?.forEach(walk)
     }
     walk(tree)
-
     const PRIORITY = ['App.tsx', 'index.tsx', 'main.tsx', 'App.ts', 'index.ts']
     for (const p of PRIORITY) {
         const found = files.find((f) => f.name === p)
@@ -58,15 +50,15 @@ function findPrimaryFile(tree: FileTreeNode): string | null {
 // ── App ───────────────────────────────────────────────────────────────────────
 
 function App() {
-    const [leftTab, setLeftTab] = useState<'layers' | 'files' | 'assets'>('layers')
-    const [rightTab, setRightTab] = useState<'properties' | 'tokens' | 'recovery' | 'agent'>('properties')
-    const [centerBottomTab, setCenterBottomTab] = useState<'source' | 'terminal'>('terminal')
+    const [rightTab, setRightTab] = useState<'ast' | 'assets' | 'properties' | 'tokens' | 'activity'>('properties')
     const [ipcStatus, setIpcStatus] = useState<string>('Connecting…')
     const [ipcOk, setIpcOk] = useState<boolean>(false)
     const [showExportModal, setShowExportModal] = useState(false)
+    const [showGovernancePanel, setShowGovernancePanel] = useState(false)
     const fetchTokens = useTokenStore((s) => s.fetchTokens)
+    const pushNotification = useNotificationStore((s) => s.push)
 
-    // Workspace persistence state
+    // Workspace state
     const setActiveFile = useCanvasStore((s) => s.setActiveFile)
     const setWorkspaceFiles = useCanvasStore((s) => s.setWorkspaceFiles)
     const workspaceFiles = useCanvasStore((s) => s.workspaceFiles)
@@ -75,29 +67,25 @@ function App() {
     const closeWorkspace = useCanvasStore((s) => s.closeWorkspace)
     const canExport = useCanvasStore((s) => s.canExport)
 
-    // Extract the bare filename for display (no Node.js path module in renderer)
     const activeFileName = activeFilePath ? activeFilePath.split('/').pop() ?? null : null
 
+    // ── Context Bridge (Phase 1A) ─────────────────────────────────────────────
+    useContextSync()
+
     // ── Shared hydrate helper ─────────────────────────────────────────────────
-    // Centralises the setWorkspaceFiles → setLeftTab → setActiveFile sequence
-    // so all three entry paths (openFolder, newProject, openRecent) stay in sync.
     const hydrateWorkspace = async (tree: FileTreeNode) => {
         setWorkspaceFiles(tree)
-        setLeftTab('files')
         const primaryPath = findPrimaryFile(tree)
         if (primaryPath) await setActiveFile(primaryPath)
     }
 
-    // ── Open Folder (dialog + scan + registry write) ──────────────────────────
     const handleOpenFolder = async () => {
         const tree = await window.bridgeAPI.openFolder()
         if (!tree) return
-        // Record in registry so the folder appears in Recent Projects
         void window.bridgeAPI.registry.upsertProject({ name: tree.name, path: tree.path })
         await hydrateWorkspace(tree as FileTreeNode)
     }
 
-    // ── New Project (pick empty dir → scaffold template → open) ──────────────
     const handleNewProject = async () => {
         const targetPath = await window.bridgeAPI.selectFolder()
         if (!targetPath) return
@@ -108,14 +96,12 @@ function App() {
         await hydrateWorkspace(tree as FileTreeNode)
     }
 
-    // ── Open Recent (known path → scan + registry write) ─────────────────────
     const handleOpenRecent = async (projectPath: string) => {
         const tree = await window.bridgeAPI.project.openPath(projectPath)
         if (!tree) return
         await hydrateWorkspace(tree as FileTreeNode)
     }
 
-    // ── Load Demo (pick empty dir → scaffold bridge-demo template → open) ────
     const handleLoadDemo = async () => {
         const targetPath = await window.bridgeAPI.selectFolder()
         if (!targetPath) return
@@ -126,6 +112,7 @@ function App() {
         await hydrateWorkspace(tree as FileTreeNode)
     }
 
+    // ── IPC health check ──────────────────────────────────────────────────────
     useEffect(() => {
         window.bridgeAPI
             .ping()
@@ -139,45 +126,62 @@ function App() {
             })
     }, [])
 
-    // Re-fetch tokens whenever the Figma plugin syncs successfully.
-    // The ingestion server broadcasts 'bridge:tokens-updated' after every /ingest write.
+    // ── Token sync + Figma notification ───────────────────────────────────────
     useEffect(() => {
         window.bridgeAPI.onTokensUpdated(() => {
-            console.log('⚡️ SYNC RECEIVED')
             fetchTokens()
+            pushNotification({
+                type: 'sync',
+                title: 'Figma Sync',
+                message: 'Design tokens updated from Figma',
+                severity: 'success',
+                autoDismissMs: 4000,
+            })
         })
+
+        const tokens = useTokenStore.getState().tokens
+        if (tokens.length === 0) {
+            import('./core/seedTokens').then(({ seedTokens }) => seedTokens())
+        }
+
         return () => {
             window.bridgeAPI.removeTokensUpdatedListener()
         }
-    }, [fetchTokens])
+    }, [fetchTokens, pushNotification])
 
-    // ── Global keyboard shortcuts (Phase G.1 Recovery Engine) ─────────────────
-    // Cmd+Z / Ctrl+Z  → AST-level undo via the RecoveryController.
-    // Cmd+Shift+Z / Ctrl+Shift+Z / Ctrl+Y → AST-level redo.
-    //
-    // Monaco coexistence: when the Monaco editor has focus we bail out and let
-    // Monaco handle its own text-level undo stack (character-by-character).
-    // Bridge undo only fires for structural AST mutations (drag reorder,
-    // property changes, cross-file moves) that went through applyBatch /
-    // crossFileMove and were recorded in historyStore.
+    // ── File watcher (Phase 1C) ───────────────────────────────────────────────
+    useEffect(() => {
+        if (!window.bridgeAPI?.onFileChanged) return
+
+        window.bridgeAPI.onFileChanged((data: { filePath: string; content: string }) => {
+            const currentFile = useCanvasStore.getState().activeFilePath
+            if (data.filePath === currentFile) {
+                useEditorStore.getState().syncCode(data.content)
+                pushNotification({
+                    type: 'mutation',
+                    title: 'File Updated',
+                    message: `${data.filePath.split('/').pop()} was modified externally`,
+                    severity: 'info',
+                    autoDismissMs: 3000,
+                })
+            }
+        })
+
+        return () => {
+            window.bridgeAPI.removeFileChangedListener?.()
+        }
+    }, [pushNotification])
+
+    // ── Global keyboard shortcuts ─────────────────────────────────────────────
     useEffect(() => {
         function handleKeyDown(e: KeyboardEvent): void {
-            // Let Monaco handle undo/redo when the editor textarea is focused.
-            // Use loose != (covers both null and undefined) — optional chaining
-            // returns undefined when document.activeElement is null, and
-            // `undefined !== null` is true, which would incorrectly block undo.
             if (document.activeElement?.closest('.monaco-editor') != null) return
-
-            // Don't intercept global shortcuts if the user is typing in an input
             if (
                 document.activeElement?.tagName === 'INPUT' ||
                 document.activeElement?.tagName === 'TEXTAREA' ||
                 document.activeElement?.tagName === 'SELECT'
-            ) {
-                return
-            }
+            ) return
 
-            // Node Deletion
             if (e.key === 'Backspace' || e.key === 'Delete') {
                 const activeSelection = useCanvasStore.getState().activeSelection
                 if (activeSelection) {
@@ -193,14 +197,33 @@ function App() {
 
             if (e.key === 'z' && !e.shiftKey) {
                 e.preventDefault()
-                void applyUndo()
+                const desc = applyUndo()
+                if (desc) {
+                    useNotificationStore.getState().push({
+                        type: 'undo',
+                        title: 'Undone',
+                        message: typeof desc === 'string' ? desc : 'AST mutation reversed',
+                        severity: 'info',
+                        autoDismissMs: 2500,
+                        actionLabel: 'Redo',
+                        actionCallback: () => { void applyRedo() },
+                    })
+                }
             } else if (
                 (e.key === 'z' && e.shiftKey) ||
-                // Ctrl+Y is the conventional redo shortcut on Windows/Linux.
                 (e.ctrlKey && !e.metaKey && e.key === 'y')
             ) {
                 e.preventDefault()
-                void applyRedo()
+                const desc = applyRedo()
+                if (desc) {
+                    useNotificationStore.getState().push({
+                        type: 'undo',
+                        title: 'Redone',
+                        message: typeof desc === 'string' ? desc : 'AST mutation reapplied',
+                        severity: 'info',
+                        autoDismissMs: 2500,
+                    })
+                }
             }
         }
 
@@ -208,10 +231,7 @@ function App() {
         return () => { window.removeEventListener('keydown', handleKeyDown) }
     }, [])
 
-    // ── Native OS menu event subscriptions ────────────────────────────────────
-    // The main process pushes these events when the user chooses a File menu item.
-    // We reuse the exact same handler logic as the UI buttons so all entry paths
-    // stay in sync with hydrateWorkspace.
+    // ── Native OS menu events ─────────────────────────────────────────────────
     useEffect(() => {
         window.bridgeAPI.menu.onNewProject(() => { void handleNewProject() })
         window.bridgeAPI.menu.onOpenProject(() => { void handleOpenFolder() })
@@ -219,10 +239,7 @@ function App() {
         return () => { window.bridgeAPI.menu.removeMenuListeners() }
     }, [closeWorkspace])
 
-    // ── LaunchScreen gate (Commandment 1 — Code is Truth) ─────────────────────
-    // workspaceFiles === null is the single source of truth for "no project
-    // open". Render the LaunchScreen as the absolute fallback. All hooks above
-    // still run so the IPC health pill and token listeners remain active.
+    // ── LaunchScreen gate ─────────────────────────────────────────────────────
     if (!workspaceFiles) {
         return (
             <LaunchScreen
@@ -238,10 +255,9 @@ function App() {
         <div className="flex h-screen flex-col bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950">
             {/* ── Top bar ────────────────────────────────────────────────── */}
             <header className="flex shrink-0 items-center justify-between border-b border-gray-800 px-6 py-3">
-                {/* Left: title + active file name */}
                 <div className="flex flex-col">
                     <h1 className="bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-xl font-bold tracking-tight text-transparent">
-                        Bridge IDE
+                        Bridge Glass
                     </h1>
                     {activeFileName && (
                         <span
@@ -253,7 +269,7 @@ function App() {
                     )}
                 </div>
 
-                {/* Center: IPC health pill */}
+                {/* IPC health pill */}
                 <div className="flex items-center gap-3 rounded-xl border border-gray-800 bg-gray-900/60 px-4 py-2">
                     <span
                         className={`inline-block h-2.5 w-2.5 rounded-full ${ipcOk
@@ -264,14 +280,9 @@ function App() {
                     <span className="font-mono text-xs text-gray-300">
                         {ipcStatus}
                     </span>
-                    <span className="text-xs text-gray-600">
-                        Context Isolation ✓ · Node Integration Off ✓
-                    </span>
                 </div>
 
-                {/* Right: save state + Open Folder + tech pills */}
                 <div className="flex items-center gap-2">
-                    {/* Save state indicator — visible only when a file is open */}
                     {saveState !== 'idle' && (
                         <div className="flex items-center gap-1.5">
                             <span
@@ -283,34 +294,34 @@ function App() {
                                     }`}
                             />
                             <span className="font-mono text-[10px] text-gray-400">
-                                {saveState === 'editing'
-                                    ? 'Editing…'
-                                    : saveState === 'saving'
-                                        ? 'Saving…'
-                                        : 'Saved'}
+                                {saveState === 'editing' ? 'Editing…' : saveState === 'saving' ? 'Saving…' : 'Saved'}
                             </span>
                         </div>
                     )}
 
-                    {/* Export Gate button — Commandment 6 */}
                     <button
                         type="button"
                         onClick={() => setShowExportModal(true)}
-                        title={canExport() ? 'Export-ready — click to export' : 'Export blocked by overrides or ΔE violations'}
+                        title={canExport() ? 'Export-ready' : 'Export blocked by violations'}
                         className={`flex items-center gap-1.5 rounded border px-2.5 py-1 text-[11px] font-medium transition-colors ${canExport()
                             ? 'border-emerald-700/50 bg-emerald-900/20 text-emerald-400 hover:bg-emerald-900/40'
                             : 'border-amber-700/50 bg-amber-900/20 text-amber-400 hover:bg-amber-900/40'
                             }`}
                     >
-                        {canExport() ? (
-                            <ShieldCheck className="h-3 w-3" />
-                        ) : (
-                            <ShieldAlert className="h-3 w-3" />
-                        )}
+                        {canExport() ? <ShieldCheck className="h-3 w-3" /> : <ShieldAlert className="h-3 w-3" />}
                         Export
                     </button>
 
-                    {/* Open Folder */}
+                    <button
+                        type="button"
+                        onClick={() => setShowGovernancePanel(true)}
+                        title="Open Governance Rules"
+                        className="flex items-center gap-1.5 rounded border border-gray-700 bg-gray-800 px-2.5 py-1 text-[11px] font-medium text-gray-300 transition-colors hover:border-indigo-500/50 hover:bg-gray-700 hover:text-white"
+                    >
+                        <Settings2 className="h-3 w-3" />
+                        Governance
+                    </button>
+
                     <button
                         type="button"
                         onClick={() => { void handleOpenFolder() }}
@@ -319,21 +330,6 @@ function App() {
                         Open Folder
                     </button>
 
-                    {/* Reset to Demo */}
-                    <button
-                        type="button"
-                        onClick={async () => {
-                            if (!workspaceFiles) return
-                            if (!window.confirm('Reset project to demo state? This overwrites files in ' + workspaceFiles.path)) return
-                            const tree = await window.bridgeAPI.project.resetToDemo(workspaceFiles.path)
-                            await hydrateWorkspace(tree as FileTreeNode)
-                        }}
-                        className="rounded border border-gray-700 bg-gray-800 px-2.5 py-1 text-[11px] font-medium text-gray-500 transition-colors hover:border-orange-500/40 hover:bg-gray-700 hover:text-orange-400"
-                    >
-                        Reset to Demo
-                    </button>
-
-                    {/* Close Project */}
                     <button
                         type="button"
                         onClick={closeWorkspace}
@@ -341,130 +337,52 @@ function App() {
                     >
                         Close Project
                     </button>
-
-                    {/* Tech pills */}
-                    {[
-                        'Electron',
-                        'React',
-                        'TypeScript',
-                        'Tailwind',
-                        'Monaco',
-                        'Babel',
-                        'SQLite',
-                    ].map((tech) => (
-                        <span
-                            key={tech}
-                            className="rounded-full border border-gray-700 bg-gray-800/50 px-2.5 py-0.5 text-xs text-gray-400"
-                        >
-                            {tech}
-                        </span>
-                    ))}
                 </div>
             </header>
 
-            {/* ── Three-panel workspace ───────────────────────────────────── */}
-            {/* min-h-0 on `main` and every panel section is required:        */}
-            {/* without it flex children default to min-height: auto and      */}
-            {/* overflow-y-auto never engages inside flex containers.          */}
+            {/* ── Two-panel Glass workspace ─────────────────────────────── */}
             <main className="flex min-h-0 flex-1">
-                {/* Left panel: Layers / Files / Assets tabs (20%) */}
-                <section className="flex min-h-0 w-1/5 flex-col border-r border-gray-800">
-                    {/* Tab bar */}
-                    <div className="flex shrink-0 border-b border-gray-800">
-                        {(['layers', 'files', 'assets'] as const).map((tab) => (
-                            <button
-                                key={tab}
-                                type="button"
-                                onClick={() => setLeftTab(tab)}
-                                className={`flex-1 py-2 text-xs font-medium uppercase tracking-wider transition-colors ${leftTab === tab
-                                    ? 'border-b-2 border-indigo-500 text-indigo-400'
-                                    : 'text-gray-600 hover:text-gray-400'
-                                    }`}
-                            >
-                                {tab === 'layers' ? 'AST' : tab}
-                            </button>
-                        ))}
-                    </div>
-                    <div className="min-h-0 flex-1 overflow-y-auto">
-                        {leftTab === 'layers' && <LayerTree />}
-                        {leftTab === 'files' && <FileExplorer />}
-                        {leftTab === 'assets' && <AssetsPanel />}
-                    </div>
+                {/* Center: Infinite canvas (full height) */}
+                <section className="flex min-h-0 flex-1 flex-col border-r border-gray-800">
+                    <MithrilProvider>
+                        <XYCanvas />
+                    </MithrilProvider>
                 </section>
 
-                {/* Center panel: XY infinite canvas (top) + Code Editor (bottom) (60%) */}
-                <section className="flex min-h-0 w-3/5 flex-col border-r border-gray-800">
-                    {/* Top: infinite whiteboard canvas */}
-                    <div className="flex min-h-0 flex-1 flex-col border-b border-gray-800">
-                        <MithrilProvider>
-                            <XYCanvas />
-                        </MithrilProvider>
-                    </div>
-
-                    {/* Bottom half: Monaco code editor or Terminal */}
-                    <div className="flex min-h-0 flex-1 flex-col">
-                        <div className="flex shrink-0 items-center border-b border-gray-800">
-                            <button
-                                type="button"
-                                onClick={() => setCenterBottomTab('source')}
-                                className={`px-4 py-2 text-xs font-medium uppercase tracking-wider transition-colors ${centerBottomTab === 'source'
-                                    ? 'border-b-2 border-indigo-500 text-indigo-400'
-                                    : 'text-gray-600 hover:text-gray-400'
-                                    }`}
-                            >
-                                Source
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setCenterBottomTab('terminal')}
-                                className={`px-4 py-2 text-xs font-medium uppercase tracking-wider transition-colors ${centerBottomTab === 'terminal'
-                                    ? 'border-b-2 border-indigo-500 text-indigo-400'
-                                    : 'text-gray-600 hover:text-gray-400'
-                                    }`}
-                            >
-                                Terminal
-                            </button>
-                        </div>
-                        <div className="min-h-0 flex-1">
-                            {centerBottomTab === 'source' ? <CodeEditorPanel /> : <TerminalPanel />}
-                        </div>
-                    </div>
-                </section>
-
-                {/* Right panel: Properties / Tokens / Recovery tabs (20%) */}
-                <section className="flex min-h-0 w-1/5 flex-col">
-                    {/* Tab bar */}
+                {/* Right sidebar: Bridge-specific panels */}
+                <section className="flex min-h-0 w-1/4 flex-col">
                     <div className="flex shrink-0 border-b border-gray-800">
-                        {(['properties', 'tokens', 'recovery', 'agent'] as const).map((tab) => (
+                        {(['ast', 'assets', 'properties', 'tokens', 'activity'] as const).map((tab) => (
                             <button
                                 key={tab}
                                 type="button"
                                 onClick={() => setRightTab(tab)}
-                                className={`flex-1 py-2 text-[10px] font-medium uppercase tracking-wider transition-colors ${rightTab === tab
+                                className={`flex-1 py-2 text-[9px] font-medium uppercase tracking-wider transition-colors ${rightTab === tab
                                     ? 'border-b-2 border-indigo-500 text-indigo-400'
                                     : 'text-gray-600 hover:text-gray-400'
                                     }`}
                             >
-                                {tab === 'recovery' ? '⏱ Recover' : tab === 'agent' ? '🤖 Agent' : tab}
+                                {tab}
                             </button>
                         ))}
                     </div>
-
-                    {/* Panel content */}
                     <div className="min-h-0 flex-1 overflow-y-auto">
+                        {rightTab === 'ast' && <LayerTree />}
+                        {rightTab === 'assets' && <AssetsPanel />}
                         {rightTab === 'properties' && <PropertiesPanel />}
                         {rightTab === 'tokens' && <TokenManager />}
-                        {rightTab === 'recovery' && <RecoveryPanel />}
-                        {rightTab === 'agent' && <AgentChatPanel />}
+                        {rightTab === 'activity' && <AgentChatPanel />}
                     </div>
                 </section>
             </main>
+
             <StatusBar />
 
-            {/* Export Gate Modal — rendered as an overlay above the entire UI */}
-            {showExportModal && (
-                <ExportModal onClose={() => setShowExportModal(false)} />
-            )}
+            {/* Overlays */}
+            <OnboardingOverlay />
+            {showExportModal && <ExportModal onClose={() => setShowExportModal(false)} />}
+            {showGovernancePanel && <GovernancePanel onClose={() => setShowGovernancePanel(false)} />}
+            <NotificationCenter />
         </div>
     )
 }
