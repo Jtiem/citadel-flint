@@ -20,3 +20,7 @@ Thumbs.db
 
 # Debug artifacts
 test-root.js
+test-main-cjs.cjs
+
+# Storybook (stale template — revive or delete later)
+src/stories/
