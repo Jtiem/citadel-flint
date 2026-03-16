@@ -762,6 +762,133 @@ export interface ImportSummaryAPI {
     removeListeners: () => void
 }
 
+// ── Phase ACX.5: Context Sync Types ──────────────────────────────────────────
+
+/**
+ * Live state snapshot written to `.bridge/context.json` by `useContextSync`
+ * every 200 ms (debounced). The MCP server reads this file via
+ * `bridge_get_context` / `bridge://context` to stay synchronized with the
+ * visual Glass layer without requiring direct IPC coupling.
+ *
+ * All new fields are optional for backward compatibility — older context.json
+ * files written before ACX.5 will still parse correctly.
+ *
+ * Context Bridge Awareness (CLAUDE.md §8): any new Glass state that should
+ * be visible to the MCP server must be added to this type AND populated in
+ * `useContextSync`.
+ */
+export interface BridgeContext {
+    /** Unix timestamp (ms) of when this snapshot was assembled. */
+    timestamp: number
+
+    /** Absolute path of the currently open file, or null. */
+    activeFile: string | null
+
+    /** data-bridge-id of the selected node, or null. */
+    selectedNodeId: string | null
+
+    /** Cursor position in the source editor, or null. */
+    cursorPosition: { line: number; column: number } | null
+
+    /** Aggregated violation counts for the current file. */
+    violations: {
+        mithrilCount: number
+        a11yCount: number
+        criticalCount: number
+        /** All data-bridge-ids that have at least one violation. */
+        nodeIds: string[]
+    }
+
+    /** Current phase of the auto-save pipeline. */
+    saveState: string
+
+    /** Current interaction mode: 'design' or 'interact'. */
+    canvasMode: string
+
+    /** Absolute paths of all currently open files. */
+    openFiles: string[]
+
+    // ── ACX.5 extension fields (all optional — backward compatible) ──────────
+
+    /**
+     * Design debt health score (0–100) for the active project.
+     * Sourced from the debt report, or null when unavailable.
+     */
+    healthScore?: number | null
+
+    /**
+     * Letter grade corresponding to the health score (A/B/C/D/F).
+     * Null when no score is available.
+     */
+    healthGrade?: string | null
+
+    /**
+     * Number of active governance rule overrides in the current session.
+     * Used by the MCP server to assess compliance posture.
+     */
+    overrideCount?: number | null
+
+    /**
+     * Summary of the most recent Figma ingestion heal pass.
+     * Null when no import has occurred in this session.
+     */
+    importSummary?: {
+        tier1Fixed: number
+        tier2Flagged: number
+        tier3Unknown: number
+    } | null
+
+    // ── Phase ACX.5: enriched context fields for agent awareness ─────────────
+
+    /**
+     * First 200 lines of the active file's source code.
+     * Allows MCP agents to read the current component without a separate
+     * `bridge_read_code` call. Null when no file is open.
+     */
+    sourceExcerpt?: string | null
+
+    /**
+     * Descriptor of the currently selected node.
+     * Null when no node is selected.
+     */
+    selectedNodeSummary?: {
+        tagName: string
+        bridgeId: string
+        className: string | null
+        props: Record<string, string>
+        childCount: number
+        parentId: string | null
+    } | null
+
+    /**
+     * Structured violation snapshot for agent awareness.
+     * Derived from linterWarnings — gives agents a quick picture of
+     * current governance health without a separate audit call.
+     */
+    violationSnapshot?: {
+        total: number
+        criticalCount: number
+        exportBlocked: boolean
+        exportBlockReason: string | null
+    } | null
+}
+
+/**
+ * Enriched context returned by `context:get-enriched` IPC.
+ * Extends the raw BridgeContext snapshot with live SQLite metrics
+ * assembled in the main process: token count, override count, health score.
+ *
+ * Used by ACX.1 `sessionContext.ts` to assemble `bridge://session-context`.
+ */
+export interface EnrichedContext extends BridgeContext {
+    /** Total design token count from the design_tokens table. */
+    tokenCount: number
+    /** Number of active export-blocking overrides in component_overrides. */
+    activeOverrideCount: number
+    /** ISO 8601 UTC timestamp of when this enriched snapshot was assembled. */
+    enrichedAt: string
+}
+
 export interface BridgeAPI {
     /** Health-check: verifies the IPC bridge is functional. */
     ping: () => Promise<string>
@@ -1010,6 +1137,34 @@ export interface BridgeAPI {
      * Optional-chained so Vitest/headless environments degrade gracefully.
      */
     importSummary?: ImportSummaryAPI
+
+    // ── Phase ACX.5: Context Sync Pipeline ────────────────────────────────────
+
+    /**
+     * Writes a BridgeContext snapshot to `.bridge/context.json` in the main
+     * process. Called by `useContextSync` on every meaningful state change
+     * (debounced at 200 ms). Fire-and-forget — the promise resolves when the
+     * file write completes but the renderer does not need the result.
+     *
+     * This is the sole mechanism by which the MCP server learns about live
+     * Glass state. Do not call `fs.writeFile` directly — route through this
+     * IPC channel so the write goes through the main process.
+     */
+    syncContext: (context: BridgeContext) => Promise<void>
+
+    /**
+     * Returns an enriched context snapshot assembled from `.bridge/context.json`
+     * plus live SQLite metrics (token count, override count, health score).
+     * Intended for use by ACX session-context assembly — not needed for everyday
+     * Glass rendering, but exposed so the renderer can trigger a one-shot
+     * snapshot when needed (e.g. before handing off to an MCP agent).
+     *
+     * Optional-chained by callers so headless / test environments degrade
+     * gracefully.
+     */
+    context?: {
+        getEnriched: () => Promise<EnrichedContext>
+    }
 }
 
 // ── GOV.1 + GOV.2: Governance Provenance + Override Telemetry ────────────────

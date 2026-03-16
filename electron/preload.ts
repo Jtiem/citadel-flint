@@ -775,4 +775,32 @@ contextBridge.exposeInMainWorld('bridgeAPI', {
             }
         },
     },
+
+    // ── Phase ACX.5: Context Sync Pipeline ────────────────────────────────────
+
+    /**
+     * Writes a BridgeContext snapshot to `.bridge/context.json` via the main
+     * process. Called by `useContextSync` every 200 ms (debounced) so the MCP
+     * server always has fresh Glass state available via `bridge_get_context`.
+     *
+     * Fire-and-forget — the renderer does not need the resolved value.
+     *
+     * Process boundary law: we deliberately do NOT expose `fs` here. The write
+     * goes through the main process, which enforces the `.bridge/` directory
+     * boundary and performs an atomic tmp→rename write.
+     */
+    syncContext: (context: unknown): Promise<void> =>
+        ipcRenderer.invoke('context:sync', context),
+
+    /**
+     * Returns an enriched context snapshot assembled from `.bridge/context.json`
+     * plus live SQLite metrics (token count, active override count).
+     *
+     * Used by the ACX session-context assembly to pre-populate `bridge://session-context`
+     * without requiring the MCP server to make additional IPC calls.
+     */
+    context: {
+        getEnriched: (): Promise<unknown> =>
+            ipcRenderer.invoke('context:get-enriched'),
+    },
 })

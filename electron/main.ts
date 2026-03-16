@@ -2181,6 +2181,79 @@ app.whenReady().then(async () => {
         return { ok: true }
     })
 
+    // ── Phase ACX.5: Context Sync Pipeline ───────────────────────────────────
+    //
+    // context:sync   — Receives a BridgeContext snapshot from useContextSync
+    //                  and atomically writes it to .bridge/context.json so the
+    //                  headless MCP server can read it via bridge_get_context.
+    //
+    // context:get-enriched — Reads context.json, then enriches it with live
+    //                        SQLite metrics (token count, override count) and
+    //                        returns the combined EnrichedContext object.
+    //
+    // Security: context.json is written to the active project's .bridge/
+    // subdirectory. When no project is open we fall back to the user's home
+    // directory. No path traversal is possible because we construct the path
+    // ourselves rather than accepting it from the renderer.
+
+    ipcMain.handle('context:sync', async (_event, context: unknown): Promise<void> => {
+        if (typeof context !== 'object' || context === null) {
+            throw new TypeError('context:sync — payload must be a non-null object')
+        }
+
+        // Determine the target directory. Prefer the active project root so
+        // context.json lands in <projectRoot>/.bridge/context.json. Fall back to
+        // ~/.bridge/context.json when no project has been opened yet.
+        const bridgeDir = activeProjectRoot
+            ? path.join(activeProjectRoot, '.bridge')
+            : path.join(app.getPath('home'), '.bridge')
+
+        try {
+            await mkdir(bridgeDir, { recursive: true })
+        } catch {
+            // Directory already exists — not an error.
+        }
+
+        const contextPath = path.join(bridgeDir, 'context.json')
+        const json = JSON.stringify(context, null, 2)
+
+        // Atomic write: stage to .tmp then rename (Commandment 12).
+        const tmpPath = `${contextPath}.tmp`
+        await writeFile(tmpPath, json, 'utf8')
+        await rename(tmpPath, contextPath)
+    })
+
+    // Read helpers for context:get-enriched — prepared once, reused per call.
+    const stmtTokenCount = db.prepare<[], { count: number }>('SELECT COUNT(*) AS count FROM design_tokens')
+    const stmtOverrideCount = db.prepare<[], { count: number }>('SELECT COUNT(*) AS count FROM component_overrides')
+
+    ipcMain.handle('context:get-enriched', async (): Promise<unknown> => {
+        const bridgeDir = activeProjectRoot
+            ? path.join(activeProjectRoot, '.bridge')
+            : path.join(app.getPath('home'), '.bridge')
+
+        const contextPath = path.join(bridgeDir, 'context.json')
+
+        let base: Record<string, unknown> = {}
+        try {
+            const raw = await readFile(contextPath, 'utf8')
+            base = JSON.parse(raw) as Record<string, unknown>
+        } catch {
+            // context.json does not exist yet or is malformed — start with empty base.
+            base = { timestamp: Date.now(), activeFile: null }
+        }
+
+        const tokenCount = (stmtTokenCount.get() as { count: number }).count
+        const activeOverrideCount = (stmtOverrideCount.get() as { count: number }).count
+
+        return {
+            ...base,
+            tokenCount,
+            activeOverrideCount,
+            enrichedAt: new Date().toISOString(),
+        }
+    })
+
     // ── Phase P: Integrated Terminal ──────────────────────────────────────────
     let ptyProcess: IPty | null = null
 

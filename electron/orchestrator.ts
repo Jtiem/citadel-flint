@@ -36,6 +36,387 @@ import db from './store.js'
 import { checkClassNameForColorDrift, formatViolationsForAI } from './mithrilPreCommit.js'
 import type { MithrilToken } from './mithrilPreCommit.js'
 
+// ── Complexity Router Types (ACX) ─────────────────────────────────────────────
+//
+// All types live here alongside the router implementation per the ACX contract.
+// No renderer-side types are needed — the assessment never crosses the IPC boundary.
+
+export type ComplexityTier = 'atomic' | 'compound' | 'architectural'
+
+/**
+ * A single signal that contributed to the complexity assessment.
+ * Stored in ComplexityAssessment.signals for logging and transparency.
+ */
+export interface ComplexitySignal {
+    /** Identifier for the signal source. */
+    source:
+        | 'architectural_keyword'
+        | 'compound_keyword'
+        | 'message_length'
+        | 'multi_sentence'
+        | 'quantifier'
+        | 'violation_count'
+        | 'session_depth'
+        | 'file_count'
+        | 'vue_sfc'
+        | 'prior_tool_depth'
+        | 'prior_structural_tool'
+        | 'prior_multi_target'
+    /** Human-readable description of why this signal fired. */
+    reason: string
+    /** The tier floor this signal established or confirmed. */
+    tierContribution: ComplexityTier
+}
+
+/**
+ * The output of classifyComplexity(). Carries the selected model, the full
+ * escalation path, and the audit trail of signals that produced the decision.
+ */
+export interface ComplexityAssessment {
+    tier: ComplexityTier
+    selectedModel: string
+    reasoning: string
+    signals: ComplexitySignal[]
+    escalationPath: string[]
+}
+
+/**
+ * All inputs available to the router synchronously at call time.
+ * Constructed in sendChatMessage() before the Anthropic SDK call.
+ */
+export interface RouterInput {
+    lastUserMessage: string
+    violationCount: number
+    sessionTurns: number
+    openFileCount: number
+    activeFileExtension: string
+    priorToolCallCount: number
+    priorToolNames: string[]
+    priorUniqueTargetIds: number
+}
+
+// ── Keyword lists (module-level const — never re-allocated per call) ──────────
+
+const COMPOUND_VERBS = [
+    'restyle', 'restructure', 'fix all', 'fix the violations', 'align',
+    'update all', 'clean up', 'apply tokens', 'change the color scheme',
+    'reorder', 'refactor layout', 'adjust spacing', 'wrap', 'insert',
+    'add a new', 'delete', 'remove the',
+]
+const COMPOUND_NOUNS = [
+    'violations', 'accessibility issues', 'design debt', 'the form',
+    'the nav', 'the card', 'the layout', 'all the',
+]
+const ARCHITECTURAL_VERBS = [
+    'create', 'extract', 'move', 'migrate', 'scaffold', 'build',
+    'introduce', 'set up', 'implement', 'generate', 'compose',
+    'new component', 'refactor', 'redesign',
+]
+const ARCHITECTURAL_NOUNS = [
+    'component', 'page', 'layout', 'across files', 'shared', 'library',
+    'token system', 'multiple files', 'new file', 'pattern',
+]
+
+const QUANTIFIER_WORDS = ['all', 'every', 'each', 'multiple', 'several']
+
+// ── Model mapping and escalation paths ───────────────────────────────────────
+
+export const TIER_TO_MODEL: Record<ComplexityTier, string> = {
+    atomic:        'claude-3-5-haiku-20241022',
+    compound:      'claude-3-5-sonnet-20241022',
+    architectural: 'claude-opus-4-5',
+}
+
+export const ESCALATION_PATH: Record<ComplexityTier, string[]> = {
+    atomic:        ['claude-3-5-haiku-20241022', 'claude-3-5-sonnet-20241022', 'claude-opus-4-5'],
+    compound:      ['claude-3-5-sonnet-20241022', 'claude-opus-4-5'],
+    architectural: ['claude-opus-4-5'],
+}
+
+// ── Complexity classification helpers ─────────────────────────────────────────
+
+function containsAny(msg: string, keywords: string[]): boolean {
+    return keywords.some((kw) => msg.includes(kw))
+}
+
+function countSentences(msg: string): number {
+    // Count sentence-ending punctuation: . ! ? followed by whitespace or end
+    const matches = msg.match(/[.!?](\s|$)/g)
+    return matches ? matches.length : 1
+}
+
+function containsQuantifier(msg: string): boolean {
+    return QUANTIFIER_WORDS.some((q) => msg.includes(q))
+}
+
+function mentionsViolations(msg: string): boolean {
+    return msg.includes('violation') || msg.includes('issue') || msg.includes('error') || msg.includes('fix')
+}
+
+/** Raise only — never lower a tier. */
+function raise(current: ComplexityTier, target: ComplexityTier): ComplexityTier {
+    const rank: Record<ComplexityTier, number> = { atomic: 0, compound: 1, architectural: 2 }
+    return rank[target] > rank[current] ? target : current
+}
+
+/**
+ * Classify a task into a complexity tier.
+ * Deterministic, synchronous, O(K) where K is total keyword count (~50).
+ * Must complete in < 10ms on any message up to 2,000 characters.
+ */
+export function classifyComplexity(input: RouterInput): ComplexityTier {
+    const msg = input.lastUserMessage.toLowerCase()
+
+    let floor: ComplexityTier = 'atomic'
+
+    // Phase 1: Message-based floor
+    if (containsAny(msg, ARCHITECTURAL_VERBS) || containsAny(msg, ARCHITECTURAL_NOUNS)) {
+        floor = 'architectural'
+    } else if (
+        containsAny(msg, COMPOUND_VERBS) ||
+        containsAny(msg, COMPOUND_NOUNS) ||
+        countSentences(msg) >= 2 ||
+        (msg.length > 120 && containsQuantifier(msg))
+    ) {
+        floor = 'compound'
+    }
+
+    // Phase 2: Workspace signal raises (never lower)
+
+    // Violation count raise
+    if (floor !== 'architectural' && input.violationCount >= 5 && mentionsViolations(msg)) {
+        floor = raise(floor, 'compound')
+    }
+    if (floor !== 'architectural' && input.violationCount >= 13 && mentionsViolations(msg)) {
+        floor = raise(floor, 'compound')
+    }
+
+    // Session depth raise
+    if (floor === 'atomic' && input.sessionTurns >= 4) {
+        floor = 'compound'
+    }
+
+    // File count raise
+    if (floor !== 'architectural' && input.openFileCount >= 2) {
+        if (containsAny(msg, ARCHITECTURAL_VERBS) || containsAny(msg, ARCHITECTURAL_NOUNS)) {
+            floor = 'architectural'
+        }
+    }
+
+    // Vue SFC raise
+    if (input.activeFileExtension === 'vue' && floor === 'atomic') {
+        floor = 'compound'
+    }
+
+    // Phase 3: Prior turn evidence raises
+    if (floor === 'atomic' && (
+        input.priorToolCallCount >= 5 ||
+        input.priorToolNames.includes('bridge_insert_node') ||
+        input.priorToolNames.includes('bridge_wrap_node') ||
+        input.priorUniqueTargetIds >= 2
+    )) {
+        floor = 'compound'
+    }
+
+    return floor
+}
+
+/**
+ * Build a ComplexityAssessment from a RouterInput.
+ * Wraps classifyComplexity and captures which signals fired.
+ */
+export function buildAssessment(input: RouterInput): ComplexityAssessment {
+    const msg = input.lastUserMessage.toLowerCase()
+    const signals: ComplexitySignal[] = []
+
+    // Capture signals in firing order
+    if (containsAny(msg, ARCHITECTURAL_VERBS) || containsAny(msg, ARCHITECTURAL_NOUNS)) {
+        signals.push({
+            source: 'architectural_keyword',
+            reason: 'Message contains an architectural verb or noun',
+            tierContribution: 'architectural',
+        })
+    } else if (containsAny(msg, COMPOUND_VERBS) || containsAny(msg, COMPOUND_NOUNS)) {
+        signals.push({
+            source: 'compound_keyword',
+            reason: 'Message contains a compound-scope verb or noun',
+            tierContribution: 'compound',
+        })
+    }
+
+    if (countSentences(msg) >= 2) {
+        signals.push({
+            source: 'multi_sentence',
+            reason: 'Message contains 2+ sentences indicating compound intent',
+            tierContribution: 'compound',
+        })
+    }
+
+    if (msg.length > 120 && containsQuantifier(msg)) {
+        signals.push({
+            source: 'message_length',
+            reason: 'Long message with quantifier signals compound intent',
+            tierContribution: 'compound',
+        })
+    }
+
+    if (input.violationCount >= 5 && mentionsViolations(msg)) {
+        signals.push({
+            source: 'violation_count',
+            reason: `${input.violationCount} active violations mentioned in message`,
+            tierContribution: 'compound',
+        })
+    }
+
+    if (input.sessionTurns >= 4) {
+        signals.push({
+            source: 'session_depth',
+            reason: `Session turn ${input.sessionTurns} — extended sessions escalate to compound`,
+            tierContribution: 'compound',
+        })
+    }
+
+    if (input.openFileCount >= 2 && (containsAny(msg, ARCHITECTURAL_VERBS) || containsAny(msg, ARCHITECTURAL_NOUNS))) {
+        signals.push({
+            source: 'file_count',
+            reason: `${input.openFileCount} files open with cross-file language`,
+            tierContribution: 'architectural',
+        })
+    }
+
+    if (input.activeFileExtension === 'vue') {
+        signals.push({
+            source: 'vue_sfc',
+            reason: 'Vue SFC has multiple zones — raises to compound minimum',
+            tierContribution: 'compound',
+        })
+    }
+
+    if (input.priorToolCallCount >= 5) {
+        signals.push({
+            source: 'prior_tool_depth',
+            reason: `Prior turn used ${input.priorToolCallCount} tool calls`,
+            tierContribution: 'compound',
+        })
+    }
+
+    if (input.priorToolNames.includes('bridge_insert_node') || input.priorToolNames.includes('bridge_wrap_node')) {
+        signals.push({
+            source: 'prior_structural_tool',
+            reason: 'Prior turn used structural insert/wrap operation',
+            tierContribution: 'compound',
+        })
+    }
+
+    if (input.priorUniqueTargetIds >= 2) {
+        signals.push({
+            source: 'prior_multi_target',
+            reason: `Prior turn referenced ${input.priorUniqueTargetIds} unique targetIds`,
+            tierContribution: 'compound',
+        })
+    }
+
+    const tier = classifyComplexity(input)
+    const selectedModel = TIER_TO_MODEL[tier]
+    const escalationPath = ESCALATION_PATH[tier]
+
+    const primarySignal = signals[0]
+    const reasoning = primarySignal
+        ? `${tier} tier: ${primarySignal.reason}`
+        : `${tier} tier: no escalating signals detected`
+
+    return { tier, selectedModel, reasoning, signals, escalationPath }
+}
+
+// ── Module-level prepared statement for violation count ───────────────────────
+// Prepared lazily on first call so a missing governance_events table on fresh
+// databases does not crash the module at import time (Commandment 12).
+
+let _violationCountStmt: ReturnType<typeof db.prepare> | null = null
+
+function loadCurrentViolationCount(): number {
+    try {
+        if (_violationCountStmt === null) {
+            // governance_events may not exist in the Glass DB (it lives in the MCP
+            // engine's DB). Prepare lazily and catch any table-not-found error.
+            _violationCountStmt = db.prepare(
+                `SELECT COUNT(*) as count FROM governance_events WHERE event_type = 'violation'`,
+            )
+        }
+        const row = _violationCountStmt.get() as { count: number } | undefined
+        return row?.count ?? 0
+    } catch {
+        return 0  // safe default — never block routing on a DB error
+    }
+}
+
+// ── Build RouterInput from message history ────────────────────────────────────
+
+function extractPriorToolCalls(messages: ChatMessage[]): ChatMessage[] {
+    // Scan in reverse to find the last assistant turn's tool_call entries
+    const result: ChatMessage[] = []
+    let passedLastUser = false
+    for (let i = messages.length - 1; i >= 0; i--) {
+        const m = messages[i]
+        if (m.role === 'user' && !passedLastUser) {
+            passedLastUser = true
+            continue
+        }
+        if (m.role === 'tool_call') {
+            result.push(m)
+        } else if (m.role === 'assistant') {
+            // Continue scanning — there may be more tool_calls in the same segment
+        } else if (passedLastUser) {
+            // Hit a non-tool boundary before the last user message — stop
+            break
+        }
+    }
+    return result
+}
+
+function countUniqueTargetIds(priorToolCalls: ChatMessage[]): number {
+    const ids = new Set<string>()
+    for (const m of priorToolCalls) {
+        const targetId = m.toolInput?.['targetId']
+        if (typeof targetId === 'string' && targetId.length > 0) {
+            ids.add(targetId)
+        }
+    }
+    return ids.size
+}
+
+function buildRouterInput(messages: ChatMessage[], activeFilePath?: string | null): RouterInput {
+    const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user')
+    const lastUserMessage = lastUserMsg?.content ?? ''
+
+    const sessionTurns = messages.filter((m) => m.role === 'user').length
+
+    const priorToolCalls = extractPriorToolCalls(messages)
+    const priorToolCallCount = priorToolCalls.length
+    const priorToolNames = priorToolCalls.map((m) => m.toolName ?? '').filter(Boolean)
+    const priorUniqueTargetIds = countUniqueTargetIds(priorToolCalls)
+
+    const violationCount = loadCurrentViolationCount()
+
+    const activeFileExtension = activeFilePath
+        ? (activeFilePath.split('.').pop()?.toLowerCase() ?? 'tsx')
+        : 'tsx'
+
+    // openFileCount defaults to 1 until IPC payload extends with workspace tree.
+    const openFileCount = 1
+
+    return {
+        lastUserMessage,
+        violationCount,
+        sessionTurns,
+        openFileCount,
+        activeFileExtension,
+        priorToolCallCount,
+        priorToolNames,
+        priorUniqueTargetIds,
+    }
+}
+
 // ── Config ────────────────────────────────────────────────────────────────────
 
 export interface BridgeAIConfig {
@@ -583,60 +964,112 @@ export async function sendChatMessage(
                 }
             }
 
-            const stream = await client.messages.stream({
-                model,
-                max_tokens: 4096,
-                system: SYSTEM_PROMPT,
-                tools: BRIDGE_TOOLS,
-                messages: anthropicMessages,
-            })
+            // ── ACX.4: Complexity Router (Commandment 8 — Audit-First Execution) ──
+            // Classify the task before the Anthropic SDK call. Model selection is
+            // overridden per-invocation; the user's saved config.model is not mutated.
+            const routerInput = buildRouterInput(messages, activeFilePath)
+            const assessment = buildAssessment(routerInput)
+            const resolvedModel = assessment.selectedModel
+            console.log(`[Bridge ACX] tier=${assessment.tier} model=${resolvedModel} reason="${assessment.reasoning}"`)
 
-            for await (const event of stream) {
-                if (event.type === 'content_block_delta') {
-                    if (event.delta.type === 'text_delta') {
-                        onChunk({ type: 'text', text: event.delta.text })
+            // ── ACX.4: Sentinel domain prepend ────────────────────────────────
+            // Read .bridge/policy.json for the optional domain field. If domain
+            // is set and non-general, prepend a domain governance notice to the
+            // system prompt so the model is context-aware during the call.
+            let systemPromptForCall = SYSTEM_PROMPT
+            try {
+                const policyPath = path.join(
+                    activeFilePath ? path.dirname(activeFilePath) : path.join(homedir(), '.bridge'),
+                    '.bridge', 'policy.json',
+                )
+                if (existsSync(policyPath)) {
+                    const policyRaw = await readFile(policyPath, 'utf-8')
+                    const policy = JSON.parse(policyRaw) as { domain?: string }
+                    if (policy.domain && policy.domain !== 'general') {
+                        systemPromptForCall = `[Bridge Sentinel: domain=${policy.domain}]\n\n${SYSTEM_PROMPT}`
                     }
-                } else if (event.type === 'content_block_start') {
-                    if (event.content_block.type === 'tool_use') {
-                        onChunk({
-                            type: 'tool_call',
-                            toolName: event.content_block.name,
-                            toolUseId: event.content_block.id,
-                            toolInput: {},
-                        })
-                    }
-                } else if (event.type === 'message_stop') {
-                    const finalMsg = await stream.finalMessage()
-                    for (const block of finalMsg.content) {
-                        if (block.type === 'tool_use') {
-                            const toolInput = block.input as Record<string, unknown>
+                }
+            } catch {
+                // Policy read failure is non-fatal — use base system prompt.
+            }
 
-                            // ── Commandment 16: ILspClient Validation (Phase N.3) ─────────
-                            // Validate the tool call before surfacing to UI.
-                            // If it fails, emit a validation_error chunk so orchestratorStore
-                            // can feed an invisible error tool_result back to the AI.
-                            const validationError = await validateToolInput(block.name, toolInput, lsp)
-                            if (validationError) {
-                                console.warn(`[Bridge] Phase M validation blocked tool ${block.name}: ${validationError}`)
-                                onChunk({
-                                    type: 'validation_error',
-                                    toolName: block.name,
-                                    toolUseId: block.id,
-                                    error: validationError,
-                                })
-                            } else {
-                                onChunk({
-                                    type: 'tool_call',
-                                    toolName: block.name,
-                                    toolUseId: block.id,
-                                    toolInput,
-                                })
+            // ── ACX.4: Escalation state (local to this invocation) ────────────
+            let currentModelIndex = 0
+            const escalationPath = assessment.escalationPath
+            let consecutiveValidationFailures = 0
+
+            // Helper: run the Anthropic stream and process events.
+            // Extracted to a nested async function so we can restart on escalation.
+            const runStream = async (streamModel: string): Promise<boolean> => {
+                const stream = await client.messages.stream({
+                    model: streamModel as Parameters<typeof client.messages.stream>[0]['model'],
+                    max_tokens: streamModel === 'claude-opus-4-5' ? 8192 : 4096,
+                    system: systemPromptForCall,
+                    tools: BRIDGE_TOOLS,
+                    messages: anthropicMessages,
+                })
+
+                let hadValidationFailure = false
+
+                for await (const event of stream) {
+                    if (event.type === 'content_block_delta') {
+                        if (event.delta.type === 'text_delta') {
+                            onChunk({ type: 'text', text: event.delta.text })
+                        }
+                    } else if (event.type === 'content_block_start') {
+                        if (event.content_block.type === 'tool_use') {
+                            onChunk({
+                                type: 'tool_call',
+                                toolName: event.content_block.name,
+                                toolUseId: event.content_block.id,
+                                toolInput: {},
+                            })
+                        }
+                    } else if (event.type === 'message_stop') {
+                        const finalMsg = await stream.finalMessage()
+                        for (const block of finalMsg.content) {
+                            if (block.type === 'tool_use') {
+                                const toolInput = block.input as Record<string, unknown>
+
+                                // ── Commandment 16: ILspClient Validation (Phase N.3) ──────
+                                const validationError = await validateToolInput(block.name, toolInput, lsp)
+                                if (validationError) {
+                                    console.warn(`[Bridge] Phase M validation blocked tool ${block.name}: ${validationError}`)
+                                    onChunk({
+                                        type: 'validation_error',
+                                        toolName: block.name,
+                                        toolUseId: block.id,
+                                        error: validationError,
+                                    })
+                                    hadValidationFailure = true
+                                } else {
+                                    onChunk({
+                                        type: 'tool_call',
+                                        toolName: block.name,
+                                        toolUseId: block.id,
+                                        toolInput,
+                                    })
+                                }
                             }
                         }
+                        onChunk({ type: 'done' })
                     }
-                    onChunk({ type: 'done' })
                 }
 
+                return hadValidationFailure
+            }
+
+            // ── ACX.4: Run with escalation on consecutive validation failures ──
+            const hadFailure = await runStream(escalationPath[currentModelIndex])
+            if (hadFailure) {
+                consecutiveValidationFailures++
+                // Escalate if we have failures and there is a next model in the path.
+                if (consecutiveValidationFailures >= 2 && currentModelIndex < escalationPath.length - 1) {
+                    currentModelIndex++
+                    consecutiveValidationFailures = 0
+                    console.log(`[Bridge ACX] escalating to model=${escalationPath[currentModelIndex]}`)
+                    await runStream(escalationPath[currentModelIndex])
+                }
             }
         }
     } catch (err: unknown) {
