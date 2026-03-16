@@ -23,6 +23,8 @@ import http from 'node:http'
 import { BrowserWindow } from 'electron'
 import db from './store.js'
 import { normalizeFigmaVariables } from './normalizer.js'
+import { heal } from './ingestion/index.js'
+import type { AuditorToken } from './ingestion/index.js'
 
 const BASE_PORT = 4545
 const MAX_PORT_ATTEMPTS = 10
@@ -276,13 +278,40 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
                     figmaPayload = rawBody
                 }
 
-                // Notify the renderer to perform AST hydration
+                // ── Phase ING.1: Ingestion Heal Pass ─────────────────────────────────
+                // Read tokens synchronously from SQLite (better-sqlite3).
+                // If empty (no prior /ingest), heal() is a safe no-op.
+                let healedPayload = figmaPayload
+                try {
+                    const tokenRows = db.prepare(
+                        'SELECT token_path, token_type, token_value FROM design_tokens'
+                    ).all() as AuditorToken[]
+                    const healResult = heal(figmaPayload, tokenRows)
+                    healedPayload = healResult.healedCode
+                    const healWindows = BrowserWindow.getAllWindows()
+                    if (healWindows.length > 0) {
+                        healWindows[0].webContents.send('bridge:import-summary', healResult.summary)
+                    }
+                    console.log(
+                        `[Bridge] /ingest-ast: heal pass — ` +
+                        `tier1=${healResult.summary.tier1Fixed.length} ` +
+                        `tier2=${healResult.summary.tier2Flagged.length} ` +
+                        `tier3=${healResult.summary.tier3Unknown} ` +
+                        `(${healResult.summary.healTimeMs.toFixed(1)}ms)`
+                    )
+                } catch (healErr) {
+                    // Never block ingestion on heal errors — degrade gracefully
+                    console.error('[Bridge] /ingest-ast: heal error (raw payload used):', healErr)
+                }
+                // ── End ING.1 ────────────────────────────────────────────────────────
+
+                // Send healed code (or raw payload on heal error) to renderer
                 const windows = BrowserWindow.getAllWindows()
                 if (windows.length > 0) {
-                    windows[0].webContents.send('bridge:hydro-paste-auto', figmaPayload)
+                    windows[0].webContents.send('bridge:hydro-paste-auto', healedPayload)
                 }
 
-                console.log('[Bridge] /ingest-ast: received AST payload')
+                console.log('[Bridge] /ingest-ast: payload dispatched to renderer')
                 sendJson(res, 200, { success: true })
             } catch {
                 sendJson(res, 400, { error: 'Invalid JSON payload' })

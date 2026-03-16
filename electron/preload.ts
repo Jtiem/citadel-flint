@@ -628,6 +628,41 @@ contextBridge.exposeInMainWorld('bridgeAPI', {
         },
     },
 
+    // ── Phase ING: Import Summary IPC ────────────────────────────────────────
+    /**
+     * Import Summary API — surfaces ingestion heal pass results in the renderer.
+     * Contract: .bridge-context/contracts/ING-IngestionHeal.md §3.1
+     */
+    importSummary: {
+        /**
+         * Subscribes to 'bridge:import-summary' push events (fired after each
+         * /ingest-ast heal pass). Returns an unsubscribe fn for useEffect cleanup.
+         */
+        onSummary: (callback: (summary: unknown) => void): (() => void) => {
+            const listener = (_event: Electron.IpcRendererEvent, data: unknown) => callback(data)
+            ipcRenderer.on('bridge:import-summary', listener)
+            return () => { ipcRenderer.removeListener('bridge:import-summary', listener) }
+        },
+
+        /** Applies a tier-2 snap-to-token fix. Returns { ok, updatedSummary? }. */
+        snapToToken: (payload: {
+            nodeId: string
+            tokenPath: string
+            className: string
+            originalClass: string
+        }): Promise<{ ok: boolean; updatedSummary?: unknown }> =>
+            ipcRenderer.invoke('import:snap-to-token', payload),
+
+        /** Reverts all tier-1 heals by restoring the pre-heal code. */
+        undoAllHeals: (preHealCode: string): Promise<{ ok: boolean }> =>
+            ipcRenderer.invoke('import:undo-all-heals', preHealCode),
+
+        /** Removes all 'bridge:import-summary' listeners. */
+        removeListeners: (): void => {
+            ipcRenderer.removeAllListeners('bridge:import-summary')
+        },
+    },
+
     // ── Delta Mode: Baseline API ───────────────────────────────────────────────
 
     /**

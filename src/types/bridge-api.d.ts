@@ -697,6 +697,71 @@ export interface MCPAPI {
     removeEventListener: () => void
 }
 
+// ── Phase ING: Ingestion-Time Audit & Auto-Heal ───────────────────────────────
+
+/**
+ * Tier classification for a single ingestion violation.
+ *   tier1 — Exact match: auto-fix applied silently.
+ *   tier2 — Near-match: flagged for one-click review.
+ *   tier3 — Unknown: no close token; standard governance handles it.
+ */
+export type IngestionTier = 'tier1' | 'tier2' | 'tier3'
+
+/** Result of the ingestion heal pass (from IngestionAuditor.heal()). */
+export interface IngestionHealResult {
+    healedCode: string
+    summary: IngestionSummary
+}
+
+/**
+ * Summary pushed from main → renderer via 'bridge:import-summary' IPC.
+ * Stored in importSummaryStore. Rendered by ImportSummary component.
+ */
+export interface IngestionSummary {
+    totalValues: number
+    tier1Fixed: IngestionFix[]
+    tier2Flagged: IngestionFlag[]
+    tier3Unknown: number
+    healTimeMs: number
+    preHealCode: string
+}
+
+/** A single tier-1 auto-fix applied during ingestion. */
+export interface IngestionFix {
+    nodeId: string
+    ruleId: string
+    originalValue: string
+    fixedToToken: string
+    fixedToClass: string
+}
+
+/** A single tier-2 near-match flagged during ingestion. */
+export interface IngestionFlag {
+    nodeId: string
+    ruleId: string
+    originalValue: string
+    suggestedToken: string
+    suggestedClass: string
+    distance: number
+    distanceUnit: 'deltaE' | 'px'
+}
+
+/** Payload for 'import:snap-to-token' IPC (renderer → main). */
+export interface SnapToTokenPayload {
+    nodeId: string
+    tokenPath: string
+    className: string
+    originalClass: string
+}
+
+/** IPC surface for the ingestion heal pass (window.bridgeAPI.importSummary). */
+export interface ImportSummaryAPI {
+    onSummary: (callback: (summary: IngestionSummary) => void) => () => void
+    snapToToken: (payload: SnapToTokenPayload) => Promise<{ ok: boolean; updatedSummary?: IngestionSummary }>
+    undoAllHeals: (preHealCode: string) => Promise<{ ok: boolean }>
+    removeListeners: () => void
+}
+
 export interface BridgeAPI {
     /** Health-check: verifies the IPC bridge is functional. */
     ping: () => Promise<string>
@@ -935,6 +1000,16 @@ export interface BridgeAPI {
      * so Vitest / headless environments degrade gracefully.
      */
     policy?: PolicyAPI
+
+    // ── Phase ING: Ingestion-Time Audit & Auto-Heal ───────────────────────────
+
+    /**
+     * Import summary push channel — receives heal results after each /ingest-ast pass.
+     * Exposes snap-to-token and undo-all-heals actions for tier-2 review UI.
+     *
+     * Optional-chained so Vitest/headless environments degrade gracefully.
+     */
+    importSummary?: ImportSummaryAPI
 }
 
 // ── GOV.1 + GOV.2: Governance Provenance + Override Telemetry ────────────────

@@ -2130,6 +2130,57 @@ app.whenReady().then(async () => {
         return (row?.count ?? 0) > 0
     })
 
+    // ── Phase ING: Import Summary IPC handlers ────────────────────────────────
+
+    /**
+     * import:snap-to-token — applies a tier-2 "snap to token" fix.
+     * The renderer sends this after the user clicks "Snap" on an IngestionFlag.
+     *
+     * For ING.1, this is a stub that acknowledges the request.
+     * Full AST surgery (find active file, apply className swap via Babel, re-audit)
+     * is scoped to ING.3 once the ImportSummary UI is wired.
+     */
+    ipcMain.handle('import:snap-to-token', (_event, payload: unknown) => {
+        if (
+            typeof payload !== 'object' ||
+            payload === null ||
+            typeof (payload as Record<string, unknown>).nodeId !== 'string' ||
+            typeof (payload as Record<string, unknown>).tokenPath !== 'string' ||
+            typeof (payload as Record<string, unknown>).className !== 'string' ||
+            typeof (payload as Record<string, unknown>).originalClass !== 'string'
+        ) {
+            return { ok: false }
+        }
+        // ING.1: acknowledge — full re-audit deferred to ING.3
+        console.log(
+            `[Bridge] import:snap-to-token — node=${(payload as Record<string, unknown>).nodeId} ` +
+            `token=${(payload as Record<string, unknown>).tokenPath}`
+        )
+        return { ok: true }
+    })
+
+    /**
+     * import:undo-all-heals — reverts all tier-1 heals by restoring the pre-heal code.
+     * The renderer sends preHealCode (from IngestionSummary) to restore the original
+     * hydrated code before tier-1 mutations were applied.
+     *
+     * For ING.1, this stores the pre-heal code into memory so the renderer can
+     * broadcast it back. Full FileTransactionManager integration is ING.3.
+     */
+    ipcMain.handle('import:undo-all-heals', (_event, preHealCode: unknown) => {
+        if (typeof preHealCode !== 'string') {
+            return { ok: false }
+        }
+        // Broadcast the pre-heal code back to the renderer via hydro-paste-auto
+        // so editorStore.setCode() receives the original un-healed version.
+        const windows = BrowserWindow.getAllWindows()
+        if (windows.length > 0) {
+            windows[0].webContents.send('bridge:hydro-paste-auto', preHealCode)
+        }
+        console.log('[Bridge] import:undo-all-heals — pre-heal code restored')
+        return { ok: true }
+    })
+
     // ── Phase P: Integrated Terminal ──────────────────────────────────────────
     let ptyProcess: IPty | null = null
 
