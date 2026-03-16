@@ -156,6 +156,15 @@ export function createMockBridgeAPI() {
             readAll: vi.fn().mockResolvedValue([]),
             onChanged: vi.fn().mockReturnValue(() => {}),
         },
+        context: {
+            getEnriched: vi.fn().mockResolvedValue({
+                timestamp: Date.now(),
+                activeFile: null,
+                tokenCount: 0,
+                activeOverrideCount: 0,
+                enrichedAt: new Date().toISOString(),
+            }),
+        },
     }
 }
 
@@ -165,6 +174,8 @@ export function createMockBridgeAPI() {
 import { useNotificationStore } from '../../store/notificationStore'
 import { useEditorStore } from '../../store/editorStore'
 import { useCanvasStore } from '../../store/canvasStore'
+import { useGovernanceStore } from '../../store/governanceStore'
+import { useImportSummaryStore } from '../../store/importSummaryStore'
 
 export function resetAllStores() {
     useNotificationStore.setState({ notifications: [], history: [] })
@@ -193,6 +204,10 @@ export function resetAllStores() {
         activeFilePath: null,
         workspaceFiles: null,
     })
+
+    // ACX.5: reset governance and import summary stores
+    useGovernanceStore.setState({ overrides: {} })
+    useImportSummaryStore.setState({ summary: null, isVisible: false, isPanelMode: false })
 }
 
 // ── Global Hooks ─────────────────────────────────────────────────────────────
