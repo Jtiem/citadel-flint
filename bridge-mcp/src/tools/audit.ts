@@ -46,6 +46,13 @@ export const BRIDGE_AUDIT_TOOL = {
                 enum: ['info', 'warning', 'critical'],
                 description: 'Optional: minimum severity threshold.',
             },
+            healOnAudit: {
+                type: 'boolean',
+                description:
+                    'When true, applies tier-1 token healing to exact-match violations before auditing. ' +
+                    'Note: heal pass requires the Glass IPC pipeline (Electron main process). ' +
+                    'In headless MCP mode this flag is acknowledged but the heal pass is skipped.',
+            },
         },
         required: ['source', 'filePath'],
     },
@@ -57,6 +64,12 @@ export interface AuditArgs {
     filePaths?: string[]
     ruleIds?: string[]
     severity?: 'info' | 'warning' | 'critical'
+    healOnAudit?: boolean
+}
+
+export interface HealOnAuditStatus {
+    skipped: true
+    reason: string
 }
 
 export interface AuditResult {
@@ -73,6 +86,8 @@ export interface AuditResult {
         mithril: string
         a11y: string
     }
+    /** Present only when the caller passed healOnAudit: true. */
+    healOnAudit?: HealOnAuditStatus
 }
 
 export interface BatchFileResult {
@@ -102,8 +117,19 @@ export async function handleBridgeAudit(
     args: AuditArgs,
     config: BridgeConfig,
 ): Promise<AuditResult> {
-    const { source, filePath } = args
+    const { source, filePath, healOnAudit } = args
     const policy = config.policy
+
+    // ING.3 — healOnAudit: best-effort parameter, gracefully degraded in headless MCP mode.
+    // The full heal pipeline (IngestionAuditor) requires the Electron main process (SQLite
+    // token access + FileTransactionManager). When running headlessly we acknowledge the
+    // parameter, emit a console notice, and continue with the standard audit.
+    if (healOnAudit === true) {
+        console.log(
+            '[Bridge] healOnAudit: heal pass not available in headless MCP mode' +
+            ' — run via Glass IPC for full pipeline',
+        )
+    }
 
     // Load tokens from project root
     const tokensPath = path.join(config.projectRoot, '.bridge', 'design-tokens.json')
@@ -172,7 +198,7 @@ export async function handleBridgeAudit(
         }
     }
 
-    return {
+    const result: AuditResult = {
         violations,
         mithrilCount,
         a11yCount,
@@ -181,6 +207,15 @@ export async function handleBridgeAudit(
             a11y: policy.a11y.mode,
         },
     }
+
+    if (healOnAudit === true) {
+        result.healOnAudit = {
+            skipped: true,
+            reason: 'heal pass requires Glass IPC pipeline',
+        }
+    }
+
+    return result
 }
 
 /**

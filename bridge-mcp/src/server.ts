@@ -857,6 +857,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 filePaths?: string[];
                 ruleIds?: string[];
                 severity?: "info" | "warning" | "critical";
+                healOnAudit?: boolean;
             };
             if (auditArgs.filePaths && auditArgs.filePaths.length > 0) {
                 const batchResult = await handleBridgeAuditBatch(
