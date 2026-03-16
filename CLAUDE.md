@@ -179,6 +179,7 @@ Additional tools registered via `bridge-mcp/src/tools/` modules cover governance
 | LSP Orchestrator | P | **ONLINE** |
 | Annotation Engine | COLLAB.1-3 | **ONLINE** |
 | MCP Discoverability (capabilities resource, workflow prompt) | -- | **ONLINE** |
+| Ingestion-Time Audit & Auto-Heal (IngestionAuditor, ImportSummary, heal IPC) | ING | **ONLINE** |
 
 ### Infrastructure + Governance Roadmap
 

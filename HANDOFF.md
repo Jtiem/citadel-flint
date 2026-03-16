@@ -1,8 +1,9 @@
 # Bridge — Developer Handoff
 
-**Date:** 2026-03-15
+**Date:** 2026-03-16
 **Architecture:** Bridge MCP (headless governance engine) + Bridge Glass (Electron observability layer)
-**Test baseline:** 386/386 Glass tests (25 files) + 295/295 Core tests (11 files) + 515/515 MCP tests (23 files) = 1,196 total -- TSC 0 errors
+**Test baseline:** 452/452 Glass tests (29 files) + 330/330 Core tests (13 files) + 607/607 MCP tests (28 files) = 1,389 total -- TSC 0 errors
+*(Note: `bridge-mcp/src/tests/project-scaffold.test.ts` has a pre-existing env failure — missing template dir at `/Users/tiemann/electron/templates/`. Not caused by ING work.)*
 
 ---
 
@@ -207,6 +208,7 @@ MCP connection config (add to `~/.claude/mcp.json`):
 
 ## 7. Recent Changes
 
+- **Phase ING (COMPLETE 2026-03-16)** — Ingestion-Time Audit & Auto-Heal. `IngestionAuditor.ts` (CIEDE2000 tier classification + Babel AST surgery), heal pass wired in `/ingest-ast` handler, `importSummaryStore`, `ImportSummary.tsx` (toast + panel), `bridge:import-summary` IPC push, `import:snap-to-token` + `import:undo-all-heals` IPC handlers, `healOnAudit` parameter on `bridge_audit` MCP tool. 30 new tests (ING-01 → ING-18 + integration tests + store tests + component tests).
 - **Wave 1 (COMPLETE)** — Activity Feed upgrade (filter bar, search, error view buttons). Figma Connection Status (IPC endpoint, StatusBar popover, staleness colors). Ghost Canvas (severity heat tints, ViolationTooltip, click-to-properties, viewport culling). MCP Discoverability (`bridge://capabilities` resource, `bridge-workflow-guide` prompt).
 - **Wave 2 (COMPLETE)** — Annotation rendering in Glass (`annotationStore`, `AnnotationList`, LayerTree annotation dots, `fs.watch` push sync from MCP). Governance Health Dashboard (health score ring, grade letter, top-5 rules, "health" tab in right sidebar).
 - **JTBD score: 7.5 -> 8.4 (projected)** — Waves 1-2 close the observability and discoverability gaps.
@@ -224,13 +226,12 @@ MCP connection config (add to `~/.claude/mcp.json`):
 
 See `docs/BRIDGE-MASTER-PLAN.md` Section 3 for the full module table. All phases through COLLAB.4 are online and tested.
 
-**Active work streams (2026-03-14):**
-- **JTBD Gap-Fill Waves 1-2:** COMPLETE. Activity Feed upgrade, Figma status, Ghost Canvas, MCP discoverability, Annotation rendering, Governance Dashboard. JTBD score projected 8.4.
-- **JTBD Gap-Fill Wave 3:** COMPLETE. W.1 (MCP Push Channel) + W.3 (Bidirectional Action Bridge). See `.bridge-context/architect-reviews/JTBD-GapFill-Plan.md`.
+**Active work streams (2026-03-16):**
+- **Phase ING (Ingestion-Time Audit & Auto-Heal):** COMPLETE. See Recent Changes above.
+- **JTBD Gap-Fill Waves 1-3:** COMPLETE. Activity Feed upgrade, Figma status, Ghost Canvas, MCP discoverability, Annotation rendering, Governance Dashboard, MCP Push Channel (W.1), Bidirectional Action Bridge (W.3). JTBD score 8.4.
 - **INFRA.1 + INFRA.2:** DONE. Governance Events + Mutations Ledger SQLite tables in `bridge-mcp/src/core/governance/`. Foundation for GOV.1-4, risk scoring, anomaly detection.
 - **EXP.2:** DONE. Design Debt Report — `bridge_debt_report` MCP tool + `bridge://dashboard` resource. Health score 0-100, grade A-F, trend tracking via `.bridge/debt-history.json`.
-- **GOV.1 + GOV.2 (UNBLOCKED):** Rule Provenance and Override Telemetry — now unblocked since INFRA.1 is ONLINE.
-- **V.2-mp (UNBLOCKED):** Mutation Provenance Ledger — now unblocked since INFRA.2 is ONLINE.
+- **Next sprint candidates:** GOV.1 (Rule Provenance), GOV.2 (Override Telemetry) — unblocked since INFRA.1 is ONLINE. OBS.1.2 (Structured Shadow Commits) — foundational for Node Blame observability. V.2-mp (Mutation Provenance Ledger) — unblocked since INFRA.2 is ONLINE.
 - **Contract-First Feature Build:** Mandatory 3-phase workflow for multi-file features. See `.claude/workflows/feature-build.md`.
 
 **Note:** Master Plan uses V.1 (Risk Scoring) and V.2 (Mutation Provenance). JTBD plan uses V.1-gd (Governance Dashboard) and V.2-af (Activity Feed). These are different features — use full phase codes to avoid confusion.
