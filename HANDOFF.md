@@ -2,7 +2,7 @@
 
 **Date:** 2026-03-16
 **Architecture:** Bridge MCP (headless governance engine) + Bridge Glass (Electron observability layer)
-**Test baseline:** 452/452 Glass tests (29 files) + 330/330 Core tests (13 files) + 607/607 MCP tests (28 files) = 1,389 total -- TSC 0 errors
+**Test baseline:** 452/452 Glass tests (29 files) + 330/330 Core tests (13 files) + 903/903 MCP tests (36 files) = 1,685 total -- TSC 0 errors
 *(Note: `bridge-mcp/src/tests/project-scaffold.test.ts` has a pre-existing env failure — missing template dir at `/Users/tiemann/electron/templates/`. Not caused by ING work.)*
 
 ---
@@ -227,6 +227,11 @@ MCP connection config (add to `~/.claude/mcp.json`):
 See `docs/BRIDGE-MASTER-PLAN.md` Section 3 for the full module table. All phases through COLLAB.4 are online and tested.
 
 **Active work streams (2026-03-16):**
+- **Phase V.2-mp — Mutation Provenance Ledger (COMPLETE 2026-03-16):** `MutationProvenanceService` (`bridge-mcp/src/core/governance/mutationProvenanceService.ts`), provenance types in `bridge-mcp/src/core/governance/types.ts`, `bridge_mutation_provenance` MCP tool registered in `server.ts`, provenance recording wired into `bridge_ast_mutate` (source='agent') and `bridge_fix` (source='auto-fix') handlers. SQLite backed at `.bridge/provenance.db`. 41 new tests in `bridge-mcp/src/__tests__/mutationProvenance.test.ts`. MCP: 903/903 passing, TSC: 0 errors. Unblocks V.1-rs (Risk Scoring).
+- **Phase CX.2 — bridge_plan (IN PROGRESS 2026-03-16):** Contract phase starting now. New MCP tool: intent → structured execution plan. Files: new `bridge-mcp/src/core/planService.ts`, `bridge-mcp/src/tools/plan.ts`. Server registration deferred pending ING.3 completion. Territory claimed.
+- **Sprint 2 Security (COMPLETE 2026-03-16):** SEC.1 (iframe sandbox + CSP), SEC.2 (per-session secret, strip from renderer), SEC.3 (MCP tool allowlist), P0-4 (Anthropic-only provider guard). New files: `electron/mcp-policy.ts`. Modified: `electron/main.ts`, `electron/ingestion-server.ts`, `electron/preload.ts`, `electron/orchestrator.ts`, `src/components/editor/LivePreview.tsx`, `src/types/bridge-api.d.ts`, `src/components/editor/StatusBar.tsx`, `src/components/ui/FigmaSetupWizard.tsx`. 54 new tests. Core: 527/527, Glass: 496/496, MCP: 903/903, TSC: 0 errors.
+
+**Previously active (2026-03-16):**
 - **Phase ING (Ingestion-Time Audit & Auto-Heal):** COMPLETE. See Recent Changes above.
 - **JTBD Gap-Fill Waves 1-3:** COMPLETE. Activity Feed upgrade, Figma status, Ghost Canvas, MCP discoverability, Annotation rendering, Governance Dashboard, MCP Push Channel (W.1), Bidirectional Action Bridge (W.3). JTBD score 8.4.
 - **INFRA.1 + INFRA.2:** DONE. Governance Events + Mutations Ledger SQLite tables in `bridge-mcp/src/core/governance/`. Foundation for GOV.1-4, risk scoring, anomaly detection.

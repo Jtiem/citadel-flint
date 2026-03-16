@@ -197,8 +197,8 @@ Additional tools registered via `bridge-mcp/src/tools/` modules cover governance
 | Complexity Router (Commandment 8 model routing) | ACX.4 | **ONLINE** |
 | Sentinel Prompt (6 domain presets) | ACX.1 | **ONLINE** |
 | Tool Enrichment (pre-flight context injection) | ACX.3 | **ONLINE** |
-| Mutation Provenance Ledger | V.2-mp | PLANNED (unblocked -- INFRA.2 ONLINE) |
-| Risk Scoring (MRS) | V.1-rs | PLANNED (blocked on V.2-mp) |
+| Mutation Provenance Ledger | V.2-mp | **ONLINE** |
+| Risk Scoring (MRS, 5-factor weighted) | V.1-rs | **ONLINE** |
 | Renderer Hardening (iframe sandbox + CSP) | SEC.1 | PLANNED (P0, no deps) |
 | Secret Hygiene (per-session secret, strip from renderer) | SEC.2 | PLANNED (P1, no deps) |
 | MCP Tool Allowlist (renderer-callable tool restriction) | SEC.3 | PLANNED (P1, no deps) |
@@ -354,6 +354,7 @@ Single-file bug fixes and cosmetic changes are exempt from the Contract-First fl
 | `bridge-mcp/src/core/A11yLinter.ts` | 10 WCAG 2.1 AA rules |
 | `bridge-mcp/src/tools/` | audit, fix, ingest, sync tool handlers |
 | `bridge-mcp/src/prompts/sentinel.ts` | Domain-configurable governance persona |
+| `bridge-mcp/src/core/governance/mutationProvenanceService.ts` | V.2-mp — provenance tracking; `recordProvenance`, `getAuditTrail`, `getProvenanceSummary` |
 
 ### Electron Main Process
 | File | Role |
