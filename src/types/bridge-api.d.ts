@@ -414,8 +414,9 @@ export interface FigmaStatus {
     tokenCount: number
     /** The port the ingestion server is actually listening on (may differ from 4545 if port was busy). */
     port: number
-    /** The secret value the Figma plugin must send in x-bridge-secret header. */
-    secret: string
+    /** The secret value the Figma plugin must send in x-bridge-secret header.
+     *  @deprecated Will be removed in SEC.2 — secret is now server-side only. */
+    secret?: string
 }
 
 /**

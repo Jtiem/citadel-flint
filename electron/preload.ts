@@ -27,7 +27,7 @@ contextBridge.exposeInMainWorld('bridgeAPI', {
      * removeListeners() for the Figma Connect UX Overhaul.
      */
     figma: {
-        status: (): Promise<{ running: boolean; lastWebhookAt: number | null; tokenCount: number; port: number; secret: string }> =>
+        status: (): Promise<{ running: boolean; lastWebhookAt: number | null; tokenCount: number; port: number; secret?: string }> =>
             ipcRenderer.invoke('figma:status'),
 
         /**
