@@ -231,7 +231,11 @@ See `docs/BRIDGE-MASTER-PLAN.md` Section 3 for the full module table. All phases
 - **JTBD Gap-Fill Waves 1-3:** COMPLETE. Activity Feed upgrade, Figma status, Ghost Canvas, MCP discoverability, Annotation rendering, Governance Dashboard, MCP Push Channel (W.1), Bidirectional Action Bridge (W.3). JTBD score 8.4.
 - **INFRA.1 + INFRA.2:** DONE. Governance Events + Mutations Ledger SQLite tables in `bridge-mcp/src/core/governance/`. Foundation for GOV.1-4, risk scoring, anomaly detection.
 - **EXP.2:** DONE. Design Debt Report — `bridge_debt_report` MCP tool + `bridge://dashboard` resource. Health score 0-100, grade A-F, trend tracking via `.bridge/debt-history.json`.
-- **Next sprint candidates:** GOV.1 (Rule Provenance), GOV.2 (Override Telemetry) — unblocked since INFRA.1 is ONLINE. OBS.1.2 (Structured Shadow Commits) — foundational for Node Blame observability. V.2-mp (Mutation Provenance Ledger) — unblocked since INFRA.2 is ONLINE.
+- **Next sprint candidates (top 3):**
+  1. **Phase CX.1 — Chat UX Quick Wins** (P0, ~1 sprint): Add `summary` + `project_context` fields to all tool responses; add `dry_run` flag to mutation tools; add onboarding pointer to MCP server init response. All MCP-layer changes, no Glass work. See `docs/strategy/CHAT-UX-CRITIQUE.md` for full rationale.
+  2. **Phase CX.2 — `bridge_plan` Orchestration Tool** (P1, ~2 sprints): New MCP tool that accepts high-level intent and returns a structured, step-by-step execution plan with tool sequence, decision points, and expected outcomes. Closes the multi-step task coordination gap. See `docs/strategy/CHAT-UX-CRITIQUE.md` §5.
+  3. **SEC.1 — Renderer Hardening** (P0, ~1 day): iframe sandbox + CSP. No deps. Has been P0 longest.
+  - *Also unblocked:* GOV.1 (Rule Provenance), GOV.2 (Override Telemetry) — since INFRA.1 ONLINE. V.2-mp (Mutation Provenance Ledger) — since INFRA.2 ONLINE.
 - **Security Hardening Track (SEC phases):** SEC.1 (P0 — iframe sandbox + CSP), SEC.2 (P1 — per-session secret, strip secret from renderer IPC), SEC.3 (P1 — MCP tool allowlist), SEC.4 (P1 — safeStorage for AI API key), SEC.5 (P2 — terminal cwd restriction), SEC.6 (P3 — ingestion rate limiting). All independent, no blocking deps. See Section 4.10 in `docs/BRIDGE-MASTER-PLAN.md`.
 - **Contract-First Feature Build:** Mandatory 3-phase workflow for multi-file features. See `.claude/workflows/feature-build.md`.
 

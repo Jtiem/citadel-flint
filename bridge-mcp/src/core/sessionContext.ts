@@ -15,79 +15,16 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
+import type {
+    ViolationSummary,
+    TokenSummary,
+    MutationEntry,
+    CanvasState,
+    SessionContext,
+} from '../types.js'
 
-// ── Types ────────────────────────────────────────────────────────────────────
-
-export interface ViolationSummary {
-    /** Total mithril (design drift) violations */
-    mithrilCount: number
-    /** Total accessibility violations */
-    a11yCount: number
-    /** Count of amber-severity violations */
-    amberCount: number
-    /** Count of critical-severity violations */
-    criticalCount: number
-    /** Node IDs with violations, up to 20 */
-    affectedNodeIds: string[]
-    /** Whether any violation has an available auto-fix */
-    hasFixableViolations: boolean
-}
-
-export interface TokenSummary {
-    /** Total number of tokens */
-    totalCount: number
-    /** Count of tokens by type (e.g. { color: 12, dimension: 8 }) */
-    byType: Record<string, number>
-    /** First 20 tokens (token_path + token_value) */
-    top20: Array<{ path: string; value: string; type: string }>
-}
-
-export interface MutationEntry {
-    batchId: string
-    timestamp: string
-    tool: string
-    filePath: string
-    mutationCount: number
-    outcome: string
-}
-
-export interface CanvasState {
-    /** Currently active file in Bridge Glass */
-    activeFile: string | null
-    /** Currently selected node ID */
-    selectedNodeId: string | null
-    /** Current canvas mode */
-    canvasMode: 'design' | 'interact' | null
-    /** Whether Figma connection is active */
-    figmaConnected: boolean
-    /** Current save state */
-    saveState: 'saved' | 'unsaved' | 'saving' | null
-}
-
-export interface SessionContext {
-    /** ISO timestamp of when this context was assembled */
-    assembledAt: string
-    /** Active project root */
-    projectRoot: string
-    /** Canvas/editor state from context.json */
-    canvas: CanvasState
-    /** First 200 lines of the active file source */
-    activeFileSource: string | null
-    /** Active file path */
-    activeFilePath: string | null
-    /** Violation summary from most recent linter pass stored in context.json */
-    violations: ViolationSummary
-    /** Token set summary */
-    tokens: TokenSummary
-    /** Last 5 mutation entries from mcp-events.jsonl */
-    recentMutations: MutationEntry[]
-    /** Current health score (0-100) */
-    healthScore: number | null
-    /** Current health grade (A-F) */
-    healthGrade: string | null
-    /** Whether all source files were readable */
-    partial: boolean
-}
+// Re-export for consumers that import from this module
+export type { ViolationSummary, TokenSummary, MutationEntry, CanvasState, SessionContext }
 
 // ── Cache ────────────────────────────────────────────────────────────────────
 

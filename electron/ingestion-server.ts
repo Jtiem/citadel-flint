@@ -38,6 +38,18 @@ let server: http.Server | null = null
 let activePort = BASE_PORT
 
 /**
+ * Server-side callback for storing pre-heal code (SECURITY-01 fix).
+ * Set by main.ts via `setPreHealCodeCallback()` to avoid circular imports.
+ * Defaults to no-op so ingestion-server works standalone in tests.
+ */
+let _storePreHealCode: (code: string) => void = () => {}
+
+/** Called by main.ts to wire the pre-heal code store without circular import. */
+export function setPreHealCodeCallback(cb: (code: string) => void): void {
+    _storePreHealCode = cb
+}
+
+/**
  * Unix timestamp (ms) of the last successful POST /ingest from the Figma plugin.
  * null means no ingest has occurred in this process lifetime.
  */
@@ -288,6 +300,8 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
                     ).all() as AuditorToken[]
                     const healResult = heal(figmaPayload, tokenRows)
                     healedPayload = healResult.healedCode
+                    // Store pre-heal code server-side for undo (SECURITY-01 fix)
+                    _storePreHealCode(figmaPayload)
                     const healWindows = BrowserWindow.getAllWindows()
                     if (healWindows.length > 0) {
                         healWindows[0].webContents.send('bridge:import-summary', healResult.summary)

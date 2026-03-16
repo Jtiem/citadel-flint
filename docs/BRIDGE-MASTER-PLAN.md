@@ -364,6 +364,78 @@ Cosmetic hardening — the loopback-only binding already limits exposure, but a 
 
 ---
 
+### 4.11 Chat UX Track — Conversational Experience
+
+**Context:** Bridge has an excellent governance engine and a primitive conversational interface. These phases make every tool response a first-class conversational turn — with a voice, a summary, project-level context, and actionable error signals. Full rationale and issue stack in `docs/strategy/CHAT-UX-CRITIQUE.md`.
+
+All CX phases target the headless MCP engine. Zero Glass changes required.
+
+---
+
+**CX.1 — Response Quality Baseline (P0, small ≈ 1 sprint)**
+
+The highest-ROI, lowest-effort chat improvement: change what Bridge *says*, not what it *does*.
+
+- **`summary` field on all tool responses:** Every tool response gets a one-sentence human-readable statement alongside the technical payload. Designers stop seeing raw SARIF. Agents can relay results to users without translation.
+  ```json
+  { "summary": "Found 3 violations in Button.tsx. 2 can be auto-fixed.", "violations": [...] }
+  ```
+- **`project_context` footer on audit/fix responses:** Local task responses include health score, total violation count, and blocked-file count. Agents stop optimizing locally while the project burns.
+  ```json
+  { "file_result": {...}, "project_context": { "total_violations": 47, "blocked_files": 3, "health_score": 62, "grade": "D" } }
+  ```
+- **MCP server `initialize` onboarding pointer:** Add one sentence to the server description field: *"New? Start with the `bridge-workflow-guide` prompt or read `bridge://capabilities`."* Cost: 1 line. Every agent gets the map at connection.
+- **`dry_run` flag on `bridge_ast_mutate` and `bridge_fix`:** Returns a preview of what would change without writing to disk. Gives agents a natural confirmation checkpoint before destructive mutations.
+- Files: `bridge-mcp/src/server.ts`, `bridge-mcp/src/tools/audit.ts`, `bridge-mcp/src/tools/fix.ts`, `bridge-mcp/src/core/ast-modifier.ts`
+- Contract required: yes (new response fields across multiple tools)
+
+**CX.2 — `bridge_plan` Orchestration Tool (P1, medium ≈ 2 sprints)**
+
+The most significant gap in Bridge's chat experience: there is no orchestration layer. For multi-step tasks (bulk token migration, full design system compliance sweep), every agent reinvents the execution loop from scratch. Some miss re-audit. Some miss recovery. All duplicate planning logic that Bridge already knows.
+
+`bridge_plan` accepts a high-level intent string and returns a structured execution plan: the ordered tool sequence, the decision points that require judgment, the expected inputs/outputs at each step, and the success criteria.
+
+```
+Input: "Migrate all hardcoded colors in src/components/ to design tokens"
+
+Output:
+{
+  "intent": "token-migration",
+  "steps": [
+    { "step": 1, "tool": "bridge_audit", "params": { "glob": "src/components/**/*.tsx" }, "purpose": "Identify all color violations" },
+    { "step": 2, "decision": "Review violations — confirm token mappings for ambiguous colors", "required": true },
+    { "step": 3, "tool": "bridge_fix", "params": { "healOnAudit": true }, "purpose": "Apply auto-fixable tier-1 violations" },
+    { "step": 4, "tool": "bridge_ast_mutate", "purpose": "Apply manual fixes for tier-2/3 violations requiring judgment" },
+    { "step": 5, "tool": "bridge_audit", "purpose": "Re-audit to verify zero regressions" },
+    { "step": 6, "tool": "bridge_debt_report", "purpose": "Confirm health score improvement" }
+  ],
+  "estimated_scope": "~47 files, ~200 violations",
+  "risk_level": "medium"
+}
+```
+
+Intent types to support at launch: `token-migration`, `accessibility-sweep`, `full-governance-audit`, `figma-sync`, `debt-remediation`.
+
+- Files: `bridge-mcp/src/server.ts`, new `bridge-mcp/src/tools/plan.ts`, new `bridge-mcp/src/core/planService.ts`
+- Contract required: yes (new MCP tool + service)
+
+**CX.3 — Error Taxonomy + Rule Explanations (P1, small ≈ 1 sprint)**
+
+Two quality improvements that compound over time as the rule library and tool surface grow.
+
+- **Error taxonomy:** Every tool failure gets a structured code (`BRIDGE-ERR-001`), a plain-language description, and a recovery instruction. Replace raw stack traces with actionable diagnostic output. Errors become inputs, not dead ends.
+- **Per-rule `explanation` field:** Every governance rule gets a 1-2 sentence statement of *why* the rule exists — the business or user impact, not the technical violation. Surfaced in `bridge_audit` and `bridge_audit_report` responses. Developers who understand the rule internalize the pattern instead of working around it.
+- Files: `bridge-mcp/src/core/MithrilLinter.ts`, `bridge-mcp/src/core/A11yLinter.ts`, `bridge-mcp/src/tools/audit.ts`, new `bridge-mcp/src/core/errorCodes.ts`
+- Contract required: no (additive fields + new error module)
+
+| Phase | Priority | Effort | What it closes |
+|-------|----------|--------|----------------|
+| CX.1 | P0 | ~1 sprint | Vocabulary tax, silent state, unconfirmed mutations |
+| CX.2 | P1 | ~2 sprints | Multi-step task coordination gap (`bridge_plan`) |
+| CX.3 | P1 | ~1 sprint | Error recovery blindness, "why" gap |
+
+---
+
 ## 5. Master Dependency Graph
 
 ```

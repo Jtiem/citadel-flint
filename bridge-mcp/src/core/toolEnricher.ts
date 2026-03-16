@@ -27,23 +27,16 @@ import { parse } from '@babel/parser'
 import _traverse from '@babel/traverse'
 import * as t from '@babel/types'
 import type { SessionContext } from './sessionContext.js'
+import type { ToolEnrichment } from '../types.js'
+
+// Re-export for consumers that import from this module
+export type { ToolEnrichment }
 
 // CJS/ESM interop — mirrors the pattern used in MithrilLinter.ts
 const traverse =
     typeof _traverse === 'function'
         ? _traverse
         : (_traverse as unknown as { default: typeof _traverse }).default
-
-// ── Enrichment types ──────────────────────────────────────────────────────────
-
-export interface ToolEnrichment {
-    /** The tool name this enrichment applies to. */
-    toolName: string
-    /** Context preamble formatted as a human-readable string for the agent. */
-    contextPreamble: string
-    /** Structured data accompanying the preamble. */
-    data: Record<string, unknown>
-}
 
 export interface MutateEnrichment {
     /** Target node's current props (from live AST). */

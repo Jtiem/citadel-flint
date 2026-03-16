@@ -21,47 +21,15 @@
  */
 
 import type { SessionContext } from './sessionContext.js'
+import type {
+    ModelTier,
+    ComplexityFactor,
+    ComplexityAssessment,
+    ComplexityInput,
+} from '../types.js'
 
-// ── Types (exported for use in types.ts additions) ────────────────────────────
-
-export type ModelTier = 'fast' | 'balanced' | 'powerful'
-
-export interface ComplexityFactor {
-    /** Factor name (e.g. "nodeCount", "crossFileScope"). */
-    name: string
-    /** Weight of this factor in the total score (0–100 scale). */
-    weight: number
-    /** The raw measured value for this factor. */
-    value: number | string
-    /** Score contribution from this factor (weight * rawScore / 100). */
-    contribution: number
-    /** Human-readable description of why this factor fired. */
-    description: string
-}
-
-export interface ComplexityAssessment {
-    /** Recommended model tier. */
-    recommendedTier: ModelTier
-    /** Numerical complexity score (0–100). */
-    score: number
-    /** Human-readable explanation of the assessment. */
-    rationale: string
-    /** Factors that contributed to the score. */
-    factors: ComplexityFactor[]
-}
-
-export interface ComplexityInput {
-    /** Natural language task description. */
-    taskDescription: string
-    /** Estimated number of AST nodes that will be affected. */
-    estimatedNodeCount?: number
-    /** Whether the task spans multiple source files. */
-    crossFile?: boolean
-    /** File paths involved (used to check file count). */
-    filePaths?: string[]
-    /** Mutation types that will be used (e.g. ['updateProp', 'deleteNode']). */
-    mutationTypes?: string[]
-}
+// Re-export for consumers that import from this module
+export type { ModelTier, ComplexityFactor, ComplexityAssessment, ComplexityInput }
 
 // ── Tier mapping ──────────────────────────────────────────────────────────────
 

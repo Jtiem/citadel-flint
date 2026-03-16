@@ -17,5 +17,12 @@
       "runtimeExecutable": "npx",
       "runtimeArgs": ["vitest", "--watch", "--config", "bridge-mcp/vitest.config.ts"]
     }
+    ,
+    {
+      "name": "Bridge Website",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "website"],
+      "port": 5173
+    }
   ]
 }

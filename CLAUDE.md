@@ -295,11 +295,27 @@ If an agent completes work without reporting test results in this format, the wo
 * `cd bridge-mcp && npm test` -- Run MCP engine tests
 * `npx tsc --noEmit` -- Strict type check
 
+## Session Start Protocol (Every Development Session)
+
+Before writing any code, every agent MUST complete these steps in order:
+
+1. **Declare territory** — Update `.bridge-context/ACTIVE-SWARM-TERRITORY.md` with the files and modules you intend to touch. If another agent has already claimed a file, stop and coordinate first.
+2. **Update HANDOFF.md** — Add a session entry: phase/feature name, files in scope, and goal. This is how the next agent (or session) knows what was in progress.
+3. **Read context** — Consult `HANDOFF.md`, `CLAUDE.md`, and `docs/BRIDGE-MASTER-PLAN.md` before reading the codebase.
+4. **Begin work.**
+
+After completing work:
+- Update `HANDOFF.md` with what was done, what changed, and what remains.
+- Clear your entries from `.bridge-context/ACTIVE-SWARM-TERRITORY.md`.
+
+This protocol is mandatory for any session involving implementation, refactoring, or file changes. Read-only research sessions are exempt.
+
 ## Development Workflow
 
 **Contract-First Feature Build** (`.claude/workflows/feature-build.md`) is the mandatory workflow for any feature touching 2+ files or crossing a process boundary.
 
 ```
+SESSION START: Declare territory in ACTIVE-SWARM-TERRITORY.md + update HANDOFF.md
 GIT:    bridge-git-guru → create feature branch
 Phase 1: bridge-architect → Contract Artifact (.bridge-context/contracts/)
 GIT:    bridge-git-guru → commit contract
@@ -307,15 +323,16 @@ Phase 2: Parallel specialist agents implement against contract
 GIT:    bridge-git-guru → commit per agent + pre-commit gate (TSC + tests)
 Phase 3: bridge-integration-validator → Integration Report (SHIP/FIX/REDESIGN)
 GIT:    bridge-git-guru → create PR (on SHIP)
+SESSION END: Update HANDOFF.md + clear territory claim
 ```
 
-Single-file bug fixes and cosmetic changes are exempt. All other work follows this flow. Contract artifacts are the binding specification — Phase 2 agents implement exactly what the contract defines. If the contract is wrong, return to Phase 1.
+Single-file bug fixes and cosmetic changes are exempt from the Contract-First flow but NOT from the Session Start Protocol. All other work follows this flow. Contract artifacts are the binding specification — Phase 2 agents implement exactly what the contract defines. If the contract is wrong, return to Phase 1.
 
 **Git ceremonies** are handled by `bridge-git-guru` at every phase boundary. It manages branch naming (`feat/<phase>-<desc>`), conventional commit messages, pre-commit validation, and PR creation. Never commit without running the pre-commit gate (TSC + relevant test suites).
 
 ## Critical AI Directives
 
-1. **HANDOFF-First Context:** Always consult `HANDOFF.md`, `CLAUDE.md`, and `docs/BRIDGE-MASTER-PLAN.md` before reading the codebase.
+1. **Session Start Protocol:** Before any implementation work, declare territory in `.bridge-context/ACTIVE-SWARM-TERRITORY.md` and update `HANDOFF.md`. See the Session Start Protocol section above. Always consult `HANDOFF.md`, `CLAUDE.md`, and `docs/BRIDGE-MASTER-PLAN.md` before reading the codebase.
 2. **Glass is Observability Only:** Chat lives in the host IDE. Bridge Glass is the visual observability layer, not a code editor, terminal, file browser, or chat host. Do not add IDE-native panels to Glass.
 3. **Mithril Safety:** If Delta-E > 2.0, code must be auto-fixed or Amber-flagged.
 4. **Persistence Rule:** All mutations MUST be atomic and saved via the `FileTransactionManager` queue.
