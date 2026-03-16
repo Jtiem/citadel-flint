@@ -27,6 +27,14 @@ import {
     type RuleSeverity,
     type GovernanceCategory,
 } from '../../core/governanceRulesManifest'
+
+// Planned rules are displayed in a visually distinct state so users understand
+// they are roadmap items and will never fire in the current release.
+const PLANNED_BADGE = (
+    <span className="rounded border border-zinc-700/40 bg-zinc-800/60 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-zinc-600">
+        Coming soon
+    </span>
+)
 import { useGovernanceStore, type RuleOverride } from '../../store/governanceStore'
 import { useCanvasStore } from '../../store/canvasStore'
 
@@ -105,6 +113,7 @@ interface RuleRowProps {
 }
 
 function RuleRow({ rule, override, onToggle, onReset }: RuleRowProps) {
+    const isPlanned = rule.status === 'planned'
     const isEnabled = override?.enabled !== false
     const effectiveSeverity: RuleSeverity = override?.severity ?? rule.defaultSeverity
     const isModified = override !== undefined
@@ -113,7 +122,7 @@ function RuleRow({ rule, override, onToggle, onReset }: RuleRowProps) {
         <div
             className={`flex items-center gap-3 px-4 py-2.5 hover:bg-zinc-800/30 transition-colors ${
                 isModified ? 'border-l-2 border-indigo-500/40' : 'border-l-2 border-transparent'
-            }`}
+            } ${isPlanned ? 'opacity-50' : ''}`}
         >
             <Toggle
                 enabled={isEnabled}
@@ -144,7 +153,7 @@ function RuleRow({ rule, override, onToggle, onReset }: RuleRowProps) {
                 </p>
             </div>
 
-            <SeverityBadge severity={effectiveSeverity} />
+            {isPlanned ? PLANNED_BADGE : <SeverityBadge severity={effectiveSeverity} />}
         </div>
     )
 }
