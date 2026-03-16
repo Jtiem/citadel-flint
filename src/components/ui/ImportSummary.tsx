@@ -408,7 +408,7 @@ export function ImportSummaryPanelView() {
             {/* Footer */}
             <div className="shrink-0 border-t border-zinc-800 px-3 py-2">
                 <p className="mb-2 text-[10px] text-zinc-500">
-                    Healed in {summary.healTimeMs}ms
+                    Healed in {Math.round(summary.healTimeMs)}ms
                 </p>
 
                 {undoError !== null && (

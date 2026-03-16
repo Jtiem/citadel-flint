@@ -121,11 +121,13 @@ export const useImportSummaryStore = create<ImportSummaryState & ImportSummaryAc
             set({ isPanelMode: true })
         },
 
-        removeTier2Item: (nodeId: string) => {
+        removeTier2Item: (nodeId: string, ruleId?: string) => {
             const current = get().summary
             if (!current) return
 
-            const remaining = current.tier2Flagged.filter((f) => f.nodeId !== nodeId)
+            const remaining = current.tier2Flagged.filter(
+                (f) => !(f.nodeId === nodeId && (ruleId === undefined || f.ruleId === ruleId))
+            )
             const updated: IngestionSummary = { ...current, tier2Flagged: remaining }
 
             // Auto-close when all tier-2 items are resolved and no tier-3 remain

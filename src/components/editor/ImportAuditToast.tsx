@@ -1,7 +1,7 @@
 /**
  * ImportAuditToast — src/components/editor/ImportAuditToast.tsx
  *
- * Phase O.2 / Phase 7: Post-import notification toast.
+ * Phase O.2 / Phase ING: Post-import notification toast.
  *
  * Shown after a Figma → Bridge hydro-paste import completes.
  * Displays a grouped count of non-aligned style values by property category
@@ -12,55 +12,33 @@
  *  - Auto-dismisses after 8 s; user can dismiss early with ×
  *  - Stays mounted until dismissed or a new project is opened
  *  - Zero values → not rendered (nothing to report)
+ *
+ * Store wiring: reads from importSummaryStore (tier2Flagged + tier3Unknown
+ * are the unresolved non-aligned values). Calls dismiss() to clear.
  */
 
 import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, X } from 'lucide-react'
-import { useCanvasStore } from '../../store/canvasStore'
-import type { ImportWarning } from '../../types/bridge-api'
-
-// ── Grouping helpers ──────────────────────────────────────────────────────────
-
-const COLOR_PROPS = new Set(['fillColor', 'textColor', 'strokeColor'])
-const SPACING_PROPS = new Set(['itemSpacing', 'padding', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'width', 'height'])
-const TYPOGRAPHY_PROPS = new Set(['fontSize', 'letterSpacing', 'lineHeight'])
-
-function groupWarnings(warnings: ImportWarning[]): { colors: number; spacing: number; typography: number; other: number } {
-    let colors = 0, spacing = 0, typography = 0, other = 0
-    for (const w of warnings) {
-        if (COLOR_PROPS.has(w.property)) colors++
-        else if (SPACING_PROPS.has(w.property)) spacing++
-        else if (TYPOGRAPHY_PROPS.has(w.property)) typography++
-        else other++
-    }
-    return { colors, spacing, typography, other }
-}
-
-function buildSummary(groups: ReturnType<typeof groupWarnings>): string[] {
-    const parts: string[] = []
-    if (groups.colors > 0) parts.push(`${groups.colors} color${groups.colors > 1 ? 's' : ''}`)
-    if (groups.spacing > 0) parts.push(`${groups.spacing} spacing value${groups.spacing > 1 ? 's' : ''}`)
-    if (groups.typography > 0) parts.push(`${groups.typography} typography value${groups.typography > 1 ? 's' : ''}`)
-    if (groups.other > 0) parts.push(`${groups.other} other`)
-    return parts
-}
+import { useImportSummaryStore } from '../../store/importSummaryStore'
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
 const AUTO_DISMISS_MS = 8000
 
 export default function ImportAuditToast() {
-    const warnings = useCanvasStore((s) => s.lastImportWarnings)
-    const clearImportWarnings = useCanvasStore((s) => s.clearImportWarnings)
+    const summary = useImportSummaryStore((s) => s.summary)
+    const isVisible = useImportSummaryStore((s) => s.isVisible)
+    const dismiss = useImportSummaryStore((s) => s.dismiss)
     const [dismissed, setDismissed] = useState(false)
     const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-    // Reset dismissed state whenever new warnings arrive
+    // Reset dismissed state whenever a new summary arrives
     useEffect(() => {
-        if (warnings && warnings.length > 0) {
+        if (summary && isVisible) {
             setDismissed(false)
             timerRef.current = setTimeout(() => {
                 setDismissed(true)
+                dismiss()
             }, AUTO_DISMISS_MS)
         }
         return () => {
@@ -69,13 +47,24 @@ export default function ImportAuditToast() {
                 timerRef.current = null
             }
         }
-    }, [warnings])
+    }, [summary, isVisible, dismiss])
 
-    if (!warnings || warnings.length === 0 || dismissed) return null
+    if (!summary || !isVisible || dismissed) return null
 
-    const groups = groupWarnings(warnings)
-    const summaryParts = buildSummary(groups)
-    if (summaryParts.length === 0) return null
+    // Map importSummaryStore fields to the warning categories this toast displays.
+    // tier2Flagged items are non-aligned values that need review (amber-tier).
+    // tier3Unknown items are values with no matching token at all.
+    const needsReviewCount = summary.tier2Flagged.length
+    const unknownCount = summary.tier3Unknown
+    const totalWarnings = needsReviewCount + unknownCount
+
+    if (totalWarnings === 0) return null
+
+    const summaryParts: string[] = []
+    if (needsReviewCount > 0)
+        summaryParts.push(`${needsReviewCount} value${needsReviewCount > 1 ? 's' : ''} need review`)
+    if (unknownCount > 0)
+        summaryParts.push(`${unknownCount} value${unknownCount > 1 ? 's' : ''} unmatched`)
 
     const handleDismiss = () => {
         if (timerRef.current !== null) {
@@ -83,7 +72,7 @@ export default function ImportAuditToast() {
             timerRef.current = null
         }
         setDismissed(true)
-        clearImportWarnings()
+        dismiss()
     }
 
     return (
