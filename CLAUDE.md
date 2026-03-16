@@ -192,11 +192,11 @@ Additional tools registered via `bridge-mcp/src/tools/` modules cover governance
 | Override Telemetry (IPC + StatusBar badge) | GOV.2 | **ONLINE** |
 | Accessibility Expansion (30 rules, auto-fix) | EXP.6a | **ONLINE** |
 | Figma Plugin Settings UI (endpoint + secret + clientStorage) | FP.1 | **ONLINE** |
-| Proactive Session Context (`bridge://session-context`) | ACX.1 | PLANNED (contract approved) |
-| Event-Driven Context Push (ContextPushManager) | ACX.2 | PLANNED (contract approved) |
-| Complexity Router (Commandment 8 model routing) | ACX.4 | PLANNED (contract approved) |
-| Sentinel Prompt (domain-configurable governance) | ACX.1 | PLANNED (contract approved) |
-| Tool Enrichment (pre-flight context injection) | ACX.3 | PLANNED (blocked on ACX.1) |
+| Proactive Session Context (`bridge://session-context`) | ACX.1 | **ONLINE** |
+| Event-Driven Context Push (ContextPushManager) | ACX.2 | **ONLINE** |
+| Complexity Router (Commandment 8 model routing) | ACX.4 | **ONLINE** |
+| Sentinel Prompt (6 domain presets) | ACX.1 | **ONLINE** |
+| Tool Enrichment (pre-flight context injection) | ACX.3 | **ONLINE** |
 | Mutation Provenance Ledger | V.2-mp | PLANNED (unblocked -- INFRA.2 ONLINE) |
 | Risk Scoring (MRS) | V.1-rs | PLANNED (blocked on V.2-mp) |
 | Renderer Hardening (iframe sandbox + CSP) | SEC.1 | PLANNED (P0, no deps) |
