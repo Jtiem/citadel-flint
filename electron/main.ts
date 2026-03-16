@@ -2,7 +2,8 @@ import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron'
 import type { MenuItemConstructorOptions } from 'electron'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { readdir, readFile } from 'node:fs/promises'
+import { readdir, readFile, writeFile, mkdir, rename, stat as fsStat, open as fsOpen } from 'node:fs/promises'
+import { existsSync, mkdirSync, watch as fsWatch } from 'node:fs'
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import os from 'node:os'
@@ -77,6 +78,7 @@ import { jsxAttribute, jsxIdentifier, stringLiteral } from '@babel/types'
 import type { JSXOpeningElement } from '@babel/types'
 import type { NodePath } from '@babel/traverse'
 import { startViteServer, stopViteServer, getPreviewUrl } from './preview/viteServer.js'
+import { mcpClient } from './mcpClient.js'
 
 // Must be called synchronously before app.whenReady() fires.
 // Suppresses the Chromium SharedImageManager / GPU mailbox errors that spam
@@ -91,6 +93,12 @@ const PRELOAD_PATH = path.join(__dirname, 'preload.js')
 
 let mainWindow: BrowserWindow | null = null
 let stopServer: (() => void) | null = null
+
+// ── GOV.2: Session UUID ───────────────────────────────────────────────────────
+// Generated once at app launch and used as the sessionId for all governance
+// event telemetry within this Glass session. A new UUID is produced on every
+// restart, so override counts reset cleanly between sessions.
+const governanceSessionId: string = randomUUID()
 
 // ── Bridge ID Babel Plugin ────────────────────────────────────────────────────
 //
@@ -167,6 +175,12 @@ function buildAppMenu(): void {
                     label: 'Open Project\u2026',
                     accelerator: 'CmdOrCtrl+O',
                     click: () => { mainWindow?.webContents.send('menu:open-project') },
+                },
+                { type: 'separator' },
+                {
+                    label: 'Save Project As\u2026',
+                    accelerator: 'CmdOrCtrl+Shift+S',
+                    click: () => { mainWindow?.webContents.send('menu:save-project-as') },
                 },
                 { type: 'separator' },
                 {
@@ -252,6 +266,10 @@ ipcMain.handle(
         })
 
         activeProjectRoot = folderPath
+        // Phase W.3: start MCP client for the newly opened project
+        void mcpClient.start(folderPath).catch((err) => {
+            console.error('[Bridge] mcpClient.start failed after openFolder:', err)
+        })
         return scanDirectory(folderPath)
     }
 )
@@ -848,6 +866,24 @@ app.whenReady().then(async () => {
         // Empty-Dir Gate + cpSync (templateService throws if non-empty)
         initializeProject(targetPath, templateId)
 
+        // ── Scaffold .bridge/ directory with starter config files ────────────
+        // Creates .bridge/policy.json (DEFAULT_POLICY) and
+        // .bridge/design-tokens.json (empty array) so the governance engine
+        // and StatusBar can read them immediately without falling back to
+        // hard-coded defaults.  Uses the atomic FTM queue — no raw writeFile.
+        const bridgeDir = path.join(targetPath, '.bridge')
+        await mkdir(bridgeDir, { recursive: true })
+
+        const { DEFAULT_POLICY } = await import('../bridge-mcp/src/core/config.js')
+        await fileTransactionManager.writeFile(
+            path.join(bridgeDir, 'policy.json'),
+            JSON.stringify(DEFAULT_POLICY, null, 2) + '\n',
+        )
+        await fileTransactionManager.writeFile(
+            path.join(bridgeDir, 'design-tokens.json'),
+            '[]\n',
+        )
+
         // Ensure git repo is initialized on the new workspace
         await gitManager.ensureRepo(targetPath).catch(err => {
             console.error(`[Bridge] main.ts: ensureRepo failed for new project ${targetPath}`, err)
@@ -859,6 +895,65 @@ app.whenReady().then(async () => {
         upsertProject(randomUUID(), projectName, targetPath)
 
         // Scan the newly populated directory and return the tree
+        return scanDirectory(targetPath)
+    })
+
+    // ── project:create-scratchpad ─────────────────────────────────────────────
+    // Instantly scaffolds a new project in ~/Bridge Projects/Untitled-N with no
+    // dialog. The first available counter slot is chosen so names never collide.
+    //
+    // Steps:
+    //   1. Ensure ~/Bridge Projects/ exists.
+    //   2. Pick the next free Untitled-N name.
+    //   3. Create the directory and scaffold from 'base-vite-tailwind'.
+    //   4. Write .bridge/ policy + tokens (same as project:initialize).
+    //   5. Git init via gitManager.ensureRepo.
+    //   6. Register in the global registry.
+    //   7. Set activeProjectRoot and start the MCP client.
+    //   8. Scan and return the FileTreeNode tree.
+    ipcMain.handle('project:create-scratchpad', async (): Promise<FileTreeNode> => {
+        const bridgeProjectsDir = path.join(app.getPath('home'), 'Bridge Projects')
+        await mkdir(bridgeProjectsDir, { recursive: true })
+
+        // Find the first free Untitled-N slot
+        let existing: string[] = []
+        try { existing = await readdir(bridgeProjectsDir) } catch { /* empty dir is fine */ }
+        let counter = 1
+        while (existing.includes(`Untitled-${counter}`)) counter++
+        const projectName = `Untitled-${counter}`
+        const targetPath = path.join(bridgeProjectsDir, projectName)
+        await mkdir(targetPath)
+
+        // Scaffold using the same template service as project:initialize
+        initializeProject(targetPath, 'base-vite-tailwind')
+
+        // Write .bridge/ starter config files
+        const bridgeDir = path.join(targetPath, '.bridge')
+        await mkdir(bridgeDir, { recursive: true })
+        const { DEFAULT_POLICY } = await import('../bridge-mcp/src/core/config.js')
+        await fileTransactionManager.writeFile(
+            path.join(bridgeDir, 'policy.json'),
+            JSON.stringify(DEFAULT_POLICY, null, 2) + '\n',
+        )
+        await fileTransactionManager.writeFile(
+            path.join(bridgeDir, 'design-tokens.json'),
+            '[]\n',
+        )
+
+        // Git init
+        await gitManager.ensureRepo(targetPath).catch(err => {
+            console.error(`[Bridge] project:create-scratchpad: ensureRepo failed for ${targetPath}`, err)
+        })
+
+        // Register in registry
+        upsertProject(randomUUID(), projectName, targetPath)
+
+        // Set active project root and start MCP client
+        activeProjectRoot = targetPath
+        void mcpClient.start(targetPath).catch((err) => {
+            console.error('[Bridge] mcpClient.start failed after create-scratchpad:', err)
+        })
+
         return scanDirectory(targetPath)
     })
 
@@ -914,6 +1009,10 @@ app.whenReady().then(async () => {
             const projectName = path.basename(normalized)
             upsertProject(randomUUID(), projectName, normalized)
             activeProjectRoot = normalized
+            // Phase W.3: start MCP client for the newly opened project
+            void mcpClient.start(normalized).catch((err) => {
+                console.error('[Bridge] mcpClient.start failed after openPath:', err)
+            })
             return tree
         } catch {
             return null
@@ -1451,6 +1550,586 @@ app.whenReady().then(async () => {
         return ragChunkCount()
     })
 
+    // ── Phase COLLAB.4: Annotation IPC + fs.watch ─────────────────────────────
+    //
+    // Annotations are written to .bridge/annotations.json by the MCP tool
+    // (bridge_annotate). Glass reads them via 'annotations:read-all' and
+    // resolves them via 'annotations:resolve'. An fs.watch subscription on the
+    // file pushes 'bridge:annotations-changed' to all renderer windows whenever
+    // the file changes so the React store re-fetches without polling.
+    //
+    // The annotations file path is derived from the active project root at
+    // call-time so it always targets the currently open workspace.
+
+    /**
+     * Returns the absolute path to .bridge/annotations.json for the active
+     * project, falling back to the user home directory when no project is open.
+     */
+    function getAnnotationsFilePath(): string {
+        const base = activeProjectRoot ?? app.getPath('home')
+        return path.join(base, '.bridge', 'annotations.json')
+    }
+
+    /**
+     * Broadcasts 'bridge:annotations-changed' to all non-destroyed renderer windows.
+     * Called by the fs.watch callback whenever the annotations file is modified.
+     */
+    function broadcastAnnotationsChanged(): void {
+        BrowserWindow.getAllWindows().forEach((w) => {
+            if (!w.isDestroyed()) w.webContents.send('bridge:annotations-changed')
+        })
+    }
+
+    /**
+     * Reads .bridge/annotations.json and returns the parsed array.
+     * Returns [] when the file is missing or unparseable — never throws.
+     */
+    async function readAnnotationsFile(filePath: string): Promise<unknown[]> {
+        try {
+            const raw = await readFile(filePath, 'utf-8')
+            const parsed: unknown = JSON.parse(raw)
+            if (!Array.isArray(parsed)) return []
+            return parsed
+        } catch {
+            return []
+        }
+    }
+
+    /**
+     * Atomically writes `annotations` to `filePath` using tmp→rename.
+     * Creates the parent .bridge directory if it does not yet exist.
+     */
+    async function writeAnnotationsFile(filePath: string, annotations: unknown[]): Promise<void> {
+        const dir = path.dirname(filePath)
+        if (!existsSync(dir)) {
+            await mkdir(dir, { recursive: true })
+        }
+        const tmp = `${filePath}.tmp`
+        await writeFile(tmp, JSON.stringify(annotations, null, 2), 'utf-8')
+        await rename(tmp, filePath)
+    }
+
+    // ── annotations:read-all ──────────────────────────────────────────────────
+    // Returns all annotations from .bridge/annotations.json.
+    // Safe: returns [] when the file is missing — renderer handles empty state.
+    ipcMain.handle('annotations:read-all', async (): Promise<unknown[]> => {
+        const filePath = getAnnotationsFilePath()
+        return readAnnotationsFile(filePath)
+    })
+
+    // ── annotations:resolve ───────────────────────────────────────────────────
+    // Marks the annotation with `id` as resolved and writes the updated list
+    // back atomically. Silently no-ops if the id is not found (idempotent).
+    ipcMain.handle('annotations:resolve', async (_event, id: unknown): Promise<void> => {
+        if (typeof id !== 'string' || id.length === 0) return
+        const filePath = getAnnotationsFilePath()
+        const annotations = await readAnnotationsFile(filePath)
+        let changed = false
+        const updated = annotations.map((a) => {
+            const ann = a as Record<string, unknown>
+            if (ann['id'] === id && ann['status'] !== 'resolved') {
+                changed = true
+                return { ...ann, status: 'resolved', resolvedAt: new Date().toISOString() }
+            }
+            return a
+        })
+        if (changed) {
+            await writeAnnotationsFile(filePath, updated)
+            broadcastAnnotationsChanged()
+        }
+    })
+
+    // ── fs.watch on .bridge/annotations.json ─────────────────────────────────
+    // Watches for external writes (from MCP tools) and pushes push events to
+    // the renderer so annotationStore.fetchAnnotations() is triggered without
+    // polling. The watcher is re-created whenever the active project changes
+    // (tracked via the existing activeProjectRoot module-level variable).
+    //
+    // Implementation note: we watch the parent .bridge/ directory rather than
+    // the file directly because fs.watch on a non-existent file throws on some
+    // platforms. The directory is created on first annotation write.
+    {
+        let annotationsWatcher: ReturnType<typeof fsWatch> | null = null
+
+        /**
+         * (Re)starts the fs.watch on the active project's .bridge/ directory.
+         * Called once at app-ready and should be re-called if activeProjectRoot changes.
+         * Exported as a no-op for now; the current project lifecycle does not
+         * dynamically switch roots after the watcher is started — the renderer
+         * triggers a full reload on project switch instead.
+         */
+        function startAnnotationsWatcher(): void {
+            annotationsWatcher?.close()
+            const base = activeProjectRoot ?? app.getPath('home')
+            const bridgeDir = path.join(base, '.bridge')
+
+            // Ensure the .bridge directory exists before watching it
+            if (!existsSync(bridgeDir)) {
+                try {
+                    // Synchronous mkdir is acceptable here — this runs once at startup
+                    // outside the hot path. mkdirSync is imported at the top of the file.
+                    mkdirSync(bridgeDir, { recursive: true })
+                } catch { /* directory may already exist */ }
+            }
+
+            try {
+                annotationsWatcher = fsWatch(bridgeDir, { persistent: false }, (eventType, filename) => {
+                    if (filename === 'annotations.json' && (eventType === 'rename' || eventType === 'change')) {
+                        broadcastAnnotationsChanged()
+                    }
+                })
+                annotationsWatcher.on('error', (err) => {
+                    console.error('[Bridge] annotations fs.watch error:', err)
+                    annotationsWatcher = null
+                })
+            } catch (err) {
+                console.error('[Bridge] Failed to start annotations fs.watch:', err)
+            }
+        }
+
+        // Start the watcher for the initial project root (may be null on first launch).
+        // The watcher will pick up the correct path when a project is opened because
+        // getAnnotationsFilePath() reads activeProjectRoot at call-time.
+        startAnnotationsWatcher()
+
+        app.on('will-quit', () => {
+            annotationsWatcher?.close()
+        })
+    }
+
+    // ── Phase W.1: MCP Event Push Channel ─────────────────────────────────────
+    //
+    // The MCP server appends MCPEvent records (newline-delimited JSON) to
+    // `.bridge/mcp-events.jsonl` after each tool completion. The Electron main
+    // process tail-follows that file using fs.watch (with a 10-second poll
+    // fallback for NFS/NAS mounts) and broadcasts `bridge:mcp-event` to all
+    // renderer windows so the `useMCPEventListener` hook can dispatch to stores.
+    //
+    // Design invariants:
+    //   - Byte offset is tracked so we never re-read lines already dispatched.
+    //   - Events are batched within a 500ms debounce window to avoid a storm of
+    //     individual notifications during a bulk audit.
+    //   - On rotation (file shrinks below the last offset), offset resets to 0.
+    {
+        let mcpEventsOffset = 0
+        let mcpEventsWatcher: ReturnType<typeof fsWatch> | null = null
+        let mcpEventsBatchTimer: ReturnType<typeof setTimeout> | null = null
+        const mcpEventsBatch: unknown[] = []
+
+        function getMCPEventsFilePath(): string {
+            const base = activeProjectRoot ?? app.getPath('home')
+            return path.join(base, '.bridge', 'mcp-events.jsonl')
+        }
+
+        /**
+         * Broadcasts a batch of parsed MCPEvent objects to all live renderer windows.
+         * Called after the 500 ms debounce window closes.
+         */
+        function flushMCPEventsBatch(): void {
+            if (mcpEventsBatch.length === 0) return
+            const events = mcpEventsBatch.splice(0)
+            BrowserWindow.getAllWindows().forEach((w) => {
+                if (!w.isDestroyed()) w.webContents.send('bridge:mcp-event', events)
+            })
+        }
+
+        /**
+         * Reads new lines from the JSONL file since the last known byte offset.
+         * Parses each line as a JSON MCPEvent and queues them for the next flush.
+         * Resets the offset if the file has shrunk (rotation occurred).
+         */
+        async function tailMCPEvents(): Promise<void> {
+            const filePath = getMCPEventsFilePath()
+            try {
+                const { size } = await fsStat(filePath)
+                // File was rotated (e.g. renamed to .bak and a new file started)
+                if (size < mcpEventsOffset) {
+                    mcpEventsOffset = 0
+                }
+                if (size === mcpEventsOffset) return // no new data
+
+                const fd = await fsOpen(filePath, 'r')
+                try {
+                    const bytesToRead = size - mcpEventsOffset
+                    const buf = Buffer.alloc(bytesToRead)
+                    const { bytesRead } = await fd.read(buf, 0, bytesToRead, mcpEventsOffset)
+                    mcpEventsOffset += bytesRead
+                    const chunk = buf.subarray(0, bytesRead).toString('utf-8')
+
+                    for (const line of chunk.split('\n')) {
+                        const trimmed = line.trim()
+                        if (!trimmed) continue
+                        try {
+                            const event = JSON.parse(trimmed)
+                            mcpEventsBatch.push(event)
+                        } catch {
+                            // Truncated / malformed line — skip
+                        }
+                    }
+                } finally {
+                    await fd.close()
+                }
+
+                // Schedule/reset the 500ms debounce flush
+                if (mcpEventsBatch.length > 0) {
+                    if (mcpEventsBatchTimer !== null) clearTimeout(mcpEventsBatchTimer)
+                    mcpEventsBatchTimer = setTimeout(() => {
+                        mcpEventsBatchTimer = null
+                        flushMCPEventsBatch()
+                    }, 500)
+                }
+            } catch {
+                // File doesn't exist yet or I/O error — safe to ignore
+            }
+        }
+
+        /**
+         * (Re)starts the fs.watch on the active project's .bridge/ directory,
+         * monitoring for changes to mcp-events.jsonl.
+         * Also installs a 10-second poll fallback for NFS/NAS mounts where
+         * inotify events may not fire.
+         */
+        function startMCPEventsWatcher(): void {
+            mcpEventsWatcher?.close()
+            mcpEventsOffset = 0
+
+            const base = activeProjectRoot ?? app.getPath('home')
+            const bridgeDir = path.join(base, '.bridge')
+
+            if (!existsSync(bridgeDir)) {
+                try {
+                    mkdirSync(bridgeDir, { recursive: true })
+                } catch { /* already exists */ }
+            }
+
+            try {
+                mcpEventsWatcher = fsWatch(bridgeDir, { persistent: false }, (eventType, filename) => {
+                    if (filename === 'mcp-events.jsonl' && (eventType === 'rename' || eventType === 'change')) {
+                        void tailMCPEvents()
+                    }
+                })
+                mcpEventsWatcher.on('error', (err) => {
+                    console.error('[Bridge] mcp-events fs.watch error:', err)
+                    mcpEventsWatcher = null
+                })
+            } catch (err) {
+                console.error('[Bridge] Failed to start mcp-events fs.watch:', err)
+            }
+
+            // 10-second poll fallback for NFS/NAS mounts
+            const pollInterval = setInterval(() => {
+                void tailMCPEvents()
+            }, 10_000)
+
+            app.once('will-quit', () => {
+                clearInterval(pollInterval)
+                mcpEventsWatcher?.close()
+            })
+        }
+
+        startMCPEventsWatcher()
+    }
+
+    // ── Phase W.3: Bidirectional Action Bridge — IPC Handlers ─────────────────
+    //
+    // Renderer calls these via window.bridgeAPI.mcp.callTool / readResource / status.
+    // All execution stays in the main process; the renderer only receives the result.
+    //
+    // The mcpClient singleton is started when a project opens and stopped when
+    // it closes. The IPC handlers are registered once at app-ready regardless
+    // of whether the server is connected — callers must check status() first if
+    // they need a graceful degradation path.
+
+    /**
+     * mcp:call-tool — Invoke an MCP tool by name with arguments.
+     * Returns the tool's content array or throws with a human-readable message.
+     */
+    ipcMain.handle(
+        'mcp:call-tool',
+        async (_event, name: unknown, args: unknown): Promise<unknown> => {
+            if (typeof name !== 'string' || name.length === 0) {
+                throw new TypeError('mcp:call-tool — name must be a non-empty string')
+            }
+            if (typeof args !== 'object' || args === null || Array.isArray(args)) {
+                throw new TypeError('mcp:call-tool — args must be a plain object')
+            }
+            return mcpClient.callTool(name, args as Record<string, unknown>)
+        }
+    )
+
+    /**
+     * mcp:read-resource — Read an MCP resource by URI.
+     * Returns the resource contents array or throws.
+     */
+    ipcMain.handle(
+        'mcp:read-resource',
+        async (_event, uri: unknown): Promise<unknown> => {
+            if (typeof uri !== 'string' || uri.length === 0) {
+                throw new TypeError('mcp:read-resource — uri must be a non-empty string')
+            }
+            return mcpClient.readResource(uri)
+        }
+    )
+
+    /**
+     * mcp:status — Returns { connected, serverPid } for the Glass status indicator.
+     */
+    ipcMain.handle('mcp:status', (): unknown => mcpClient.status())
+
+    // ── Policy Engine IPC Handler ─────────────────────────────────────────────
+    //
+    // policy:get — Returns the active governance policy for the current project.
+    // Reads `.bridge/policy.json` from the project root. Returns DEFAULT_POLICY
+    // if the file is missing or malformed.
+    //
+    // This channel lets the renderer (ExportModal, canvasStore) read the policy
+    // without importing any Node.js modules — respects the process boundary law.
+    ipcMain.handle('policy:get', async (): Promise<unknown> => {
+        if (!activeProjectRoot) {
+            // Return default policy when no project is open
+            const { DEFAULT_POLICY } = await import('../bridge-mcp/src/core/config.js')
+            return DEFAULT_POLICY
+        }
+        const { loadPolicy } = await import('../bridge-mcp/src/core/config-loader.js')
+        return loadPolicy(activeProjectRoot)
+    })
+
+    // ── GOV.2: Governance Override Telemetry IPC Handlers ────────────────────
+    //
+    // These three handlers implement the GOV.2 contract from
+    // .bridge-context/contracts/gov1-gov2-provenance-telemetry.md.
+    //
+    // Dependency note: GovernanceEventService is imported from
+    // bridge-mcp/src/core/governance/eventService.ts, and
+    // resolveProvenance / buildComplianceSummary are imported from
+    // bridge-mcp/src/core/governance/ruleProvenanceRegistry.ts.
+    // ruleProvenanceRegistry.ts is being created by the bridge-ast-surgeon agent
+    // in parallel (Group 1). Dynamic imports are used so this handler compiles
+    // and runs even before ruleProvenanceRegistry.ts is present — it will throw
+    // at runtime if called before the MCP engine agent delivers the file.
+    //
+    // The GovernanceEventService instance is created once per app session and
+    // reused across all handler invocations. The shared SQLite `db` instance
+    // (from store.ts) is passed in so governance events land in the same
+    // database as tokens, presence, and component overrides.
+    const { GovernanceEventService } = await import('../bridge-mcp/src/core/governance/eventService.js')
+    const govEventService = new GovernanceEventService(db)
+
+    /**
+     * Broadcasts 'bridge:governance-override-recorded' to all renderer windows.
+     * Called after each successful governance:record-override write so StatusBar
+     * can re-fetch the override count without polling.
+     */
+    function broadcastGovernanceOverrideRecorded(): void {
+        BrowserWindow.getAllWindows().forEach((w) => {
+            if (!w.isDestroyed()) w.webContents.send('bridge:governance-override-recorded')
+        })
+    }
+
+    // ── governance:record-override ────────────────────────────────────────────
+    // Receives a rule override action from the renderer (fired by GovernancePanel
+    // after setOverride / resetOverride / resetAll). Writes a GovernanceEvent with
+    // eventType: 'override' to the governance_events table synchronously via
+    // GovernanceEventService.recordEvent(), then broadcasts the push channel so
+    // StatusBar knows to re-fetch the count.
+    //
+    // Payload: { ruleId, action, newValue, filePath }
+    // Return: void (fire-and-forget from renderer's perspective)
+    ipcMain.handle('governance:record-override', (_event, payload: unknown): void => {
+        if (
+            typeof payload !== 'object' || payload === null ||
+            typeof (payload as Record<string, unknown>).ruleId !== 'string' ||
+            typeof (payload as Record<string, unknown>).action !== 'string' ||
+            typeof (payload as Record<string, unknown>).filePath !== 'string'
+        ) {
+            throw new TypeError('governance:record-override — invalid payload shape')
+        }
+
+        const p = payload as {
+            ruleId: string
+            action: 'disable' | 'enable' | 'change_severity' | 'reset' | 'reset_all'
+            newValue: { enabled?: boolean; severity?: string } | null
+            filePath: string
+        }
+
+        const validActions = new Set(['disable', 'enable', 'change_severity', 'reset', 'reset_all'])
+        if (!validActions.has(p.action)) {
+            throw new TypeError(`governance:record-override — invalid action: ${p.action}`)
+        }
+
+        govEventService.recordEvent({
+            eventType: 'override',
+            ruleId: p.ruleId,
+            severity: 'info',
+            filePath: p.filePath,
+            actor: 'user',
+            sessionId: governanceSessionId,
+            metadata: {
+                action: p.action,
+                newValue: p.newValue,
+            },
+        })
+
+        broadcastGovernanceOverrideRecorded()
+    })
+
+    // ── governance:override-count ─────────────────────────────────────────────
+    // Returns the count of 'override' events recorded during this Glass session.
+    // Used by StatusBar to populate the "Overrides (N)" badge.
+    //
+    // Queries the governance_events table filtered to eventType='override' and
+    // sessionId=governanceSessionId using GovernanceEventService.queryEvents().
+    // No payload required from renderer.
+    ipcMain.handle('governance:override-count', (): number => {
+        return govEventService.getOverrideCount(governanceSessionId)
+    })
+
+    // ── governance:compliance-summary ────────────────────────────────────────
+    // Receives a string[] of ruleIds from the renderer, resolves each against
+    // the static provenance registry, and returns a ComplianceSummary object.
+    //
+    // No SQLite involvement — pure in-memory lookup from the static registry.
+    // The ruleProvenanceRegistry is dynamically imported so this handler is
+    // forward-compatible with the MCP engine agent delivering the file.
+    //
+    // Payload: string[] (ruleIds from the current audit)
+    // Return: ComplianceSummary
+    ipcMain.handle('governance:compliance-summary', async (_event, ruleIds: unknown): Promise<unknown> => {
+        if (!Array.isArray(ruleIds) || !ruleIds.every((id) => typeof id === 'string')) {
+            throw new TypeError('governance:compliance-summary — ruleIds must be a string[]')
+        }
+
+        // Dynamic import: ruleProvenanceRegistry.ts is being created by the
+        // bridge-ast-surgeon agent (Group 1 of the GOV.1/GOV.2 implementation).
+        // This import will throw at runtime if the file does not yet exist —
+        // callers (ExportModal) must handle the rejection gracefully.
+        const { resolveProvenance, buildComplianceSummary } = await import(
+            '../bridge-mcp/src/core/governance/ruleProvenanceRegistry.js'
+        ) as {
+            resolveProvenance: (ruleId: string) => unknown
+            buildComplianceSummary: (violations: Array<{ ruleId: string; severity: 'critical' | 'warning' | 'info' }>) => unknown
+        }
+
+        // Build the violations list with a default 'warning' severity.
+        // ExportModal passes deduplicated ruleIds without severity information —
+        // the summary is authority/provenance-focused rather than severity-ranked.
+        const violations = (ruleIds as string[]).map((ruleId) => ({
+            ruleId,
+            severity: 'warning' as const,
+        }))
+
+        void resolveProvenance // suppress unused-variable warning; used by buildComplianceSummary
+
+        return buildComplianceSummary(violations)
+    })
+
+    // ── Delta Mode: Baseline IPC Handlers ────────────────────────────────────
+    //
+    // violation_baselines table lives in the shared bridge.db (store.ts).
+    // Four handlers cover the full lifecycle: set, get, clear, is-set.
+    //
+    // baseline:set  — bulk-upserts every violation in the current audit into the
+    //                 table. Idempotent: re-running on the same file overwrites
+    //                 snapshot_value for existing (file_path, node_id, rule_id) rows.
+    //
+    // baseline:get  — returns all rows for a given file path so the renderer can
+    //                 compute the delta: current violations minus baseline.
+    //
+    // baseline:clear — removes ALL rows from the table, resetting delta mode.
+    //
+    // baseline:is-set — returns true when any rows exist (used to show the
+    //                   "Delta Mode" badge without fetching the full list).
+
+    // Prepare statements once at app-ready; reuse across all handler invocations.
+    const baselineUpsert = db.prepare<[string, string, string, string, string | null]>(`
+        INSERT INTO violation_baselines (file_path, node_id, rule_id, severity, snapshot_value)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(file_path, node_id, rule_id)
+        DO UPDATE SET
+            severity       = excluded.severity,
+            snapshot_value = excluded.snapshot_value,
+            created_at     = strftime('%s', 'now')
+    `)
+
+    const baselineSelect = db.prepare<[string]>(
+        'SELECT file_path, node_id, rule_id, severity, snapshot_value FROM violation_baselines WHERE file_path = ?'
+    )
+
+    const baselineClear = db.prepare('DELETE FROM violation_baselines')
+
+    const baselineIsSet = db.prepare<[]>(
+        'SELECT COUNT(*) as count FROM violation_baselines'
+    )
+
+    // ── baseline:set ──────────────────────────────────────────────────────────
+    // Payload: Array<{ nodeId, ruleId, severity, filePath, value? }>
+    // Each entry is upserted atomically; the entire batch runs in a transaction
+    // so a partial failure does not leave the table half-written.
+    ipcMain.handle('baseline:set', (_event, violations: unknown): void => {
+        if (!Array.isArray(violations)) {
+            throw new TypeError('baseline:set — violations must be an array')
+        }
+
+        const insertMany = db.transaction(
+            (rows: Array<{ filePath: string; nodeId: string; ruleId: string; severity: string; value?: string }>) => {
+                for (const row of rows) {
+                    baselineUpsert.run(
+                        row.filePath,
+                        row.nodeId,
+                        row.ruleId,
+                        row.severity,
+                        row.value ?? null,
+                    )
+                }
+            }
+        )
+
+        const rows = (violations as Array<Record<string, unknown>>)
+            .filter(
+                (v) =>
+                    typeof v.nodeId === 'string' &&
+                    typeof v.ruleId === 'string' &&
+                    typeof v.severity === 'string' &&
+                    typeof v.filePath === 'string',
+            )
+            .map((v) => ({
+                filePath: v.filePath as string,
+                nodeId: v.nodeId as string,
+                ruleId: v.ruleId as string,
+                severity: v.severity as string,
+                value: typeof v.value === 'string' ? v.value : undefined,
+            }))
+
+        insertMany(rows)
+        console.log(`[Bridge] baseline:set — ${rows.length} violations baselined`)
+    })
+
+    // ── baseline:get ──────────────────────────────────────────────────────────
+    // Returns all baseline entries for the given file path.
+    // The renderer uses this to build a Set<"nodeId:ruleId"> for fast delta lookup.
+    ipcMain.handle('baseline:get', (_event, filePath: unknown): unknown[] => {
+        if (typeof filePath !== 'string' || filePath.length === 0) {
+            throw new TypeError('baseline:get — filePath must be a non-empty string')
+        }
+        return baselineSelect.all(filePath) as unknown[]
+    })
+
+    // ── baseline:clear ────────────────────────────────────────────────────────
+    // Removes ALL violation_baselines rows — resets delta mode globally.
+    // Returns void; idempotent when the table is already empty.
+    ipcMain.handle('baseline:clear', (): void => {
+        const result = baselineClear.run()
+        console.log(`[Bridge] baseline:clear — ${result.changes} rows removed`)
+    })
+
+    // ── baseline:is-set ───────────────────────────────────────────────────────
+    // Returns true when at least one baseline row exists.
+    // Cheap COUNT(*) query — O(1) in SQLite regardless of row count.
+    ipcMain.handle('baseline:is-set', (): boolean => {
+        const row = baselineIsSet.get() as { count: number } | undefined
+        return (row?.count ?? 0) > 0
+    })
+
     // ── Phase P: Integrated Terminal ──────────────────────────────────────────
     let ptyProcess: IPty | null = null
 
@@ -1502,12 +2181,16 @@ app.whenReady().then(async () => {
         }
     })
 
-    // Start the ingestion server and register its IPC handler
-    const { startIngestionServer, getServerStatus, stopIngestionServer } = await import('./ingestion-server.js')
+    // Start the ingestion server and register its IPC handlers
+    const { startIngestionServer, getServerStatus, getFigmaStatus, stopIngestionServer } = await import('./ingestion-server.js')
     startIngestionServer()
     stopServer = stopIngestionServer
 
     ipcMain.handle('server:get-status', () => getServerStatus())
+    ipcMain.handle('figma:status', () => getFigmaStatus())
+    ipcMain.handle('figma:disconnect', () => {
+        stopIngestionServer()
+    })
 
     createWindow()
     buildAppMenu()
@@ -1524,6 +2207,11 @@ app.on('will-quit', () => {
     // OS port is released immediately. This prevents EADDRINUSE on fast
     // dev-server reloads where Electron restarts before the OS reclaims 4545.
     stopServer?.()
+
+    // Phase W.3: shut down the MCP server child process on app exit.
+    // stop() is async but will-quit is synchronous — fire-and-forget is acceptable
+    // here because the OS will reclaim the child process anyway on app exit.
+    void mcpClient.stop()
 })
 
 app.on('window-all-closed', () => {

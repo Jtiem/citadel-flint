@@ -1,0 +1,89 @@
+{
+  "$schema": "https://tr.designtokens.org/format/",
+  "color": {
+    "primary": {
+      "$type": "color",
+      "$value": "#0066FF",
+      "$description": "Primary brand blue — interactive elements, CTAs, focus rings"
+    },
+    "primary-hover": {
+      "$type": "color",
+      "$value": "#0052CC",
+      "$description": "Primary blue darkened 20% for hover states"
+    },
+    "primary-subtle": {
+      "$type": "color",
+      "$value": "#E5EEFF",
+      "$description": "10% primary blue tint — hover backgrounds, chips"
+    },
+    "surface": {
+      "$type": "color",
+      "$value": "#FFFFFF",
+      "$description": "Default page and card surface"
+    },
+    "surface-raised": {
+      "$type": "color",
+      "$value": "#F8F9FA",
+      "$description": "Slightly elevated surface — sidebars, panels"
+    },
+    "on-surface": {
+      "$type": "color",
+      "$value": "#111827",
+      "$description": "Primary text on light surface"
+    },
+    "on-surface-muted": {
+      "$type": "color",
+      "$value": "#6B7280",
+      "$description": "Secondary / helper text"
+    },
+    "on-primary": {
+      "$type": "color",
+      "$value": "#FFFFFF",
+      "$description": "Text/icons on primary-color backgrounds"
+    },
+    "border": {
+      "$type": "color",
+      "$value": "#E5E7EB",
+      "$description": "Subtle dividers and input borders"
+    }
+  },
+  "spacing": {
+    "1": {
+      "$type": "dimension",
+      "$value": "4px",
+      "$description": "Smallest spacing unit"
+    },
+    "2": {
+      "$type": "dimension",
+      "$value": "8px",
+      "$description": "Compact spacing"
+    },
+    "4": {
+      "$type": "dimension",
+      "$value": "16px",
+      "$description": "Standard component padding"
+    },
+    "6": {
+      "$type": "dimension",
+      "$value": "24px",
+      "$description": "Card / panel padding"
+    }
+  },
+  "fontSize": {
+    "sm": {
+      "$type": "dimension",
+      "$value": "14px",
+      "$description": "Secondary UI text"
+    },
+    "base": {
+      "$type": "dimension",
+      "$value": "16px",
+      "$description": "Default body copy"
+    },
+    "lg": {
+      "$type": "dimension",
+      "$value": "20px",
+      "$description": "Sub-headings and card titles"
+    }
+  }
+}

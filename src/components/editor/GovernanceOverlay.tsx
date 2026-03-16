@@ -20,7 +20,8 @@
  * Mithril Safety: all classes from Bridge design token palette.
  */
 
-import { AlertTriangle, ShieldCheck, Wrench } from 'lucide-react'
+import { useState } from 'react'
+import { AlertTriangle, ArrowRight, ShieldCheck, Wrench } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
 import type { LinterWarning } from '../../types/bridge-api'
 
@@ -62,6 +63,14 @@ function violationTypeLabel(type: LinterWarning['type']): string {
 export function GovernanceOverlay() {
     // Selector pattern — never destructure the whole store
     const linterWarnings = useEditorStore((s) => s.linterWarnings)
+
+    /**
+     * OPP-08: Diff preview state.
+     * Holds the composite key `${nodeId}-${warning.id}` of the violation row
+     * whose Auto-Fix button is currently hovered or focused. When set, an
+     * inline before→after diff card is rendered below that button.
+     */
+    const [previewFixId, setPreviewFixId] = useState<string | null>(null)
 
     if (linterWarnings.size === 0) {
         return (
@@ -167,36 +176,79 @@ export function GovernanceOverlay() {
                                 {warning.message}
                             </p>
 
-                            {/* Token swap preview + Auto-Fix — only when fix is known */}
-                            {canAutoFix && warning.nearestToken && (
-                                <div className="flex items-center justify-between gap-2 mt-0.5">
-                                    {/* Swatch comparison */}
-                                    <div className="flex items-center gap-1 min-w-0">
-                                        {hardcodedCls && (
-                                            <span className="text-[10px] font-mono text-zinc-500 truncate max-w-[72px]">
-                                                {hardcodedCls}
-                                            </span>
-                                        )}
-                                        {hardcodedCls && (
-                                            <span className="text-[10px] text-zinc-600">→</span>
-                                        )}
-                                        <span className="text-[10px] font-mono text-indigo-400 truncate max-w-[96px]">
-                                            {warning.nearestToken}
-                                        </span>
-                                    </div>
-
-                                    {/* Auto-Fix button — deterministic, no orchestrator */}
-                                    <button
-                                        type="button"
-                                        onClick={() => handleAutoFix(nodeId, warning)}
-                                        className="flex shrink-0 items-center gap-1 rounded border border-indigo-500/30 bg-indigo-600/10 px-1.5 py-0.5 text-[10px] text-indigo-400 transition-colors hover:bg-indigo-600/20 hover:text-indigo-300"
-                                        title={`Replace with ${warning.nearestToken}`}
-                                    >
-                                        <Wrench size={9} />
-                                        Auto-Fix
-                                    </button>
+                            {/* Inline token suggestion — only when a nearest token is known */}
+                            {warning.nearestToken && (
+                                <div className="flex items-center gap-1 mt-0.5">
+                                    <ArrowRight size={10} className="text-emerald-400 shrink-0" />
+                                    <p className="text-[10px] text-emerald-400">
+                                        Use{' '}
+                                        <code className="font-mono">{warning.nearestToken}</code>
+                                        {warning.nearestTokenValue
+                                            ? ` (${warning.nearestTokenValue})`
+                                            : ''}{' '}
+                                        instead
+                                    </p>
                                 </div>
                             )}
+
+                            {/* Token swap preview + Auto-Fix — only when fix is known */}
+                            {canAutoFix && warning.nearestToken && (() => {
+                                const fixKey = `${nodeId}-${warning.id}`
+                                const isPreviewOpen = previewFixId === fixKey
+                                return (
+                                    <div className="flex flex-col gap-1 mt-0.5">
+                                        <div className="flex items-center justify-between gap-2">
+                                            {/* Compact swatch comparison */}
+                                            <div className="flex items-center gap-1 min-w-0">
+                                                {hardcodedCls && (
+                                                    <span className="text-[10px] font-mono text-zinc-500 truncate max-w-[72px]">
+                                                        {hardcodedCls}
+                                                    </span>
+                                                )}
+                                                {hardcodedCls && (
+                                                    <span className="text-[10px] text-zinc-600">→</span>
+                                                )}
+                                                <span className="text-[10px] font-mono text-indigo-400 truncate max-w-[96px]">
+                                                    {warning.nearestToken}
+                                                </span>
+                                            </div>
+
+                                            {/* Auto-Fix button — deterministic, no orchestrator */}
+                                            <button
+                                                type="button"
+                                                onClick={() => handleAutoFix(nodeId, warning)}
+                                                onMouseEnter={() => setPreviewFixId(fixKey)}
+                                                onMouseLeave={() => setPreviewFixId(null)}
+                                                onFocus={() => setPreviewFixId(fixKey)}
+                                                onBlur={() => setPreviewFixId(null)}
+                                                className="flex shrink-0 items-center gap-1 rounded border border-indigo-500/30 bg-indigo-600/10 px-1.5 py-0.5 text-[10px] text-indigo-400 transition-colors hover:bg-indigo-600/20 hover:text-indigo-300"
+                                                title={`Replace with ${warning.nearestToken}`}
+                                            >
+                                                <Wrench size={9} />
+                                                Auto-Fix
+                                            </button>
+                                        </div>
+
+                                        {/* OPP-08: Inline diff preview — shown on hover/focus */}
+                                        {isPreviewOpen && hardcodedCls && (
+                                            <div
+                                                className="flex items-center gap-1.5 rounded border border-zinc-700/50 bg-zinc-900 px-2 py-1"
+                                                aria-label="Auto-Fix preview"
+                                            >
+                                                {/* Before: hardcoded class (red strikethrough) */}
+                                                <span className="font-mono text-[10px] text-red-400 line-through truncate max-w-[88px]">
+                                                    {hardcodedCls}
+                                                </span>
+                                                <ArrowRight size={9} className="shrink-0 text-zinc-500" />
+                                                {/* After: token class (green) */}
+                                                <span className="font-mono text-[10px] text-emerald-400 truncate max-w-[96px]">
+                                                    {warning.nearestToken}
+                                                </span>
+                                            </div>
+                                        )}
+                                    </div>
+                                )
+                            })()}
                         </div>
                     )
                 })}

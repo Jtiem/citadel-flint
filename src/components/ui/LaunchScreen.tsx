@@ -17,8 +17,9 @@
  */
 
 import { useState, useEffect } from 'react'
-import { FolderOpen, Plus, Clock, Trash2, FolderCheck, Sparkles } from 'lucide-react'
+import { FolderOpen, Plus, Clock, Trash2, FolderCheck, Sparkles, Figma } from 'lucide-react'
 import type { RecentProject } from '../../types/bridge-api'
+import { FigmaSetupWizard } from './FigmaSetupWizard'
 
 interface LaunchScreenProps {
     /** Triggers the existing `dialog:openFolder` + scan flow. */
@@ -35,6 +36,7 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
     const [recentProjects, setRecentProjects] = useState<RecentProject[]>([])
     const [loading, setLoading] = useState(true)
     const [openingPath, setOpeningPath] = useState<string | null>(null)
+    const [figmaSetupOpen, setFigmaSetupOpen] = useState(false)
 
     // ── Fetch recent projects on mount ────────────────────────────────────────
     useEffect(() => {
@@ -70,18 +72,6 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
                     </h1>
                     <p className="mt-0.5 text-xs text-gray-500">Design-to-Code Platform</p>
                 </div>
-                <div className="flex items-center gap-1.5">
-                    {(['Electron', 'React', 'TypeScript', 'Tailwind', 'Monaco', 'Babel', 'SQLite'] as const).map(
-                        (tech) => (
-                            <span
-                                key={tech}
-                                className="rounded-full border border-gray-700 bg-gray-800/50 px-2.5 py-0.5 text-xs text-gray-400"
-                            >
-                                {tech}
-                            </span>
-                        )
-                    )}
-                </div>
             </header>
 
             {/* ── Main content ───────────────────────────────────────────── */}
@@ -116,9 +106,25 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
                         <Sparkles size={15} />
                         Load Demo
                         <span className="ml-1 rounded-full bg-purple-900/60 px-2 py-0.5 text-[10px] font-medium text-purple-400">
-                            bridge-demo template · select an empty folder
+                            bridge-demo template
                         </span>
                     </button>
+
+                    {/* ── Connect Figma (Phase W.2) ────────────────────────── */}
+                    <button
+                        type="button"
+                        onClick={() => { setFigmaSetupOpen((v) => !v) }}
+                        className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-gray-700 bg-gray-800/40 px-4 py-3 text-sm font-medium text-gray-400 transition-colors hover:border-gray-600 hover:bg-gray-800/60 hover:text-gray-300"
+                    >
+                        <Figma size={15} />
+                        Connect Figma
+                    </button>
+
+                    {/* Figma setup wizard — shown when button is toggled */}
+                    <FigmaSetupWizard
+                        visible={figmaSetupOpen}
+                        onClose={() => { setFigmaSetupOpen(false) }}
+                    />
 
                     {/* ── Recent Projects ──────────────────────────────────── */}
                     <div className="mt-8">
@@ -130,14 +136,14 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
                         </div>
 
                         {loading ? (
-                            <div className="py-8 text-center text-xs text-gray-600">
+                            <div className="py-8 text-center text-xs text-zinc-500">
                                 Loading…
                             </div>
                         ) : recentProjects.length === 0 ? (
                             <div className="rounded-lg border border-dashed border-gray-800 py-10 text-center">
-                                <FolderCheck size={24} className="mx-auto mb-2 text-gray-700" />
-                                <p className="text-xs text-gray-600">No recent projects yet.</p>
-                                <p className="mt-1 text-xs text-gray-700">
+                                <FolderCheck size={24} className="mx-auto mb-2 text-zinc-600" />
+                                <p className="text-xs text-zinc-500">No recent projects yet.</p>
+                                <p className="mt-1 text-xs text-zinc-500">
                                     Create or open a project to get started.
                                 </p>
                             </div>
@@ -170,7 +176,7 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
                                                             {isOpening ? 'Opening…' : project.name}
                                                         </p>
                                                         <p
-                                                            className="truncate font-mono text-[10px] text-gray-600"
+                                                            className="truncate font-mono text-[10px] text-zinc-500"
                                                             title={project.path}
                                                         >
                                                             {shortPath}
@@ -181,7 +187,7 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
                                                     type="button"
                                                     aria-label="Remove from recent"
                                                     onClick={(e) => handleRemove(e, project.id)}
-                                                    className="shrink-0 rounded p-1 text-gray-700 opacity-0 transition-opacity hover:text-gray-400 group-hover:opacity-100"
+                                                    className="shrink-0 rounded p-1 text-zinc-500 opacity-0 transition-opacity hover:text-zinc-300 group-hover:opacity-100"
                                                 >
                                                     <Trash2 size={12} />
                                                 </button>

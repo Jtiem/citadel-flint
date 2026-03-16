@@ -93,7 +93,10 @@ function FileItem({ node, depth }: FileItemProps) {
             return
         }
         e.dataTransfer.setData('application/bridge-component-file', node.path)
-        // Set visual drag image to the file name
+        // File-level drags carry no specific node ID — the drop target uses the
+        // source file's root JSX element as the composition anchor. An empty
+        // string signals "whole-file compose" to the canvas drop handler.
+        e.dataTransfer.setData('application/bridge-source-id', '')
         e.dataTransfer.effectAllowed = 'copy'
     }
 
@@ -115,7 +118,7 @@ function FileItem({ node, depth }: FileItemProps) {
                         : 'text-gray-400 hover:bg-gray-800/60 hover:text-gray-200'
                 }`}
         >
-            <span className="shrink-0 text-[8px] opacity-40">◆</span>
+            <span className="shrink-0 text-[10px] opacity-40">◆</span>
             <span className="truncate font-mono">{node.name}</span>
         </button>
     )
@@ -142,7 +145,7 @@ function DirectoryItem({ node, depth }: DirectoryItemProps) {
                 style={{ paddingLeft: paddingLeft + 8 }}
                 className="flex w-full items-center gap-1.5 py-[3px] pr-2 text-left text-[11px] text-gray-500 transition-colors hover:bg-gray-800/60 hover:text-gray-300"
             >
-                <span className="shrink-0 font-mono text-[9px]">
+                <span className="shrink-0 font-mono text-[10px]">
                     {isExpanded ? '▼' : '▶'}
                 </span>
                 <span className="truncate">{node.name}</span>
@@ -187,8 +190,8 @@ export function FileExplorer() {
     if (!workspaceFiles) {
         return (
             <div className="flex flex-col items-center justify-center gap-2 px-4 py-8 text-center">
-                <span className="text-[11px] text-gray-600">No folder open</span>
-                <span className="text-[10px] text-gray-700">
+                <span className="text-[11px] text-zinc-500">No folder open</span>
+                <span className="text-[10px] text-zinc-400">
                     Click "Open Folder" to load a project
                 </span>
             </div>
@@ -200,7 +203,7 @@ export function FileExplorer() {
             {/* Root folder name */}
             <div className="px-3 pb-1 pt-2">
                 <span
-                    className="block truncate font-mono text-[10px] uppercase tracking-wider text-gray-600"
+                    className="block truncate font-mono text-[10px] uppercase tracking-wider text-zinc-500"
                     title={workspaceFiles.path}
                 >
                     {workspaceFiles.name}

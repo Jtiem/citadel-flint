@@ -28,6 +28,7 @@ import {
     type GovernanceCategory,
 } from '../../core/governanceRulesManifest'
 import { useGovernanceStore, type RuleOverride } from '../../store/governanceStore'
+import { useCanvasStore } from '../../store/canvasStore'
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -44,20 +45,20 @@ interface SeverityBadgeProps {
 function SeverityBadge({ severity }: SeverityBadgeProps) {
     if (severity === 'critical') {
         return (
-            <span className="rounded border border-red-700/40 bg-red-900/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-red-400">
+            <span className="rounded border border-red-700/40 bg-red-900/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-red-400">
                 Critical
             </span>
         )
     }
     if (severity === 'warning') {
         return (
-            <span className="rounded border border-amber-500/30 bg-amber-900/20 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-400">
+            <span className="rounded border border-amber-500/30 bg-amber-900/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-400">
                 Warning
             </span>
         )
     }
     return (
-        <span className="rounded border border-zinc-700/50 bg-zinc-800 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-zinc-500">
+        <span className="rounded border border-zinc-700/50 bg-zinc-800 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
             Info
         </span>
     )
@@ -100,9 +101,10 @@ interface RuleRowProps {
     rule: GovernanceRule
     override: RuleOverride | undefined
     onToggle: (ruleId: string, enabled: boolean) => void
+    onReset: (ruleId: string) => void
 }
 
-function RuleRow({ rule, override, onToggle }: RuleRowProps) {
+function RuleRow({ rule, override, onToggle, onReset }: RuleRowProps) {
     const isEnabled = override?.enabled !== false
     const effectiveSeverity: RuleSeverity = override?.severity ?? rule.defaultSeverity
     const isModified = override !== undefined
@@ -123,9 +125,14 @@ function RuleRow({ rule, override, onToggle }: RuleRowProps) {
                 <div className="flex items-center gap-2">
                     <span className="font-mono text-[10px] text-zinc-500">{rule.id}</span>
                     {isModified && (
-                        <span className="rounded bg-indigo-900/20 px-1 py-0.5 text-[9px] text-indigo-400">
+                        <button
+                            type="button"
+                            onClick={() => onReset(rule.id)}
+                            className="rounded bg-indigo-900/20 px-1 py-0.5 text-[10px] text-indigo-400 transition-colors hover:bg-indigo-900/40 hover:text-indigo-300"
+                            title={`Reset ${rule.id} to default`}
+                        >
                             modified
-                        </span>
+                        </button>
                     )}
                 </div>
                 <p
@@ -180,7 +187,7 @@ function CategorySidebar({ activeCategory, counts, onChange }: CategorySidebarPr
                         >
                             <span className="truncate">{cat}</span>
                             <span
-                                className={`ml-1 shrink-0 rounded px-1 py-0.5 text-[9px] ${
+                                className={`ml-1 shrink-0 rounded px-1 py-0.5 text-[10px] ${
                                     isActive ? 'bg-indigo-900/40 text-indigo-400' : 'bg-zinc-800 text-zinc-600'
                                 }`}
                             >
@@ -199,9 +206,11 @@ function CategorySidebar({ activeCategory, counts, onChange }: CategorySidebarPr
 export function GovernancePanel({ onClose }: GovernancePanelProps) {
     const overrides = useGovernanceStore((s) => s.overrides)
     const setOverride = useGovernanceStore((s) => s.setOverride)
+    const resetOverride = useGovernanceStore((s) => s.resetOverride)
     const resetAll = useGovernanceStore((s) => s.resetAll)
     const saveToFile = useGovernanceStore((s) => s.saveToFile)
     const loadFromFile = useGovernanceStore((s) => s.loadFromFile)
+    const activeFilePath = useCanvasStore((s) => s.activeFilePath)
 
     const [activeCategory, setActiveCategory] = useState<GovernanceCategory | 'All'>('All')
     const [saving, setSaving] = useState(false)
@@ -234,9 +243,31 @@ export function GovernancePanel({ onClose }: GovernancePanelProps) {
 
     const handleToggle = useCallback(
         (ruleId: string, enabled: boolean) => {
-            setOverride(ruleId, { enabled })
+            const override: RuleOverride = { enabled }
+            setOverride(ruleId, override)
+            // GOV.2: fire-and-forget telemetry — do not await
+            window.bridgeAPI.governance.recordOverride({
+                ruleId,
+                action: enabled ? 'enable' : 'disable',
+                newValue: override,
+                filePath: activeFilePath ?? '',
+            })
         },
-        [setOverride]
+        [setOverride, activeFilePath]
+    )
+
+    const handleResetRule = useCallback(
+        (ruleId: string) => {
+            resetOverride(ruleId)
+            // GOV.2: fire-and-forget telemetry — do not await
+            window.bridgeAPI.governance.recordOverride({
+                ruleId,
+                action: 'reset',
+                newValue: null,
+                filePath: activeFilePath ?? '',
+            })
+        },
+        [resetOverride, activeFilePath]
     )
 
     const handleSave = async () => {
@@ -250,6 +281,13 @@ export function GovernancePanel({ onClose }: GovernancePanelProps) {
 
     const handleReset = () => {
         resetAll()
+        // GOV.2: fire-and-forget telemetry for reset_all — do not await
+        window.bridgeAPI.governance.recordOverride({
+            ruleId: '*',
+            action: 'reset_all',
+            newValue: null,
+            filePath: activeFilePath ?? '',
+        })
     }
 
     const modifiedCount = Object.keys(overrides).length
@@ -323,6 +361,7 @@ export function GovernancePanel({ onClose }: GovernancePanelProps) {
                                     rule={rule}
                                     override={overrides[rule.id]}
                                     onToggle={handleToggle}
+                                    onReset={handleResetRule}
                                 />
                             ))}
                         </div>

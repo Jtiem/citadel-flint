@@ -35,6 +35,12 @@ const BRIDGE_SECRET = process.env.BRIDGE_SECRET ?? 'bridge-dev-secret-phase2'
 let server: http.Server | null = null
 let activePort = BASE_PORT
 
+/**
+ * Unix timestamp (ms) of the last successful POST /ingest from the Figma plugin.
+ * null means no ingest has occurred in this process lifetime.
+ */
+let lastWebhookAt: number | null = null
+
 // ── Prepared statements (created once, reused on every request) ───────────────
 
 const upsertAsset = db.prepare(
@@ -113,7 +119,16 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     // 2. Enforce x-bridge-secret on all other methods
     const secret = req.headers['x-bridge-secret']
     if (!secret || secret !== BRIDGE_SECRET) {
-        sendJson(res, 401, { error: 'Unauthorized: missing or invalid x-bridge-secret' })
+        const unauthorizedReason = 'Unauthorized: missing or invalid x-bridge-secret'
+        sendJson(res, 401, { error: unauthorizedReason })
+        const errWindows = BrowserWindow.getAllWindows()
+        if (errWindows.length > 0) {
+            errWindows[0].webContents.send('bridge:figma-error', {
+                statusCode: 401,
+                reason: unauthorizedReason,
+                timestamp: Date.now(),
+            })
+        }
         return
     }
 
@@ -135,25 +150,49 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
                 const tokens = normalizeFigmaVariables(payload)
 
                 if (tokens.length === 0) {
-                    sendJson(res, 400, {
-                        error: 'No tokens produced. Verify the payload contains ' +
-                            'variables and variableCollections keys.',
-                    })
+                    const emptyReason = 'No tokens produced. Verify the payload contains ' +
+                        'variables and variableCollections keys.'
+                    sendJson(res, 400, { error: emptyReason })
+                    const badWindows = BrowserWindow.getAllWindows()
+                    if (badWindows.length > 0) {
+                        badWindows[0].webContents.send('bridge:figma-error', {
+                            statusCode: 400,
+                            reason: emptyReason,
+                            timestamp: Date.now(),
+                        })
+                    }
                     return
                 }
 
                 batchUpsertTokens(tokens)
 
+                // Record timestamp of this successful ingest for getFigmaStatus().
+                lastWebhookAt = Date.now()
+
                 // Notify the renderer so the token store re-fetches automatically.
                 const windows = BrowserWindow.getAllWindows()
                 if (windows.length > 0) {
                     windows[0].webContents.send('bridge:tokens-updated')
+                    // Push connection event so FigmaSetupWizard / StatusBar can react.
+                    windows[0].webContents.send('bridge:figma-connected', {
+                        tokenCount: tokens.length,
+                        timestamp: lastWebhookAt,
+                    })
                 }
 
                 console.log(`[Bridge] /ingest: upserted ${tokens.length} tokens`)
                 sendJson(res, 200, { success: true, count: tokens.length })
             } catch {
-                sendJson(res, 400, { error: 'Invalid JSON payload' })
+                const parseReason = 'Invalid JSON payload'
+                sendJson(res, 400, { error: parseReason })
+                const parseErrWindows = BrowserWindow.getAllWindows()
+                if (parseErrWindows.length > 0) {
+                    parseErrWindows[0].webContents.send('bridge:figma-error', {
+                        statusCode: 400,
+                        reason: parseReason,
+                        timestamp: Date.now(),
+                    })
+                }
             }
         })
 
@@ -318,5 +357,26 @@ export function getServerStatus(): { running: boolean; port: number } {
     return {
         running: server !== null && server.listening,
         port: activePort,
+    }
+}
+
+/**
+ * Returns a snapshot of Figma connection health for the `figma:status` IPC handler.
+ *
+ *   running       — true when the loopback HTTP server is bound and listening.
+ *   lastWebhookAt — Unix timestamp (ms) of the last successful POST /ingest,
+ *                   or null if no ingest has occurred in this process lifetime.
+ *   tokenCount    — Current row count from the design_tokens table.
+ *   port          — The port the ingestion server is currently listening on.
+ *   secret        — The x-bridge-secret value the Figma plugin must supply.
+ */
+export function getFigmaStatus(): { running: boolean; lastWebhookAt: number | null; tokenCount: number; port: number; secret: string } {
+    const countRow = db.prepare('SELECT COUNT(*) as count FROM design_tokens').get() as { count: number }
+    return {
+        running: server !== null && server.listening,
+        lastWebhookAt,
+        tokenCount: countRow?.count ?? 0,
+        port: activePort,
+        secret: BRIDGE_SECRET,
     }
 }

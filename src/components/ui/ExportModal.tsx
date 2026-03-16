@@ -22,11 +22,11 @@
  * Renderer Process only — no Node.js imports.
  */
 
-import { useCallback, useEffect, useState } from 'react'
-import { ShieldAlert, ShieldCheck, X, Copy, Check, AlertTriangle } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { ShieldAlert, ShieldCheck, X, Copy, Check, AlertTriangle, FileDown, Download, Wrench } from 'lucide-react'
 import { useCanvasStore } from '../../store/canvasStore'
 import { useEditorStore } from '../../store/editorStore'
-import type { LinterWarning, OverrideRow } from '../../types/bridge-api'
+import type { LinterWarning, OverrideRow, ComplianceSummary } from '../../types/bridge-api'
 
 // ── Props ──────────────────────────────────────────────────────────────────────
 
@@ -47,23 +47,91 @@ export function ExportModal({ onClose }: ExportModalProps) {
     const [overrideRows, setOverrideRows] = useState<OverrideRow[]>([])
     const [loading, setLoading] = useState(true)
     const [copied, setCopied] = useState(false)
+    const [complianceSummary, setComplianceSummary] = useState<ComplianceSummary | null>(null)
+    const [reportCopied, setReportCopied] = useState(false)
+    const [dbomDownloading, setDbomDownloading] = useState(false)
+    const [dbomError, setDbomError] = useState<string | null>(null)
 
-    // ── Fetch active overrides on mount ────────────────────────────────────────
+    // OPP-11: Audit progress — tracked across the two async phases (overrides + summary).
+    // Total steps = 2 (overrides fetch is step 1, compliance summary is step 2).
+    const [auditProgress, setAuditProgress] = useState<{ current: number; total: number }>({ current: 0, total: 2 })
+    // Ensures the loading state is shown for at least 200 ms so the user sees it.
+    const minDisplayRef = useRef(false)
+
+    // ── Fetch active overrides + compliance summary on mount ───────────────────
     useEffect(() => {
         setLoading(true)
-        const readOverrides = window.bridgeAPI.tokens.readOverrides
-        if (readOverrides === undefined) {
-            setLoading(false)
-            return
+        setAuditProgress({ current: 0, total: 2 })
+        minDisplayRef.current = false
+
+        // Enforce the 200 ms minimum-display window for the progress indicator.
+        const minDisplayTimer = setTimeout(() => {
+            minDisplayRef.current = true
+        }, 200)
+
+        // Collect all unique ruleIds from both violation sources
+        const ruleIds: string[] = []
+        for (const [, warning] of linterWarnings) {
+            // Extract ruleId from message prefix (e.g. "MITHRIL-COL: ...")
+            const match = warning.message.match(/^([A-Z][-A-Z0-9]+)(?::\s|$)/)
+            const ruleId = match?.[1] ?? warning.type.toUpperCase()
+            if (!ruleIds.includes(ruleId)) ruleIds.push(ruleId)
         }
-        readOverrides()
-            .then((rows) => {
-                setOverrideRows(rows)
-            })
+        for (const messages of Object.values(a11yViolations)) {
+            for (const msg of messages) {
+                const match = msg.match(/^(A11Y-\d{3})/)
+                const ruleId = match?.[1]
+                if (ruleId && !ruleIds.includes(ruleId)) ruleIds.push(ruleId)
+            }
+        }
+
+        // Phase 1 — overrides fetch
+        const overridesPromise: Promise<OverrideRow[]> = (() => {
+            const readOverrides = window.bridgeAPI.tokens.readOverrides
+            if (readOverrides === undefined) return Promise.resolve([])
+            return readOverrides()
+        })()
+
+        // Phase 2 — compliance summary
+        const summaryPromise: Promise<ComplianceSummary | null> =
+            ruleIds.length > 0
+                ? window.bridgeAPI.governance.getComplianceSummary(ruleIds)
+                      .catch((err: Error) => {
+                          console.error('[ExportModal] getComplianceSummary error:', err.message)
+                          return null
+                      })
+                : Promise.resolve(null)
+
+        // Advance progress bar as each phase resolves
+        overridesPromise.then((rows) => {
+            setOverrideRows(rows)
+            setAuditProgress((p) => ({ ...p, current: 1 }))
+        }).catch(() => {
+            setAuditProgress((p) => ({ ...p, current: 1 }))
+        })
+
+        summaryPromise.then((summary) => {
+            setComplianceSummary(summary)
+            setAuditProgress((p) => ({ ...p, current: 2 }))
+        }).catch(() => {
+            setAuditProgress((p) => ({ ...p, current: 2 }))
+        })
+
+        Promise.all([overridesPromise, summaryPromise])
             .catch((err: Error) => {
-                console.error('[ExportModal] readOverrides error:', err.message)
+                console.error('[ExportModal] mount fetch error:', err.message)
             })
-            .finally(() => setLoading(false))
+            .finally(() => {
+                // Respect the 200 ms minimum before hiding the loading state.
+                if (minDisplayRef.current) {
+                    setLoading(false)
+                } else {
+                    setTimeout(() => setLoading(false), 200)
+                }
+            })
+
+        return () => clearTimeout(minDisplayTimer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
     const canExport =
@@ -89,6 +157,45 @@ export function ExportModal({ onClose }: ExportModalProps) {
         setCopied(true)
         setTimeout(() => setCopied(false), 2000)
     }, [rawCode])
+
+    // ── Copy compliance summary as JSON audit report ───────────────────────────
+    const handleExportReport = useCallback(async () => {
+        if (!complianceSummary) return
+        await navigator.clipboard.writeText(JSON.stringify(complianceSummary, null, 2))
+        setReportCopied(true)
+        setTimeout(() => setReportCopied(false), 2000)
+    }, [complianceSummary])
+
+    // ── Download DBOM as JSON file ─────────────────────────────────────────────
+    const handleDownloadDBOM = useCallback(async () => {
+        setDbomDownloading(true)
+        setDbomError(null)
+        try {
+            const mcp = window.bridgeAPI.mcp
+            if (!mcp?.callTool) {
+                throw new Error('MCP bridge not available')
+            }
+            const result = await mcp.callTool('bridge_generate_dbom', { format: 'json' })
+            // result is { content: [{ type: 'text', text: string }] }
+            const content = (result as { content?: Array<{ type: string; text: string }> })?.content
+            const text = Array.isArray(content) ? (content[0]?.text ?? '{}') : '{}'
+            // Trigger browser download
+            const blob = new Blob([text], { type: 'application/json' })
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            a.download = 'dbom.json'
+            document.body.appendChild(a)
+            a.click()
+            document.body.removeChild(a)
+            URL.revokeObjectURL(url)
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : 'Unknown error'
+            setDbomError(msg)
+        } finally {
+            setDbomDownloading(false)
+        }
+    }, [])
 
     // ── Close on Escape key ────────────────────────────────────────────────────
     useEffect(() => {
@@ -147,7 +254,28 @@ export function ExportModal({ onClose }: ExportModalProps) {
                 {/* Body */}
                 <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
                     {loading && (
-                        <p className="text-xs text-gray-500">Querying SQLite component_overrides…</p>
+                        <div className="space-y-3 py-2">
+                            <p className="text-xs text-zinc-400">
+                                Auditing{' '}
+                                <span className="font-medium text-zinc-100">{auditProgress.current}</span>
+                                {' '}of{' '}
+                                <span className="font-medium text-zinc-100">{auditProgress.total}</span>
+                                {' '}audit steps…
+                            </p>
+                            <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-800">
+                                <div
+                                    className="h-full rounded-full bg-indigo-500 transition-all duration-300"
+                                    style={{ width: `${Math.round((auditProgress.current / auditProgress.total) * 100)}%` }}
+                                />
+                            </div>
+                            <p className="text-[10px] text-zinc-500">
+                                {auditProgress.current === 0
+                                    ? 'Querying component overrides…'
+                                    : auditProgress.current === 1
+                                        ? 'Fetching compliance summary…'
+                                        : 'Finalizing audit…'}
+                            </p>
+                        </div>
                     )}
 
                     {!loading && canExport && (
@@ -209,7 +337,7 @@ export function ExportModal({ onClose }: ExportModalProps) {
                                                         >
                                                             {row.bridge_id}
                                                         </button>
-                                                        <p className="mt-0.5 font-mono text-[9px] text-gray-500">
+                                                        <p className="mt-0.5 font-mono text-[10px] text-zinc-400">
                                                             <span className="text-gray-400">{row.property_key}</span>
                                                             {' → '}
                                                             <span className="text-amber-500/80">{row.property_value.slice(0, 60)}{row.property_value.length > 60 ? '…' : ''}</span>
@@ -244,7 +372,7 @@ export function ExportModal({ onClose }: ExportModalProps) {
                                                     >
                                                         {bridgeId}
                                                     </button>
-                                                    <p className="mt-0.5 text-[9px] text-gray-400">
+                                                    <p className="mt-0.5 text-[10px] text-zinc-400">
                                                         {msg}
                                                     </p>
                                                 </li>
@@ -254,63 +382,182 @@ export function ExportModal({ onClose }: ExportModalProps) {
                                 </div>
                             )}
 
-                            {/* Mithril ΔE violations */}
-                            {mithrilViolations.length > 0 && (
-                                <div>
-                                    <h3 className={`mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider ${hasCriticalMithril ? 'text-red-400' : 'text-amber-400'}`}>
-                                        <ShieldAlert className="h-3 w-3" />
-                                        Mithril Violations ({mithrilViolations.length})
-                                        {hasCriticalMithril && (
-                                            <span className="rounded bg-red-900/60 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-red-300">
-                                                Critical
-                                            </span>
-                                        )}
-                                    </h3>
-                                    <ul className="space-y-1.5">
-                                        {mithrilViolations.map((id) => {
-                                            const warning: LinterWarning | undefined = linterWarnings.get(id)
-                                            const isCritical = warning?.severity === 'critical'
-                                            const deltaE = warning?.type === 'color-drift' && warning.value > 0
-                                                ? warning.value
-                                                : null
-                                            return (
-                                                <li
-                                                    key={id}
-                                                    className={`rounded border px-3 py-2 ${isCritical
-                                                        ? 'border-red-700/50 bg-red-900/20'
-                                                        : 'border-amber-900/40 bg-amber-900/10'
+                            {/* Mithril ΔE violations — OPP-12: sorted by fixability */}
+                            {mithrilViolations.length > 0 && (() => {
+                                const fixable = mithrilViolations.filter(
+                                    (id) => (linterWarnings.get(id)?.nearestToken ?? null) !== null
+                                )
+                                const manual = mithrilViolations.filter(
+                                    (id) => (linterWarnings.get(id)?.nearestToken ?? null) === null
+                                )
+
+                                const renderViolationRow = (id: string) => {
+                                    const warning: LinterWarning | undefined = linterWarnings.get(id)
+                                    const isCritical = warning?.severity === 'critical'
+                                    const isFixable = (warning?.nearestToken ?? null) !== null
+                                    const deltaE = warning?.type === 'color-drift' && warning.value > 0
+                                        ? warning.value
+                                        : null
+                                    return (
+                                        <li
+                                            key={id}
+                                            className={`rounded border px-3 py-2 ${isCritical
+                                                ? 'border-red-700/50 bg-red-900/20'
+                                                : 'border-amber-900/40 bg-amber-900/10'
+                                            }`}
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleSelectNode(id)}
+                                                    className={`flex-1 truncate text-left font-mono text-[10px] transition-colors hover:underline ${isCritical
+                                                        ? 'text-red-400 hover:text-red-300'
+                                                        : 'text-amber-400 hover:text-amber-300'
                                                     }`}
+                                                    title={`Navigate to ${id}`}
+                                                >
+                                                    {id}
+                                                </button>
+                                                {isCritical && (
+                                                    <span className="shrink-0 rounded bg-red-900/60 px-1 py-0.5 text-[10px] font-bold uppercase text-red-300">
+                                                        Critical
+                                                    </span>
+                                                )}
+                                                {isFixable ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleSelectNode(id)}
+                                                        className="shrink-0 flex items-center gap-1 rounded border border-indigo-500/30 bg-indigo-900/10 px-1.5 py-0.5 text-[10px] text-indigo-400 transition-colors hover:bg-indigo-900/30 hover:text-indigo-300"
+                                                        title={`Auto-fix: apply token ${warning?.nearestToken ?? ''}`}
+                                                    >
+                                                        <Wrench className="h-2.5 w-2.5" />
+                                                        Fix
+                                                    </button>
+                                                ) : (
+                                                    <span className="shrink-0 rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-500">
+                                                        Manual
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <p className="mt-0.5 text-[10px] text-zinc-400">
+                                                {warning?.message
+                                                    ? warning.message
+                                                    : deltaE !== null
+                                                        ? `Color drift ΔE ${deltaE.toFixed(1)} — token not applied`
+                                                        : 'Design system violation — token not applied'
+                                                }
+                                            </p>
+                                        </li>
+                                    )
+                                }
+
+                                return (
+                                    <div>
+                                        <h3 className={`mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider ${hasCriticalMithril ? 'text-red-400' : 'text-amber-400'}`}>
+                                            <ShieldAlert className="h-3 w-3" />
+                                            Mithril Violations ({mithrilViolations.length})
+                                            {hasCriticalMithril && (
+                                                <span className="rounded bg-red-900/60 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-red-300">
+                                                    Critical
+                                                </span>
+                                            )}
+                                        </h3>
+
+                                        {/* Auto-fixable group */}
+                                        {fixable.length > 0 && (
+                                            <div className="mb-2">
+                                                <p className="mb-1.5 flex items-center gap-1 text-[10px] font-medium text-indigo-400">
+                                                    <Wrench className="h-2.5 w-2.5" />
+                                                    Auto-fixable ({fixable.length})
+                                                </p>
+                                                <ul className="space-y-1.5">
+                                                    {fixable.map(renderViolationRow)}
+                                                </ul>
+                                            </div>
+                                        )}
+
+                                        {/* Divider between groups */}
+                                        {fixable.length > 0 && manual.length > 0 && (
+                                            <div className="my-3 border-t border-zinc-800" />
+                                        )}
+
+                                        {/* Manual-fix group */}
+                                        {manual.length > 0 && (
+                                            <div>
+                                                <p className="mb-1.5 text-[10px] font-medium text-zinc-500">
+                                                    Manual fix required ({manual.length})
+                                                </p>
+                                                <ul className="space-y-1.5">
+                                                    {manual.map(renderViolationRow)}
+                                                </ul>
+                                            </div>
+                                        )}
+                                    </div>
+                                )
+                            })()}
+
+                            {/* ── Compliance Summary (GOV.1) ─────────────────────── */}
+                            {complianceSummary !== null && (
+                                <div>
+                                    <div className="mb-2 flex items-center justify-between">
+                                        <h3 className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-indigo-400">
+                                            <ShieldAlert className="h-3 w-3" />
+                                            Compliance Summary
+                                        </h3>
+                                        <button
+                                            type="button"
+                                            onClick={() => { void handleExportReport() }}
+                                            className="flex items-center gap-1 rounded border border-indigo-500/30 bg-indigo-900/10 px-2 py-0.5 text-[10px] text-indigo-400 transition-colors hover:bg-indigo-900/30 hover:text-indigo-300"
+                                            title="Copy JSON audit report to clipboard"
+                                        >
+                                            {reportCopied ? (
+                                                <><Check className="h-2.5 w-2.5" /> Copied!</>
+                                            ) : (
+                                                <><FileDown className="h-2.5 w-2.5" /> Export Audit Report (JSON)</>
+                                            )}
+                                        </button>
+                                    </div>
+
+                                    {/* Authority breakdown badges */}
+                                    {Object.keys(complianceSummary.byAuthority).length > 0 && (
+                                        <div className="mb-2 flex flex-wrap gap-1.5">
+                                            {Object.entries(complianceSummary.byAuthority).map(([authority, count]) => (
+                                                <span
+                                                    key={authority}
+                                                    className="rounded border border-zinc-700/50 bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-400"
+                                                >
+                                                    {authority}: {count}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    {/* Per-rule regulatory references */}
+                                    {complianceSummary.violatedRules.length > 0 && (
+                                        <ul className="space-y-1">
+                                            {complianceSummary.violatedRules.map((rule) => (
+                                                <li
+                                                    key={rule.ruleId}
+                                                    className="rounded border border-zinc-800 bg-zinc-900/60 px-3 py-1.5"
                                                 >
                                                     <div className="flex items-center gap-2">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleSelectNode(id)}
-                                                            className={`font-mono text-[10px] transition-colors hover:underline ${isCritical
-                                                                ? 'text-red-400 hover:text-red-300'
-                                                                : 'text-amber-400 hover:text-amber-300'
-                                                            }`}
-                                                            title={`Navigate to ${id}`}
-                                                        >
-                                                            {id}
-                                                        </button>
-                                                        {isCritical && (
-                                                            <span className="shrink-0 rounded bg-red-900/60 px-1 py-0.5 text-[8px] font-bold uppercase text-red-300">
-                                                                Critical
-                                                            </span>
-                                                        )}
+                                                        <span className="font-mono text-[10px] text-indigo-400">
+                                                            {rule.ruleId}
+                                                        </span>
+                                                        <span className="text-[10px] text-zinc-400">
+                                                            {rule.ruleName}
+                                                        </span>
+                                                        <span className="ml-auto shrink-0 rounded bg-zinc-800 px-1 py-0.5 text-[10px] text-zinc-500">
+                                                            {rule.sourceAuthority}
+                                                        </span>
                                                     </div>
-                                                    <p className="mt-0.5 text-[9px] text-gray-500">
-                                                        {warning?.message
-                                                            ? warning.message
-                                                            : deltaE !== null
-                                                                ? `Color drift ΔE ${deltaE.toFixed(1)} — token not applied`
-                                                                : 'Design system violation — token not applied'
-                                                        }
+                                                    <p className="mt-0.5 font-mono text-[10px] text-zinc-500">
+                                                        {rule.regulatoryReference}
                                                     </p>
                                                 </li>
-                                            )
-                                        })}
-                                    </ul>
+                                            ))}
+                                        </ul>
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -319,24 +566,45 @@ export function ExportModal({ onClose }: ExportModalProps) {
 
                 {/* Footer */}
                 {!loading && (
-                    <div className="flex shrink-0 items-center justify-end gap-2 border-t border-gray-800 px-5 py-3">
-                        <button
-                            type="button"
-                            onClick={onClose}
-                            className="rounded border border-gray-700 px-3 py-1.5 text-xs text-gray-400 transition-colors hover:border-gray-600 hover:text-gray-200"
-                        >
-                            {canExport ? 'Close' : 'Dismiss'}
-                        </button>
-                        {canExport && (
+                    <div className="flex shrink-0 items-center justify-between gap-2 border-t border-gray-800 px-5 py-3">
+                        {/* Left: DBOM download */}
+                        <div className="flex items-center gap-2">
                             <button
                                 type="button"
-                                onClick={() => { void handleCopy() }}
-                                className="flex items-center gap-2 rounded bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-emerald-500"
+                                onClick={() => { void handleDownloadDBOM() }}
+                                disabled={dbomDownloading}
+                                title="Download Design Bill of Materials (DBOM) as JSON"
+                                className="flex items-center gap-1.5 rounded border border-indigo-500/40 bg-indigo-900/10 px-2.5 py-1.5 text-xs text-indigo-400 transition-colors hover:bg-indigo-900/30 hover:text-indigo-300 disabled:cursor-not-allowed disabled:opacity-50"
                             >
-                                {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-                                {copied ? 'Copied!' : 'Copy Source'}
+                                <Download className="h-3 w-3" />
+                                {dbomDownloading ? 'Generating DBOM…' : 'Download DBOM'}
                             </button>
-                        )}
+                            {dbomError !== null && (
+                                <span className="text-[10px] text-red-400" title={dbomError}>
+                                    DBOM failed
+                                </span>
+                            )}
+                        </div>
+                        {/* Right: Close + Copy Source */}
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={onClose}
+                                className="rounded border border-gray-700 px-3 py-1.5 text-xs text-gray-400 transition-colors hover:border-gray-600 hover:text-gray-200"
+                            >
+                                {canExport ? 'Close' : 'Dismiss'}
+                            </button>
+                            {canExport && (
+                                <button
+                                    type="button"
+                                    onClick={() => { void handleCopy() }}
+                                    className="flex items-center gap-2 rounded bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-emerald-500"
+                                >
+                                    {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                                    {copied ? 'Copied!' : 'Copy Source'}
+                                </button>
+                            )}
+                        </div>
                     </div>
                 )}
             </div>

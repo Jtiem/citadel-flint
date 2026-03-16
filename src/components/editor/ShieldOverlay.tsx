@@ -11,15 +11,24 @@
  *   - Render lock icons at the top-right of remote-locked nodes (Phase 3D)
  *   - Relay presence cursor positions as SVG overlays
  *
+ * Phase U.1 additions:
+ *   - Severity heat tint — semi-transparent color overlay on violating nodes
+ *   - Hover tooltip — ViolationTooltip popover on badge hover
+ *   - Click-to-properties — badge click selects node + switches to properties tab
+ *   - Viewport culling — badges only rendered for nodes within visible area
+ *   - Badge cap — max 50 badges, sorted criticals first
+ *
  * Mithril Safety: all classes from Bridge design token palette.
  * No hardcoded hex values. No arbitrary spacing values.
  */
 
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useState } from 'react'
 import { AlertTriangle, Lock } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
 import { useCanvasStore } from '../../store/canvasStore'
 import { useNotificationStore } from '../../store/notificationStore'
+import { ViolationTooltip } from './ViolationTooltip'
+import type { LinterWarning } from '../../types/bridge-api'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -44,18 +53,43 @@ interface NodeLayoutMessage {
 
 type IframeMessage = CanvasClickMessage | NodeLayoutMessage
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+/** Maximum governance badges rendered in a single frame. Criticals fill first. */
+const BADGE_CAP = 50
 
 /**
- * Returns the Set of node IDs currently held by remote users.
- * A node is considered locked when any remote PresenceRow has that node_id.
- * We derive this from window.bridgeAPI.readPresence on a 2-second cadence
- * so the overlay stays current without a full PowerSync subscription.
+ * Extra pixels beyond the overlay edges still considered "visible".
+ * Generous margin to prevent pop-in when scrolling rapidly.
  */
+const CULLING_MARGIN = 200
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 function isValidMessage(data: unknown): data is IframeMessage {
     if (typeof data !== 'object' || data === null) return false
     const d = data as Record<string, unknown>
     return typeof d.type === 'string'
+}
+
+/**
+ * Determine the composite severity for a node from its Mithril + A11y data.
+ * Returns 'critical' when any Mithril warning is critical or any a11y message
+ * exists. Returns 'amber' for amber-only Mithril warnings. Returns 'clean'
+ * when no violations are present.
+ */
+function nodeSeverity(
+    mithrilWarnings: LinterWarning[],
+    a11yMessages: string[]
+): 'critical' | 'amber' | 'clean' {
+    if (
+        a11yMessages.length > 0 ||
+        mithrilWarnings.some((w) => w.severity === 'critical')
+    ) {
+        return 'critical'
+    }
+    if (mithrilWarnings.length > 0) return 'amber'
+    return 'clean'
 }
 
 // ── Component ──────────────────────────────────────────────────────────────────
@@ -65,11 +99,59 @@ export function ShieldOverlay({ iframeRef }: ShieldOverlayProps) {
     const nodeLayouts        = useCanvasStore((s) => s.nodeLayouts)
     const setNodeLayout      = useCanvasStore((s) => s.setNodeLayout)
     const setActiveSelection = useCanvasStore((s) => s.setActiveSelection)
+    const setRightTab        = useCanvasStore((s) => s.setRightTab)
     const mithrilViolations  = useCanvasStore((s) => s.mithrilViolations)
     const a11yViolations     = useCanvasStore((s) => s.a11yViolations)
     const canvasMode         = useCanvasStore((s) => s.canvasMode)
     const setSelectedNode    = useEditorStore((s) => s.setSelectedNode)
+    const linterWarnings     = useEditorStore((s) => s.linterWarnings)
     const pushNotification   = useNotificationStore((s) => s.push)
+
+    // ── Zero-violations celebration (OPP-09) ─────────────────────────────────
+    // Tracks the previous total violation count so we can detect the >0 → 0
+    // transition and push a single "All Clear" notification.
+    const prevViolationCount = useRef<number>(0)
+
+    const totalViolations =
+        mithrilViolations.length + Object.keys(a11yViolations).length
+
+    useEffect(() => {
+        if (prevViolationCount.current > 0 && totalViolations === 0) {
+            useNotificationStore.getState().push({
+                type: 'info',
+                title: 'All Clear',
+                message: 'All governance violations resolved',
+                severity: 'success',
+                autoDismissMs: 4000,
+            })
+        }
+        prevViolationCount.current = totalViolations
+    }, [totalViolations])
+
+    // ── Local UI state ───────────────────────────────────────────────────────
+    /** The nodeId of the badge currently showing a tooltip, or null. */
+    const [hoveredBadgeId, setHoveredBadgeId] = useState<string | null>(null)
+    /** Overlay dimensions — used for viewport culling. Updated on resize. */
+    const [overlaySize, setOverlaySize] = useState({ width: 0, height: 0 })
+    const overlayRef = useRef<HTMLDivElement>(null)
+
+    // ── Overlay resize observer ──────────────────────────────────────────────
+    useEffect(() => {
+        const el = overlayRef.current
+        if (!el) return
+        const ro = new ResizeObserver((entries) => {
+            const entry = entries[0]
+            if (!entry) return
+            setOverlaySize({
+                width: entry.contentRect.width,
+                height: entry.contentRect.height,
+            })
+        })
+        ro.observe(el)
+        // Capture initial size
+        setOverlaySize({ width: el.clientWidth, height: el.clientHeight })
+        return () => ro.disconnect()
+    }, [])
 
     // ── Presence lock set ────────────────────────────────────────────────────
     // Mutable ref so the message handler always reads the latest value without
@@ -205,20 +287,91 @@ export function ShieldOverlay({ iframeRef }: ShieldOverlayProps) {
     // We snapshot here once per render so JSX is stable.
     const lockedIds = lockedNodeIdsRef.current
 
+    // ── Viewport culling: discard nodes outside the visible overlay area ─────
+    // Add a generous margin so badges appear before fully scrolled into view.
+    const minX = -CULLING_MARGIN
+    const minY = -CULLING_MARGIN
+    const maxX = overlaySize.width + CULLING_MARGIN
+    const maxY = overlaySize.height + CULLING_MARGIN
+
+    function isInViewport(layout: { x: number; y: number; width: number; height: number }) {
+        return (
+            layout.x + layout.width > minX &&
+            layout.x < maxX &&
+            layout.y + layout.height > minY &&
+            layout.y < maxY
+        )
+    }
+
+    // ── Collect badge descriptors and apply badge cap ────────────────────────
+    interface BadgeDescriptor {
+        nodeId: string
+        severity: 'critical' | 'amber'
+        mithrilWarnings: LinterWarning[]
+        a11yMessages: string[]
+        layout: { x: number; y: number; width: number; height: number }
+    }
+
+    const allBadges: BadgeDescriptor[] = []
+
+    for (const nodeId of violationNodeIds) {
+        const layout = nodeLayouts[nodeId]
+        if (!layout) continue
+        if (!isInViewport(layout)) continue
+
+        const nodeWarnings = linterWarnings.get(nodeId)
+        const mithrilWarns: LinterWarning[] = nodeWarnings ? [nodeWarnings] : []
+        const a11yMsgs: string[] = a11yViolations[nodeId] ?? []
+        const severity = nodeSeverity(mithrilWarns, a11yMsgs)
+        if (severity === 'clean') continue
+
+        allBadges.push({ nodeId, severity, mithrilWarnings: mithrilWarns, a11yMessages: a11yMsgs, layout })
+    }
+
+    // Sort: criticals first, then ambers
+    allBadges.sort((a, b) => {
+        if (a.severity === b.severity) return 0
+        return a.severity === 'critical' ? -1 : 1
+    })
+
+    // Apply cap
+    const visibleBadges = allBadges.slice(0, BADGE_CAP)
+
+    // ── Tooltip data for the hovered badge ──────────────────────────────────
+    const hoveredBadge = hoveredBadgeId
+        ? visibleBadges.find((b) => b.nodeId === hoveredBadgeId) ?? null
+        : null
+
     return (
         <div
+            ref={overlayRef}
             className="absolute inset-0 z-10 cursor-crosshair"
             aria-hidden="true"
             onPointerDown={handleOverlayPointerDown}
         >
-            {/* ── Governance violation badges ─────────────────────────────── */}
-            {Array.from(violationNodeIds).map((nodeId) => {
-                const layout = nodeLayouts[nodeId]
-                if (!layout) return null
+            {/* ── Phase U.1: Severity heat tints ──────────────────────────── */}
+            {visibleBadges.map(({ nodeId, severity, layout }) => (
+                <div
+                    key={`heat-${nodeId}`}
+                    className={`pointer-events-none absolute rounded-sm ${
+                        severity === 'critical'
+                            ? 'bg-red-500/10'
+                            : 'bg-amber-500/10'
+                    }`}
+                    style={{
+                        left: layout.x,
+                        top: layout.y,
+                        width: layout.width,
+                        height: layout.height,
+                    }}
+                />
+            ))}
 
-                const hasMithril  = mithrilViolations.includes(nodeId)
-                const hasA11y     = Boolean(a11yViolations[nodeId]?.length)
-                const isCritical  = hasMithril && !hasA11y
+            {/* ── Governance violation badges ──────────────────────────────── */}
+            {visibleBadges.map(({ nodeId, severity, mithrilWarnings, a11yMessages, layout }) => {
+                const isCritical = severity === 'critical'
+                const isHovered  = hoveredBadgeId === nodeId
+                const violationCount = mithrilWarnings.length + a11yMessages.length
 
                 return (
                     <div
@@ -235,33 +388,78 @@ export function ShieldOverlay({ iframeRef }: ShieldOverlayProps) {
                         <div
                             className={`absolute inset-0 rounded-sm border ${
                                 isCritical
-                                    ? 'border-amber-500/60'
-                                    : 'border-red-500/60'
+                                    ? 'border-red-500/60'
+                                    : 'border-amber-500/60'
                             }`}
                         />
 
-                        {/* Badge icon — top-left corner */}
+                        {/* Badge icon + count — top-left corner, interactive */}
                         <div
-                            className={`absolute -left-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full ${
+                            role="button"
+                            tabIndex={0}
+                            aria-label={`${violationCount} governance violation${violationCount !== 1 ? 's' : ''} on ${nodeId}`}
+                            className={`pointer-events-auto absolute -left-1 -top-1 flex h-5 min-w-5 cursor-pointer items-center gap-0.5 rounded-full px-1 transition-colors ${
                                 isCritical
-                                    ? 'bg-amber-900/80 border border-amber-500/40'
-                                    : 'bg-red-900/80 border border-red-500/40'
+                                    ? `bg-red-900/80 border ${isHovered ? 'border-red-400' : 'border-red-500/40'}`
+                                    : `bg-amber-900/80 border ${isHovered ? 'border-amber-400' : 'border-amber-500/40'}`
                             }`}
+                            onMouseEnter={() => setHoveredBadgeId(nodeId)}
+                            onMouseLeave={() => setHoveredBadgeId(null)}
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                setSelectedNode(nodeId)
+                                setActiveSelection(nodeId)
+                                setRightTab('properties')
+                            }}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault()
+                                    setSelectedNode(nodeId)
+                                    setActiveSelection(nodeId)
+                                    setRightTab('properties')
+                                }
+                            }}
                         >
                             <AlertTriangle
-                                className={`h-2.5 w-2.5 ${
-                                    isCritical ? 'text-amber-400' : 'text-red-400'
+                                className={`h-2.5 w-2.5 shrink-0 ${
+                                    isCritical ? 'text-red-400' : 'text-amber-400'
                                 }`}
                             />
+                            {violationCount > 1 && (
+                                <span
+                                    className={`text-[10px] font-bold leading-none ${
+                                        isCritical ? 'text-red-300' : 'text-amber-300'
+                                    }`}
+                                >
+                                    {violationCount}
+                                </span>
+                            )}
                         </div>
                     </div>
                 )
             })}
 
-            {/* ── Lock icons for remote-locked nodes (Phase 3D) ──────────── */}
+            {/* ── Phase U.1: Violation tooltip ─────────────────────────────── */}
+            {hoveredBadge && (
+                <ViolationTooltip
+                    nodeId={hoveredBadge.nodeId}
+                    position={{
+                        // Place tooltip below-right of the badge icon, clamped
+                        // to the right so it doesn't overflow left edge.
+                        x: Math.max(8, hoveredBadge.layout.x - 4),
+                        y: hoveredBadge.layout.y + hoveredBadge.layout.height + 6,
+                    }}
+                    mithrilWarnings={hoveredBadge.mithrilWarnings}
+                    a11yMessages={hoveredBadge.a11yMessages}
+                    onClose={() => setHoveredBadgeId(null)}
+                />
+            )}
+
+            {/* ── Lock icons for remote-locked nodes (Phase 3D) ───────────── */}
             {Array.from(lockedIds).map((nodeId) => {
                 const layout = nodeLayouts[nodeId]
                 if (!layout) return null
+                if (!isInViewport(layout)) return null
 
                 return (
                     <div

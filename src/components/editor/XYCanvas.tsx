@@ -21,7 +21,7 @@
  *    since LivePreview reads from the MithrilContext.
  */
 
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import {
     ReactFlow,
     Background,
@@ -33,6 +33,8 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { LivePreview } from './LivePreview'
+import { useCanvasStore } from '../../store/canvasStore'
+import { useASTBufferStore } from '../../store/astBufferStore'
 
 // ── Custom node: LivePreview ────────────────────────────────────────────────
 
@@ -105,6 +107,13 @@ const INITIAL_NODES: Node<LivePreviewData>[] = [
  * for React Flow to size itself correctly — React Flow relies on its parent's
  * measured dimensions.
  */
+/**
+ * The MIME type used when a .tsx file is dragged from the FileExplorer.
+ * Checked during dragover/drop to gate acceptance.
+ */
+const BRIDGE_COMPONENT_FILE_TYPE = 'application/bridge-component-file'
+const BRIDGE_SOURCE_ID_TYPE = 'application/bridge-source-id'
+
 export function XYCanvas() {
     // Stable node-change handler — keeps node positions in sync after drag.
     // We use the built-in `onNodesChange` but don't need external state because
@@ -117,36 +126,101 @@ export function XYCanvas() {
 
     const proOptions = useMemo(() => ({ hideAttribution: true }), [])
 
+    // ── Cross-file drop state ───────────────────────────────────────────────
+    const [isDragOver, setIsDragOver] = useState(false)
+
+    const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+        // Only accept bridge component file drops — ignore all other drag types.
+        if (e.dataTransfer.types.includes(BRIDGE_COMPONENT_FILE_TYPE)) {
+            e.preventDefault()
+            e.dataTransfer.dropEffect = 'copy'
+        }
+    }, [])
+
+    const handleDragEnter = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+        if (e.dataTransfer.types.includes(BRIDGE_COMPONENT_FILE_TYPE)) {
+            setIsDragOver(true)
+        }
+    }, [])
+
+    const handleDragLeave = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+        // Only clear the indicator when the cursor genuinely leaves the container,
+        // not when it enters a child element.
+        const container = e.currentTarget
+        if (!container.contains(e.relatedTarget as Node | null)) {
+            setIsDragOver(false)
+        }
+    }, [])
+
+    const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault()
+        setIsDragOver(false)
+
+        const sourceFile = e.dataTransfer.getData(BRIDGE_COMPONENT_FILE_TYPE)
+        // sourceNodeId may be empty string when the drag originated from a file
+        // node (FileExplorer) rather than a LayerTree row. In that case we pass
+        // an empty string and crossFileMove's internal null-fallback for
+        // effectiveTargetId will resolve the root JSX element automatically.
+        const sourceNodeId = e.dataTransfer.getData(BRIDGE_SOURCE_ID_TYPE)
+
+        if (!sourceFile) return
+
+        const targetFile = useCanvasStore.getState().activeFilePath
+        // Guard: no open file, or dropped onto itself.
+        if (!targetFile || targetFile === sourceFile) return
+
+        // Canvas drops are always clone operations — the source file remains intact.
+        // Use empty string as sourceNodeId when not provided; crossFileMove treats
+        // it the same as a missing ID and will fall back to the root node.
+        void useASTBufferStore.getState().crossFileMove(
+            sourceFile,
+            targetFile,
+            sourceNodeId || '',
+            null,       // append to root of target file
+            'inside',
+            { cloneMode: true },
+        )
+    }, [])
+
     return (
-        <ReactFlow
-            defaultNodes={INITIAL_NODES}
-            nodeTypes={nodeTypes}
-            onInit={onInit}
-            fitView
-            fitViewOptions={{ padding: 0.15, maxZoom: 1 }}
-            panOnScroll
-            panOnDrag={[1, 2]} // middle-click or right-drag to pan
-            selectionOnDrag={false}
-            elementsSelectable={false}
-            zoomOnDoubleClick={false}
-            proOptions={proOptions}
-            className="bg-gray-950"
+        <div
+            className={`h-full w-full transition-shadow ${isDragOver ? 'ring-2 ring-blue-400 ring-inset' : ''}`}
+            onDragOver={handleDragOver}
+            onDragEnter={handleDragEnter}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            data-testid="xy-canvas-container"
         >
-            <Background
-                variant={BackgroundVariant.Dots}
-                gap={24}
-                size={1}
-                color="#374151"
-            />
-            <Controls
-                showInteractive={false}
-                className="[&>button]:border-gray-700 [&>button]:bg-gray-900 [&>button]:text-gray-400 [&>button:hover]:bg-gray-800"
-            />
-            <MiniMap
-                nodeColor="#4f46e5"
-                maskColor="rgba(0,0,0,0.6)"
-                style={{ background: '#111827', border: '1px solid #1f2937' }}
-            />
-        </ReactFlow>
+            <ReactFlow
+                defaultNodes={INITIAL_NODES}
+                nodeTypes={nodeTypes}
+                onInit={onInit}
+                fitView
+                fitViewOptions={{ padding: 0.15, maxZoom: 1 }}
+                panOnScroll
+                panOnDrag={[1, 2]} // middle-click or right-drag to pan
+                selectionOnDrag={false}
+                elementsSelectable={false}
+                zoomOnDoubleClick={false}
+                proOptions={proOptions}
+                className="bg-gray-950"
+            >
+                <Background
+                    variant={BackgroundVariant.Dots}
+                    gap={24}
+                    size={1}
+                    color="#374151"
+                />
+                <Controls
+                    showInteractive={false}
+                    className="[&>button]:border-gray-700 [&>button]:bg-gray-900 [&>button]:text-gray-400 [&>button:hover]:bg-gray-800"
+                />
+                <MiniMap
+                    nodeColor="#4f46e5"
+                    maskColor="rgba(0,0,0,0.6)"
+                    style={{ background: '#111827', border: '1px solid #1f2937' }}
+                />
+            </ReactFlow>
+        </div>
     )
 }

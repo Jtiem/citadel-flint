@@ -122,7 +122,7 @@ export function RecoveryPanel() {
             <div className="flex flex-col items-center justify-center gap-2 p-4 text-center text-xs text-gray-500">
                 <span className="text-lg">⏳</span>
                 <span>No shadow commits yet.</span>
-                <span className="text-[10px] text-gray-600">
+                <span className="text-[10px] text-zinc-500">
                     History will appear here after the first auto-save.
                 </span>
             </div>
@@ -139,7 +139,7 @@ export function RecoveryPanel() {
                     File History ({log.length})
                 </span>
                 {!selectedNodeId && (
-                    <span className="rounded bg-amber-900/40 px-1.5 py-0.5 text-[9px] text-amber-300">
+                    <span className="rounded bg-amber-900/40 px-1.5 py-0.5 text-[10px] text-amber-300">
                         Select a layer to transplant
                     </span>
                 )}
@@ -175,14 +175,14 @@ export function RecoveryPanel() {
                             {/* Commit info */}
                             <div className="min-w-0 flex-1">
                                 <div className="flex items-center gap-1.5">
-                                    <code className="rounded bg-gray-800 px-1 font-mono text-[9px] text-gray-400">
+                                    <code className="rounded bg-gray-800 px-1 font-mono text-[10px] text-zinc-400">
                                         {entry.hash}
                                     </code>
                                     <span className="truncate text-[10px] text-gray-300">
                                         {commitLabel(entry)}
                                     </span>
                                 </div>
-                                <div className="mt-0.5 text-[9px] text-gray-600">
+                                <div className="mt-0.5 text-[10px] text-zinc-500">
                                     {formatTimestamp(entry.timestamp)}
                                 </div>
                             </div>
@@ -197,9 +197,9 @@ export function RecoveryPanel() {
                                         : `Transplant selected node from ${entry.hash}`
                                 }
                                 className={[
-                                    'shrink-0 rounded px-2 py-0.5 text-[9px] font-medium transition-all',
+                                    'shrink-0 rounded px-2 py-0.5 text-[10px] font-medium transition-all',
                                     noSelection || status === 'transplanting'
-                                        ? 'cursor-not-allowed text-gray-600'
+                                        ? 'cursor-not-allowed text-zinc-500'
                                         : 'cursor-pointer text-indigo-400 opacity-0 group-hover:opacity-100',
                                     'hover:bg-indigo-900/40 hover:text-indigo-300',
                                     isWorking ? 'text-yellow-400 opacity-100' : '',

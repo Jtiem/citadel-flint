@@ -9,11 +9,17 @@
  *
  * Displays the 50 most recent entries, newest first.
  *
+ * Phase V.2 additions:
+ *   - Filter bar: pill toggles for success / error / blocked outcome filtering
+ *   - Search: case-insensitive filter by tool name or input summary text
+ *   - "View" button on error rows that contain a file path in inputSummary
+ *   - Header count badges for error and blocked entries
+ *
  * Mithril Safety: all classes from Bridge design token palette only.
  */
 
-import { useEffect, useState, useRef } from 'react'
-import { Activity, CheckCircle2, XCircle, ShieldAlert } from 'lucide-react'
+import { useEffect, useState, useRef, useCallback } from 'react'
+import { Activity, CheckCircle2, XCircle, ShieldAlert, Search, ExternalLink } from 'lucide-react'
 
 // ── Activity log entry shape ──────────────────────────────────────────────────
 
@@ -23,6 +29,35 @@ interface ActivityEntry {
     outcome: 'success' | 'error' | 'blocked'
     durationMs?: number
     timestamp?: string | number
+}
+
+type OutcomeFilter = 'success' | 'error' | 'blocked'
+
+// ── Tool label translation map ────────────────────────────────────────────────
+
+const TOOL_LABELS: Record<string, string> = {
+    bridge_status: 'Status Check',
+    bridge_get_context: 'Read Context',
+    bridge_audit: 'Design Audit',
+    audit_ui_component: 'Component Audit',
+    bridge_fix: 'Auto-Fix',
+    bridge_ast_mutate: 'Code Change',
+    bridge_ingest_figma: 'Figma Import',
+    bridge_sync_tokens: 'Token Sync',
+    bridge_query_registry: 'Component Search',
+    bridge_debt_report: 'Debt Report',
+    bridge_annotate: 'Annotation',
+    bridge_vpat_report: 'Accessibility Report',
+    bridge_consensus_status: 'Consensus Check',
+    bridge_anomaly_report: 'Anomaly Detection',
+    bridge_theme_validate: 'Theme Validation',
+    bridge_compare_layouts: 'Layout Comparison',
+    bridge_migrate_ds: 'Design System Migration',
+    bridge_migrate_tw: 'Tailwind Migration',
+    bridge_platform_export: 'Platform Export',
+    read_design_intent: 'Design Intent',
+    generate_component: 'Generate Component',
+    hydrate_figma_data: 'Figma Hydration',
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -45,6 +80,23 @@ function parseActivityLog(raw: string): ActivityEntry[] {
 function formatInputSummary(input: unknown): string {
     if (!input) return ''
     if (typeof input === 'string') return input.slice(0, 80)
+    if (typeof input === 'object' && input !== null) {
+        const obj = input as Record<string, unknown>
+        // Prefer meaningful fields over raw JSON
+        if (typeof obj.targetPath === 'string') {
+            const filename = obj.targetPath.split('/').pop() ?? obj.targetPath
+            return `path: ${filename}`
+        }
+        if (typeof obj.op === 'string') {
+            const extra = typeof obj.nodeId === 'string'
+                ? ` · ${obj.nodeId.slice(0, 12)}…`
+                : ''
+            return `op: ${obj.op}${extra}`
+        }
+        if (typeof obj.nodeId === 'string') {
+            return `node: ${obj.nodeId.slice(0, 20)}…`
+        }
+    }
     try {
         return JSON.stringify(input).slice(0, 80)
     } catch {
@@ -62,6 +114,16 @@ function formatTimestamp(ts: string | number | undefined): string {
     }
 }
 
+/**
+ * Attempt to extract an absolute or relative file path from a summary string.
+ * Looks for segments that look like paths (contain '/' and a file extension).
+ */
+function extractFilePath(summary: string): string | null {
+    // Match unix-style paths with an extension
+    const match = summary.match(/([./~][\w./\-@]+\.\w{1,6})/)
+    return match ? match[1] : null
+}
+
 // ── Outcome badge ─────────────────────────────────────────────────────────────
 
 interface OutcomeBadgeProps {
@@ -71,7 +133,7 @@ interface OutcomeBadgeProps {
 function OutcomeBadge({ outcome }: OutcomeBadgeProps) {
     if (outcome === 'success') {
         return (
-            <span className="flex items-center gap-1 rounded border border-emerald-800/40 bg-emerald-900/20 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-emerald-400">
+            <span className="flex items-center gap-1 rounded border border-emerald-800/40 bg-emerald-900/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-400">
                 <CheckCircle2 size={9} />
                 ok
             </span>
@@ -79,17 +141,51 @@ function OutcomeBadge({ outcome }: OutcomeBadgeProps) {
     }
     if (outcome === 'error') {
         return (
-            <span className="flex items-center gap-1 rounded border border-red-700/40 bg-red-900/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-red-400">
+            <span className="flex items-center gap-1 rounded border border-red-700/40 bg-red-900/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-red-400">
                 <XCircle size={9} />
                 error
             </span>
         )
     }
     return (
-        <span className="flex items-center gap-1 rounded border border-amber-500/30 bg-amber-900/20 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-400">
+        <span className="flex items-center gap-1 rounded border border-amber-500/30 bg-amber-900/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-400">
             <ShieldAlert size={9} />
             blocked
         </span>
+    )
+}
+
+// ── Filter pill ───────────────────────────────────────────────────────────────
+
+interface FilterPillProps {
+    label: string
+    count: number
+    active: boolean
+    onToggle: () => void
+    colorClasses: {
+        active: string
+        inactive: string
+    }
+}
+
+function FilterPill({ label, count, active, onToggle, colorClasses }: FilterPillProps) {
+    return (
+        <button
+            type="button"
+            onClick={onToggle}
+            className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                active ? colorClasses.active : colorClasses.inactive
+            }`}
+        >
+            {label}
+            <span
+                className={`rounded-full px-1 text-[10px] font-semibold ${
+                    active ? 'bg-white/20' : 'bg-zinc-800'
+                }`}
+            >
+                {count}
+            </span>
+        </button>
     )
 }
 
@@ -102,6 +198,13 @@ interface EntryRowProps {
 
 function EntryRow({ entry, index }: EntryRowProps) {
     const summary = formatInputSummary(entry.input)
+    const filePath = entry.outcome === 'error' && summary ? extractFilePath(summary) : null
+
+    const handleViewFile = useCallback(() => {
+        if (!filePath) return
+        // Navigate to the file via bridgeAPI if available
+        window.bridgeAPI?.openFile?.(filePath)
+    }, [filePath])
 
     return (
         <div
@@ -111,8 +214,11 @@ function EntryRow({ entry, index }: EntryRowProps) {
         >
             <div className="flex items-center gap-2">
                 {/* Tool badge */}
-                <span className="shrink-0 rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-[10px] text-zinc-300">
-                    {entry.tool}
+                <span
+                    className="shrink-0 rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-[10px] text-zinc-300"
+                    title={entry.tool}
+                >
+                    {TOOL_LABELS[entry.tool] ?? entry.tool}
                 </span>
 
                 {/* Outcome */}
@@ -121,6 +227,19 @@ function EntryRow({ entry, index }: EntryRowProps) {
                 {/* Duration */}
                 {entry.durationMs != null && (
                     <span className="text-[10px] text-zinc-600">{entry.durationMs}ms</span>
+                )}
+
+                {/* View button — only on error rows that contain a file path */}
+                {filePath && (
+                    <button
+                        type="button"
+                        onClick={handleViewFile}
+                        title={`View ${filePath}`}
+                        className="flex items-center gap-0.5 rounded border border-red-700/30 bg-red-900/10 px-1.5 py-0.5 text-[10px] font-medium text-red-400 transition-colors hover:bg-red-900/20 hover:text-red-300"
+                    >
+                        <ExternalLink size={8} />
+                        View
+                    </button>
                 )}
 
                 {/* Timestamp — pushed right */}
@@ -147,6 +266,8 @@ const LOG_PATH = '.bridge/activity-log.jsonl'
 export function ActivityFeed() {
     const [entries, setEntries] = useState<ActivityEntry[]>([])
     const [lastRead, setLastRead] = useState<number>(0)
+    const [activeFilters, setActiveFilters] = useState<Set<OutcomeFilter>>(new Set())
+    const [searchQuery, setSearchQuery] = useState('')
     const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
     const fetchLog = async () => {
@@ -175,6 +296,45 @@ export function ActivityFeed() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
+    // ── Derived counts ────────────────────────────────────────────────────────
+
+    const errorCount = entries.filter((e) => e.outcome === 'error').length
+    const blockedCount = entries.filter((e) => e.outcome === 'blocked').length
+    const successCount = entries.filter((e) => e.outcome === 'success').length
+
+    // ── Filter toggle handler ─────────────────────────────────────────────────
+
+    const toggleFilter = (outcome: OutcomeFilter) => {
+        setActiveFilters((prev) => {
+            const next = new Set(prev)
+            if (next.has(outcome)) {
+                next.delete(outcome)
+            } else {
+                next.add(outcome)
+            }
+            return next
+        })
+    }
+
+    // ── Filtered + searched entries ───────────────────────────────────────────
+
+    const visibleEntries = entries.filter((entry) => {
+        // Outcome filter: if no filters active, show all
+        if (activeFilters.size > 0 && !activeFilters.has(entry.outcome)) {
+            return false
+        }
+
+        // Search filter: match tool name or input summary (case-insensitive)
+        if (searchQuery.trim()) {
+            const q = searchQuery.toLowerCase()
+            const toolMatch = entry.tool.toLowerCase().includes(q)
+            const summaryMatch = formatInputSummary(entry.input).toLowerCase().includes(q)
+            if (!toolMatch && !summaryMatch) return false
+        }
+
+        return true
+    })
+
     return (
         <div className="flex h-full flex-col overflow-hidden bg-zinc-950">
             {/* ── Section header ── */}
@@ -183,6 +343,21 @@ export function ActivityFeed() {
                 <h3 className="flex-1 text-xs font-medium uppercase tracking-wider text-zinc-400">
                     Activity Feed
                 </h3>
+
+                {/* Error + blocked count badges in header */}
+                {errorCount > 0 && (
+                    <span className="flex items-center gap-0.5 rounded border border-red-700/40 bg-red-900/10 px-1.5 py-0.5 text-[10px] font-semibold text-red-400">
+                        <XCircle size={8} />
+                        {errorCount}
+                    </span>
+                )}
+                {blockedCount > 0 && (
+                    <span className="flex items-center gap-0.5 rounded border border-amber-500/30 bg-amber-900/20 px-1.5 py-0.5 text-[10px] font-semibold text-amber-400">
+                        <ShieldAlert size={8} />
+                        {blockedCount}
+                    </span>
+                )}
+
                 {lastRead > 0 && (
                     <span className="text-[10px] text-zinc-700">
                         {new Date(lastRead).toLocaleTimeString([], {
@@ -191,6 +366,62 @@ export function ActivityFeed() {
                             second: '2-digit',
                         })}
                     </span>
+                )}
+            </div>
+
+            {/* ── Filter bar ── */}
+            <div className="flex shrink-0 items-center gap-1.5 border-b border-zinc-800/60 px-3 py-2">
+                <FilterPill
+                    label="Success"
+                    count={successCount}
+                    active={activeFilters.has('success')}
+                    onToggle={() => toggleFilter('success')}
+                    colorClasses={{
+                        active: 'border-emerald-600 bg-emerald-900/40 text-emerald-300',
+                        inactive: 'border-zinc-700/50 bg-transparent text-zinc-500 hover:border-emerald-800/60 hover:text-emerald-500',
+                    }}
+                />
+                <FilterPill
+                    label="Errors"
+                    count={errorCount}
+                    active={activeFilters.has('error')}
+                    onToggle={() => toggleFilter('error')}
+                    colorClasses={{
+                        active: 'border-red-600 bg-red-900/40 text-red-300',
+                        inactive: 'border-zinc-700/50 bg-transparent text-zinc-500 hover:border-red-800/60 hover:text-red-500',
+                    }}
+                />
+                <FilterPill
+                    label="Blocked"
+                    count={blockedCount}
+                    active={activeFilters.has('blocked')}
+                    onToggle={() => toggleFilter('blocked')}
+                    colorClasses={{
+                        active: 'border-amber-500 bg-amber-900/40 text-amber-300',
+                        inactive: 'border-zinc-700/50 bg-transparent text-zinc-500 hover:border-amber-700/60 hover:text-amber-500',
+                    }}
+                />
+            </div>
+
+            {/* ── Search bar ── */}
+            <div className="flex shrink-0 items-center gap-1.5 border-b border-zinc-800/60 px-3 py-1.5">
+                <Search size={10} className="shrink-0 text-zinc-600" />
+                <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search tool or input…"
+                    className="flex-1 bg-transparent font-mono text-[11px] text-zinc-300 placeholder-zinc-700 outline-none"
+                />
+                {searchQuery && (
+                    <button
+                        type="button"
+                        onClick={() => setSearchQuery('')}
+                        className="shrink-0 text-[10px] text-zinc-600 hover:text-zinc-400"
+                        title="Clear search"
+                    >
+                        ×
+                    </button>
                 )}
             </div>
 
@@ -204,8 +435,16 @@ export function ActivityFeed() {
                             MCP tool calls will appear here in real time
                         </p>
                     </div>
+                ) : visibleEntries.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-10 px-4 text-center">
+                        <Search size={16} className="mb-2 text-zinc-800" />
+                        <p className="text-xs text-zinc-600">No matching entries</p>
+                        <p className="mt-1 text-[10px] text-zinc-700">
+                            Try adjusting the filters or search query
+                        </p>
+                    </div>
                 ) : (
-                    entries.map((entry, i) => (
+                    visibleEntries.map((entry, i) => (
                         <EntryRow
                             key={`${entry.tool}-${entry.timestamp ?? i}-${i}`}
                             entry={entry}

@@ -31,6 +31,10 @@ import { homedir } from 'node:os'
 import { tsLspClient } from './lsp/TypeScriptLspClient'
 import { vueLspClient } from './lsp/VueLspClient'
 import type { ILspClient } from './lsp/types'
+// ── Commandment 17: Mithril pre-commit check ──────────────────────────────────
+import db from './store.js'
+import { checkClassNameForColorDrift, formatViolationsForAI } from './mithrilPreCommit.js'
+import type { MithrilToken } from './mithrilPreCommit.js'
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -319,6 +323,39 @@ const MUTATION_TOOL_NAMES = new Set([
     'bridge_remove_class',
 ])
 
+// ── Commandment 17: Mithril token loader ──────────────────────────────────────
+//
+// Reads all design tokens from the SQLite store synchronously (better-sqlite3
+// is always synchronous). Returns an empty array if the table is missing or
+// the query fails, so a token-less project is never blocked by this check.
+
+const _loadTokensStmt = db.prepare(
+    'SELECT token_path, token_type, token_value FROM design_tokens ORDER BY token_type, token_path',
+)
+
+function loadMithrilTokens(): MithrilToken[] {
+    try {
+        return _loadTokensStmt.all() as MithrilToken[]
+    } catch {
+        return []
+    }
+}
+
+/**
+ * Commandment 17: run the Mithril color-drift pre-commit check on a
+ * proposed className string.
+ *
+ * Returns an error string if any arbitrary-color class deviates by more than
+ * ΔE 2.0 from the nearest design token, or null if the className is compliant.
+ * Returns null immediately when the project has no color tokens.
+ */
+function mithrilClassCheck(classNameString: string): string | null {
+    const tokens = loadMithrilTokens()
+    const violations = checkClassNameForColorDrift(classNameString, tokens)
+    if (violations.length === 0) return null
+    return formatViolationsForAI(violations)
+}
+
 /**
  * Validates a single mutation tool call.
  *
@@ -326,6 +363,7 @@ const MUTATION_TOOL_NAMES = new Set([
  *   • data-bridge-id tampering check
  *   • compound className guard
  *   • prop value type check
+ *   • Commandment 17: Mithril color-drift pre-commit check
  *
  * Then async LSP validation fires for structural ops that produce JSX snippets:
  *   • bridge_insert_node  — checks the new element's JSX is valid TypeScript
@@ -351,7 +389,17 @@ async function validateToolInput(
                 return `Prop "${k}" value must be a plain string, not a JS expression.`
             }
         }
-        return null  // prop-only changes don’t need LSP
+        // ── Commandment 17: Mithril pre-commit check on className prop ────────
+        // Only fires when the AI is setting className directly via bridge_update_props.
+        const proposedClassName = typeof props['className'] === 'string' ? props['className'] : null
+        if (proposedClassName !== null) {
+            const mithrilError = mithrilClassCheck(proposedClassName)
+            if (mithrilError !== null) {
+                console.warn(`[Bridge] Commandment 17 blocked bridge_update_props: ${mithrilError}`)
+                return mithrilError
+            }
+        }
+        return null  // prop-only changes don't need LSP
     }
 
     if (toolName === 'bridge_add_class' || toolName === 'bridge_remove_class') {
@@ -359,7 +407,16 @@ async function validateToolInput(
         if (className.trim().includes(' ')) {
             return `className must be a single class token, not a compound string. Got: "${className}". Call this tool once per class.`
         }
-        return null  // class-level changes don’t need LSP
+        // ── Commandment 17: Mithril pre-commit check on the single class ──────
+        // Only fires for bridge_add_class — removing a class can never introduce drift.
+        if (toolName === 'bridge_add_class' && className.length > 0) {
+            const mithrilError = mithrilClassCheck(className)
+            if (mithrilError !== null) {
+                console.warn(`[Bridge] Commandment 17 blocked bridge_add_class: ${mithrilError}`)
+                return mithrilError
+            }
+        }
+        return null  // class-level changes don't need LSP
     }
 
     // ── Async LSP validation (structural JSX ops) ──────────────────────────────
@@ -375,7 +432,24 @@ async function validateToolInput(
     }
 
     if (snippet !== null) {
-        return await lsp.validateSnippet(snippet)
+        const lspError = await lsp.validateSnippet(snippet)
+        if (lspError !== null) return lspError
+
+        // ── Commandment 17: Mithril pre-commit check on insert/wrap props ─────
+        // Check className in the props object for bridge_insert_node.
+        if (toolName === 'bridge_insert_node') {
+            const insertProps = (input.props as Record<string, string> | undefined) ?? {}
+            const insertClassName = typeof insertProps['className'] === 'string' ? insertProps['className'] : null
+            if (insertClassName !== null) {
+                const mithrilError = mithrilClassCheck(insertClassName)
+                if (mithrilError !== null) {
+                    console.warn(`[Bridge] Commandment 17 blocked bridge_insert_node: ${mithrilError}`)
+                    return mithrilError
+                }
+            }
+        }
+
+        return null
     }
 
     return null  // all other ops pass by default

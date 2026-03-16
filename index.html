@@ -20,7 +20,17 @@
     <title>Bridge IDE</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="boot-skeleton" style="display:flex;align-items:center;justify-content:center;height:100vh;background:#030712;flex-direction:column;gap:16px;">
+        <div style="font-size:24px;font-weight:700;background:linear-gradient(to right,#818cf8,#a78bfa,#ec4899);-webkit-background-clip:text;color:transparent;">Bridge Glass</div>
+        <div style="display:flex;gap:6px;">
+          <div class="boot-dot" style="width:6px;height:6px;border-radius:50%;background:#818cf8;animation:pulse 1.4s ease-in-out infinite;"></div>
+          <div class="boot-dot" style="width:6px;height:6px;border-radius:50%;background:#818cf8;animation:pulse 1.4s ease-in-out 0.2s infinite;"></div>
+          <div class="boot-dot" style="width:6px;height:6px;border-radius:50%;background:#818cf8;animation:pulse 1.4s ease-in-out 0.4s infinite;"></div>
+        </div>
+      </div>
+      <style>@keyframes pulse{0%,100%{opacity:.3;transform:scale(.8)}50%{opacity:1;transform:scale(1.2)}}</style>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

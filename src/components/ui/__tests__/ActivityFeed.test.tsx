@@ -44,7 +44,7 @@ describe('ActivityFeed', () => {
         ;(window.bridgeAPI.readFile as ReturnType<typeof vi.fn>).mockResolvedValue(raw)
         render(<ActivityFeed />)
         await waitFor(() => {
-            expect(screen.getByText('audit_ui_component')).toBeDefined()
+            expect(screen.getByText('Component Audit')).toBeDefined()
         })
     })
 
@@ -54,7 +54,7 @@ describe('ActivityFeed', () => {
         ;(window.bridgeAPI.readFile as ReturnType<typeof vi.fn>).mockResolvedValue(raw)
         render(<ActivityFeed />)
         await waitFor(() => {
-            expect(screen.getByText('bridge_get_context')).toBeDefined()
+            expect(screen.getByText('Read Context')).toBeDefined()
         })
     })
 

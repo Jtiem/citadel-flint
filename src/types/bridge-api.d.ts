@@ -327,6 +327,15 @@ export interface ProjectAPI {
      * Overwrites existing files within targetPath.
      */
     resetToDemo: (targetPath: string) => Promise<FileTreeNode>
+
+    /**
+     * Instantly scaffolds a new project at ~/Bridge Projects/Untitled-N with
+     * no folder picker dialog. The first free counter slot is chosen so names
+     * never collide. Returns the FileTreeNode tree rooted at the new directory.
+     *
+     * One click → canvas. No dialogs.
+     */
+    createScratchpad: () => Promise<FileTreeNode>
 }
 
 /** IPC surface for native OS menu events pushed by the main process. */
@@ -337,7 +346,13 @@ export interface MenuAPI {
     onOpenProject: (callback: () => void) => void
     /** Registers a callback for File → Close Project (Cmd+Shift+W). */
     onCloseProject: (callback: () => void) => void
-    /** Removes all listeners for the three menu channels. Call in useEffect cleanup. */
+    /**
+     * Registers a callback for File → Save Project As… (Cmd+Shift+S).
+     * Fired when the user wants to relocate the current project to a new folder.
+     * For scratchpad projects this is the primary "save" affordance.
+     */
+    onSaveProjectAs: (callback: () => void) => void
+    /** Removes all listeners for all menu channels. Call in useEffect cleanup. */
     removeMenuListeners: () => void
 }
 
@@ -374,6 +389,312 @@ export interface PreviewAPI {
 
     /** Returns the current preview server URL, or null if not running. */
     getUrl: () => Promise<string | null>
+}
+
+// ── Phase W.2 / W.3: Figma Connection Status ──────────────────────────────────
+
+/**
+ * Extended FigmaStatus -- adds port + secret so the renderer can render
+ * copy-to-clipboard buttons without hardcoding values.
+ *
+ *   running       — true when the loopback ingestion server is bound and listening.
+ *   lastWebhookAt — Unix timestamp (ms) of the last successful POST /ingest,
+ *                   or null if no ingest has occurred in this process lifetime.
+ *   tokenCount    — Current row count in the design_tokens SQLite table.
+ *   port          — The port the ingestion server is actually listening on
+ *                   (may differ from 4545 if port was busy).
+ *   secret        — The secret value the Figma plugin must send in x-bridge-secret header.
+ */
+export interface FigmaStatus {
+    /** True when the loopback ingestion server is bound and listening. */
+    running: boolean
+    /** Unix timestamp (ms) of last successful POST /ingest, or null. */
+    lastWebhookAt: number | null
+    /** Current row count in design_tokens table. */
+    tokenCount: number
+    /** The port the ingestion server is actually listening on (may differ from 4545 if port was busy). */
+    port: number
+    /** The secret value the Figma plugin must send in x-bridge-secret header. */
+    secret: string
+}
+
+/**
+ * Payload pushed from main -> renderer on first successful Figma ingest.
+ */
+export interface FigmaConnectedEvent {
+    /** Number of tokens upserted in this ingest. */
+    tokenCount: number
+    /** Unix timestamp (ms) of the ingest. */
+    timestamp: number
+}
+
+/**
+ * Payload pushed from main -> renderer when the ingestion server rejects a request.
+ */
+export interface FigmaErrorEvent {
+    /** HTTP status code returned to the Figma plugin. */
+    statusCode: number
+    /** Human-readable error reason. */
+    reason: string
+    /** Unix timestamp (ms) of the error. */
+    timestamp: number
+}
+
+/**
+ * Extended FigmaAPI -- adds lifecycle methods and push event subscriptions.
+ * (Phase W.3: Figma Connect UX Overhaul)
+ */
+export interface FigmaAPI {
+    /** Returns the current Figma ingestion server health snapshot. */
+    status: () => Promise<FigmaStatus>
+
+    /**
+     * Stops the ingestion server. The server can be restarted by calling
+     * disconnect then reopening the app (server starts on app launch).
+     * Returns void; idempotent.
+     */
+    disconnect: () => Promise<void>
+
+    /**
+     * Subscribes to 'bridge:figma-connected' push events fired by the
+     * ingestion server after each successful POST /ingest.
+     *
+     * Returns an unsubscribe function for useEffect cleanup.
+     */
+    onConnected: (callback: (event: FigmaConnectedEvent) => void) => () => void
+
+    /**
+     * Subscribes to 'bridge:figma-error' push events fired by the
+     * ingestion server when it rejects a request (401, 400).
+     *
+     * Returns an unsubscribe function for useEffect cleanup.
+     */
+    onError: (callback: (event: FigmaErrorEvent) => void) => () => void
+
+    /**
+     * Removes all listeners for figma-connected and figma-error channels.
+     * Call in useEffect cleanup if not using the individual unsubscribers.
+     */
+    removeListeners: () => void
+}
+
+// ── AI Types (Phase L) ────────────────────────────────────────────────────────
+
+export type AIProvider = 'anthropic' | 'openai' | 'gemini'
+
+export interface AIConfig {
+    hasKey: boolean
+    provider: AIProvider
+    model: string | null
+    baseURL: string | null
+}
+
+export interface ChatMessage {
+    role: 'user' | 'assistant' | 'tool_call' | 'tool_result'
+    content: string
+    toolUseId?: string
+    toolName?: string
+    toolInput?: Record<string, unknown>
+}
+
+export interface OrchestratorChunk {
+    type: 'text' | 'tool_call' | 'tool_result' | 'done' | 'error' | 'validation_error'
+    text?: string
+    toolName?: string
+    toolInput?: Record<string, unknown>
+    toolUseId?: string
+    error?: string
+}
+
+export interface RAGChunk {
+    id: number
+    content: string
+    source: string
+    chunkType: string
+    distance: number
+}
+
+export interface AIAPI {
+    /** Start a chat turn — streams chunks back via onChunk. */
+    chat: (messages: ChatMessage[], context: Record<string, unknown>) => Promise<void>
+    /** Subscribe to streaming chunk events from the current ai:chat call. */
+    onChunk: (callback: (chunk: OrchestratorChunk) => void) => void
+    /** Remove the active chunk listener (call in useEffect cleanup). */
+    removeChunkListener: () => void
+    /** Returns current AI config: whether an API key is configured, the provider, and the selected model. */
+    getConfig: () => Promise<AIConfig>
+    /** Persist the full AI config (API key, provider, model, baseURL) to ~/.bridge/config.json. */
+    saveConfig: (config: { apiKey?: string; provider: AIProvider; model?: string; baseURL?: string }) => Promise<void>
+
+    // Phase N: Figma AST Hydrator
+    hydroPaste?: (payloadStr: string) => Promise<{ ok?: boolean; imports?: string[]; elements?: Array<{ code: string; import: string | null }>; error?: string }>
+    /** Listen for automatic hydro-paste events from the ingestion server. Returns unsubscribe fn. */
+    onHydroPasteAuto?: (callback: (payload: string) => void) => () => void
+
+    /** Phase M: Semantic search over the design system knowledge base. */
+    queryRAG?: (query: string) => Promise<RAGChunk[]>
+    /** Phase M: Ingest text chunks into the RAG vector store. */
+    ingestRAG?: (chunks: Array<{ content: string; source?: string; chunkType?: string }>) => Promise<{ ingested: number }>
+    /** Phase M: Clear all RAG data for re-ingestion. */
+    clearRAG?: () => Promise<void>
+    /** Phase M: Return the current chunk count in the RAG store. */
+    ragCount?: () => Promise<number>
+}
+
+// ── Phase COLLAB.4: Annotation Types ──────────────────────────────────────────
+// Renderer-side mirror of bridge-mcp/src/core/annotations/types.ts.
+// Kept in sync manually — cross-boundary imports are prohibited by the
+// two-tsconfig architecture.
+
+/** The set of annotation categories supported by bridge_annotate (COLLAB.3). */
+export type AnnotationType = 'note' | 'decision' | 'approval' | 'handoff'
+
+/** Resolution status of an annotation. */
+export type AnnotationStatus = 'open' | 'resolved'
+
+/**
+ * A single Bridge annotation anchoring a structured comment to a node.
+ *
+ * id         — Stable UUID. Never changes after creation.
+ * nodeId     — The data-bridge-id of the anchored JSX element.
+ * filePath   — Absolute path to the file containing the anchored element.
+ * type       — Category (note | decision | approval | handoff).
+ * author     — Display name of the annotation author.
+ * body       — The human-readable annotation content.
+ * status     — 'open' (default) or 'resolved'.
+ * visibility — 'public' (default) or 'private'.
+ * createdAt  — ISO 8601 timestamp of creation.
+ * resolvedAt — ISO 8601 timestamp when resolved, or null.
+ */
+export interface BridgeAnnotation {
+    id: string
+    nodeId: string
+    filePath: string
+    type: AnnotationType
+    author: string
+    body: string
+    status: AnnotationStatus
+    visibility: 'public' | 'private'
+    createdAt: string
+    resolvedAt: string | null
+}
+
+/**
+ * IPC surface for annotation operations (Phase COLLAB.4).
+ * Exposed as `window.bridgeAPI.annotations`.
+ */
+export interface AnnotationsAPI {
+    /**
+     * Returns all annotations from .bridge/annotations.json.
+     * Returns [] when the file is missing or unparseable (safe default).
+     */
+    readAll: () => Promise<BridgeAnnotation[]>
+
+    /**
+     * Marks the annotation with `id` as resolved. Writes the updated list
+     * back to .bridge/annotations.json atomically via tmp→rename.
+     * No-ops silently if the id does not exist.
+     */
+    resolve: (id: string) => Promise<void>
+
+    /**
+     * Registers `cb` to be called whenever .bridge/annotations.json changes
+     * on disk (via main-process fs.watch). The callback receives no arguments —
+     * callers should invoke fetchAnnotations() in response.
+     *
+     * Call `removeChangedListener()` in a useEffect cleanup to prevent leaks.
+     */
+    onChanged: (cb: () => void) => void
+
+    /** Removes all 'bridge:annotations-changed' listeners. */
+    removeChangedListener: () => void
+}
+
+// ── Phase W: MCP Push Channel + Bidirectional Action Bridge ──────────────────
+
+/**
+ * Event types that the MCP server appends to `.bridge/mcp-events.jsonl`
+ * after each tool completion.
+ */
+export type MCPEventType = 'violation' | 'annotation' | 'mutation' | 'audit' | 'fix' | 'debt'
+
+/** Severity levels for MCPEvent — drives notification styling in Glass. */
+export type MCPEventSeverity = 'critical' | 'warning' | 'info'
+
+/**
+ * A single event record appended to `.bridge/mcp-events.jsonl` by the MCP
+ * server and tail-followed by the Electron main process.
+ *
+ * timestamp — Unix timestamp in milliseconds.
+ * type      — Category of event (violation, annotation, mutation, etc.).
+ * severity  — Drives toast colour and notification priority.
+ * summary   — Human-readable one-line description for the Glass toast.
+ * nodeId    — Optional `data-bridge-id` of the affected JSX element.
+ * filePath  — Optional absolute path to the affected source file.
+ */
+export interface MCPEvent {
+    timestamp: number
+    type: MCPEventType
+    severity: MCPEventSeverity
+    summary: string
+    nodeId?: string
+    filePath?: string
+}
+
+/** Result of an MCP tool call — mirrors MCP CallToolResult schema. */
+export interface MCPCallResult {
+    content: Array<{ type: string; text?: string }>
+    isError?: boolean
+}
+
+/** Result of reading an MCP resource — mirrors MCP ReadResourceResult schema. */
+export interface MCPResourceResult {
+    contents: Array<{ uri: string; mimeType?: string; text?: string }>
+}
+
+/** Connection status of the MCP server child process. */
+export interface MCPClientStatus {
+    /** True when the server process is running and has completed the initialize handshake. */
+    connected: boolean
+    /** PID of the server child process, or null if not running. */
+    serverPid: number | null
+}
+
+/**
+ * IPC surface for the MCP integration (Phase W).
+ * Exposed as `window.bridgeAPI.mcp`.
+ *
+ * All operations execute in the main process via stdio to the MCP server.
+ * The renderer never touches the child process directly.
+ */
+export interface MCPAPI {
+    /**
+     * Invokes an MCP tool by `name` with `args`.
+     * Rejects if the server is not connected or the call times out (30 s).
+     */
+    callTool: (name: string, args: Record<string, unknown>) => Promise<MCPCallResult>
+
+    /**
+     * Reads an MCP resource by URI.
+     * Rejects if the server is not connected or the call times out (30 s).
+     */
+    readResource: (uri: string) => Promise<MCPResourceResult>
+
+    /**
+     * Returns the current MCP server connection status.
+     * Safe to call at any time — does not block.
+     */
+    status: () => Promise<MCPClientStatus>
+
+    /**
+     * Subscribes `callback` to `bridge:mcp-event` push events.
+     * Events are batched within a 500ms window before dispatch.
+     * Call `removeEventListener()` in useEffect cleanup to prevent leaks.
+     */
+    onEvent: (callback: (events: MCPEvent[]) => void) => void
+
+    /** Removes all `bridge:mcp-event` listeners. Call in useEffect cleanup. */
+    removeEventListener: () => void
 }
 
 export interface BridgeAPI {
@@ -415,6 +736,9 @@ export interface BridgeAPI {
      * }
      */
     getServerStatus: () => Promise<ServerStatus>
+
+    /** Figma connection health — ingestion server status, last sync, token count. */
+    figma: FigmaAPI
 
     /** Design token CRUD — backed by the design_tokens SQLite table. */
     tokens: TokensAPI
@@ -553,6 +877,17 @@ export interface BridgeAPI {
     /** AI Orchestration API — Anthropic Claude backend, runs in main process. */
     ai: AIAPI
 
+    // ── Phase COLLAB.4: Annotation IPC surface ────────────────────────────────
+
+    /**
+     * Annotation read + resolve API — backed by .bridge/annotations.json.
+     * Written by MCP tools; read and resolved by Glass (COLLAB.4).
+     *
+     * Optional-chained by callers (`window.bridgeAPI.annotations?.readAll()`)
+     * so Vitest / headless environments degrade gracefully.
+     */
+    annotations?: AnnotationsAPI
+
     // ── Phase N.4: Preview Engine ──────────────────────────────────────────────
 
     /** Programmatic Vite dev server API — agnostic preview engine. */
@@ -564,69 +899,238 @@ export interface BridgeAPI {
         resize: (cols: number, rows: number) => Promise<void>
         onOutput: (callback: (data: string) => void) => () => void
     }
+
+    // ── Phase W: MCP Push Channel + Bidirectional Action Bridge ───────────────
+
+    /**
+     * MCP integration — push events from the MCP server + bidirectional tool invocation.
+     *
+     * Optional-chained by callers (`window.bridgeAPI.mcp?.callTool(...)`)
+     * so Vitest / headless environments degrade gracefully.
+     */
+    mcp?: MCPAPI
+
+    // ── GOV.1 + GOV.2: Governance Provenance + Override Telemetry ─────────────
+
+    /**
+     * Governance telemetry API — rule provenance lookup and override event recording.
+     * Exposed as window.bridgeAPI.governance.
+     */
+    governance: GovernanceAPI
+
+    /**
+     * Delta Mode baseline API — snapshot current violations so Bridge only
+     * reports NEW issues going forward (Gap 6).
+     *
+     * Optional-chained by callers (`window.bridgeAPI.baseline?.set(...)`)
+     * so Vitest / headless environments degrade gracefully.
+     */
+    baseline?: BaselineAPI
+
+    /**
+     * Governance Policy API — reads the configurable policy engine settings
+     * from `.bridge/policy.json` (Gap 3).
+     *
+     * Optional-chained by callers (`window.bridgeAPI.policy?.get()`)
+     * so Vitest / headless environments degrade gracefully.
+     */
+    policy?: PolicyAPI
 }
 
-// ── AI Types (Phase L) ────────────────────────────────────────────────────────
+// ── GOV.1 + GOV.2: Governance Provenance + Override Telemetry ────────────────
 
-export type AIProvider = 'anthropic' | 'openai' | 'gemini'
+/**
+ * Regulatory source authority that a governance rule traces back to.
+ * Renderer-side mirror of the bridge-mcp SourceAuthority type.
+ */
+export type SourceAuthority =
+    | 'WCAG 2.1 AA'
+    | 'WCAG 2.2 AA'
+    | 'SOC2'
+    | 'FDA SaMD'
+    | 'HIPAA'
+    | 'Bridge Design System'
+    | 'Custom'
 
-export interface AIConfig {
-    hasKey: boolean
-    provider: AIProvider
-    model: string | null
-    baseURL: string | null
+/**
+ * Provenance metadata for a single governance rule.
+ * Resolved from the static ruleProvenanceRegistry keyed by ruleId.
+ * Renderer-side mirror of the bridge-mcp RuleProvenance type.
+ */
+export interface RuleProvenance {
+    /** The rule identifier, e.g. 'A11Y-001', 'MITHRIL-TYP-002'. */
+    ruleId: string
+    /** Human-readable rule name. */
+    ruleName: string
+    /** Which regulatory body or standard this rule satisfies. */
+    sourceAuthority: SourceAuthority
+    /** Specific clause or section reference, e.g. 'WCAG 2.1 SC 1.1.1'. */
+    regulatoryReference: string
+    /** ISO 8601 date when the rule definition was last reviewed. */
+    lastUpdated: string
+    /** Brief rationale for why this rule exists. */
+    rationale: string
 }
 
-export interface ChatMessage {
-    role: 'user' | 'assistant' | 'tool_call' | 'tool_result'
-    content: string
-    toolUseId?: string
-    toolName?: string
-    toolInput?: Record<string, unknown>
+/**
+ * Compliance summary returned by the governance IPC.
+ * Used by ExportModal to render the "Compliance Summary" section (GOV.1).
+ */
+export interface ComplianceSummary {
+    /** Total violation count. */
+    totalViolations: number
+    /** Breakdown by source authority. */
+    byAuthority: Record<string, number>
+    /** Breakdown by severity. */
+    bySeverity: Record<string, number>
+    /** Full provenance records for each unique violated rule. */
+    violatedRules: RuleProvenance[]
+    /** ISO 8601 timestamp when this summary was generated. */
+    generatedAt: string
 }
 
-export interface OrchestratorChunk {
-    type: 'text' | 'tool_call' | 'tool_result' | 'done' | 'error' | 'validation_error'
-    text?: string
-    toolName?: string
-    toolInput?: Record<string, unknown>
-    toolUseId?: string
-    error?: string
+/**
+ * IPC surface for governance telemetry operations (GOV.1 + GOV.2).
+ * Exposed as window.bridgeAPI.governance.
+ */
+export interface GovernanceAPI {
+    /**
+     * Records a rule override event to the governance_events table.
+     * Fire-and-forget — the renderer does not need the result.
+     *
+     * @param payload.ruleId    — The rule being overridden (e.g. 'A11Y-001').
+     * @param payload.action    — 'disable' | 'enable' | 'change_severity' | 'reset' | 'reset_all'.
+     * @param payload.newValue  — The new state: { enabled?: boolean; severity?: string } or null for reset_all.
+     * @param payload.filePath  — Active file path when the override was made.
+     */
+    recordOverride: (payload: {
+        ruleId: string
+        action: 'disable' | 'enable' | 'change_severity' | 'reset' | 'reset_all'
+        newValue: { enabled?: boolean; severity?: string } | null
+        filePath: string
+    }) => Promise<void>
+
+    /**
+     * Returns the count of 'override' events in the current session.
+     * Used by StatusBar to show "Overrides (N)" badge.
+     */
+    getOverrideCount: () => Promise<number>
+
+    /**
+     * Returns a ComplianceSummary for the given violation ruleIds.
+     * Used by ExportModal to render the "Compliance Summary" section.
+     *
+     * @param ruleIds — Deduplicated list of violated ruleIds from the current audit.
+     */
+    getComplianceSummary: (ruleIds: string[]) => Promise<ComplianceSummary>
+
+    /**
+     * Subscribe to override recording events pushed by the main process.
+     * The main process pushes 'bridge:governance-override-recorded' after
+     * each successful recordEvent call so StatusBar can re-fetch the count
+     * without polling.
+     *
+     * Returns an unsubscribe function — pass it to useEffect cleanup.
+     */
+    onOverrideRecorded: (cb: () => void) => () => void
 }
 
-export interface RAGChunk {
-    id: number
-    content: string
-    source: string
-    chunkType: string
-    distance: number
+// ── Delta Mode: Baseline Types (Gap 6) ───────────────────────────────────────
+
+/**
+ * A single row from the `violation_baselines` SQLite table.
+ * Returned by `window.bridgeAPI.baseline.get(filePath)`.
+ *
+ * file_path      — Absolute path of the file the violation was found in.
+ * node_id        — The data-bridge-id of the violating JSX element.
+ * rule_id        — The violation type, e.g. 'color-drift', 'a11y'.
+ * severity       — Severity at snapshot time ('amber' | 'critical').
+ * snapshot_value — Serialised violation value at snapshot time, or null.
+ */
+export interface BaselineEntry {
+    file_path: string
+    node_id: string
+    rule_id: string
+    severity: string
+    snapshot_value: string | null
 }
 
-export interface AIAPI {
-    /** Start a chat turn — streams chunks back via onChunk. */
-    chat: (messages: ChatMessage[], context: Record<string, unknown>) => Promise<void>
-    /** Subscribe to streaming chunk events from the current ai:chat call. */
-    onChunk: (callback: (chunk: OrchestratorChunk) => void) => void
-    /** Remove the active chunk listener (call in useEffect cleanup). */
-    removeChunkListener: () => void
-    /** Returns current AI config: whether an API key is configured, the provider, and the selected model. */
-    getConfig: () => Promise<AIConfig>
-    /** Persist the full AI config (API key, provider, model, baseURL) to ~/.bridge/config.json. */
-    saveConfig: (config: { apiKey?: string; provider: AIProvider; model?: string; baseURL?: string }) => Promise<void>
+/**
+ * IPC surface for the violation baseline feature (Delta Mode).
+ * Exposed as `window.bridgeAPI.baseline`.
+ *
+ * set(violations)  — Bulk-upserts the provided violations as the new baseline.
+ *                    Idempotent: re-running on the same (node_id, rule_id) just
+ *                    refreshes snapshot_value. fire-and-forget from the UI.
+ * get(filePath)    — Returns all baseline entries for the given file.
+ *                    Used by the renderer to compute delta = current − baseline.
+ * clear()          — Deletes all baseline rows (resets delta mode globally).
+ * isSet()          — Returns true when any baseline rows exist, so the UI can
+ *                    show a "Delta Mode" badge without fetching the full list.
+ */
+export interface BaselineAPI {
+    set: (violations: Array<{
+        nodeId: string
+        ruleId: string
+        severity: string
+        filePath: string
+        value?: string
+    }>) => Promise<void>
 
-    // Phase N: Figma AST Hydrator
-    hydroPaste?: (payloadStr: string) => Promise<{ ok?: boolean; imports?: string[]; elements?: Array<{ code: string; import: string | null }>; error?: string }>
-    /** Listen for automatic hydro-paste events from the ingestion server. Returns unsubscribe fn. */
-    onHydroPasteAuto?: (callback: (payload: string) => void) => () => void
+    get: (filePath: string) => Promise<BaselineEntry[]>
 
-    /** Phase M: Semantic search over the design system knowledge base. */
-    queryRAG?: (query: string) => Promise<RAGChunk[]>
-    /** Phase M: Ingest text chunks into the RAG vector store. */
-    ingestRAG?: (chunks: Array<{ content: string; source?: string; chunkType?: string }>) => Promise<{ ingested: number }>
-    /** Phase M: Clear all RAG data for re-ingestion. */
-    clearRAG?: () => Promise<void>
-    /** Phase M: Return the current chunk count in the RAG store. */
-    ragCount?: () => Promise<number>
+    clear: () => Promise<void>
+
+    isSet: () => Promise<boolean>
+}
+
+// ── Policy Engine Types (Gap 3) ─────────────────────────────────────────────
+
+/**
+ * Governance enforcement mode for a rule category.
+ *   blocking  — violations block export (current default)
+ *   advisory  — violations warn but do not block export
+ *   off       — rule category disabled entirely
+ */
+export type PolicyMode = 'blocking' | 'advisory' | 'off'
+
+/**
+ * The `.bridge/policy.json` schema — renderer-side mirror.
+ */
+export interface BridgePolicy {
+    version: number
+    mithril: {
+        deltaE_threshold: number
+        deltaE_critical_threshold: number
+        mode: PolicyMode
+        ignore_patterns: string[]
+    }
+    a11y: {
+        level: 'A' | 'AA' | 'AAA'
+        mode: PolicyMode
+        disabled_rules: string[]
+    }
+    export_gate: {
+        block_on_mithril: boolean
+        block_on_a11y: boolean
+        block_on_overrides: boolean
+    }
+    baseline: {
+        enabled: boolean
+    }
+}
+
+/**
+ * IPC surface for reading the governance policy (Gap 3).
+ * Exposed as `window.bridgeAPI.policy`.
+ */
+export interface PolicyAPI {
+    /**
+     * Returns the active governance policy from the main process.
+     * Reads `.bridge/policy.json` from the project root; returns
+     * DEFAULT_POLICY if missing or malformed.
+     */
+    get: () => Promise<BridgePolicy>
 }
 
 declare global {

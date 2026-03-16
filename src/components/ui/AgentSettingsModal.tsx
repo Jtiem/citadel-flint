@@ -193,7 +193,7 @@ export function AgentSettingsModal({ onClose }: AgentSettingsModalProps) {
                     <button
                         type="button"
                         onClick={onClose}
-                        className="text-gray-600 transition-colors hover:text-gray-400"
+                        className="text-zinc-500 transition-colors hover:text-zinc-300"
                     >
                         <X className="h-4 w-4" />
                     </button>
@@ -218,7 +218,7 @@ export function AgentSettingsModal({ onClose }: AgentSettingsModalProps) {
                                         }`}
                                 >
                                     {p.label}
-                                    <div className="font-normal text-[9px] text-gray-500 mt-0.5">{p.tag}</div>
+                                    <div className="font-normal text-[10px] text-zinc-400 mt-0.5">{p.tag}</div>
                                 </button>
                             ))}
                         </div>
@@ -248,13 +248,13 @@ export function AgentSettingsModal({ onClose }: AgentSettingsModalProps) {
                             <button
                                 type="button"
                                 onClick={() => setKeyVisible((v) => !v)}
-                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-400"
+                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
                             >
                                 {keyVisible ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                             </button>
                         </div>
-                        <p className="mt-1 text-[10px] text-gray-600">
-                            Stored locally in <code className="text-gray-500">~/.bridge/config.json</code>
+                        <p className="mt-1 text-[10px] text-zinc-500">
+                            Stored locally in <code className="text-zinc-400">~/.bridge/config.json</code>
                         </p>
                     </div>
 
@@ -288,7 +288,7 @@ export function AgentSettingsModal({ onClose }: AgentSettingsModalProps) {
                                                 <span className={`text-[11px] font-medium ${isSelected ? 'text-gray-100' : 'text-gray-300'}`}>
                                                     {m.label}
                                                 </span>
-                                                <span className={`rounded border px-1.5 py-0.5 text-[9px] font-medium ${TIER_COLORS[m.tier]}`}>
+                                                <span className={`rounded border px-1.5 py-0.5 text-[10px] font-medium ${TIER_COLORS[m.tier]}`}>
                                                     {TIER_LABELS[m.tier]}
                                                 </span>
                                             </div>
@@ -311,10 +311,10 @@ export function AgentSettingsModal({ onClose }: AgentSettingsModalProps) {
                                 <Globe className="h-3 w-3" />
                                 Advanced
                                 {customBaseURL.trim() && (
-                                    <span className="rounded bg-amber-900/30 border border-amber-700/40 px-1.5 py-0.5 text-[9px] text-amber-400">Custom Endpoint Active</span>
+                                    <span className="rounded bg-amber-900/30 border border-amber-700/40 px-1.5 py-0.5 text-[10px] text-amber-400">Custom Endpoint Active</span>
                                 )}
                             </span>
-                            <ChevronDown className={`h-3 w-3 text-gray-600 transition-transform ${advancedOpen ? 'rotate-180' : ''}`} />
+                            <ChevronDown className={`h-3 w-3 text-zinc-500 transition-transform ${advancedOpen ? 'rotate-180' : ''}`} />
                         </button>
                         {advancedOpen && (
                             <div className="border-t border-gray-800 px-3 pb-3 pt-2.5 space-y-1.5">
@@ -328,7 +328,7 @@ export function AgentSettingsModal({ onClose }: AgentSettingsModalProps) {
                                     placeholder="https://gateway.cloudflare.com/v1/..."
                                     className="w-full rounded border border-gray-700 bg-gray-800 px-3 py-2 text-xs text-gray-200 placeholder-gray-600 outline-none transition-colors focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/20"
                                 />
-                                <p className="text-[10px] text-gray-600">
+                                <p className="text-[10px] text-zinc-500">
                                     Override the API endpoint for Cloudflare AI Gateway, Helicone, or any OpenAI-compatible proxy. Leave blank to use the provider's default.
                                 </p>
                             </div>

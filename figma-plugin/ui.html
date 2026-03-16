@@ -4,13 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <style>
-    *,
-    *::before,
-    *::after {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
       font-family: 'Inter', system-ui, sans-serif;
@@ -18,123 +12,325 @@
       background: #1e1e1e;
       color: #e0e0e0;
       padding: 16px;
-      height: 260px;
       display: flex;
       flex-direction: column;
       gap: 10px;
     }
 
-    h2 {
-      font-size: 13px;
-      font-weight: 600;
-      color: #fff;
+    h2 { font-size: 13px; font-weight: 600; color: #fff; }
+    p  { color: #a0a0a0; line-height: 1.5; }
+    .muted { font-size: 10px; color: #666; }
+
+    label {
+      display: flex; flex-direction: column; gap: 4px;
+      font-size: 11px; color: #999;
     }
 
-    p {
-      color: #a0a0a0;
-      line-height: 1.5;
-      flex: 1;
+    input {
+      padding: 6px 8px; border: 1px solid #444; border-radius: 4px;
+      background: #2c2c2c; color: #e0e0e0; font-size: 12px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      outline: none; transition: border-color 0.15s;
     }
+    input:focus { border-color: #7c5cfc; }
 
     button {
-      padding: 8px 12px;
-      border: none;
-      border-radius: 6px;
-      background: #7c5cfc;
-      color: #fff;
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-      width: 100%;
-      transition: opacity 0.15s;
+      padding: 8px 12px; border: none; border-radius: 6px;
+      background: #7c5cfc; color: #fff; font-size: 12px; font-weight: 600;
+      cursor: pointer; width: 100%; transition: opacity 0.15s;
+    }
+    button:hover:not(:disabled) { opacity: 0.85; }
+    button:disabled { background: #3a3a3a; color: #666; cursor: default; }
+
+    .btn-secondary { background: #2c2c2c; border: 1px solid #444; }
+    .btn-secondary:hover:not(:disabled) { background: #3c3c3c; }
+    .btn-text {
+      background: none; border: none; color: #777; font-size: 11px;
+      font-weight: 400; width: auto; padding: 4px 0; cursor: pointer;
+    }
+    .btn-text:hover { color: #bbb; }
+
+    .divider { height: 1px; background: #333; margin: 4px 0; }
+
+    .dot {
+      display: inline-block; width: 8px; height: 8px;
+      border-radius: 50%; margin-right: 6px; vertical-align: middle;
+    }
+    .dot-idle    { background: #555; }
+    .dot-checking { background: #f59e0b; animation: pulse 1s infinite; }
+    .dot-connected { background: #4caf50; }
+    .dot-error   { background: #f87171; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
     }
 
-    button:hover:not(:disabled) {
-      opacity: 0.85;
-    }
-
-    button:disabled {
-      background: #3a3a3a;
-      color: #666;
-      cursor: default;
-    }
-
-    .btn-secondary {
-      background: #2c2c2c;
-      border: 1px solid #444;
-    }
-
-    .btn-secondary:hover:not(:disabled) {
-      background: #3c3c3c;
-    }
+    /* View states — only one visible at a time */
+    .view { display: none; flex-direction: column; gap: 10px; }
+    .view.active { display: flex; }
 
     #status {
-      padding: 7px 10px;
-      border-radius: 4px;
-      font-size: 11px;
-      line-height: 1.4;
-      white-space: pre-wrap;
-      display: none;
+      padding: 7px 10px; border-radius: 4px; font-size: 11px;
+      line-height: 1.4; white-space: pre-wrap; display: none;
     }
+    #status.success { background: #162a16; color: #4caf50; border: 1px solid #2a4a2a; }
+    #status.error   { background: #2a1616; color: #f87171; border: 1px solid #4a2a2a; }
 
-    #status.success {
-      background: #162a16;
-      color: #4caf50;
-      border: 1px solid #2a4a2a;
+    .setup-header {
+      padding: 12px; background: #252525; border: 1px solid #333;
+      border-radius: 6px; text-align: center;
     }
+    .setup-header h2 { font-size: 14px; margin-bottom: 6px; }
 
-    #status.error {
-      background: #2a1616;
-      color: #f87171;
-      border: 1px solid #4a2a2a;
+    .connected-banner {
+      padding: 8px 10px; background: #162a16; border: 1px solid #2a4a2a;
+      border-radius: 4px; font-size: 11px; color: #4caf50;
+      display: flex; align-items: center; gap: 6px;
     }
   </style>
 </head>
 
 <body>
-  <h2>Bridge Link</h2>
-  <p>Sync your Figma variables to the local Bridge IDE token database.</p>
-  <button id="syncBtn">Sync Variables to Bridge</button>
-  <div style="height: 1px; background: #333; margin: 5px 0;"></div>
-  <p>Hydrate Bridge AST using the currently selected Figma Component.</p>
-  <button id="exportBtn" class="btn-secondary">Copy 'Code' to Clipboard</button>
-  <div id="status"></div>
+  <!-- ═══════════════════════════════════════════════════════════════════
+       VIEW 1: SETUP — shown when no saved credentials or connection failed
+       ═══════════════════════════════════════════════════════════════════ -->
+  <div id="viewSetup" class="view">
+    <div class="setup-header">
+      <h2>Connect to Bridge</h2>
+      <p>Paste the endpoint and secret from the Bridge Glass setup wizard.</p>
+    </div>
+
+    <label>
+      Endpoint
+      <input id="endpointInput" type="text" placeholder="http://127.0.0.1:4545" spellcheck="false" />
+    </label>
+    <label>
+      Secret (x-bridge-secret)
+      <input id="secretInput" type="text" placeholder="Paste from Bridge wizard" spellcheck="false" />
+    </label>
+    <button id="connectBtn">Connect</button>
+    <p class="muted">
+      In Bridge Glass, click "Connect Figma" on the Launch Screen to get these values.
+    </p>
+    <div id="setupStatus"></div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       VIEW 2: CHECKING — shown briefly while testing the connection
+       ═══════════════════════════════════════════════════════════════════ -->
+  <div id="viewChecking" class="view">
+    <h2>
+      <span class="dot dot-checking"></span>
+      Connecting to Bridge...
+    </h2>
+    <p>Checking <span id="checkingEndpoint"></span></p>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       VIEW 3: CONNECTED — shown when Bridge is reachable
+       ═══════════════════════════════════════════════════════════════════ -->
+  <div id="viewConnected" class="view">
+    <h2>
+      <span id="connectionDot" class="dot dot-connected"></span>
+      Bridge Link
+    </h2>
+
+    <div class="connected-banner">
+      <span>Connected to Bridge</span>
+    </div>
+
+    <p>Sync your Figma variables to the local Bridge IDE token database.</p>
+    <button id="syncBtn">Sync Variables to Bridge</button>
+
+    <div class="divider"></div>
+
+    <p>Hydrate Bridge AST using the currently selected Figma Component.</p>
+    <button id="exportBtn" class="btn-secondary">Export Selection to Bridge</button>
+
+    <div id="status"></div>
+
+    <div class="divider"></div>
+
+    <button id="changeSettingsBtn" class="btn-text" type="button">
+      Change connection settings
+    </button>
+  </div>
 
   <script>
-    // The dev secret must match BRIDGE_SECRET in electron/ingestion-server.ts.
-    // For production, this would be exchanged at runtime.
-    const BRIDGE_URL = 'http://127.0.0.1:4545'
-    const BRIDGE_SECRET = 'bridge-dev-secret-phase2'
+    // ── Defaults ──────────────────────────────────────────────────────
+    const DEFAULT_ENDPOINT = 'http://127.0.0.1:4545'
+    const DEFAULT_SECRET = 'bridge-dev-secret-phase2'
 
-    const btn = document.getElementById('syncBtn')
+    // ── DOM refs ──────────────────────────────────────────────────────
+    const viewSetup = document.getElementById('viewSetup')
+    const viewChecking = document.getElementById('viewChecking')
+    const viewConnected = document.getElementById('viewConnected')
+    const endpointInput = document.getElementById('endpointInput')
+    const secretInput = document.getElementById('secretInput')
+    const connectBtn = document.getElementById('connectBtn')
+    const setupStatus = document.getElementById('setupStatus')
+    const checkingEndpoint = document.getElementById('checkingEndpoint')
+    const syncBtn = document.getElementById('syncBtn')
     const exportBtn = document.getElementById('exportBtn')
     const status = document.getElementById('status')
+    const connectionDot = document.getElementById('connectionDot')
+    const changeSettingsBtn = document.getElementById('changeSettingsBtn')
 
+    // ── State ─────────────────────────────────────────────────────────
+    let bridgeEndpoint = DEFAULT_ENDPOINT
+    let bridgeSecret = DEFAULT_SECRET
+    let hasVerifiedConnection = false
+
+    // ── View management ───────────────────────────────────────────────
+    function showView(viewId) {
+      viewSetup.classList.remove('active')
+      viewChecking.classList.remove('active')
+      viewConnected.classList.remove('active')
+      document.getElementById(viewId).classList.add('active')
+    }
+
+    // ── Connection check ──────────────────────────────────────────────
+    async function checkConnection(endpoint, secret) {
+      checkingEndpoint.textContent = endpoint
+      showView('viewChecking')
+
+      try {
+        const controller = new AbortController()
+        const timeout = setTimeout(() => controller.abort(), 3000)
+
+        const res = await fetch(`${endpoint}/ingest`, {
+          method: 'OPTIONS',
+          signal: controller.signal,
+        })
+        clearTimeout(timeout)
+
+        // OPTIONS returns 204 with CORS headers — server is alive
+        hasVerifiedConnection = true
+        bridgeEndpoint = endpoint
+        bridgeSecret = secret
+        showView('viewConnected')
+        return true
+      } catch (err) {
+        // Server not reachable — but that's OK if we have saved creds,
+        // the user might want to try syncing anyway (Bridge may start later)
+        return false
+      }
+    }
+
+    // ── Initial load ──────────────────────────────────────────────────
+    // Ask code.ts to load saved settings
+    parent.postMessage({ pluginMessage: { type: 'load-settings' } }, '*')
+
+    // ── Connect button ────────────────────────────────────────────────
+    connectBtn.onclick = async () => {
+      const endpoint = endpointInput.value.trim() || DEFAULT_ENDPOINT
+      const secret = secretInput.value.trim() || DEFAULT_SECRET
+
+      connectBtn.disabled = true
+      connectBtn.textContent = 'Connecting...'
+
+      const reachable = await checkConnection(endpoint, secret)
+
+      if (reachable) {
+        // Save settings on successful connection
+        parent.postMessage({
+          pluginMessage: {
+            type: 'save-settings',
+            data: { endpoint, secret }
+          }
+        }, '*')
+      } else {
+        // Show setup view with error
+        showView('viewSetup')
+        showSetupError(
+          `Cannot reach Bridge at ${endpoint}\n\n` +
+          '• Make sure Bridge is open and running\n' +
+          '• Check the endpoint is correct\n' +
+          '• Bridge must be running before you connect'
+        )
+        connectBtn.disabled = false
+        connectBtn.textContent = 'Connect'
+      }
+    }
+
+    // ── Change settings (from connected view) ─────────────────────────
+    changeSettingsBtn.onclick = () => {
+      endpointInput.value = bridgeEndpoint
+      secretInput.value = bridgeSecret
+      hasVerifiedConnection = false
+      showView('viewSetup')
+    }
+
+    // ── Helpers ────────────────────────────────────────────────────────
     function showStatus(type, message) {
       status.className = type
       status.textContent = message
       status.style.display = 'block'
     }
 
-    function resetBtn() {
-      btn.disabled = false
-      btn.textContent = 'Sync Variables to Bridge'
-      exportBtn.disabled = false
-      exportBtn.textContent = "Copy 'Code' to Clipboard"
+    function showSetupError(message) {
+      setupStatus.className = 'error'
+      setupStatus.textContent = message
+      setupStatus.style.display = 'block'
+      setupStatus.style.padding = '7px 10px'
+      setupStatus.style.borderRadius = '4px'
+      setupStatus.style.fontSize = '11px'
+      setupStatus.style.lineHeight = '1.4'
+      setupStatus.style.whiteSpace = 'pre-wrap'
+      setupStatus.style.background = '#2a1616'
+      setupStatus.style.color = '#f87171'
+      setupStatus.style.border = '1px solid #4a2a2a'
     }
 
-    // Receive payload or error from code.js (Figma main thread)
+    function resetBtn() {
+      syncBtn.disabled = false
+      syncBtn.textContent = 'Sync Variables to Bridge'
+      exportBtn.disabled = false
+      exportBtn.textContent = 'Export Selection to Bridge'
+    }
+
+    // ── Message handler ───────────────────────────────────────────────
     window.onmessage = async (event) => {
       const msg = event.data && event.data.pluginMessage
       if (!msg) return
 
+      // Settings loaded from figma.clientStorage
+      if (msg.type === 'settings-loaded') {
+        if (msg.data && msg.data.endpoint && msg.data.secret) {
+          // Has saved credentials — try connecting automatically
+          bridgeEndpoint = msg.data.endpoint
+          bridgeSecret = msg.data.secret
+          endpointInput.value = bridgeEndpoint
+          secretInput.value = bridgeSecret
+
+          const reachable = await checkConnection(bridgeEndpoint, bridgeSecret)
+          if (!reachable) {
+            // Has creds but Bridge is offline — show connected view anyway
+            // (user may start Bridge later and sync will work)
+            hasVerifiedConnection = false
+            connectionDot.className = 'dot dot-idle'
+            document.querySelector('.connected-banner').innerHTML =
+              '<span style="color: #f59e0b;">Bridge not detected — start Bridge IDE, then sync</span>'
+            showView('viewConnected')
+          }
+        } else {
+          // No saved credentials — show setup
+          endpointInput.value = DEFAULT_ENDPOINT
+          secretInput.value = ''
+          showView('viewSetup')
+        }
+        return
+      }
+
+      // Variable sync payload from code.ts
       if (msg.type === 'payload') {
         try {
-          const res = await fetch(`${BRIDGE_URL}/ingest`, {
+          const res = await fetch(`${bridgeEndpoint}/ingest`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'x-bridge-secret': BRIDGE_SECRET,
+              'x-bridge-secret': bridgeSecret,
             },
             body: JSON.stringify(msg.data),
           })
@@ -142,73 +338,91 @@
           if (res.ok) {
             const json = await res.json()
             showStatus('success', `✓ Synced ${json.count} token${json.count === 1 ? '' : 's'} successfully.`)
+            connectionDot.className = 'dot dot-connected'
+            document.querySelector('.connected-banner').innerHTML =
+              '<span>Connected to Bridge</span>'
+            hasVerifiedConnection = true
+          } else if (res.status === 401) {
+            showStatus('error',
+              'Authentication failed — wrong secret.\n\n' +
+              'Click "Change connection settings" below and paste the correct secret from Bridge.')
+            connectionDot.className = 'dot dot-error'
           } else {
             const json = await res.json().catch(() => ({ error: res.statusText }))
             showStatus('error', `Server error ${res.status}: ${json.error ?? 'Unknown'}`)
+            connectionDot.className = 'dot dot-error'
           }
         } catch (err) {
           showStatus('error',
-            `Network error: ${String(err)}\n\nMake sure Bridge IDE is open and running.`
+            `Cannot reach Bridge at ${bridgeEndpoint}\n\n` +
+            '• Make sure Bridge is open and running\n' +
+            '• Check connection settings below'
           )
+          connectionDot.className = 'dot dot-error'
         }
         resetBtn()
       }
 
+      // Plugin error
       if (msg.type === 'error') {
         showStatus('error', `Plugin error: ${msg.message}`)
         resetBtn()
       }
 
+      // AST export payload
       if (msg.type === 'ast-payload') {
-        const astData = typeof msg.data === 'string' ? msg.data : JSON.stringify(msg.data);
+        const astData = typeof msg.data === 'string' ? msg.data : JSON.stringify(msg.data)
         const fullPayload = {
-          type: "application/x-bridge-figma-ast",
+          type: 'application/x-bridge-figma-ast',
           payload: astData
-        };
+        }
 
         try {
-          // Attempt automatic push to Bridge IDE
-          const res = await fetch(`${BRIDGE_URL}/ingest-ast`, {
+          const res = await fetch(`${bridgeEndpoint}/ingest-ast`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'x-bridge-secret': BRIDGE_SECRET,
+              'x-bridge-secret': bridgeSecret,
             },
             body: JSON.stringify(fullPayload),
-          });
+          })
 
           if (res.ok) {
-            showStatus('success', '✓ Automatically synced layout to Bridge IDE!');
-            resetBtn();
-            return;
+            showStatus('success', '✓ Synced layout to Bridge!')
+            connectionDot.className = 'dot dot-connected'
+            resetBtn()
+            return
           }
         } catch (err) {
-          // Fallback to clipboard if server is down or network fails
+          // Fallback to clipboard
         }
 
-        // Fallback: Copy to clipboard if auto-sync fails
-        const clipboardString = JSON.stringify(fullPayload);
-        const textArea = document.createElement("textarea");
-        textArea.value = clipboardString;
-        document.body.appendChild(textArea);
-        textArea.focus();
-        textArea.select();
         try {
-          document.execCommand('copy');
-          showStatus('success', '✓ Bridge IDE link busy. Copied to clipboard instead! Use Cmd+V in Bridge.');
+          await navigator.clipboard.writeText(JSON.stringify(fullPayload))
+          showStatus('success', '✓ Bridge busy — copied to clipboard. Use Cmd+V in Bridge.')
         } catch (err) {
-          showStatus('error', 'Failed to sync or copy.');
+          const textArea = document.createElement('textarea')
+          textArea.value = JSON.stringify(fullPayload)
+          document.body.appendChild(textArea)
+          textArea.focus()
+          textArea.select()
+          try {
+            document.execCommand('copy')
+            showStatus('success', '✓ Bridge busy — copied to clipboard. Use Cmd+V in Bridge.')
+          } catch (e) {
+            showStatus('error', 'Failed to sync or copy.')
+          }
+          document.body.removeChild(textArea)
         }
-        document.body.removeChild(textArea);
-        resetBtn();
+        resetBtn()
       }
     }
 
-    btn.onclick = () => {
-      btn.disabled = true
-      btn.textContent = 'Syncing…'
+    // ── Button handlers ───────────────────────────────────────────────
+    syncBtn.onclick = () => {
+      syncBtn.disabled = true
+      syncBtn.textContent = 'Syncing…'
       status.style.display = 'none'
-      // Ask code.js to collect variables and send them back as 'payload'
       parent.postMessage({ pluginMessage: { type: 'sync' } }, '*')
     }
 

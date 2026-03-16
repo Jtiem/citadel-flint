@@ -803,7 +803,7 @@ export function LivePreview() {
             type="button"
             title="Design mode: click to select AST nodes"
             onClick={() => setCanvasMode('design')}
-            className={`flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${canvasMode === 'design' ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:text-gray-400'}`}
+            className={`flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${canvasMode === 'design' ? 'bg-indigo-600 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
           >
             <MousePointer2 size={10} />
             Design
@@ -812,7 +812,7 @@ export function LivePreview() {
             type="button"
             title="Interact mode: test native events"
             onClick={() => setCanvasMode('interact')}
-            className={`flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${canvasMode === 'interact' ? 'bg-emerald-600 text-white' : 'text-gray-600 hover:text-gray-400'}`}
+            className={`flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${canvasMode === 'interact' ? 'bg-emerald-600 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
           >
             <Hand size={10} />
             Interact
@@ -820,7 +820,7 @@ export function LivePreview() {
         </div>
 
         {/* Quick Load */}
-        <span className="text-[9px] font-medium uppercase tracking-wider text-gray-700">
+        <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
           Quick Load
         </span>
         <button
@@ -951,7 +951,7 @@ export function LivePreview() {
                     strokeWidth="0.75"
                   />
                 </svg>
-                <span className="absolute left-4 top-0 whitespace-nowrap rounded bg-red-500 px-1 py-0.5 text-[9px] font-medium leading-tight text-white">
+                <span className="absolute left-4 top-0 whitespace-nowrap rounded bg-red-500 px-1 py-0.5 text-[10px] font-medium leading-tight text-white">
                   {user.user_id}
                 </span>
               </div>

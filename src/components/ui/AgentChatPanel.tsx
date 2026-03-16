@@ -28,13 +28,14 @@ import 'highlight.js/styles/github-dark.css'
 import {
     Bot, Send, Trash2, Key, CheckCircle2, XCircle, Loader2, Zap,
     Square, Copy, Check, Pencil, RotateCcw, ChevronDown, ChevronRight,
-    FileCode, Cpu, Settings,
+    FileCode, Cpu, Settings, Activity,
 } from 'lucide-react'
 
 import { useOrchestratorStore } from '../../store/orchestratorStore'
 import { useCanvasStore } from '../../store/canvasStore'
 import { useEditorStore } from '../../store/editorStore'
 import { AgentSettingsModal } from './AgentSettingsModal'
+import { ActivityFeed } from './ActivityFeed'
 import type { AgentMessage, PendingToolCall } from '../../store/orchestratorStore'
 
 // ── Suggested prompts shown in empty state ────────────────────────────────────
@@ -102,7 +103,7 @@ function ConfigScreen({ onOpenSettings }: { onOpenSettings?: () => void }) {
                     <button
                         type="button"
                         onClick={onOpenSettings}
-                        className="w-full text-center text-[11px] text-gray-600 hover:text-gray-400"
+                        className="w-full text-center text-[11px] text-zinc-500 hover:text-zinc-300"
                     >
                         Open full AI Settings →
                     </button>
@@ -122,13 +123,13 @@ function ContextPillBar() {
     return (
         <div className="flex shrink-0 flex-wrap gap-1 border-b border-gray-800/60 px-3 py-1.5">
             {activeFilePath && (
-                <span className="inline-flex items-center gap-1 rounded bg-gray-800 px-1.5 py-0.5 text-[9px] text-gray-400">
+                <span className="inline-flex items-center gap-1 rounded bg-gray-800 px-1.5 py-0.5 text-[10px] text-zinc-400">
                     <FileCode className="h-2.5 w-2.5 text-gray-500" />
                     {activeFilePath.split('/').pop()}
                 </span>
             )}
             {selectedNodeId && (
-                <span className="inline-flex items-center gap-1 rounded bg-indigo-900/30 px-1.5 py-0.5 text-[9px] text-indigo-400">
+                <span className="inline-flex items-center gap-1 rounded bg-indigo-900/30 px-1.5 py-0.5 text-[10px] text-indigo-400">
                     <Cpu className="h-2.5 w-2.5" />
                     #{selectedNodeId.slice(0, 8)}
                 </span>
@@ -250,7 +251,7 @@ function ToolCallCard({ call }: { call: PendingToolCall }) {
                 <div className="flex items-center gap-2 border-b border-white/5 px-3 py-2">
                     <Zap className="h-3 w-3 text-yellow-400" />
                     <span className="font-medium font-mono text-yellow-400">{call.toolName}</span>
-                    <span className="ml-auto font-mono text-gray-600 text-[9px]">#{targetId}</span>
+                    <span className="ml-auto font-mono text-zinc-500 text-[10px]">#{targetId}</span>
                 </div>
 
                 {/* Summary */}
@@ -309,7 +310,7 @@ function ToolCallCard({ call }: { call: PendingToolCall }) {
             </button>
             {expanded && (
                 <div className="border-t border-gray-800 px-2 py-1.5">
-                    <pre className="max-h-32 overflow-y-auto whitespace-pre-wrap font-mono text-[9px] text-gray-500">
+                    <pre className="max-h-32 overflow-y-auto whitespace-pre-wrap font-mono text-[10px] text-zinc-400">
                         {JSON.stringify(call.input, null, 2)}
                     </pre>
                 </div>
@@ -391,7 +392,7 @@ function MessageRow({
                                 type="button"
                                 title="Copy"
                                 onClick={() => copy(msg.content)}
-                                className="flex items-center gap-0.5 text-[9px] text-gray-600 hover:text-gray-400"
+                                className="flex items-center gap-0.5 text-[10px] text-zinc-500 hover:text-zinc-300"
                             >
                                 {copied ? <Check className="h-2.5 w-2.5 text-emerald-400" /> : <Copy className="h-2.5 w-2.5" />}
                             </button>
@@ -399,7 +400,7 @@ function MessageRow({
                                 type="button"
                                 title="Edit & resubmit"
                                 onClick={() => onEdit(index, msg.content)}
-                                className="flex items-center gap-0.5 text-[9px] text-gray-600 hover:text-gray-400"
+                                className="flex items-center gap-0.5 text-[10px] text-zinc-500 hover:text-zinc-300"
                             >
                                 <Pencil className="h-2.5 w-2.5" />
                             </button>
@@ -464,7 +465,7 @@ function EditBar({
 
     return (
         <div className="shrink-0 border-t border-indigo-500/30 bg-indigo-950/30 p-2">
-            <p className="mb-1 text-[9px] text-indigo-400">✏️ Editing message — resubmit will clear all subsequent replies</p>
+            <p className="mb-1 text-[10px] text-indigo-400">Editing message — resubmit will clear all subsequent replies</p>
             <div className="flex items-end gap-2 rounded border border-indigo-500/40 bg-gray-900 px-2 py-1.5">
                 <textarea
                     value={text}
@@ -492,7 +493,7 @@ function EditBar({
                 <button
                     type="button"
                     onClick={onCancel}
-                    className="text-[10px] text-gray-600 hover:text-gray-400"
+                    className="text-[10px] text-zinc-500 hover:text-zinc-300"
                 >
                     Cancel
                 </button>
@@ -518,6 +519,7 @@ export function AgentChatPanel() {
     const [input, setInput] = useState('')
     const [editTarget, setEditTarget] = useState<{ index: number; text: string } | null>(null)
     const [showSettings, setShowSettings] = useState(false)
+    const [panelTab, setPanelTab] = useState<'chat' | 'activity'>('chat')
     const bottomRef = useRef<HTMLDivElement>(null)
 
     // Check API key on mount
@@ -525,10 +527,12 @@ export function AgentChatPanel() {
         void initConfig()
     }, [initConfig])
 
-    // Auto-scroll
+    // Auto-scroll (only relevant in chat tab)
     useEffect(() => {
-        bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }, [messages, streamBuffer])
+        if (panelTab === 'chat') {
+            bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+        }
+    }, [messages, streamBuffer, panelTab])
 
     const handleSend = () => {
         const text = input.trim()
@@ -560,125 +564,166 @@ export function AgentChatPanel() {
         <div className="flex h-full flex-col">
             {/* Settings Modal */}
             {showSettings && <AgentSettingsModal onClose={() => setShowSettings(false)} />}
-            {/* Header */}
-            <div className="flex shrink-0 items-center gap-2 border-b border-gray-800/60 px-3 py-2">
-                <Bot className="h-3.5 w-3.5 text-indigo-400" />
-                <span className="text-[11px] font-semibold text-gray-300">Bridge Auditor</span>
-                {lastTier && (
-                    <span className={`ml-1 rounded px-1.5 py-0.5 text-[9px] font-medium ${lastTier === 'flash' ? 'bg-yellow-900/30 text-yellow-400' : 'bg-purple-900/30 text-purple-400'
-                        }`}>
-                        {lastTier === 'flash' ? '⚡ Flash' : '🧠 Thinking'}
-                    </span>
-                )}
-                {isThinking ? (
-                    <span className="ml-auto text-[9px] text-gray-500 animate-pulse flex items-center gap-1.5">
-                        <Loader2 className="h-2.5 w-2.5 animate-spin" />
-                        Generating…
-                    </span>
-                ) : messages.length > 0 ? (
-                    <span className="ml-auto text-[9px] text-emerald-500 flex items-center gap-1">
-                        <CheckCircle2 className="h-2.5 w-2.5" />
-                        Ready
-                    </span>
-                ) : null}
+
+            {/* Panel tab switcher: Chat | Activity */}
+            <div className="flex shrink-0 border-b border-gray-800/60">
                 <button
                     type="button"
-                    title="AI Settings"
-                    onClick={() => setShowSettings(true)}
-                    className={`${isThinking ? '' : 'ml-auto'} text-gray-600 transition-colors hover:text-gray-400`}
+                    onClick={() => setPanelTab('chat')}
+                    className={`flex flex-1 items-center justify-center gap-1.5 py-2 text-[10px] font-medium uppercase tracking-wider transition-colors ${
+                        panelTab === 'chat'
+                            ? 'border-b-2 border-indigo-500 text-indigo-400'
+                            : 'text-zinc-500 hover:text-zinc-300'
+                    }`}
                 >
-                    <Settings className="h-3 w-3" />
+                    <Bot className="h-2.5 w-2.5" />
+                    Chat
                 </button>
                 <button
                     type="button"
-                    title="Clear conversation"
-                    onClick={clearHistory}
-                    className="text-gray-600 transition-colors hover:text-gray-400"
+                    onClick={() => setPanelTab('activity')}
+                    className={`flex flex-1 items-center justify-center gap-1.5 py-2 text-[10px] font-medium uppercase tracking-wider transition-colors ${
+                        panelTab === 'activity'
+                            ? 'border-b-2 border-indigo-500 text-indigo-400'
+                            : 'text-zinc-500 hover:text-zinc-300'
+                    }`}
                 >
-                    <Trash2 className="h-3 w-3" />
+                    <Activity className="h-2.5 w-2.5" />
+                    Activity
                 </button>
             </div>
 
-            {/* Context pill bar — shows active file and selected node */}
-            <ContextPillBar />
-
-            {/* Message thread */}
-            <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto py-2">
-                {messages.length === 0 && (
-                    <div className="px-4 py-4 text-center">
-                        <Bot className="mx-auto mb-3 h-6 w-6 text-indigo-500/40" />
-                        <p className="text-[11px] text-gray-600">Bridge Auditor is ready. Every change requires your approval before touching the AST.</p>
-                        <div className="mt-3 space-y-1">
-                            {SUGGESTIONS.map((s) => (
-                                <button
-                                    key={s}
-                                    type="button"
-                                    onClick={() => { setInput(s.replace(/^[\p{Emoji}] /u, '')) }}
-                                    className="block w-full rounded border border-gray-800 bg-gray-900/60 px-3 py-1.5 text-left text-[11px] text-gray-500 transition-colors hover:border-gray-700 hover:text-gray-400"
-                                >
-                                    {s}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-                )}
-                {messages.map((msg, i) => (
-                    <MessageRow
-                        key={msg.id}
-                        msg={msg}
-                        index={i}
-                        onEdit={handleEditStart}
-                    />
-                ))}
-                {isThinking && <TypingIndicator streamBuffer={streamBuffer} activeStatus={activeStatus} />}
-                <div ref={bottomRef} />
-            </div>
-
-            {/* Edit bar (replaces input while editing) */}
-            {editTarget ? (
-                <EditBar
-                    initialText={editTarget.text}
-                    onSubmit={handleEditSubmit}
-                    onCancel={() => setEditTarget(null)}
-                />
-            ) : (
-                /* Input bar */
-                <div className="shrink-0 border-t border-gray-800/60 p-2">
-                    <div className="flex items-end gap-2 rounded border border-gray-700 bg-gray-900 px-2 py-1.5 focus-within:border-indigo-500/50">
-                        <textarea
-                            value={input}
-                            onChange={(e) => setInput(e.target.value)}
-                            onKeyDown={handleKeyDown}
-                            placeholder="Ask the Auditor…"
-                            rows={1}
-                            disabled={isThinking}
-                            className="max-h-32 min-h-[1.5rem] flex-1 resize-none bg-transparent text-[12px] text-gray-200 placeholder-gray-600 outline-none disabled:opacity-40"
-                            style={{ fieldSizing: 'content' } as React.CSSProperties}
-                        />
-
-                        {/* Stop / Send button */}
-                        {isThinking ? (
-                            <button
-                                type="button"
-                                onClick={stopGeneration}
-                                title="Stop generation"
-                                className="mb-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded bg-red-900/30 text-red-400 transition-colors hover:bg-red-900/50"
-                            >
-                                <Square className="h-3 w-3" />
-                            </button>
-                        ) : (
-                            <button
-                                type="button"
-                                onClick={handleSend}
-                                disabled={!input.trim()}
-                                className="mb-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-indigo-400 transition-colors hover:text-indigo-300 disabled:opacity-30"
-                            >
-                                <Send className="h-3.5 w-3.5" />
-                            </button>
-                        )}
-                    </div>
-                    <p className="mt-1 text-[9px] text-gray-700">↵ Send · Shift+↵ New line · Hover a message to copy or edit</p>
+            {/* Activity tab — renders ActivityFeed */}
+            {panelTab === 'activity' && (
+                <div className="min-h-0 flex-1 overflow-hidden">
+                    <ActivityFeed />
                 </div>
+            )}
+
+            {/* Chat tab */}
+            {panelTab === 'chat' && (
+                <>
+                    {/* Header */}
+                    <div className="flex shrink-0 items-center gap-2 border-b border-gray-800/60 px-3 py-2">
+                        <Bot className="h-3.5 w-3.5 text-indigo-400" />
+                        <span className="text-[11px] font-semibold text-gray-300">Bridge Auditor</span>
+                        {lastTier && (
+                            <span className={`ml-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${lastTier === 'flash' ? 'bg-yellow-900/30 text-yellow-400' : 'bg-purple-900/30 text-purple-400'
+                                }`}>
+                                {lastTier === 'flash' ? '⚡ Flash' : '🧠 Thinking'}
+                            </span>
+                        )}
+                        {isThinking ? (
+                            <span className="ml-auto text-[10px] text-zinc-400 animate-pulse flex items-center gap-1.5">
+                                <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                                Generating…
+                            </span>
+                        ) : messages.length > 0 ? (
+                            <span className="ml-auto text-[10px] text-emerald-500 flex items-center gap-1">
+                                <CheckCircle2 className="h-2.5 w-2.5" />
+                                Ready
+                            </span>
+                        ) : null}
+                        <button
+                            type="button"
+                            title="AI Settings"
+                            onClick={() => setShowSettings(true)}
+                            className={`${isThinking ? '' : 'ml-auto'} text-zinc-500 transition-colors hover:text-zinc-300`}
+                        >
+                            <Settings className="h-3 w-3" />
+                        </button>
+                        <button
+                            type="button"
+                            title="Clear conversation"
+                            onClick={clearHistory}
+                            className="text-zinc-500 transition-colors hover:text-zinc-300"
+                        >
+                            <Trash2 className="h-3 w-3" />
+                        </button>
+                    </div>
+
+                    {/* Context pill bar — shows active file and selected node */}
+                    <ContextPillBar />
+
+                    {/* Message thread */}
+                    <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto py-2">
+                        {messages.length === 0 && (
+                            <div className="px-4 py-4 text-center">
+                                <Bot className="mx-auto mb-3 h-6 w-6 text-indigo-500/40" />
+                                <p className="text-[11px] text-zinc-500">Bridge Auditor is ready. Every change requires your approval before touching the AST.</p>
+                                <div className="mt-3 space-y-1">
+                                    {SUGGESTIONS.map((s) => (
+                                        <button
+                                            key={s}
+                                            type="button"
+                                            onClick={() => { setInput(s.replace(/^[\p{Emoji}] /u, '')) }}
+                                            className="block w-full rounded border border-gray-800 bg-gray-900/60 px-3 py-1.5 text-left text-[11px] text-gray-500 transition-colors hover:border-gray-700 hover:text-gray-400"
+                                        >
+                                            {s}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                        {messages.map((msg, i) => (
+                            <MessageRow
+                                key={msg.id}
+                                msg={msg}
+                                index={i}
+                                onEdit={handleEditStart}
+                            />
+                        ))}
+                        {isThinking && <TypingIndicator streamBuffer={streamBuffer} activeStatus={activeStatus} />}
+                        <div ref={bottomRef} />
+                    </div>
+
+                    {/* Edit bar (replaces input while editing) */}
+                    {editTarget ? (
+                        <EditBar
+                            initialText={editTarget.text}
+                            onSubmit={handleEditSubmit}
+                            onCancel={() => setEditTarget(null)}
+                        />
+                    ) : (
+                        /* Input bar */
+                        <div className="shrink-0 border-t border-gray-800/60 p-2">
+                            <div className="flex items-end gap-2 rounded border border-gray-700 bg-gray-900 px-2 py-1.5 focus-within:border-indigo-500/50">
+                                <textarea
+                                    value={input}
+                                    onChange={(e) => setInput(e.target.value)}
+                                    onKeyDown={handleKeyDown}
+                                    placeholder="Ask the Auditor…"
+                                    rows={1}
+                                    disabled={isThinking}
+                                    className="max-h-32 min-h-[1.5rem] flex-1 resize-none bg-transparent text-[12px] text-gray-200 placeholder-gray-600 outline-none disabled:opacity-40"
+                                    style={{ fieldSizing: 'content' } as React.CSSProperties}
+                                />
+
+                                {/* Stop / Send button */}
+                                {isThinking ? (
+                                    <button
+                                        type="button"
+                                        onClick={stopGeneration}
+                                        title="Stop generation"
+                                        className="mb-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded bg-red-900/30 text-red-400 transition-colors hover:bg-red-900/50"
+                                    >
+                                        <Square className="h-3 w-3" />
+                                    </button>
+                                ) : (
+                                    <button
+                                        type="button"
+                                        onClick={handleSend}
+                                        disabled={!input.trim()}
+                                        className="mb-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-indigo-400 transition-colors hover:text-indigo-300 disabled:opacity-30"
+                                    >
+                                        <Send className="h-3.5 w-3.5" />
+                                    </button>
+                                )}
+                            </div>
+                            <p className="mt-1 text-[10px] text-zinc-500">↵ Send · Shift+↵ New line · Hover a message to copy or edit</p>
+                        </div>
+                    )}
+                </>
             )}
         </div>
     )

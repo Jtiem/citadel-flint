@@ -1,0 +1,205 @@
+{
+  "$schema": "https://tr.designtokens.org/format/",
+  "color": {
+    "primary": {
+      "$type": "color",
+      "$value": "#0066FF",
+      "$description": "Primary brand blue — interactive elements, CTAs, focus rings"
+    },
+    "primary-hover": {
+      "$type": "color",
+      "$value": "#0052CC",
+      "$description": "Primary blue darkened 20% for hover states"
+    },
+    "primary-subtle": {
+      "$type": "color",
+      "$value": "#E5EEFF",
+      "$description": "10% primary blue tint — hover backgrounds, chips"
+    },
+    "surface": {
+      "$type": "color",
+      "$value": "#FFFFFF",
+      "$description": "Default page and card surface"
+    },
+    "surface-raised": {
+      "$type": "color",
+      "$value": "#F8F9FA",
+      "$description": "Slightly elevated surface — sidebars, panels"
+    },
+    "surface-overlay": {
+      "$type": "color",
+      "$value": "#F0F1F3",
+      "$description": "Modal backdrops and dividers"
+    },
+    "on-surface": {
+      "$type": "color",
+      "$value": "#111827",
+      "$description": "Primary text on light surface"
+    },
+    "on-surface-muted": {
+      "$type": "color",
+      "$value": "#6B7280",
+      "$description": "Secondary / helper text"
+    },
+    "on-primary": {
+      "$type": "color",
+      "$value": "#FFFFFF",
+      "$description": "Text/icons on primary-color backgrounds"
+    },
+    "danger": {
+      "$type": "color",
+      "$value": "#DC2626",
+      "$description": "Destructive actions and error states"
+    },
+    "success": {
+      "$type": "color",
+      "$value": "#16A34A",
+      "$description": "Success states and positive indicators"
+    },
+    "warning": {
+      "$type": "color",
+      "$value": "#D97706",
+      "$description": "Warning states and caution indicators"
+    },
+    "border": {
+      "$type": "color",
+      "$value": "#E5E7EB",
+      "$description": "Subtle dividers and input borders"
+    }
+  },
+  "spacing": {
+    "1": {
+      "$type": "dimension",
+      "$value": "4px",
+      "$description": "Smallest spacing unit — icon gaps, tight padding"
+    },
+    "2": {
+      "$type": "dimension",
+      "$value": "8px",
+      "$description": "Compact spacing — badge padding, list item gaps"
+    },
+    "3": {
+      "$type": "dimension",
+      "$value": "12px",
+      "$description": "Slight breathing room — form element inner padding"
+    },
+    "4": {
+      "$type": "dimension",
+      "$value": "16px",
+      "$description": "Standard component padding"
+    },
+    "5": {
+      "$type": "dimension",
+      "$value": "20px",
+      "$description": "Medium spacing — section sub-gaps"
+    },
+    "6": {
+      "$type": "dimension",
+      "$value": "24px",
+      "$description": "Card / panel padding"
+    },
+    "8": {
+      "$type": "dimension",
+      "$value": "32px",
+      "$description": "Section-level spacing"
+    },
+    "10": {
+      "$type": "dimension",
+      "$value": "40px",
+      "$description": "Large layout gap"
+    },
+    "12": {
+      "$type": "dimension",
+      "$value": "48px",
+      "$description": "Hero and header spacing"
+    }
+  },
+  "fontSize": {
+    "xs": {
+      "$type": "dimension",
+      "$value": "12px",
+      "$description": "Captions and metadata text"
+    },
+    "sm": {
+      "$type": "dimension",
+      "$value": "14px",
+      "$description": "Secondary UI text — labels, helper text, table cells"
+    },
+    "base": {
+      "$type": "dimension",
+      "$value": "16px",
+      "$description": "Default body copy"
+    },
+    "lg": {
+      "$type": "dimension",
+      "$value": "20px",
+      "$description": "Sub-headings and card titles"
+    },
+    "xl": {
+      "$type": "dimension",
+      "$value": "24px",
+      "$description": "Section headings"
+    },
+    "2xl": {
+      "$type": "dimension",
+      "$value": "32px",
+      "$description": "Page-level headings"
+    }
+  },
+  "fontFamily": {
+    "sans": {
+      "$type": "fontFamily",
+      "$value": "Inter, ui-sans-serif, system-ui, sans-serif",
+      "$description": "Primary UI typeface"
+    },
+    "mono": {
+      "$type": "fontFamily",
+      "$value": "JetBrains Mono, ui-monospace, monospace",
+      "$description": "Code snippets and technical values"
+    }
+  },
+  "borderRadius": {
+    "sm": {
+      "$type": "dimension",
+      "$value": "4px",
+      "$description": "Tight rounding — badges, chips"
+    },
+    "md": {
+      "$type": "dimension",
+      "$value": "8px",
+      "$description": "Standard component rounding"
+    },
+    "lg": {
+      "$type": "dimension",
+      "$value": "12px",
+      "$description": "Cards and modals"
+    },
+    "full": {
+      "$type": "dimension",
+      "$value": "9999px",
+      "$description": "Pills and avatars"
+    }
+  },
+  "shadow": {
+    "sm": {
+      "$type": "shadow",
+      "$value": "0 1px 2px 0 rgba(0,0,0,0.05)",
+      "$description": "Subtle lift — form inputs on focus"
+    },
+    "md": {
+      "$type": "shadow",
+      "$value": "0 4px 6px -1px rgba(0,0,0,0.10), 0 2px 4px -1px rgba(0,0,0,0.06)",
+      "$description": "Card elevation"
+    },
+    "lg": {
+      "$type": "shadow",
+      "$value": "0 10px 15px -3px rgba(0,0,0,0.10), 0 4px 6px -2px rgba(0,0,0,0.05)",
+      "$description": "Dropdown and popover elevation"
+    },
+    "xl": {
+      "$type": "shadow",
+      "$value": "0 20px 25px -5px rgba(0,0,0,0.10), 0 10px 10px -5px rgba(0,0,0,0.04)",
+      "$description": "Modal overlay elevation"
+    }
+  }
+}
