@@ -323,14 +323,38 @@ export const useEditorStore = create<EditorStore>((set, get) => {
             const newAst = adapter.parse(newCode)
             if (newAst === null) return
 
+            // Commandment 7 — ID Preservation: inject data-bridge-id onto any
+            // newly created or moved nodes produced by structural mutations.
+            // Non-structural ops (updateClassName, updateProp, updateTextContent,
+            // applyTokenFix) do not create new nodes so the call is skipped when
+            // no structural op is present, keeping the hot path allocation-free.
+            const STRUCTURAL_OPS = new Set([
+                'moveNode',
+                'injectComponent',
+                'deleteNode',
+            ])
+            const hasStructural = mutations.some((m) => STRUCTURAL_OPS.has(m.op))
+
+            let finalCode = newCode
+            let finalAst: unknown = newAst
+            if (hasStructural) {
+                adapter.injectBridgeIds(newAst)
+                finalCode = adapter.generate(newAst)
+                // Re-parse so the stored AST reflects the injected IDs.
+                const reAst = adapter.parse(finalCode)
+                if (reAst !== null) {
+                    finalAst = reAst
+                }
+            }
+
             set({
-                rawCode: newCode,
-                ast: newAst,
-                visualTree: adapter.buildVisualTree(newAst),
+                rawCode: finalCode,
+                ast: finalAst,
+                visualTree: adapter.buildVisualTree(finalAst),
             })
 
             // ONE save-file IPC call for the entire batch.
-            useCanvasStore.getState().triggerAutoSave(newCode)
+            useCanvasStore.getState().triggerAutoSave(finalCode)
 
             // Record inverse for undo/redo.
             useHistoryStore.getState().push(inversions, mutations)
