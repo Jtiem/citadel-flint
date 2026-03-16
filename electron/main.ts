@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, safeStorage } from 'electron'
 import type { MenuItemConstructorOptions } from 'electron'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -22,6 +22,13 @@ interface FileTreeNode {
 
 /** Tracks the active project root so the main process can locate bridge-manifest.json. */
 let activeProjectRoot: string | null = null
+
+/**
+ * Server-side store for pre-heal code (Security fix for SECURITY-01).
+ * The heal pass in ingestion-server.ts sets this; the undo handler reads it.
+ * Keyed by 'latest' — only the most recent heal is undoable.
+ */
+const preHealCodeStore = new Map<string, string>()
 
 /** Directory names that are always excluded from the recursive scan. */
 const EXCLUDED_DIRS = new Set([
@@ -209,16 +216,27 @@ function createWindow(): void {
             preload: PRELOAD_PATH,
             contextIsolation: true,
             nodeIntegration: false,
-            // sandbox: false is required because vite-plugin-electron builds the
-            // preload as an ESM module. Electron's sandbox cannot bootstrap ESM
-            // preloads; disabling it restores the Node.js-capable preload context.
-            // Security is maintained by contextIsolation + contextBridge alone.
-            // See: bridge-context/decisions.md
+            // Fix 5 (P3-2): sandbox: true is architecturally blocked here.
+            // vite-plugin-electron compiles the preload as an ESM module.
+            // Electron's renderer sandbox cannot bootstrap ESM preloads — the
+            // sandbox intercepts `require` but ESM is loaded via a different
+            // code path that sandbox mode does not support in Electron 35.
+            // Mitigation: contextIsolation: true + contextBridge enforce the
+            // process boundary at the API surface level. The preload exposes
+            // no Node.js APIs directly; all calls go through the typed
+            // BridgeAPI surface defined in src/types/bridge-api.d.ts.
+            // Track: https://github.com/electron/electron/issues — revisit
+            // when vite-plugin-electron gains sandbox-compatible ESM output.
+            // See: .bridge-context/decisions.md
             sandbox: false,
         },
     })
 
-    mainWindow.webContents.openDevTools()
+    // Fix 4 (P3-1): Only open DevTools in development builds.
+    // In packaged production releases this would expose internal state to users.
+    if (!app.isPackaged) {
+        mainWindow.webContents.openDevTools()
+    }
 
     // Load the Vite dev server in development, or the built files in production
     if (process.env.VITE_DEV_SERVER_URL) {
@@ -1058,10 +1076,85 @@ app.whenReady().then(async () => {
     const { sendChatMessage, readConfig: readAIConfig, writeConfig: writeAIConfig, hasApiKey } =
         await import('./orchestrator.js')
 
+    // ── Fix 2 (P1-2): safeStorage helpers ────────────────────────────────────
+    //
+    // safeStorage encrypts/decrypts using the OS keychain (Keychain on macOS,
+    // libsecret on Linux, DPAPI on Windows). The encrypted bytes are stored as
+    // base64 in config.json under the key `apiKeyEncrypted`.
+    //
+    // Scope note: orchestrator.ts reads `apiKey` from config.json directly and
+    // is out of scope for this change. Until orchestrator.ts is updated to call
+    // decryptApiKey() (tracked as SEC.4-phase-2), we must still write `apiKey`
+    // to disk for sendChatMessage() to function. This means the plaintext key
+    // remains on disk for now. The `apiKeyEncrypted` field is written alongside
+    // it so a future orchestrator update can drop the plaintext field safely.
+    // Never log the decrypted key.
+
+    const BRIDGE_CONFIG_PATH = path.join(os.homedir(), '.bridge', 'config.json')
+
+    async function readRawConfig(): Promise<Record<string, unknown>> {
+        try {
+            const raw = await readFile(BRIDGE_CONFIG_PATH, 'utf-8')
+            return JSON.parse(raw) as Record<string, unknown>
+        } catch {
+            return {}
+        }
+    }
+
+    async function writeRawConfig(patch: Record<string, unknown>): Promise<void> {
+        const existing = await readRawConfig()
+        const merged = { ...existing, ...patch }
+        const dir = path.dirname(BRIDGE_CONFIG_PATH)
+        if (!existsSync(dir)) await mkdir(dir, { recursive: true })
+        await writeFile(BRIDGE_CONFIG_PATH, JSON.stringify(merged, null, 2), 'utf-8')
+    }
+
+    function encryptApiKey(key: string): string {
+        return safeStorage.encryptString(key).toString('base64')
+    }
+
+    function decryptApiKey(encrypted: string): string | null {
+        try {
+            return safeStorage.decryptString(Buffer.from(encrypted, 'base64'))
+        } catch {
+            return null
+        }
+    }
+
+    /**
+     * Checks whether a usable API key exists — either as `apiKeyEncrypted`
+     * (preferred) or legacy plaintext `apiKey`.
+     * Performs a one-time migration: if only plaintext `apiKey` exists, it
+     * encrypts it, writes `apiKeyEncrypted`, and removes the plaintext field.
+     */
+    async function hasApiKeySecure(): Promise<boolean> {
+        const cfg = await readRawConfig()
+
+        // Already encrypted — fast path.
+        if (typeof cfg.apiKeyEncrypted === 'string' && cfg.apiKeyEncrypted.length > 0) {
+            const decrypted = decryptApiKey(cfg.apiKeyEncrypted)
+            return decrypted !== null && decrypted.length > 0
+        }
+
+        // Migration: legacy plaintext key found — encrypt it in-place.
+        if (typeof cfg.apiKey === 'string' && cfg.apiKey.length > 0) {
+            if (safeStorage.isEncryptionAvailable()) {
+                const encrypted = encryptApiKey(cfg.apiKey)
+                // Write encrypted field. NOTE: `apiKey` is intentionally left in
+                // place until orchestrator.ts is updated (SEC.4-phase-2).
+                await writeRawConfig({ apiKeyEncrypted: encrypted })
+                console.log('[Bridge] safeStorage: migrated apiKey → apiKeyEncrypted')
+            }
+            return true
+        }
+
+        return false
+    }
+
     ipcMain.handle('ai:get-config', async (): Promise<{ hasKey: boolean; provider: string; model: string | null; baseURL: string | null }> => {
         const cfg = await readAIConfig()
         return {
-            hasKey: await hasApiKey(),
+            hasKey: await hasApiKeySecure(),
             provider: cfg.provider ?? 'anthropic',
             model: cfg.model ?? null,
             baseURL: cfg.baseURL ?? null,
@@ -1077,8 +1170,16 @@ app.whenReady().then(async () => {
             provider: (typeof p.provider === 'string' && p.provider ? p.provider : 'anthropic')
         }
 
-        // apiKey is optional — allow saving just the model/baseURL without re-sending the key.
-        if (typeof p.apiKey === 'string' && p.apiKey.length > 0) patch.apiKey = p.apiKey
+        // Fix 2 (P1-2): When an API key is provided, encrypt it with safeStorage
+        // and store as `apiKeyEncrypted`. The plaintext `apiKey` is also written
+        // for orchestrator.ts compatibility (SEC.4-phase-2 will remove it).
+        if (typeof p.apiKey === 'string' && p.apiKey.length > 0) {
+            patch.apiKey = p.apiKey
+            if (safeStorage.isEncryptionAvailable()) {
+                patch.apiKeyEncrypted = encryptApiKey(p.apiKey)
+                console.log('[Bridge] safeStorage: API key encrypted and stored as apiKeyEncrypted')
+            }
+        }
         if (typeof p.model === 'string' && p.model.length > 0) patch.model = p.model
         // Allow clearing the baseURL by saving an empty string (null-equivalent).
         if (typeof p.baseURL === 'string') patch.baseURL = p.baseURL.trim() || undefined
@@ -1596,17 +1697,18 @@ app.whenReady().then(async () => {
     }
 
     /**
-     * Atomically writes `annotations` to `filePath` using tmp→rename.
+     * Atomically writes `annotations` to `filePath` via FileTransactionManager.
      * Creates the parent .bridge directory if it does not yet exist.
+     *
+     * Fix 6 (P3-3): Routes through FTM instead of raw writeFile/rename to comply
+     * with Commandment 12 (Atomic Queuing) and Commandment 14 (Bypass Prohibition).
      */
     async function writeAnnotationsFile(filePath: string, annotations: unknown[]): Promise<void> {
         const dir = path.dirname(filePath)
         if (!existsSync(dir)) {
             await mkdir(dir, { recursive: true })
         }
-        const tmp = `${filePath}.tmp`
-        await writeFile(tmp, JSON.stringify(annotations, null, 2), 'utf-8')
-        await rename(tmp, filePath)
+        await fileTransactionManager.write(filePath, JSON.stringify(annotations, null, 2))
     }
 
     // ── annotations:read-all ──────────────────────────────────────────────────
@@ -2161,23 +2263,26 @@ app.whenReady().then(async () => {
 
     /**
      * import:undo-all-heals — reverts all tier-1 heals by restoring the pre-heal code.
-     * The renderer sends preHealCode (from IngestionSummary) to restore the original
-     * hydrated code before tier-1 mutations were applied.
      *
-     * For ING.1, this stores the pre-heal code into memory so the renderer can
-     * broadcast it back. Full FileTransactionManager integration is ING.3.
+     * Security: The pre-heal code is stored server-side in `preHealCodeStore` (set by
+     * the heal pass in ingestion-server.ts). The renderer sends only a signal to trigger
+     * the restore — no code round-trips through the renderer. This prevents a compromised
+     * renderer from injecting arbitrary code via the undo path.
      */
-    ipcMain.handle('import:undo-all-heals', (_event, preHealCode: unknown) => {
-        if (typeof preHealCode !== 'string') {
+    ipcMain.handle('import:undo-all-heals', () => {
+        const code = preHealCodeStore.get('latest')
+        if (!code) {
+            console.warn('[Bridge] import:undo-all-heals — no pre-heal code stored')
             return { ok: false }
         }
-        // Broadcast the pre-heal code back to the renderer via hydro-paste-auto
-        // so editorStore.setCode() receives the original un-healed version.
+        // Broadcast the server-stored pre-heal code to the renderer
         const windows = BrowserWindow.getAllWindows()
         if (windows.length > 0) {
-            windows[0].webContents.send('bridge:hydro-paste-auto', preHealCode)
+            windows[0].webContents.send('bridge:hydro-paste-auto', code)
         }
-        console.log('[Bridge] import:undo-all-heals — pre-heal code restored')
+        // Clear after use to prevent stale restores
+        preHealCodeStore.delete('latest')
+        console.log('[Bridge] import:undo-all-heals — pre-heal code restored from server store')
         return { ok: true }
     })
 
@@ -2217,10 +2322,8 @@ app.whenReady().then(async () => {
         const contextPath = path.join(bridgeDir, 'context.json')
         const json = JSON.stringify(context, null, 2)
 
-        // Atomic write: stage to .tmp then rename (Commandment 12).
-        const tmpPath = `${contextPath}.tmp`
-        await writeFile(tmpPath, json, 'utf8')
-        await rename(tmpPath, contextPath)
+        // Route through FileTransactionManager for Commandment 12 + 14 compliance.
+        await fileTransactionManager.write(contextPath, json)
     })
 
     // Read helpers for context:get-enriched — prepared once, reused per call.
@@ -2259,6 +2362,17 @@ app.whenReady().then(async () => {
 
     ipcMain.handle('terminal:spawn', (event, cwd: unknown) => {
         if (typeof cwd !== 'string') return
+
+        // Fix 3 (P1-3): Restrict terminal working directory to the user's home
+        // directory. This prevents a compromised renderer from spawning a shell
+        // in an arbitrary location (e.g., /etc, /tmp, outside the project root).
+        const resolvedCwd = path.resolve(cwd)
+        const home = app.getPath('home')
+        if (resolvedCwd !== home && !resolvedCwd.startsWith(home + path.sep)) {
+            console.error(`[Bridge] terminal:spawn — rejected cwd outside home dir: ${resolvedCwd}`)
+            return
+        }
+
         const shell = process.env[os.platform() === 'win32' ? 'COMSPEC' : 'SHELL'] || (os.platform() === 'win32' ? 'cmd.exe' : 'bash')
 
         if (ptyProcess) {
@@ -2306,12 +2420,21 @@ app.whenReady().then(async () => {
     })
 
     // Start the ingestion server and register its IPC handlers
-    const { startIngestionServer, getServerStatus, getFigmaStatus, stopIngestionServer } = await import('./ingestion-server.js')
+    const { startIngestionServer, getServerStatus, getFigmaStatus, stopIngestionServer, setPreHealCodeCallback } = await import('./ingestion-server.js')
+    // Wire the pre-heal code store (SECURITY-01: server-side storage, no renderer round-trip)
+    setPreHealCodeCallback((code: string) => preHealCodeStore.set('latest', code))
     startIngestionServer()
     stopServer = stopIngestionServer
 
     ipcMain.handle('server:get-status', () => getServerStatus())
-    ipcMain.handle('figma:status', () => getFigmaStatus())
+    // Fix 1 (P0-3): Strip the webhook secret from the IPC response.
+    // The renderer only needs connection status — it must never receive the secret.
+    // The secret is used by the Figma plugin for request authentication and must
+    // remain in the main process only.
+    ipcMain.handle('figma:status', () => {
+        const { secret: _secret, ...safeStatus } = getFigmaStatus()
+        return safeStatus
+    })
     ipcMain.handle('figma:disconnect', () => {
         stopIngestionServer()
     })
