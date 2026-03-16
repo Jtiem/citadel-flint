@@ -232,6 +232,7 @@ See `docs/BRIDGE-MASTER-PLAN.md` Section 3 for the full module table. All phases
 - **INFRA.1 + INFRA.2:** DONE. Governance Events + Mutations Ledger SQLite tables in `bridge-mcp/src/core/governance/`. Foundation for GOV.1-4, risk scoring, anomaly detection.
 - **EXP.2:** DONE. Design Debt Report — `bridge_debt_report` MCP tool + `bridge://dashboard` resource. Health score 0-100, grade A-F, trend tracking via `.bridge/debt-history.json`.
 - **Next sprint candidates:** GOV.1 (Rule Provenance), GOV.2 (Override Telemetry) — unblocked since INFRA.1 is ONLINE. OBS.1.2 (Structured Shadow Commits) — foundational for Node Blame observability. V.2-mp (Mutation Provenance Ledger) — unblocked since INFRA.2 is ONLINE.
+- **Security Hardening Track (SEC phases):** SEC.1 (P0 — iframe sandbox + CSP), SEC.2 (P1 — per-session secret, strip secret from renderer IPC), SEC.3 (P1 — MCP tool allowlist), SEC.4 (P1 — safeStorage for AI API key), SEC.5 (P2 — terminal cwd restriction), SEC.6 (P3 — ingestion rate limiting). All independent, no blocking deps. See Section 4.10 in `docs/BRIDGE-MASTER-PLAN.md`.
 - **Contract-First Feature Build:** Mandatory 3-phase workflow for multi-file features. See `.claude/workflows/feature-build.md`.
 
 **Note:** Master Plan uses V.1 (Risk Scoring) and V.2 (Mutation Provenance). JTBD plan uses V.1-gd (Governance Dashboard) and V.2-af (Activity Feed). These are different features — use full phase codes to avoid confusion.

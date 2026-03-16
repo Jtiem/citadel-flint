@@ -213,15 +213,23 @@ All P0, P1, and P2 items are resolved. Remaining gaps are low-risk:
 
 ---
 
-## Test Baseline (Post-Remediation)
+## Test Baseline (Post-Remediation + Phase ING)
 
 | Suite | Count | Files |
 |-------|:-----:|:-----:|
-| MCP | 515 | 23 |
-| Glass | 386 | 25 |
-| Core | 295 | 11 |
-| **Total** | **1,196** | **59** |
+| MCP | 588 | 28 |
+| Glass | 452 | 29 |
+| Core | 319 | 12 |
+| **Total** | **1,359** | **69** |
 | TSC | 0 errors | — |
+
+### Phase ING Tests Added
+
+| File | Tests | Coverage |
+|------|:-----:|----------|
+| `electron/__tests__/IngestionAuditor.test.ts` | 24 | ING-01 through ING-12 + edge cases |
+| `src/store/__tests__/importSummaryStore.test.ts` | 29 | Store state transitions, panel escalation, auto-dismiss |
+| `src/components/ui/__tests__/ImportSummary.test.tsx` | 16 | Toast, panel, snap, dismiss, undo, auto-close |
 
 ```
 Week 1: P0 — Fix 35 broken tests (1-2 hours)

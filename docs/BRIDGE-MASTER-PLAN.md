@@ -310,6 +310,58 @@ Connect "Pinch-to-Fix" gesture triggers to Ghost Code Snippets. Visualize AST mu
 | Pinch gesture | Triggers AST-level auto-heal; ripple diff visualizes the change |
 | File browse | Immersive Tree HUD overlay, not a fixed sidebar panel |
 
+### 4.10 Security Hardening Track — Defense-in-Depth
+
+All SEC phases are independent (no blocking deps) and can run in any order alongside MCP engine work.
+
+**Architecture note:** Bridge's process isolation is fundamentally sound — `contextBridge`, no `nodeIntegration`, parameterized SQL, loopback-only ingestion server. SEC phases add defense-in-depth layers to reduce blast radius in the event something upstream (a crafted Figma payload, a future XSS vector) goes wrong.
+
+**SEC.1 — Renderer Hardening (P0, small ≈ 1 day)**
+The two highest-leverage security controls for Electron apps, both currently absent.
+- `src/components/editor/LivePreview.tsx`: Add `sandbox="allow-scripts allow-forms"` to srcdoc iframe. The critical omission is `allow-same-origin` — without it, iframe code cannot call `window.parent` and reach the renderer context. This single attribute breaks the XSS → renderer escape chain.
+- `electron/main.ts`: Add CSP via `session.defaultSession.webRequest.onHeadersReceived`. Restrict `script-src` to `'self'`; block inline script execution in the renderer. CSP is the last line of defense against injected scripts executing in the DOM even if they reach it.
+- Files: `src/components/editor/LivePreview.tsx`, `electron/main.ts`
+- Contract required: yes (crosses process boundary for CSP handler)
+
+**SEC.2 — Secret Hygiene (P1-P2, small ≈ 0.5 day)**
+The ingestion secret is currently hardcoded, logged to stdout, and returned to the renderer — three unnecessary exposures.
+- `electron/ingestion-server.ts`: Replace hardcoded `bridge-dev-secret-phase2` with `crypto.randomBytes(32).toString('hex')` generated once at process start. Stop logging the secret value to console.
+- `electron/main.ts` + `electron/preload.ts`: Remove `secret` field from `figma:status` IPC response — the renderer never needs to display it. Update `src/types/bridge-api.d.ts` accordingly.
+- Files: `electron/ingestion-server.ts`, `electron/main.ts`, `electron/preload.ts`, `src/types/bridge-api.d.ts`
+
+**SEC.3 — MCP Tool Allowlist (P1, medium ≈ 2 days)**
+`mcp:call-tool` currently accepts any tool name from the renderer with no server-side validation. A compromised renderer could invoke destructive tools.
+- Create `electron/mcp-policy.ts` defining `RENDERER_ALLOWED_MCP_TOOLS: ReadonlySet<string>` — the subset of MCP tools Glass UI legitimately calls (status, read-resource, query-registry, etc.).
+- Add allowlist check in `mcp:call-tool` IPC handler in `electron/main.ts`. Reject non-allowlisted names with a typed error returned to the renderer.
+- Files: `electron/main.ts`, new `electron/mcp-policy.ts`
+- Contract required: yes (new module + IPC handler change)
+
+**SEC.4 — API Key Safe Storage (P1, medium ≈ 2 days)**
+The Anthropic API key is currently written to `~/.bridge/config.json` as plaintext. macOS provides `safeStorage` (Electron built-in wrapping the OS Keychain) for exactly this case.
+- Replace `ai:save-config` / `ai:load-config` IPC handlers in `electron/main.ts` with `safeStorage.encryptString` / `decryptString`. Encrypted blob stored in `config.json`; key never written plaintext.
+- Migrate existing plaintext keys on first load: detect unencrypted value, re-encrypt, rewrite.
+- Files: `electron/main.ts`
+
+**SEC.5 — Terminal API Hardening (P2, small ≈ 0.5 day)**
+`terminal:spawn(cwd)` accepts any path from the renderer — effectively unrestricted shell spawn with no cwd validation. While the terminal is a legitimate feature, the blast radius of renderer compromise is unnecessarily wide.
+- `electron/main.ts`: Validate `cwd` in `terminal:spawn` handler is at or below the current `workspaceRoot` (available from `canvasStore` state or passed as a param). Reject with descriptive error if outside project bounds.
+- Add max-length guard on `terminal:data` input (8KB ceiling) to prevent memory pressure from malformed input.
+- Files: `electron/main.ts`
+
+**SEC.6 — Ingestion Rate Limiting (P3, small ≈ 0.5 day)**
+Cosmetic hardening — the loopback-only binding already limits exposure, but a tight rate limit prevents a local runaway process from spamming the ingestion endpoint.
+- `electron/ingestion-server.ts`: Add a simple token-bucket rate limiter per-session: 10 req/min for `/ingest`, 60 req/min for `/ingest-ast`. Respond `429 Too Many Requests` when exceeded.
+- Files: `electron/ingestion-server.ts`
+
+| Phase | Priority | Effort | What it closes |
+|-------|----------|--------|----------------|
+| SEC.1 | P0 | ~1 day | iframe escape chain + XSS execution |
+| SEC.2 | P1 | ~0.5 day | secret logging + renderer secret exposure |
+| SEC.3 | P1 | ~2 days | renderer-initiated destructive MCP tool calls |
+| SEC.4 | P1 | ~2 days | plaintext API key on disk |
+| SEC.5 | P2 | ~0.5 day | unrestricted shell cwd + oversized terminal input |
+| SEC.6 | P3 | ~0.5 day | local process DoS on ingestion endpoint |
+
 ---
 
 ## 5. Master Dependency Graph
@@ -341,6 +393,13 @@ INFRA.1-2 (SQLite tables — build first)
   EXP.6 (Accessibility) ── parallel, no deps, start any time
 
   Glass U.3-5 ─────────── parallel, no MCP deps
+
+  SEC.1 (Renderer Hardening) ─┐
+  SEC.2 (Secret Hygiene) ─────┤── all independent, no deps, run any time
+  SEC.3 (MCP Allowlist) ──────┤
+  SEC.4 (Safe Storage) ───────┤
+  SEC.5 (Terminal Hardening) ─┤
+  SEC.6 (Rate Limiting) ──────┘
 ```
 
 **With 2 parallel tracks (MCP engine + Glass), total timeline: ~14 weeks.**

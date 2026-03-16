@@ -75,7 +75,7 @@ Primary tools (see `bridge-mcp/src/server.ts` for the full catalog):
 | `read_design_intent` | Read `.bridge/current-intent.json` and return typed Execution Plan |
 | `bridge_ast_mutate` | Apply batched structural mutations (move, inject, fixToken, updateProp, updateClassName, updateTextContent, assembleLayout) |
 | `bridge_query_registry` | Semantic + keyword search over component registry; returns Shadow Storybook artifact |
-| `bridge_audit` | Full governance audit with SARIF output |
+| `bridge_audit` | Full governance audit with SARIF output; optional `healOnAudit` for tier-1 auto-fix |
 | `bridge_fix` | Deterministic auto-fix for token violations |
 | `bridge_ingest_figma` | Figma ingestion pipeline |
 | `bridge_sync_tokens` | Token synchronization |
@@ -192,8 +192,19 @@ Additional tools registered via `bridge-mcp/src/tools/` modules cover governance
 | Override Telemetry (IPC + StatusBar badge) | GOV.2 | **ONLINE** |
 | Accessibility Expansion (30 rules, auto-fix) | EXP.6a | **ONLINE** |
 | Figma Plugin Settings UI (endpoint + secret + clientStorage) | FP.1 | **ONLINE** |
+| Proactive Session Context (`bridge://session-context`) | ACX.1 | PLANNED (contract approved) |
+| Event-Driven Context Push (ContextPushManager) | ACX.2 | PLANNED (contract approved) |
+| Complexity Router (Commandment 8 model routing) | ACX.4 | PLANNED (contract approved) |
+| Sentinel Prompt (domain-configurable governance) | ACX.1 | PLANNED (contract approved) |
+| Tool Enrichment (pre-flight context injection) | ACX.3 | PLANNED (blocked on ACX.1) |
 | Mutation Provenance Ledger | V.2-mp | PLANNED (unblocked -- INFRA.2 ONLINE) |
 | Risk Scoring (MRS) | V.1-rs | PLANNED (blocked on V.2-mp) |
+| Renderer Hardening (iframe sandbox + CSP) | SEC.1 | PLANNED (P0, no deps) |
+| Secret Hygiene (per-session secret, strip from renderer) | SEC.2 | PLANNED (P1, no deps) |
+| MCP Tool Allowlist (renderer-callable tool restriction) | SEC.3 | PLANNED (P1, no deps) |
+| API Key Safe Storage (safeStorage encryption) | SEC.4 | PLANNED (P1, no deps) |
+| Terminal API Hardening (cwd restriction, input sanitization) | SEC.5 | PLANNED (P2, no deps) |
+| Ingestion Rate Limiting | SEC.6 | PLANNED (P3, no deps) |
 
 ### Stores
 
@@ -209,6 +220,7 @@ Additional tools registered via `bridge-mcp/src/tools/` modules cover governance
 | `orchestratorStore` | AI orchestrator state, tool call approval |
 | `assetStore` | Asset metadata, zombie audit state |
 | `annotationStore` | Annotation CRUD, fs.watch push sync, rendering state |
+| `importSummaryStore` | Ingestion heal summary, tier-2 snap resolution, undo-all-heals |
 
 ## The 16 Commandments
 
@@ -333,7 +345,9 @@ Single-file bug fixes and cosmetic changes are exempt. All other work follows th
 | `electron/orchestrator.ts` | Constrained AI orchestration with TSC validation loop |
 | `electron/FileTransactionManager.ts` | Atomic `.tmp` -> `rename` write queue |
 | `electron/GitManager.ts` | ensureRepo, shadowCommit, getGitNode |
-| `electron/ingestion-server.ts` | Figma ingestion + SDI webhook (port 4545) |
+| `electron/ingestion-server.ts` | Figma ingestion + SDI webhook (port 4545) + heal pass |
+| `electron/ingestion/IngestionAuditor.ts` | CIEDE2000 tier classification + Babel AST auto-heal (Phase ING) |
+| `electron/normalizer.ts` | Figma Variables → W3C DTCG token normalization |
 | `electron/store.ts` | SQLite database (`bridge.db`) |
 | `electron/preload.ts` | IPC bridge -- defines `window.bridgeAPI` surface |
 
@@ -356,6 +370,8 @@ Single-file bug fixes and cosmetic changes are exempt. All other work follows th
 | `src/components/ui/GovernanceDashboard.tsx` | Health score ring, grade letter, top-5 rules ("health" tab) |
 | `src/components/ui/AnnotationList.tsx` | Annotation rendering in right sidebar |
 | `src/components/editor/ViolationTooltip.tsx` | Ghost Canvas severity tooltip on hover |
+| `src/components/ui/ImportSummary.tsx` | Ingestion heal summary toast + review panel (Phase ING) |
+| `src/store/importSummaryStore.ts` | Ingestion summary state, tier-2 snap, undo-all-heals |
 | `src/store/annotationStore.ts` | Annotation CRUD + fs.watch push sync |
 | `src/hooks/useContextSync.ts` | Writes live state to `.bridge/context.json` |
 
