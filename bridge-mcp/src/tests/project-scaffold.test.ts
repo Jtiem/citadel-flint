@@ -43,7 +43,8 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
 // __dirname is bridge-mcp/src/tests/
-const REPO_ROOT = path.resolve(__dirname, '..', '..', '..', '..')
+// bridge-mcp/src/tests/ → bridge-mcp/src/ → bridge-mcp/ → repo root
+const REPO_ROOT = path.resolve(__dirname, '..', '..', '..')
 const BASE_TEMPLATE_DIR = path.join(
     REPO_ROOT,
     'electron',
