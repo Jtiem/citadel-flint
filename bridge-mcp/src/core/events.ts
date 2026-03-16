@@ -29,13 +29,15 @@ import path from 'node:path'
 export const EVENTS = {
     TOKENS_UPDATED: 'tokens:updated',
     INTENT_UPDATED: 'intent:updated',
+    /** Phase ACX.2 — fired by ContextPushManager when a delta is emitted. */
+    CONTEXT_DELTA: 'context:delta',
 } as const
 
 export const bridgeEvents = new EventEmitter()
 
 // ── MCPEvent shape ────────────────────────────────────────────────────────────
 
-export type MCPEventType = 'violation' | 'annotation' | 'mutation' | 'audit' | 'fix' | 'debt'
+export type MCPEventType = 'violation' | 'annotation' | 'mutation' | 'audit' | 'fix' | 'debt' | 'context-delta'
 export type MCPEventSeverity = 'critical' | 'warning' | 'info'
 
 export interface MCPEvent {

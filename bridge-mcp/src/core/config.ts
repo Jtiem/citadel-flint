@@ -27,6 +27,18 @@ export type PolicyMode = 'blocking' | 'advisory' | 'off'
 export type A11yLevel = 'A' | 'AA' | 'AAA'
 
 /**
+ * Industry governance domain. Controls which sentinel preset is active.
+ * Matches the domain presets in bridge-mcp/src/prompts/sentinel.ts.
+ */
+export type GovernanceDomain =
+    | 'general'
+    | 'healthcare'
+    | 'fintech'
+    | 'e-commerce'
+    | 'government'
+    | 'enterprise-saas'
+
+/**
  * The `.bridge/policy.json` schema.
  * Every field has a sensible default so a missing or partial file is safe.
  */
@@ -71,6 +83,16 @@ export interface BridgePolicy {
         /** Whether baseline suppression is enabled. */
         enabled: boolean
     }
+
+    /**
+     * Industry governance domain. Controls which sentinel preset is active.
+     * When set, the Bridge Sentinel prompt and AI Orchestrator will inject
+     * domain-specific compliance rules (HIPAA, PCI-DSS, Section 508, SOC 2, etc.)
+     * into the agent context.
+     *
+     * Defaults to undefined (resolves to "general" in the sentinel).
+     */
+    domain?: GovernanceDomain
 }
 
 // ── General MCP config ──────────────────────────────────────────────────────

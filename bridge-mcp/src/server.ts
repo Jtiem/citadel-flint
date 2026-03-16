@@ -44,6 +44,10 @@ import { handleGenerateDBOM, BRIDGE_GENERATE_DBOM_TOOL, getCachedDBOM } from "./
 import { formatDBOMAsMarkdown } from "./core/dbom/formatter.js";
 import { handleBridgeAddRemoteLibrary, BRIDGE_ADD_REMOTE_LIBRARY_TOOL } from "./tools/remoteLibrary.js";
 import { setRegistryCache as hydrateRAGCache } from "./core/ragRegistryService.js";
+import { contextPushManager } from "./core/contextPush.js";
+import { assembleSessionContext } from "./core/sessionContext.js";
+import { assessComplexity } from "./core/complexityRouter.js";
+import { enrichToolCall, enrichToolResult } from "./core/toolEnricher.js";
 
 // @ts-ignore
 const generate = _generate.default || _generate;
@@ -231,6 +235,64 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                     required: ["action"],
                 },
             },
+            {
+                name: "bridge_get_context",
+                description: "Returns the full Bridge session context — active file, violations, tokens, mutations, health, and canvas state. Call this FIRST at the start of any session to eliminate cold-start round-trips.",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        projectRoot: {
+                            type: "string",
+                            description: "Absolute path to the project root (must contain a .bridge directory).",
+                        },
+                        includeSource: {
+                            type: "boolean",
+                            description: "Whether to include the first 200 lines of the active file source. Default true.",
+                        },
+                        includeViolationDetails: {
+                            type: "boolean",
+                            description: "Whether to include full violation details. Default true.",
+                        },
+                    },
+                    required: ["projectRoot"],
+                },
+            },
+            {
+                name: "bridge_assess_complexity",
+                description: "Analyze the complexity of a proposed task and recommend the appropriate AI model tier (fast/balanced/powerful). Use this before starting complex multi-step workflows.",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        taskDescription: {
+                            type: "string",
+                            description: "Natural language description of the task to assess.",
+                        },
+                        estimatedNodeCount: {
+                            type: "number",
+                            description: "Estimated number of AST nodes that will be affected.",
+                        },
+                        crossFile: {
+                            type: "boolean",
+                            description: "Whether the task spans multiple source files.",
+                        },
+                        filePaths: {
+                            type: "array",
+                            items: { type: "string" },
+                            description: "Absolute paths to files involved in the task.",
+                        },
+                        mutationTypes: {
+                            type: "array",
+                            items: { type: "string" },
+                            description: "Mutation types that will be used.",
+                        },
+                        projectRoot: {
+                            type: "string",
+                            description: "Project root for context lookup. Optional.",
+                        },
+                    },
+                    required: ["taskDescription"],
+                },
+            },
         ],
     };
 });
@@ -242,6 +304,12 @@ server.setRequestHandler(ListResourcesRequestSchema, async () => {
     return {
         resources: [
             CAPABILITIES_RESOURCE,
+            {
+                uri: "bridge://session-context",
+                name: "Bridge Session Context",
+                mimeType: "application/json",
+                description: "Rich session context snapshot — active file, violations, tokens, health score, recent mutations. Read this FIRST to eliminate cold-start round-trips. Assembly budget < 100ms.",
+            },
             {
                 uri: "bridge://tokens",
                 name: "Bridge Design Tokens",
@@ -395,6 +463,17 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
         };
     }
 
+    if (request.params.uri === "bridge://session-context") {
+        const sessionCtx = await assembleSessionContext(projectRoot);
+        return {
+            contents: [{
+                uri: "bridge://session-context",
+                mimeType: "application/json",
+                text: JSON.stringify(sessionCtx, null, 2),
+            }]
+        };
+    }
+
     if (request.params.uri.startsWith("bridge://violations/")) {
         const filePath = "/" + request.params.uri.replace("bridge://violations/", "");
         if (!fs.existsSync(filePath)) {
@@ -462,7 +541,7 @@ If you encounter a "BLOCKED" status from any tool (Mithril violation, A11y viola
     }
 
     if (request.params.name === "bridge-sentinel") {
-        const domain = (request.params.arguments as Record<string, string> | undefined)?.domain ?? "ui";
+        const domain = (request.params.arguments as Record<string, string> | undefined)?.domain ?? "general";
         return {
             description: `Bridge Governance Engine — ${domain} domain persona`,
             messages: [
@@ -501,6 +580,61 @@ If you encounter a "BLOCKED" status from any tool (Mithril violation, A11y viola
  */
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
     switch (request.params.name) {
+        case "bridge_get_context": {
+            const { projectRoot: ctxRoot } = request.params.arguments as { projectRoot: string };
+            if (!ctxRoot || typeof ctxRoot !== "string") {
+                return {
+                    isError: true,
+                    content: [{ type: "text", text: "bridge_get_context: 'projectRoot' parameter is required." }],
+                };
+            }
+            const sessionCtx = await assembleSessionContext(ctxRoot);
+            return {
+                content: [{
+                    type: "text",
+                    text: JSON.stringify(sessionCtx, null, 2),
+                }],
+            };
+        }
+
+        case "bridge_assess_complexity": {
+            const complexityArgs = request.params.arguments as {
+                taskDescription: string;
+                estimatedNodeCount?: number;
+                crossFile?: boolean;
+                filePaths?: string[];
+                mutationTypes?: string[];
+                projectRoot?: string;
+            };
+            if (!complexityArgs.taskDescription) {
+                return {
+                    isError: true,
+                    content: [{ type: "text", text: "bridge_assess_complexity: 'taskDescription' parameter is required." }],
+                };
+            }
+            let ctxForComplexity = null;
+            if (complexityArgs.projectRoot) {
+                try {
+                    ctxForComplexity = await assembleSessionContext(complexityArgs.projectRoot);
+                } catch {
+                    // graceful — proceed without context
+                }
+            }
+            const complexityResult = assessComplexity(
+                {
+                    taskDescription: complexityArgs.taskDescription,
+                    estimatedNodeCount: complexityArgs.estimatedNodeCount,
+                    crossFile: complexityArgs.crossFile,
+                    filePaths: complexityArgs.filePaths,
+                    mutationTypes: complexityArgs.mutationTypes,
+                },
+                ctxForComplexity,
+            );
+            return {
+                content: [{ type: "text", text: JSON.stringify(complexityResult, null, 2) }],
+            };
+        }
+
         case "bridge_status": {
             return {
                 content: [
@@ -753,7 +887,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 });
             }
 
-            return {
+            // ACX.3: Pre-flight enrichment — prepend target node context
+            const mutateResult: { content: Array<{ type: string; text: string }> } = {
                 content: [
                     {
                         type: "text",
@@ -761,6 +896,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                     },
                 ],
             };
+
+            try {
+                const enrichCtx = await assembleSessionContext(projectRoot);
+                const enrichment = enrichToolCall("bridge_ast_mutate", request.params.arguments as Record<string, unknown>, enrichCtx);
+                if (enrichment) {
+                    mutateResult.content.unshift({ type: "text", text: enrichment.contextPreamble });
+                }
+            } catch {
+                // Enrichment is best-effort — never block the mutation result
+            }
+
+            return mutateResult;
         }
 
 
@@ -869,9 +1016,22 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                     content: [{ type: "text", text: JSON.stringify(batchResult, null, 2) }],
                 };
             }
-            const result = await handleBridgeAudit(auditArgs, bridgeConfig);
+            const auditResult = await handleBridgeAudit(auditArgs, bridgeConfig);
+            const auditResultText = JSON.stringify(auditResult, null, 2);
+            // ACX.3: Append token context to audit results
+            let enrichedAuditText = auditResultText;
+            try {
+                enrichedAuditText = enrichToolResult(
+                    "bridge_audit",
+                    request.params.arguments as Record<string, unknown>,
+                    auditResultText,
+                    bridgeConfig.projectRoot,
+                );
+            } catch {
+                // Enrichment is best-effort — never block the audit result
+            }
             return {
-                content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+                content: [{ type: "text", text: enrichedAuditText }],
             };
         }
 
@@ -882,9 +1042,22 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 violationIds?: string[];
                 dryRun?: boolean;
             };
-            const result = await handleBridgeFix(fixArgs, bridgeConfig);
+            const fixResult = await handleBridgeFix(fixArgs, bridgeConfig);
+            const fixResultText = JSON.stringify(fixResult, null, 2);
+            // ACX.3: Prepend node context preamble to fix results
+            let enrichedFixText = fixResultText;
+            try {
+                enrichedFixText = enrichToolResult(
+                    "bridge_fix",
+                    request.params.arguments as Record<string, unknown>,
+                    fixResultText,
+                    bridgeConfig.projectRoot,
+                );
+            } catch {
+                // Enrichment is best-effort — never block the fix result
+            }
             return {
-                content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+                content: [{ type: "text", text: enrichedFixText }],
             };
         }
 
@@ -1222,6 +1395,14 @@ bridgeEvents.on(EVENTS.INTENT_UPDATED, () => {
     });
 });
 
+// Phase ACX.2 — context delta push triggers a resource-list change notification
+// so polling MCP clients know to re-fetch bridge://session-context.
+bridgeEvents.on(EVENTS.CONTEXT_DELTA, () => {
+    server.notification({
+        method: "notifications/resources/list_changed",
+    });
+});
+
 /**
  * Start the server.
  *
@@ -1237,7 +1418,19 @@ export async function runServer() {
     console.error(`[Bridge] Project root: ${projectRoot}`);
     console.error(`[Bridge] Active domains: ${bridgeConfig.domains.join(", ")}`);
 
+    // Phase ACX.2 — start the event-driven context push manager.
+    contextPushManager.start(projectRoot);
+    console.error("[Bridge] ContextPushManager started");
+
     const transport = new StdioServerTransport();
     await server.connect(transport);
     console.error("Bridge MCP Server listening on stdio");
+
+    // Clean up on graceful shutdown.
+    const shutdown = () => {
+        contextPushManager.stop();
+        process.exit(0);
+    };
+    process.once("SIGINT", shutdown);
+    process.once("SIGTERM", shutdown);
 }

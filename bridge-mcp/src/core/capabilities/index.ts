@@ -87,7 +87,10 @@ const TOOLS: ToolEntry[] = [
         name: "bridge_get_context",
         category: "Context",
         description:
-            "Returns the current Bridge project context — active file, selected node, open violations, and live design token snapshot. Call this first to ground any agent session.",
+            "Returns the current Bridge project context — active file source (first 200 lines), " +
+            "canvas state, violation summary, token snapshot, last 5 mutations, and health score. " +
+            "Call this first to ground any agent session in a single round-trip. " +
+            "Backed by bridge://session-context resource.",
         parameters: [
             {
                 name: "projectRoot",
@@ -99,6 +102,54 @@ const TOOLS: ToolEntry[] = [
         example: {
             description: "Read current session context before starting any governance workflow.",
             args: { projectRoot: "/home/user/my-app" },
+        },
+    },
+    {
+        name: "bridge_assess_complexity",
+        category: "Context",
+        description:
+            "Analyze the complexity of a proposed task and recommend the appropriate AI model tier (fast/balanced/powerful). " +
+            "Returns a 0-100 complexity score with factor breakdown. Use before multi-step workflows to ensure the right model is selected.",
+        parameters: [
+            {
+                name: "taskDescription",
+                type: "string",
+                required: true,
+                description: "Natural language description of the task to assess.",
+            },
+            {
+                name: "estimatedNodeCount",
+                type: "number",
+                required: false,
+                description: "Estimated number of AST nodes that will be affected.",
+            },
+            {
+                name: "crossFile",
+                type: "boolean",
+                required: false,
+                description: "Whether the task spans multiple source files.",
+            },
+            {
+                name: "mutationTypes",
+                type: "string[]",
+                required: false,
+                description: "Mutation types that will be used (e.g. updateProp, deleteNode).",
+            },
+            {
+                name: "projectRoot",
+                type: "string",
+                required: false,
+                description: "Project root for context lookup.",
+            },
+        ],
+        example: {
+            description: "Assess a cross-file refactor before starting.",
+            args: {
+                taskDescription: "Extract the hero section into a shared layout component",
+                crossFile: true,
+                estimatedNodeCount: 12,
+                projectRoot: "/home/user/my-app",
+            },
         },
     },
     {
@@ -633,6 +684,17 @@ const RESOURCES: ResourceEntry[] = [
         uri: "bridge://dashboard",
         description:
             "Design debt dashboard — current health score (0-100), letter grade (A-F), violation counts by severity, and last 10 trend snapshots from .bridge/debt-history.json.",
+        mimeType: "application/json",
+    },
+    {
+        uri: "bridge://session-context",
+        description:
+            "Rich session bootstrap context — active file source (first 200 lines), canvas state, " +
+            "violation summary (mithril + a11y counts, node IDs, fixability), token snapshot " +
+            "(count by type, top 20), last 5 mutations, and current health score/grade. " +
+            "Eliminates 3-4 sequential bootstrap calls per agent session. " +
+            "Cached with 500ms TTL. Assembled from .bridge/context.json, design-tokens.json, " +
+            "mcp-events.jsonl, and debt-history.json.",
         mimeType: "application/json",
     },
 ];
