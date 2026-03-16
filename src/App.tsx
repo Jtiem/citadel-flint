@@ -21,6 +21,9 @@ import { GovernancePanel } from './components/ui/GovernancePanel'
 import { GovernanceDashboard } from './components/ui/GovernanceDashboard'
 import { NotificationCenter } from './components/ui/NotificationCenter'
 import { OnboardingOverlay } from './components/ui/OnboardingOverlay'
+// Phase ING.2: Import Summary toast + panel
+import { ImportSummaryToastMount, ImportSummaryPanelView } from './components/ui/ImportSummary'
+import { useImportSummaryStore } from './store/importSummaryStore'
 import { StatusBar } from './components/editor/StatusBar'
 import { ResizeHandle } from './components/ui/ResizeHandle'
 import { useTokenStore } from './store/tokenStore'
@@ -67,6 +70,8 @@ function App() {
     const [ipcOk, setIpcOk] = useState<boolean>(false)
     const [showExportModal, setShowExportModal] = useState(false)
     const [showGovernancePanel, setShowGovernancePanel] = useState(false)
+    // Phase ING.2: true when Import Summary panel takes over the right sidebar
+    const importSummaryPanelMode = useImportSummaryStore((s) => s.isPanelMode)
 
     // ── Resizable panel widths ────────────────────────────────────────────────
     const [leftWidth, setLeftWidth] = useState(224)   // w-56 default
@@ -506,16 +511,26 @@ function App() {
                         ))}
                     </div>
                     <div className="min-h-0 flex-1 overflow-y-auto">
-                        {rightTab === 'properties' && <PropertiesPanel />}
-                        {rightTab === 'tokens' && <TokenManager />}
-                        {rightTab === 'activity' && <ActivityFeed />}
-                        {rightTab === 'health' && <GovernanceDashboard />}
-                        {rightTab === 'recovery' && <RecoveryPanel />}
+                        {/* Phase ING.2: Import Summary panel takes priority */}
+                        {importSummaryPanelMode ? (
+                            <ImportSummaryPanelView />
+                        ) : (
+                            <>
+                                {rightTab === 'properties' && <PropertiesPanel />}
+                                {rightTab === 'tokens' && <TokenManager />}
+                                {rightTab === 'activity' && <ActivityFeed />}
+                                {rightTab === 'health' && <GovernanceDashboard />}
+                                {rightTab === 'recovery' && <RecoveryPanel />}
+                            </>
+                        )}
                     </div>
                 </section>
             </main>
 
             <StatusBar />
+
+            {/* Phase ING.2: Import Summary toast (fixed bottom-right, above StatusBar) */}
+            <ImportSummaryToastMount />
 
             {/* Overlays */}
             <OnboardingOverlay />

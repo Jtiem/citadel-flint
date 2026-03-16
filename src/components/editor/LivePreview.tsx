@@ -25,6 +25,7 @@ import { MousePointer2, Hand } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
 import { useTokenStore } from '../../store/tokenStore'
 import { useCanvasStore } from '../../store/canvasStore'
+import { useImportSummaryStore } from '../../store/importSummaryStore'
 import type { DropPosition } from '../../utils/astModifier'
 import { generateTailwindConfig } from '../../utils/tokenAdapter'
 import { PAYMENT_CALCULATOR_CODE } from '../../templates/paymentCalculator'
@@ -692,9 +693,15 @@ export function LivePreview() {
       handleHydroPaste(payload).catch(console.error)
     })
 
+    // Phase ING.2: Listen for import summary push events from ingestion heal pass
+    const unsubscribeImportSummary = window.bridgeAPI.importSummary?.onSummary?.((summary) => {
+      useImportSummaryStore.getState().setSummary(summary)
+    })
+
     return () => {
       window.removeEventListener('message', handleMessage)
       unsubscribe?.()
+      unsubscribeImportSummary?.()
     }
   }, [setSelectedNode, setHoveredId, startDrag, endDrag, moveLayerNode, setActiveSelection, canvasMode])
 
