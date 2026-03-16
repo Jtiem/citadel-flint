@@ -87,6 +87,17 @@ vi.mock('../../components/ui/OnboardingOverlay', () => ({
     OnboardingOverlay: () => <div data-testid="onboarding-overlay" />,
 }))
 
+vi.mock('../../components/ui/ImportSummary', () => ({
+    ImportSummaryToastMount: () => <div data-testid="import-summary-toast" />,
+    ImportSummaryPanelView: () => <div data-testid="import-summary-panel" />,
+}))
+
+vi.mock('../../store/importSummaryStore', () => ({
+    useImportSummaryStore: vi.fn((selector: (s: { isPanelMode: boolean }) => unknown) =>
+        selector({ isPanelMode: false })
+    ),
+}))
+
 vi.mock('../../components/ui/ResizeHandle', () => ({
     ResizeHandle: () => <div data-testid="resize-handle" />,
 }))
