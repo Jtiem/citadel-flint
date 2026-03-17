@@ -1960,13 +1960,13 @@ app.whenReady().then(async () => {
                 throw new TypeError('mcp:call-tool — args must be a plain object')
             }
 
-            // AGV.1: Extract agent identity from call context.
-            // Glass (renderer) calls default to 'renderer'; MCP agent calls
-            // include _agentId in the args payload from session metadata.
+            // AGV.1: All ipcMain.handle calls originate from the renderer process.
+            // The renderer MUST always be identified as 'renderer' — never trust
+            // _agentId from IPC args, as that would allow the renderer to
+            // impersonate a registered agent with elevated permissions.
+            // Agent identity assertion is only trusted from the MCP protocol channel.
             const argsObj = args as Record<string, unknown>
-            const agentId = typeof argsObj._agentId === 'string' && argsObj._agentId.length > 0
-                ? argsObj._agentId
-                : 'renderer'
+            const agentId = 'renderer'
 
             // SEC.3 + AGV.1: Unified tool access check
             const access = checkToolAccess(agentId, name as string)

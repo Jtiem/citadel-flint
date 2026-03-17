@@ -196,6 +196,7 @@ Git operations are handled by `bridge-git-guru` at each phase boundary. Invoke i
 | **Before Phase 1** | Create feature branch: `feat/<phase>-<description>` from main |
 | **After Phase 1** | Commit contract: `docs(<phase>): add contract for <feature>` |
 | **After each Phase 2 agent** | Commit agent's changes: `feat(<scope>): implement <what> per contract` |
+| **Before Phase 3** | Run `/review staged` or `/review HEAD~N..HEAD` — code review gate |
 | **After Phase 3 SHIP** | Run pre-commit gate (TSC + tests), then create PR |
 | **After Phase 3 FIX** | Commit fixes, re-validate, then create PR |
 | **After PR merge** | Delete feature branch, pull main |

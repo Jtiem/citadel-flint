@@ -19,7 +19,7 @@
  *   import { isToolAllowed, loadAgentPolicy } from './agentPolicy.js'
  */
 
-import { readFile, watch } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { existsSync, watchFile, unwatchFile } from 'node:fs'
 import path from 'node:path'
 
