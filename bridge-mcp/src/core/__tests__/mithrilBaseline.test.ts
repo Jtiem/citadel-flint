@@ -380,9 +380,10 @@ describe('Test 10: empty audit → empty delta', () => {
         const w = makeWarning()
         const result = svc.auditDelta([w], PROJECT_A)
 
-        // Empty capture inserts no rows → service reports no baseline.
-        // All violations pass through unchanged (backward-compatible path).
-        expect(result.hasBaseline).toBe(false)
+        // Empty capture inserts a sentinel row so hasBaseline returns true.
+        // Zero real violations were in the baseline, so all current violations
+        // are new and baselineViolationCount is 0.
+        expect(result.hasBaseline).toBe(true)
         expect(result.newViolations).toHaveLength(1)
         expect(result.baselineViolationCount).toBe(0)
     })

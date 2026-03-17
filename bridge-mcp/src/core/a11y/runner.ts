@@ -183,6 +183,10 @@ export function auditSync(ast: BabelFile, options: RunnerOptions): A11yAuditResu
         if (options.categories && options.categories.length > 0) {
             if (!options.categories.includes(rule.category)) return false
         }
+        if (options.conformanceLevel) {
+            if (options.conformanceLevel === 'A' && rule.level !== 'A') return false
+            if (options.conformanceLevel === 'AA' && rule.level === 'AAA') return false
+        }
         return true
     })
     // POL.1: Track which rules are in advisory mode for severity downgrade
@@ -265,10 +269,13 @@ export function auditSync(ast: BabelFile, options: RunnerOptions): A11yAuditResu
                     const violation = rule.visitElement!(path, context)
                     if (violation) {
                         const taxEntry = getErrorEntryByRuleId(violation.ruleId)
+                        const base = taxEntry !== null
+                            ? { ...violation, explanation: taxEntry.explanation, recovery: taxEntry.recovery }
+                            : violation
                         allViolations.push(
-                            taxEntry !== null
-                                ? { ...violation, explanation: taxEntry.explanation, recovery: taxEntry.recovery }
-                                : violation,
+                            advisoryRuleIds.has(base.ruleId)
+                                ? { ...base, severity: 'advisory' as const }
+                                : base,
                         )
                     }
                 } catch {
@@ -284,10 +291,13 @@ export function auditSync(ast: BabelFile, options: RunnerOptions): A11yAuditResu
             const violations = rule.auditDocument!(context)
             for (const violation of violations) {
                 const taxEntry = getErrorEntryByRuleId(violation.ruleId)
+                const base = taxEntry !== null
+                    ? { ...violation, explanation: taxEntry.explanation, recovery: taxEntry.recovery }
+                    : violation
                 allViolations.push(
-                    taxEntry !== null
-                        ? { ...violation, explanation: taxEntry.explanation, recovery: taxEntry.recovery }
-                        : violation,
+                    advisoryRuleIds.has(base.ruleId)
+                        ? { ...base, severity: 'advisory' as const }
+                        : base,
                 )
             }
         } catch {

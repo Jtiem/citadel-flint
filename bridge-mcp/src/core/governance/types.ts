@@ -596,3 +596,111 @@ export interface AgentRiskSummary {
     /** Time period covered by this summary (e.g. 'last_7_days'). */
     period: string
 }
+
+// ── DBOM.1: Design Bill of Materials (Governance Layer) ─────────────────────
+
+/**
+ * Options for the governance-enriched DBOM generator.
+ */
+export interface DBOMOptions {
+    /** Output format. 'json' is the default DBOM. 'cyclonedx' wraps in CycloneDX-extended envelope. */
+    format?: 'json' | 'cyclonedx'
+    /** When true, includes per-component mutation provenance data. Default: false. */
+    includeProvenance?: boolean
+    /** When true, skips writing to .bridge/dbom.json. Default: false. */
+    dryRun?: boolean
+}
+
+/**
+ * A design token entry in the governance DBOM with compliance status.
+ */
+export interface DBOMTokenEntry {
+    /** Dot-separated token path (e.g. 'colors.brand.primary'). */
+    name: string
+    /** Raw token value (e.g. '#1A73E8', '16px'). */
+    value: string
+    /** Token category/type (e.g. 'color', 'dimension', 'fontFamily'). */
+    category: string
+    /** Relative file paths where this token is referenced. */
+    usedInFiles: string[]
+    /**
+     * Compliance status of this token:
+     *   'compliant'  — no violations reference this token's domain
+     *   'drifted'    — at least one violation references a value this token should govern
+     *   'unknown'    — unable to determine (e.g. token not referenced anywhere)
+     */
+    complianceStatus: 'compliant' | 'drifted' | 'unknown'
+}
+
+/**
+ * A component entry in the governance DBOM with audit and provenance data.
+ */
+export interface DBOMComponentEntry {
+    /** Component name (PascalCase, inferred from filename). */
+    name: string
+    /** Absolute path to the source file. */
+    filePath: string
+    /** Origin of the component. */
+    source: 'figma' | 'bridge' | 'handwritten'
+    /** Audit result for this component. */
+    auditResult: {
+        /** Total violation count (Mithril + A11y). */
+        violations: number
+        /** Component health score (0-100). */
+        score: number
+    }
+    /** Mutation provenance data. Present only when includeProvenance is true. */
+    provenance?: DBOMComponentProvenance
+}
+
+/**
+ * Provenance data for a component in the DBOM.
+ */
+export interface DBOMComponentProvenance {
+    /** Total mutations recorded for this file. */
+    totalMutations: number
+    /** Breakdown by provenance source. */
+    bySource: Record<string, number>
+    /** Most recent mutation timestamp, or null if none. */
+    lastMutatedAt: string | null
+}
+
+/**
+ * Project-wide compliance posture in the governance DBOM.
+ */
+export interface DBOMPosture {
+    /** Health score (0-100). */
+    healthScore: number
+    /** Letter grade: A (90-100), B (80-89), C (70-79), D (60-69), F (<60). */
+    grade: string
+    /** Total design tokens in the project. */
+    totalTokens: number
+    /** Total components scanned. */
+    totalComponents: number
+    /** Total violations (Mithril + A11y). */
+    totalViolations: number
+    /** Violation count grouped by regulatory authority. */
+    complianceByAuthority: Record<string, number>
+}
+
+/**
+ * The full governance-enriched Design Bill of Materials.
+ */
+export interface DBOM {
+    /** Schema version. */
+    version: '1.0'
+    /** ISO 8601 UTC timestamp when this DBOM was generated. */
+    generatedAt: string
+    /** Bridge MCP server version identifier. */
+    bridgeVersion: string
+    /** Absolute path to the project root. */
+    projectRoot: string
+    /** Project-wide compliance posture. */
+    posture: DBOMPosture
+    /** Design token inventory with compliance status. */
+    tokens: DBOMTokenEntry[]
+    /** Component inventory with audit results and optional provenance. */
+    components: DBOMComponentEntry[]
+    /** One-sentence plain-English summary of the DBOM. */
+    summary: string
+}

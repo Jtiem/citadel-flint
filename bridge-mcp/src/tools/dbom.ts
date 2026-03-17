@@ -6,13 +6,20 @@
  * component compliance, and governance status — analogous to a Snyk SBOM but
  * for design system governance.
  *
+ * Supports two output paths:
+ *   - 'json' / 'markdown' — core DBOM (unchanged from pre-DBOM.1)
+ *   - 'cyclonedx'         — governance-enriched DBOM in CycloneDX envelope
+ *   - includeProvenance    — attaches per-component mutation provenance
+ *
  * Registration: imported by server.ts and wired into ListToolsRequestSchema
  * and CallToolRequestSchema handlers.
  */
 
-import { generateDBOM } from '../core/dbom/generator.js'
+import { generateDBOM as generateCoreDBOM } from '../core/dbom/generator.js'
+import { generateDBOM as generateGovernanceDBOM, formatDBOMOutput } from '../core/governance/dbomService.js'
 import { formatDBOMAsMarkdown } from '../core/dbom/formatter.js'
 import type { DesignBillOfMaterials } from '../core/dbom/types.js'
+import type { DBOM } from '../core/governance/types.js'
 
 // ── Tool definition (MCP ListTools schema) ─────────────────────────────────────
 
@@ -23,7 +30,8 @@ export const BRIDGE_GENERATE_DBOM_TOOL = {
         'of all design tokens, their usage across components, Mithril governance violations, ' +
         'A11y compliance, token coverage per component, and a project health score. ' +
         'Analogous to a Snyk SBOM but for design system governance. ' +
-        'Returns JSON or a human-readable Markdown summary.',
+        "Returns JSON, Markdown, or CycloneDX-extended format. When 'includeProvenance' " +
+        'is true, attaches per-component mutation provenance (who/what caused each change).',
     inputSchema: {
         type: 'object' as const,
         properties: {
@@ -35,10 +43,18 @@ export const BRIDGE_GENERATE_DBOM_TOOL = {
             },
             format: {
                 type: 'string',
-                enum: ['json', 'markdown'],
+                enum: ['json', 'markdown', 'cyclonedx'],
                 description:
-                    "Output format. 'json' returns the full DBOM as a JSON object. " +
-                    "'markdown' returns a human-readable report. Default: 'json'.",
+                    "Output format. 'json' returns the governance-enriched DBOM. " +
+                    "'markdown' returns a human-readable report. " +
+                    "'cyclonedx' returns a CycloneDX 1.5 envelope with the DBOM as an extension. " +
+                    "Default: 'json'.",
+            },
+            includeProvenance: {
+                type: 'boolean',
+                description:
+                    'When true, includes per-component mutation provenance data (who/what ' +
+                    'caused each mutation). Requires .bridge/provenance.db. Default: false.',
             },
         },
     },
@@ -47,25 +63,38 @@ export const BRIDGE_GENERATE_DBOM_TOOL = {
 // ── Cache ──────────────────────────────────────────────────────────────────────
 
 /**
- * In-memory cache of the last generated DBOM.
+ * In-memory cache of the last generated core DBOM.
  * Used by the bridge://dbom resource to serve cached data without re-scanning.
  * Cleared on each fresh call to handleGenerateDBOM.
  */
 let cachedDBOM: DesignBillOfMaterials | null = null
 
 /**
- * Returns the last generated DBOM, or null when no DBOM has been generated
+ * In-memory cache of the last governance-enriched DBOM.
+ */
+let cachedGovernanceDBOM: DBOM | null = null
+
+/**
+ * Returns the last generated core DBOM, or null when no DBOM has been generated
  * in this server session. Called by the bridge://dbom resource handler.
  */
 export function getCachedDBOM(): DesignBillOfMaterials | null {
     return cachedDBOM
 }
 
+/**
+ * Returns the last governance-enriched DBOM, or null.
+ */
+export function getCachedGovernanceDBOM(): DBOM | null {
+    return cachedGovernanceDBOM
+}
+
 // ── Handler ────────────────────────────────────────────────────────────────────
 
 export interface GenerateDBOMArgs {
     projectRoot?: string
-    format?: 'json' | 'markdown'
+    format?: 'json' | 'markdown' | 'cyclonedx'
+    includeProvenance?: boolean
 }
 
 export async function handleGenerateDBOM(
@@ -74,14 +103,29 @@ export async function handleGenerateDBOM(
 ): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
     const projectRoot = args.projectRoot ?? defaultProjectRoot
     const format = args.format ?? 'json'
+    const includeProvenance = args.includeProvenance ?? false
 
-    const dbom = await generateDBOM(projectRoot)
-    cachedDBOM = dbom
+    // For markdown format, use the core DBOM + markdown formatter (backward compat)
+    if (format === 'markdown') {
+        const coreDbom = await generateCoreDBOM(projectRoot)
+        cachedDBOM = coreDbom
+        return {
+            content: [{ type: 'text', text: formatDBOMAsMarkdown(coreDbom) }],
+        }
+    }
 
-    const text =
-        format === 'markdown'
-            ? formatDBOMAsMarkdown(dbom)
-            : JSON.stringify(dbom, null, 2)
+    // For json and cyclonedx, use the governance-enriched DBOM
+    const govDbom = await generateGovernanceDBOM(projectRoot, {
+        format,
+        includeProvenance,
+    })
+    cachedGovernanceDBOM = govDbom
+
+    // Also generate and cache the core DBOM for the resource handler
+    const coreDbom = await generateCoreDBOM(projectRoot)
+    cachedDBOM = coreDbom
+
+    const text = formatDBOMOutput(govDbom, format === 'cyclonedx' ? 'cyclonedx' : 'json')
 
     return {
         content: [{ type: 'text', text }],
