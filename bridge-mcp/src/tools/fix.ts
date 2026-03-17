@@ -27,6 +27,10 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { BridgeConfig } from '../core/config.js'
 import type { DesignToken } from '../types.js'
+import { loadProjectContext } from '../core/projectContext.js'
+import type { ProjectContext } from '../core/projectContext.js'
+
+export type { ProjectContext }
 
 // CJS/ESM interop
 const traverse =
@@ -420,6 +424,45 @@ export interface FixResult {
     fixedSource: string
     fixesApplied: number
     status: string
+    /** One-sentence human-readable summary of what was fixed. CX.1 */
+    summary: string
+    /** True when the caller passed dryRun: true. CX.1 */
+    dryRun: boolean
+    /** Project-level health context. Omitted when unavailable. CX.1 */
+    project_context?: ProjectContext
+}
+
+// ── CX.1 Summary generation ────────────────────────────────────────────────
+
+/**
+ * Generate a one-sentence plain-English summary of fix results.
+ */
+export function generateFixSummary(
+    filePath: string,
+    fixesApplied: number,
+    status: string,
+    dryRun: boolean,
+): string {
+    const basename = path.basename(filePath)
+
+    if (status === 'parse-error') {
+        return `Could not parse ${basename}. No fixes applied.`
+    }
+    if (status === 'generate-error') {
+        return `AST generation failed for ${basename}. No fixes applied.`
+    }
+
+    if (dryRun) {
+        if (fixesApplied > 0) {
+            return `DRY RUN -- would fix ${fixesApplied} violation(s) in ${basename}. No changes written.`
+        }
+        return `DRY RUN -- no fixable violations found in ${basename}. No changes written.`
+    }
+
+    if (fixesApplied > 0) {
+        return `Fixed ${fixesApplied} violation(s) in ${basename}.`
+    }
+    return `No fixable violations found in ${basename}.`
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────
@@ -428,7 +471,8 @@ export async function handleBridgeFix(
     args: FixArgs,
     config: BridgeConfig,
 ): Promise<FixResult> {
-    const { source } = args
+    const { source, filePath } = args
+    const dryRun = args.dryRun === true
     const deltaEThreshold = config.policy.mithril.deltaE_threshold
 
     // Load design tokens
@@ -451,11 +495,14 @@ export async function handleBridgeFix(
             plugins: ['jsx', 'typescript'],
         })
     } catch {
-        return {
+        return buildFixResult({
             fixedSource: source,
             fixesApplied: 0,
             status: 'parse-error',
-        }
+            filePath,
+            dryRun,
+            projectRoot: config.projectRoot,
+        })
     }
 
     let totalFixes = 0
@@ -541,16 +588,56 @@ export async function handleBridgeFix(
         fixedSource = result.code
     } catch {
         // If generation fails, return original source
-        return {
+        return buildFixResult({
             fixedSource: source,
             fixesApplied: 0,
             status: 'generate-error',
-        }
+            filePath,
+            dryRun,
+            projectRoot: config.projectRoot,
+        })
     }
 
-    return {
+    return buildFixResult({
         fixedSource,
         fixesApplied: totalFixes,
         status: totalFixes > 0 ? 'fixed' : 'no-violations',
+        filePath,
+        dryRun,
+        projectRoot: config.projectRoot,
+    })
+}
+
+// ── Internal helper: build FixResult with CX.1 fields ────────────────────────
+
+function buildFixResult(opts: {
+    fixedSource: string
+    fixesApplied: number
+    status: string
+    filePath: string
+    dryRun: boolean
+    projectRoot: string
+}): FixResult {
+    const { fixedSource, fixesApplied, status, filePath, dryRun, projectRoot } = opts
+    const summary = generateFixSummary(filePath, fixesApplied, status, dryRun)
+
+    const result: FixResult = {
+        fixedSource,
+        fixesApplied,
+        status,
+        summary,
+        dryRun,
     }
+
+    // CX.1: Attach project_context footer (best-effort, never blocks fix result)
+    try {
+        const projectCtx = loadProjectContext(projectRoot)
+        if (projectCtx !== null) {
+            result.project_context = projectCtx
+        }
+    } catch {
+        // project_context is best-effort — never block fix result
+    }
+
+    return result
 }

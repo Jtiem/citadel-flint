@@ -12,6 +12,10 @@ import type { BridgeConfig } from '../core/config.js'
 import type { DesignToken } from '../types.js'
 import fs from 'node:fs'
 import path from 'node:path'
+import { loadProjectContext } from '../core/projectContext.js'
+import type { ProjectContext } from '../core/projectContext.js'
+
+export type { ProjectContext }
 
 export const BRIDGE_AUDIT_TOOL = {
     name: 'bridge_audit',
@@ -88,6 +92,10 @@ export interface AuditResult {
     }
     /** Present only when the caller passed healOnAudit: true. */
     healOnAudit?: HealOnAuditStatus
+    /** One-sentence human-readable summary of audit findings. CX.1 */
+    summary: string
+    /** Project-level health context. Omitted when unavailable. CX.1 */
+    project_context?: ProjectContext
 }
 
 export interface BatchFileResult {
@@ -105,12 +113,64 @@ export interface BatchAuditResult {
         totalViolations: number
         healthScore: number
         grade: string
+        /** One-sentence human-readable summary. CX.1 */
+        text: string
     }
     files: BatchFileResult[]
     policyMode: {
         mithril: string
         a11y: string
     }
+    /** Project-level health context. Omitted when unavailable. CX.1 */
+    project_context?: ProjectContext
+}
+
+// ── CX.1 Summary generation ────────────────────────────────────────────────
+
+/**
+ * Generate a one-sentence plain-English summary of single-file audit findings.
+ */
+export function generateAuditSummary(
+    filePath: string,
+    violations: AuditResult['violations'],
+    mithrilCount: number,
+    a11yCount: number,
+): string {
+    const basename = path.basename(filePath)
+    const total = violations.length
+
+    if (total === 0) {
+        return `No violations found in ${basename}. This file is export-ready.`
+    }
+
+    // fixable = Mithril violations (bridge_fix can auto-fix them; a11y requires manual fix)
+    const fixable = mithrilCount
+
+    if (a11yCount === 0) {
+        return `Found ${total} violation(s) in ${basename} -- ${fixable} auto-fixable.`
+    }
+
+    return (
+        `Found ${total} violation(s) in ${basename} -- ` +
+        `${mithrilCount} design drift, ${a11yCount} accessibility. ` +
+        `${fixable} auto-fixable.`
+    )
+}
+
+/**
+ * Generate a one-sentence plain-English summary of a batch audit result.
+ */
+export function generateBatchAuditSummary(
+    totalFiles: number,
+    totalViolations: number,
+    healthScore: number,
+    grade: string,
+): string {
+    return (
+        `Audited ${totalFiles} files. ` +
+        `${totalViolations} total violation(s). ` +
+        `Health: ${healthScore}/100 (Grade ${grade}).`
+    )
 }
 
 export async function handleBridgeAudit(
@@ -198,6 +258,8 @@ export async function handleBridgeAudit(
         }
     }
 
+    const summary = generateAuditSummary(filePath, violations, mithrilCount, a11yCount)
+
     const result: AuditResult = {
         violations,
         mithrilCount,
@@ -206,6 +268,17 @@ export async function handleBridgeAudit(
             mithril: policy.mithril.mode,
             a11y: policy.a11y.mode,
         },
+        summary,
+    }
+
+    // CX.1: Attach project_context footer (best-effort, never blocks audit)
+    try {
+        const projectCtx = loadProjectContext(config.projectRoot)
+        if (projectCtx !== null) {
+            result.project_context = projectCtx
+        }
+    } catch {
+        // project_context is best-effort — never block audit result
     }
 
     if (healOnAudit === true) {
@@ -306,15 +379,29 @@ export async function handleBridgeAuditBatch(
         0,
     )
     const healthScore = computeHealthScore(fileResults)
+    const grade = gradeFromScore(healthScore)
 
-    return {
+    const result: BatchAuditResult = {
         summary: {
             totalFiles: filePaths.length,
             totalViolations,
             healthScore,
-            grade: gradeFromScore(healthScore),
+            grade,
+            text: generateBatchAuditSummary(filePaths.length, totalViolations, healthScore, grade),
         },
         files: fileResults,
         policyMode,
     }
+
+    // CX.1: Attach project_context footer (best-effort, never blocks audit)
+    try {
+        const projectCtx = loadProjectContext(config.projectRoot)
+        if (projectCtx !== null) {
+            result.project_context = projectCtx
+        }
+    } catch {
+        // project_context is best-effort — never block batch audit result
+    }
+
+    return result
 }

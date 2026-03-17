@@ -48,9 +48,39 @@ import { contextPushManager } from "./core/contextPush.js";
 import { assembleSessionContext } from "./core/sessionContext.js";
 import { assessComplexity } from "./core/complexityRouter.js";
 import { enrichToolCall, enrichToolResult } from "./core/toolEnricher.js";
+import BetterSqlite3 from "better-sqlite3";
+import { MutationProvenanceService } from "./core/governance/mutationProvenanceService.js";
+import type { ProvenanceSource } from "./core/governance/types.js";
+import { scoreMutation as mrsScoremutation } from "./core/governance/riskScoringService.js";
+import { validateSessionState } from "./core/governance/sessionValidator.js";
+import type { SessionMutation } from "./core/governance/sessionValidator.js";
+import { handleBridgePlan, BRIDGE_PLAN_TOOL } from "./tools/plan.js";
+import type { BridgePlanParams } from "./tools/plan.js";
+import { loadProjectContext } from "./core/projectContext.js";
 
 // @ts-ignore
 const generate = _generate.default || _generate;
+
+// ---------------------------------------------------------------------------
+// Provenance singleton — one MutationProvenanceService per project root,
+// backed by a file-based SQLite database at <root>/.bridge/provenance.db
+// ---------------------------------------------------------------------------
+
+const _provenanceServices = new Map<string, MutationProvenanceService>();
+
+function getProvenanceService(projectRoot: string): MutationProvenanceService {
+    const existing = _provenanceServices.get(projectRoot);
+    if (existing !== undefined) return existing;
+
+    const dbDir = path.join(projectRoot, ".bridge");
+    if (!fs.existsSync(dbDir)) {
+        fs.mkdirSync(dbDir, { recursive: true });
+    }
+    const db = new BetterSqlite3(path.join(dbDir, "provenance.db"));
+    const service = new MutationProvenanceService(db);
+    _provenanceServices.set(projectRoot, service);
+    return service;
+}
 
 /** Active project configuration — initialised in runServer() */
 let bridgeConfig: BridgeConfig = DEFAULT_CONFIG;
@@ -66,6 +96,12 @@ const server = new Server(
             resources: {},
             prompts: {},
         },
+        instructions:
+            "Bridge is a governance engine that enforces design systems, accessibility, " +
+            "and brand compliance at the AST level. " +
+            "New to Bridge? Start with the bridge-workflow-guide prompt or read " +
+            "bridge://capabilities for the full tool catalog. " +
+            "For project health at a glance, call bridge_get_context with your projectRoot.",
     }
 );
 
@@ -159,6 +195,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                             type: "boolean",
                             description: "Whether to write the resulting code back to the file. Defaults to false.",
                         },
+                        dryRun: {
+                            type: "boolean",
+                            description:
+                                "When true, returns the full mutation result (what would change) " +
+                                "without writing to disk, recording provenance, or computing risk scores. " +
+                                "Use this for previewing mutations before committing them.",
+                        },
                     },
                     required: ["targetPath", "mutations"],
                 },
@@ -194,6 +237,47 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             BRIDGE_ACCESSIBILITY_REPORT_TOOL,
             BRIDGE_GENERATE_DBOM_TOOL,
             BRIDGE_ADD_REMOTE_LIBRARY_TOOL,
+            BRIDGE_PLAN_TOOL,
+            {
+                name: "bridge_mutation_provenance",
+                description: "Query the Mutation Provenance Ledger (V.2-mp). Returns who or what caused each AST mutation: human, agent, auto-heal, auto-fix, or import. Supports provenance summary (aggregate counts) and per-file audit trail.",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        action: {
+                            type: "string",
+                            enum: ["summary", "audit_trail", "by_source"],
+                            description: "'summary' — aggregate counts by source + top agents. 'audit_trail' — chronological history for a file. 'by_source' — list recent mutations by source type.",
+                        },
+                        projectRoot: {
+                            type: "string",
+                            description: "Absolute path to the project root (must contain a .bridge directory).",
+                        },
+                        filePath: {
+                            type: "string",
+                            description: "Required for action='audit_trail'. Absolute path to the file.",
+                        },
+                        source: {
+                            type: "string",
+                            enum: ["human", "agent", "auto-heal", "auto-fix", "import"],
+                            description: "Required for action='by_source'. Filter by provenance source.",
+                        },
+                        startDate: {
+                            type: "string",
+                            description: "ISO 8601 UTC lower bound for 'audit_trail' (inclusive).",
+                        },
+                        endDate: {
+                            type: "string",
+                            description: "ISO 8601 UTC upper bound for 'audit_trail' (inclusive).",
+                        },
+                        limit: {
+                            type: "number",
+                            description: "Max rows for 'by_source' (default: 100).",
+                        },
+                    },
+                    required: ["action", "projectRoot"],
+                },
+            },
             {
                 name: "bridge_debt_report",
                 description: "Generate a project-wide design debt report — aggregated Mithril violations, A11y issues, and token drift hotspots. Returns a health score (0-100), letter grade (A-F), violation breakdown by severity/category/file, and trend tracking.",
@@ -707,18 +791,32 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                     metadata: JSON.stringify({ mithrilCount: mithrilWarnings.size, a11yCount: Object.keys(a11yViolations).length })
                 });
 
-                const hasViolations = mithrilWarnings.size > 0 || Object.keys(a11yViolations).length > 0;
+                const mithrilCount = mithrilWarnings.size;
+                const a11yCount = Object.keys(a11yViolations).length;
+                const hasViolations = mithrilCount > 0 || a11yCount > 0;
                 const formatted = formatAuditReport(componentPath, mithrilWarnings, a11yViolations, tokens);
+
+                // CX.1: summary sentence for audit_ui_component
+                const auditComponentBasename = path.basename(componentPath);
+                const auditComponentSummary = hasViolations
+                    ? `Blocked: ${mithrilCount} Mithril + ${a11yCount} A11y violation(s) in ${auditComponentBasename}.`
+                    : `No violations in ${auditComponentBasename}. Component is export-ready.`;
 
                 if (hasViolations) {
                     return {
                         isError: true,
-                        content: [{ type: "text", text: formatted }],
+                        content: [
+                            { type: "text", text: auditComponentSummary },
+                            { type: "text", text: formatted },
+                        ],
                     };
                 }
 
                 return {
-                    content: [{ type: "text", text: formatted }],
+                    content: [
+                        { type: "text", text: auditComponentSummary },
+                        { type: "text", text: formatted },
+                    ],
                 };
             } catch (err: any) {
                 telemetry.log({
@@ -787,6 +885,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 mutations: Array<{ type: string; args: any }>;
                 writeFile?: boolean;
             };
+
+            // CX.1: dryRun alias — when true, force writeFile=false, skip provenance + MRS
+            const dryRunMutate = !!(request.params.arguments as any).dryRun;
+            const effectiveWriteFile = dryRunMutate ? false : !!writeFile;
 
             if (!fs.existsSync(targetPath)) {
                 throw new Error(`File not found: ${targetPath}`);
@@ -870,7 +972,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             const { code: newCode } = generate(ast);
             const batchId = crypto.randomUUID();
 
-            if (writeFile) {
+            if (effectiveWriteFile) {
                 fs.writeFileSync(targetPath, newCode, "utf-8");
                 telemetry.log({
                     tool: "bridge_ast_mutate",
@@ -887,12 +989,32 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 });
             }
 
+            // CX.1: Build summary for bridge_ast_mutate
+            const mutateBasename = path.basename(targetPath);
+            const mutateOpCounts = new Map<string, number>();
+            for (const m of mutations) {
+                const opType = (m as Record<string, unknown>).type as string ?? 'unknown';
+                mutateOpCounts.set(opType, (mutateOpCounts.get(opType) ?? 0) + 1);
+            }
+            const opListParts: string[] = [];
+            for (const [opType, count] of mutateOpCounts) {
+                opListParts.push(count > 1 ? `${opType} (x${count})` : opType);
+            }
+            const opList = opListParts.join(', ') || 'none';
+            const mutateSummary = dryRunMutate
+                ? `DRY RUN -- ${mutations.length} mutation(s) previewed for ${mutateBasename}: ${opList}. No changes written.`
+                : `Applied ${mutations.length} mutation(s) to ${mutateBasename}: ${opList}.`;
+
             // ACX.3: Pre-flight enrichment — prepend target node context
             const mutateResult: { content: Array<{ type: string; text: string }> } = {
                 content: [
                     {
                         type: "text",
-                        text: formatMutationReceipt(targetPath, mutations, batchId, !!writeFile),
+                        text: mutateSummary,
+                    },
+                    {
+                        type: "text",
+                        text: formatMutationReceipt(targetPath, mutations, batchId, effectiveWriteFile),
                     },
                 ],
             };
@@ -905,6 +1027,117 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 }
             } catch {
                 // Enrichment is best-effort — never block the mutation result
+            }
+
+            // V.2-mp: Record provenance for each mutation in this batch (skipped in dry-run mode).
+            if (!dryRunMutate) {
+                try {
+                    const provSvc = getProvenanceService(projectRoot);
+                    const args = request.params.arguments as Record<string, unknown>;
+                    const sessionId = typeof args.sessionId === "string" ? args.sessionId : null;
+                    const agentId = typeof args.agentId === "string" ? args.agentId : "bridge_ast_mutate";
+                    const reasoning = typeof args.reasoning === "string" ? args.reasoning : null;
+                    const confidence = typeof args.confidence === "number" ? args.confidence : null;
+                    provSvc.recordProvenanceBatch(
+                        mutations.map((_, idx) => ({
+                            mutationId: `${batchId}-${idx}`,
+                            source: "agent" as ProvenanceSource,
+                            agentId,
+                            sessionId,
+                            reasoning,
+                            confidence,
+                        })),
+                    );
+                } catch {
+                    // Provenance recording is best-effort — never block mutation result
+                }
+            }
+
+            // V.1-rs: Compute MRS for each mutation in the batch (skipped in dry-run mode).
+            if (!dryRunMutate) {
+                try {
+                    const mutationArgs = request.params.arguments as Record<string, unknown>;
+                    const riskScores = mutations.map((mutationOp) => {
+                        const opType: string =
+                            (mutationOp as Record<string, unknown>).type as string ??
+                            (mutationOp as Record<string, unknown>).kind as string ??
+                            'unknown';
+                        return mrsScoremutation({
+                            opType,
+                            affectedNodeCount: 1,
+                            filePath: typeof mutationArgs.targetPath === "string" ? mutationArgs.targetPath : undefined,
+                            projectRoot,
+                        });
+                    });
+
+                    // Summarise: highest-tier score wins for the batch
+                    const batchScore = riskScores.reduce(
+                        (max, s) => (s.score > max.score ? s : max),
+                        riskScores[0] ?? { score: 0, tier: 'green' as const, factors: [], recommendation: '' }
+                    );
+
+                    mutateResult.content.push({
+                        type: "text",
+                        text: JSON.stringify({
+                            riskScore: {
+                                batchHighScore: batchScore.score,
+                                batchTier: batchScore.tier,
+                                recommendation: batchScore.recommendation,
+                                perMutation: riskScores.map((s, i) => ({
+                                    index: i,
+                                    opType: (mutations[i] as Record<string, unknown>).type ?? 'unknown',
+                                    score: s.score,
+                                    tier: s.tier,
+                                })),
+                            }
+                        }, null, 2),
+                    });
+                } catch {
+                    // MRS is best-effort — never block the mutation result
+                }
+            }
+
+            // GOV.3: Session-Level Mutation Validation — run after all mutations are applied.
+            // Errors are informational: they are appended to the response so the agent
+            // can self-correct, but they never block the return value.
+            try {
+                // Re-parse the final code so the validator sees a clean AST.
+                const validationAst = parse(newCode, {
+                    sourceType: "module",
+                    plugins: ["jsx", "typescript"],
+                });
+                const sessionMuts: SessionMutation[] = mutations.map((m) => ({
+                    nodeId: typeof (m as any).args?.nodeId === "string"
+                        ? (m as any).args.nodeId as string
+                        : typeof (m as any).args?.sourceId === "string"
+                        ? (m as any).args.sourceId as string
+                        : undefined,
+                    type: typeof (m as any).type === "string" ? (m as any).type as string : undefined,
+                }));
+                const sessionValidation = validateSessionState(
+                    validationAst as any,
+                    targetPath,
+                    sessionMuts,
+                );
+                mutateResult.content.push({
+                    type: "text",
+                    text: JSON.stringify({ sessionValidation }, null, 2),
+                });
+            } catch {
+                // Session validation is best-effort — never block the mutation result
+            }
+
+            // CX.1: Append project_context footer (best-effort, never blocks mutation result)
+            try {
+                const mutateProjectCtx = loadProjectContext(projectRoot);
+                if (mutateProjectCtx !== null) {
+                    mutateResult.content.push({
+                        type: "text",
+                        text: JSON.stringify({ project_context: mutateProjectCtx }, null, 2),
+                    });
+                }
+            } catch {
+                // project_context is best-effort — never block the mutation result
             }
 
             return mutateResult;
@@ -1056,6 +1289,26 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             } catch {
                 // Enrichment is best-effort — never block the fix result
             }
+
+            // V.2-mp: Record provenance when bridge_fix actually applied fixes.
+            if (fixResult.fixesApplied > 0 && !fixArgs.dryRun) {
+                try {
+                    const fixProjectRoot = findProjectRoot(fixArgs.filePath) ?? bridgeConfig.projectRoot;
+                    const provSvc = getProvenanceService(fixProjectRoot);
+                    const fixMutationId = crypto.randomUUID();
+                    provSvc.recordProvenance(
+                        fixMutationId,
+                        "auto-fix",
+                        "bridge_fix",
+                        null,
+                        `bridge_fix applied ${fixResult.fixesApplied} token fix(es) to ${path.basename(fixArgs.filePath)}`,
+                        null,
+                    );
+                } catch {
+                    // Provenance recording is best-effort — never block fix result
+                }
+            }
+
             return {
                 content: [{ type: "text", text: enrichedFixText }],
             };
@@ -1133,8 +1386,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 ? formatReportAsMarkdown(report)
                 : JSON.stringify(report, null, 2);
 
+            // CX.1: Build summary for bridge_debt_report
+            let debtSummary =
+                `Project health: ${report.healthScore}/100 (Grade ${report.grade}). ` +
+                `${report.totalViolations} violation(s) across ${report.scannedFiles} files.`;
+            if (track) {
+                debtSummary += " Snapshot saved to debt history.";
+            }
+
             return {
-                content: [{ type: "text", text }],
+                content: [
+                    { type: "text", text: debtSummary },
+                    { type: "text", text },
+                ],
             };
         }
 
@@ -1236,6 +1500,96 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             return {
                 content: [{ type: "text", text: JSON.stringify(remoteResult, null, 2) }],
             };
+        }
+
+        case "bridge_plan": {
+            const planResult = handleBridgePlan(
+                args as unknown as BridgePlanParams,
+                bridgeConfig,
+            );
+            return planResult;
+        }
+
+        case "bridge_mutation_provenance": {
+            const provArgs = request.params.arguments as {
+                action: "summary" | "audit_trail" | "by_source";
+                projectRoot: string;
+                filePath?: string;
+                source?: ProvenanceSource;
+                startDate?: string;
+                endDate?: string;
+                limit?: number;
+            };
+
+            if (!provArgs.projectRoot || !fs.existsSync(provArgs.projectRoot)) {
+                return {
+                    isError: true,
+                    content: [{
+                        type: "text",
+                        text: "bridge_mutation_provenance: 'projectRoot' must be an existing directory.",
+                    }],
+                };
+            }
+
+            const provSvc = getProvenanceService(provArgs.projectRoot);
+
+            switch (provArgs.action) {
+                case "summary": {
+                    const summary = provSvc.getProvenanceSummary();
+                    return {
+                        content: [{ type: "text", text: JSON.stringify(summary, null, 2) }],
+                    };
+                }
+
+                case "audit_trail": {
+                    if (!provArgs.filePath) {
+                        return {
+                            isError: true,
+                            content: [{
+                                type: "text",
+                                text: "bridge_mutation_provenance: action='audit_trail' requires 'filePath'.",
+                            }],
+                        };
+                    }
+                    const trail = provSvc.getAuditTrail(
+                        provArgs.filePath,
+                        provArgs.startDate,
+                        provArgs.endDate,
+                    );
+                    return {
+                        content: [{ type: "text", text: JSON.stringify(trail, null, 2) }],
+                    };
+                }
+
+                case "by_source": {
+                    if (!provArgs.source) {
+                        return {
+                            isError: true,
+                            content: [{
+                                type: "text",
+                                text: "bridge_mutation_provenance: action='by_source' requires 'source'.",
+                            }],
+                        };
+                    }
+                    const records = provSvc.getProvenanceBySource(
+                        provArgs.source,
+                        provArgs.limit ?? 100,
+                    );
+                    return {
+                        content: [{ type: "text", text: JSON.stringify(records, null, 2) }],
+                    };
+                }
+
+                default: {
+                    return {
+                        isError: true,
+                        content: [{
+                            type: "text",
+                            text: `bridge_mutation_provenance: unknown action '${(provArgs as { action: string }).action}'. Must be 'summary', 'audit_trail', or 'by_source'.`,
+                        }],
+                    };
+                }
+            }
         }
 
         default:
