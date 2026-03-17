@@ -33,6 +33,7 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { LivePreview } from './LivePreview'
+import { GhostCodeSnippet } from './GhostCodeSnippet'
 import { useCanvasStore } from '../../store/canvasStore'
 import { useASTBufferStore } from '../../store/astBufferStore'
 
@@ -184,7 +185,7 @@ export function XYCanvas() {
 
     return (
         <div
-            className={`h-full w-full transition-shadow ${isDragOver ? 'ring-2 ring-blue-400 ring-inset' : ''}`}
+            className={`relative h-full w-full transition-shadow ${isDragOver ? 'ring-2 ring-blue-400 ring-inset' : ''}`}
             onDragOver={handleDragOver}
             onDragEnter={handleDragEnter}
             onDragLeave={handleDragLeave}
@@ -221,6 +222,9 @@ export function XYCanvas() {
                     style={{ background: '#111827', border: '1px solid #1f2937' }}
                 />
             </ReactFlow>
+
+            {/* U.4 — Ghost Code Snippet overlay: floats above canvas when a node is selected */}
+            <GhostCodeSnippet />
         </div>
     )
 }

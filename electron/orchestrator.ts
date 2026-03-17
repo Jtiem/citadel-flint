@@ -32,6 +32,9 @@ import { homedir } from 'node:os'
 import { tsLspClient } from './lsp/TypeScriptLspClient'
 import { vueLspClient } from './lsp/VueLspClient'
 import type { ILspClient } from './lsp/types'
+// ── AGV.3: Auto-Escalation Engine ───────────────────────────────────────────
+import { escalationEngine } from './agentEscalation.js'
+
 // ── Commandment 17: Mithril pre-commit check ──────────────────────────────────
 import db from './store.js'
 import { checkClassNameForColorDrift, formatViolationsForAI } from './mithrilPreCommit.js'
@@ -1339,8 +1342,44 @@ export async function sendChatMessage(
                                     // tools pass through with no risk annotation.
                                     if (MUTATION_TOOL_NAMES.has(block.name)) {
                                         const violationsActive = loadCurrentViolationCount() > 0
-                                        const mrs = computeMRS(block.name, 1, violationsActive)
-                                        console.log(`[Bridge MRS] tool=${block.name} score=${mrs.score} tier=${mrs.tier}`)
+
+                                        // ── 1C: Extract real blast radius from tool input ────
+                                        let blastRadius = 1
+                                        if (block.name === 'bridge_ast_mutate') {
+                                            const mutations = (toolInput as Record<string, unknown>).mutations
+                                            if (Array.isArray(mutations)) {
+                                                blastRadius = mutations.length
+                                            }
+                                        }
+                                        // bridge_insert_node, bridge_wrap_node, bridge_delete_node → 1 (default)
+
+                                        const mrs = computeMRS(block.name, blastRadius, violationsActive)
+                                        console.log(`[Bridge MRS] tool=${block.name} score=${mrs.score} tier=${mrs.tier} blast=${blastRadius}`)
+
+                                        // ── 1A: Record risk + check escalation ───────────────
+                                        const agentId = 'orchestrator'
+                                        escalationEngine.recordMutationRisk(agentId, mrs.tier, mrs.score)
+                                        const escalations = escalationEngine.checkEscalation(agentId)
+
+                                        // If any escalation has block_mutations action, reject
+                                        const blocked = escalationEngine.hasActiveAction(agentId, 'block_mutations')
+                                        if (blocked) {
+                                            const blockEsc = escalations.find(e => e.action.type === 'block_mutations')
+                                                ?? escalationEngine.getActiveEscalations(agentId).find(e => e.action.type === 'block_mutations')
+                                            onChunk({
+                                                type: 'error',
+                                                error: `[AGV.3] Mutation blocked by escalation rule ${blockEsc?.ruleId ?? 'unknown'}: ${blockEsc?.reason ?? 'agent risk threshold exceeded'}`,
+                                            })
+                                            hadValidationFailure = true
+                                            continue
+                                        }
+
+                                        // If any escalation requires review, force it
+                                        let requiresReview = mrs.tier === 'amber'
+                                        if (escalationEngine.hasActiveAction(agentId, 'require_review')) {
+                                            requiresReview = true
+                                        }
+
                                         onChunk({
                                             type: 'tool_call',
                                             toolName: block.name,
@@ -1349,7 +1388,7 @@ export async function sendChatMessage(
                                             riskTier: mrs.tier,
                                             riskScore: mrs.score,
                                             riskFactors: mrs.factors,
-                                            requiresReview: mrs.tier === 'amber',
+                                            requiresReview,
                                             requiresSignoff: mrs.tier === 'red',
                                         })
                                     } else {

@@ -68,6 +68,10 @@ export interface RunnerOptions {
     criteria?: WCAGCriterion[]
     /** If set, only run rules in these categories. */
     categories?: A11yRuleCategory[]
+    /** Per-rule policy modes from POL.1. 'off' skips the rule, 'advisory' downgrades severity. */
+    ruleModes?: Record<string, 'blocking' | 'advisory' | 'off'>
+    /** Conformance level filter — only run rules at or below this level. */
+    conformanceLevel?: 'A' | 'AA' | 'AAA'
 }
 
 // ── Rule registry ─────────────────────────────────────────────────────────────
@@ -168,8 +172,11 @@ export function auditSync(ast: BabelFile, options: RunnerOptions): A11yAuditResu
     const context = createContext(options)
     const allViolations: A11yViolationDetail[] = []
 
-    // Filter rules by criteria / categories if specified
+    // Filter rules by criteria / categories / policy modes / conformance level
+    const ruleModes = options.ruleModes ?? {}
     const activeRules = registeredRules.filter((rule) => {
+        // POL.1: Skip rules explicitly set to 'off' in policy
+        if (ruleModes[rule.id] === 'off') return false
         if (options.criteria && options.criteria.length > 0) {
             if (!options.criteria.includes(rule.wcag)) return false
         }
@@ -178,6 +185,12 @@ export function auditSync(ast: BabelFile, options: RunnerOptions): A11yAuditResu
         }
         return true
     })
+    // POL.1: Track which rules are in advisory mode for severity downgrade
+    const advisoryRuleIds = new Set(
+        Object.entries(ruleModes)
+            .filter(([, mode]) => mode === 'advisory')
+            .map(([id]) => id)
+    )
 
     // Element-level rules
     const elementVisitorRules = activeRules.filter((r) => r.visitElement != null)

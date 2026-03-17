@@ -208,6 +208,7 @@ MCP connection config (add to `~/.claude/mcp.json`):
 
 ## 7. Recent Changes
 
+- **Phase U.4 — Ghost Code Snippets (COMPLETE 2026-03-16):** New `GhostCodeSnippet.tsx` floating overlay (portal into `document.body`) shows JSX source context for the selected canvas node. Extracts source lines via node id's embedded 1-based line number (format `tagName:line:col`). CSS-class-based keyword tokeniser with Bridge palette token colours — no Monaco/CodeMirror added. Escape key + close button dismiss; auto-resets on node deselect. Integrated into `XYCanvas.tsx` as a sibling overlay. 18 new Glass tests covering `parseLineFromNodeId`, `extractSourceContext`, and all component render/dismiss states. Glass: 554/554 passing (18 new). TSC: 0 errors.
 - **Phase CX.1 — Response Quality Baseline (COMPLETE 2026-03-16):** New `bridge-mcp/src/core/projectContext.ts` (`loadProjectContext()` — O(1) read of `.bridge/debt-history.json`, graceful null on any error). `summary` field added to `bridge_audit`, `bridge_fix`, `bridge_ast_mutate`, `bridge_debt_report`, `audit_ui_component`, `bridge_swarm_audit_fix` responses — one sentence plain English per contract generation rules. `project_context` footer on `bridge_audit`, `bridge_fix`, and `bridge_ast_mutate` responses. `dryRun` flag formalized on `bridge_fix` (response labeling + provenance skip) and `bridge_ast_mutate` (writeFile forced false + provenance skip + MRS skip). Server `instructions` onboarding hint set in MCP Server constructor. 69 new tests (projectContext.test.ts: 24, responseQuality.test.ts: 34, cx1-response-quality.test.ts: 11). MCP: 1,158/1,158 passing, TSC: 0 errors.
 - **Phase ING (COMPLETE 2026-03-16)** — Ingestion-Time Audit & Auto-Heal. `IngestionAuditor.ts` (CIEDE2000 tier classification + Babel AST surgery), heal pass wired in `/ingest-ast` handler, `importSummaryStore`, `ImportSummary.tsx` (toast + panel), `bridge:import-summary` IPC push, `import:snap-to-token` + `import:undo-all-heals` IPC handlers, `healOnAudit` parameter on `bridge_audit` MCP tool. 30 new tests (ING-01 → ING-18 + integration tests + store tests + component tests).
 - **Wave 1 (COMPLETE)** — Activity Feed upgrade (filter bar, search, error view buttons). Figma Connection Status (IPC endpoint, StatusBar popover, staleness colors). Ghost Canvas (severity heat tints, ViolationTooltip, click-to-properties, viewport culling). MCP Discoverability (`bridge://capabilities` resource, `bridge-workflow-guide` prompt).
@@ -246,10 +247,21 @@ See `docs/BRIDGE-MASTER-PLAN.md` Section 3 for the full module table. All phases
 - V.1-rs (MRS stateless scorer), V.2-mp (Mutation Provenance Ledger), CX.2 (bridge_plan), Sprint 2 Security (SEC.1-3, P0-4), Phase ACX (Proactive Agent Context), Phase ING (Ingestion Auto-Heal), JTBD Waves 1-3, INFRA.1-2, EXP.2 (Debt Report), GOV.3 (Session Validation), Test Coverage Remediation.
 - **Contract-First Feature Build:** Mandatory 3-phase workflow. See `.claude/workflows/feature-build.md`.
 
-**Architectural gaps to wire (Sprint 4):**
-1. `loadAgentPolicy` not called from `main.ts` — per-project policy files are dead code at runtime
-2. `escalationEngine` not imported by `orchestrator.ts` — AGV.3 auto-escalation is inert
-3. `computeMRS` always uses `affectedNodes=1` — blast radius factor underutilized
+**Sprint 4 Phase A — Wire + AGV.2 (COMPLETE 2026-03-16):**
+- **1A: Escalation engine wired into orchestrator.** `escalationEngine` imported from `agentEscalation.ts`. After MRS computation, `recordMutationRisk` called. `block_mutations` escalation rejects tool calls with clear error. `require_review` escalation forces `requiresReview=true`.
+- **1B: Policy file loading wired into main.ts.** `loadAgentPolicy(projectRoot)` called at all 3 `activeProjectRoot` assignment points (openFolder, create-scratchpad, openPath). Per-project `.bridge/agent-policy.json` is now live.
+- **1C: Blast radius populated in orchestrator.** `bridge_ast_mutate` extracts `mutations.length` for real blast radius. Other tools default to 1.
+- **AGV.2: Agent Risk Dashboard (COMPLETE).** New `AgentRiskService` aggregates provenance + risk scores + overrides per agent. `bridge://agent-risk` MCP resource. `bridge_agent_risk` MCP tool (summary/by_agent). Types: `AgentRiskProfile`, `AgentRiskSummary`. 15 new tests.
+
+**GOV.4: Statistical Anomaly Detection (COMPLETE 2026-03-16):**
+- **AnomalyDetectionService** (`bridge-mcp/src/core/governance/anomalyDetectionService.ts`): Computes baseline stats from mutations_ledger, governance_events, override_events, mutation_risk_scores. Detects 5 anomaly types (override_spike, violation_surge, risk_drift, velocity_spike, agent_behavior_change) at 3-sigma threshold. When stddev=0, uses mean*1.5 fallback. Severity derived from sigma distance (3σ=warning, 4σ=critical). SQLite `anomaly_history` table for persistence.
+- **Types** added to `types.ts`: `AnomalyType`, `AnomalySeverity`, `BaselineStats`, `Anomaly`.
+- **MCP tool** `bridge_anomaly_report` registered with actions: `detect`, `history`, `baseline`.
+- **MCP resource** `bridge://anomalies` returns count + latest 10 anomalies.
+- **23 new tests** covering: schema init, empty/missing tables, single data point, multi-day baselines, all 5 anomaly types, stddev=0 fallback, multiple simultaneous anomalies, persistence, severity derivation, history ordering/limit/scoping.
+- **Test results:** MCP: 1491/1512 passing (23 new; 21 pre-existing policy test failures unchanged) | TSC: 0 errors
+
+**Remaining architectural gaps (Sprint 4):**
 4. Duplicated MRS formula in `riskApproval.test.ts` — no sync enforcement with `orchestrator.ts`
 
 **Note:** Master Plan uses V.1 (Risk Scoring) and V.2 (Mutation Provenance). JTBD plan uses V.1-gd (Governance Dashboard) and V.2-af (Activity Feed). These are different features — use full phase codes to avoid confusion.
