@@ -100,6 +100,7 @@ export function createMockBridgeAPI() {
             onNewProject: vi.fn(),
             onOpenProject: vi.fn(),
             onCloseProject: vi.fn(),
+            onSaveProjectAs: vi.fn(),
             removeMenuListeners: vi.fn(),
         },
         ai: {
@@ -126,6 +127,44 @@ export function createMockBridgeAPI() {
             resize: vi.fn(),
             onOutput: vi.fn(),
         },
+        governance: {
+            recordOverride: vi.fn().mockResolvedValue(undefined),
+            getOverrideCount: vi.fn().mockResolvedValue(0),
+            getComplianceSummary: vi.fn().mockResolvedValue({
+                totalViolations: 0,
+                byAuthority: {},
+                bySeverity: { critical: 0, warning: 0, info: 0 },
+                violatedRules: [],
+                generatedAt: new Date().toISOString(),
+            }),
+            onOverrideRecorded: vi.fn().mockReturnValue(() => {}),
+        },
+        figma: {
+            status: vi.fn().mockResolvedValue({ running: false, lastWebhookAt: null, tokenCount: 0, port: 4545 }),
+            disconnect: vi.fn().mockResolvedValue(undefined),
+            onConnected: vi.fn().mockReturnValue(() => {}),
+            onError: vi.fn().mockReturnValue(() => {}),
+            removeListeners: vi.fn(),
+        },
+        mcp: {
+            callTool: vi.fn().mockResolvedValue({}),
+            readResource: vi.fn().mockResolvedValue(''),
+            status: vi.fn().mockResolvedValue({ connected: false }),
+            onEvent: vi.fn().mockReturnValue(() => {}),
+        },
+        annotations: {
+            readAll: vi.fn().mockResolvedValue([]),
+            onChanged: vi.fn().mockReturnValue(() => {}),
+        },
+        context: {
+            getEnriched: vi.fn().mockResolvedValue({
+                timestamp: Date.now(),
+                activeFile: null,
+                tokenCount: 0,
+                activeOverrideCount: 0,
+                enrichedAt: new Date().toISOString(),
+            }),
+        },
     }
 }
 
@@ -135,6 +174,8 @@ export function createMockBridgeAPI() {
 import { useNotificationStore } from '../../store/notificationStore'
 import { useEditorStore } from '../../store/editorStore'
 import { useCanvasStore } from '../../store/canvasStore'
+import { useGovernanceStore } from '../../store/governanceStore'
+import { useImportSummaryStore } from '../../store/importSummaryStore'
 
 export function resetAllStores() {
     useNotificationStore.setState({ notifications: [], history: [] })
@@ -163,6 +204,10 @@ export function resetAllStores() {
         activeFilePath: null,
         workspaceFiles: null,
     })
+
+    // ACX.5: reset governance and import summary stores
+    useGovernanceStore.setState({ overrides: {} })
+    useImportSummaryStore.setState({ summary: null, isVisible: false, isPanelMode: false })
 }
 
 // ── Global Hooks ─────────────────────────────────────────────────────────────

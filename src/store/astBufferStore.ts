@@ -128,7 +128,7 @@ interface ASTBufferActions {
         sourceNodeId: string,
         targetNodeId: string | null,
         position: DropPosition,
-        options?: { isRecovery?: boolean },
+        options?: { isRecovery?: boolean; cloneMode?: boolean },
     ) => Promise<{ srcInversions: InverseMutation[], tgtInversions: InverseMutation[], batchId: string } | void>
 }
 
@@ -178,6 +178,8 @@ export const useASTBufferStore = create<ASTBufferState & ASTBufferActions>((set,
         // Guard: same-file moves belong to editorStore.moveLayerNode.
         if (sourceFilePath === targetFilePath) return
 
+        const cloneMode = options?.cloneMode === true
+
         // ── 1. Ensure both buffers are loaded ─────────────────────────────────
         await get().loadBuffer(sourceFilePath)
         await get().loadBuffer(targetFilePath)
@@ -202,52 +204,79 @@ export const useASTBufferStore = create<ASTBufferState & ASTBufferActions>((set,
         }
         if (effectiveTargetId === null) return  // target file has no JSX — abort
 
-        // ── 4. Extract source node ─────────────────────────────────────────────
+        // ── 4. Extract (or clone) source node ──────────────────────────────────
         // extractNode / synthesizeImports / insertNode are Babel-specific internal
         // helpers. The cast to File is safe: the cross-file move pipeline only
         // runs on .tsx files via ReactAdapter, which always stores Babel File ASTs.
-        const extracted = extractNode(sourceAST as File, sourceNodeId)
+        //
+        // In cloneMode we re-parse the source AST from its pre-move code before
+        // extraction so the original source buffer is never mutated (extractNode
+        // removes the node from the AST in-place). The cloned parse gives us an
+        // independent tree to extract from while the stored buffer stays intact.
+        let extractionAST: File
+        if (cloneMode) {
+            const clonedAST = srcAdapter.parse(preMoveSourceCode)
+            if (clonedAST === null) return
+            srcAdapter.injectBridgeIds(clonedAST)
+            extractionAST = clonedAST as File
+        } else {
+            extractionAST = sourceAST as File
+        }
+
+        const extracted = extractNode(extractionAST, sourceNodeId)
         if (extracted === null) return
 
         // ── 5. Synthesize imports (Phase B Import Synthesizer) ─────────────────
-        synthesizeImports(sourceAST as File, extracted, targetAST as File, sourceFilePath, targetFilePath)
+        synthesizeImports(extractionAST, extracted, targetAST as File, sourceFilePath, targetFilePath)
 
         // ── 6. Insert extracted node into target AST ───────────────────────────
         const inserted = insertNode(targetAST as File, extracted, effectiveTargetId, position)
         if (!inserted) {
-            // Insertion failed — restore the source AST to its pre-move state.
-            const restoredSource = srcAdapter.parse(preMoveSourceCode)
-            if (restoredSource !== null) {
-                srcAdapter.injectBridgeIds(restoredSource)
-                set((state) => {
-                    const next = new Map(state.buffers)
-                    next.set(sourceFilePath, restoredSource)
-                    return { buffers: next }
-                })
+            if (!cloneMode) {
+                // Insertion failed — restore the source AST to its pre-move state.
+                const restoredSource = srcAdapter.parse(preMoveSourceCode)
+                if (restoredSource !== null) {
+                    srcAdapter.injectBridgeIds(restoredSource)
+                    set((state) => {
+                        const next = new Map(state.buffers)
+                        next.set(sourceFilePath, restoredSource)
+                        return { buffers: next }
+                    })
+                }
             }
             return
         }
 
-        // ── 7. Generate new code from both mutated ASTs ────────────────────────
-        const newSourceCode = srcAdapter.generate(sourceAST)
+        // ── 7. Generate new code ───────────────────────────────────────────────
+        // In cloneMode the source file is unchanged — only target needs saving.
         const newTargetCode = tgtAdapter.generate(targetAST)
+        const newSourceCode = cloneMode ? preMoveSourceCode : srcAdapter.generate(sourceAST as File)
 
         // ── 8. Atomic batch write (Commandment 12 — Atomic Queuing) ───────────
+        // In cloneMode, only write the target file (source is unchanged).
         try {
-            await window.bridgeAPI.saveFileBatch({
-                [sourceFilePath]: newSourceCode,
-                [targetFilePath]: newTargetCode,
-            })
+            if (cloneMode) {
+                await window.bridgeAPI.saveFileBatch({
+                    [targetFilePath]: newTargetCode,
+                })
+            } else {
+                await window.bridgeAPI.saveFileBatch({
+                    [sourceFilePath]: newSourceCode,
+                    [targetFilePath]: newTargetCode,
+                })
+            }
         } catch (err) {
             console.error('[Bridge] crossFileMove: saveFileBatch failed:', err)
-            // Restore both buffers to pre-move state.
-            const restoredSource = srcAdapter.parse(preMoveSourceCode)
+            // Restore buffers to pre-move state.
             const restoredTarget = tgtAdapter.parse(preMoveTargetCode)
             set((state) => {
                 const next = new Map(state.buffers)
-                if (restoredSource !== null) {
-                    srcAdapter.injectBridgeIds(restoredSource)
-                    next.set(sourceFilePath, restoredSource)
+                if (!cloneMode) {
+                    const restoredSource = srcAdapter.parse(preMoveSourceCode)
+                    if (restoredSource !== null) {
+                        srcAdapter.injectBridgeIds(restoredSource)
+                        next.set(sourceFilePath, restoredSource)
+                    }
                 }
                 if (restoredTarget !== null) {
                     tgtAdapter.injectBridgeIds(restoredTarget)
@@ -258,14 +287,17 @@ export const useASTBufferStore = create<ASTBufferState & ASTBufferActions>((set,
             return
         }
 
-        // ── 9. Re-parse both ASTs (fresh canonical ASTs) + 7D hardening ────────
-        const finalSource = srcAdapter.parse(newSourceCode)
+        // ── 9. Re-parse ASTs (fresh canonical ASTs) + 7D hardening ─────────────
+        // In cloneMode the source buffer is left as-is (still the pre-move parse).
         const finalTarget = tgtAdapter.parse(newTargetCode)
         set((state) => {
             const next = new Map(state.buffers)
-            if (finalSource !== null) {
-                srcAdapter.injectBridgeIds(finalSource)
-                next.set(sourceFilePath, finalSource)
+            if (!cloneMode) {
+                const finalSource = srcAdapter.parse(newSourceCode)
+                if (finalSource !== null) {
+                    srcAdapter.injectBridgeIds(finalSource)
+                    next.set(sourceFilePath, finalSource)
+                }
             }
             if (finalTarget !== null) {
                 tgtAdapter.injectBridgeIds(finalTarget)
@@ -279,11 +311,12 @@ export const useASTBufferStore = create<ASTBufferState & ASTBufferActions>((set,
         const { useCanvasStore } = await import('./canvasStore')
         const activeFilePath = useCanvasStore.getState().activeFilePath
 
-        if (activeFilePath === sourceFilePath || activeFilePath === targetFilePath) {
+        if (activeFilePath === targetFilePath) {
             const { useEditorStore } = await import('./editorStore')
-            const editorStore = useEditorStore.getState()
-            if (activeFilePath === sourceFilePath) editorStore.syncCode(newSourceCode)
-            if (activeFilePath === targetFilePath) editorStore.syncCode(newTargetCode)
+            useEditorStore.getState().syncCode(newTargetCode)
+        } else if (!cloneMode && activeFilePath === sourceFilePath) {
+            const { useEditorStore } = await import('./editorStore')
+            useEditorStore.getState().syncCode(newSourceCode)
         }
 
         // ── 11. Push tagged history entries for cross-file undo + redo ────────
@@ -297,6 +330,9 @@ export const useASTBufferStore = create<ASTBufferState & ASTBufferActions>((set,
         // applyCrossFileUndo extracts this plan and stores it in the future
         // stack so Cmd+Shift+Z can re-invoke crossFileMove deterministically
         // without recalculating the AST diff.
+        //
+        // In cloneMode only the target file changes, so we push only one history
+        // entry (for the target). The source is unchanged and needs no undo entry.
         const srcInversions: InverseMutation[] = [
             { op: 'restoreCode', code: preMoveSourceCode },
         ]
@@ -319,8 +355,14 @@ export const useASTBufferStore = create<ASTBufferState & ASTBufferActions>((set,
 
         if (!options?.isRecovery) {
             // Normal move: push directly to historyStore (clears future).
-            useHistoryStore.getState().push(srcInversions, emptyRedo, sourceFilePath, batchId, redoPlan)
-            useHistoryStore.getState().push(tgtInversions, emptyRedo, targetFilePath, batchId)
+            if (!cloneMode) {
+                // Source moves away — two entries, one per file.
+                useHistoryStore.getState().push(srcInversions, emptyRedo, sourceFilePath, batchId, redoPlan)
+                useHistoryStore.getState().push(tgtInversions, emptyRedo, targetFilePath, batchId)
+            } else {
+                // Clone — source is unchanged; only target file needs an undo entry.
+                useHistoryStore.getState().push(tgtInversions, emptyRedo, targetFilePath, batchId)
+            }
         } else {
             // Recovery redo: return inversions to the RecoveryController so it
             // can push them via pushPast (preserves the remaining future stack).

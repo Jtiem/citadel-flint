@@ -10,6 +10,8 @@
  *     is loopback-only; wildcard CORS is required for Figma plugin iframes, which
  *     present a 'null' origin that cannot be matched by a specific origin string.
  *   - Every non-OPTIONS request must supply a matching x-bridge-secret header.
+ *   - SEC.6: Per-route token-bucket rate limiting prevents DoS from misbehaving
+ *     plugins or scripts. OPTIONS (CORS preflight) requests are always exempt.
  *
  * Routes:
  *   POST /ingest         — Accepts a Figma Variables payload, normalises to W3C
@@ -23,17 +25,40 @@ import http from 'node:http'
 import { BrowserWindow } from 'electron'
 import db from './store.js'
 import { normalizeFigmaVariables } from './normalizer.js'
+import { heal } from './ingestion/index.js'
+import type { AuditorToken } from './ingestion/index.js'
+// SEC.6: Rate limiter lives in a pure module with no Electron/SQLite imports
+// so it can be unit-tested in isolation.
+import { checkRateLimit } from './rateLimiter.js'
 
 const BASE_PORT = 4545
 const MAX_PORT_ATTEMPTS = 10
 
-// In development the secret is predictable; in production the Figma plugin
-// and main process will exchange a runtime-generated secret stored in
-// project_state. For Phase 2 we use a stable dev value.
-const BRIDGE_SECRET = process.env.BRIDGE_SECRET ?? 'bridge-dev-secret-phase2'
+// SEC.2: Secret is no longer a compile-time constant. It is injected at runtime
+// by main.ts via startIngestionServer(secret) using crypto.randomBytes(32).
+// This prevents the hardcoded secret from shipping in the binary.
+let bridgeSecret: string | null = null
 
 let server: http.Server | null = null
 let activePort = BASE_PORT
+
+/**
+ * Server-side callback for storing pre-heal code (SECURITY-01 fix).
+ * Set by main.ts via `setPreHealCodeCallback()` to avoid circular imports.
+ * Defaults to no-op so ingestion-server works standalone in tests.
+ */
+let _storePreHealCode: (code: string) => void = () => {}
+
+/** Called by main.ts to wire the pre-heal code store without circular import. */
+export function setPreHealCodeCallback(cb: (code: string) => void): void {
+    _storePreHealCode = cb
+}
+
+/**
+ * Unix timestamp (ms) of the last successful POST /ingest from the Figma plugin.
+ * null means no ingest has occurred in this process lifetime.
+ */
+let lastWebhookAt: number | null = null
 
 // ── Prepared statements (created once, reused on every request) ───────────────
 
@@ -104,16 +129,42 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     setCorsHeaders(res)
 
     // 1. Handle OPTIONS preflight — must return 200 before any auth checks
+    //    OPTIONS is always exempt from rate limiting (CORS preflight must always succeed).
     if (req.method === 'OPTIONS') {
         res.writeHead(200)
         res.end()
         return
     }
 
+    // SEC.6: Per-route rate limit check — runs before secret validation so
+    // unauthenticated flood attempts are rejected cheaply.
+    const rateResult = checkRateLimit(req.url)
+    if (!rateResult.allowed) {
+        const secs = rateResult.retryAfterSecs
+        res.setHeader('Retry-After', String(secs))
+        sendJson(res, 429, { error: `Rate limit exceeded. Try again in ${secs}s.` })
+        return
+    }
+
+    // SEC.2: Guard against requests arriving before startIngestionServer sets the secret
+    if (bridgeSecret === null) {
+        sendJson(res, 503, { error: 'Server not fully initialized' })
+        return
+    }
+
     // 2. Enforce x-bridge-secret on all other methods
     const secret = req.headers['x-bridge-secret']
-    if (!secret || secret !== BRIDGE_SECRET) {
-        sendJson(res, 401, { error: 'Unauthorized: missing or invalid x-bridge-secret' })
+    if (!secret || secret !== bridgeSecret) {
+        const unauthorizedReason = 'Unauthorized: missing or invalid x-bridge-secret'
+        sendJson(res, 401, { error: unauthorizedReason })
+        const errWindows = BrowserWindow.getAllWindows()
+        if (errWindows.length > 0) {
+            errWindows[0].webContents.send('bridge:figma-error', {
+                statusCode: 401,
+                reason: unauthorizedReason,
+                timestamp: Date.now(),
+            })
+        }
         return
     }
 
@@ -135,25 +186,49 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
                 const tokens = normalizeFigmaVariables(payload)
 
                 if (tokens.length === 0) {
-                    sendJson(res, 400, {
-                        error: 'No tokens produced. Verify the payload contains ' +
-                            'variables and variableCollections keys.',
-                    })
+                    const emptyReason = 'No tokens produced. Verify the payload contains ' +
+                        'variables and variableCollections keys.'
+                    sendJson(res, 400, { error: emptyReason })
+                    const badWindows = BrowserWindow.getAllWindows()
+                    if (badWindows.length > 0) {
+                        badWindows[0].webContents.send('bridge:figma-error', {
+                            statusCode: 400,
+                            reason: emptyReason,
+                            timestamp: Date.now(),
+                        })
+                    }
                     return
                 }
 
                 batchUpsertTokens(tokens)
 
+                // Record timestamp of this successful ingest for getFigmaStatus().
+                lastWebhookAt = Date.now()
+
                 // Notify the renderer so the token store re-fetches automatically.
                 const windows = BrowserWindow.getAllWindows()
                 if (windows.length > 0) {
                     windows[0].webContents.send('bridge:tokens-updated')
+                    // Push connection event so FigmaSetupWizard / StatusBar can react.
+                    windows[0].webContents.send('bridge:figma-connected', {
+                        tokenCount: tokens.length,
+                        timestamp: lastWebhookAt,
+                    })
                 }
 
                 console.log(`[Bridge] /ingest: upserted ${tokens.length} tokens`)
                 sendJson(res, 200, { success: true, count: tokens.length })
             } catch {
-                sendJson(res, 400, { error: 'Invalid JSON payload' })
+                const parseReason = 'Invalid JSON payload'
+                sendJson(res, 400, { error: parseReason })
+                const parseErrWindows = BrowserWindow.getAllWindows()
+                if (parseErrWindows.length > 0) {
+                    parseErrWindows[0].webContents.send('bridge:figma-error', {
+                        statusCode: 400,
+                        reason: parseReason,
+                        timestamp: Date.now(),
+                    })
+                }
             }
         })
 
@@ -237,13 +312,42 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
                     figmaPayload = rawBody
                 }
 
-                // Notify the renderer to perform AST hydration
+                // ── Phase ING.1: Ingestion Heal Pass ─────────────────────────────────
+                // Read tokens synchronously from SQLite (better-sqlite3).
+                // If empty (no prior /ingest), heal() is a safe no-op.
+                let healedPayload = figmaPayload
+                try {
+                    const tokenRows = db.prepare(
+                        'SELECT token_path, token_type, token_value FROM design_tokens'
+                    ).all() as AuditorToken[]
+                    const healResult = heal(figmaPayload, tokenRows)
+                    healedPayload = healResult.healedCode
+                    // Store pre-heal code server-side for undo (SECURITY-01 fix)
+                    _storePreHealCode(figmaPayload)
+                    const healWindows = BrowserWindow.getAllWindows()
+                    if (healWindows.length > 0) {
+                        healWindows[0].webContents.send('bridge:import-summary', healResult.summary)
+                    }
+                    console.log(
+                        `[Bridge] /ingest-ast: heal pass — ` +
+                        `tier1=${healResult.summary.tier1Fixed.length} ` +
+                        `tier2=${healResult.summary.tier2Flagged.length} ` +
+                        `tier3=${healResult.summary.tier3Unknown} ` +
+                        `(${healResult.summary.healTimeMs.toFixed(1)}ms)`
+                    )
+                } catch (healErr) {
+                    // Never block ingestion on heal errors — degrade gracefully
+                    console.error('[Bridge] /ingest-ast: heal error (raw payload used):', healErr)
+                }
+                // ── End ING.1 ────────────────────────────────────────────────────────
+
+                // Send healed code (or raw payload on heal error) to renderer
                 const windows = BrowserWindow.getAllWindows()
                 if (windows.length > 0) {
-                    windows[0].webContents.send('bridge:hydro-paste-auto', figmaPayload)
+                    windows[0].webContents.send('bridge:hydro-paste-auto', healedPayload)
                 }
 
-                console.log('[Bridge] /ingest-ast: received AST payload')
+                console.log('[Bridge] /ingest-ast: payload dispatched to renderer')
                 sendJson(res, 200, { success: true })
             } catch {
                 sendJson(res, 400, { error: 'Invalid JSON payload' })
@@ -283,7 +387,7 @@ function tryListen(port: number): void {
         server = attempt
         activePort = port
         console.log(`[Bridge] Ingestion server listening on http://127.0.0.1:${port}`)
-        console.log(`[Bridge] x-bridge-secret: ${BRIDGE_SECRET}`)
+        // SEC.2: Do NOT log the secret. It stays in main process memory only.
     })
 
     attempt.on('error', (err: NodeJS.ErrnoException) => {
@@ -297,11 +401,16 @@ function tryListen(port: number): void {
     })
 }
 
-export function startIngestionServer(): void {
+export function startIngestionServer(secret: string): void {
     if (server) {
         console.warn('[Bridge] Ingestion server already running.')
         return
     }
+    // SEC.2: Validate secret strength before accepting it
+    if (!secret || secret.length < 32) {
+        throw new Error('startIngestionServer requires a secret of at least 32 characters')
+    }
+    bridgeSecret = secret
     tryListen(BASE_PORT)
 }
 
@@ -311,12 +420,35 @@ export function stopIngestionServer(): void {
             console.log('[Bridge] Ingestion server stopped.')
         })
         server = null
+        bridgeSecret = null  // SEC.2: Clear secret on stop to prevent stale references
     }
 }
 
 export function getServerStatus(): { running: boolean; port: number } {
     return {
         running: server !== null && server.listening,
+        port: activePort,
+    }
+}
+
+/**
+ * Returns a snapshot of Figma connection health for the `figma:status` IPC handler.
+ *
+ *   running       — true when the loopback HTTP server is bound and listening.
+ *   lastWebhookAt — Unix timestamp (ms) of the last successful POST /ingest,
+ *                   or null if no ingest has occurred in this process lifetime.
+ *   tokenCount    — Current row count from the design_tokens table.
+ *   port          — The port the ingestion server is currently listening on.
+ *
+ * SEC.2: The `secret` field has been removed. The per-session secret stays in
+ * main process memory only — it must never be returned to the renderer.
+ */
+export function getFigmaStatus(): { running: boolean; lastWebhookAt: number | null; tokenCount: number; port: number } {
+    const countRow = db.prepare('SELECT COUNT(*) as count FROM design_tokens').get() as { count: number }
+    return {
+        running: server !== null && server.listening,
+        lastWebhookAt,
+        tokenCount: countRow?.count ?? 0,
         port: activePort,
     }
 }

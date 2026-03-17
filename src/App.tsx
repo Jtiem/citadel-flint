@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import './index.css'
 // ── Phase N.1: Bootstrap the Abstract Syntax Protocol (ASP) ──────────────────
 import { LanguageRegistry } from './core/adapters/types'
@@ -14,22 +14,35 @@ import { LayerTree } from './components/ui/LayerTree'
 import { AssetsPanel } from './components/editor/AssetsPanel'
 import { PropertiesPanel } from './components/ui/PropertiesPanel'
 import { TokenManager } from './components/ui/TokenManager'
-import { AgentChatPanel } from './components/ui/AgentChatPanel'
+import { ActivityFeed } from './components/ui/ActivityFeed'
+import { RecoveryPanel } from './components/ui/RecoveryPanel'
 import { ExportModal } from './components/ui/ExportModal'
 import { GovernancePanel } from './components/ui/GovernancePanel'
+import { GovernanceDashboard } from './components/ui/GovernanceDashboard'
 import { NotificationCenter } from './components/ui/NotificationCenter'
 import { OnboardingOverlay } from './components/ui/OnboardingOverlay'
+// Phase ING.2: Import Summary toast + panel
+import { ImportSummaryToastMount, ImportSummaryPanelView } from './components/ui/ImportSummary'
+import { useImportSummaryStore } from './store/importSummaryStore'
 import { StatusBar } from './components/editor/StatusBar'
+import { ResizeHandle } from './components/ui/ResizeHandle'
 import { useTokenStore } from './store/tokenStore'
 import { useNotificationStore } from './store/notificationStore'
 import { useCanvasStore } from './store/canvasStore'
 import { useEditorStore } from './store/editorStore'
+import { useAnnotationStore } from './store/annotationStore'
 import type { FileTreeNode } from './types/bridge-api'
 import { applyUndo, applyRedo } from './core/recoveryController'
 import { MithrilProvider } from './components/mithril/MithrilProvider'
 import { LaunchScreen } from './components/ui/LaunchScreen'
 import { useContextSync } from './hooks/useContextSync'
+import { useMCPEventListener } from './hooks/useMCPEventListener'
 import { ShieldAlert, ShieldCheck, Settings2 } from 'lucide-react'
+import { OnboardingNudge } from './components/ui/OnboardingNudge'
+
+// ── Panel width constraints ───────────────────────────────────────────────────
+const PANEL_MIN = 160
+const PANEL_MAX = 400
 
 // ── Primary file selection ────────────────────────────────────────────────────
 function findPrimaryFile(tree: FileTreeNode): string | null {
@@ -50,13 +63,31 @@ function findPrimaryFile(tree: FileTreeNode): string | null {
 // ── App ───────────────────────────────────────────────────────────────────────
 
 function App() {
-    const [rightTab, setRightTab] = useState<'ast' | 'assets' | 'properties' | 'tokens' | 'activity'>('properties')
+    const [leftTab, setLeftTab] = useState<'layers' | 'assets'>('layers')
+    const rightTab    = useCanvasStore((s) => s.rightTab)
+    const setRightTab = useCanvasStore((s) => s.setRightTab)
     const [ipcStatus, setIpcStatus] = useState<string>('Connecting…')
     const [ipcOk, setIpcOk] = useState<boolean>(false)
     const [showExportModal, setShowExportModal] = useState(false)
     const [showGovernancePanel, setShowGovernancePanel] = useState(false)
+    // Phase ING.2: true when Import Summary panel takes over the right sidebar
+    const importSummaryPanelMode = useImportSummaryStore((s) => s.isPanelMode)
+
+    // ── Resizable panel widths ────────────────────────────────────────────────
+    const [leftWidth, setLeftWidth] = useState(224)   // w-56 default
+    const [rightWidth, setRightWidth] = useState(288) // w-72 default
+
+    const handleLeftDrag = useCallback((delta: number) => {
+        setLeftWidth((w) => Math.max(PANEL_MIN, Math.min(PANEL_MAX, w + delta)))
+    }, [])
+
+    const handleRightDrag = useCallback((delta: number) => {
+        setRightWidth((w) => Math.max(PANEL_MIN, Math.min(PANEL_MAX, w - delta)))
+    }, [])
+
     const fetchTokens = useTokenStore((s) => s.fetchTokens)
     const pushNotification = useNotificationStore((s) => s.push)
+    const fetchAnnotations = useAnnotationStore((s) => s.fetchAnnotations)
 
     // Workspace state
     const setActiveFile = useCanvasStore((s) => s.setActiveFile)
@@ -72,6 +103,11 @@ function App() {
     // ── Context Bridge (Phase 1A) ─────────────────────────────────────────────
     useContextSync()
 
+    // ── Phase W.1: MCP-to-Glass Push Channel ─────────────────────────────────
+    // Subscribes to bridge:mcp-event IPC events and dispatches to stores.
+    // Must be called once at the App root — never inside child components.
+    useMCPEventListener()
+
     // ── Shared hydrate helper ─────────────────────────────────────────────────
     const hydrateWorkspace = async (tree: FileTreeNode) => {
         setWorkspaceFiles(tree)
@@ -86,14 +122,53 @@ function App() {
         await hydrateWorkspace(tree as FileTreeNode)
     }
 
+    // One click → canvas. No folder picker. Scaffolds instantly into
+    // ~/Bridge Projects/Untitled-N via the project:create-scratchpad IPC handler.
     const handleNewProject = async () => {
+        try {
+            const tree = await window.bridgeAPI.project.createScratchpad()
+            await hydrateWorkspace(tree as FileTreeNode)
+        } catch (err) {
+            pushNotification({
+                type: 'error',
+                title: 'Failed to create project',
+                message: err instanceof Error ? err.message : 'Unknown error',
+                severity: 'error',
+                autoDismissMs: 0,
+            })
+        }
+    }
+
+    // "Save Project As..." — lets users relocate a scratchpad to a permanent home.
+    // Shows the folder picker and, if a new folder is chosen, opens it as the
+    // active project. A full file-copy "relocate" is a planned follow-up; for
+    // now this opens the chosen folder so the user can move files manually.
+    const handleSaveProjectAs = async () => {
         const targetPath = await window.bridgeAPI.selectFolder()
         if (!targetPath) return
-        const tree = await window.bridgeAPI.project.initialize({
-            targetPath,
-            templateId: 'base-vite-tailwind',
-        })
-        await hydrateWorkspace(tree as FileTreeNode)
+        try {
+            const tree = await window.bridgeAPI.project.openPath(targetPath)
+            if (tree) {
+                void window.bridgeAPI.registry.upsertProject({ name: tree.name, path: tree.path })
+                await hydrateWorkspace(tree as FileTreeNode)
+            } else {
+                pushNotification({
+                    type: 'error',
+                    title: 'Save Project As Failed',
+                    message: 'Could not open the selected folder as a project.',
+                    severity: 'error',
+                    autoDismissMs: 0,
+                })
+            }
+        } catch (err) {
+            pushNotification({
+                type: 'error',
+                title: 'Save Project As Failed',
+                message: err instanceof Error ? err.message : 'Unknown error',
+                severity: 'error',
+                autoDismissMs: 0,
+            })
+        }
     }
 
     const handleOpenRecent = async (projectPath: string) => {
@@ -172,10 +247,30 @@ function App() {
         }
     }, [pushNotification])
 
+    // ── Phase COLLAB.4: Annotation push subscription ──────────────────────────
+    // Mounts once on workspace load. The main process fs.watch sends
+    // 'bridge:annotations-changed' whenever .bridge/annotations.json is written
+    // by an MCP tool. We re-fetch immediately so the store and UI are always
+    // current without polling.
+    useEffect(() => {
+        if (!window.bridgeAPI?.annotations) return
+
+        // Fetch on mount to populate initial state
+        void fetchAnnotations()
+
+        // Subscribe to push events from the main-process fs.watch
+        window.bridgeAPI.annotations.onChanged(() => {
+            void fetchAnnotations()
+        })
+
+        return () => {
+            window.bridgeAPI.annotations?.removeChangedListener()
+        }
+    }, [fetchAnnotations])
+
     // ── Global keyboard shortcuts ─────────────────────────────────────────────
     useEffect(() => {
         function handleKeyDown(e: KeyboardEvent): void {
-            if (document.activeElement?.closest('.monaco-editor') != null) return
             if (
                 document.activeElement?.tagName === 'INPUT' ||
                 document.activeElement?.tagName === 'TEXTAREA' ||
@@ -236,8 +331,16 @@ function App() {
         window.bridgeAPI.menu.onNewProject(() => { void handleNewProject() })
         window.bridgeAPI.menu.onOpenProject(() => { void handleOpenFolder() })
         window.bridgeAPI.menu.onCloseProject(() => { closeWorkspace() })
+        window.bridgeAPI.menu.onSaveProjectAs(() => { void handleSaveProjectAs() })
         return () => { window.bridgeAPI.menu.removeMenuListeners() }
     }, [closeWorkspace])
+
+    // ── bridge:save-project-as custom event (fired by StatusBar scratchpad chip) ──
+    useEffect(() => {
+        const handler = () => { void handleSaveProjectAs() }
+        window.addEventListener('bridge:save-project-as', handler)
+        return () => { window.removeEventListener('bridge:save-project-as', handler) }
+    }, [])
 
     // ── LaunchScreen gate ─────────────────────────────────────────────────────
     if (!workspaceFiles) {
@@ -261,7 +364,7 @@ function App() {
                     </h1>
                     {activeFileName && (
                         <span
-                            className="max-w-[200px] truncate font-mono text-[9px] text-gray-500"
+                            className="max-w-[200px] truncate font-mono text-[10px] text-zinc-400"
                             title={activeFilePath ?? ''}
                         >
                             {activeFileName}
@@ -340,26 +443,23 @@ function App() {
                 </div>
             </header>
 
-            {/* ── Two-panel Glass workspace ─────────────────────────────── */}
+            {/* ── Three-panel Glass workspace ────────────────────────────── */}
+            {/*  [Left: Layers/Assets]  [Center: Canvas]  [Right: Properties/Tokens/Activity]  */}
             <main className="flex min-h-0 flex-1">
-                {/* Center: Infinite canvas (full height) */}
-                <section className="flex min-h-0 flex-1 flex-col border-r border-gray-800">
-                    <MithrilProvider>
-                        <XYCanvas />
-                    </MithrilProvider>
-                </section>
-
-                {/* Right sidebar: Bridge-specific panels */}
-                <section className="flex min-h-0 w-1/4 flex-col">
+                {/* Left panel: Navigation (Layers / Assets) */}
+                <section
+                    style={{ width: leftWidth, minWidth: PANEL_MIN, maxWidth: PANEL_MAX }}
+                    className="flex min-h-0 shrink-0 flex-col border-r border-gray-800"
+                >
                     <div className="flex shrink-0 border-b border-gray-800">
-                        {(['ast', 'assets', 'properties', 'tokens', 'activity'] as const).map((tab) => (
+                        {(['layers', 'assets'] as const).map((tab) => (
                             <button
                                 key={tab}
                                 type="button"
-                                onClick={() => setRightTab(tab)}
-                                className={`flex-1 py-2 text-[9px] font-medium uppercase tracking-wider transition-colors ${rightTab === tab
+                                onClick={() => setLeftTab(tab)}
+                                className={`flex-1 py-2 text-[10px] font-medium uppercase tracking-wider transition-colors ${leftTab === tab
                                     ? 'border-b-2 border-indigo-500 text-indigo-400'
-                                    : 'text-gray-600 hover:text-gray-400'
+                                    : 'text-zinc-500 hover:text-zinc-300'
                                     }`}
                             >
                                 {tab}
@@ -367,16 +467,69 @@ function App() {
                         ))}
                     </div>
                     <div className="min-h-0 flex-1 overflow-y-auto">
-                        {rightTab === 'ast' && <LayerTree />}
-                        {rightTab === 'assets' && <AssetsPanel />}
-                        {rightTab === 'properties' && <PropertiesPanel />}
-                        {rightTab === 'tokens' && <TokenManager />}
-                        {rightTab === 'activity' && <AgentChatPanel />}
+                        {leftTab === 'layers' && <LayerTree />}
+                        {leftTab === 'assets' && <AssetsPanel />}
+                    </div>
+                </section>
+
+                <ResizeHandle onDrag={handleLeftDrag} />
+
+                {/* Center: Infinite canvas */}
+                <section className="flex min-h-0 flex-1 flex-col">
+                    <MithrilProvider>
+                        <XYCanvas />
+                    </MithrilProvider>
+                </section>
+
+                <ResizeHandle onDrag={handleRightDrag} />
+
+                {/* Right panel: Inspection (Properties / Tokens / Activity) */}
+                <section
+                    style={{ width: rightWidth, minWidth: PANEL_MIN, maxWidth: PANEL_MAX }}
+                    className="flex min-h-0 shrink-0 flex-col border-l border-gray-800"
+                >
+                    {/* Onboarding nudge — shown above the tab bar for fresh projects */}
+                    <OnboardingNudge
+                        onConnectFigma={() => setRightTab('tokens')}
+                        onStartEditing={() => setRightTab('properties')}
+                    />
+
+                    <div className="flex shrink-0 border-b border-gray-800">
+                        {(['properties', 'tokens', 'activity', 'health', 'recovery'] as const).map((tab) => (
+                            <button
+                                key={tab}
+                                type="button"
+                                onClick={() => setRightTab(tab)}
+                                className={`flex-1 py-2 text-[10px] font-medium uppercase tracking-wider transition-colors ${rightTab === tab
+                                    ? 'border-b-2 border-indigo-500 text-indigo-400'
+                                    : 'text-zinc-500 hover:text-zinc-300'
+                                    }`}
+                            >
+                                {tab}
+                            </button>
+                        ))}
+                    </div>
+                    <div className="min-h-0 flex-1 overflow-y-auto">
+                        {/* Phase ING.2: Import Summary panel takes priority */}
+                        {importSummaryPanelMode ? (
+                            <ImportSummaryPanelView />
+                        ) : (
+                            <>
+                                {rightTab === 'properties' && <PropertiesPanel />}
+                                {rightTab === 'tokens' && <TokenManager />}
+                                {rightTab === 'activity' && <ActivityFeed />}
+                                {rightTab === 'health' && <GovernanceDashboard />}
+                                {rightTab === 'recovery' && <RecoveryPanel />}
+                            </>
+                        )}
                     </div>
                 </section>
             </main>
 
             <StatusBar />
+
+            {/* Phase ING.2: Import Summary toast (fixed bottom-right, above StatusBar) */}
+            <ImportSummaryToastMount />
 
             {/* Overlays */}
             <OnboardingOverlay />

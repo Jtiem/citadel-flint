@@ -42,7 +42,7 @@ export function AssetsPanel() {
                 </div>
             )}
 
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-600">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
                 Components
             </span>
 
@@ -58,7 +58,7 @@ export function AssetsPanel() {
                         <div className="text-xs font-medium text-gray-200">
                             {entry.name}
                         </div>
-                        <div className="mt-0.5 truncate font-mono text-[10px] text-gray-600">
+                        <div className="mt-0.5 truncate font-mono text-[10px] text-zinc-500">
                             {entry.snippet}
                         </div>
                     </div>

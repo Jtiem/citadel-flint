@@ -2,7 +2,8 @@
  * Bridge Link — code.ts  (Figma plugin main thread)
  *
  * Runs in Figma's sandboxed JS environment (no DOM, no fetch).
- * Its only job: collect local variable data and pass it to ui.html via postMessage.
+ * Its only job: collect local variable data and pass it to ui.html via postMessage,
+ * and persist connection settings via figma.clientStorage.
  *
  * To compile:
  *   npm install          (installs @figma/plugin-typings + typescript)
@@ -11,9 +12,52 @@
  * Or load code.js directly — it is the pre-compiled equivalent of this file.
  */
 
-figma.showUI(__html__, { width: 320, height: 260, title: 'Bridge Link' })
+figma.showUI(__html__, { width: 320, height: 340, title: 'Bridge Link' })
 
-figma.ui.onmessage = (msg: { type: 'sync' | 'export-ast' }) => {
+// ── Settings persistence via figma.clientStorage ─────────────────────────────
+
+const SETTINGS_KEY = 'bridge-link-settings'
+
+interface BridgeLinkSettings {
+    endpoint: string
+    secret: string
+}
+
+// ── Message handler ──────────────────────────────────────────────────────────
+
+figma.ui.onmessage = async (msg: {
+    type: 'sync' | 'export-ast' | 'load-settings' | 'save-settings'
+    data?: any
+}) => {
+    // ── Load settings from clientStorage ──────────────────────────────
+    if (msg.type === 'load-settings') {
+        try {
+            const saved = await figma.clientStorage.getAsync(SETTINGS_KEY)
+            figma.ui.postMessage({
+                type: 'settings-loaded',
+                data: saved ?? null,
+            })
+        } catch {
+            figma.ui.postMessage({ type: 'settings-loaded', data: null })
+        }
+        return
+    }
+
+    // ── Save settings to clientStorage ────────────────────────────────
+    if (msg.type === 'save-settings') {
+        try {
+            const settings: BridgeLinkSettings = {
+                endpoint: msg.data?.endpoint ?? 'http://127.0.0.1:4545',
+                secret: msg.data?.secret ?? 'bridge-dev-secret-phase2',
+            }
+            await figma.clientStorage.setAsync(SETTINGS_KEY, settings)
+        } catch {
+            figma.ui.postMessage({ type: 'error', message: 'Failed to save settings.' })
+        }
+        return
+    }
+
+    // ── Sync variables ────────────────────────────────────────────────
     if (msg.type === 'sync') {
         try {
             const collections = figma.variables.getLocalVariableCollections()
@@ -51,6 +95,8 @@ figma.ui.onmessage = (msg: { type: 'sync' | 'export-ast' }) => {
             figma.ui.postMessage({ type: 'error', message: String(err) })
         }
     }
+
+    // ── Export AST ────────────────────────────────────────────────────
     if (msg.type === 'export-ast') {
         try {
             const selection = figma.currentPage.selection

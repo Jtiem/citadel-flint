@@ -422,6 +422,11 @@ export function applyMutationBatch(
                 applyTokenFix(ast, mutation.nodeId, mutation.hardcodedClass, mutation.tokenClass)
                 break
             }
+
+            default: {
+                const _exhaustive: never = mutation
+                throw new Error(`Unhandled mutation type: ${(_exhaustive as any).type}`)
+            }
         }
     }
 

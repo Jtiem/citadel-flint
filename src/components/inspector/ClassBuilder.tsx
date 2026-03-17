@@ -1,7 +1,9 @@
+import { useState, useMemo } from 'react'
 import type { TokenType } from '../../types/bridge-api'
 import { useTokenStore } from '../../store/tokenStore'
 import { normalizePath, tokenToClass } from '../../utils/classMapper'
-import { Accordion, CompactSelect, ColorPickerSwatch } from './primitives'
+import { Accordion, CompactSelect, ColorPickerSwatch, TokenAutocomplete } from './primitives'
+import type { TokenSuggestion } from './primitives'
 
 // ── Section definitions ────────────────────────────────────────────────────────
 
@@ -35,6 +37,64 @@ interface Props {
 
 export function ClassBuilder({ className, onCommit }: Props) {
     const tokens = useTokenStore((s) => s.tokens)
+
+    // ── OPP-15: Token autocomplete state ───────────────────────────────────────
+
+    /** Raw text typed into the "Add class" autocomplete field. */
+    const [autocompleteQuery, setAutocompleteQuery] = useState('')
+
+    /**
+     * Build the suggestion list. For each token, derive one candidate per
+     * section prefix where the token type matches, then filter by the typed
+     * substring (case-insensitive match against token_path or resulting class).
+     * Cap at 8 results to keep the dropdown manageable.
+     */
+    const autocompleteSuggestions = useMemo<TokenSuggestion[]>(() => {
+        const q = autocompleteQuery.trim().toLowerCase()
+        if (!q) return []
+
+        const seen = new Set<string>()
+        const results: TokenSuggestion[] = []
+
+        for (const token of tokens) {
+            // Find every section that matches this token's type
+            for (const section of Object.values(SECTIONS)) {
+                if (section.tokenType !== token.token_type) continue
+
+                const tailwindClass = tokenToClass(token.token_path, token.token_type, section.prefix)
+                if (seen.has(tailwindClass)) continue
+
+                const label = normalizePath(token.token_path, token.token_type)
+
+                // Match against the token path or the resulting Tailwind class
+                if (!token.token_path.toLowerCase().includes(q) && !tailwindClass.toLowerCase().includes(q)) continue
+
+                seen.add(tailwindClass)
+                results.push({
+                    label,
+                    tailwindClass,
+                    colorHex: token.token_type === 'color' ? String(token.token_value) : '',
+                })
+
+                if (results.length >= 8) break
+            }
+            if (results.length >= 8) break
+        }
+
+        return results
+    }, [autocompleteQuery, tokens])
+
+    /**
+     * Appends the selected Tailwind class to the unmanaged portion of className
+     * (i.e. it is not removed by the section-aware handleChange logic).
+     */
+    function handleAutocompleteCommit(cls: string): void {
+        const existing = new Set(className.split(' ').filter(Boolean))
+        if (existing.has(cls)) return // already present — no-op
+        const parts = className.split(' ').filter(Boolean)
+        parts.push(cls)
+        onCommit(parts.join(' '))
+    }
 
     function computeManaged(): Set<string> {
         const managed = new Set<string>()
@@ -111,7 +171,7 @@ export function ClassBuilder({ className, onCommit }: Props) {
 
     if (tokens.length === 0) {
         return (
-            <div className="px-3 py-4 text-center text-[11px] text-gray-600">
+            <div className="px-3 py-4 text-center text-[11px] text-zinc-500">
                 No tokens loaded — add tokens in the Token Manager panel.
             </div>
         )
@@ -129,6 +189,17 @@ export function ClassBuilder({ className, onCommit }: Props) {
 
     return (
         <div className="flex flex-col">
+            {/* OPP-15: Token autocomplete — freeform class entry with token-aware suggestions */}
+            <div className="border-b border-zinc-800 px-3 py-2">
+                <TokenAutocomplete
+                    suggestions={autocompleteSuggestions}
+                    value={autocompleteQuery}
+                    onChange={setAutocompleteQuery}
+                    onCommit={handleAutocompleteCommit}
+                    placeholder="Add token class…"
+                />
+            </div>
+
             <Accordion title="Typography" defaultOpen={hasTypography}>
                 <div className="flex flex-col gap-2">
                     <div className="flex gap-2">

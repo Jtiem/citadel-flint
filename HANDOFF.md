@@ -1,287 +1,255 @@
-# Bridge IDE — Developer Handoff (v5.19)
+# Bridge — Developer Handoff
 
-**Date:** 2026-03-07
-**Commit:** Phase O (Figma Ingestion) + Phase N.1 (LayoutPanel) synchronized
-**Status:** Phase O (Figma Ingestion) — **ONLINE** · Phase N.1 (Designer Experience) — **ONLINE**
-**Tests:** 160/160 passing · ΔE = 0.0 · `tsc --noEmit`: 0 errors
-**Run:** `npm run dev`
+**Date:** 2026-03-16
+**Architecture:** Bridge MCP (headless governance engine) + Bridge Glass (Electron observability layer)
+**Test baseline:** 498/498 Glass tests + 775/775 Core tests + 1,372/1,372 MCP tests = 2,645 total -- TSC 0 errors
+*(Note: `bridge-mcp/src/tests/project-scaffold.test.ts` has a pre-existing env failure — missing template dir at `/Users/tiemann/electron/templates/`. Not caused by ING work.)*
 
 ---
 
-## 1. Architecture Overview (v5.7)
+## 1. What Is Bridge
 
-Bridge is a performance-hardened, three-process Electron app designed for agentic surgery:
+Bridge is a governance infrastructure layer that makes AI-generated UI code safe to ship. It enforces design systems, accessibility standards, and brand compliance deterministically at the AST level — before code reaches production.
 
-┌──────────────────────────────────────────────────────────┐
-│  Main Process (Node.js / Electron)                       │
-│  · FileTransactionManager: Atomic .tmp → rename queue    │
-│  · SQLite + PowerSync: CRDT Persistence layer            │
+**Two components:**
+
+| Component | What it is | Where it runs |
+|-----------|------------|---------------|
+| **Bridge MCP** | Headless governance engine — 13 tools, 6 resources, 3 prompts | Anywhere: CI, Claude Code, Cursor, VS Code |
+| **Bridge Glass** | Visual observability layer — reads MCP state, calls MCP tools | Electron 35.7.5 desktop app |
+
+Bridge Glass owns zero business logic. All enforcement, mutation, and linting lives in the MCP engine.
+
+---
+
+## 2. How to Run
+
+### First-time setup
+
+```bash
+npm install
 ```
-**Bridge** is the first Agentic UI Operating System. It acts as a strict "containment field" around LLM-driven development, ensuring brand alignment, accessibility, and codebase integrity through AST-level determinism. **If it isn't in the AST, it doesn't exist.**
 
-### Technical Foundation
-| Layer | Tech | Role |
-|-------|------|------|
-| **Core** | Electron | Main/Renderer multi-process architecture |
-| **Persist** | SQLite WAL | `bridge.db` (state) + `bridge-registry.db` (global) |
-| **Logic** | React 19 + Zustand | Strict separation of state from UI representation |
-| **Engine** | Babel | In-memory AST surgery / Live Preview code injection |
+> Note: `bridge-mcp/` is the headless server package. Install its deps separately if working on MCP tools directly:
+> ```bash
+> cd bridge-mcp && npm install
+> ```
 
----
+### Launch Bridge Glass (Electron + Vite)
 
-## 2. Module Status Map (v6.7)
-| Module | ID | Status | Subsystem |
-|--------|----|--------|-----------|
-| Code-First Recovery | D.1 | **ONLINE** | `gitShow` IPC + `transplantNode` AST swap |
-| Git Time Machine UI | D.2 | **ONLINE** | `ast:git-log` IPC + `RecoveryPanel.tsx` + `revertNodeToCommit` |
-| Batch Mutation Engine | E.1 | **ONLINE** | `ASTService.applyMutationBatch` + `applyInversions` |
-| FileTransactionManager | E.2 | **ONLINE** | `electron/FileTransactionManager.ts` |
-| canvasStore + Auto-Save | F.1 | **ONLINE** | `canvasStore.triggerAutoSave`, `saveState` lifecycle |
-| Cross-File Move | F.2 | **ONLINE** | `astBufferStore.crossFileMove` (11-step atomic) |
-| Global Recovery Engine | G.1 | **ONLINE** | `recoveryController.ts` — single-file + cross-file undo |
-| Scaffolding & Registry | G.2 | **ONLINE** | `LaunchScreen.tsx`, `templateService.ts`, `registry.ts` |
-| Cross-File Redo | H | **ONLINE** | `CrossFileMoveRedoPlan`, `isRecovery` flag |
-| Undo Void Fix | K | **ONLINE** | `editorStore.applyBatch` no-op guard + `setCode` Cmd-10 fix |
-| Post-Redo Undoability | L | **ONLINE** | `historyStore.pushPast` + `crossFileMove` inversions return |
-| Sharma Validation | B.1-b | **ONLINE** | `snippetAuditor.ts` with AST shadow/fragment safety |
-| Multiplayer Presence | C.1 | **ONLINE** | `PresenceService.ts` + `useRemotePresence` + SQLite UPSERT + remote cursor overlay |
-| AST Conflict Arbiter | C.2 | **ONLINE** | `useLockedNodeIds` + `useIsNodeLocked`. Locks Layer Tree, Properties Panel, and canvas drag for nodes held by remote users. |
-| Infinite Canvas | A | **ONLINE** | `XYCanvas.tsx` — `@xyflow/react` v12. `LivePreview` hosted as a draggable custom node with chrome bar, pan/zoom/minimap. |
-| Export Gate UI | B.2 | **ONLINE** | `ExportModal.tsx` + `tokens:read-overrides` IPC + Export button in top bar |
-| Export Gate Severity Escalation | B.1-d | **ONLINE** | Critical (ΔE > 10) → red modal header + red row badge + "Critical" pill. Amber (2.0–10.0) → amber styling. `hasCriticalMithril` computed from `editorStore.linterWarnings`. |
-| Accessibility Gate | B.3 | **ONLINE** | `A11yLinter.ts` — AST-level a11y checks (img/button/a/input). Runs on every parse; blocks exports. |
-| Interaction Modes | I | **ONLINE** | `canvasMode` toggles pointer-events within LivePreview iframe via IPC message |
-| Bridge Auditor / Orchestration | L | **ONLINE** | `electron/orchestrator.ts` (Anthropic Claude streaming + Bridge Tool Catalog) · `src/store/orchestratorStore.ts` · `AgentChatPanel.tsx` (🤖 tab in right panel) · `ai:chat`, `ai:get-config`, `ai:save-config` IPC in `main.ts` · `applyBatch` + `ai` namespace in `preload.ts` · Store reads `~/.bridge/config.json` for API key. Every AI-proposed mutation requires user confirmation before touching the AST. |
-| AI Orchestrator Hardening | M | **ONLINE** | `orchestrator.ts` constrained to 7-op Bridge AST Tool Catalog (no raw code strings). In-memory TSC validation loop. Design system RAG via `sqlite-vec`. Structured Outputs / Tool Use API mode enforced. Commandments 15 & 16 active. |
-| Designer Experience & UX | N.1 | **ONLINE** | `LayoutPanel.tsx` (Figma-grade Auto Layout controls) + `layoutMapper.ts` (Atomic class management). |
-| Figma Ingestion & Sync | O | **ONLINE** | `ingestion-server.ts` (Loopback HTTP server) + `normalizer.ts` (Figma Var → DTCG) + `ingest-ast` endpoint for direct plugin payloads. |
-| LSP Integration | P | **ONLINE** | `electron/lsp/*.ts` TypeScript and Vue LSP client orchestration for cross-file intellisense. |
+```bash
+unset ELECTRON_RUN_AS_NODE && npm run dev
+```
+
+`ELECTRON_RUN_AS_NODE` must be unset — if it is set (which happens when Claude Code spawns the shell), Electron boots in a headless Node mode and the window never appears.
+
+### Run tests
+
+```bash
+# MCP engine tests (515 tests across 23 files)
+cd bridge-mcp && npm test
+
+# Glass component tests (386 tests across 25 files)
+npm run test:react
+
+# Core + Electron tests (295 tests across 11 files)
+npm test
+
+# TypeScript strict check (both packages)
+npx tsc --noEmit
+```
 
 ---
 
-## 3. Updated File Map
-### Root / Project
-| File | Purpose |
-|------|---------|
-| `bridge-manifest.json` | Project-level metadata + Component ID mapping for hydration. |
+## 3. Architecture
 
-### `src/core/` (Services)
-| File | Purpose |
-|------|---------|
-| `ASTService.ts` | Batch mutations, `InverseMutation` generation, `synthesizeImports`. |
-| `ast-parser.ts` | Foundational Babel utilities: parse, generate, visual-tree, `injectBridgeIds`. |
-| `recoveryController.ts` | `applyUndo` / `applyRedo` / `applyRedoPlan`. Phase G.1 + H. |
-| `MithrilLinter.ts` | CIEDE2000 ΔE perceptual drift guard. |
-| `GitService.ts` | Surgical git-transplant recovery. |
-| `layoutMapper.ts` | Atomic management of Tailwind layout classes (flex/grid/alignment). |
+### 3.1 Glass Layout
 
-### `src/store/` (State)
-| File | Key State / Role |
-|------|-----------------|
-| `historyStore.ts` | `past`/`future` stacks. `HistoryEntry` with `redoPlan?: RedoPlan`. `CrossFileMoveRedoPlan` type. |
-| `astBufferStore.ts` | Headless multi-file AST buffers. `crossFileMove` (11 steps, `isRecovery` flag). |
-| `canvasStore.ts` | Workspace tree, active file, `saveState` lifecycle. |
-| `editorStore.ts` | Active-file AST, Visual Tree, `applyBatch`, `syncCode`. |
-| `tokenStore.ts` | Design Token CRUD (SQLite via PowerSync). |
+Glass is a 3-panel Electron app. There is no Monaco editor pane, no terminal pane, no file explorer pane — those live in the host IDE (Claude Code / Cursor / VS Code).
 
-### `electron/`
-| File | Role |
-|------|------|
-| `FileTransactionManager.ts` | Atomic `.tmp` → `rename` write queue. Serialised per path, concurrent across paths. |
-| `GitManager.ts` | `ensureRepo` + `shadowCommit` (called after every atomic save). `getGitNode` for surgical node extraction from git history. |
-| `main.ts` | IPC handlers: `saveFile`, `saveFileBatch`, `readFile`, `transformCode`, `openFolder`, `ast:git-show`, `ast:git-log`. |
-| `preload.ts` | `contextBridge` exposure of `window.bridgeAPI` including `gitShow` and `gitLog`. |
-| `orchestrator.ts` | **Phase M** — Anthropic Claude streaming. Constrained to Bridge AST Tool Catalog. In-memory TSC validation loop. Fetches design system interfaces from `sqlite-vec` for RAG context injection. |
-| `ingestion-server.ts`| **Phase O** — Loopback HTTP server (port 4545). Receives Figma tokens/assets/AST. Authenticated via `x-bridge-secret`. |
-| `normalizer.ts` | **Phase O** — Maps Figma Variables payloads to W3C DTCG format for PowerSync ingestion. |
-| `lsp/types.ts` | **Phase P** — Shared types for LSP client implementations. |
+```
+┌─────────────────┬──────────────────────────┬─────────────────────┐
+│  Left Panel     │  Infinite Canvas         │  Right Sidebar       │
+│  (Layers /      │  (XYCanvas.tsx +         │  Tabs: Properties |  │
+│   Assets)       │   LivePreview node)      │  Tokens | Activity | │
+│                 │                          │  Health              │
+│  AST tree       │  Ghost Code HUDs         │                      │
+│  Asset grid     │  Drift Overlays          │  Governance HUDs     │
+└─────────────────┴──────────────────────────┴─────────────────────┘
+```
 
-### `src/components/ui/`
-| File | Role |
-|------|------|
-| `FileExplorer.tsx` | Cross-file drag source (triggers `crossFileMove`). |
-| `LayerTree.tsx` | Single-file drag reorder (triggers `editorStore.moveLayerNode`). |
-| `RecoveryPanel.tsx` | **Phase D.2** — Time Machine UI. Queries `bridgeAPI.gitLog`, renders shadow-commit timeline, triggers `editorStore.revertNodeToCommit` for surgical node transplants. |
-| `SyncStatus.tsx` | **Module C.1** — PowerSync sync state badge + `useSyncPresence` hook for throttled cursor broadcasting. |
-| `XYCanvas.tsx` | **Module A** — Infinite whiteboard. Mounts `@xyflow/react` v12; `LivePreview` is a `livePreview` custom node type. Drag handle isolated to chrome bar to preserve Shield DnD. |
-| `ExportModal.tsx` | **Phase B.2 / B.1-d** — Mithril Safety Export Gate modal. Pre-flight audit of `component_overrides` rows + ΔE violations + accessibility violations (B.3). Clickable node IDs snap-select the offending element in the canvas. Pass state shows source + Copy button. Severity escalation (B.1-d): reads `editorStore.linterWarnings` per violation ID — critical (ΔE > 10) renders red header + red row badge; amber (2.0–10.0) renders amber styling. |
-| **Core Services** | |
-| `A11yLinter.ts` | **Phase B.3** — Pure AST-level accessibility linter. Enforces Commandment 5. Rules: A11Y-001 (`<img>` alt), A11Y-002/003 (`<button>`/`<a>` accessible name), A11Y-004 (`<input>` label). Called inside `editorStore.setCode` on every successful parse. |
-| `LayoutPanel.tsx` | **Phase N.1** — Figma-grade Auto Layout panel. Multi-axis alignment grid + Hug/Fill sizing selects + token-bound padding/gap controls. |
+### 3.2 Process Model
 
-### `src/services/` & `src/hooks/`
-| File | Role |
-|------|------|
-| `services/PresenceService.ts` | **Module C.1** — Module-level singleton. Throttled (100ms) `publishPresence` + immediate `publishPresenceImmediate` for drag-lock events. Generates stable `presenceSessionId` + `presenceUserId`. |
-| `hooks/useRemotePresence.ts` | **Module C.1/C.2** — Polls `bridgeAPI.readPresence` at 5 Hz. Exports `useRemotePresence`, `useLockedNodeIds`, and `useIsNodeLocked` for multiplayer cursor overlay and AST Conflict Arbiter locking. |
+```
+Main Process (Node.js / Electron)
+  FileTransactionManager  — atomic .tmp → rename write queue
+  SQLite WAL              — bridge.db (project) + bridge-registry.db (global)
+  GitManager              — shadow commits on every save
+  orchestrator.ts         — Claude AI + constrained AST Tool Catalog + TSC loop
+  ingestion-server.ts     — Figma plugin bridge (port 4545)
+  LSP clients             — TypeScript + Vue language servers
 
----
+Renderer Process (React 19 / Vite)
+  XYCanvas.tsx            — infinite canvas (@xyflow/react v12)
+  LivePreview.tsx         — srcdoc iframe, 100% offline
+  ExportModal.tsx         — pre-flight Mithril + a11y audit gate
 
-## 4. The AST Command Pattern — Full Flows
+Preload (contextBridge)
+  window.bridgeAPI        — typed IPC surface between renderer and main
+```
 
-### HistoryEntry schema
-```typescript
-interface HistoryEntry {
-    filePath?: string        // set for cross-file (headless buffer) entries
-    batchId?: string         // UUID grouping entries from one atomic operation
-    inversions: InverseMutation[]   // op: 'setAttr'|'restoreCode'|...
-    redoMutations: ASTMutation[]    // non-empty for single-file redo
-    redoPlan?: RedoPlan      // non-empty for cross-file redo (Phase H)
-}
+### 3.3 MCP-First Design
 
-interface CrossFileMoveRedoPlan {
-    type: 'crossFileMove'
-    sourceFilePath: string
-    sourceNodeId: string     // bridge-id, stable across restores
-    targetFilePath: string
-    targetNodeId: string     // always resolved (null-fallback done at push time)
-    position: DropPosition
+Claude Code and other MCP clients connect to Bridge MCP directly. Glass reads the same MCP Resources to display state — it is a consumer of the engine, not a wrapper around it.
+
+MCP connection config (add to `~/.claude/mcp.json`):
+```json
+{
+  "mcpServers": {
+    "bridge": {
+      "command": "node",
+      "args": ["/path/to/bridge-mcp/dist/server.js"]
+    }
+  }
 }
 ```
 
-### Single-file mutation flow
-```
-applyBatch(mutations)
-  → applyMutationBatch(rawCode, mutations) → { code, inversions }
-  → parseCodeToAST(code) → set store
-  → triggerAutoSave(code)
-  → historyStore.push(inversions, mutations)
-```
+---
 
-### Cross-file move flow
-```
-crossFileMove(srcFile, srcNode, tgtFile, tgtNode, position)
-  → (11 steps): validate → load buffers → extract → insert → generate
-  → saveFileBatch({srcFile: newSrcCode, tgtFile: newTgtCode})
-  → batchId = crypto.randomUUID()
-  → if (!options?.isRecovery):
-      historyStore.push(srcInversions, [], srcFile, batchId, redoPlan)
-      historyStore.push(tgtInversions, [], tgtFile, batchId)
-```
+## 4. File Map
 
-### Undo flow (Cmd+Z)
-```
-applyUndo()
-  → popUndo() → entry
-  → if entry.batchId: pop all siblings with same batchId → group[]
-  → if any entry.filePath:
-      applyCrossFileUndo(group)
-        → build batch: filePath → restoreCode
-        → saveFileBatch(batch)
-        → evictBuffer + loadBuffer for each file
-        → syncCode active editor if needed
-        → if group has redoPlan: pushFuture({ inversions:[], redoMutations:[], redoPlan })
-  → else:
-      applySingleFileUndo(entry)
-        → applyInversions(rawCode, inversions) → restoredCode
-        → syncCode(restoredCode) + triggerAutoSave(restoredCode)
-        → pushFuture({ inversions:[], redoMutations: entry.redoMutations })
-```
+### `src/` — Glass React renderer
 
-### Redo flow (Cmd+Shift+Z) — Phase H
-```
-applyRedo()
-  → popRedo() → entry
-  → if entry.redoPlan:
-      applyRedoPlan(plan)
-        → crossFileMove(...plan params..., { isRecovery: true })
-           (AST surgery + file writes + editor sync; no historyStore.push)
-      return
-  → else if entry.redoMutations.length > 0:
-      editorStore.applyBatch(entry.redoMutations)
-        (generates fresh inversions, pushes to past)
-```
+| Path | Role |
+|------|------|
+| `src/App.tsx` | Root layout, keyboard bindings (Cmd+Z / Cmd+Shift+Z), IPC wiring |
+| `src/components/editor/XYCanvas.tsx` | Infinite canvas — LivePreview as draggable custom node |
+| `src/components/editor/LivePreview.tsx` | `srcdoc` iframe + Shield overlay + design/interact mode toggle |
+| `src/components/inspector/LayoutPanel.tsx` | Figma-grade Auto Layout panel |
+| `src/components/ui/ExportModal.tsx` | Export Gate — Mithril severity escalation + a11y pre-flight |
+| `src/components/ui/RecoveryPanel.tsx` | Git Time Machine UI — per-node surgical revert |
+| `src/components/editor/AssetsPanel.tsx` | Asset Management Hub (SQLite-backed, zombie auditor) |
+| `src/store/editorStore.ts` | Active-file AST, Visual Tree, `applyBatch`, `syncCode` |
+| `src/store/canvasStore.ts` | Workspace tree, active file, `saveState` lifecycle |
+| `src/store/astBufferStore.ts` | Headless multi-file AST buffers, `crossFileMove` (11-step atomic) |
+| `src/store/historyStore.ts` | `past`/`future` stacks with `CrossFileMoveRedoPlan` |
+| `src/store/annotationStore.ts` | Annotation CRUD + `fs.watch` push sync from MCP writes |
+| `src/components/ui/GovernanceDashboard.tsx` | Health score ring, grade letter, top-5 rules ("health" tab) |
+| `src/components/ui/AnnotationList.tsx` | Annotation rendering in Properties panel |
+| `src/components/editor/ViolationTooltip.tsx` | Ghost Canvas severity tooltip on hover |
+| `src/core/ASTService.ts` | `applyMutationBatch`, `applyInversions`, `synthesizeImports` |
+| `src/core/MithrilLinter.ts` | CIEDE2000 ΔE color drift + typography/spacing/shadow/opacity visitors |
+| `src/core/A11yLinter.ts` | 10 WCAG 2.1 AA rules (A11Y-001..010) |
+| `src/core/recoveryController.ts` | Undo/redo orchestration — single-file + cross-file |
+| `src/utils/layoutMapper.ts` | Atomic Tailwind layout class management |
+
+### `electron/` — Electron main process
+
+| File | Role |
+|------|------|
+| `electron/main.ts` | IPC handlers: `saveFile`, `saveFileBatch`, `readFile`, `ast:git-show`, `ast:git-log` |
+| `electron/preload.ts` | `contextBridge` — exposes `window.bridgeAPI` to renderer |
+| `electron/FileTransactionManager.ts` | Atomic `.tmp` → `rename` write queue, serialized per path |
+| `electron/GitManager.ts` | `ensureRepo`, `shadowCommit`, `getGitNode` for surgical recovery |
+| `electron/orchestrator.ts` | Claude streaming + 7-op AST Tool Catalog + in-memory TSC validation |
+| `electron/ingestion-server.ts` | Figma ingestion (port 4545) + SDI webhook (`POST /intent`) |
+| `electron/store.ts` | SQLite `bridge.db` initialization and schema |
+| `electron/ragService.ts` | `sqlite-vec` design system RAG for AI context injection |
+| `electron/mcpClient.ts` | MCP client (JSON-RPC stdio, crash recovery) |
+
+### `src/hooks/` — React hooks
+
+| File | Role |
+|------|------|
+| `src/hooks/useMCPEventListener.ts` | Renderer hook for MCP event dispatch |
+| `src/hooks/useContextSync.ts` | Context bridge (writes `.bridge/context.json`) |
+
+### `bridge-mcp/` — Headless MCP server
+
+| Path | Role |
+|------|------|
+| `bridge-mcp/src/server.ts` | MCP tool and resource registrations (13 tools, 6 resources, 3 prompts) |
+| `bridge-mcp/src/core/ast-modifier.ts` | `assembleLayout`, `apply_ast_mutations` |
+| `bridge-mcp/src/core/registryService.ts` | `bridge_query_registry` keyword search over `bridge-manifest.json` |
+| `bridge-mcp/src/core/MithrilLinter.ts` | CIEDE2000 + typography/spacing/shadow/opacity visitors |
+| `bridge-mcp/src/core/A11yLinter.ts` | 10 WCAG 2.1 AA rules |
+| `bridge-mcp/src/core/events.ts` | MCP event bus + JSONL writer |
+
+### `docs/` — Planning and strategy
+
+| Path | Role |
+|------|------|
+| `docs/BRIDGE-MASTER-PLAN.md` | Single source of truth for architecture, roadmap, and ejected plans |
+| `docs/strategy/` | Fidelity strategy documents (visual accuracy, logic ingestion, AI healing) |
+| `docs/archive/` | Stale pre-pivot planning documents (not authoritative) |
 
 ---
 
-## 5. Phase H Change Log
+## 5. Key Invariants
 
-**`src/store/historyStore.ts`**
-- Added `CrossFileMoveRedoPlan` interface + `RedoPlan` union type
-- Added `redoPlan?: RedoPlan` to `HistoryEntry`
-- Extended `push()` with optional 5th param `redoPlan?`
-
-**`src/store/astBufferStore.ts`**
-- Step 11 builds `CrossFileMoveRedoPlan` from `effectiveTargetId` (always resolved non-null)
-- Passes `redoPlan` as 5th arg to source-file `push()`
-- New `options?: { isRecovery?: boolean }` parameter on `crossFileMove`
-- Both `historyStore.push()` calls guarded with `if (!options?.isRecovery)`
-
-**`src/core/recoveryController.ts`**
-- `applyCrossFileUndo`: extracts `redoPlan` from group, calls `pushFuture({ redoPlan })`
-- `applyRedo`: dispatches to `applyRedoPlan` when `entry.redoPlan !== undefined`
-- New `applyRedoPlan(plan)`: re-invokes `crossFileMove(..., { isRecovery: true })`
+1. **No hardcoded colors in Glass** — token-derived Tailwind classes only. ΔE > 2.0 triggers Amber warning in PropertiesPanel.
+2. **`data-bridge-id` is sacred** — never remove or overwrite it. All canvas-selectable elements need it. All mutations must preserve it.
+3. **Atomic writes only** — all file saves route through `FileTransactionManager`. Never call `fs.writeFile` directly for stateful changes.
+4. **No raw code strings from AI** — `orchestrator.ts` is constrained to 7 ops from the AST Tool Catalog. Raw code string generation is prohibited (Commandment 15).
+5. **Babel AST for all mutations** — never use regex on source code. Every code change goes through `ASTService.applyMutationBatch` (Commandment 13).
+6. **In-memory TSC before confirmation** — `orchestrator.ts` runs a TypeScript type-check on every AI-proposed mutation before surfacing a confirmation dialog (Commandment 16).
+7. **`historyStore.clear()` on file-open** — prevents stale undo entries bleeding across files.
+8. **`isRecovery` flag on cross-file redo** — `crossFileMove(..., { isRecovery: true })` prevents double-push to history.
 
 ---
 
-## 6. Invariants & Gotchas
+## 6. Known Issues
 
-1. **7D Hardening:** Every buffer loaded via `loadBuffer` has `injectBridgeIds(ast)` applied immediately. Never mutate a buffer that hasn't been hardened.
-2. **`historyStore.clear()`** must be called on file-open (`canvasStore.setActiveFile`) to prevent stale undo entries from bleeding across files.
-3. **macOS `ENOTEMPTY`:** In tests, use `rm({ maxRetries: 3 })` for temp directory cleanup. `force: true` alone is insufficient on APFS.
-4. **Monaco coexistence:** `App.tsx` keyboard listener uses `!= null` (loose equality) to guard against `document.activeElement` being `null` — optional chaining returns `undefined` in that case, and `undefined !== null` would incorrectly block undo. Bridge undo/redo fires only outside Monaco.
-5. **`isRecovery` semantics:** After a cross-file redo, `past` remains empty (no new entries pushed). The operation is re-executed atomically but is not further undo-able in this release. The architect should extend this in a future phase if post-redo undo is required.
-6. **`effectiveTargetId` non-null guarantee:** The null-guard at step 3 of `crossFileMove` ensures `effectiveTargetId` is always a `string` when the `redoPlan` is built. The `as string` cast at that site is safe.
-7. **`push()` clears `future`:** Every normal `historyStore.push()` call zeroes the future stack. The `pushFuture()` path does not clear `past`. Never mix them in the same flow.
+- **`ELECTRON_RUN_AS_NODE` must be unset** — Claude Code sets this env var in its shell environment. If you launch `npm run dev` from a Claude Code terminal without unsetting it, Electron boots headless and no window appears. Always run `unset ELECTRON_RUN_AS_NODE && npm run dev`.
+- **`ENOTEMPTY` on APFS in tests** — use `rm({ maxRetries: 3 })` for temp directory cleanup. `force: true` alone is insufficient on APFS.
+- **Monaco undo guard** — `App.tsx` uses `!= null` (loose equality) for the Monaco focus guard. `document.activeElement?.closest(…)` returns `undefined` when `activeElement` is null — strict `!== null` incorrectly allows undo to fire.
 
 ---
 
-## 7. Phase K Change Log
+## 7. Recent Changes
 
-**`src/store/editorStore.ts`**
-- **K.1 — `applyBatch` no-op guard:** Added early-return when `firstInv?.op === 'restoreCode' && firstInv.code === newCode`. Prevents void-undo entries when `moveNode` silently fails because the source node cannot be found by stale structural ID.
-- **K.2 — `setCode` Commandment 10 fix:** Capture `const previousCode = get().rawCode` *before* `set()`. The previous code ran the history-clear check after `set()`, making `get().rawCode === code` always true — history was never cleared on file load.
-- **K.3 — `updateNodeProperty` Phase G.2 completion:** Removed direct ast-parser calls; all three branches (className / textContent / arbitrary prop) now route through `applyBatch`, making every property edit undoable.
-
-**`src/core/ASTService.ts`**
-- Added `UpdateTextContentMutation` interface (`op: 'updateTextContent'`).
-- Added `readCurrentTextContent` traversal helper.
-- Added `case 'updateTextContent'` handler in `applyMutationBatch` — captures old text as surgical inverse before calling `updateJSXTextContent`.
-- Extended `ASTMutation` and `InverseMutation` unions with the new type.
-
-**`src/App.tsx`**
-- **K.4 — Keyboard null safety:** Changed `!== null` to `!= null` in the Monaco focus guard. `document.activeElement?.closest(…)` returns `undefined` (not `null`) when `activeElement` is null; loose equality covers both.
-
----
-
-## 8. Phase M Change Log
-
-**`.bridge-context/architecture.md` & `.antigravityrules`**
-- Updated spec to v6.0. Expanded to **16 Commandments**.
-- Added **Commandment 15:** Granular AST Tools Only. Orchestrator restricted to `updateProps`, `updateText`, `insertNode`, `wrapNode`, `deleteNode`, `addClassName`, `removeClassName`.
-- Added **Commandment 16:** In-Memory Validation Before Confirmation. `orchestrator.ts` must execute TSC type-check on synthesized AI output before confirmation UI; errors fed back to AI invisibly.
-- Added **Module M** section defining the full AST Tool Catalog JSON schemas, Design System RAG Injection requirement, and Structured Outputs Enforcement.
-
-**`CLAUDE.md`**
-- Updated to v6.9. Added Phase M row to module table.
-- Added Critical AI Directives 6 & 7 (Commandments 15 & 16).
-
-**`HANDOFF.md`**
-- Updated to Phase M status. Added `orchestrator.ts` to electron file map.
-- Extended Immediate Next Steps to call out Phase M implementation in `orchestrator.ts`.
+- **Phase CX.1 — Response Quality Baseline (COMPLETE 2026-03-16):** New `bridge-mcp/src/core/projectContext.ts` (`loadProjectContext()` — O(1) read of `.bridge/debt-history.json`, graceful null on any error). `summary` field added to `bridge_audit`, `bridge_fix`, `bridge_ast_mutate`, `bridge_debt_report`, `audit_ui_component`, `bridge_swarm_audit_fix` responses — one sentence plain English per contract generation rules. `project_context` footer on `bridge_audit`, `bridge_fix`, and `bridge_ast_mutate` responses. `dryRun` flag formalized on `bridge_fix` (response labeling + provenance skip) and `bridge_ast_mutate` (writeFile forced false + provenance skip + MRS skip). Server `instructions` onboarding hint set in MCP Server constructor. 69 new tests (projectContext.test.ts: 24, responseQuality.test.ts: 34, cx1-response-quality.test.ts: 11). MCP: 1,158/1,158 passing, TSC: 0 errors.
+- **Phase ING (COMPLETE 2026-03-16)** — Ingestion-Time Audit & Auto-Heal. `IngestionAuditor.ts` (CIEDE2000 tier classification + Babel AST surgery), heal pass wired in `/ingest-ast` handler, `importSummaryStore`, `ImportSummary.tsx` (toast + panel), `bridge:import-summary` IPC push, `import:snap-to-token` + `import:undo-all-heals` IPC handlers, `healOnAudit` parameter on `bridge_audit` MCP tool. 30 new tests (ING-01 → ING-18 + integration tests + store tests + component tests).
+- **Wave 1 (COMPLETE)** — Activity Feed upgrade (filter bar, search, error view buttons). Figma Connection Status (IPC endpoint, StatusBar popover, staleness colors). Ghost Canvas (severity heat tints, ViolationTooltip, click-to-properties, viewport culling). MCP Discoverability (`bridge://capabilities` resource, `bridge-workflow-guide` prompt).
+- **Wave 2 (COMPLETE)** — Annotation rendering in Glass (`annotationStore`, `AnnotationList`, LayerTree annotation dots, `fs.watch` push sync from MCP). Governance Health Dashboard (health score ring, grade letter, top-5 rules, "health" tab in right sidebar).
+- **JTBD score: 7.5 -> 8.4 (projected)** — Waves 1-2 close the observability and discoverability gaps.
+- **Glass 3-panel layout** — [Left: Layers/Assets] [Center: Canvas] [Right: Properties/Tokens/Activity/Health]. Four right sidebar tabs.
+- **New store: `annotationStore`** — Annotation CRUD, fs.watch push sync, rendering state for AnnotationList and LayerTree dots.
+- **New components** — `ViolationTooltip` (Ghost Canvas hover), `AnnotationList` (right sidebar), `GovernanceDashboard` (health tab). Figma connection status popover is implemented inline in `StatusBar.tsx`.
+- **MCP-first architecture** — `bridge-mcp/` is the authoritative governance engine. Glass is a read-only consumer of MCP Resources.
+- **Context bridge** — `.bridge/context.json` is a stateless file that connects the host IDE cursor position and selection to Bridge state.
+- **Annotation engine** — COLLAB.1-4 complete: annotation data model + `bridge://annotations` MCP resource + `bridge_annotate` MCP tool + Glass rendering.
+- **Notification system** — Toast notifications for save state, sync state, and governance violations wired through `canvasStore`.
 
 ---
 
-## 9. Phase B.1-d Change Log
+## 8. Module Status (all ONLINE)
 
-**`src/components/ui/ExportModal.tsx`**
-- Added `linterWarnings` selector from `useEditorStore` (reads `Map<string, LinterWarning>`).
-- Added `hasCriticalMithril` derived boolean: `mithrilViolations.some(id => linterWarnings.get(id)?.severity === 'critical')`.
-- Modal header escalates from amber → red border/bg/icon/title when `hasCriticalMithril` is true ("Export Gate — Critical Violations").
-- Mithril violations section header color + "Critical" pill badge driven by `hasCriticalMithril`.
-- Per-row rendering: each violation looks up its `LinterWarning` from `linterWarnings`; critical rows get `border-red-700/50 bg-red-900/20` + red ID button + inline "Critical" badge; amber rows get `border-amber-900/40 bg-amber-900/10` + amber ID button.
-- Description line renders `warning.message` (includes exact ΔE from the linter) instead of the hardcoded "ΔE > 2.0 — token not applied" string.
-- Added `type { LinterWarning }` import from `bridge-api.d.ts`.
+See `docs/BRIDGE-MASTER-PLAN.md` Section 3 for the full module table. All phases through COLLAB.4 are online and tested.
 
-**`src/core/MithrilLinter.severity.test.ts`** *(new file — 21 tests)*
-- `visitClassNames — severity bucketing`: 8 tests covering no-violation, below-threshold, amber assignment, critical assignment, no-bridge-id skip, mixed-severity pass, message format, empty-token list, worst-ΔE-wins-per-node.
-- `auditAll — severity preserved through full pipeline`: 4 tests — critical + amber preserved after all 5 merged visitors; clean nodes absent; no-JSX source → empty map.
-- `hasCriticalMithril — ExportModal gate computation`: 9 tests — all pure logic cases + 2 integration tests that feed real `auditAll` output directly into the gate boolean.
+**Sprint 3 — Risk + Chat Quality (COMPLETE 2026-03-16):**
+- **GOV.1 — Rule Provenance (COMPLETE):** Static provenance registry mapping all 40 governance rules to compliance authorities (WCAG 2.1 AA, SOC2, FDA SaMD, Section 508). Provenance attached to `bridge_audit` and `audit_ui_component` violations. `bridge_audit_report` extended with `sourceAuthority` filter and compliance summary. 50 tests.
+- **GOV.2 — Override Telemetry (COMPLETE):** SQLite-backed `override_events` table. `OverrideTelemetryService` with record, query by session/rule, summary, pruning. `bridge_override_telemetry` MCP tool (summary/by_session/by_rule). `bridge://overrides` resource. Fire-and-forget recording wired into audit/fix. 33 tests.
+- **V.1 — Risk Scoring Approval Flow (COMPLETE):** MRS Green/Amber/Red tiers wired into orchestrator mutation approval. Green auto-approves, Amber requires human review, Red requires senior sign-off. Policy floors enforce minimum tiers for structural/destructive ops. `requiresReview`/`requiresSignoff` annotated on tool_call chunks. 47 tests.
+- **AGV.1 — Per-Agent Tool ACL (COMPLETE):** Deny-by-default per-agent permission model extending SEC.3 renderer allowlist. Tier hierarchy (untrusted/standard/trusted/admin). Rate limiting per session. `agentPolicy.ts` + `mcp-policy.ts` unified `checkToolAccess`. 74 tests.
+- **AGV.3 — Agent Auto-Escalation (COMPLETE):** Configurable escalation rules engine with session-scoped tracking. 4 default rules (red count, amber count, avg risk, velocity). Rule deduplication. `agentEscalation.ts`. Note: not yet wired into orchestrator — infrastructure ready. 74 tests.
+- **CX.1 — Response Quality Baseline (COMPLETE):** `summary` + `project_context` on all tool responses. `dry_run` flag on `bridge_ast_mutate` and `bridge_fix`. MCP `initialize` onboarding pointer. 76 tests.
+- **CX.3 — Error Taxonomy (COMPLETE):** Structured `BRIDGE-ERR-001..010` error codes with descriptions and recovery instructions. `explanation` field on Mithril and A11y rules. `errorCodes.ts` + `errorTaxonomy.ts`.
+- **MDA.1 — Mithril Delta Mode (COMPLETE):** Baseline snapshotting with SHA-256 violation hashing. Per-project baselines. `auditDelta` suppresses known violations. Sentinel row for empty baselines. 39 tests.
+- **SEC.4-6 (COMPLETE):** SEC.4 safeStorage API key encryption, SEC.5 terminal cwd/input hardening, SEC.6 ingestion rate limiting.
+- **U.3 — Immersive Canvas (COMPLETE):** Removed CodeEditor, CodeEditorPanel, TerminalPanel. Recovers ~40% vertical real estate.
+- **ING.3 — healOnAudit Integration Tests (COMPLETE):** 17 tests covering happy path, backward compat, zero-token edge case.
+- **Security fix:** Closed agent ID spoofing vector in `main.ts` — renderer always identified as `'renderer'`, never trusts `_agentId` from IPC args.
+- **`/review` command:** Automated pre-commit code review gate (`.claude/commands/review.md`). Domain-aware parallel `bridge-code-reviewer` agents. Wired into Contract-First workflow between Phase 2 and Phase 3.
 
----
+**Previously completed:**
+- V.1-rs (MRS stateless scorer), V.2-mp (Mutation Provenance Ledger), CX.2 (bridge_plan), Sprint 2 Security (SEC.1-3, P0-4), Phase ACX (Proactive Agent Context), Phase ING (Ingestion Auto-Heal), JTBD Waves 1-3, INFRA.1-2, EXP.2 (Debt Report), GOV.3 (Session Validation), Test Coverage Remediation.
+- **Contract-First Feature Build:** Mandatory 3-phase workflow. See `.claude/workflows/feature-build.md`.
 
-## 10. Immediate Next Steps
+**Architectural gaps to wire (Sprint 4):**
+1. `loadAgentPolicy` not called from `main.ts` — per-project policy files are dead code at runtime
+2. `escalationEngine` not imported by `orchestrator.ts` — AGV.3 auto-escalation is inert
+3. `computeMRS` always uses `affectedNodes=1` — blast radius factor underutilized
+4. Duplicated MRS formula in `riskApproval.test.ts` — no sync enforcement with `orchestrator.ts`
 
-- **Phase N.2: Logic Extraction** — "Logic Extraction" Scratchpad (JSX callback preservation).
-- **Phase Q: Asset Management Hub** — Centralized asset library UI with Figma-Bridge sync status badges.
-- **`revertNodeToHead` undo support** — Currently bypasses history (intentional). Consider pushing a `restoreCode` inversion if post-git-revert undo becomes a requirement.
+**Note:** Master Plan uses V.1 (Risk Scoring) and V.2 (Mutation Provenance). JTBD plan uses V.1-gd (Governance Dashboard) and V.2-af (Activity Feed). These are different features — use full phase codes to avoid confusion.

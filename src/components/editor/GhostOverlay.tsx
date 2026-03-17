@@ -339,7 +339,7 @@ export function GhostOverlay() {
 
                 {/* Footer hint */}
                 <div className="border-t border-zinc-800 px-3 py-1.5">
-                    <p className="text-[9px] text-zinc-600 leading-tight">
+                    <p className="text-[10px] text-zinc-500 leading-tight">
                         Replace with the nearest token class to pass the Mithril gate.
                     </p>
                 </div>

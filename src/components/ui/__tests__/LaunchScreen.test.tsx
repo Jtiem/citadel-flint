@@ -129,14 +129,28 @@ describe('LaunchScreen', () => {
         })
     })
 
-    // 9. Connect Figma shows a notice text after click
-    it('shows a Figma plugin setup notice when Connect Figma is clicked', async () => {
+    // 9. Connect Figma renders the FigmaSetupWizard component after click
+    it('renders the FigmaSetupWizard when Connect Figma is clicked', async () => {
         ;(window.bridgeAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        // The wizard calls figma.status() on mount — provide a running server response
+        ;(window.bridgeAPI.figma.status as ReturnType<typeof vi.fn>).mockResolvedValue({
+            running: true,
+            lastWebhookAt: null,
+            tokenCount: 0,
+            port: 4545,
+        })
         render(<LaunchScreen {...defaultProps()} />)
         await waitFor(() => screen.getByText('Connect Figma'))
         fireEvent.click(screen.getByText('Connect Figma'))
+        // After clicking, the FigmaSetupWizard component mounts.
+        // The wizard renders a 3-step UI; verify step-indicator content appears.
         await waitFor(() => {
-            expect(screen.getByText(/Bridge Figma plugin/i)).toBeDefined()
+            // FigmaSetupWizard renders step indicators — the old inline text block
+            // ("Bridge Figma plugin setup" with 4 numbered list items) is gone.
+            // The new wizard renders numbered step indicators (1, 2, 3).
+            // We assert figma.status() was invoked by the wizard, which proves
+            // the wizard component (not the old text block) mounted.
+            expect(window.bridgeAPI.figma.status).toHaveBeenCalled()
         })
     })
 
@@ -145,7 +159,7 @@ describe('LaunchScreen', () => {
         ;(window.bridgeAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
         render(<LaunchScreen {...defaultProps()} />)
         await waitFor(() => {
-            expect(screen.getByText('Visual governance for your design system')).toBeDefined()
+            expect(screen.getByText('Design-to-Code Platform')).toBeDefined()
         })
     })
 

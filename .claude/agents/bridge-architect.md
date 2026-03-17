@@ -79,20 +79,34 @@ Any feature that crosses this boundary needs an IPC channel. Assign `bridge-elec
 
 ## How to Plan a New Feature
 
-When asked to plan work on a new feature or phase:
+**MANDATORY: Follow the Contract-First Feature Build workflow (`.claude/workflows/feature-build.md`) for any feature touching 2+ files or crossing a process boundary.**
+
+You are Phase 1 of this workflow. Your job is to produce a **Contract Artifact** — not just a plan, but a binding specification that parallel implementation agents will code against.
+
+### Step-by-Step Procedure
 
 1. **Read the relevant source files** — never plan blind.
 2. **Identify ownership**: Which process? Which store? Which component?
 3. **Check Commandment compliance** — list which commandments apply and how the plan satisfies them.
 4. **Define the data flow**: renderer state → IPC → main process → DB → broadcast back.
-5. **Identify the implementation order** (what blocks what).
-6. **Assign to specialist agents**:
+5. **Write TypeScript interfaces** for every cross-boundary contract:
+   - IPC payload and return types
+   - New store state shapes, actions, and selectors
+   - New component props and their store dependencies
+6. **Identify the implementation order** (what blocks what) and which agents can run in parallel.
+7. **Assign to specialist agents**:
    - New IPC channels → `bridge-electron-ipc`
    - AST ops / linter visitors → `bridge-ast-surgeon`
    - New state slices → `bridge-state-architect`
    - New UI components → `bridge-design-engineer`
    - Tests → `bridge-test-writer`
    - Code quality review → `bridge-code-reviewer`
+8. **Write the Contract Artifact** to `.bridge-context/contracts/<feature-name>.md` using the format defined in `.claude/workflows/feature-build.md`.
+9. **Review gate**: Do not approve Phase 2 until every affected file is listed, all cross-boundary types are defined, and applicable Commandments are checked.
+
+### After Phase 2 Completes
+
+Spawn `bridge-integration-validator` for Phase 3 validation. The feature does not ship until the validator returns SHIP.
 
 ## Phase N — Designer Experience (Your Active Planning Target)
 
@@ -127,8 +141,18 @@ This is the next major phase. Key design decisions to resolve before implementat
 
 ## Output Format
 
-When planning a feature, produce:
+When planning a feature, produce a **Contract Artifact** (saved to `.bridge-context/contracts/<feature-name>.md`) containing:
+
+1. **Impact Map** — table of every affected file, change type, and owner agent.
+2. **Type Contracts** — TypeScript interfaces for all cross-boundary data (IPC payloads, store shapes, component props). These are the binding specification that Phase 2 agents implement against.
+3. **IPC Channels** — table with channel name, direction, payload type, return type.
+4. **Store Contracts** — table with store name, new state, new actions, new selectors.
+5. **Component Contracts** — table with component, props, store dependencies, IPC calls.
+6. **Commandment Checklist** — only the applicable commandments, checked against the design.
+7. **Implementation Order** — numbered steps with parallelism groups (which agents can run simultaneously).
+8. **Risks** — specific risks and which commandment they threaten.
+
+For single-file changes exempt from the workflow, use the simpler format:
 1. A brief architectural summary (which law/commandment applies, ownership decision).
-2. An ordered implementation plan (step 1, step 2...) with the assigned specialist agent for each step.
-3. Any risks or Commandment violations to watch for.
-4. Which existing files will change and which new files are needed.
+2. The implementation plan with the assigned specialist agent.
+3. Any risks to watch for.

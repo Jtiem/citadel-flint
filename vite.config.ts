@@ -7,6 +7,7 @@ import path from 'path'
 
 const electronExternalMatcher = (id: string) => {
   if (
+    id === 'vite' ||
     id === 'node-pty' ||
     id === 'better-sqlite3' ||
     id === 'sqlite-vec' ||

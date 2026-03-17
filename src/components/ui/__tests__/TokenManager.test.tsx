@@ -41,7 +41,7 @@ describe('TokenManager', () => {
         // Never resolves during this check
         ;(window.bridgeAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockReturnValue(new Promise(() => {}))
         render(<TokenManager />)
-        expect(screen.getByText('Loading tokens…')).toBeDefined()
+        expect(screen.getByText('Loading…')).toBeDefined()
     })
 
     // 2. Shows tokens after fetch resolves
@@ -58,7 +58,7 @@ describe('TokenManager', () => {
         ;(window.bridgeAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue([])
         render(<TokenManager />)
         await waitFor(() => {
-            expect(screen.getByText('No design tokens')).toBeDefined()
+            expect(screen.getByText('Import DTCG JSON')).toBeDefined()
         })
     })
 
@@ -116,7 +116,7 @@ describe('TokenManager', () => {
         render(<TokenManager />)
         await waitFor(() => screen.getByText('color.primary'))
 
-        const searchInput = screen.getByPlaceholderText('Search tokens…')
+        const searchInput = screen.getByPlaceholderText('Search by name, value, or type…')
         fireEvent.change(searchInput, { target: { value: 'spacing' } })
 
         await waitFor(() => {
@@ -131,7 +131,7 @@ describe('TokenManager', () => {
         render(<TokenManager />)
         await waitFor(() => screen.getByText('color.primary'))
 
-        const searchInput = screen.getByPlaceholderText('Search tokens…')
+        const searchInput = screen.getByPlaceholderText('Search by name, value, or type…')
         fireEvent.change(searchInput, { target: { value: 'Inter' } })
 
         await waitFor(() => {
@@ -146,11 +146,11 @@ describe('TokenManager', () => {
         render(<TokenManager />)
         await waitFor(() => screen.getByText('color.primary'))
 
-        const searchInput = screen.getByPlaceholderText('Search tokens…')
+        const searchInput = screen.getByPlaceholderText('Search by name, value, or type…')
         fireEvent.change(searchInput, { target: { value: 'zzznomatch999' } })
 
         await waitFor(() => {
-            expect(screen.getByText('No tokens match your search')).toBeDefined()
+            expect(screen.getByText('No tokens match')).toBeDefined()
         })
     })
 
@@ -161,7 +161,7 @@ describe('TokenManager', () => {
         )
         render(<TokenManager />)
         await waitFor(() => {
-            expect(screen.getByText('IPC unavailable')).toBeDefined()
+            expect(screen.getByText('Error: IPC unavailable')).toBeDefined()
         })
     })
 })

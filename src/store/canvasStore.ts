@@ -22,12 +22,25 @@
  */
 
 import { create } from 'zustand'
-import type { FileTreeNode } from '../types/bridge-api'
+import type { FileTreeNode, BridgePolicy } from '../types/bridge-api'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 export type SaveState = 'idle' | 'editing' | 'saving' | 'saved'
 export type CanvasMode = 'design' | 'interact'
+export type RightTab = 'properties' | 'tokens' | 'activity' | 'health' | 'recovery'
+
+/**
+ * Bounding box for a single bridge node as reported by the in-iframe
+ * bridge-init script via NODE_LAYOUT postMessage. All values are in
+ * iframe-relative pixels (origin = top-left of the iframe).
+ */
+export interface NodeLayout {
+    x: number
+    y: number
+    width: number
+    height: number
+}
 
 // ── Store shape ────────────────────────────────────────────────────────────────
 
@@ -76,6 +89,26 @@ interface CanvasState {
      *   'interact' — Native events pass through; clicking tests the component.
      */
     canvasMode: CanvasMode
+    /**
+     * Bounding boxes for every bridge node that has reported a NODE_LAYOUT
+     * postMessage from the iframe. Keyed by data-bridge-id.
+     * Used by ShieldOverlay to position governance badges and heat tints.
+     */
+    nodeLayouts: Record<string, NodeLayout>
+    /**
+     * The currently active tab in the right inspector panel.
+     * Stored here so ShieldOverlay can switch to 'properties' on badge click
+     * without prop-drilling through LivePreview → ShieldOverlay.
+     */
+    rightTab: RightTab
+    /**
+     * Cached governance policy from `.bridge/policy.json`.
+     * Loaded via `policy:get` IPC on project open; null when no project is open
+     * or the IPC surface is unavailable (e.g. Vitest).
+     *
+     * Used by canExport() to determine which violation categories block export.
+     */
+    cachedPolicy: BridgePolicy | null
 }
 
 interface CanvasActions {
@@ -140,6 +173,26 @@ interface CanvasActions {
      */
     setCanvasMode: (mode: CanvasMode) => void
     /**
+     * Records a single node's bounding box as reported by the iframe.
+     * Called from ShieldOverlay when a NODE_LAYOUT postMessage arrives.
+     */
+    setNodeLayout: (id: string, layout: NodeLayout) => void
+    /**
+     * Switches the active right inspector tab. Called by ShieldOverlay when
+     * the user clicks a violation badge (click-to-properties).
+     */
+    setRightTab: (tab: RightTab) => void
+    /**
+     * Loads the governance policy from the main process via `policy:get` IPC.
+     * Caches the result in `cachedPolicy` for synchronous access by `canExport()`.
+     * Call on project open and after any `bridge_set_policy` MCP tool call.
+     */
+    loadPolicy: () => Promise<void>
+    /**
+     * Directly sets the cached policy (e.g. from a test or fallback).
+     */
+    setCachedPolicy: (policy: BridgePolicy | null) => void
+    /**
      * Returns to the Launch Screen by nullifying all workspace state.
      * Cancels any pending auto-save timer before clearing state.
      */
@@ -174,6 +227,9 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     workspaceFiles: null,
     expandedFolders: new Set<string>(),
     canvasMode: 'design' as CanvasMode,
+    nodeLayouts: {},
+    rightTab: 'properties' as RightTab,
+    cachedPolicy: null,
 
     startDrag: (sourceId) => set({ dragSourceId: sourceId }),
     endDrag: () => set({ dragSourceId: null }),
@@ -241,6 +297,22 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     setOverridesExist: (exists) => set({ overridesExist: exists }),
     setA11yViolations: (violations) => set({ a11yViolations: violations }),
     setCanvasMode: (mode) => set({ canvasMode: mode }),
+    setNodeLayout: (id, layout) =>
+        set((state) => ({ nodeLayouts: { ...state.nodeLayouts, [id]: layout } })),
+    setRightTab: (tab) => set({ rightTab: tab }),
+
+    loadPolicy: async () => {
+        try {
+            const policy = await window.bridgeAPI.policy?.get()
+            if (policy) {
+                set({ cachedPolicy: policy })
+            }
+        } catch (err) {
+            console.error('[Bridge] Failed to load policy:', err)
+        }
+    },
+
+    setCachedPolicy: (policy) => set({ cachedPolicy: policy }),
 
     closeWorkspace: () => {
         if (_saveTimer !== null) {
@@ -258,16 +330,30 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
             saveState: 'idle',
             expandedFolders: new Set<string>(),
             canvasMode: 'design',
+            nodeLayouts: {},
+            rightTab: 'properties',
+            cachedPolicy: null,
         })
     },
 
     canExport: () => {
-        const { mithrilViolations, overridesExist, a11yViolations } = get()
-        return (
-            mithrilViolations.length === 0 &&
-            !overridesExist &&
-            Object.keys(a11yViolations).length === 0
-        )
+        const { mithrilViolations, overridesExist, a11yViolations, cachedPolicy } = get()
+        const exportGate = cachedPolicy?.export_gate
+
+        // When no policy is loaded, use the default behaviour: all gates active
+        const blockOnMithril = exportGate?.block_on_mithril ?? true
+        const blockOnA11y = exportGate?.block_on_a11y ?? true
+        const blockOnOverrides = exportGate?.block_on_overrides ?? true
+
+        // Additionally, if a category is in 'advisory' or 'off' mode, skip its gate
+        const mithrilMode = cachedPolicy?.mithril?.mode ?? 'blocking'
+        const a11yMode = cachedPolicy?.a11y?.mode ?? 'blocking'
+
+        const mithrilBlocks = blockOnMithril && mithrilMode === 'blocking' && mithrilViolations.length > 0
+        const a11yBlocks = blockOnA11y && a11yMode === 'blocking' && Object.keys(a11yViolations).length > 0
+        const overridesBlock = blockOnOverrides && overridesExist
+
+        return !mithrilBlocks && !a11yBlocks && !overridesBlock
     },
 
     triggerAutoSave: (code: string, debounceMs = 0) => {

@@ -314,8 +314,27 @@ const _updateProp: ASTMutation = {
     value: 'Search',
 }
 
+const _updateTextContent: ASTMutation = {
+    op: 'updateTextContent',
+    nodeId: 'p:1:0',
+    text: 'Hello',
+}
+
+const _injectComponent: ASTMutation = {
+    op: 'injectComponent',
+    targetNodeId: 'div:1:0',
+    jsxSnippet: '<span>child</span>',
+}
+
+const _applyTokenFix: ASTMutation = {
+    op: 'applyTokenFix',
+    nodeId: 'div:1:0',
+    hardcodedClass: 'bg-[#f3f3f3]',
+    tokenClass: 'bg-brand-primary',
+}
+
 // Silence noUnusedLocals — the real assertion is that tsc accepts these shapes.
-void [_updateClass, _move, _delete, _updateProp]
+void [_updateClass, _move, _delete, _updateProp, _updateTextContent, _injectComponent, _applyTokenFix]
 
 // ── Phase E.3 — ID Preservation ───────────────────────────────────────────────
 //
@@ -619,5 +638,277 @@ describe('synthesizeImports (Phase B — Import Synthesizer)', () => {
         expect(code).toContain('Button')
         // Vite handles paths with or without .tsx, but our resolver normalizes to ./
         expect(code).toContain('./components/ui/Button')
+    })
+})
+
+// ── Missing operation round-trips ─────────────────────────────────────────────
+
+describe('applyMutationBatch — injectComponent round-trip', () => {
+
+    it('injects a component as last child and stamps a data-bridge-id', () => {
+        const src = `export default function App() {
+  return (
+    <div data-bridge-id="root-div">
+      <span>existing</span>
+    </div>
+  )
+}`
+        const { code, inversions } = applyMutationBatch(src, [
+            {
+                op: 'injectComponent',
+                targetNodeId: 'root-div',
+                jsxSnippet: '<button>Click me</button>',
+            },
+        ])
+        // The injected element must appear in the output.
+        expect(code).toContain('Click me')
+        // injectComponent stamps a random data-bridge-id on the injected node.
+        expect(code).toMatch(/data-bridge-id="[a-z0-9]+"/)
+        // Structural inverse: snapshot
+        expect(inversions).toHaveLength(1)
+        expect(inversions[0].op).toBe('restoreCode')
+    })
+
+    it('injectComponent inverse restores the pre-injection source exactly', () => {
+        const src = `export default function App() {
+  return (
+    <div data-bridge-id="root-div">
+      <span>existing</span>
+    </div>
+  )
+}`
+        const { code: mutated, inversions } = applyMutationBatch(src, [
+            {
+                op: 'injectComponent',
+                targetNodeId: 'root-div',
+                jsxSnippet: '<button>Click me</button>',
+            },
+        ])
+        // Confirm mutation was applied before testing undo.
+        expect(mutated).toContain('Click me')
+        // Apply inversion — must restore the original (no button).
+        const restored = applyInversions(mutated, inversions)
+        expect(restored).not.toContain('Click me')
+        expect(restored).toContain('existing')
+    })
+
+    it('injectComponent with importSnippet prepends the import declaration', () => {
+        const src = `export default function App() {
+  return (
+    <div data-bridge-id="container">
+    </div>
+  )
+}`
+        const { code } = applyMutationBatch(src, [
+            {
+                op: 'injectComponent',
+                targetNodeId: 'container',
+                jsxSnippet: '<Badge>New</Badge>',
+                importSnippet: "import { Badge } from './ui'",
+            },
+        ])
+        expect(code).toContain('Badge')
+        expect(code).toContain('./ui')
+    })
+})
+
+describe('applyMutationBatch — applyTokenFix round-trip', () => {
+
+    it('replaces the hardcoded class with the token class', () => {
+        const src = `export default function App() {
+  return <div className="flex bg-[#f3f3f3] p-4">content</div>
+}`
+        const { code, inversions } = applyMutationBatch(src, [
+            {
+                op: 'applyTokenFix',
+                nodeId: 'div:2:9',
+                hardcodedClass: 'bg-[#f3f3f3]',
+                tokenClass: 'bg-surface-default',
+            },
+        ])
+        expect(code).toContain('bg-surface-default')
+        expect(code).not.toContain('bg-[#f3f3f3]')
+        // Other classes must be preserved.
+        expect(code).toContain('flex')
+        expect(code).toContain('p-4')
+        // Structural inverse
+        expect(inversions).toHaveLength(1)
+        expect(inversions[0].op).toBe('restoreCode')
+    })
+
+    it('applyTokenFix inverse restores the original hardcoded class', () => {
+        const src = `export default function App() {
+  return <div className="flex bg-[#f3f3f3] p-4">content</div>
+}`
+        const { code: mutated, inversions } = applyMutationBatch(src, [
+            {
+                op: 'applyTokenFix',
+                nodeId: 'div:2:9',
+                hardcodedClass: 'bg-[#f3f3f3]',
+                tokenClass: 'bg-surface-default',
+            },
+        ])
+        const restored = applyInversions(mutated, inversions)
+        expect(restored).toContain('bg-[#f3f3f3]')
+        expect(restored).not.toContain('bg-surface-default')
+    })
+})
+
+describe('applyMutationBatch — updateTextContent round-trip', () => {
+
+    it('updates the text content of a JSX element', () => {
+        const src = `export default function App() {
+  return <p data-bridge-id="headline">Old text</p>
+}`
+        const { code, inversions } = applyMutationBatch(src, [
+            { op: 'updateTextContent', nodeId: 'headline', text: 'New text' },
+        ])
+        expect(code).toContain('New text')
+        expect(code).not.toContain('Old text')
+        // Property-level inverse: captures old text value
+        expect(inversions).toHaveLength(1)
+        expect(inversions[0].op).toBe('updateTextContent')
+        if (inversions[0].op === 'updateTextContent') {
+            expect(inversions[0].text).toBe('Old text')
+        }
+    })
+
+    it('updateTextContent inverse restores the original text', () => {
+        const src = `export default function App() {
+  return <p data-bridge-id="headline">Old text</p>
+}`
+        const { code: mutated, inversions } = applyMutationBatch(src, [
+            { op: 'updateTextContent', nodeId: 'headline', text: 'New text' },
+        ])
+        const restored = applyInversions(mutated, inversions)
+        expect(restored).toContain('Old text')
+        expect(restored).not.toContain('New text')
+    })
+})
+
+// ── Adversarial inputs ────────────────────────────────────────────────────────
+
+describe('applyMutationBatch — adversarial inputs', () => {
+
+    // ── Nonexistent node ID ───────────────────────────────────────────────────
+    // When the targeted data-bridge-id is not present, the batch engine must
+    // not silently corrupt the AST — it should produce unchanged output rather
+    // than throwing (the internal helpers are all no-ops on miss).
+
+    it('nonexistent node ID — updateClassName on missing id produces no change', () => {
+        const src = `export default function App() {
+  return <div data-bridge-id="real-id" className="text-white">hello</div>
+}`
+        const { code, inversions } = applyMutationBatch(src, [
+            { op: 'updateClassName', nodeId: 'does-not-exist', className: 'text-black' },
+        ])
+        // No crash; original class must be preserved
+        expect(code).toContain('text-white')
+        expect(code).not.toContain('text-black')
+        // Inversion is still recorded (captures empty string as old class since node wasn't found)
+        expect(inversions).toHaveLength(1)
+    })
+
+    it('nonexistent node ID — updateProp on missing id produces no change', () => {
+        const src = `export default function App() {
+  return <input data-bridge-id="real-input" aria-label="original" />
+}`
+        const { code } = applyMutationBatch(src, [
+            { op: 'updateProp', nodeId: 'ghost-node', propName: 'aria-label', value: 'replaced' },
+        ])
+        expect(code).toContain('"original"')
+        expect(code).not.toContain('"replaced"')
+    })
+
+    it('nonexistent node ID — deleteNode on missing id is a silent no-op', () => {
+        const src = `export default function App() {
+  return (
+    <div>
+      <span data-bridge-id="keep-me">stay</span>
+    </div>
+  )
+}`
+        const { code } = applyMutationBatch(src, [
+            { op: 'deleteNode', nodeId: 'ghost-id' },
+        ])
+        // Original node must remain
+        expect(code).toContain('stay')
+        expect(code).toContain('keep-me')
+    })
+
+    // ── Self-move ─────────────────────────────────────────────────────────────
+    // moveNode with sourceId === targetId must be a no-op (astModifier guards
+    // this with an early return when sourceId === targetId).
+
+    it('self-move (sourceId === targetId) is a no-op', () => {
+        const src = `export default function App() {
+  return (
+    <div>
+      <span className="a">A</span>
+      <p className="b">B</p>
+    </div>
+  )
+}`
+        const { code } = applyMutationBatch(src, [
+            { op: 'moveNode', sourceId: 'span:4:6', targetId: 'span:4:6', position: 'after' },
+        ])
+        // The DOM order must be unchanged — span before p
+        const spanIdx = code.indexOf('"a"')
+        const pIdx = code.indexOf('"b"')
+        expect(spanIdx).toBeGreaterThan(-1)
+        expect(pIdx).toBeGreaterThan(-1)
+        expect(spanIdx).toBeLessThan(pIdx)
+    })
+
+    // ── Self-closing target for injectComponent ───────────────────────────────
+    // injectComponent must not crash or corrupt when the target element is
+    // self-closing (e.g. <img />). astModifier returns the original AST
+    // unchanged in this case.
+
+    it('inject into self-closing element is a silent no-op', () => {
+        const src = `export default function App() {
+  return (
+    <div data-bridge-id="container">
+      <img data-bridge-id="img-target" src="/logo.png" />
+    </div>
+  )
+}`
+        const { code } = applyMutationBatch(src, [
+            {
+                op: 'injectComponent',
+                targetNodeId: 'img-target',
+                jsxSnippet: '<span>should not appear</span>',
+            },
+        ])
+        // The injected text must not be present — img is self-closing
+        expect(code).not.toContain('should not appear')
+        // The img must still be in the output
+        expect(code).toContain('img-target')
+    })
+
+    // ── Malformed TSX ─────────────────────────────────────────────────────────
+    // When the source code is not valid TSX, parseCodeToAST returns null and
+    // applyMutationBatch returns the original code with an empty inversions
+    // array — the Babel parse error is surfaced as a safe no-op, not a throw.
+
+    it('malformed TSX returns original code and empty inversions (parse error is not swallowed silently — safe no-op path)', () => {
+        const badCode = '<div this is not valid tsx'
+        const mutations: ASTMutation[] = [
+            { op: 'updateClassName', nodeId: 'div:1:0', className: 'text-red-500' },
+        ]
+        const { code, inversions } = applyMutationBatch(badCode, mutations)
+        // Returns original source unchanged
+        expect(code).toBe(badCode)
+        // Empty inversions — nothing was applied
+        expect(inversions).toHaveLength(0)
+    })
+
+    it('completely unparseable input returns original code unchanged', () => {
+        const garbage = '!!! @#$% not code at all'
+        const { code, inversions } = applyMutationBatch(garbage, [
+            { op: 'deleteNode', nodeId: 'anything' },
+        ])
+        expect(code).toBe(garbage)
+        expect(inversions).toHaveLength(0)
     })
 })

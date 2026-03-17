@@ -18,7 +18,7 @@
  */
 
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { Upload, Trash2, X } from 'lucide-react'
+import { Upload, Trash2, X, Search } from 'lucide-react'
 import { useTokenStore } from '../../store/tokenStore'
 import type { DesignToken, TokenType } from '../../types/bridge-api'
 
@@ -127,7 +127,7 @@ function TokenRow({
 
             {/* Mode badge — only when non-default */}
             {token.mode !== 'default' && (
-                <span className="shrink-0 rounded px-1 py-0.5 text-[9px] font-medium uppercase text-gray-600 ring-1 ring-gray-700">
+                <span className="shrink-0 rounded px-1 py-0.5 text-[10px] font-medium uppercase text-zinc-400 ring-1 ring-zinc-700">
                     {token.mode}
                 </span>
             )}
@@ -136,7 +136,7 @@ function TokenRow({
             <button
                 type="button"
                 onClick={() => onDelete(token.id)}
-                className="shrink-0 rounded p-0.5 text-gray-700 opacity-0 transition-opacity hover:bg-red-900/40 hover:text-red-400 group-hover:opacity-100"
+                className="shrink-0 rounded p-0.5 text-zinc-500 opacity-0 transition-opacity hover:bg-red-900/40 hover:text-red-400 group-hover:opacity-100"
                 title={`Delete ${token.token_path}`}
             >
                 <Trash2 className="h-3 w-3" />
@@ -168,7 +168,7 @@ function ImportModal({ onClose, onImport, isLoading, error }: ImportModalProps) 
     return (
         /* Backdrop */
         <div
-            className="absolute inset-0 z-10 flex items-start justify-center bg-black/70 pt-8"
+            className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 pt-8"
             onClick={onClose}
         >
             {/* Modal */}
@@ -283,6 +283,9 @@ export function TokenManager() {
     const [editingPath, setEditingPath] = useState<string>('')
     const [draftValue, setDraftValue] = useState<string>('')
 
+    // Search
+    const [searchQuery, setSearchQuery] = useState('')
+
     // Import modal
     const [showImport, setShowImport] = useState(false)
 
@@ -301,10 +304,22 @@ export function TokenManager() {
         }
     }, [])
 
+    // Search-filtered token list
+    const filteredTokens = useMemo(() => {
+        const q = searchQuery.trim().toLowerCase()
+        if (!q) return tokens
+        return tokens.filter(
+            (t) =>
+                t.token_path.toLowerCase().includes(q) ||
+                t.token_value.toLowerCase().includes(q) ||
+                t.token_type.toLowerCase().includes(q)
+        )
+    }, [tokens, searchQuery])
+
     // Group: collection_name → token_type → tokens[]
     const grouped = useMemo(() => {
         const map = new Map<string, Map<TokenType, DesignToken[]>>()
-        for (const token of tokens) {
+        for (const token of filteredTokens) {
             if (!map.has(token.collection_name)) {
                 map.set(token.collection_name, new Map())
             }
@@ -315,7 +330,7 @@ export function TokenManager() {
             byType.get(token.token_type)!.push(token)
         }
         return map
-    }, [tokens])
+    }, [filteredTokens])
 
     function startEdit(id: number, path: string, currentValue: string) {
         // id = -1 signals a discard (from Escape key)
@@ -357,7 +372,7 @@ export function TokenManager() {
         <div className="relative flex h-full flex-col text-gray-300">
             {/* ── Toolbar ──────────────────────────────────────────────────── */}
             <div className="flex shrink-0 items-center gap-2 border-b border-gray-800 px-3 py-2">
-                <span className="text-[10px] font-medium uppercase tracking-wider text-gray-600">
+                <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-400">
                     {tokens.length} token{tokens.length !== 1 ? 's' : ''}
                 </span>
                 <div className="ml-auto flex items-center gap-1.5">
@@ -367,7 +382,7 @@ export function TokenManager() {
                             onClick={handleClearAll}
                             className={`flex items-center gap-1 rounded border px-2 py-1 text-[11px] font-medium transition-colors ${confirmingClear
                                     ? 'border-red-700 bg-red-900/30 text-red-400 hover:bg-red-900/50'
-                                    : 'border-gray-700 bg-gray-800/40 text-gray-600 hover:border-red-700/60 hover:text-red-500'
+                                    : 'border-zinc-700 bg-zinc-800/40 text-zinc-400 hover:border-red-700/60 hover:text-red-500'
                                 }`}
                             title="Delete all design tokens"
                         >
@@ -386,16 +401,51 @@ export function TokenManager() {
                 </div>
             </div>
 
+            {/* ── Search bar ───────────────────────────────────────────────── */}
+            <div className="flex shrink-0 items-center gap-1.5 border-b border-gray-800/60 px-3 py-1.5">
+                <Search size={10} className="shrink-0 text-zinc-500" />
+                <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search by name, value, or type…"
+                    className="flex-1 bg-transparent font-mono text-[11px] text-gray-300 placeholder-gray-700 outline-none"
+                />
+                {searchQuery && (
+                    <span className="shrink-0 text-[10px] text-zinc-500">
+                        {filteredTokens.length}/{tokens.length}
+                    </span>
+                )}
+                {searchQuery && (
+                    <button
+                        type="button"
+                        onClick={() => setSearchQuery('')}
+                        className="shrink-0 text-[10px] text-zinc-500 hover:text-zinc-300"
+                        title="Clear search"
+                    >
+                        <X size={10} />
+                    </button>
+                )}
+            </div>
+
             {/* ── Token list ────────────────────────────────────────────────── */}
             <div className="min-h-0 flex-1 overflow-y-auto">
                 {isLoading && (
-                    <p className="px-3 py-6 text-center text-xs text-gray-600">Loading…</p>
+                    <p className="px-3 py-6 text-center text-xs text-zinc-500">Loading…</p>
+                )}
+
+                {!isLoading && tokens.length > 0 && filteredTokens.length === 0 && (
+                    <div className="flex flex-col items-center gap-2 px-4 py-8 text-center">
+                        <Search className="h-5 w-5 text-zinc-600" />
+                        <p className="text-xs text-zinc-500">No tokens match</p>
+                        <p className="text-[10px] text-zinc-400">Try a different search term</p>
+                    </div>
                 )}
 
                 {!isLoading && tokens.length === 0 && (
                     <div className="flex flex-col items-center gap-3 px-4 py-8 text-center">
-                        <Upload className="h-6 w-6 text-gray-700" />
-                        <p className="text-xs text-gray-600">
+                        <Upload className="h-6 w-6 text-zinc-600" />
+                        <p className="text-xs text-zinc-500">
                             No tokens yet.{' '}
                             <button
                                 type="button"
@@ -425,10 +475,10 @@ export function TokenManager() {
                                     <span
                                         className={`inline-block h-1.5 w-1.5 rounded-full ${TYPE_DOT[tokenType] ?? 'bg-gray-500'}`}
                                     />
-                                    <span className="text-[9px] font-medium uppercase tracking-widest text-gray-500">
+                                    <span className="text-[10px] font-medium uppercase tracking-widest text-zinc-400">
                                         {TYPE_LABEL[tokenType] ?? tokenType}
                                     </span>
-                                    <span className="ml-auto text-[9px] text-gray-700">
+                                    <span className="ml-auto text-[10px] text-zinc-500">
                                         {group.length}
                                     </span>
                                 </div>

@@ -19,7 +19,9 @@ import { renderHook, act } from '@testing-library/react'
 import { useContextSync } from '../useContextSync'
 import { useCanvasStore } from '../../store/canvasStore'
 import { useEditorStore } from '../../store/editorStore'
-import type { LinterWarning } from '../../types/bridge-api'
+import { useGovernanceStore } from '../../store/governanceStore'
+import { useImportSummaryStore } from '../../store/importSummaryStore'
+import type { LinterWarning, IngestionSummary } from '../../types/bridge-api'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -208,5 +210,91 @@ describe('useContextSync', () => {
 
         // Restore
         window.bridgeAPI.syncContext = original
+    })
+
+    // ── ACX.5 extension field tests ──────────────────────────────────────────
+
+    it('includes overrideCount = 0 when governanceStore has no overrides', () => {
+        useGovernanceStore.setState({ overrides: {} })
+
+        renderHook(() => useContextSync())
+        act(() => { vi.advanceTimersByTime(200) })
+
+        const ctx = (window.bridgeAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls[0][0]
+        expect(ctx.overrideCount).toBe(0)
+    })
+
+    it('includes correct overrideCount when governance overrides are present', () => {
+        useGovernanceStore.setState({
+            overrides: {
+                'A11Y-001': { enabled: false },
+                'MITHRIL-COL': { severity: 'amber' },
+                'A11Y-003': { enabled: false },
+            },
+        })
+
+        renderHook(() => useContextSync())
+        act(() => { vi.advanceTimersByTime(200) })
+
+        const ctx = (window.bridgeAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls[0][0]
+        expect(ctx.overrideCount).toBe(3)
+    })
+
+    it('includes importSummary = null when no import has occurred', () => {
+        useImportSummaryStore.setState({ summary: null })
+
+        renderHook(() => useContextSync())
+        act(() => { vi.advanceTimersByTime(200) })
+
+        const ctx = (window.bridgeAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls[0][0]
+        expect(ctx.importSummary).toBeNull()
+    })
+
+    it('includes importSummary counts when an ingestion summary is present', () => {
+        const mockSummary: IngestionSummary = {
+            totalValues: 10,
+            tier1Fixed: [
+                { nodeId: 'n1', ruleId: 'MITHRIL-COL', originalValue: '#ff0000', fixedToToken: 'color.primary', fixedToClass: 'bg-primary' },
+                { nodeId: 'n2', ruleId: 'MITHRIL-COL', originalValue: '#00ff00', fixedToToken: 'color.secondary', fixedToClass: 'bg-secondary' },
+            ],
+            tier2Flagged: [
+                { nodeId: 'n3', ruleId: 'MITHRIL-COL', originalValue: '#0000ff', suggestedToken: 'color.accent', suggestedClass: 'bg-accent', distance: 3.5, distanceUnit: 'deltaE' },
+            ],
+            tier3Unknown: 4,
+            healTimeMs: 12,
+            preHealCode: '',
+        }
+        useImportSummaryStore.setState({ summary: mockSummary })
+
+        renderHook(() => useContextSync())
+        act(() => { vi.advanceTimersByTime(200) })
+
+        const ctx = (window.bridgeAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls[0][0]
+        expect(ctx.importSummary).toEqual({ tier1Fixed: 2, tier2Flagged: 1, tier3Unknown: 4 })
+    })
+
+    it('includes healthScore = null and healthGrade = null (not yet populated by store)', () => {
+        renderHook(() => useContextSync())
+        act(() => { vi.advanceTimersByTime(200) })
+
+        const ctx = (window.bridgeAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls[0][0]
+        expect(ctx.healthScore).toBeNull()
+        expect(ctx.healthGrade).toBeNull()
+    })
+
+    it('overrideCount in payload reflects governance overrides at time of sync', () => {
+        // Set 2 overrides before rendering
+        useGovernanceStore.setState({
+            overrides: {
+                'A11Y-001': { enabled: false },
+                'MITHRIL-COL': { severity: 'amber' },
+            },
+        })
+
+        renderHook(() => useContextSync())
+        act(() => { vi.advanceTimersByTime(200) })
+
+        const ctx = (window.bridgeAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls[0][0]
+        expect(ctx.overrideCount).toBe(2)
     })
 })

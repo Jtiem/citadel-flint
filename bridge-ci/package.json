@@ -1,0 +1,29 @@
+{
+  "name": "bridge-ci",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Bridge Governance Gate -- Mithril + A11y CI checks for GitHub Actions",
+  "main": "dist/index.js",
+  "bin": {
+    "bridge-gate": "dist/cli-gate.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@actions/core": "^1.11.1",
+    "@actions/github": "^6.0.0",
+    "@babel/parser": "^7.27.0",
+    "@babel/traverse": "^7.27.0",
+    "@babel/types": "^7.27.0",
+    "@babel/generator": "^7.27.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "~5.9.3",
+    "vitest": "^4.0.18"
+  }
+}

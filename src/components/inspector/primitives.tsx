@@ -125,6 +125,173 @@ export function PopoverPicker({
     )
 }
 
+// ── TokenAutocomplete ────────────────────────────────────────────────────────
+
+/**
+ * OPP-15: Token-aware autocomplete input for raw class name entry.
+ *
+ * Props:
+ *   suggestions  — pre-computed list (up to 8) from the parent, already filtered
+ *                  to the typed substring.
+ *   value        — the current controlled value of the text input.
+ *   onChange     — called on every keystroke so the parent can recompute suggestions.
+ *   onCommit     — called when the user presses Enter or selects a suggestion.
+ *                  Receives the final class string to append.
+ *   placeholder  — hint text for the input.
+ *
+ * The dropdown is portal-rendered so it is never clipped by overflow:hidden
+ * panel wrappers.
+ */
+export interface TokenSuggestion {
+    /** Human-readable label: the normalized token path */
+    label: string
+    /** The Tailwind class to insert, e.g. "bg-brand-primary" */
+    tailwindClass: string
+    /** Hex value for color tokens; empty string otherwise */
+    colorHex: string
+}
+
+export function TokenAutocomplete({
+    suggestions,
+    value,
+    onChange,
+    onCommit,
+    placeholder = 'Add class…',
+}: {
+    suggestions: TokenSuggestion[]
+    value: string
+    onChange: (raw: string) => void
+    onCommit: (cls: string) => void
+    placeholder?: string
+}) {
+    const [open, setOpen] = useState(false)
+    const [activeIdx, setActiveIdx] = useState(-1)
+    const inputRef = useRef<HTMLInputElement>(null)
+    const listRef = useRef<HTMLDivElement>(null)
+
+    // Recompute open state whenever suggestions or value change
+    useEffect(() => {
+        setOpen(value.trim().length > 0 && suggestions.length > 0)
+        setActiveIdx(-1)
+    }, [value, suggestions.length])
+
+    // Close when clicking outside
+    useEffect(() => {
+        function handleMouseDown(e: MouseEvent) {
+            if (
+                inputRef.current && !inputRef.current.contains(e.target as Node) &&
+                listRef.current && !listRef.current.contains(e.target as Node)
+            ) {
+                setOpen(false)
+            }
+        }
+        if (open) document.addEventListener('mousedown', handleMouseDown)
+        return () => document.removeEventListener('mousedown', handleMouseDown)
+    }, [open])
+
+    function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+        if (!open) {
+            if (e.key === 'Enter' && value.trim()) {
+                onCommit(value.trim())
+                onChange('')
+            }
+            return
+        }
+        if (e.key === 'ArrowDown') {
+            e.preventDefault()
+            setActiveIdx((i) => Math.min(i + 1, suggestions.length - 1))
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault()
+            setActiveIdx((i) => Math.max(i - 1, -1))
+        } else if (e.key === 'Enter') {
+            e.preventDefault()
+            if (activeIdx >= 0 && activeIdx < suggestions.length) {
+                onCommit(suggestions[activeIdx].tailwindClass)
+            } else if (value.trim()) {
+                onCommit(value.trim())
+            }
+            onChange('')
+            setOpen(false)
+        } else if (e.key === 'Escape') {
+            setOpen(false)
+        }
+    }
+
+    // Portal position
+    const rect = inputRef.current?.getBoundingClientRect()
+    const dropdownTop = rect ? rect.bottom + 2 : 0
+    let dropdownLeft = rect ? rect.left : 0
+    if (typeof window !== 'undefined' && dropdownLeft + 220 > window.innerWidth) {
+        dropdownLeft = window.innerWidth - 224
+    }
+
+    return (
+        <div className="relative w-full">
+            <input
+                ref={inputRef}
+                type="text"
+                value={value}
+                onChange={(e) => onChange(e.target.value)}
+                onKeyDown={handleKeyDown}
+                onFocus={() => {
+                    if (value.trim() && suggestions.length > 0) setOpen(true)
+                }}
+                placeholder={placeholder}
+                className="w-full rounded border border-zinc-700/50 bg-zinc-800/60 px-2 py-1 font-mono text-[11px] text-zinc-100 placeholder-zinc-600 outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20 transition-colors"
+                autoComplete="off"
+                spellCheck={false}
+            />
+
+            {open && rect && createPortal(
+                <div
+                    ref={listRef}
+                    className="fixed z-50 flex w-56 flex-col rounded-md border border-zinc-700 bg-zinc-900 py-1 shadow-2xl"
+                    style={{ top: dropdownTop, left: dropdownLeft }}
+                >
+                    {suggestions.map((s, idx) => (
+                        <button
+                            key={s.tailwindClass}
+                            type="button"
+                            onMouseDown={(e) => {
+                                // mousedown fires before blur — prevent input blur
+                                e.preventDefault()
+                                onCommit(s.tailwindClass)
+                                onChange('')
+                                setOpen(false)
+                            }}
+                            onMouseEnter={() => setActiveIdx(idx)}
+                            className={`flex items-center gap-2 px-2 py-1.5 text-left text-[11px] transition-colors ${
+                                idx === activeIdx
+                                    ? 'bg-zinc-800 text-zinc-100'
+                                    : 'text-zinc-300 hover:bg-zinc-800'
+                            }`}
+                        >
+                            {/* Color swatch for color tokens */}
+                            {s.colorHex ? (
+                                <div
+                                    className="h-3 w-3 shrink-0 rounded-sm border border-zinc-600"
+                                    style={{ backgroundColor: s.colorHex }}
+                                />
+                            ) : (
+                                <div className="h-3 w-3 shrink-0" />
+                            )}
+                            {/* Token path */}
+                            <span className="min-w-0 flex-1 truncate text-zinc-400">
+                                {s.label}
+                            </span>
+                            {/* Tailwind class */}
+                            <span className="shrink-0 font-mono text-indigo-400 text-[10px]">
+                                {s.tailwindClass}
+                            </span>
+                        </button>
+                    ))}
+                </div>,
+                document.body
+            )}
+        </div>
+    )
+}
+
 // ── ColorPickerSwatch ───────────────────────────────────────────────────────
 
 export function ColorPickerSwatch({
@@ -179,7 +346,7 @@ export function ColorPickerSwatch({
                                 style={{ backgroundColor: opt.hex }}
                             />
                             <span className="truncate flex-1">{opt.label}</span>
-                            <span className="text-[9px] text-gray-500 font-mono">{opt.hex}</span>
+                            <span className="text-[10px] text-zinc-400 font-mono">{opt.hex}</span>
                         </button>
                     ))}
                 </div>

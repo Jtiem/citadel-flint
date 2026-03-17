@@ -231,6 +231,30 @@ db.exec(`
 
 console.log('[Bridge] RAG vector tables ready')
 
+// ── Delta Mode: violation_baselines table ─────────────────────────────────────
+//
+// Stores the set of violations that were present when the user clicked
+// "Set Baseline". Bridge uses this to compute a delta — only violations
+// that did NOT exist at baseline time are surfaced. Teams adopting Bridge
+// on existing codebases can suppress known pre-existing issues and focus
+// exclusively on new regressions.
+//
+// Composite UNIQUE(file_path, node_id, rule_id) ensures idempotent upserts:
+// re-running baseline:set on the same file just refreshes snapshot_value.
+db.exec(`
+    CREATE TABLE IF NOT EXISTS violation_baselines (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        file_path      TEXT    NOT NULL,
+        node_id        TEXT    NOT NULL,
+        rule_id        TEXT    NOT NULL,
+        severity       TEXT    NOT NULL,
+        snapshot_value TEXT,
+        created_at     INTEGER DEFAULT (strftime('%s', 'now')),
+        UNIQUE(file_path, node_id, rule_id)
+    )
+`)
+console.log('[Bridge] violation_baselines table ready')
+
 console.log(`[Bridge] Database ready at: ${DB_PATH}`)
 
 // ── PowerSync Integration ──────────────────────────────────────────────────────

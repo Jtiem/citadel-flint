@@ -77,7 +77,7 @@ function AlignmentGrid({
                     key={`${row}-${col}`}
                     type="button"
                     title={`${cellJustify} ${cellItems}`}
-                    className="flex h-4 w-4 items-center justify-center rounded transition-colors hover:bg-gray-700/60"
+                    className="flex h-6 w-6 items-center justify-center rounded transition-colors hover:bg-gray-700/60"
                     onClick={() => onCellClick(cellJustify, cellItems)}
                 >
                     <div
@@ -205,7 +205,7 @@ export function LayoutPanel({ className, onChange }: Props) {
 
     return (
         <div className="flex flex-col gap-2 border-b border-gray-800 px-3 py-3">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-600 mb-1">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 mb-1">
                 Layout & Sizing
             </span>
 
@@ -274,7 +274,7 @@ export function LayoutPanel({ className, onChange }: Props) {
             <div className="flex gap-2">
                 <div className="flex flex-1 items-center gap-1.5" title="Width">
                     <CompactSelect
-                        icon={<span className="text-[9px] font-bold text-gray-500 w-3 text-center">W</span>}
+                        icon={<span className="text-xs font-bold text-zinc-400 w-3 text-center">W</span>}
                         value={activeWidth}
                         onChange={handleWidth}
                         options={getSizingOptions('dimension', 'w-')}
@@ -282,7 +282,7 @@ export function LayoutPanel({ className, onChange }: Props) {
                 </div>
                 <div className="flex flex-1 items-center gap-1.5" title="Height">
                     <CompactSelect
-                        icon={<span className="text-[9px] font-bold text-gray-500 w-3 text-center">H</span>}
+                        icon={<span className="text-xs font-bold text-zinc-400 w-3 text-center">H</span>}
                         value={activeHeight}
                         onChange={handleHeight}
                         options={getSizingOptions('dimension', 'h-')}

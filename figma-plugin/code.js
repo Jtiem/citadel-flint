@@ -3,7 +3,8 @@
  * Bridge Link — code.ts  (Figma plugin main thread)
  *
  * Runs in Figma's sandboxed JS environment (no DOM, no fetch).
- * Its only job: collect local variable data and pass it to ui.html via postMessage.
+ * Its only job: collect local variable data and pass it to ui.html via postMessage,
+ * and persist connection settings via figma.clientStorage.
  *
  * To compile:
  *   npm install          (installs @figma/plugin-typings + typescript)
@@ -11,8 +12,41 @@
  *
  * Or load code.js directly — it is the pre-compiled equivalent of this file.
  */
-figma.showUI(__html__, { width: 320, height: 260, title: 'Bridge Link' });
-figma.ui.onmessage = (msg) => {
+figma.showUI(__html__, { width: 320, height: 340, title: 'Bridge Link' });
+// ── Settings persistence via figma.clientStorage ─────────────────────────────
+const SETTINGS_KEY = 'bridge-link-settings';
+// ── Message handler ──────────────────────────────────────────────────────────
+figma.ui.onmessage = async (msg) => {
+    var _a, _b, _c, _d;
+    // ── Load settings from clientStorage ──────────────────────────────
+    if (msg.type === 'load-settings') {
+        try {
+            const saved = await figma.clientStorage.getAsync(SETTINGS_KEY);
+            figma.ui.postMessage({
+                type: 'settings-loaded',
+                data: saved !== null && saved !== void 0 ? saved : null,
+            });
+        }
+        catch (_e) {
+            figma.ui.postMessage({ type: 'settings-loaded', data: null });
+        }
+        return;
+    }
+    // ── Save settings to clientStorage ────────────────────────────────
+    if (msg.type === 'save-settings') {
+        try {
+            const settings = {
+                endpoint: (_b = (_a = msg.data) === null || _a === void 0 ? void 0 : _a.endpoint) !== null && _b !== void 0 ? _b : 'http://127.0.0.1:4545',
+                secret: (_d = (_c = msg.data) === null || _c === void 0 ? void 0 : _c.secret) !== null && _d !== void 0 ? _d : 'bridge-dev-secret-phase2',
+            };
+            await figma.clientStorage.setAsync(SETTINGS_KEY, settings);
+        }
+        catch (_f) {
+            figma.ui.postMessage({ type: 'error', message: 'Failed to save settings.' });
+        }
+        return;
+    }
+    // ── Sync variables ────────────────────────────────────────────────
     if (msg.type === 'sync') {
         try {
             const collections = figma.variables.getLocalVariableCollections();
@@ -48,6 +82,7 @@ figma.ui.onmessage = (msg) => {
             figma.ui.postMessage({ type: 'error', message: String(err) });
         }
     }
+    // ── Export AST ────────────────────────────────────────────────────
     if (msg.type === 'export-ast') {
         try {
             const selection = figma.currentPage.selection;
@@ -56,8 +91,10 @@ figma.ui.onmessage = (msg) => {
                 return;
             }
             const root = selection[0];
+            const rootStyles = extractStyles(root, /* isRoot */ true);
             const payload = {
                 screenName: root.name.replace(/[^a-zA-Z0-9]/g, ''),
+                rootStyles: rootStyles || {},
                 children: extractComponentTree(root)
             };
             figma.ui.postMessage({
@@ -77,7 +114,7 @@ function rgbToHex(r, g, b) {
     const to256 = (v) => Math.round(v * 255);
     return '#' + [to256(r), to256(g), to256(b)].map(c => c.toString(16).padStart(2, '0')).join('');
 }
-function extractStyles(node) {
+function extractStyles(node, isRoot = false) {
     const styles = {};
     let hasAny = false;
     // ── Layout (auto-layout on frames) ──────────────────────────────
@@ -93,6 +130,12 @@ function extractStyles(node) {
         styles.counterAxisAlignItems = f.counterAxisAlignItems; // 'MIN'|'CENTER'|'MAX'
         hasAny = true;
     }
+    // ── Sizing mode (FIXED / HUG / FILL) ────────────────────────────
+    if ('layoutSizingHorizontal' in node) {
+        styles.layoutSizingHorizontal = node.layoutSizingHorizontal;
+        styles.layoutSizingVertical = node.layoutSizingVertical;
+        hasAny = true;
+    }
     // ── Sizing ──────────────────────────────────────────────────────
     if ('width' in node && 'height' in node) {
         styles.width = Math.round(node.width);
@@ -105,11 +148,17 @@ function extractStyles(node) {
         if (Array.isArray(fills)) {
             const solid = fills.find((f) => f.type === 'SOLID' && f.visible !== false);
             if (solid) {
-                styles.fillColor = rgbToHex(solid.color.r, solid.color.g, solid.color.b);
-                if (solid.opacity !== undefined && solid.opacity < 1) {
-                    styles.fillOpacity = Math.round(solid.opacity * 100);
+                const r255 = Math.round(solid.color.r * 255);
+                const g255 = Math.round(solid.color.g * 255);
+                const b255 = Math.round(solid.color.b * 255);
+                // Skip near-white fills on non-root nodes — they're usually default container fills
+                if (isRoot || !(r255 > 250 && g255 > 250 && b255 > 250)) {
+                    styles.fillColor = rgbToHex(solid.color.r, solid.color.g, solid.color.b);
+                    if (solid.opacity !== undefined && solid.opacity < 1) {
+                        styles.fillOpacity = Math.round(solid.opacity * 100);
+                    }
+                    hasAny = true;
                 }
-                hasAny = true;
             }
         }
     }

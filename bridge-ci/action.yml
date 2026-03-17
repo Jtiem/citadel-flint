@@ -1,0 +1,22 @@
+name: 'Bridge Governance Gate'
+description: 'Run Mithril design token drift and WCAG accessibility checks on changed files'
+inputs:
+  token_file:
+    description: 'Path to a JSON file containing design tokens (array of DesignToken objects)'
+    required: false
+    default: '.bridge/tokens.json'
+  policy_path:
+    description: 'Path to .bridge/policy.json (optional)'
+    required: false
+    default: '.bridge/policy.json'
+  fail_on_warning:
+    description: 'Fail the check on warning-level violations (not just critical)'
+    required: false
+    default: 'false'
+  sarif_output:
+    description: 'Path to write SARIF report (for GitHub Code Scanning)'
+    required: false
+    default: 'bridge-results.sarif'
+runs:
+  using: 'node20'
+  main: 'dist/index.js'

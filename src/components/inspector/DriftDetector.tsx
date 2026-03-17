@@ -65,20 +65,20 @@ function DriftRow({ candidate, match, onFix }: DriftRowProps) {
                 </span>
                 {match !== null ? (
                     <span
-                        className={`shrink-0 rounded border px-1 py-px font-mono text-[9px] ${deltaEBadgeClass(match.deltaE)}`}
+                        className={`shrink-0 rounded border px-1 py-px font-mono text-[10px] ${deltaEBadgeClass(match.deltaE)}`}
                         title={deltaELabel(match.deltaE)}
                     >
                         ΔE {match.deltaE.toFixed(1)}
                     </span>
                 ) : (
-                    <span className="text-[9px] text-gray-700">no match</span>
+                    <span className="text-[10px] text-zinc-400">no match</span>
                 )}
             </div>
 
             {/* Suggestion row */}
             {match !== null && (
                 <div className="flex items-center gap-1.5 pl-[18px]">
-                    <span className="text-[9px] text-gray-600">→</span>
+                    <span className="text-[10px] text-zinc-500">→</span>
                     {/* Token colour swatch */}
                     <span
                         className="h-2.5 w-2.5 shrink-0 rounded-sm border border-white/10"
@@ -92,7 +92,7 @@ function DriftRow({ candidate, match, onFix }: DriftRowProps) {
                         <button
                             type="button"
                             onClick={() => onFix(candidate, match)}
-                            className="flex shrink-0 items-center gap-0.5 rounded border border-emerald-800/60 bg-emerald-900/30 px-1.5 py-px text-[9px] text-emerald-400 transition-colors hover:bg-emerald-900/60"
+                            className="flex shrink-0 items-center gap-0.5 rounded border border-emerald-800/60 bg-emerald-900/30 px-1.5 py-px text-[10px] text-emerald-400 transition-colors hover:bg-emerald-900/60"
                             title="Apply token fix"
                         >
                             <Zap className="h-2.5 w-2.5" />
@@ -150,7 +150,7 @@ export function DriftDetector() {
                     Drift Detection
                 </span>
                 {systemizableCount > 0 && (
-                    <span className="ml-auto rounded bg-emerald-900/40 px-1.5 py-px text-[9px] text-emerald-400">
+                    <span className="ml-auto rounded bg-emerald-900/40 px-1.5 py-px text-[10px] text-emerald-400">
                         {systemizableCount} fixable
                     </span>
                 )}
@@ -174,9 +174,9 @@ export function DriftDetector() {
             {/* Legend */}
             <div className="flex items-center gap-3 border-t border-gray-800/60 px-3 py-1.5">
                 <CheckCircle2 className="h-2.5 w-2.5 text-emerald-500" />
-                <span className="text-[9px] text-gray-600">ΔE&lt;2 systemizable</span>
-                <span className="text-[9px] text-gray-600">·</span>
-                <span className="text-[9px] text-gray-600">ΔE&gt;5 significant drift</span>
+                <span className="text-[10px] text-zinc-500">ΔE&lt;2 systemizable</span>
+                <span className="text-[10px] text-zinc-500">·</span>
+                <span className="text-[10px] text-zinc-500">ΔE&gt;5 significant drift</span>
             </div>
         </div>
     )

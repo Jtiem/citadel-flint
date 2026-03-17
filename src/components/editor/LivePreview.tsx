@@ -25,6 +25,7 @@ import { MousePointer2, Hand } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
 import { useTokenStore } from '../../store/tokenStore'
 import { useCanvasStore } from '../../store/canvasStore'
+import { useImportSummaryStore } from '../../store/importSummaryStore'
 import type { DropPosition } from '../../utils/astModifier'
 import { generateTailwindConfig } from '../../utils/tokenAdapter'
 import { PAYMENT_CALCULATOR_CODE } from '../../templates/paymentCalculator'
@@ -638,6 +639,12 @@ export function LivePreview() {
   // When the iframe posts CANVAS_CLICK / CANVAS_HOVER / CANVAS_HOVER_CLEAR / FIGMA_PASTE → update store.
   useEffect(() => {
     function handleMessage(e: MessageEvent): void {
+      // SEC.1: Only accept messages from srcdoc iframes (origin 'null')
+      // or from the Vite preview server on localhost.
+      // srcdoc iframes have an opaque origin serialised as the literal string 'null'
+      // per the HTML specification. Messages from any other origin are silently dropped.
+      if (e.origin !== 'null' && !e.origin.startsWith('http://localhost:')) return
+
       if (typeof e.data !== 'object' || e.data === null) return
       const msg = e.data as { type?: unknown; id?: unknown; targetId?: unknown; position?: unknown; payload?: unknown }
 
@@ -692,9 +699,15 @@ export function LivePreview() {
       handleHydroPaste(payload).catch(console.error)
     })
 
+    // Phase ING.2: Listen for import summary push events from ingestion heal pass
+    const unsubscribeImportSummary = window.bridgeAPI.importSummary?.onSummary?.((summary) => {
+      useImportSummaryStore.getState().setSummary(summary)
+    })
+
     return () => {
       window.removeEventListener('message', handleMessage)
       unsubscribe?.()
+      unsubscribeImportSummary?.()
     }
   }, [setSelectedNode, setHoveredId, startDrag, endDrag, moveLayerNode, setActiveSelection, canvasMode])
 
@@ -803,7 +816,7 @@ export function LivePreview() {
             type="button"
             title="Design mode: click to select AST nodes"
             onClick={() => setCanvasMode('design')}
-            className={`flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${canvasMode === 'design' ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:text-gray-400'}`}
+            className={`flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${canvasMode === 'design' ? 'bg-indigo-600 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
           >
             <MousePointer2 size={10} />
             Design
@@ -812,7 +825,7 @@ export function LivePreview() {
             type="button"
             title="Interact mode: test native events"
             onClick={() => setCanvasMode('interact')}
-            className={`flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${canvasMode === 'interact' ? 'bg-emerald-600 text-white' : 'text-gray-600 hover:text-gray-400'}`}
+            className={`flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${canvasMode === 'interact' ? 'bg-emerald-600 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
           >
             <Hand size={10} />
             Interact
@@ -820,7 +833,7 @@ export function LivePreview() {
         </div>
 
         {/* Quick Load */}
-        <span className="text-[9px] font-medium uppercase tracking-wider text-gray-700">
+        <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
           Quick Load
         </span>
         <button
@@ -911,6 +924,13 @@ export function LivePreview() {
           ref={iframeRef}
           title="Live Preview"
           className="absolute inset-0 h-full w-full border-0 bg-gray-900"
+          // SEC.1: Sandbox prevents injected code from accessing window.parent.bridgeAPI.
+          // allow-scripts is required for the new Function() preview execution path.
+          // allow-forms is included so user components with <form> elements remain
+          // interactive in "interact" mode.
+          // CRITICAL: allow-same-origin is intentionally omitted — adding it with srcdoc
+          // would give the iframe the same origin as the parent, negating the sandbox.
+          sandbox="allow-scripts allow-forms"
           {...(previewUrl != null ? { src: previewUrl } : {})}
           onLoad={handleIframeLoad}
         />
@@ -951,7 +971,7 @@ export function LivePreview() {
                     strokeWidth="0.75"
                   />
                 </svg>
-                <span className="absolute left-4 top-0 whitespace-nowrap rounded bg-red-500 px-1 py-0.5 text-[9px] font-medium leading-tight text-white">
+                <span className="absolute left-4 top-0 whitespace-nowrap rounded bg-red-500 px-1 py-0.5 text-[10px] font-medium leading-tight text-white">
                   {user.user_id}
                 </span>
               </div>

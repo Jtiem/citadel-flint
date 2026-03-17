@@ -41,6 +41,7 @@ import { MITHRIL_THRESHOLD } from '../../core/MithrilLinter'
 import { tokenToClass } from '../../utils/classMapper'
 import type { TokenType } from '../../types/bridge-api'
 import type { VisualLayer } from '../../core/ast-parser'
+import { AnnotationList } from './AnnotationList'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -192,7 +193,7 @@ function MithrilViolationCard({ deltaE, tokenName, hexColor, tokenValue, onAutoF
                     title={`Current: ${hexColor}`}
                 />
                 <span className="font-mono text-gray-500">{hexColor}</span>
-                <span className="text-gray-700">→</span>
+                <span className="text-zinc-500">→</span>
                 <div
                     className="h-3.5 w-3.5 shrink-0 rounded-sm border border-gray-700"
                     style={{ backgroundColor: tokenValue }}
@@ -237,7 +238,7 @@ function EditablePropRow({ label, value, onCommit }: EditablePropRowProps) {
 
     return (
         <div className="flex flex-col gap-0.5 px-3 py-1.5">
-            <span className="text-[9px] font-medium uppercase tracking-wider text-gray-600">
+            <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-400">
                 {label}
             </span>
             {editing ? (
@@ -261,7 +262,7 @@ function EditablePropRow({ label, value, onCommit }: EditablePropRowProps) {
                         setEditing(true)
                     }}
                 >
-                    {value || <span className="text-gray-600 italic">empty</span>}
+                    {value || <span className="text-zinc-500 italic">empty</span>}
                 </span>
             )}
         </div>
@@ -283,7 +284,6 @@ function NodeProperties({ layer, onCommitStyle, onCommitText, onCommitProp }: No
     const [newPropName, setNewPropName] = useState('')
 
     const hasAnyProp =
-        layer.className !== undefined ||
         layer.style !== undefined ||
         layer.textContent !== undefined ||
         (layer.props && Object.keys(layer.props).length > 0)
@@ -291,18 +291,8 @@ function NodeProperties({ layer, onCommitStyle, onCommitText, onCommitProp }: No
     return (
         <div className="flex flex-col divide-y divide-gray-800/60">
             {!hasAnyProp && (
-                <div className="px-3 py-2 text-[11px] text-gray-600">
+                <div className="px-3 py-2 text-[11px] text-zinc-500">
                     No readable props on this element.
-                </div>
-            )}
-            {layer.className !== undefined && (
-                <div className="flex flex-col gap-0.5 px-3 py-1.5">
-                    <span className="text-[9px] font-medium uppercase tracking-wider text-gray-600">
-                        className
-                    </span>
-                    <span className="break-all font-mono text-[11px] leading-tight text-gray-400">
-                        {layer.className}
-                    </span>
                 </div>
             )}
             {layer.style !== undefined && (
@@ -578,8 +568,8 @@ export function PropertiesPanel() {
     if (effectiveId === null || selectedLayer === undefined) {
         return (
             <div className="flex h-full flex-col items-center justify-center gap-3 px-4">
-                <Layers className="h-8 w-8 text-gray-700" />
-                <span className="text-center text-xs text-gray-600">
+                <Layers className="h-8 w-8 text-zinc-600" />
+                <span className="text-center text-xs text-zinc-500">
                     Select a layer to inspect its properties
                 </span>
             </div>
@@ -595,7 +585,7 @@ export function PropertiesPanel() {
                     <span className="text-[10px] font-semibold text-blue-400">
                         Locked by a collaborator
                     </span>
-                    <span className="text-[9px] text-gray-500">
+                    <span className="text-[10px] text-zinc-500">
                         — editing disabled until they release the node
                     </span>
                 </div>
@@ -663,6 +653,11 @@ export function PropertiesPanel() {
             {/* Soft Mithril drift detection */}
             <div className="shrink-0">
                 <DriftDetector />
+            </div>
+
+            {/* Phase COLLAB.4: Annotation list for selected node */}
+            <div className="shrink-0">
+                <AnnotationList nodeId={effectiveId} />
             </div>
         </div>
     )

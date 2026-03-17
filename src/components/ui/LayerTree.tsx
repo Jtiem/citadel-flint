@@ -40,6 +40,7 @@ import { Diamond, Hash, Type, Code2, ChevronRight, ChevronDown, AlertTriangle, L
 import { useEditorStore } from '../../store/editorStore'
 import { useCanvasStore } from '../../store/canvasStore'
 import { useLockedNodeIds } from '../../hooks/useRemotePresence'
+import { useAnnotationStore } from '../../store/annotationStore'
 import type { VisualLayer } from '../../core/ast-parser'
 import { getLayerName } from '../../utils/layerNaming'
 import type { LayerType } from '../../utils/layerNaming'
@@ -75,6 +76,9 @@ function LayerRow({ layer, depth, collapsedIds, onToggleCollapsed, lockedIds }: 
     const hoveredId = useEditorStore((state) => state.hoveredId)
     const setHoveredId = useEditorStore((state) => state.setHoveredId)
     const mithrilViolations = useCanvasStore((s) => s.mithrilViolations)
+    // Phase COLLAB.4: annotation pin indicator — derived selector, not stored state.
+    const annotationsForNode = useAnnotationStore((s) => s.annotationsForNode)
+    const annotationCount = annotationsForNode(layer.id).length
     const isSelected = selectedNodeId === layer.id
     const isHovered = !isSelected && hoveredId === layer.id
     const hasViolation = mithrilViolations.includes(layer.id)
@@ -203,7 +207,7 @@ function LayerRow({ layer, depth, collapsedIds, onToggleCollapsed, lockedIds }: 
 
                 <button
                     type="button"
-                    className={`flex min-w-0 flex-1 items-center gap-1.5 py-[3px] pl-[var(--indent)] pr-7 text-left text-xs transition-colors ${dropPosition === 'inside'
+                    className={`flex min-w-0 flex-1 items-center gap-1.5 py-1.5 pl-[var(--indent)] pr-7 text-left text-xs transition-colors ${dropPosition === 'inside'
                         ? 'bg-indigo-400/10 text-gray-200'
                         : isSelected
                             ? 'bg-indigo-600/30 text-indigo-300'
@@ -228,7 +232,7 @@ function LayerRow({ layer, depth, collapsedIds, onToggleCollapsed, lockedIds }: 
                      */}
                     {hasChildren ? (
                         <span
-                            className="shrink-0 text-gray-600 transition-colors hover:text-gray-400"
+                            className="shrink-0 text-zinc-500 transition-colors hover:text-zinc-300"
                             onClick={handleChevronClick}
                         >
                             {isCollapsed
@@ -249,6 +253,17 @@ function LayerRow({ layer, depth, collapsedIds, onToggleCollapsed, lockedIds }: 
                             <AlertTriangle className="h-2.5 w-2.5 shrink-0 text-amber-500" />
                         </span>
                     )}
+                    {/* Phase COLLAB.4: annotation pin — indigo dot when open annotations exist */}
+                    {annotationCount > 0 && (
+                        <span
+                            title={`${annotationCount} open annotation${annotationCount !== 1 ? 's' : ''}`}
+                            className="flex h-3.5 min-w-3.5 shrink-0 items-center justify-center rounded-full bg-indigo-600/40 border border-indigo-500/50 px-0.5"
+                        >
+                            <span className="text-[10px] font-bold leading-none text-indigo-400">
+                                {annotationCount}
+                            </span>
+                        </span>
+                    )}
                     {/* Phase C.2: lock badge — shows when a remote user holds this node */}
                     {isLocked && (
                         <span title="Locked by a collaborator">
@@ -256,7 +271,7 @@ function LayerRow({ layer, depth, collapsedIds, onToggleCollapsed, lockedIds }: 
                         </span>
                     )}
                     {name !== tag && (
-                        <span className="shrink-0 font-mono text-[9px] text-gray-600 opacity-70">
+                        <span className="shrink-0 font-mono text-[10px] text-zinc-500">
                             {tag}
                         </span>
                     )}
@@ -266,7 +281,7 @@ function LayerRow({ layer, depth, collapsedIds, onToggleCollapsed, lockedIds }: 
                 <button
                     type="button"
                     title={`Jump to line ${layer.line}`}
-                    className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-0.5 text-gray-600 opacity-0 transition-opacity group-hover:opacity-100 hover:text-indigo-400"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-0.5 text-zinc-500 opacity-0 transition-opacity group-hover:opacity-100 hover:text-indigo-400"
                     onClick={(e) => {
                         e.stopPropagation()
                         setJumpToLine(layer.line)
@@ -312,7 +327,7 @@ export function LayerTree() {
     if (visualTree.length === 0) {
         return (
             <div className="flex h-full items-center justify-center">
-                <span className="text-xs text-gray-600">No JSX found</span>
+                <span className="text-xs text-zinc-500">No JSX found</span>
             </div>
         )
     }

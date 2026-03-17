@@ -1,0 +1,3 @@
+# Demo 01 — RAG-Powered UI Builder
+
+`broken-layout.tsx` is a notification panel written without any awareness of the Bridge design system: every color, spacing value, and font size is hardcoded directly into Tailwind utility classes (`bg-blue-500`, `text-[15px]`, etc.) rather than mapped to a semantic token. Running `bridge_query_registry` against the component registry retrieves the canonical `Box`, `Text`, `Stack`, and `Button` primitives alongside their token bindings; the AI then uses `bridge_ast_mutate` to replace every hardcoded class with the correct token reference, producing an AFTER state that passes the Mithril linter with zero color-drift or typography-drift violations.
