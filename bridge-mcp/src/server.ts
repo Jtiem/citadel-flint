@@ -61,6 +61,8 @@ import { loadProjectContext } from "./core/projectContext.js";
 import { AgentRiskService } from "./core/governance/agentRiskService.js";
 import { AnomalyDetectionService } from "./core/governance/anomalyDetectionService.js";
 import type { AgentRiskSummary } from "./core/governance/types.js";
+import { migrateFile } from "./core/tailwindMigrator.js";
+import type { MigrateResult } from "./core/tailwindMigrator.js";
 
 // @ts-ignore
 const generate = _generate.default || _generate;
@@ -529,6 +531,45 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                         },
                     },
                     required: ["taskDescription"],
+                },
+            },
+            {
+                name: "bridge_migrate_tw",
+                description:
+                    "EXP.3: Migrate Tailwind CSS v3 utility classes to their v4 equivalents using " +
+                    "deterministic Babel AST traversal on JSX className attributes. " +
+                    "Covers all officially deprecated v3 utilities: flex-grow→grow, flex-shrink→shrink, " +
+                    "overflow-ellipsis→text-ellipsis, decoration-clone→box-decoration-clone, " +
+                    "bg-gradient-to-*→bg-linear-to-*, opacity modifier sentinels (bg-opacity-X→bg-color/X), " +
+                    "shadow-sm→shadow-xs, outline-none→outline-hidden, and more. " +
+                    "After migration, automatically runs bridge_audit on each changed file. " +
+                    "Dry-run mode is the default — pass dryRun=false to write changes to disk.",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        filePaths: {
+                            type: "array",
+                            items: { type: "string" },
+                            description: "Absolute paths to the .tsx or .jsx files to migrate.",
+                        },
+                        dryRun: {
+                            type: "boolean",
+                            description:
+                                "When true (default), report changes without writing to disk. " +
+                                "Set false to apply migrations in-place.",
+                        },
+                        from: {
+                            type: "string",
+                            enum: ["3"],
+                            description: "Source Tailwind version (currently only '3' is supported).",
+                        },
+                        to: {
+                            type: "string",
+                            enum: ["4"],
+                            description: "Target Tailwind version (currently only '4' is supported).",
+                        },
+                    },
+                    required: ["filePaths"],
                 },
             },
         ],
@@ -1825,7 +1866,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         case "bridge_generate_dbom": {
             const dbomArgs = request.params.arguments as {
                 projectRoot?: string;
-                format?: "json" | "markdown";
+                format?: "json" | "markdown" | "cyclonedx";
+                includeProvenance?: boolean;
             };
             return handleGenerateDBOM(dbomArgs, process.cwd());
         }
@@ -2139,6 +2181,109 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                     };
                 }
             }
+        }
+
+        case "bridge_migrate_tw": {
+            const twArgs = request.params.arguments as {
+                filePaths: string[];
+                dryRun?: boolean;
+                from?: "3";
+                to?: "4";
+            };
+
+            if (!Array.isArray(twArgs.filePaths) || twArgs.filePaths.length === 0) {
+                return {
+                    isError: true,
+                    content: [{
+                        type: "text",
+                        text: "bridge_migrate_tw: 'filePaths' must be a non-empty array of absolute file paths.",
+                    }],
+                };
+            }
+
+            const dryRun = twArgs.dryRun !== false; // default true
+            const perFileReports: Array<{
+                filePath: string;
+                fileChanged: boolean;
+                changeCount: number;
+                changes: MigrateResult["changes"];
+                auditViolationCount: number | null;
+                error?: string;
+            }> = [];
+
+            for (const filePath of twArgs.filePaths) {
+                if (!fs.existsSync(filePath)) {
+                    perFileReports.push({
+                        filePath,
+                        fileChanged: false,
+                        changeCount: 0,
+                        changes: [],
+                        auditViolationCount: null,
+                        error: `File not found: ${filePath}`,
+                    });
+                    continue;
+                }
+
+                let migResult: MigrateResult;
+                try {
+                    const source = fs.readFileSync(filePath, "utf-8");
+                    migResult = migrateFile(source, { dryRun, filePath, from: twArgs.from, to: twArgs.to });
+                    if (!dryRun && migResult.fileChanged) {
+                        fs.writeFileSync(filePath, migResult.migratedSource, "utf-8");
+                    }
+                } catch (err) {
+                    perFileReports.push({
+                        filePath,
+                        fileChanged: false,
+                        changeCount: 0,
+                        changes: [],
+                        auditViolationCount: null,
+                        error: err instanceof Error ? err.message : String(err),
+                    });
+                    continue;
+                }
+
+                // Post-migration audit on migrated source
+                let auditViolationCount: number | null = null;
+                if (migResult.fileChanged || !dryRun) {
+                    try {
+                        const sourceToAudit = migResult.fileChanged
+                            ? migResult.migratedSource
+                            : fs.readFileSync(filePath, "utf-8");
+                        const auditResult = await handleBridgeAudit(
+                            { source: sourceToAudit, filePath },
+                            bridgeConfig,
+                        );
+                        auditViolationCount = auditResult.violations
+                            ? (auditResult.violations as unknown[]).length
+                            : 0;
+                    } catch {
+                        // Audit is best-effort — never block migration result
+                    }
+                }
+
+                perFileReports.push({
+                    filePath,
+                    fileChanged: migResult.fileChanged,
+                    changeCount: migResult.changes.length,
+                    changes: migResult.changes,
+                    auditViolationCount,
+                });
+            }
+
+            const totalChanged = perFileReports.filter(r => r.fileChanged).length;
+            const totalChanges = perFileReports.reduce((acc, r) => acc + r.changeCount, 0);
+            const summary =
+                dryRun
+                    ? `Dry-run complete. ${totalChanges} class replacement(s) found across ${totalChanged}/${twArgs.filePaths.length} file(s). No files were written.`
+                    : `Migration complete. ${totalChanges} class replacement(s) applied across ${totalChanged}/${twArgs.filePaths.length} file(s).`;
+
+            return {
+                content: [{
+                    type: "text",
+                    text: JSON.stringify({ summary, dryRun, files: perFileReports }, null, 2),
+                }],
+            };
         }
 
         default:
