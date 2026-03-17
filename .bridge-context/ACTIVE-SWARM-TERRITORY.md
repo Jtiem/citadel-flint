@@ -30,6 +30,13 @@
 
 ---
 
+
+## Swarm: Sprint 4 — GOV.4 Anomaly Detection
+
+**Status:** COMPLETE (2026-03-16)
+
+---
+
 ## Swarm: Sprint 4 — MDA.1 + AGV.3
 
 **Status:** IN PROGRESS
@@ -51,6 +58,27 @@
 ### Files NOT touched
 - `bridge-mcp/src/server.ts` — CX.3/GOV.1/GOV.2 territory
 - `bridge-mcp/src/tools/*` — CX.3/GOV.1 territory
+
+---
+
+## Swarm: Sprint 4 — U.4 Ghost Code Snippets
+
+**Status:** IN PROGRESS
+
+### Files to CREATE
+| File | Purpose |
+|------|---------|
+| `src/components/editor/GhostCodeSnippet.tsx` | Floating code snippet overlay for selected canvas node |
+| `src/components/editor/__tests__/GhostCodeSnippet.test.tsx` | Unit tests |
+
+### Files to MODIFY
+| File | What changes |
+|------|-------------|
+| `src/components/editor/XYCanvas.tsx` | Render GhostCodeSnippet as overlay when node is selected |
+
+### Files NOT touched
+- `src/store/editorStore.ts` — `selectedNodeId` already exists; no changes needed
+- All MCP/electron files — out of scope
 
 ---
 

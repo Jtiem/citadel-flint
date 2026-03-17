@@ -98,7 +98,7 @@ const DEFAULT_RULES: readonly EscalationRule[] = Object.freeze([
     {
         ruleId: 'RULE-004',
         description: '20+ mutations in 5 minutes triggers block_mutations (hallucination loop detection)',
-        trigger: { type: 'mutation_velocity', threshold: 20, window: 'hour' },
+        trigger: { type: 'mutation_velocity', threshold: 20, window: 'session' },
         action: { type: 'block_mutations' },
     },
 ])

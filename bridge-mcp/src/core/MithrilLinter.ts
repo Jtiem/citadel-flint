@@ -44,6 +44,8 @@ export interface PolicyOptions {
     deltaE_threshold?: number
     /** ΔE threshold for critical-level violations (default: 10.0). */
     deltaE_critical_threshold?: number
+    /** Per-rule policy modes from POL.1. 'off' skips the visitor, 'advisory' downgrades severity. */
+    ruleModes?: Record<string, 'blocking' | 'advisory' | 'off'>
 }
 
 function hexToRgb(hex: string): [number, number, number] | null {
@@ -281,6 +283,9 @@ function severity(delta: number, criticalThreshold = 10): LinterWarning['severit
 const ARBITRARY_COLOR_RE = /^(?:[\w-]+:)*[\w-]+-\[(?<hex>#[0-9a-fA-F]{3,8})\]$/
 
 export function visitClassNames(ast: File, tokens: DesignToken[], options?: PolicyOptions): Map<string, LinterWarning> {
+    const colMode = options?.ruleModes?.['MITHRIL-COL']
+    if (colMode === 'off') return new Map()
+
     const threshold = options?.deltaE_threshold ?? MITHRIL_THRESHOLD
     const criticalThreshold = options?.deltaE_critical_threshold ?? 10
     const colorTokens = tokens.filter((tok) => tok.token_type === 'color')
@@ -314,10 +319,13 @@ export function visitClassNames(ast: File, tokens: DesignToken[], options?: Poli
             if (worstDelta <= threshold) return
 
             const tokenLabel = worstMatch?.tokenPath ?? null
+            const colSeverity: LinterWarning['severity'] = colMode === 'advisory'
+                ? 'advisory'
+                : severity(worstDelta, criticalThreshold)
             warnings.set(nodeId, {
                 id: nodeId,
                 type: 'color-drift',
-                severity: severity(worstDelta, criticalThreshold),
+                severity: colSeverity,
                 value: worstDelta,
                 message: tokenLabel !== null
                     ? `MITHRIL-COL: ΔE ${worstDelta.toFixed(1)} – use ${tokenLabel}`
@@ -347,7 +355,7 @@ const TYP_REGEXES: ReadonlyArray<{
         { rule: 'MITHRIL-TYP-005', re: /^(?:[\w-]+:)*tracking-\[(?<val>[^\]]+)\]$/, tokenType: 'letterSpacing' },
     ]
 
-export function visitTypography(ast: File, tokens: DesignToken[]): Map<string, LinterWarning> {
+export function visitTypography(ast: File, tokens: DesignToken[], options?: PolicyOptions): Map<string, LinterWarning> {
     const warnings = new Map<string, LinterWarning>()
 
     traverse(ast, {
@@ -362,6 +370,9 @@ export function visitTypography(ast: File, tokens: DesignToken[]): Map<string, L
 
             for (const cls of classStr.split(/\s+/)) {
                 for (const { rule, re, tokenType } of TYP_REGEXES) {
+                    const ruleMode = options?.ruleModes?.[rule]
+                    if (ruleMode === 'off') continue
+
                     const m = re.exec(cls)
                     if (m?.groups?.val === undefined) continue
 
@@ -381,7 +392,7 @@ export function visitTypography(ast: File, tokens: DesignToken[]): Map<string, L
                         warnings.set(nodeId, {
                             id: nodeId,
                             type: 'typography-drift',
-                            severity: 'amber',
+                            severity: ruleMode === 'advisory' ? 'advisory' : 'amber',
                             value: 1,
                             message: msg,
                             nearestToken: suggestion,
@@ -404,7 +415,10 @@ export function visitTypography(ast: File, tokens: DesignToken[]): Map<string, L
 
 const SPACING_RE = /^(?:[\w-]+:)*(?:p|px|py|pt|pr|pb|pl|m|mx|my|mt|mr|mb|ml|gap|space-x|space-y|w|h|min-w|min-h|max-w|max-h)-\[(?<val>[\d.]+(?:px|rem|em|%|vw|vh))\]$/
 
-export function visitSpacing(ast: File, tokens: DesignToken[]): Map<string, LinterWarning> {
+export function visitSpacing(ast: File, tokens: DesignToken[], options?: PolicyOptions): Map<string, LinterWarning> {
+    const spcMode = options?.ruleModes?.['MITHRIL-SPC-001']
+    if (spcMode === 'off') return new Map()
+
     const dimTokens = tokens.filter((tok) => tok.token_type === 'dimension')
     const warnings = new Map<string, LinterWarning>()
 
@@ -433,7 +447,7 @@ export function visitSpacing(ast: File, tokens: DesignToken[]): Map<string, Lint
                     warnings.set(nodeId, {
                         id: nodeId,
                         type: 'spacing-drift',
-                        severity: 'amber',
+                        severity: spcMode === 'advisory' ? 'advisory' : 'amber',
                         value: 1,
                         message: suggestion !== null
                             ? `MITHRIL-SPC-001: arbitrary '${rawVal}' not in dimension tokens — use ${suggestion}`
@@ -457,7 +471,10 @@ export function visitSpacing(ast: File, tokens: DesignToken[]): Map<string, Lint
 
 const SHADOW_RE = /^(?:[\w-]+:)*shadow-\[(?<val>[^\]]+)\]$/
 
-export function visitShadows(ast: File, tokens: DesignToken[]): Map<string, LinterWarning> {
+export function visitShadows(ast: File, tokens: DesignToken[], options?: PolicyOptions): Map<string, LinterWarning> {
+    const shdMode = options?.ruleModes?.['MITHRIL-SHD-001']
+    if (shdMode === 'off') return new Map()
+
     const shadowTokens = tokens.filter((tok) => tok.token_type === 'shadow')
     const warnings = new Map<string, LinterWarning>()
     if (shadowTokens.length === 0) return warnings
@@ -485,7 +502,7 @@ export function visitShadows(ast: File, tokens: DesignToken[]): Map<string, Lint
                     warnings.set(nodeId, {
                         id: nodeId,
                         type: 'shadow-drift',
-                        severity: 'amber',
+                        severity: shdMode === 'advisory' ? 'advisory' : 'amber',
                         value: 1,
                         message: suggestion !== null
                             ? `MITHRIL-SHD-001: arbitrary shadow not in token set — use ${suggestion}`
@@ -509,7 +526,10 @@ export function visitShadows(ast: File, tokens: DesignToken[]): Map<string, Lint
 
 const OPACITY_RE = /^(?:[\w-]+:)*opacity-\[(?<val>[\d.]+%?)\]$/
 
-export function visitOpacity(ast: File, tokens: DesignToken[]): Map<string, LinterWarning> {
+export function visitOpacity(ast: File, tokens: DesignToken[], options?: PolicyOptions): Map<string, LinterWarning> {
+    const opcMode = options?.ruleModes?.['MITHRIL-OPC-001']
+    if (opcMode === 'off') return new Map()
+
     const opacityTokens = tokens.filter((tok) => tok.token_type === 'opacity')
     const warnings = new Map<string, LinterWarning>()
     if (opacityTokens.length === 0) return warnings
@@ -537,7 +557,7 @@ export function visitOpacity(ast: File, tokens: DesignToken[]): Map<string, Lint
                     warnings.set(nodeId, {
                         id: nodeId,
                         type: 'opacity-drift',
-                        severity: 'amber',
+                        severity: opcMode === 'advisory' ? 'advisory' : 'amber',
                         value: 1,
                         message: suggestion !== null
                             ? `MITHRIL-OPC-001: arbitrary opacity '${rawVal}' — use ${suggestion}`
@@ -569,10 +589,10 @@ export function auditAll(ast: File, tokens: DesignToken[], options?: PolicyOptio
 
     for (const visit of [
         () => visitClassNames(ast, tokens, options),
-        () => visitTypography(ast, tokens),
-        () => visitSpacing(ast, tokens),
-        () => visitShadows(ast, tokens),
-        () => visitOpacity(ast, tokens),
+        () => visitTypography(ast, tokens, options),
+        () => visitSpacing(ast, tokens, options),
+        () => visitShadows(ast, tokens, options),
+        () => visitOpacity(ast, tokens, options),
     ]) {
         for (const [id, warning] of visit()) {
             if (!merged.has(id)) merged.set(id, warning)

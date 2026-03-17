@@ -487,3 +487,112 @@ export interface OverrideSummary {
     /** ISO 8601 timestamp of the most recent override, or null if none exist. */
     lastOverrideAt: string | null
 }
+
+// ── GOV.4: Anomaly Detection types ──────────────────────────────────────────
+
+/**
+ * Types of statistical anomalies that the detection engine can flag.
+ */
+export type AnomalyType =
+    | 'override_spike'
+    | 'violation_surge'
+    | 'risk_drift'
+    | 'velocity_spike'
+    | 'agent_behavior_change'
+
+/**
+ * Severity of a detected anomaly, derived from how far the observed
+ * value exceeds the baseline threshold.
+ *
+ *   info     — above 2σ but below 3σ (advisory)
+ *   warning  — at or above 3σ threshold
+ *   critical — at or above 4σ threshold
+ */
+export type AnomalySeverity = 'info' | 'warning' | 'critical'
+
+/**
+ * Baseline statistics computed from historical data within a time window.
+ * Used as the reference point for anomaly detection.
+ */
+export interface BaselineStats {
+    /** ISO 8601 timestamp when the baseline was computed. */
+    computedAt: string
+    /** Number of days in the baseline window. */
+    windowDays: number
+    /** Number of data points (sessions/days) in the baseline. */
+    dataPoints: number
+    /** Override events: mean and stddev per period. */
+    overrides: { mean: number; stddev: number }
+    /** Violation events: mean and stddev per period. */
+    violations: { mean: number; stddev: number }
+    /** Mutation velocity (mutations/hour): mean and stddev. */
+    mutationVelocity: { mean: number; stddev: number }
+    /** Average MRS risk score: mean and stddev. */
+    avgRiskScore: { mean: number; stddev: number }
+}
+
+/**
+ * A single detected anomaly, persisted in the anomaly_history table.
+ */
+export interface Anomaly {
+    /** UUID primary key. */
+    id: string
+    /** The type of anomaly detected. */
+    type: AnomalyType
+    /** Severity derived from sigma distance. */
+    severity: AnomalySeverity
+    /** ISO 8601 timestamp when the anomaly was detected. */
+    detectedAt: string
+    /** The observed value that triggered the anomaly. */
+    observedValue: number
+    /** The baseline mean for this metric. */
+    baselineMean: number
+    /** The baseline standard deviation for this metric. */
+    baselineStddev: number
+    /** The threshold that was exceeded (mean + 3σ or mean * 1.5 when σ=0). */
+    threshold: number
+    /** Human-readable description of the anomaly. */
+    message: string
+    /** Absolute path to the project root. */
+    projectRoot: string
+    /** Optional agent ID (for agent_behavior_change type). */
+    agentId: string | null
+}
+
+// ── AGV.2: Agent Risk Dashboard types ──────────────────────────────────────────
+
+/**
+ * Risk profile for a single agent, aggregated from mutation provenance,
+ * risk scores, and override events.
+ */
+export interface AgentRiskProfile {
+    /** Agent identifier (from provenance_agent_id). */
+    agentId: string
+    /** Total mutations attributed to this agent. */
+    mutationCount: number
+    /** Mean risk score across all scored mutations (0-100 scale). */
+    avgRiskScore: number
+    /** Count of mutations in the 'critical' (76-100) risk tier. */
+    redCount: number
+    /** Count of mutations in the 'high' (51-75) risk tier. */
+    amberCount: number
+    /** Count of mutations in the 'low' + 'medium' (0-50) risk tier. */
+    greenCount: number
+    /** Number of governance overrides attributed to this agent. */
+    overrideCount: number
+    /** ISO 8601 timestamp of the agent's most recent mutation. */
+    lastActive: string | null
+}
+
+/**
+ * Aggregate agent risk summary for the AGV.2 dashboard.
+ * Returned by AgentRiskService.getAgentRiskSummary().
+ */
+export interface AgentRiskSummary {
+    /** Per-agent risk profiles, ordered by avgRiskScore descending. */
+    agents: AgentRiskProfile[]
+    /** Top 5 riskiest agents by avgRiskScore. */
+    topRiskiest: AgentRiskProfile[]
+    /** Time period covered by this summary (e.g. 'last_7_days'). */
+    period: string
+}

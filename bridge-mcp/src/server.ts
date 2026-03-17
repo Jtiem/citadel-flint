@@ -58,6 +58,9 @@ import type { SessionMutation } from "./core/governance/sessionValidator.js";
 import { handleBridgePlan, BRIDGE_PLAN_TOOL } from "./tools/plan.js";
 import type { BridgePlanParams } from "./tools/plan.js";
 import { loadProjectContext } from "./core/projectContext.js";
+import { AgentRiskService } from "./core/governance/agentRiskService.js";
+import { AnomalyDetectionService } from "./core/governance/anomalyDetectionService.js";
+import type { AgentRiskSummary } from "./core/governance/types.js";
 
 // @ts-ignore
 const generate = _generate.default || _generate;
@@ -101,6 +104,50 @@ function getOverrideTelemetryService(projectRoot: string): OverrideTelemetryServ
     const db = new BetterSqlite3(path.join(dbDir, "overrides.db"));
     const service = new OverrideTelemetryService(db);
     _overrideServices.set(projectRoot, service);
+    return service;
+}
+
+// ---------------------------------------------------------------------------
+// Agent Risk singleton — AGV.2: one AgentRiskService per project root,
+// reuses the provenance.db and overrides.db connections.
+// ---------------------------------------------------------------------------
+
+const _agentRiskServices = new Map<string, AgentRiskService>();
+
+function getAgentRiskService(projectRoot: string): AgentRiskService {
+    const existing = _agentRiskServices.get(projectRoot);
+    if (existing !== undefined) return existing;
+
+    // Reuse the provenance and override service DB connections
+    const dbDir = path.join(projectRoot, ".bridge");
+    if (!fs.existsSync(dbDir)) {
+        fs.mkdirSync(dbDir, { recursive: true });
+    }
+    const provenanceDb = new BetterSqlite3(path.join(dbDir, "provenance.db"));
+    const overridesDb = new BetterSqlite3(path.join(dbDir, "overrides.db"));
+    const service = new AgentRiskService(provenanceDb, overridesDb);
+    _agentRiskServices.set(projectRoot, service);
+    return service;
+}
+
+// ---------------------------------------------------------------------------
+// Anomaly Detection singleton — GOV.4: one AnomalyDetectionService per project root,
+// backed by a file-based SQLite database at <root>/.bridge/anomalies.db
+// ---------------------------------------------------------------------------
+
+const _anomalyServices = new Map<string, AnomalyDetectionService>();
+
+function getAnomalyDetectionService(projectRoot: string): AnomalyDetectionService {
+    const existing = _anomalyServices.get(projectRoot);
+    if (existing !== undefined) return existing;
+
+    const dbDir = path.join(projectRoot, ".bridge");
+    if (!fs.existsSync(dbDir)) {
+        fs.mkdirSync(dbDir, { recursive: true });
+    }
+    const db = new BetterSqlite3(path.join(dbDir, "anomalies.db"));
+    const service = new AnomalyDetectionService(db);
+    _anomalyServices.set(projectRoot, service);
     return service;
 }
 
@@ -332,6 +379,60 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 },
             },
             {
+                name: "bridge_agent_risk",
+                description: "Query the Agent Risk Dashboard (AGV.2). Returns per-agent risk profiles — mutation counts, average MRS scores, red/amber/green tier breakdown, override counts. Supports 'summary' (all agents) and 'by_agent' (single agent) actions.",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        action: {
+                            type: "string",
+                            enum: ["summary", "by_agent"],
+                            description: "'summary' — all agents ranked by risk. 'by_agent' — single agent profile.",
+                        },
+                        projectRoot: {
+                            type: "string",
+                            description: "Absolute path to the project root (must contain a .bridge directory).",
+                        },
+                        agentId: {
+                            type: "string",
+                            description: "Required for action='by_agent'. Agent ID to query.",
+                        },
+                        periodDays: {
+                            type: "number",
+                            description: "Number of days to look back (default: 7).",
+                        },
+                    },
+                    required: ["action", "projectRoot"],
+                },
+            },
+            {
+                name: "bridge_anomaly_report",
+                description: "Statistical anomaly detection (GOV.4). Computes baselines from historical governance data and flags anomalies at 3-sigma threshold. Detects override spikes, violation surges, velocity spikes, risk drift, and agent behavior changes.",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        action: {
+                            type: "string",
+                            enum: ["detect", "history", "baseline"],
+                            description: "'detect' — run anomaly detection now. 'history' — past anomalies. 'baseline' — view current baseline stats.",
+                        },
+                        projectRoot: {
+                            type: "string",
+                            description: "Absolute path to the project root (must contain a .bridge directory).",
+                        },
+                        windowDays: {
+                            type: "number",
+                            description: "Number of past days for baseline computation (default: 30).",
+                        },
+                        limit: {
+                            type: "number",
+                            description: "Max rows for 'history' action (default: 50).",
+                        },
+                    },
+                    required: ["action", "projectRoot"],
+                },
+            },
+            {
                 name: "bridge_debt_report",
                 description: "Generate a project-wide design debt report — aggregated Mithril violations, A11y issues, and token drift hotspots. Returns a health score (0-100), letter grade (A-F), violation breakdown by severity/category/file, and trend tracking.",
                 inputSchema: {
@@ -494,6 +595,18 @@ server.setRequestHandler(ListResourcesRequestSchema, async () => {
                 name: "Bridge Override Telemetry",
                 mimeType: "application/json",
                 description: "Override telemetry summary — total count, overrides by rule, by session, last 24h count, and last override timestamp. GOV.2."
+            },
+            {
+                uri: "bridge://agent-risk",
+                name: "Bridge Agent Risk Dashboard",
+                mimeType: "application/json",
+                description: "Per-agent risk profiles — mutation counts, average risk scores, red/amber/green tier breakdown, override counts. AGV.2."
+            },
+            {
+                uri: "bridge://anomalies",
+                name: "Bridge Anomaly Detection",
+                mimeType: "application/json",
+                description: "Current anomaly count and latest detected anomalies from statistical baseline analysis. GOV.4."
             }
         ]
     };
@@ -634,6 +747,50 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
                     uri: "bridge://overrides",
                     mimeType: "application/json",
                     text: JSON.stringify({ totalOverrides: 0, byRule: [], bySession: [], last24hCount: 0, lastOverrideAt: null }, null, 2),
+                }]
+            };
+        }
+    }
+
+    if (request.params.uri === "bridge://agent-risk") {
+        try {
+            const svc = getAgentRiskService(projectRoot);
+            const summary = svc.getAgentRiskSummary(projectRoot);
+            return {
+                contents: [{
+                    uri: "bridge://agent-risk",
+                    mimeType: "application/json",
+                    text: JSON.stringify(summary, null, 2),
+                }]
+            };
+        } catch {
+            return {
+                contents: [{
+                    uri: "bridge://agent-risk",
+                    mimeType: "application/json",
+                    text: JSON.stringify({ agents: [], topRiskiest: [], period: "last_7_days" }, null, 2),
+                }]
+            };
+        }
+    }
+
+    if (request.params.uri === "bridge://anomalies") {
+        try {
+            const svc = getAnomalyDetectionService(projectRoot);
+            const history = svc.getAnomalyHistory(projectRoot, 10);
+            return {
+                contents: [{
+                    uri: "bridge://anomalies",
+                    mimeType: "application/json",
+                    text: JSON.stringify({ count: history.length, anomalies: history }, null, 2),
+                }]
+            };
+        } catch {
+            return {
+                contents: [{
+                    uri: "bridge://anomalies",
+                    mimeType: "application/json",
+                    text: JSON.stringify({ count: 0, anomalies: [] }, null, 2),
                 }]
             };
         }
@@ -1777,6 +1934,70 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             }
         }
 
+        case "bridge_agent_risk": {
+            const arArgs = request.params.arguments as {
+                action: "summary" | "by_agent";
+                projectRoot: string;
+                agentId?: string;
+                periodDays?: number;
+            };
+
+            if (!arArgs.projectRoot || !fs.existsSync(arArgs.projectRoot)) {
+                return {
+                    isError: true,
+                    content: [{
+                        type: "text",
+                        text: "bridge_agent_risk: 'projectRoot' must be an existing directory.",
+                    }],
+                };
+            }
+
+            const arSvc = getAgentRiskService(arArgs.projectRoot);
+
+            switch (arArgs.action) {
+                case "summary": {
+                    const summary = arSvc.getAgentRiskSummary(arArgs.projectRoot, arArgs.periodDays ?? 7);
+                    return {
+                        content: [{ type: "text", text: JSON.stringify(summary, null, 2) }],
+                    };
+                }
+
+                case "by_agent": {
+                    if (!arArgs.agentId) {
+                        return {
+                            isError: true,
+                            content: [{
+                                type: "text",
+                                text: "bridge_agent_risk: action='by_agent' requires 'agentId'.",
+                            }],
+                        };
+                    }
+                    const profile = arSvc.getAgentProfile(arArgs.agentId, arArgs.projectRoot, arArgs.periodDays ?? 7);
+                    if (!profile) {
+                        return {
+                            content: [{
+                                type: "text",
+                                text: JSON.stringify({ agentId: arArgs.agentId, found: false, message: "No mutations recorded for this agent in the specified period." }, null, 2),
+                            }],
+                        };
+                    }
+                    return {
+                        content: [{ type: "text", text: JSON.stringify(profile, null, 2) }],
+                    };
+                }
+
+                default: {
+                    return {
+                        isError: true,
+                        content: [{
+                            type: "text",
+                            text: `bridge_agent_risk: unknown action '${(arArgs as { action: string }).action}'. Must be 'summary' or 'by_agent'.`,
+                        }],
+                    };
+                }
+            }
+        }
+
         case "bridge_override_telemetry": {
             const ovrArgs = request.params.arguments as {
                 action: "summary" | "by_session" | "by_rule";
@@ -1850,6 +2071,70 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                         content: [{
                             type: "text",
                             text: `bridge_override_telemetry: unknown action '${(ovrArgs as { action: string }).action}'. Must be 'summary', 'by_session', or 'by_rule'.`,
+                        }],
+                    };
+                }
+            }
+        }
+
+        case "bridge_anomaly_report": {
+            const anomArgs = request.params.arguments as {
+                action: "detect" | "history" | "baseline";
+                projectRoot: string;
+                windowDays?: number;
+                limit?: number;
+            };
+
+            if (!anomArgs.projectRoot || !fs.existsSync(anomArgs.projectRoot)) {
+                return {
+                    isError: true,
+                    content: [{
+                        type: "text",
+                        text: "bridge_anomaly_report: 'projectRoot' must be an existing directory.",
+                    }],
+                };
+            }
+
+            const anomSvc = getAnomalyDetectionService(anomArgs.projectRoot);
+
+            switch (anomArgs.action) {
+                case "baseline": {
+                    const baseline = anomSvc.computeBaseline(
+                        anomArgs.projectRoot,
+                        anomArgs.windowDays ?? 30,
+                    );
+                    return {
+                        content: [{ type: "text", text: JSON.stringify(baseline, null, 2) }],
+                    };
+                }
+
+                case "detect": {
+                    const baseline = anomSvc.computeBaseline(
+                        anomArgs.projectRoot,
+                        anomArgs.windowDays ?? 30,
+                    );
+                    const anomalies = anomSvc.detectAnomalies(anomArgs.projectRoot, baseline);
+                    return {
+                        content: [{ type: "text", text: JSON.stringify({ baseline, anomalies }, null, 2) }],
+                    };
+                }
+
+                case "history": {
+                    const history = anomSvc.getAnomalyHistory(
+                        anomArgs.projectRoot,
+                        anomArgs.limit ?? 50,
+                    );
+                    return {
+                        content: [{ type: "text", text: JSON.stringify(history, null, 2) }],
+                    };
+                }
+
+                default: {
+                    return {
+                        isError: true,
+                        content: [{
+                            type: "text",
+                            text: `bridge_anomaly_report: unknown action '${(anomArgs as { action: string }).action}'. Must be 'detect', 'history', or 'baseline'.`,
                         }],
                     };
                 }

@@ -10,6 +10,7 @@ import os from 'node:os'
 import * as pty from 'node-pty'
 import type { IPty } from 'node-pty'
 import { snapToToken } from './ingestion/index.js'
+import { loadAgentPolicy } from './agentPolicy.js'
 
 // ── FileTreeNode ───────────────────────────────────────────────────────────────
 // Mirrors the renderer-side type in src/types/bridge-api.d.ts.
@@ -328,6 +329,10 @@ ipcMain.handle(
         })
 
         activeProjectRoot = folderPath
+        // AGV.1: Load per-project agent policy
+        void loadAgentPolicy(folderPath).catch((err) => {
+            console.error('[Bridge] loadAgentPolicy failed after openFolder:', err)
+        })
         // Phase W.3: start MCP client for the newly opened project
         void mcpClient.start(folderPath).catch((err) => {
             console.error('[Bridge] mcpClient.start failed after openFolder:', err)
@@ -1012,6 +1017,10 @@ app.whenReady().then(async () => {
 
         // Set active project root and start MCP client
         activeProjectRoot = targetPath
+        // AGV.1: Load per-project agent policy
+        void loadAgentPolicy(targetPath).catch((err) => {
+            console.error('[Bridge] loadAgentPolicy failed after create-scratchpad:', err)
+        })
         void mcpClient.start(targetPath).catch((err) => {
             console.error('[Bridge] mcpClient.start failed after create-scratchpad:', err)
         })
@@ -1071,6 +1080,10 @@ app.whenReady().then(async () => {
             const projectName = path.basename(normalized)
             upsertProject(randomUUID(), projectName, normalized)
             activeProjectRoot = normalized
+            // AGV.1: Load per-project agent policy
+            void loadAgentPolicy(normalized).catch((err) => {
+                console.error('[Bridge] loadAgentPolicy failed after openPath:', err)
+            })
             // Phase W.3: start MCP client for the newly opened project
             void mcpClient.start(normalized).catch((err) => {
                 console.error('[Bridge] mcpClient.start failed after openPath:', err)
@@ -2546,8 +2559,11 @@ app.whenReady().then(async () => {
 
     ipcMain.handle('terminal:resize', (_event, cols: unknown, rows: unknown) => {
         if (ptyProcess && typeof cols === 'number' && typeof rows === 'number') {
+            // Clamp to reasonable bounds (defense-in-depth against malicious renderer)
+            const clampedCols = Math.max(1, Math.min(500, Math.floor(cols)))
+            const clampedRows = Math.max(1, Math.min(200, Math.floor(rows)))
             try {
-                ptyProcess.resize(cols, rows)
+                ptyProcess.resize(clampedCols, clampedRows)
             } catch (err) {
                 console.error('[Bridge] terminal:resize failed', err)
             }
