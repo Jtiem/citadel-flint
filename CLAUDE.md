@@ -217,6 +217,7 @@ Additional tools registered via `bridge-mcp/src/tools/` modules cover governance
 | MRS Approval Flow (Green/Amber/Red risk tiers on tool_call chunks) | V.1 | **ONLINE** |
 | Auto-Escalation Rules (4 default rules, session-scoped) | AGV.3 | **ONLINE** |
 | Mithril Delta Mode (baseline snapshots, delta-only audit) | MDA.1 | **ONLINE** |
+| Configurable Policy Engine (ΔE threshold, per-rule modes, team overlays, Glass UI) | POL.1 | **ONLINE** |
 
 ### Stores
 
