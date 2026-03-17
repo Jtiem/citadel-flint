@@ -791,6 +791,27 @@ export interface ChatMessage {
     toolInput?: Record<string, unknown>
 }
 
+// ── V.1: Mutation Risk Score (MRS) types ──────────────────────────────────────
+//
+// Three-tier risk classification for the approval flow (0.0–1.0 scale).
+//   green  (0.00–0.30) — auto-approve eligible
+//   amber  (0.31–0.69) — requires human review
+//   red    (0.70–1.00) — requires explicit sign-off
+
+export type MRSTier = 'green' | 'amber' | 'red'
+
+export interface MRSFactor {
+    name: string
+    contribution: number
+    description: string
+}
+
+export interface MRSAssessment {
+    tier: MRSTier
+    score: number
+    factors: MRSFactor[]
+}
+
 export interface OrchestratorChunk {
     type: 'text' | 'tool_call' | 'tool_result' | 'done' | 'error' | 'validation_error'
     text?: string
@@ -798,6 +819,12 @@ export interface OrchestratorChunk {
     toolInput?: Record<string, unknown>
     toolUseId?: string
     error?: string
+    // ── V.1: MRS risk annotation (only present on mutation tool_call chunks) ──
+    riskTier?: MRSTier
+    riskScore?: number
+    riskFactors?: MRSFactor[]
+    requiresReview?: boolean
+    requiresSignoff?: boolean
 }
 
 // ── LspRouter — maps active file extension to the correct ILspClient ──────────
@@ -834,6 +861,157 @@ const MUTATION_TOOL_NAMES = new Set([
     'bridge_add_class',
     'bridge_remove_class',
 ])
+
+// ── V.1: Stateless Mutation Risk Scorer (inline, no SQLite) ──────────────────
+//
+// A lightweight, purely functional MRS scorer. It mirrors the four-factor
+// formula in bridge-mcp/src/core/governance/riskScoringService.ts (the
+// stateless V.1-rs API section) but lives here so the main process does not
+// need to import across the bridge-mcp package boundary.
+//
+// Formula:
+//   mrs = clamp(opWeight×0.40 + blastRadius×0.35 + severity×0.15 + familiarity×0.10)
+//
+// Provenance source is always 'agent' in the orchestrator context — the AI
+// is the only actor here.
+
+/** Op risk weights (0.0–1.0) for each tool name. */
+const MRS_OP_WEIGHTS: Record<string, number> = {
+    bridge_update_text:    0.15,
+    bridge_update_props:   0.20,
+    bridge_add_class:      0.10,
+    bridge_remove_class:   0.10,
+    bridge_insert_node:    0.55,   // structural — above the 0.50 threshold
+    bridge_wrap_node:      0.60,   // structural
+    bridge_delete_node:    0.90,   // destructive — structural, highest weight
+}
+
+const MRS_UNKNOWN_OP_WEIGHT = 0.50
+
+/**
+ * Minimum tier floor for specific tools.
+ * Ensures that destructive operations always reach a baseline tier regardless
+ * of blast radius or violation context. The formula alone cannot guarantee the
+ * correct tier with small affectedNodeCount, so policy floors enforce intent.
+ *
+ *   bridge_insert_node  → at least amber (structural insertion)
+ *   bridge_wrap_node    → at least amber (structural wrapping)
+ *   bridge_delete_node  → red (destructive — always requires sign-off)
+ */
+const MRS_TIER_FLOORS: Record<string, MRSTier> = {
+    bridge_insert_node: 'amber',
+    bridge_wrap_node:   'amber',
+    bridge_delete_node: 'red',
+}
+
+function mrsClamped(n: number): number {
+    return Math.round(Math.max(0.0, Math.min(1.0, n)) * 10000) / 10000
+}
+
+function mrsTier(score: number): MRSTier {
+    if (score <= 0.30) return 'green'
+    if (score <= 0.69) return 'amber'
+    return 'red'
+}
+
+const MRS_TIER_RANK: Record<MRSTier, number> = { green: 0, amber: 1, red: 2 }
+
+/** Apply a tier floor — never lower a computed tier. */
+function applyTierFloor(computed: MRSTier, floor: MRSTier | undefined): MRSTier {
+    if (!floor) return computed
+    return MRS_TIER_RANK[floor] > MRS_TIER_RANK[computed] ? floor : computed
+}
+
+/**
+ * Compute a stateless MRS assessment for a proposed mutation tool call.
+ *
+ * Formula:
+ *   mrs = clamp(opWeight×0.40 + blastRadius×0.35 + severity×0.15 + familiarity×0.10)
+ *
+ * Policy tier floors are applied after the formula to guarantee minimum tiers
+ * for structurally significant operations regardless of node count.
+ *
+ * Never throws — returns a green/0.0 assessment on any internal error.
+ *
+ * @param toolName         The Bridge tool name (e.g. 'bridge_delete_node').
+ * @param affectedNodes    Number of nodes the op will touch (default 1).
+ * @param hasViolations    True if the current file has active violations.
+ */
+function computeMRS(
+    toolName: string,
+    affectedNodes: number = 1,
+    hasViolations: boolean = false,
+): MRSAssessment {
+    try {
+        // Factor 1: operation weight (40%)
+        const opWeightRaw = MRS_OP_WEIGHTS[toolName] ?? MRS_UNKNOWN_OP_WEIGHT
+        const opContribution = mrsClamped(opWeightRaw * 0.40)
+        const opFactor: MRSFactor = {
+            name: 'opWeight',
+            contribution: opContribution,
+            description: `Operation '${toolName}' has base risk weight ${opWeightRaw.toFixed(2)}`,
+        }
+
+        // Factor 2: blast radius (35%)
+        const blastRaw = Math.min(affectedNodes / 10, 1.0)
+        const blastContribution = mrsClamped(blastRaw * 0.35)
+        const blastFactor: MRSFactor = {
+            name: 'blastRadius',
+            contribution: blastContribution,
+            description: `${affectedNodes} affected node(s); blast radius ${blastRaw.toFixed(2)}`,
+        }
+
+        // Factor 3: severity context (15%)
+        const isStructural = opWeightRaw >= 0.50
+        let severityRaw: number
+        if (isStructural && !hasViolations) {
+            severityRaw = 0.70  // structural op, no audit baseline
+        } else if (hasViolations) {
+            severityRaw = 0.30  // mutation on a file with known violations
+        } else {
+            severityRaw = 0.00
+        }
+        const severityContribution = mrsClamped(severityRaw * 0.15)
+        const severityFactor: MRSFactor = {
+            name: 'severity',
+            contribution: severityContribution,
+            description: isStructural && !hasViolations
+                ? 'Structural op with no audit baseline'
+                : hasViolations
+                ? 'File has active violations'
+                : 'No violation context',
+        }
+
+        // Factor 4: familiarity — always 'agent' provenance in orchestrator, neutral (10%)
+        const familiarityContribution = mrsClamped(0.10 * 0.10)
+        const familiarityFactor: MRSFactor = {
+            name: 'familiarity',
+            contribution: familiarityContribution,
+            description: 'Agent-provenance mutation — neutral familiarity',
+        }
+
+        const rawScore =
+            opContribution +
+            blastContribution +
+            severityContribution +
+            familiarityContribution
+
+        const score = mrsClamped(rawScore)
+        const formulaTier = mrsTier(score)
+
+        // Apply policy tier floor (never lower a computed tier)
+        const tier = applyTierFloor(formulaTier, MRS_TIER_FLOORS[toolName])
+
+        return {
+            tier,
+            score,
+            factors: [opFactor, blastFactor, severityFactor, familiarityFactor],
+        }
+    } catch {
+        // Fallback — never block the approval flow on a scorer error
+        return { tier: 'green', score: 0.0, factors: [] }
+    }
+}
 
 // ── Commandment 17: Mithril token loader ──────────────────────────────────────
 //
@@ -1156,12 +1334,32 @@ export async function sendChatMessage(
                                     })
                                     hadValidationFailure = true
                                 } else {
-                                    onChunk({
-                                        type: 'tool_call',
-                                        toolName: block.name,
-                                        toolUseId: block.id,
-                                        toolInput,
-                                    })
+                                    // ── V.1: MRS risk annotation ─────────────────────────
+                                    // Risk scoring only applies to mutation tools. Read-only
+                                    // tools pass through with no risk annotation.
+                                    if (MUTATION_TOOL_NAMES.has(block.name)) {
+                                        const violationsActive = loadCurrentViolationCount() > 0
+                                        const mrs = computeMRS(block.name, 1, violationsActive)
+                                        console.log(`[Bridge MRS] tool=${block.name} score=${mrs.score} tier=${mrs.tier}`)
+                                        onChunk({
+                                            type: 'tool_call',
+                                            toolName: block.name,
+                                            toolUseId: block.id,
+                                            toolInput,
+                                            riskTier: mrs.tier,
+                                            riskScore: mrs.score,
+                                            riskFactors: mrs.factors,
+                                            requiresReview: mrs.tier === 'amber',
+                                            requiresSignoff: mrs.tier === 'red',
+                                        })
+                                    } else {
+                                        onChunk({
+                                            type: 'tool_call',
+                                            toolName: block.name,
+                                            toolUseId: block.id,
+                                            toolInput,
+                                        })
+                                    }
                                 }
                             }
                         }

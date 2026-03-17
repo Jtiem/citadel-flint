@@ -87,7 +87,8 @@ import type { JSXOpeningElement } from '@babel/types'
 import type { NodePath } from '@babel/traverse'
 import { startViteServer, stopViteServer, getPreviewUrl } from './preview/viteServer.js'
 import { mcpClient } from './mcpClient.js'
-import { RENDERER_ALLOWED_MCP_TOOLS } from './mcp-policy.js'
+import { checkToolAccess } from './mcp-policy.js'
+import { recordMutation } from './agentPolicy.js'
 
 // Must be called synchronously before app.whenReady() fires.
 // Suppresses the Chromium SharedImageManager / GPU mailbox errors that spam
@@ -1944,6 +1945,10 @@ app.whenReady().then(async () => {
     /**
      * mcp:call-tool — Invoke an MCP tool by name with arguments.
      * Returns the tool's content array or throws with a human-readable message.
+     *
+     * AGV.1: Extracts agentId from args._agentId (if present) or defaults to
+     * 'renderer' for Glass-initiated calls. Enforces both the SEC.3 renderer
+     * allowlist and the per-agent ACL via checkToolAccess().
      */
     ipcMain.handle(
         'mcp:call-tool',
@@ -1955,18 +1960,32 @@ app.whenReady().then(async () => {
                 throw new TypeError('mcp:call-tool — args must be a plain object')
             }
 
-            // SEC.3: Enforce renderer tool allowlist — Glass is an observability layer
-            // and must only invoke read-oriented or report-generation tools.
-            // Write-oriented tools (mutations, fixes, ingestion) are invoked by MCP
-            // agents through the protocol, not by the renderer.
-            if (!RENDERER_ALLOWED_MCP_TOOLS.includes(name)) {
-                throw new Error(
-                    `mcp:call-tool — tool "${name}" is not in the renderer allowlist. ` +
-                    `Only these tools can be called from Glass: ${RENDERER_ALLOWED_MCP_TOOLS.join(', ')}`
-                )
+            // AGV.1: Extract agent identity from call context.
+            // Glass (renderer) calls default to 'renderer'; MCP agent calls
+            // include _agentId in the args payload from session metadata.
+            const argsObj = args as Record<string, unknown>
+            const agentId = typeof argsObj._agentId === 'string' && argsObj._agentId.length > 0
+                ? argsObj._agentId
+                : 'renderer'
+
+            // SEC.3 + AGV.1: Unified tool access check
+            const access = checkToolAccess(agentId, name as string)
+            if (!access.allowed) {
+                console.warn('[Bridge] mcp:call-tool DENIED — agent=%s tool=%s reason=%s', agentId, name, access.reason)
+                throw new Error(access.reason ?? `mcp:call-tool — tool "${name}" denied for agent "${agentId}"`)
             }
 
-            return mcpClient.callTool(name, args as Record<string, unknown>)
+            // Strip _agentId before forwarding to the MCP server — it's metadata, not a tool arg
+            const { _agentId, ...cleanArgs } = argsObj
+
+            const result = await mcpClient.callTool(name, cleanArgs)
+
+            // AGV.1: Track mutation count for rate limiting
+            if (['bridge_ast_mutate', 'bridge_fix', 'bridge_sync_tokens', 'bridge_ingest_figma'].includes(name)) {
+                recordMutation(agentId)
+            }
+
+            return result
         }
     )
 

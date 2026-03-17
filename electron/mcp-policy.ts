@@ -48,3 +48,44 @@ export const RENDERER_ALLOWED_MCP_TOOLS: readonly string[] = Object.freeze([
     'bridge_accessibility_report',
     'bridge_audit_report',
 ])
+
+// ── AGV.1: Per-Agent Tool ACL ────────────────────────────────────────────────
+//
+// checkToolAccess() combines the SEC.3 renderer allowlist with the AGV.1
+// per-agent ACL. It is the single entry point for all tool access decisions
+// in the mcp:call-tool IPC handler.
+//
+// For renderer-initiated calls (agentId === 'renderer'), the renderer
+// allowlist is enforced first. For all agents, the per-agent ACL is checked.
+
+import { isToolAllowed } from './agentPolicy.js'
+import type { ToolAccessResult } from './agentPolicy.js'
+
+/**
+ * Checks whether a tool call is permitted for a given agent.
+ *
+ * Evaluation order:
+ *   1. If agentId is 'renderer', enforce RENDERER_ALLOWED_MCP_TOOLS first.
+ *      Renderer calls that pass this gate are allowed — no further ACL check.
+ *   2. For all other agents, delegate to the per-agent ACL (agentPolicy.ts).
+ *
+ * This ensures backward compatibility: the SEC.3 renderer gate is unchanged,
+ * and AGV.1 adds the agent-level gate on top.
+ */
+export function checkToolAccess(agentId: string, toolName: string): ToolAccessResult {
+    // Renderer-initiated calls go through the original SEC.3 allowlist
+    if (agentId === 'renderer') {
+        if (!RENDERER_ALLOWED_MCP_TOOLS.includes(toolName)) {
+            return {
+                allowed: false,
+                reason:
+                    `mcp:call-tool — tool "${toolName}" is not in the renderer allowlist. ` +
+                    `Only these tools can be called from Glass: ${RENDERER_ALLOWED_MCP_TOOLS.join(', ')}`,
+            }
+        }
+        return { allowed: true }
+    }
+
+    // Agent-initiated calls go through the per-agent ACL
+    return isToolAllowed(agentId, toolName)
+}
