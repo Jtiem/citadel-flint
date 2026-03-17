@@ -24,6 +24,7 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk'
+import { safeStorage } from 'electron'
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
@@ -420,7 +421,19 @@ function buildRouterInput(messages: ChatMessage[], activeFilePath?: string | nul
 // ── Config ────────────────────────────────────────────────────────────────────
 
 export interface BridgeAIConfig {
-    apiKey: string
+    /**
+     * Plaintext API key — legacy field kept for backward compatibility.
+     * Present only in configs that predate SEC.4. Migrated to `apiKeyEncrypted`
+     * on first read when `safeStorage.isEncryptionAvailable()` is true.
+     * Removed from disk after migration.
+     */
+    apiKey?: string
+    /**
+     * Base64-encoded encrypted API key produced by `safeStorage.encryptString`.
+     * This is the canonical storage field as of SEC.4. Takes precedence over
+     * the legacy `apiKey` field during reads.
+     */
+    apiKeyEncrypted?: string
     provider: 'anthropic' | 'openai' | 'gemini'
     model?: string
     /** Optional custom API base URL for routing through corporate gateways (e.g., Cloudflare AI Gateway, Helicone). */
@@ -438,23 +451,141 @@ export const ANTHROPIC_MODELS: { id: string; label: string; tier: 'fast' | 'bala
 const CONFIG_PATH = path.join(homedir(), '.bridge', 'config.json')
 const DEFAULT_MODEL = 'claude-3-7-sonnet-20250219'
 
+// ── safeStorage helpers (SEC.4) ───────────────────────────────────────────────
+//
+// These helpers are module-level so they can be tested via dependency injection.
+// Production code uses the real `safeStorage` from Electron; tests supply mocks.
+
+/**
+ * Encrypts `key` using the OS keychain via `safeStorage.encryptString` and
+ * returns the ciphertext as a base64 string suitable for JSON storage.
+ *
+ * Callers MUST check `safeStorage.isEncryptionAvailable()` before calling.
+ */
+export function encryptApiKey(key: string): string {
+    return safeStorage.encryptString(key).toString('base64')
+}
+
+/**
+ * Decrypts a base64-encoded ciphertext produced by `encryptApiKey`.
+ * Returns the plaintext key, or `null` if decryption fails (corrupt data,
+ * wrong machine/user, or `safeStorage` unavailable).
+ *
+ * Never throws — callers must handle the `null` case.
+ */
+export function decryptApiKey(encrypted: string): string | null {
+    try {
+        return safeStorage.decryptString(Buffer.from(encrypted, 'base64'))
+    } catch {
+        return null
+    }
+}
+
+/**
+ * Reads `~/.bridge/config.json` and resolves the API key securely.
+ *
+ * Resolution order:
+ *   1. `apiKeyEncrypted` present → decrypt with safeStorage and return as
+ *      `apiKey` in the result so callers use the same field regardless of
+ *      which storage path is active.
+ *   2. `apiKey` present (legacy plaintext) → use as-is and schedule a
+ *      migration on next write (idempotent: migration only fires once).
+ *   3. Neither present → `apiKey` is undefined in the result.
+ *
+ * The returned object always has `apiKey` set to the live plaintext value
+ * (or undefined) so `sendChatMessage` can pass it to the Anthropic SDK
+ * without any change to the call site.
+ *
+ * Fallback: if `safeStorage` is not available (CI, headless Linux without
+ * libsecret), the legacy plaintext `apiKey` field is used with a warning.
+ */
 export async function readConfig(): Promise<Partial<BridgeAIConfig>> {
     try {
         if (!existsSync(CONFIG_PATH)) return {}
         const raw = await readFile(CONFIG_PATH, 'utf-8')
-        return JSON.parse(raw) as Partial<BridgeAIConfig>
+        const cfg = JSON.parse(raw) as Partial<BridgeAIConfig>
+
+        // Preferred path: encrypted key present.
+        if (typeof cfg.apiKeyEncrypted === 'string' && cfg.apiKeyEncrypted.length > 0) {
+            if (safeStorage.isEncryptionAvailable()) {
+                const decrypted = decryptApiKey(cfg.apiKeyEncrypted)
+                if (decrypted !== null) {
+                    // Return the live key as `apiKey` so all call sites remain unchanged.
+                    return { ...cfg, apiKey: decrypted }
+                }
+                // Decryption failed — fall through to legacy path (may be undefined).
+                console.warn('[Bridge] safeStorage: failed to decrypt apiKeyEncrypted; key unavailable')
+                return { ...cfg, apiKey: undefined }
+            }
+            // safeStorage unavailable (CI/headless) — key is not accessible.
+            console.warn('[Bridge] safeStorage: encryption unavailable; apiKeyEncrypted cannot be decrypted')
+            return { ...cfg, apiKey: undefined }
+        }
+
+        // Legacy path: plaintext apiKey still on disk.
+        if (typeof cfg.apiKey === 'string' && cfg.apiKey.length > 0) {
+            if (!safeStorage.isEncryptionAvailable()) {
+                // Headless / CI fallback — use plaintext with a warning.
+                console.warn('[Bridge] safeStorage: encryption unavailable; using plaintext API key fallback')
+            }
+            // Migration will fire on next writeConfig call (SEC.4 idempotent migration).
+            return cfg
+        }
+
+        return cfg
     } catch {
         return {}
     }
 }
 
+/**
+ * Persists a config patch to `~/.bridge/config.json`.
+ *
+ * When `config.apiKey` is provided and `safeStorage.isEncryptionAvailable()`:
+ *   - Encrypts the key and stores it in `apiKeyEncrypted`.
+ *   - Removes the plaintext `apiKey` field from disk (SEC.4 — no plaintext at rest).
+ *
+ * When `safeStorage` is unavailable (CI/headless):
+ *   - Falls back to writing plaintext `apiKey` with a console warning.
+ *
+ * The function is idempotent: writing the same config twice does not
+ * double-encrypt or produce a different file hash.
+ */
 export async function writeConfig(config: Partial<BridgeAIConfig>): Promise<void> {
     const dir = path.dirname(CONFIG_PATH)
     if (!existsSync(dir)) await mkdir(dir, { recursive: true })
-    const existing = await readConfig()
-    await writeFile(CONFIG_PATH, JSON.stringify({ ...existing, ...config }, null, 2), 'utf-8')
+
+    // Read the raw disk bytes to preserve fields we are not explicitly patching.
+    // We read raw JSON (not via readConfig) to avoid inadvertently decrypting
+    // and re-encrypting the key on every write, which would change the ciphertext.
+    let existing: Partial<BridgeAIConfig> = {}
+    try {
+        if (existsSync(CONFIG_PATH)) {
+            existing = JSON.parse(await readFile(CONFIG_PATH, 'utf-8')) as Partial<BridgeAIConfig>
+        }
+    } catch { /* ignore */ }
+
+    const merged: Partial<BridgeAIConfig> = { ...existing, ...config }
+
+    // SEC.4: If a live apiKey is being written and safeStorage is available,
+    // encrypt it and strip the plaintext field from disk.
+    if (typeof merged.apiKey === 'string' && merged.apiKey.length > 0) {
+        if (safeStorage.isEncryptionAvailable()) {
+            merged.apiKeyEncrypted = encryptApiKey(merged.apiKey)
+            delete merged.apiKey   // no plaintext at rest
+        } else {
+            // Headless / CI fallback — keep plaintext with a warning.
+            console.warn('[Bridge] safeStorage: encryption unavailable; API key stored in plaintext')
+        }
+    }
+
+    await writeFile(CONFIG_PATH, JSON.stringify(merged, null, 2), 'utf-8')
 }
 
+/**
+ * Returns true when a usable API key is present (either encrypted or plaintext).
+ * Does not expose or log the key.
+ */
 export async function hasApiKey(): Promise<boolean> {
     const cfg = await readConfig()
     return typeof cfg.apiKey === 'string' && cfg.apiKey.length > 0
@@ -858,50 +989,32 @@ export async function sendChatMessage(
         return
     }
 
+    // SEC P0-4: Only the Anthropic provider supports the constrained Bridge Tool
+    // Catalog (Commandment 15) and in-memory validation loop (Commandment 16).
+    // Non-Anthropic providers send plain chat completions with no tool-use,
+    // which means governance enforcement is completely absent.
+    if (config.provider && config.provider !== 'anthropic') {
+        onChunk({
+            type: 'error',
+            error:
+                'Bridge requires an Anthropic API key for AI-assisted editing. ' +
+                'The Bridge Tool Catalog (Commandment 15) and in-memory validation ' +
+                '(Commandment 16) are only enforced via Anthropic tool-use. ' +
+                'Non-Anthropic providers bypass all governance checks. ' +
+                'Please configure an Anthropic API key in AI Settings.',
+        })
+        return
+    }
+
     try {
-        if (config.provider === 'openai') {
-            const OpenAI = (await import('openai')).default
-            const client = new OpenAI({
-                apiKey: config.apiKey,
-                ...(config.baseURL ? { baseURL: config.baseURL } : {}),
-            })
-            const model = config.model && config.model.length > 0 ? config.model : 'gpt-4o'
-            const stream = await client.chat.completions.create({
-                model,
-                stream: true,
-                messages: [
-                    { role: 'system', content: SYSTEM_PROMPT },
-                    ...messages.filter(m => m.role === 'user' || m.role === 'assistant').map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }))
-                ]
-            })
-            for await (const chunk of stream) {
-                const delta = chunk.choices[0]?.delta
-                if (delta?.content) {
-                    onChunk({ type: 'text', text: delta.content })
-                }
-            }
-            onChunk({ type: 'done' })
-        } else if (config.provider === 'gemini') {
-            const { GoogleGenAI } = await import('@google/genai')
-            // Gemini SDK uses `baseUrl` (no trailing 'L') for the optional endpoint override.
-            const ai = new GoogleGenAI({
-                apiKey: config.apiKey,
-                ...(config.baseURL ? { baseUrl: config.baseURL } : {}),
-            })
-            const model = config.model && config.model.length > 0 ? config.model : 'gemini-2.5-flash'
-            const stream = await ai.models.generateContentStream({
-                model,
-                contents: messages.filter(m => m.role === 'user' || m.role === 'assistant').map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
-                config: { systemInstruction: SYSTEM_PROMPT }
-            })
-            for await (const chunk of stream) {
-                if (chunk.text) {
-                    onChunk({ type: 'text', text: chunk.text })
-                }
-            }
-            onChunk({ type: 'done' })
-        } else {
-            // Default Anthropic branch — fully supports the Bridge Tool Catalog
+        // TODO: Option A — implement tool-use parity for OpenAI and Gemini providers.
+        // The OpenAI branch (former lines 862-883) and Gemini branch (former lines 884-902)
+        // sent plain chat completions with no tool declarations — Commandments 15 and 16
+        // were completely unenforced. They have been removed per ADR P0-4 (Option B: hard gate).
+        // When demand exists, implement provider-specific tool-use adapters in
+        // electron/providers/openai-adapter.ts and electron/providers/gemini-adapter.ts.
+        {
+            // Anthropic branch — fully supports the Bridge Tool Catalog
             const client = new Anthropic({
                 apiKey: config.apiKey,
                 ...(config.baseURL ? { baseURL: config.baseURL } : {}),

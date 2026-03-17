@@ -140,7 +140,7 @@ export function createMockBridgeAPI() {
             onOverrideRecorded: vi.fn().mockReturnValue(() => {}),
         },
         figma: {
-            status: vi.fn().mockResolvedValue({ running: false, lastWebhookAt: null, tokenCount: 0, port: 4545, secret: 'test-secret' }),
+            status: vi.fn().mockResolvedValue({ running: false, lastWebhookAt: null, tokenCount: 0, port: 4545 }),
             disconnect: vi.fn().mockResolvedValue(undefined),
             onConnected: vi.fn().mockReturnValue(() => {}),
             onError: vi.fn().mockReturnValue(() => {}),

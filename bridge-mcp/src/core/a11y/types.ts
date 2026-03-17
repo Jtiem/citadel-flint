@@ -128,6 +128,10 @@ export interface A11yViolationDetail {
     wcag: WCAGCriterion
     /** Whether this violation has a deterministic auto-fix available. */
     fixable: boolean
+    /** Plain-language explanation of why this rule exists. Populated by CX.3 errorTaxonomy. */
+    explanation?: string
+    /** Actionable recovery steps. Populated by CX.3 errorTaxonomy. */
+    recovery?: string
 }
 
 /**

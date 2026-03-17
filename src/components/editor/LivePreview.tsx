@@ -639,6 +639,12 @@ export function LivePreview() {
   // When the iframe posts CANVAS_CLICK / CANVAS_HOVER / CANVAS_HOVER_CLEAR / FIGMA_PASTE → update store.
   useEffect(() => {
     function handleMessage(e: MessageEvent): void {
+      // SEC.1: Only accept messages from srcdoc iframes (origin 'null')
+      // or from the Vite preview server on localhost.
+      // srcdoc iframes have an opaque origin serialised as the literal string 'null'
+      // per the HTML specification. Messages from any other origin are silently dropped.
+      if (e.origin !== 'null' && !e.origin.startsWith('http://localhost:')) return
+
       if (typeof e.data !== 'object' || e.data === null) return
       const msg = e.data as { type?: unknown; id?: unknown; targetId?: unknown; position?: unknown; payload?: unknown }
 
@@ -918,6 +924,13 @@ export function LivePreview() {
           ref={iframeRef}
           title="Live Preview"
           className="absolute inset-0 h-full w-full border-0 bg-gray-900"
+          // SEC.1: Sandbox prevents injected code from accessing window.parent.bridgeAPI.
+          // allow-scripts is required for the new Function() preview execution path.
+          // allow-forms is included so user components with <form> elements remain
+          // interactive in "interact" mode.
+          // CRITICAL: allow-same-origin is intentionally omitted — adding it with srcdoc
+          // would give the iframe the same origin as the parent, negating the sandbox.
+          sandbox="allow-scripts allow-forms"
           {...(previewUrl != null ? { src: previewUrl } : {})}
           onLoad={handleIframeLoad}
         />

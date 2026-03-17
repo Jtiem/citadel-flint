@@ -7,7 +7,7 @@
  *
  * Step flow:
  *   checking  — mount: polls figma.status(); auto-advances or shows error
- *   configure — server is running; shows endpoint + secret copy fields
+ *   configure — server is running; shows endpoint copy field (secret is server-side only)
  *   waiting   — user confirmed plugin config; subscribes to onConnected()
  *   success   — first POST /ingest received; auto-closes after 2s
  *   error     — server not running or IPC call failed
@@ -39,7 +39,7 @@ export interface FigmaSetupWizardProps {
  * Internal wizard step state. Not exported -- lives in component useState.
  *
  * 'checking'   -- Step 1: polling server status on mount
- * 'configure'  -- Step 2: showing endpoint + secret copy fields
+ * 'configure'  -- Step 2: showing endpoint copy field
  * 'waiting'    -- Step 3: waiting for first POST /ingest from Figma plugin
  * 'success'    -- Step 3 complete: first sync received, auto-close in 2s
  * 'error'      -- Server not running or connection failed
@@ -179,8 +179,8 @@ export function FigmaSetupWizard({ visible, onClose }: FigmaSetupWizardProps) {
     const [step, setStep] = useState<WizardStep>('checking')
     const [figmaStatus, setFigmaStatus] = useState<FigmaStatus | null>(null)
 
-    // Per-field copy feedback: 'endpoint' | 'secret' | null
-    const [copied, setCopied] = useState<'endpoint' | 'secret' | null>(null)
+    // Per-field copy feedback: 'endpoint' | null
+    const [copied, setCopied] = useState<'endpoint' | null>(null)
     const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
     // Auto-close timer for success state
@@ -265,7 +265,7 @@ export function FigmaSetupWizard({ visible, onClose }: FigmaSetupWizardProps) {
     }, [])
 
     // ── Copy helper ───────────────────────────────────────────────────────────
-    const handleCopy = (field: 'endpoint' | 'secret', value: string) => {
+    const handleCopy = (field: 'endpoint', value: string) => {
         void navigator.clipboard.writeText(value).then(() => {
             setCopied(field)
             if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
@@ -295,7 +295,6 @@ export function FigmaSetupWizard({ visible, onClose }: FigmaSetupWizardProps) {
     }
 
     const endpoint = figmaStatus ? `http://127.0.0.1:${figmaStatus.port}` : 'http://127.0.0.1:4545'
-    const secret = figmaStatus?.secret ?? ''
 
     return (
         <div
@@ -333,7 +332,8 @@ export function FigmaSetupWizard({ visible, onClose }: FigmaSetupWizardProps) {
             {step === 'configure' && figmaStatus && (
                 <div className="space-y-3">
                     <p className="text-xs text-zinc-400">
-                        Copy the endpoint and secret below into the Bridge Figma plugin settings,
+                        Copy the endpoint below into the Bridge Figma plugin settings.
+                        The authentication secret is configured separately in the Figma Plugin Settings UI,
                         then click <strong className="text-zinc-200">Sync Variables</strong>.
                     </p>
 
@@ -342,13 +342,6 @@ export function FigmaSetupWizard({ visible, onClose }: FigmaSetupWizardProps) {
                         value={endpoint}
                         copied={copied === 'endpoint'}
                         onCopy={() => { handleCopy('endpoint', endpoint) }}
-                    />
-
-                    <CopyField
-                        label="Secret (x-bridge-secret)"
-                        value={secret}
-                        copied={copied === 'secret'}
-                        onCopy={() => { handleCopy('secret', secret) }}
                     />
 
                     <button

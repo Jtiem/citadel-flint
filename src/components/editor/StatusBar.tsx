@@ -116,7 +116,7 @@ export function StatusBar() {
     const popoverRef = useRef<HTMLDivElement>(null)
 
     // Brief "Copied!" visual feedback for copy buttons
-    const [copying, setCopying] = useState<'endpoint' | 'secret' | null>(null)
+    const [copying, setCopying] = useState<'endpoint' | null>(null)
     const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
     // Tooltip for "Need help?" link
@@ -183,7 +183,7 @@ export function StatusBar() {
     }, [popoverOpen])
 
     // ── Copy helper ───────────────────────────────────────────────────────────
-    const handleCopy = (field: 'endpoint' | 'secret', value: string) => {
+    const handleCopy = (field: 'endpoint', value: string) => {
         void navigator.clipboard.writeText(value).then(() => {
             setCopying(field)
             if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
@@ -211,8 +211,6 @@ export function StatusBar() {
         figmaStatus?.lastWebhookAt != null &&
         Date.now() - figmaStatus.lastWebhookAt < 5_000
     const endpoint = figmaStatus ? `127.0.0.1:${figmaStatus.port}` : '127.0.0.1:4545'
-    const secret = figmaStatus?.secret ?? ''
-    const secretTruncated = secret.length > 15 ? `${secret.slice(0, 15)}…` : secret
 
     // ── No-design-system amber state ─────────────────────────────────────────
     // When zero tokens are loaded, governance is not fully active.  Signal this
@@ -327,32 +325,6 @@ export function StatusBar() {
                                 </button>
                             </div>
                             {copying === 'endpoint' && (
-                                <p className="text-[10px] text-emerald-400">Copied!</p>
-                            )}
-                        </div>
-
-                        {/* Secret copy row */}
-                        <div className="space-y-1">
-                            <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">Secret</p>
-                            <div className="flex items-center gap-1.5 rounded border border-zinc-800 bg-zinc-950 px-2 py-1">
-                                <code className="flex-1 truncate font-mono text-[11px] text-zinc-300">
-                                    {secretTruncated}
-                                </code>
-                                <button
-                                    type="button"
-                                    onClick={() => { handleCopy('secret', secret) }}
-                                    className="shrink-0 rounded p-0.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
-                                    title={copying === 'secret' ? 'Copied!' : 'Copy secret'}
-                                    aria-label={copying === 'secret' ? 'Copied!' : 'Copy secret'}
-                                >
-                                    {copying === 'secret' ? (
-                                        <Check className="h-3 w-3 text-emerald-400" />
-                                    ) : (
-                                        <Copy className="h-3 w-3" />
-                                    )}
-                                </button>
-                            </div>
-                            {copying === 'secret' && (
                                 <p className="text-[10px] text-emerald-400">Copied!</p>
                             )}
                         </div>

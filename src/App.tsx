@@ -271,7 +271,6 @@ function App() {
     // ── Global keyboard shortcuts ─────────────────────────────────────────────
     useEffect(() => {
         function handleKeyDown(e: KeyboardEvent): void {
-            if (document.activeElement?.closest('.monaco-editor') != null) return
             if (
                 document.activeElement?.tagName === 'INPUT' ||
                 document.activeElement?.tagName === 'TEXTAREA' ||

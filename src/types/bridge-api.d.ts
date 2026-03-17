@@ -394,7 +394,7 @@ export interface PreviewAPI {
 // ── Phase W.2 / W.3: Figma Connection Status ──────────────────────────────────
 
 /**
- * Extended FigmaStatus -- adds port + secret so the renderer can render
+ * Extended FigmaStatus -- adds port so the renderer can render
  * copy-to-clipboard buttons without hardcoding values.
  *
  *   running       — true when the loopback ingestion server is bound and listening.
@@ -403,7 +403,9 @@ export interface PreviewAPI {
  *   tokenCount    — Current row count in the design_tokens SQLite table.
  *   port          — The port the ingestion server is actually listening on
  *                   (may differ from 4545 if port was busy).
- *   secret        — The secret value the Figma plugin must send in x-bridge-secret header.
+ *
+ * SEC.2: The secret field has been removed. The webhook secret is server-side only
+ * and is never exposed to the renderer process.
  */
 export interface FigmaStatus {
     /** True when the loopback ingestion server is bound and listening. */
@@ -414,9 +416,6 @@ export interface FigmaStatus {
     tokenCount: number
     /** The port the ingestion server is actually listening on (may differ from 4545 if port was busy). */
     port: number
-    /** The secret value the Figma plugin must send in x-bridge-secret header.
-     *  @deprecated Will be removed in SEC.2 — secret is now server-side only. */
-    secret?: string
 }
 
 /**

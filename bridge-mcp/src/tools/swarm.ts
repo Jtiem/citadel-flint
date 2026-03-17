@@ -36,6 +36,21 @@ export interface SwarmReport {
     healthAfter: number
     fileReports: SwarmFileReport[]
     durationMs: number
+    /** One-sentence human-readable summary. CX.1 */
+    summary: string
+}
+
+// ── CX.1 Summary generation ────────────────────────────────────────────────
+
+/**
+ * Generate a one-sentence plain-English summary of a swarm audit/fix report.
+ */
+export function generateSwarmSummary(report: Omit<SwarmReport, 'summary'>): string {
+    return (
+        `Scanned ${report.filesScanned} files. ` +
+        `${report.totalViolations} violation(s) found, ${report.fixesApplied} fixed. ` +
+        `Health: ${report.healthBefore} -> ${report.healthAfter}.`
+    )
 }
 
 // ---- Tool definition --------------------------------------------------------
@@ -152,7 +167,7 @@ export async function handleBridgeSwarmAuditFix(
     const filePaths = discoverFiles(projectRoot, glob)
 
     if (filePaths.length === 0) {
-        return {
+        const emptyReport = {
             filesScanned: 0,
             filesWithViolations: 0,
             totalViolations: 0,
@@ -162,6 +177,7 @@ export async function handleBridgeSwarmAuditFix(
             fileReports: [],
             durationMs: Date.now() - startMs,
         }
+        return { ...emptyReport, summary: generateSwarmSummary(emptyReport) }
     }
 
     // Step 2: Audit all discovered files
@@ -265,7 +281,7 @@ export async function handleBridgeSwarmAuditFix(
         }
     })
 
-    return {
+    const report = {
         filesScanned: filePaths.length,
         filesWithViolations,
         totalViolations: batchResult.summary.totalViolations,
@@ -275,4 +291,5 @@ export async function handleBridgeSwarmAuditFix(
         fileReports,
         durationMs: Date.now() - startMs,
     }
+    return { ...report, summary: generateSwarmSummary(report) }
 }

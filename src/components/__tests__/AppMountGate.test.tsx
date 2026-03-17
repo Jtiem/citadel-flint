@@ -195,6 +195,33 @@ describe('App — LaunchScreen mount gate (Journey 1, Step 1.1)', () => {
     })
 
     // ── Test 3 ────────────────────────────────────────────────────────────────
+    // U.3 — Immersive Canvas: Glass must never render IDE panels
+    it('never renders CodeEditorPanel in the workspace layout (U.3)', async () => {
+        useCanvasStore.setState({ workspaceFiles: POPULATED_TREE })
+
+        await act(async () => {
+            render(<App />)
+        })
+
+        // XYCanvas occupies center; no code editor panel should be present
+        expect(screen.getByTestId('xy-canvas')).toBeInTheDocument()
+        expect(screen.queryByTestId('code-editor-panel')).not.toBeInTheDocument()
+    })
+
+    // ── Test 4 ────────────────────────────────────────────────────────────────
+    // U.3 — Immersive Canvas: Glass must never render a terminal panel
+    it('never renders TerminalPanel in the workspace layout (U.3)', async () => {
+        useCanvasStore.setState({ workspaceFiles: POPULATED_TREE })
+
+        await act(async () => {
+            render(<App />)
+        })
+
+        expect(screen.getByTestId('xy-canvas')).toBeInTheDocument()
+        expect(screen.queryByTestId('terminal-panel')).not.toBeInTheDocument()
+    })
+
+    // ── Test 5 ────────────────────────────────────────────────────────────────
     it('returns to LaunchScreen when workspaceFiles goes from populated back to null', async () => {
         // Start with an open project
         useCanvasStore.setState({ workspaceFiles: POPULATED_TREE })

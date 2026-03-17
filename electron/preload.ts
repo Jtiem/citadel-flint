@@ -27,7 +27,8 @@ contextBridge.exposeInMainWorld('bridgeAPI', {
      * removeListeners() for the Figma Connect UX Overhaul.
      */
     figma: {
-        status: (): Promise<{ running: boolean; lastWebhookAt: number | null; tokenCount: number; port: number; secret?: string }> =>
+        // SEC.2: `secret` field removed — the per-session secret stays in main process only.
+        status: (): Promise<{ running: boolean; lastWebhookAt: number | null; tokenCount: number; port: number }> =>
             ipcRenderer.invoke('figma:status'),
 
         /**

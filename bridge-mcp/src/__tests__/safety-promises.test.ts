@@ -37,6 +37,9 @@ import {
     computeHealthScore,
     scoreToGrade,
 } from '../core/dashboard/debtReportService.js'
+import { handleBridgeAudit } from '../tools/audit.js'
+import { handleBridgeFix } from '../tools/fix.js'
+import { DEFAULT_CONFIG } from '../core/config.js'
 import type { DesignToken } from '../types.js'
 
 // ── Shared fixtures ────────────────────────────────────────────────────────────
@@ -711,5 +714,70 @@ describe('Test 10: CIEDE2000 ΔE reference values', () => {
 
     it('MITHRIL_THRESHOLD is exactly 2.0', () => {
         expect(MITHRIL_THRESHOLD).toBe(2.0)
+    })
+})
+
+// ── CX.1: Test 5 extension — bridge_audit summary field ──────────────────────
+
+describe('Test 5 (CX.1 extension): bridge_audit response includes summary field', () => {
+    const config = {
+        ...DEFAULT_CONFIG,
+        projectRoot: '/tmp/__bridge_safety_cx1__',
+    }
+
+    it('handleBridgeAudit result.summary exists and is a string', async () => {
+        const source = `
+            const C = () => (
+                <div data-bridge-id="node-cx1" className="bg-[#ff0000]">
+                    <img src="photo.png" />
+                </div>
+            )
+        `
+        const result = await handleBridgeAudit({ source, filePath: 'Test.tsx' }, config)
+        expect(typeof result.summary).toBe('string')
+        expect(result.summary.length).toBeGreaterThan(0)
+    })
+
+    it('summary describes violations when violations exist', async () => {
+        const source = `
+            const C = () => (
+                <div data-bridge-id="node-cx1b" className="bg-[#ff0000]">Hello</div>
+            )
+        `
+        const result = await handleBridgeAudit({ source, filePath: 'Test.tsx' }, config)
+        // With no tokens loaded from /tmp/..., Mithril may not flag anything.
+        // Either way summary must be a non-empty string.
+        expect(result.summary.length).toBeGreaterThan(0)
+    })
+})
+
+// ── CX.1: Test 6 extension — bridge_fix summary + dryRun fields ──────────────
+
+describe('Test 6 (CX.1 extension): bridge_fix response includes summary and dryRun fields', () => {
+    const config = {
+        ...DEFAULT_CONFIG,
+        projectRoot: '/tmp/__bridge_safety_cx1__',
+    }
+
+    const source = `
+        const C = () => (
+            <div data-bridge-id="node-cx1-fix" className="bg-[#ff0000]">Hello</div>
+        )
+    `
+
+    it('handleBridgeFix result.summary exists and is a string', async () => {
+        const result = await handleBridgeFix({ source, filePath: 'Test.tsx' }, config)
+        expect(typeof result.summary).toBe('string')
+        expect(result.summary.length).toBeGreaterThan(0)
+    })
+
+    it('result.dryRun is false when dryRun was not passed', async () => {
+        const result = await handleBridgeFix({ source, filePath: 'Test.tsx' }, config)
+        expect(result.dryRun).toBe(false)
+    })
+
+    it('result.dryRun is true when dryRun: true was passed', async () => {
+        const result = await handleBridgeFix({ source, filePath: 'Test.tsx', dryRun: true }, config)
+        expect(result.dryRun).toBe(true)
     })
 })

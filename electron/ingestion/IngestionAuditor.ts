@@ -772,6 +772,103 @@ export function heal(code: string, tokens: AuditorToken[]): IngestionHealResult 
     return { healedCode, summary }
 }
 
+// ── snapToToken ───────────────────────────────────────────────────────────────
+
+/**
+ * Applies a single tier-2 "snap to token" fix to a source file in memory.
+ *
+ * Called by the `import:snap-to-token` IPC handler in `electron/main.ts` when
+ * the user clicks "Snap" on an IngestionFlag in the ImportSummary panel.
+ *
+ * Algorithm:
+ *   1. Parse `code` to a Babel AST (JSX + TypeScript).
+ *   2. Find the JSXOpeningElement whose `data-bridge-id` matches `nodeId`.
+ *   3. In that element's `className` StringLiteral, replace every occurrence of
+ *      `originalClass` with `replacementClass`.
+ *   4. Generate code from the (possibly mutated) AST and return it.
+ *
+ * Commandment compliance:
+ *   C7  — data-bridge-id is read only (never mutated).
+ *   C13 — Babel AST traversal for className surgery; no regex on source code.
+ *
+ * @param code            The current TSX source code of the file.
+ * @param nodeId          The data-bridge-id value of the target element.
+ * @param originalClass   The arbitrary-value Tailwind class to replace.
+ * @param replacementClass  The token-based class to insert.
+ * @returns  `{ ok: true, code: string }` on success,
+ *           `{ ok: false, error: string }` on failure.
+ */
+export function snapToToken(
+    code: string,
+    nodeId: string,
+    originalClass: string,
+    replacementClass: string,
+): { ok: true; code: string } | { ok: false; error: string } {
+    // Parse
+    let ast: t.File
+    try {
+        ast = parser.parse(code, {
+            sourceType: 'module',
+            plugins: ['jsx', 'typescript'],
+        })
+    } catch (err) {
+        return { ok: false, error: `Parse error: ${err instanceof Error ? err.message : String(err)}` }
+    }
+
+    let mutated = false
+
+    traverse(ast, {
+        JSXOpeningElement(elementPath) {
+            // Find the element with the matching data-bridge-id
+            let matchesNodeId = false
+            for (const attr of elementPath.node.attributes) {
+                if (
+                    t.isJSXAttribute(attr) &&
+                    t.isJSXIdentifier(attr.name, { name: 'data-bridge-id' }) &&
+                    t.isStringLiteral(attr.value) &&
+                    attr.value.value === nodeId
+                ) {
+                    matchesNodeId = true
+                    break
+                }
+            }
+            if (!matchesNodeId) return
+
+            // Find className attribute and apply the swap
+            for (const attr of elementPath.node.attributes) {
+                if (
+                    t.isJSXAttribute(attr) &&
+                    t.isJSXIdentifier(attr.name, { name: 'className' }) &&
+                    t.isStringLiteral(attr.value)
+                ) {
+                    const before = attr.value.value
+                    const after = replaceClass(before, originalClass, replacementClass)
+                    if (after !== before) {
+                        attr.value.value = after
+                        mutated = true
+                    }
+                    break
+                }
+            }
+
+            // Stop traversal once we've found and processed the target node
+            if (mutated) elementPath.stop()
+        },
+    })
+
+    if (!mutated) {
+        return { ok: false, error: `Node '${nodeId}' not found or class '${originalClass}' not present` }
+    }
+
+    // Regenerate code from the mutated AST
+    try {
+        const result = generate(ast, { retainLines: false, jsescOption: { minimal: true } }, code)
+        return { ok: true, code: result.code }
+    } catch (err) {
+        return { ok: false, error: `Code generation error: ${err instanceof Error ? err.message : String(err)}` }
+    }
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /** Maps violation type to the Mithril rule ID string. */

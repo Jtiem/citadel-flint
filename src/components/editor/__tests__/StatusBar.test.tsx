@@ -35,7 +35,7 @@ describe('StatusBar', () => {
     it('renders the Figma label in the status bar', async () => {
         ;(window.bridgeAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue([])
         ;(window.bridgeAPI.figma.status as ReturnType<typeof vi.fn>).mockResolvedValue({
-            running: true, lastWebhookAt: null, tokenCount: 5, port: 4545, secret: 'x',
+            running: true, lastWebhookAt: null, tokenCount: 5, port: 4545,
         })
         render(<StatusBar />)
         await waitFor(() => {
@@ -60,7 +60,7 @@ describe('StatusBar', () => {
         // running: false + tokenCount > 0 → figmaDotColor → bg-zinc-500
         // (tokenCount > 0 avoids the amber "No design system" override)
         ;(window.bridgeAPI.figma.status as ReturnType<typeof vi.fn>).mockResolvedValue({
-            running: false, lastWebhookAt: null, tokenCount: 3, port: 4545, secret: '',
+            running: false, lastWebhookAt: null, tokenCount: 3, port: 4545,
         })
         render(<StatusBar />)
         await waitFor(() => {
@@ -147,7 +147,6 @@ describe('StatusBar', () => {
             lastWebhookAt: null,
             tokenCount: 5,
             port: 4545,
-            secret: 'test-secret',
         })
         render(<StatusBar />)
         // Open the Figma popover (label is "Figma" when tokenCount > 0)
@@ -175,29 +174,11 @@ describe('StatusBar', () => {
         })
     })
 
-    // 11. Copy secret button copies the correct value
-    it('calls navigator.clipboard.writeText with the secret when copy secret is clicked', async () => {
-        Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } })
-        ;(window.bridgeAPI.tokens.readAll as Mock).mockResolvedValue([])
-        ;(window.bridgeAPI.figma.status as Mock).mockResolvedValue({
-            running: true, lastWebhookAt: null, tokenCount: 5, port: 4545, secret: 'test-secret',
-        })
-        render(<StatusBar />)
-        await waitFor(() => screen.getByText('Figma'))
-        fireEvent.click(screen.getByText('Figma'))
-        await waitFor(() => screen.getByText('Figma Connection'))
-        const secretBtn = screen.getByLabelText('Copy secret')
-        fireEvent.click(secretBtn)
-        await waitFor(() => {
-            expect(navigator.clipboard.writeText).toHaveBeenCalledWith('test-secret')
-        })
-    })
-
-    // 12. Disconnect button calls figma.disconnect()
+    // 11. Disconnect button calls figma.disconnect()
     it('calls window.bridgeAPI.figma.disconnect when the disconnect button is clicked', async () => {
         ;(window.bridgeAPI.tokens.readAll as Mock).mockResolvedValue([])
         ;(window.bridgeAPI.figma.status as Mock).mockResolvedValue({
-            running: true, lastWebhookAt: null, tokenCount: 5, port: 4545, secret: 'test-secret',
+            running: true, lastWebhookAt: null, tokenCount: 5, port: 4545,
         })
         ;(window.bridgeAPI.figma.disconnect as Mock).mockResolvedValue(undefined)
         render(<StatusBar />)

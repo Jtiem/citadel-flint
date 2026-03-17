@@ -10,6 +10,8 @@
  *     is loopback-only; wildcard CORS is required for Figma plugin iframes, which
  *     present a 'null' origin that cannot be matched by a specific origin string.
  *   - Every non-OPTIONS request must supply a matching x-bridge-secret header.
+ *   - SEC.6: Per-route token-bucket rate limiting prevents DoS from misbehaving
+ *     plugins or scripts. OPTIONS (CORS preflight) requests are always exempt.
  *
  * Routes:
  *   POST /ingest         — Accepts a Figma Variables payload, normalises to W3C
@@ -25,14 +27,17 @@ import db from './store.js'
 import { normalizeFigmaVariables } from './normalizer.js'
 import { heal } from './ingestion/index.js'
 import type { AuditorToken } from './ingestion/index.js'
+// SEC.6: Rate limiter lives in a pure module with no Electron/SQLite imports
+// so it can be unit-tested in isolation.
+import { checkRateLimit } from './rateLimiter.js'
 
 const BASE_PORT = 4545
 const MAX_PORT_ATTEMPTS = 10
 
-// In development the secret is predictable; in production the Figma plugin
-// and main process will exchange a runtime-generated secret stored in
-// project_state. For Phase 2 we use a stable dev value.
-const BRIDGE_SECRET = process.env.BRIDGE_SECRET ?? 'bridge-dev-secret-phase2'
+// SEC.2: Secret is no longer a compile-time constant. It is injected at runtime
+// by main.ts via startIngestionServer(secret) using crypto.randomBytes(32).
+// This prevents the hardcoded secret from shipping in the binary.
+let bridgeSecret: string | null = null
 
 let server: http.Server | null = null
 let activePort = BASE_PORT
@@ -124,15 +129,32 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     setCorsHeaders(res)
 
     // 1. Handle OPTIONS preflight — must return 200 before any auth checks
+    //    OPTIONS is always exempt from rate limiting (CORS preflight must always succeed).
     if (req.method === 'OPTIONS') {
         res.writeHead(200)
         res.end()
         return
     }
 
+    // SEC.6: Per-route rate limit check — runs before secret validation so
+    // unauthenticated flood attempts are rejected cheaply.
+    const rateResult = checkRateLimit(req.url)
+    if (!rateResult.allowed) {
+        const secs = rateResult.retryAfterSecs
+        res.setHeader('Retry-After', String(secs))
+        sendJson(res, 429, { error: `Rate limit exceeded. Try again in ${secs}s.` })
+        return
+    }
+
+    // SEC.2: Guard against requests arriving before startIngestionServer sets the secret
+    if (bridgeSecret === null) {
+        sendJson(res, 503, { error: 'Server not fully initialized' })
+        return
+    }
+
     // 2. Enforce x-bridge-secret on all other methods
     const secret = req.headers['x-bridge-secret']
-    if (!secret || secret !== BRIDGE_SECRET) {
+    if (!secret || secret !== bridgeSecret) {
         const unauthorizedReason = 'Unauthorized: missing or invalid x-bridge-secret'
         sendJson(res, 401, { error: unauthorizedReason })
         const errWindows = BrowserWindow.getAllWindows()
@@ -365,7 +387,7 @@ function tryListen(port: number): void {
         server = attempt
         activePort = port
         console.log(`[Bridge] Ingestion server listening on http://127.0.0.1:${port}`)
-        console.log(`[Bridge] x-bridge-secret: ${BRIDGE_SECRET}`)
+        // SEC.2: Do NOT log the secret. It stays in main process memory only.
     })
 
     attempt.on('error', (err: NodeJS.ErrnoException) => {
@@ -379,11 +401,16 @@ function tryListen(port: number): void {
     })
 }
 
-export function startIngestionServer(): void {
+export function startIngestionServer(secret: string): void {
     if (server) {
         console.warn('[Bridge] Ingestion server already running.')
         return
     }
+    // SEC.2: Validate secret strength before accepting it
+    if (!secret || secret.length < 32) {
+        throw new Error('startIngestionServer requires a secret of at least 32 characters')
+    }
+    bridgeSecret = secret
     tryListen(BASE_PORT)
 }
 
@@ -393,6 +420,7 @@ export function stopIngestionServer(): void {
             console.log('[Bridge] Ingestion server stopped.')
         })
         server = null
+        bridgeSecret = null  // SEC.2: Clear secret on stop to prevent stale references
     }
 }
 
@@ -411,15 +439,16 @@ export function getServerStatus(): { running: boolean; port: number } {
  *                   or null if no ingest has occurred in this process lifetime.
  *   tokenCount    — Current row count from the design_tokens table.
  *   port          — The port the ingestion server is currently listening on.
- *   secret        — The x-bridge-secret value the Figma plugin must supply.
+ *
+ * SEC.2: The `secret` field has been removed. The per-session secret stays in
+ * main process memory only — it must never be returned to the renderer.
  */
-export function getFigmaStatus(): { running: boolean; lastWebhookAt: number | null; tokenCount: number; port: number; secret: string } {
+export function getFigmaStatus(): { running: boolean; lastWebhookAt: number | null; tokenCount: number; port: number } {
     const countRow = db.prepare('SELECT COUNT(*) as count FROM design_tokens').get() as { count: number }
     return {
         running: server !== null && server.listening,
         lastWebhookAt,
         tokenCount: countRow?.count ?? 0,
         port: activePort,
-        secret: BRIDGE_SECRET,
     }
 }

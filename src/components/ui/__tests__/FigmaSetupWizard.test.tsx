@@ -8,8 +8,10 @@
  * The wizard's internal WizardStep state machine under test:
  *   'checking'  → auto-advances to 'configure' when server running === true
  *   'checking'  → transitions to 'error' when server running === false
- *   'configure' → shows endpoint (http://127.0.0.1:{port}) and secret
+ *   'configure' → shows endpoint (http://127.0.0.1:{port})
  *   'waiting'   → transitions to 'success' when onConnected fires
+ *
+ * SEC.2: Tests no longer reference the secret field — it is server-side only.
  */
 
 import { describe, it, expect, vi } from 'vitest'
@@ -21,7 +23,6 @@ import { FigmaSetupWizard } from '../FigmaSetupWizard'
 
 function runningStatus(overrides: Partial<{
     port: number
-    secret: string
     lastWebhookAt: number | null
     tokenCount: number
 }> = {}) {
@@ -30,7 +31,6 @@ function runningStatus(overrides: Partial<{
         lastWebhookAt: null,
         tokenCount: 0,
         port: 4545,
-        secret: 'test-secret',
         ...overrides,
     }
 }
@@ -41,7 +41,6 @@ function stoppedStatus() {
         lastWebhookAt: null,
         tokenCount: 0,
         port: 4545,
-        secret: 'test-secret',
     }
 }
 
@@ -73,7 +72,7 @@ describe('FigmaSetupWizard', () => {
     // 2. Step 1 auto-completes when server is running
     it('advances past the checking step to configure when server is running', async () => {
         ;(window.bridgeAPI.figma.status as Mock).mockResolvedValue(
-            runningStatus({ secret: 'test-secret', port: 4545 }),
+            runningStatus({ port: 4545 }),
         )
         render(<FigmaSetupWizard {...defaultProps()} />)
         // When running === true the wizard leaves 'checking' and shows the
@@ -108,28 +107,32 @@ describe('FigmaSetupWizard', () => {
         })
     })
 
-    // 5. Step 2 shows the secret value
-    it('renders the secret value from figma.status() in the configure step', async () => {
-        const secretValue = 'bridge-unique-secret-abc'
-        ;(window.bridgeAPI.figma.status as Mock).mockResolvedValue(
-            runningStatus({ secret: secretValue }),
-        )
+    // 5. Step 2 does NOT render a secret field (SEC.2 — secret is server-side only)
+    it('does not render a secret copy field in the configure step', async () => {
+        ;(window.bridgeAPI.figma.status as Mock).mockResolvedValue(runningStatus())
         render(<FigmaSetupWizard {...defaultProps()} />)
         await waitFor(() => {
-            // Secret may be truncated or masked; we check that at least part of
-            // it appears (or a visible representation is present)
             const text = document.body.textContent ?? ''
-            // The component must render the secret (possibly masked to first N chars)
-            // so we verify the start of the secret is visible
-            const secretStart = secretValue.slice(0, 8)
-            expect(text).toContain(secretStart)
+            expect(text).toContain('127.0.0.1')
         })
+        // The configure step should have only one copy button (for the endpoint)
+        // and no "Secret (x-bridge-secret)" label visible as a copy field label.
+        const text = document.body.textContent ?? ''
+        // There should be no "Secret" copy-field heading rendered
+        expect(text).not.toMatch(/^Secret \(x-bridge-secret\)/m)
+        // Only one CopyField should be in the DOM (the endpoint one)
+        const labels = document.querySelectorAll('[aria-label^="Copy"]')
+        // At most 1 copy button: the endpoint one. The secret copy button is gone.
+        const secretLabels = Array.from(labels).filter((el) =>
+            /secret/i.test(el.getAttribute('aria-label') ?? '')
+        )
+        expect(secretLabels).toHaveLength(0)
     })
 
     // 6. Copy endpoint button copies to clipboard
     it('calls navigator.clipboard.writeText with the endpoint URL when copy endpoint is clicked', async () => {
         ;(window.bridgeAPI.figma.status as Mock).mockResolvedValue(
-            runningStatus({ port: 4545, secret: 'test-secret' }),
+            runningStatus({ port: 4545 }),
         )
         render(<FigmaSetupWizard {...defaultProps()} />)
         // Wait for configure step to render
@@ -165,46 +168,35 @@ describe('FigmaSetupWizard', () => {
         })
     })
 
-    // 7. Copy secret button copies to clipboard
-    it('calls navigator.clipboard.writeText with the secret when copy secret is clicked', async () => {
-        const secretValue = 'test-secret'
+    // 7. Step 3 "I've configured the plugin" button advances the wizard
+    it('advances to the waiting step when the configure button is clicked', async () => {
         ;(window.bridgeAPI.figma.status as Mock).mockResolvedValue(
-            runningStatus({ port: 4545, secret: secretValue }),
+            runningStatus({ port: 4545 }),
         )
         render(<FigmaSetupWizard {...defaultProps()} />)
+        // Wait for configure step
         await waitFor(() => {
             expect(document.body.textContent).toContain('127.0.0.1:4545')
         })
-        // Find the copy button for the secret row
-        const allBtns = screen.getAllByRole('button')
-        const secretCopyBtn = allBtns.find((btn) => {
-            const label = btn.getAttribute('aria-label') ?? ''
-            const title = btn.getAttribute('title') ?? ''
-            return /copy.*secret|secret.*copy/i.test(label) ||
-                   /copy.*secret|secret.*copy/i.test(title) ||
-                   (/copy/i.test(label) && btn.closest('[data-testid="secret-row"]') !== null)
+        // Click the advance button
+        const advanceBtn = screen.getAllByRole('button').find((btn) => {
+            const text = btn.textContent ?? ''
+            return /configured|next|continue|i.ve/i.test(text)
         })
-        if (secretCopyBtn) {
-            fireEvent.click(secretCopyBtn)
-        } else {
-            // Fall back: second copy button (endpoint is first, secret is second)
-            const copyBtns = allBtns.filter((btn) =>
-                /copy/i.test(btn.getAttribute('aria-label') ?? '') ||
-                /copy/i.test(btn.getAttribute('title') ?? '') ||
-                btn.textContent?.trim().toLowerCase() === 'copy',
-            )
-            expect(copyBtns.length).toBeGreaterThanOrEqual(2)
-            fireEvent.click(copyBtns[1])
-        }
+        expect(advanceBtn).toBeDefined()
+        fireEvent.click(advanceBtn!)
+        // The wizard should now show the waiting state
         await waitFor(() => {
-            expect(navigator.clipboard.writeText).toHaveBeenCalledWith(secretValue)
+            const text = document.body.textContent ?? ''
+            const inWaiting = /waiting|sync variables|first sync/i.test(text)
+            expect(inWaiting).toBe(true)
         })
     })
 
     // 8. Step 3 transitions to success on figma-connected event
     it('transitions to success state when the onConnected callback fires', async () => {
         ;(window.bridgeAPI.figma.status as Mock).mockResolvedValue(
-            runningStatus({ port: 4545, secret: 'test-secret' }),
+            runningStatus({ port: 4545 }),
         )
         render(<FigmaSetupWizard {...defaultProps()} />)
         // Advance to configure step

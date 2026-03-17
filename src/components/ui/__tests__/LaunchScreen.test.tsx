@@ -138,7 +138,6 @@ describe('LaunchScreen', () => {
             lastWebhookAt: null,
             tokenCount: 0,
             port: 4545,
-            secret: 'test-secret',
         })
         render(<LaunchScreen {...defaultProps()} />)
         await waitFor(() => screen.getByText('Connect Figma'))

@@ -199,12 +199,15 @@ Additional tools registered via `bridge-mcp/src/tools/` modules cover governance
 | Tool Enrichment (pre-flight context injection) | ACX.3 | **ONLINE** |
 | Mutation Provenance Ledger | V.2-mp | **ONLINE** |
 | Risk Scoring (MRS, 5-factor weighted) | V.1-rs | **ONLINE** |
-| Renderer Hardening (iframe sandbox + CSP) | SEC.1 | PLANNED (P0, no deps) |
-| Secret Hygiene (per-session secret, strip from renderer) | SEC.2 | PLANNED (P1, no deps) |
-| MCP Tool Allowlist (renderer-callable tool restriction) | SEC.3 | PLANNED (P1, no deps) |
-| API Key Safe Storage (safeStorage encryption) | SEC.4 | PLANNED (P1, no deps) |
-| Terminal API Hardening (cwd restriction, input sanitization) | SEC.5 | PLANNED (P2, no deps) |
-| Ingestion Rate Limiting | SEC.6 | PLANNED (P3, no deps) |
+| Renderer Hardening (iframe sandbox + CSP) | SEC.1 | **ONLINE** |
+| Secret Hygiene (per-session secret, strip from renderer) | SEC.2 | **ONLINE** |
+| MCP Tool Allowlist (renderer-callable tool restriction) | SEC.3 | **ONLINE** |
+| API Key Safe Storage (safeStorage encryption) | SEC.4 | **ONLINE** |
+| Terminal API Hardening (cwd restriction, input sanitization) | SEC.5 | **ONLINE** |
+| Ingestion Rate Limiting (token-bucket, per-route) | SEC.6 | **ONLINE** |
+| Session-Level Mutation Validation | GOV.3 | **ONLINE** |
+| Error Taxonomy + Rule Explanations (50 entries) | CX.3 | **ONLINE** |
+| Immersive Canvas (dead IDE panels removed) | U.3 | **ONLINE** |
 
 ### Stores
 

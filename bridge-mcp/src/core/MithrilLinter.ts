@@ -23,6 +23,7 @@ import _traverse from '@babel/traverse'
 import * as t from '@babel/types'
 import type { File } from '@babel/types'
 import type { DesignToken, LinterWarning } from '../types.js'
+import { getErrorEntryByRuleId } from './errorTaxonomy.js'
 
 // CJS/ESM interop
 const traverse =
@@ -241,6 +242,15 @@ function cssColorToHex(value: string): string | null {
     return null
 }
 
+// ── Taxonomy helpers ──────────────────────────────────────────────────────────
+
+/** Returns { explanation, recovery } for the given ruleId, or empty strings if not found. */
+function taxonomyFields(ruleId: string): { explanation?: string; recovery?: string } {
+    const entry = getErrorEntryByRuleId(ruleId)
+    if (entry === null) return {}
+    return { explanation: entry.explanation, recovery: entry.recovery }
+}
+
 // ── Shared AST helpers ────────────────────────────────────────────────────────
 
 function getBridgeId(openEl: t.JSXOpeningElement): string | null {
@@ -315,6 +325,7 @@ export function visitClassNames(ast: File, tokens: DesignToken[], options?: Poli
                 nearestToken: tokenLabel,
                 nearestTokenValue: worstMatch?.tokenValue ?? null,
                 ruleId: 'MITHRIL-COL',
+                ...taxonomyFields('MITHRIL-COL'),
             })
         },
     })
@@ -378,6 +389,7 @@ export function visitTypography(ast: File, tokens: DesignToken[]): Map<string, L
                                 ? (typeTokens.find((tk) => tk.token_path === suggestion)?.token_value ?? null)
                                 : null,
                             ruleId: rule,
+                            ...taxonomyFields(rule),
                         })
                     }
                 }
@@ -431,6 +443,7 @@ export function visitSpacing(ast: File, tokens: DesignToken[]): Map<string, Lint
                             ? (dimTokens.find((tk) => tk.token_path === suggestion)?.token_value ?? null)
                             : null,
                         ruleId: 'MITHRIL-SPC-001',
+                        ...taxonomyFields('MITHRIL-SPC-001'),
                     })
                 }
             }
@@ -482,6 +495,7 @@ export function visitShadows(ast: File, tokens: DesignToken[]): Map<string, Lint
                             ? (shadowTokens.find((tk) => tk.token_path === suggestion)?.token_value ?? null)
                             : null,
                         ruleId: 'MITHRIL-SHD-001',
+                        ...taxonomyFields('MITHRIL-SHD-001'),
                     })
                 }
             }
@@ -533,6 +547,7 @@ export function visitOpacity(ast: File, tokens: DesignToken[]): Map<string, Lint
                             ? (opacityTokens.find((tk) => tk.token_path === suggestion)?.token_value ?? null)
                             : null,
                         ruleId: 'MITHRIL-OPC-001',
+                        ...taxonomyFields('MITHRIL-OPC-001'),
                     })
                 }
             }

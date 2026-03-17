@@ -22,6 +22,7 @@ import type {
 import type { DesignToken } from '../../types.js'
 import { getBridgeId, getTagName, getAttributeStringValue, getExplicitRole, getImplicitRole } from './helpers.js'
 import { extractColorContext } from './contrast-utils.js'
+import { getErrorEntryByRuleId } from '../errorTaxonomy.js'
 
 // CJS/ESM interop
 const traverse =
@@ -250,7 +251,12 @@ export function auditSync(ast: BabelFile, options: RunnerOptions): A11yAuditResu
                 try {
                     const violation = rule.visitElement!(path, context)
                     if (violation) {
-                        allViolations.push(violation)
+                        const taxEntry = getErrorEntryByRuleId(violation.ruleId)
+                        allViolations.push(
+                            taxEntry !== null
+                                ? { ...violation, explanation: taxEntry.explanation, recovery: taxEntry.recovery }
+                                : violation,
+                        )
                     }
                 } catch {
                     // Swallow per-rule errors — governance engine must not crash
@@ -263,7 +269,14 @@ export function auditSync(ast: BabelFile, options: RunnerOptions): A11yAuditResu
     for (const rule of documentRules) {
         try {
             const violations = rule.auditDocument!(context)
-            allViolations.push(...violations)
+            for (const violation of violations) {
+                const taxEntry = getErrorEntryByRuleId(violation.ruleId)
+                allViolations.push(
+                    taxEntry !== null
+                        ? { ...violation, explanation: taxEntry.explanation, recovery: taxEntry.recovery }
+                        : violation,
+                )
+            }
         } catch {
             // Swallow per-rule errors
         }

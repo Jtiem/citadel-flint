@@ -46,6 +46,10 @@ export interface LinterWarning {
     wcag?: string
     /** Whether an auto-fix is available for this warning. */
     fixable?: boolean
+    /** Plain-language explanation of why this rule exists. Populated by CX.3 errorTaxonomy. */
+    explanation?: string
+    /** Actionable recovery steps. Populated by CX.3 errorTaxonomy. */
+    recovery?: string
 }
 
 // ── Phase ACX.2: Context Delta types ────────────────────────────────────────

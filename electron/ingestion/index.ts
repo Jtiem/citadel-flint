@@ -7,6 +7,7 @@
 export {
     heal,
     classifyViolation,
+    snapToToken,
     TIER1_DELTA_E,
     TIER2_DELTA_E,
     TIER1_PX_DIFF,

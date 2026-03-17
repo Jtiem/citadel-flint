@@ -1,14 +1,15 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, safeStorage } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, safeStorage, session } from 'electron'
 import type { MenuItemConstructorOptions } from 'electron'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { readdir, readFile, writeFile, mkdir, rename, stat as fsStat, open as fsOpen } from 'node:fs/promises'
 import { existsSync, mkdirSync, watch as fsWatch } from 'node:fs'
 import { execFile } from 'node:child_process'
-import { randomUUID } from 'node:crypto'
+import { randomUUID, randomBytes } from 'node:crypto'
 import os from 'node:os'
 import * as pty from 'node-pty'
 import type { IPty } from 'node-pty'
+import { snapToToken } from './ingestion/index.js'
 
 // ── FileTreeNode ───────────────────────────────────────────────────────────────
 // Mirrors the renderer-side type in src/types/bridge-api.d.ts.
@@ -86,6 +87,7 @@ import type { JSXOpeningElement } from '@babel/types'
 import type { NodePath } from '@babel/traverse'
 import { startViteServer, stopViteServer, getPreviewUrl } from './preview/viteServer.js'
 import { mcpClient } from './mcpClient.js'
+import { RENDERER_ALLOWED_MCP_TOOLS } from './mcp-policy.js'
 
 // Must be called synchronously before app.whenReady() fires.
 // Suppresses the Chromium SharedImageManager / GPU mailbox errors that spam
@@ -207,6 +209,31 @@ function buildAppMenu(): void {
     Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
+// ── SEC.1: Content Security Policy constants ──────────────────────────────────
+// Injected as HTTP response headers via session.webRequest.onHeadersReceived.
+// Defense-in-depth alongside the <meta> CSP in index.html — header-based CSP
+// cannot be overridden by page content, data: URLs, or blob: URLs.
+
+const DEVELOPMENT_CSP = [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
+    "style-src 'self' 'unsafe-inline'",
+    "connect-src 'self' ws://localhost:* http://localhost:* http://127.0.0.1:*",
+    "img-src 'self' data: blob:",
+    "font-src 'self' data:",
+    "frame-src 'self' blob: http://localhost:*",
+].join('; ')
+
+const PRODUCTION_CSP = [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline'",
+    "style-src 'self' 'unsafe-inline'",
+    "connect-src 'self' http://127.0.0.1:*",
+    "img-src 'self' data: blob:",
+    "font-src 'self' data:",
+    "frame-src 'self' blob: http://localhost:*",
+].join('; ')
+
 function createWindow(): void {
     mainWindow = new BrowserWindow({
         width: 1400,
@@ -237,6 +264,22 @@ function createWindow(): void {
     if (!app.isPackaged) {
         mainWindow.webContents.openDevTools()
     }
+
+    // SEC.1: Inject Content Security Policy as an HTTP response header.
+    // Defense-in-depth alongside the <meta> CSP in index.html.
+    // Dev CSP includes 'unsafe-eval' (required for Vite HMR) and ws://localhost:*.
+    // Production CSP omits 'unsafe-eval' — the only new Function() usage in
+    // production is inside the sandboxed srcdoc iframe which has its own CSP context.
+    const isDev = !app.isPackaged || !!process.env.VITE_DEV_SERVER_URL
+    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+        const csp = isDev ? DEVELOPMENT_CSP : PRODUCTION_CSP
+        callback({
+            responseHeaders: {
+                ...details.responseHeaders,
+                'Content-Security-Policy': [csp],
+            },
+        })
+    })
 
     // Load the Vite dev server in development, or the built files in production
     if (process.env.VITE_DEV_SERVER_URL) {
@@ -1073,88 +1116,48 @@ app.whenReady().then(async () => {
 
     // ── Phase L: AI Orchestration Engine ─────────────────────────────────────
     // All LLM calls run in the main process so the API key never reaches the renderer.
-    const { sendChatMessage, readConfig: readAIConfig, writeConfig: writeAIConfig, hasApiKey } =
+    const { sendChatMessage, readConfig: readAIConfig, writeConfig: writeAIConfig } =
         await import('./orchestrator.js')
 
-    // ── Fix 2 (P1-2): safeStorage helpers ────────────────────────────────────
+    // ── SEC.4: API Key Safe Storage (complete) ────────────────────────────────
     //
-    // safeStorage encrypts/decrypts using the OS keychain (Keychain on macOS,
-    // libsecret on Linux, DPAPI on Windows). The encrypted bytes are stored as
-    // base64 in config.json under the key `apiKeyEncrypted`.
+    // orchestrator.ts now handles safeStorage encrypt/decrypt internally.
+    // main.ts is responsible for:
+    //   1. Startup migration: detect legacy plaintext `apiKey` and encrypt it,
+    //      removing the plaintext field from disk (one-time, idempotent).
+    //   2. ai:save-config: delegate to writeAIConfig which now encrypts via
+    //      safeStorage and never writes plaintext `apiKey` to disk.
+    //   3. ai:get-config: delegate hasKey check to readAIConfig (which decrypts).
     //
-    // Scope note: orchestrator.ts reads `apiKey` from config.json directly and
-    // is out of scope for this change. Until orchestrator.ts is updated to call
-    // decryptApiKey() (tracked as SEC.4-phase-2), we must still write `apiKey`
-    // to disk for sendChatMessage() to function. This means the plaintext key
-    // remains on disk for now. The `apiKeyEncrypted` field is written alongside
-    // it so a future orchestrator update can drop the plaintext field safely.
     // Never log the decrypted key.
 
-    const BRIDGE_CONFIG_PATH = path.join(os.homedir(), '.bridge', 'config.json')
-
-    async function readRawConfig(): Promise<Record<string, unknown>> {
+    // ── SEC.4 startup migration ───────────────────────────────────────────────
+    // Run once on app.whenReady. If legacy plaintext `apiKey` exists and
+    // safeStorage is available, encrypt it in-place and remove the plaintext
+    // field. Running this twice is a no-op (idempotent).
+    await (async () => {
+        if (!safeStorage.isEncryptionAvailable()) return
         try {
-            const raw = await readFile(BRIDGE_CONFIG_PATH, 'utf-8')
-            return JSON.parse(raw) as Record<string, unknown>
-        } catch {
-            return {}
-        }
-    }
-
-    async function writeRawConfig(patch: Record<string, unknown>): Promise<void> {
-        const existing = await readRawConfig()
-        const merged = { ...existing, ...patch }
-        const dir = path.dirname(BRIDGE_CONFIG_PATH)
-        if (!existsSync(dir)) await mkdir(dir, { recursive: true })
-        await writeFile(BRIDGE_CONFIG_PATH, JSON.stringify(merged, null, 2), 'utf-8')
-    }
-
-    function encryptApiKey(key: string): string {
-        return safeStorage.encryptString(key).toString('base64')
-    }
-
-    function decryptApiKey(encrypted: string): string | null {
-        try {
-            return safeStorage.decryptString(Buffer.from(encrypted, 'base64'))
-        } catch {
-            return null
-        }
-    }
-
-    /**
-     * Checks whether a usable API key exists — either as `apiKeyEncrypted`
-     * (preferred) or legacy plaintext `apiKey`.
-     * Performs a one-time migration: if only plaintext `apiKey` exists, it
-     * encrypts it, writes `apiKeyEncrypted`, and removes the plaintext field.
-     */
-    async function hasApiKeySecure(): Promise<boolean> {
-        const cfg = await readRawConfig()
-
-        // Already encrypted — fast path.
-        if (typeof cfg.apiKeyEncrypted === 'string' && cfg.apiKeyEncrypted.length > 0) {
-            const decrypted = decryptApiKey(cfg.apiKeyEncrypted)
-            return decrypted !== null && decrypted.length > 0
-        }
-
-        // Migration: legacy plaintext key found — encrypt it in-place.
-        if (typeof cfg.apiKey === 'string' && cfg.apiKey.length > 0) {
-            if (safeStorage.isEncryptionAvailable()) {
-                const encrypted = encryptApiKey(cfg.apiKey)
-                // Write encrypted field. NOTE: `apiKey` is intentionally left in
-                // place until orchestrator.ts is updated (SEC.4-phase-2).
-                await writeRawConfig({ apiKeyEncrypted: encrypted })
-                console.log('[Bridge] safeStorage: migrated apiKey → apiKeyEncrypted')
+            const cfg = await readAIConfig()
+            // Migration condition: plaintext key exists but no encrypted key.
+            if (
+                typeof (cfg as Record<string, unknown>).apiKey === 'string' &&
+                ((cfg as Record<string, unknown>).apiKey as string).length > 0 &&
+                !((cfg as Record<string, unknown>).apiKeyEncrypted)
+            ) {
+                // writeAIConfig will encrypt and remove the plaintext field.
+                await writeAIConfig(cfg)
+                console.log('[Bridge] Migrated API key to encrypted storage')
             }
-            return true
+        } catch {
+            // Non-fatal — migration will retry on next startup.
         }
-
-        return false
-    }
+    })()
 
     ipcMain.handle('ai:get-config', async (): Promise<{ hasKey: boolean; provider: string; model: string | null; baseURL: string | null }> => {
         const cfg = await readAIConfig()
         return {
-            hasKey: await hasApiKeySecure(),
+            hasKey: typeof cfg.apiKey === 'string' && cfg.apiKey.length > 0,
             provider: cfg.provider ?? 'anthropic',
             model: cfg.model ?? null,
             baseURL: cfg.baseURL ?? null,
@@ -1165,25 +1168,21 @@ app.whenReady().then(async () => {
         if (typeof payload !== 'object' || payload === null) return
         const p = payload as Record<string, unknown>
 
-        // Use the provider provided by the client, fallback to anthropic
-        const patch: Record<string, unknown> = {
-            provider: (typeof p.provider === 'string' && p.provider ? p.provider : 'anthropic')
+        // SEC.4: writeAIConfig (orchestrator.ts) handles safeStorage encryption.
+        // Pass apiKey through as a partial config; writeConfig will encrypt it
+        // and remove the plaintext field before writing to disk.
+        const patch: Parameters<typeof writeAIConfig>[0] = {
+            provider: (typeof p.provider === 'string' && p.provider
+                ? p.provider as 'anthropic' | 'openai' | 'gemini'
+                : 'anthropic'),
         }
-
-        // Fix 2 (P1-2): When an API key is provided, encrypt it with safeStorage
-        // and store as `apiKeyEncrypted`. The plaintext `apiKey` is also written
-        // for orchestrator.ts compatibility (SEC.4-phase-2 will remove it).
         if (typeof p.apiKey === 'string' && p.apiKey.length > 0) {
             patch.apiKey = p.apiKey
-            if (safeStorage.isEncryptionAvailable()) {
-                patch.apiKeyEncrypted = encryptApiKey(p.apiKey)
-                console.log('[Bridge] safeStorage: API key encrypted and stored as apiKeyEncrypted')
-            }
         }
         if (typeof p.model === 'string' && p.model.length > 0) patch.model = p.model
         // Allow clearing the baseURL by saving an empty string (null-equivalent).
         if (typeof p.baseURL === 'string') patch.baseURL = p.baseURL.trim() || undefined
-        await writeAIConfig(patch as Parameters<typeof writeAIConfig>[0])
+        await writeAIConfig(patch)
     })
 
     ipcMain.handle('ai:chat', async (event, messages: unknown, _context: unknown): Promise<void> => {
@@ -1955,6 +1954,18 @@ app.whenReady().then(async () => {
             if (typeof args !== 'object' || args === null || Array.isArray(args)) {
                 throw new TypeError('mcp:call-tool — args must be a plain object')
             }
+
+            // SEC.3: Enforce renderer tool allowlist — Glass is an observability layer
+            // and must only invoke read-oriented or report-generation tools.
+            // Write-oriented tools (mutations, fixes, ingestion) are invoked by MCP
+            // agents through the protocol, not by the renderer.
+            if (!RENDERER_ALLOWED_MCP_TOOLS.includes(name)) {
+                throw new Error(
+                    `mcp:call-tool — tool "${name}" is not in the renderer allowlist. ` +
+                    `Only these tools can be called from Glass: ${RENDERER_ALLOWED_MCP_TOOLS.join(', ')}`
+                )
+            }
+
             return mcpClient.callTool(name, args as Record<string, unknown>)
         }
     )
@@ -2235,14 +2246,29 @@ app.whenReady().then(async () => {
     // ── Phase ING: Import Summary IPC handlers ────────────────────────────────
 
     /**
-     * import:snap-to-token — applies a tier-2 "snap to token" fix.
-     * The renderer sends this after the user clicks "Snap" on an IngestionFlag.
+     * import:snap-to-token — ING.3: real AST surgery for tier-2 snap-to-token.
      *
-     * For ING.1, this is a stub that acknowledges the request.
-     * Full AST surgery (find active file, apply className swap via Babel, re-audit)
-     * is scoped to ING.3 once the ImportSummary UI is wired.
+     * The renderer sends this after the user clicks "Snap" on an IngestionFlag.
+     * The handler:
+     *   1. Validates the SnapToTokenPayload shape.
+     *   2. Resolves the active file path from context.json (written by useContextSync).
+     *   3. Reads the file from disk.
+     *   4. Calls snapToToken() (Babel AST surgery) to replace the arbitrary class
+     *      with the token class in the element identified by data-bridge-id.
+     *   5. Writes the updated code back via fileTransactionManager (Commandment 12).
+     *   6. Broadcasts the updated code to the renderer so editorStore re-parses.
+     *   7. Returns { ok: true } on success, { ok: false, error } on failure.
+     *
+     * Security: file path is constructed from activeProjectRoot + context.json.
+     * No user-controlled paths accepted. Path is validated to remain within home.
+     *
+     * Commandment compliance:
+     *   C12 — All disk writes via fileTransactionManager.
+     *   C13 — Babel AST traversal via snapToToken() in IngestionAuditor.ts.
+     *   C7  — data-bridge-id is never mutated.
      */
-    ipcMain.handle('import:snap-to-token', (_event, payload: unknown) => {
+    ipcMain.handle('import:snap-to-token', async (_event, payload: unknown) => {
+        // ── 1. Validate payload ───────────────────────────────────────────────
         if (
             typeof payload !== 'object' ||
             payload === null ||
@@ -2251,12 +2277,83 @@ app.whenReady().then(async () => {
             typeof (payload as Record<string, unknown>).className !== 'string' ||
             typeof (payload as Record<string, unknown>).originalClass !== 'string'
         ) {
-            return { ok: false }
+            return { ok: false, error: 'Invalid payload: missing or wrong-type fields' }
         }
-        // ING.1: acknowledge — full re-audit deferred to ING.3
+
+        const p = payload as {
+            nodeId: string
+            tokenPath: string
+            className: string
+            originalClass: string
+        }
+
+        // ── 2. Resolve active file path from context.json ─────────────────────
+        const bridgeDir = activeProjectRoot
+            ? path.join(activeProjectRoot, '.bridge')
+            : path.join(app.getPath('home'), '.bridge')
+        const contextPath = path.join(bridgeDir, 'context.json')
+
+        let activeFile: string | null = null
+        try {
+            const raw = await readFile(contextPath, 'utf8')
+            const ctx = JSON.parse(raw) as Record<string, unknown>
+            if (typeof ctx.activeFile === 'string' && ctx.activeFile.length > 0) {
+                activeFile = ctx.activeFile
+            }
+        } catch {
+            return { ok: false, error: 'Cannot read context.json — no active file available' }
+        }
+
+        if (!activeFile) {
+            return { ok: false, error: 'No active file in context.json' }
+        }
+
+        // ── 3. Security: path must stay within the user home directory ────────
+        const homePath = app.getPath('home')
+        const resolvedFile = path.resolve(activeFile)
+        if (!resolvedFile.startsWith(homePath)) {
+            return { ok: false, error: 'Active file path is outside home directory' }
+        }
+
+        // ── 4. Read file from disk ────────────────────────────────────────────
+        let currentCode: string
+        try {
+            currentCode = await readFile(resolvedFile, 'utf8')
+        } catch (err) {
+            return {
+                ok: false,
+                error: `Cannot read file: ${err instanceof Error ? err.message : String(err)}`,
+            }
+        }
+
+        // ── 5. Apply Babel AST surgery ────────────────────────────────────────
+        const snapResult = snapToToken(currentCode, p.nodeId, p.originalClass, p.className)
+        if (!snapResult.ok) {
+            return { ok: false, error: snapResult.error }
+        }
+
+        // ── 6. Write back via FileTransactionManager (Commandment 12) ─────────
+        try {
+            await fileTransactionManager.write(resolvedFile, snapResult.code)
+        } catch (err) {
+            return {
+                ok: false,
+                error: `Write failed: ${err instanceof Error ? err.message : String(err)}`,
+            }
+        }
+
+        // ── 7. Broadcast updated code to renderer ─────────────────────────────
+        const windows = BrowserWindow.getAllWindows()
+        if (windows.length > 0) {
+            windows[0].webContents.send('bridge:file-updated', {
+                filePath: resolvedFile,
+                code: snapResult.code,
+            })
+        }
+
         console.log(
-            `[Bridge] import:snap-to-token — node=${(payload as Record<string, unknown>).nodeId} ` +
-            `token=${(payload as Record<string, unknown>).tokenPath}`
+            `[Bridge] import:snap-to-token — node=${p.nodeId} ` +
+            `token=${p.tokenPath} file=${resolvedFile}`
         )
         return { ok: true }
     })
@@ -2360,16 +2457,20 @@ app.whenReady().then(async () => {
     // ── Phase P: Integrated Terminal ──────────────────────────────────────────
     let ptyProcess: IPty | null = null
 
+    // SEC.5: Maximum input size for terminal:data (8 KB).
+    const TERMINAL_INPUT_MAX_BYTES = 8192
+
     ipcMain.handle('terminal:spawn', (event, cwd: unknown) => {
         if (typeof cwd !== 'string') return
 
-        // Fix 3 (P1-3): Restrict terminal working directory to the user's home
-        // directory. This prevents a compromised renderer from spawning a shell
-        // in an arbitrary location (e.g., /etc, /tmp, outside the project root).
+        // SEC.5: Validate cwd against activeProjectRoot (preferred) or home dir
+        // (fallback). This tightens the original Fix 3 (P1-3) so that when a
+        // project is open the terminal is constrained to the project tree, not
+        // the entire home directory.
         const resolvedCwd = path.resolve(cwd)
-        const home = app.getPath('home')
-        if (resolvedCwd !== home && !resolvedCwd.startsWith(home + path.sep)) {
-            console.error(`[Bridge] terminal:spawn — rejected cwd outside home dir: ${resolvedCwd}`)
+        const allowedRoot = activeProjectRoot ?? app.getPath('home')
+        if (resolvedCwd !== allowedRoot && !resolvedCwd.startsWith(allowedRoot + path.sep)) {
+            console.error(`[Bridge] terminal:spawn — SEC.5 rejected cwd outside allowed root: ${resolvedCwd} (root: ${allowedRoot})`)
             return
         }
 
@@ -2384,7 +2485,7 @@ app.whenReady().then(async () => {
                 name: 'xterm-256color',
                 cols: 80,
                 rows: 24,
-                cwd: cwd,
+                cwd: resolvedCwd,
                 env: process.env as Record<string, string>,
             })
 
@@ -2404,8 +2505,23 @@ app.whenReady().then(async () => {
     })
 
     ipcMain.handle('terminal:data', (_event, data: unknown) => {
-        if (ptyProcess && typeof data === 'string') {
-            ptyProcess.write(data)
+        if (!ptyProcess || typeof data !== 'string') return
+
+        // SEC.5: Reject oversized input (8 KB limit).
+        if (Buffer.byteLength(data, 'utf-8') > TERMINAL_INPUT_MAX_BYTES) {
+            console.warn(`[Bridge] terminal:data — SEC.5 rejected oversized input (${Buffer.byteLength(data, 'utf-8')} bytes, limit ${TERMINAL_INPUT_MAX_BYTES})`)
+            return
+        }
+
+        // SEC.5: Strip null bytes from terminal input.
+        let sanitized = data
+        if (data.includes('\x00')) {
+            console.warn('[Bridge] terminal:data — SEC.5 stripped null bytes from input')
+            sanitized = data.replaceAll('\x00', '')
+        }
+
+        if (sanitized.length > 0) {
+            ptyProcess.write(sanitized)
         }
     })
 
@@ -2423,18 +2539,19 @@ app.whenReady().then(async () => {
     const { startIngestionServer, getServerStatus, getFigmaStatus, stopIngestionServer, setPreHealCodeCallback } = await import('./ingestion-server.js')
     // Wire the pre-heal code store (SECURITY-01: server-side storage, no renderer round-trip)
     setPreHealCodeCallback((code: string) => preHealCodeStore.set('latest', code))
-    startIngestionServer()
+
+    // SEC.2: Generate a cryptographically random per-session secret.
+    // 32 bytes = 64 hex chars = 256 bits of entropy. Regenerated on every app launch.
+    // The secret is passed directly to startIngestionServer — never via IPC, env vars,
+    // or global state. The renderer must never receive this value.
+    const ingestionSecret = randomBytes(32).toString('hex')
+    startIngestionServer(ingestionSecret)
     stopServer = stopIngestionServer
 
     ipcMain.handle('server:get-status', () => getServerStatus())
-    // Fix 1 (P0-3): Strip the webhook secret from the IPC response.
-    // The renderer only needs connection status — it must never receive the secret.
-    // The secret is used by the Figma plugin for request authentication and must
-    // remain in the main process only.
-    ipcMain.handle('figma:status', () => {
-        const { secret: _secret, ...safeStatus } = getFigmaStatus()
-        return safeStatus
-    })
+    // SEC.2: getFigmaStatus() no longer returns `secret` — removed at the source.
+    // The renderer only needs connection health data (running, port, tokenCount, lastWebhookAt).
+    ipcMain.handle('figma:status', () => getFigmaStatus())
     ipcMain.handle('figma:disconnect', () => {
         stopIngestionServer()
     })
