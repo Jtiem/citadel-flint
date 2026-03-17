@@ -198,21 +198,6 @@ export class MithrilBaselineService {
             // Clear the old baseline for this project atomically.
             deleteOld.run(projectRoot)
 
-            // If the audit is clean (empty map), insert a sentinel row so
-            // hasBaseline() returns true. A team capturing "zero violations"
-            // IS setting a baseline — they want delta mode active.
-            if (auditResults.size === 0) {
-                insertRow.run(
-                    projectRoot,
-                    snapshotId,
-                    capturedAt,
-                    '__sentinel__',
-                    '__empty_baseline__',
-                    null,
-                    null,
-                )
-            }
-
             for (const [filePath, warnings] of auditResults) {
                 const hashes: string[] = []
 
@@ -235,6 +220,20 @@ export class MithrilBaselineService {
                     violationCount: warnings.length,
                     violationHashes: hashes,
                 })
+            }
+
+            // If the map was empty, insert a sentinel row so hasBaseline()
+            // returns true — an empty baseline is still a captured baseline.
+            if (auditResults.size === 0) {
+                insertRow.run(
+                    projectRoot,
+                    snapshotId,
+                    capturedAt,
+                    '__sentinel__',
+                    '__sentinel__',
+                    null,
+                    null,
+                )
             }
         })
 
