@@ -54,6 +54,12 @@ export const BRIDGE_AUDIT_REPORT_TOOL = {
                     'Optional design token array for Mithril color/typography/spacing checks. ' +
                     'If omitted, Mithril violations will reflect the absence of token context.',
             },
+            sourceAuthority: {
+                type: 'string',
+                description:
+                    'Optional: filter violations to only include rules from this regulatory authority. ' +
+                    'Values: "WCAG 2.1 AA", "WCAG 2.2 AA", "SOC2", "FDA SaMD", "HIPAA", "Section 508", "Bridge Design System", "Custom".',
+            },
         },
         required: ['source', 'filePath'],
     },
@@ -66,6 +72,8 @@ export interface AuditReportArgs {
     filePath: string
     format?: 'json' | 'sarif'
     tokens?: DesignToken[]
+    /** Optional: filter violations to only include rules from this regulatory authority. */
+    sourceAuthority?: string
 }
 
 // ── Annotated violation shape ──────────────────────────────────────────────────
@@ -98,7 +106,7 @@ export interface AuditReportResult {
 }
 
 export function handleAuditReport(args: AuditReportArgs): AuditReportResult {
-    const { source, filePath, format = 'json', tokens = [] } = args
+    const { source, filePath, format = 'json', tokens = [], sourceAuthority } = args
 
     // Parse source with Babel
     let ast: ReturnType<typeof parse>
@@ -148,21 +156,27 @@ export function handleAuditReport(args: AuditReportArgs): AuditReportResult {
         }
     }
 
-    // Build compliance summary
+    // GOV.1: Apply optional sourceAuthority filter
+    const filtered = sourceAuthority
+        ? annotated.filter((v) => v.provenance.sourceAuthority === sourceAuthority)
+        : annotated
+
+    // Build compliance summary from filtered violations
     const summary = buildComplianceSummary(
-        annotated.map((v) => ({ ruleId: v.ruleId, severity: v.severity }))
+        filtered.map((v) => ({ ruleId: v.ruleId, severity: v.severity }))
     )
 
     if (format === 'sarif') {
-        const sarif = buildSarifOutput(filePath, annotated)
+        const sarif = buildSarifOutput(filePath, filtered)
         return { content: [{ type: 'text', text: JSON.stringify(sarif, null, 2) }] }
     }
 
     // Default: json
     const output = {
         filePath,
+        timestamp: new Date().toISOString(),
         summary,
-        violations: annotated,
+        violations: filtered,
     }
     return { content: [{ type: 'text', text: JSON.stringify(output, null, 2) }] }
 }

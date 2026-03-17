@@ -208,6 +208,8 @@ Additional tools registered via `bridge-mcp/src/tools/` modules cover governance
 | Session-Level Mutation Validation | GOV.3 | **ONLINE** |
 | Error Taxonomy + Rule Explanations (50 entries) | CX.3 | **ONLINE** |
 | Immersive Canvas (dead IDE panels removed) | U.3 | **ONLINE** |
+| Per-Agent Tool ACL (4 trust tiers, `.bridge/agent-policy.json`) | AGV.1 | **ONLINE** |
+| MRS Approval Flow (Green/Amber/Red risk tiers on tool_call chunks) | V.1 | **ONLINE** |
 
 ### Stores
 

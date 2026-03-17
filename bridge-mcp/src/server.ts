@@ -50,7 +50,8 @@ import { assessComplexity } from "./core/complexityRouter.js";
 import { enrichToolCall, enrichToolResult } from "./core/toolEnricher.js";
 import BetterSqlite3 from "better-sqlite3";
 import { MutationProvenanceService } from "./core/governance/mutationProvenanceService.js";
-import type { ProvenanceSource } from "./core/governance/types.js";
+import { OverrideTelemetryService } from "./core/governance/overrideTelemetryService.js";
+import type { ProvenanceSource, OverrideEvent } from "./core/governance/types.js";
 import { scoreMutation as mrsScoremutation } from "./core/governance/riskScoringService.js";
 import { validateSessionState } from "./core/governance/sessionValidator.js";
 import type { SessionMutation } from "./core/governance/sessionValidator.js";
@@ -79,6 +80,27 @@ function getProvenanceService(projectRoot: string): MutationProvenanceService {
     const db = new BetterSqlite3(path.join(dbDir, "provenance.db"));
     const service = new MutationProvenanceService(db);
     _provenanceServices.set(projectRoot, service);
+    return service;
+}
+
+// ---------------------------------------------------------------------------
+// Override Telemetry singleton — one OverrideTelemetryService per project root,
+// backed by a file-based SQLite database at <root>/.bridge/overrides.db
+// ---------------------------------------------------------------------------
+
+const _overrideServices = new Map<string, OverrideTelemetryService>();
+
+function getOverrideTelemetryService(projectRoot: string): OverrideTelemetryService {
+    const existing = _overrideServices.get(projectRoot);
+    if (existing !== undefined) return existing;
+
+    const dbDir = path.join(projectRoot, ".bridge");
+    if (!fs.existsSync(dbDir)) {
+        fs.mkdirSync(dbDir, { recursive: true });
+    }
+    const db = new BetterSqlite3(path.join(dbDir, "overrides.db"));
+    const service = new OverrideTelemetryService(db);
+    _overrideServices.set(projectRoot, service);
     return service;
 }
 
@@ -279,6 +301,37 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 },
             },
             {
+                name: "bridge_override_telemetry",
+                description: "Query the Override Telemetry Ledger (GOV.2). Returns override events — every governance rule bypass, disable, or severity downgrade. Supports summary (aggregate counts), by_session, and by_rule queries.",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        action: {
+                            type: "string",
+                            enum: ["summary", "by_session", "by_rule"],
+                            description: "'summary' — aggregate counts by rule + session + last 24h. 'by_session' — list overrides for a session. 'by_rule' — list overrides for a rule.",
+                        },
+                        projectRoot: {
+                            type: "string",
+                            description: "Absolute path to the project root (must contain a .bridge directory).",
+                        },
+                        sessionId: {
+                            type: "string",
+                            description: "Required for action='by_session'. Session UUID to filter by.",
+                        },
+                        ruleId: {
+                            type: "string",
+                            description: "Required for action='by_rule'. Rule ID to filter by.",
+                        },
+                        limit: {
+                            type: "number",
+                            description: "Max rows for 'by_session' and 'by_rule' (default: 100).",
+                        },
+                    },
+                    required: ["action", "projectRoot"],
+                },
+            },
+            {
                 name: "bridge_debt_report",
                 description: "Generate a project-wide design debt report — aggregated Mithril violations, A11y issues, and token drift hotspots. Returns a health score (0-100), letter grade (A-F), violation breakdown by severity/category/file, and trend tracking.",
                 inputSchema: {
@@ -435,6 +488,12 @@ server.setRequestHandler(ListResourcesRequestSchema, async () => {
                 name: "Bridge Design Bill of Materials",
                 mimeType: "application/json",
                 description: "Design Bill of Materials (DBOM) — machine-readable manifest of all design tokens, component compliance, token coverage, and governance status. Regenerated on demand; returns cached result if available."
+            },
+            {
+                uri: "bridge://overrides",
+                name: "Bridge Override Telemetry",
+                mimeType: "application/json",
+                description: "Override telemetry summary — total count, overrides by rule, by session, last 24h count, and last override timestamp. GOV.2."
             }
         ]
     };
@@ -556,6 +615,28 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
                 text: JSON.stringify(sessionCtx, null, 2),
             }]
         };
+    }
+
+    if (request.params.uri === "bridge://overrides") {
+        try {
+            const overrideSvc = getOverrideTelemetryService(projectRoot);
+            const summary = overrideSvc.getOverrideSummary(projectRoot);
+            return {
+                contents: [{
+                    uri: "bridge://overrides",
+                    mimeType: "application/json",
+                    text: JSON.stringify(summary, null, 2),
+                }]
+            };
+        } catch {
+            return {
+                contents: [{
+                    uri: "bridge://overrides",
+                    mimeType: "application/json",
+                    text: JSON.stringify({ totalOverrides: 0, byRule: [], bySession: [], last24hCount: 0, lastOverrideAt: null }, null, 2),
+                }]
+            };
+        }
     }
 
     if (request.params.uri.startsWith("bridge://violations/")) {
@@ -1263,6 +1344,43 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             } catch {
                 // Enrichment is best-effort — never block the audit result
             }
+
+            // GOV.2: Record override telemetry when audit runs with disabled rules.
+            // Fire-and-forget — never blocks the audit response.
+            try {
+                const disabledRules = bridgeConfig.policy.a11y.disabled_rules;
+                const mithrilOff = bridgeConfig.policy.mithril.mode === "off";
+                if ((disabledRules.length > 0 || mithrilOff) && auditArgs.filePath) {
+                    const ovrSvc = getOverrideTelemetryService(bridgeConfig.projectRoot);
+                    for (const ruleId of disabledRules) {
+                        ovrSvc.recordOverride({
+                            id: crypto.randomUUID(),
+                            nodeId: null,
+                            ruleId,
+                            sessionId: null,
+                            agentId: "bridge_audit",
+                            timestamp: new Date().toISOString(),
+                            projectRoot: bridgeConfig.projectRoot,
+                            reason: `Rule ${ruleId} skipped during audit of ${path.basename(auditArgs.filePath)}`,
+                        });
+                    }
+                    if (mithrilOff) {
+                        ovrSvc.recordOverride({
+                            id: crypto.randomUUID(),
+                            nodeId: null,
+                            ruleId: "MITHRIL-ALL",
+                            sessionId: null,
+                            agentId: "bridge_audit",
+                            timestamp: new Date().toISOString(),
+                            projectRoot: bridgeConfig.projectRoot,
+                            reason: `Mithril linting disabled during audit of ${path.basename(auditArgs.filePath)}`,
+                        });
+                    }
+                }
+            } catch {
+                // Override telemetry is best-effort — never block audit result
+            }
+
             return {
                 content: [{ type: "text", text: enrichedAuditText }],
             };
@@ -1306,6 +1424,28 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                     );
                 } catch {
                     // Provenance recording is best-effort — never block fix result
+                }
+            }
+
+            // GOV.2: Record override telemetry when bridge_fix applies token corrections.
+            // Each fix represents an override of the design system that was corrected.
+            // Fire-and-forget — never blocks the fix response.
+            if (fixResult.fixesApplied > 0) {
+                try {
+                    const fixProjectRoot = findProjectRoot(fixArgs.filePath) ?? bridgeConfig.projectRoot;
+                    const ovrSvc = getOverrideTelemetryService(fixProjectRoot);
+                    ovrSvc.recordOverride({
+                        id: crypto.randomUUID(),
+                        nodeId: null,
+                        ruleId: "MITHRIL-TOKEN-DRIFT",
+                        sessionId: null,
+                        agentId: "bridge_fix",
+                        timestamp: new Date().toISOString(),
+                        projectRoot: fixProjectRoot,
+                        reason: `${fixResult.fixesApplied} token override(s) corrected in ${path.basename(fixArgs.filePath)}${fixArgs.dryRun ? " (dry run)" : ""}`,
+                    });
+                } catch {
+                    // Override telemetry is best-effort — never block fix result
                 }
             }
 
@@ -1358,12 +1498,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 filePath: string;
                 format?: "json" | "sarif";
                 tokens?: unknown[];
+                sourceAuthority?: string;
             };
             const result = handleAuditReport({
                 source: auditReportArgs.source,
                 filePath: auditReportArgs.filePath,
                 format: auditReportArgs.format,
                 tokens: auditReportArgs.tokens as any,
+                sourceAuthority: auditReportArgs.sourceAuthority,
             });
             return result;
         }
@@ -1434,6 +1576,49 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                     const merged = mergePolicy(projectRoot, policyUpdate);
                     // Reload into active config so subsequent audits use new thresholds
                     bridgeConfig = loadConfig(projectRoot);
+
+                    // GOV.2: Record override telemetry for disabled rules in policy update.
+                    // Fire-and-forget — never blocks the policy update response.
+                    try {
+                        const ovrSvc = getOverrideTelemetryService(projectRoot);
+                        const disabledA11yRules = (policyUpdate as Record<string, unknown>).a11y &&
+                            typeof (policyUpdate as Record<string, unknown>).a11y === "object" &&
+                            Array.isArray(((policyUpdate as Record<string, unknown>).a11y as Record<string, unknown>).disabled_rules)
+                            ? ((policyUpdate as Record<string, unknown>).a11y as Record<string, unknown>).disabled_rules as string[]
+                            : [];
+                        for (const ruleId of disabledA11yRules) {
+                            ovrSvc.recordOverride({
+                                id: crypto.randomUUID(),
+                                nodeId: null,
+                                ruleId,
+                                sessionId: null,
+                                agentId: "bridge_set_policy",
+                                timestamp: new Date().toISOString(),
+                                projectRoot,
+                                reason: `Rule ${ruleId} disabled via policy update`,
+                            });
+                        }
+                        // Track Mithril mode changes as overrides
+                        const mithrilUpdate = (policyUpdate as Record<string, unknown>).mithril;
+                        if (mithrilUpdate && typeof mithrilUpdate === "object" && "mode" in (mithrilUpdate as Record<string, unknown>)) {
+                            const mode = (mithrilUpdate as Record<string, string>).mode;
+                            if (mode === "off" || mode === "advisory") {
+                                ovrSvc.recordOverride({
+                                    id: crypto.randomUUID(),
+                                    nodeId: null,
+                                    ruleId: "MITHRIL-ALL",
+                                    sessionId: null,
+                                    agentId: "bridge_set_policy",
+                                    timestamp: new Date().toISOString(),
+                                    projectRoot,
+                                    reason: `Mithril mode changed to '${mode}' via policy update`,
+                                });
+                            }
+                        }
+                    } catch {
+                        // Override telemetry is best-effort — never block policy update
+                    }
+
                     return {
                         content: [{
                             type: "text",
@@ -1586,6 +1771,85 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                         content: [{
                             type: "text",
                             text: `bridge_mutation_provenance: unknown action '${(provArgs as { action: string }).action}'. Must be 'summary', 'audit_trail', or 'by_source'.`,
+                        }],
+                    };
+                }
+            }
+        }
+
+        case "bridge_override_telemetry": {
+            const ovrArgs = request.params.arguments as {
+                action: "summary" | "by_session" | "by_rule";
+                projectRoot: string;
+                sessionId?: string;
+                ruleId?: string;
+                limit?: number;
+            };
+
+            if (!ovrArgs.projectRoot || !fs.existsSync(ovrArgs.projectRoot)) {
+                return {
+                    isError: true,
+                    content: [{
+                        type: "text",
+                        text: "bridge_override_telemetry: 'projectRoot' must be an existing directory.",
+                    }],
+                };
+            }
+
+            const ovrSvc = getOverrideTelemetryService(ovrArgs.projectRoot);
+
+            switch (ovrArgs.action) {
+                case "summary": {
+                    const summary = ovrSvc.getOverrideSummary(ovrArgs.projectRoot);
+                    return {
+                        content: [{ type: "text", text: JSON.stringify(summary, null, 2) }],
+                    };
+                }
+
+                case "by_session": {
+                    if (!ovrArgs.sessionId) {
+                        return {
+                            isError: true,
+                            content: [{
+                                type: "text",
+                                text: "bridge_override_telemetry: action='by_session' requires 'sessionId'.",
+                            }],
+                        };
+                    }
+                    const sessionOverrides = ovrSvc.getOverridesBySession(
+                        ovrArgs.sessionId,
+                        ovrArgs.limit ?? 100,
+                    );
+                    return {
+                        content: [{ type: "text", text: JSON.stringify(sessionOverrides, null, 2) }],
+                    };
+                }
+
+                case "by_rule": {
+                    if (!ovrArgs.ruleId) {
+                        return {
+                            isError: true,
+                            content: [{
+                                type: "text",
+                                text: "bridge_override_telemetry: action='by_rule' requires 'ruleId'.",
+                            }],
+                        };
+                    }
+                    const ruleOverrides = ovrSvc.getOverridesByRule(
+                        ovrArgs.ruleId,
+                        ovrArgs.limit ?? 100,
+                    );
+                    return {
+                        content: [{ type: "text", text: JSON.stringify(ruleOverrides, null, 2) }],
+                    };
+                }
+
+                default: {
+                    return {
+                        isError: true,
+                        content: [{
+                            type: "text",
+                            text: `bridge_override_telemetry: unknown action '${(ovrArgs as { action: string }).action}'. Must be 'summary', 'by_session', or 'by_rule'.`,
                         }],
                     };
                 }

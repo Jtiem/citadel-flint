@@ -15,6 +15,8 @@ import path from 'node:path'
 import { loadProjectContext } from '../core/projectContext.js'
 import type { ProjectContext } from '../core/projectContext.js'
 import { getErrorEntryByRuleId } from '../core/errorTaxonomy.js'
+import { resolveProvenance } from '../core/governance/ruleProvenanceRegistry.js'
+import type { RuleProvenance } from '../core/governance/types.js'
 
 export type { ProjectContext }
 
@@ -88,6 +90,8 @@ export interface AuditResult {
         explanation?: string
         /** Actionable recovery steps. Populated by CX.3 errorTaxonomy. */
         recovery?: string
+        /** GOV.1: Rule provenance metadata — sourceAuthority, regulatoryReference, rationale. */
+        provenance?: RuleProvenance
     }>
     mithrilCount: number
     a11yCount: number
@@ -240,6 +244,8 @@ export async function handleBridgeAudit(
             const recovery = w.recovery ?? getErrorEntryByRuleId(w.ruleId ?? '')?.recovery
             if (explanation !== undefined) violation.explanation = explanation
             if (recovery !== undefined) violation.recovery = recovery
+            // GOV.1: attach provenance metadata
+            violation.provenance = resolveProvenance(w.ruleId ?? 'MITHRIL-UNKNOWN')
             violations.push(violation)
         }
     }
@@ -271,6 +277,8 @@ export async function handleBridgeAudit(
                     a11yViolation.explanation = a11yEntry.explanation
                     a11yViolation.recovery = a11yEntry.recovery
                 }
+                // GOV.1: attach provenance metadata
+                a11yViolation.provenance = resolveProvenance(ruleId)
                 violations.push(a11yViolation)
             }
         }

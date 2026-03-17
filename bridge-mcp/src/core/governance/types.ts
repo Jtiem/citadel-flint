@@ -18,6 +18,7 @@ export type SourceAuthority =
     | 'SOC2'
     | 'FDA SaMD'
     | 'HIPAA'
+    | 'Section 508'
     | 'Bridge Design System'
     | 'Custom'
 
@@ -55,6 +56,60 @@ export interface ComplianceSummary {
     violatedRules: RuleProvenance[]
     /** ISO 8601 timestamp when this summary was generated. */
     generatedAt: string
+}
+
+/**
+ * Rule category for filtering provenance entries.
+ * Maps to the linter domain that owns the rule.
+ */
+export type RuleCategory =
+    | 'color'
+    | 'typography'
+    | 'spacing'
+    | 'shadow'
+    | 'opacity'
+    | 'names-labels'
+    | 'keyboard'
+    | 'structure'
+    | 'aria'
+    | 'landmarks'
+    | 'contrast'
+    | 'forms'
+    | 'export-gate'
+    | 'custom'
+
+/**
+ * Extended RuleProvenance with category for filtering.
+ * Used by the provenance registry query API.
+ */
+export interface RuleProvenanceEntry extends RuleProvenance {
+    /** Linter domain category for filtering. */
+    category: RuleCategory
+    /** Default severity assigned by the rule definition. */
+    defaultSeverity: 'critical' | 'warning' | 'info'
+    /** Brief human-readable description of what the rule checks. */
+    description: string
+}
+
+/**
+ * Full structured audit report returned by bridge_audit_report.
+ * Includes file path, provenance-annotated violations, and compliance summary.
+ */
+export interface AuditReport {
+    /** Absolute path to the audited file. */
+    filePath: string
+    /** ISO 8601 timestamp when this report was generated. */
+    timestamp: string
+    /** Provenance-annotated violations. */
+    violations: Array<{
+        bridgeId: string
+        ruleId: string
+        message: string
+        severity: string
+        provenance: RuleProvenance
+    }>
+    /** Aggregated compliance summary. */
+    complianceSummary: ComplianceSummary
 }
 
 export interface GovernanceEvent {
@@ -387,4 +442,48 @@ export interface RiskScoringInput {
      * When omitted, familiarity factor defaults to 0.1 (neutral).
      */
     projectRoot?: string
+}
+
+// ── GOV.2: Override Telemetry types ────────────────────────────────────────────
+
+/**
+ * A single override event captured when a governance rule is bypassed,
+ * disabled, or severity-downgraded.
+ *
+ * Stored in the `override_events` SQLite table (GOV.2).
+ */
+export interface OverrideEvent {
+    /** UUID primary key. */
+    id: string
+    /** The data-bridge-id of the affected node, if applicable. */
+    nodeId: string | null
+    /** The governance rule that was overridden (e.g. 'CLR-001', 'A11Y-003'). */
+    ruleId: string
+    /** Session UUID for the session in which the override occurred. */
+    sessionId: string | null
+    /** Agent or actor identifier that performed the override. */
+    agentId: string | null
+    /** ISO 8601 UTC timestamp when the override was recorded. */
+    timestamp: string
+    /** Absolute path to the project root for scoping. */
+    projectRoot: string
+    /** Human-readable reason for the override, if provided. */
+    reason: string | null
+}
+
+/**
+ * Aggregate summary of override telemetry for a project.
+ * Returned by OverrideTelemetryService.getOverrideSummary().
+ */
+export interface OverrideSummary {
+    /** Total override events in the database for this project. */
+    totalOverrides: number
+    /** Override count grouped by rule ID (top 10 by count). */
+    byRule: Array<{ ruleId: string; count: number }>
+    /** Override count grouped by session ID (top 10 by count). */
+    bySession: Array<{ sessionId: string; count: number }>
+    /** Overrides recorded in the last 24 hours. */
+    last24hCount: number
+    /** ISO 8601 timestamp of the most recent override, or null if none exist. */
+    lastOverrideAt: string | null
 }
