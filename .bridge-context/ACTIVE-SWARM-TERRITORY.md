@@ -30,4 +30,42 @@
 
 ---
 
-*(No active claims. Cleared 2026-03-16 after Sprint 2 review.)*
+## Swarm: Sprint 3 — AGV.1 + V.1 Orchestrator Wiring
+
+**Status:** IN PROGRESS
+
+### Files to CREATE
+| File | Purpose |
+|------|---------|
+| `electron/agentPolicy.ts` | AGV.1: Per-agent ACL registry + permission checks |
+| `electron/__tests__/agentPolicy.test.ts` | AGV.1 tests |
+
+### Files to MODIFY
+| File | What changes |
+|------|-------------|
+| `electron/mcp-policy.ts` | AGV.1: Extend allowlist to per-agent model |
+| `electron/orchestrator.ts` | V.1: Wire MRS Green/Amber/Red tiers into mutation approval flow |
+
+### Files NOT touched
+- `bridge-mcp/src/server.ts` — CX.3 territory
+- `bridge-mcp/src/tools/*` — CX.3 territory
+
+---
+
+## Swarm: CX.3 — Error Taxonomy + Rule Explanations
+
+**Status:** IN PROGRESS
+
+### Files to CREATE
+| File | Purpose |
+|------|---------|
+| `bridge-mcp/src/core/errorCodes.ts` | Structured error codes, descriptions, recovery instructions |
+| `bridge-mcp/src/__tests__/errorCodes.test.ts` | Error taxonomy tests |
+
+### Files to MODIFY
+| File | What changes |
+|------|-------------|
+| `bridge-mcp/src/core/MithrilLinter.ts` | Add `explanation` field to each rule |
+| `bridge-mcp/src/core/A11yLinter.ts` | Add `explanation` field to each rule |
+| `bridge-mcp/src/tools/audit.ts` | Surface `explanation` in violation output; use error taxonomy on failures |
+| `bridge-mcp/src/server.ts` | Use error taxonomy on tool-level failures |

@@ -14,6 +14,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { loadProjectContext } from '../core/projectContext.js'
 import type { ProjectContext } from '../core/projectContext.js'
+import { getErrorEntryByRuleId } from '../core/errorTaxonomy.js'
 
 export type { ProjectContext }
 
@@ -83,6 +84,10 @@ export interface AuditResult {
         severity: string
         message: string
         type: string
+        /** Plain-language explanation of why this rule exists. Populated by CX.3 errorTaxonomy. */
+        explanation?: string
+        /** Actionable recovery steps. Populated by CX.3 errorTaxonomy. */
+        recovery?: string
     }>
     mithrilCount: number
     a11yCount: number
@@ -223,13 +228,19 @@ export async function handleBridgeAudit(
         )
         mithrilCount = mithrilWarnings.size
         for (const [id, w] of mithrilWarnings) {
-            violations.push({
+            const violation: AuditResult['violations'][number] = {
                 id,
                 ruleId: w.ruleId ?? 'MITHRIL-UNKNOWN',
                 severity: w.severity,
                 message: w.message,
                 type: w.type,
-            })
+            }
+            // CX.3: attach explanation/recovery from LinterWarning (populated by taxonomyFields) or taxonomy lookup
+            const explanation = w.explanation ?? getErrorEntryByRuleId(w.ruleId ?? '')?.explanation
+            const recovery = w.recovery ?? getErrorEntryByRuleId(w.ruleId ?? '')?.recovery
+            if (explanation !== undefined) violation.explanation = explanation
+            if (recovery !== undefined) violation.recovery = recovery
+            violations.push(violation)
         }
     }
 
@@ -247,13 +258,20 @@ export async function handleBridgeAudit(
                 if (policy.a11y.disabled_rules.includes(ruleId)) continue
 
                 a11yCount++
-                violations.push({
+                const a11yViolation: AuditResult['violations'][number] = {
                     id,
                     ruleId,
                     severity: 'critical',
                     message: msg,
                     type: 'a11y',
-                })
+                }
+                // CX.3: attach explanation/recovery from error taxonomy
+                const a11yEntry = getErrorEntryByRuleId(ruleId)
+                if (a11yEntry !== null) {
+                    a11yViolation.explanation = a11yEntry.explanation
+                    a11yViolation.recovery = a11yEntry.recovery
+                }
+                violations.push(a11yViolation)
             }
         }
     }
