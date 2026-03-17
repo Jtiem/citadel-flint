@@ -63,7 +63,7 @@ Any feature crossing this boundary needs an IPC channel via `contextBridge`.
 
 ## MCP Surface
 
-### Tools (13 registered)
+### Tools (17 registered)
 
 Primary tools (see `bridge-mcp/src/server.ts` for the full catalog):
 
@@ -73,26 +73,31 @@ Primary tools (see `bridge-mcp/src/server.ts` for the full catalog):
 | `audit_ui_component` | Run Mithril + A11y audit on a component file |
 | `hydrate_figma_data` | Convert Figma AST payload into React component snippets |
 | `read_design_intent` | Read `.bridge/current-intent.json` and return typed Execution Plan |
-| `bridge_ast_mutate` | Apply batched structural mutations (move, inject, fixToken, updateProp, updateClassName, updateTextContent, assembleLayout) |
+| `bridge_ast_mutate` | Apply batched structural mutations with MRS risk scoring + dry_run support |
 | `bridge_query_registry` | Semantic + keyword search over component registry; returns Shadow Storybook artifact |
 | `bridge_audit` | Full governance audit with SARIF output; optional `healOnAudit` for tier-1 auto-fix |
-| `bridge_fix` | Deterministic auto-fix for token violations |
+| `bridge_fix` | Deterministic auto-fix for token violations; supports `dry_run` |
 | `bridge_ingest_figma` | Figma ingestion pipeline |
 | `bridge_sync_tokens` | Token synchronization |
 | `bridge_debt_report` | Design debt health score (0-100), grade (A-F), trend tracking |
+| `bridge_plan` | Structured execution plan for multi-step agent tasks |
+| `bridge_mutation_provenance` | Query provenance ledger (summary, audit_trail, by_source) |
+| `bridge_override_telemetry` | Query override events (summary, by_session, by_rule) |
+| `bridge_audit_report` | Compliance audit report with rule provenance + sourceAuthority filter |
 
 Additional tools registered via `bridge-mcp/src/tools/` modules cover governance events, mutation ledger, annotations, and CI/CD gate operations.
 
-### Resources (6 registered)
+### Resources (7 registered)
 
 | URI | What it exposes |
 |-----|----------------|
 | `bridge://tokens` | Current design tokens from `.bridge/design-tokens.json` |
 | `bridge://manifest` | Project architecture manifest (`bridge-manifest.json`) |
 | `bridge://rules` | All loaded governance rules, grouped by domain |
-| `bridge://violations/{filePath}` | Live governance audit for a specific file |
+| `bridge://violations/{filePath}` | Live governance audit for a specific file (with rule provenance) |
 | `bridge://capabilities` | Full MCP surface inventory (tools, resources, prompts) for agent self-discovery |
 | `bridge://dashboard` | Design debt health score, grade, top violated files/rules, override telemetry |
+| `bridge://overrides` | Current override count and summary by rule/session |
 
 ### Prompts (3 registered)
 
@@ -210,6 +215,8 @@ Additional tools registered via `bridge-mcp/src/tools/` modules cover governance
 | Immersive Canvas (dead IDE panels removed) | U.3 | **ONLINE** |
 | Per-Agent Tool ACL (4 trust tiers, `.bridge/agent-policy.json`) | AGV.1 | **ONLINE** |
 | MRS Approval Flow (Green/Amber/Red risk tiers on tool_call chunks) | V.1 | **ONLINE** |
+| Auto-Escalation Rules (4 default rules, session-scoped) | AGV.3 | **ONLINE** |
+| Mithril Delta Mode (baseline snapshots, delta-only audit) | MDA.1 | **ONLINE** |
 
 ### Stores
 

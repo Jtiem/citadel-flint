@@ -2,7 +2,7 @@
 
 **Date:** 2026-03-16
 **Architecture:** Bridge MCP (headless governance engine) + Bridge Glass (Electron observability layer)
-**Test baseline:** 496/496 Glass tests (32 files) + 614/614 Core tests (23 files) + 1,158/1,158 MCP tests (43 files) = 2,268 total -- TSC 0 errors
+**Test baseline:** 498/498 Glass tests + 775/775 Core tests + 1,372/1,372 MCP tests = 2,645 total -- TSC 0 errors
 *(Note: `bridge-mcp/src/tests/project-scaffold.test.ts` has a pre-existing env failure — missing template dir at `/Users/tiemann/electron/templates/`. Not caused by ING work.)*
 
 ---
@@ -227,24 +227,29 @@ MCP connection config (add to `~/.claude/mcp.json`):
 
 See `docs/BRIDGE-MASTER-PLAN.md` Section 3 for the full module table. All phases through COLLAB.4 are online and tested.
 
-**Active work streams (2026-03-16):**
-- **Phase GOV.1 — Rule Provenance (IN PROGRESS 2026-03-16):** Expanding ruleProvenanceRegistry with all 30 EXP.6a A11y rules (A11Y-011..073), adding query functions (getProvenance, getAllProvenance, getByAuthority, getByCategory), attaching provenance to bridge_audit / audit_ui_component / bridge://violations output, adding sourceAuthority filter to bridge_audit_report. Files: ruleProvenanceRegistry.ts, types.ts, audit.ts, server.ts, auditReport.ts.
-- **Phase V.1-rs — Mutation Risk Scoring / MRS (COMPLETE 2026-03-16):** Stateless `scoreMutation(input: RiskScoringInput): MutationRiskScore` function-based API added to `bridge-mcp/src/core/governance/riskScoringService.ts` alongside the existing DB-backed `RiskScoringService` class. New types `MRSTier`, `MRSFactor`, `MutationRiskScore`, `RiskScoringInput` added to `bridge-mcp/src/core/governance/types.ts`. `scoreMutation` wired into `bridge_ast_mutate` handler in `server.ts` — MRS appended as a `riskScore` JSON block in the mutation response. 51 unit tests in `bridge-mcp/src/core/governance/__tests__/riskScoringService.test.ts` + 16 integration tests appended to `bridge-mcp/src/__tests__/riskScoring.test.ts`. MCP: 1084/1084 passing (67 new), TSC: 0 errors.
-- **Phase V.2-mp — Mutation Provenance Ledger (COMPLETE 2026-03-16):** `MutationProvenanceService` (`bridge-mcp/src/core/governance/mutationProvenanceService.ts`), provenance types in `bridge-mcp/src/core/governance/types.ts`, `bridge_mutation_provenance` MCP tool registered in `server.ts`, provenance recording wired into `bridge_ast_mutate` (source='agent') and `bridge_fix` (source='auto-fix') handlers. SQLite backed at `.bridge/provenance.db`. 41 new tests in `bridge-mcp/src/__tests__/mutationProvenance.test.ts`. MCP: 903/903 passing, TSC: 0 errors. Unblocks V.1-rs (Risk Scoring).
-- **Phase CX.1 — Response Quality Baseline (COMPLETE 2026-03-16):** See Recent Changes above.
-- **Phase CX.2 — bridge_plan (COMPLETE 2026-03-16):** `planService.ts` + `plan.ts` + tests shipped + server.ts registration wired (`BRIDGE_PLAN_TOOL` in ListTools, `case 'bridge_plan'` in CallTool). `bridge_plan` is live in the MCP surface.
-- **Sprint 2 Security (COMPLETE 2026-03-16):** SEC.1 (iframe sandbox + CSP), SEC.2 (per-session secret, strip from renderer), SEC.3 (MCP tool allowlist), P0-4 (Anthropic-only provider guard). New files: `electron/mcp-policy.ts`. Modified: `electron/main.ts`, `electron/ingestion-server.ts`, `electron/preload.ts`, `electron/orchestrator.ts`, `src/components/editor/LivePreview.tsx`, `src/types/bridge-api.d.ts`, `src/components/editor/StatusBar.tsx`, `src/components/ui/FigmaSetupWizard.tsx`. 54 new tests. Core: 527/527, Glass: 496/496, MCP: 903/903, TSC: 0 errors.
+**Sprint 3 — Risk + Chat Quality (COMPLETE 2026-03-16):**
+- **GOV.1 — Rule Provenance (COMPLETE):** Static provenance registry mapping all 40 governance rules to compliance authorities (WCAG 2.1 AA, SOC2, FDA SaMD, Section 508). Provenance attached to `bridge_audit` and `audit_ui_component` violations. `bridge_audit_report` extended with `sourceAuthority` filter and compliance summary. 50 tests.
+- **GOV.2 — Override Telemetry (COMPLETE):** SQLite-backed `override_events` table. `OverrideTelemetryService` with record, query by session/rule, summary, pruning. `bridge_override_telemetry` MCP tool (summary/by_session/by_rule). `bridge://overrides` resource. Fire-and-forget recording wired into audit/fix. 33 tests.
+- **V.1 — Risk Scoring Approval Flow (COMPLETE):** MRS Green/Amber/Red tiers wired into orchestrator mutation approval. Green auto-approves, Amber requires human review, Red requires senior sign-off. Policy floors enforce minimum tiers for structural/destructive ops. `requiresReview`/`requiresSignoff` annotated on tool_call chunks. 47 tests.
+- **AGV.1 — Per-Agent Tool ACL (COMPLETE):** Deny-by-default per-agent permission model extending SEC.3 renderer allowlist. Tier hierarchy (untrusted/standard/trusted/admin). Rate limiting per session. `agentPolicy.ts` + `mcp-policy.ts` unified `checkToolAccess`. 74 tests.
+- **AGV.3 — Agent Auto-Escalation (COMPLETE):** Configurable escalation rules engine with session-scoped tracking. 4 default rules (red count, amber count, avg risk, velocity). Rule deduplication. `agentEscalation.ts`. Note: not yet wired into orchestrator — infrastructure ready. 74 tests.
+- **CX.1 — Response Quality Baseline (COMPLETE):** `summary` + `project_context` on all tool responses. `dry_run` flag on `bridge_ast_mutate` and `bridge_fix`. MCP `initialize` onboarding pointer. 76 tests.
+- **CX.3 — Error Taxonomy (COMPLETE):** Structured `BRIDGE-ERR-001..010` error codes with descriptions and recovery instructions. `explanation` field on Mithril and A11y rules. `errorCodes.ts` + `errorTaxonomy.ts`.
+- **MDA.1 — Mithril Delta Mode (COMPLETE):** Baseline snapshotting with SHA-256 violation hashing. Per-project baselines. `auditDelta` suppresses known violations. Sentinel row for empty baselines. 39 tests.
+- **SEC.4-6 (COMPLETE):** SEC.4 safeStorage API key encryption, SEC.5 terminal cwd/input hardening, SEC.6 ingestion rate limiting.
+- **U.3 — Immersive Canvas (COMPLETE):** Removed CodeEditor, CodeEditorPanel, TerminalPanel. Recovers ~40% vertical real estate.
+- **ING.3 — healOnAudit Integration Tests (COMPLETE):** 17 tests covering happy path, backward compat, zero-token edge case.
+- **Security fix:** Closed agent ID spoofing vector in `main.ts` — renderer always identified as `'renderer'`, never trusts `_agentId` from IPC args.
+- **`/review` command:** Automated pre-commit code review gate (`.claude/commands/review.md`). Domain-aware parallel `bridge-code-reviewer` agents. Wired into Contract-First workflow between Phase 2 and Phase 3.
 
-- **Phase ACX — Proactive Agent Context (COMPLETE 2026-03-16):** Eliminates 3-4 cold-start round-trips for AI agents connecting to Bridge. Five sub-phases: ACX.1 (`bridge://session-context` resource + `bridge_get_context` tool + sentinel prompt with 6 domain presets), ACX.2 (ContextPushManager — fs.watch delta events, 5 significance dimensions), ACX.3 (tool enrichment — Babel AST node context prepended to mutation/audit results, < 20ms), ACX.4 (complexity router — 3-tier model selection in < 10ms, integrated in orchestrator.ts), ACX.5 (fixed broken syncContext IPC pipeline, extended BridgeContext with health/override/import fields). 184 new tests. MCP: 829/829, Glass: 458/458, Core: 411/411.
-- **Test Coverage Remediation (COMPLETE 2026-03-15):** Journey map audit revealed 38% step coverage with 35 broken tests. P0: fixed 35 broken Glass tests. P1: 6 critical gaps closed (App mount gate, open project chain, workspace audit, undo controller, canvas selection, C15/C16 orchestrator safety). P2: 3 pipeline gaps (Figma normalization, cross-file undo, external file re-audit). Total: 570+ new tests. Coverage: 38% → 83% journey steps.
-- **Prioritized Backlog:** See `docs/strategy/BACKLOG-PRIORITIZED.md` — 33 items across 7 sprints, including new Agent-Aware Governance (AGV) track for per-agent ACL, risk dashboard, auto-escalation, and trust tiers.
+**Previously completed:**
+- V.1-rs (MRS stateless scorer), V.2-mp (Mutation Provenance Ledger), CX.2 (bridge_plan), Sprint 2 Security (SEC.1-3, P0-4), Phase ACX (Proactive Agent Context), Phase ING (Ingestion Auto-Heal), JTBD Waves 1-3, INFRA.1-2, EXP.2 (Debt Report), GOV.3 (Session Validation), Test Coverage Remediation.
+- **Contract-First Feature Build:** Mandatory 3-phase workflow. See `.claude/workflows/feature-build.md`.
 
-**Previously active (2026-03-16):**
-- **Phase ING (Ingestion-Time Audit & Auto-Heal):** COMPLETE. See Recent Changes above.
-- **JTBD Gap-Fill Waves 1-3:** COMPLETE. Activity Feed upgrade, Figma status, Ghost Canvas, MCP discoverability, Annotation rendering, Governance Dashboard, MCP Push Channel (W.1), Bidirectional Action Bridge (W.3). JTBD score 8.4.
-- **INFRA.1 + INFRA.2:** DONE. Governance Events + Mutations Ledger SQLite tables in `bridge-mcp/src/core/governance/`. Foundation for GOV.1-4, risk scoring, anomaly detection.
-- **EXP.2:** DONE. Design Debt Report — `bridge_debt_report` MCP tool + `bridge://dashboard` resource. Health score 0-100, grade A-F, trend tracking via `.bridge/debt-history.json`.
-- **Next sprint (Sprint 3 — Risk + Chat Quality):** SEC.4 (API Key Safe Storage), CX.3 (Error Taxonomy), V.1 (Full Risk Scoring flow), SEC.5 (Terminal Hardening), ING.3 (healOnAudit tests), GOV.2 (Override Telemetry), U.3 (Immersive Canvas), SEC.6 (Ingestion Rate Limiting). See `docs/strategy/BACKLOG-PRIORITIZED.md`.
-- **Contract-First Feature Build:** Mandatory 3-phase workflow for multi-file features. See `.claude/workflows/feature-build.md`.
+**Architectural gaps to wire (Sprint 4):**
+1. `loadAgentPolicy` not called from `main.ts` — per-project policy files are dead code at runtime
+2. `escalationEngine` not imported by `orchestrator.ts` — AGV.3 auto-escalation is inert
+3. `computeMRS` always uses `affectedNodes=1` — blast radius factor underutilized
+4. Duplicated MRS formula in `riskApproval.test.ts` — no sync enforcement with `orchestrator.ts`
 
 **Note:** Master Plan uses V.1 (Risk Scoring) and V.2 (Mutation Provenance). JTBD plan uses V.1-gd (Governance Dashboard) and V.2-af (Activity Feed). These are different features — use full phase codes to avoid confusion.
