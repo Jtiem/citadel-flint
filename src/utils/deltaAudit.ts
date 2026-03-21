@@ -11,10 +11,10 @@
  * so the list passed here is already scoped to the active file.
  *
  * This function is pure — no IPC, no SQLite. The caller is responsible for
- * fetching baseline entries via window.bridgeAPI.baseline.get(filePath).
+ * fetching baseline entries via window.flintAPI.baseline.get(filePath).
  */
 
-import type { LinterWarning, BaselineEntry } from '../types/bridge-api'
+import type { LinterWarning, BaselineEntry } from '../types/flint-api'
 
 /**
  * Returns only the violations from `currentViolations` that are NOT present
@@ -22,9 +22,9 @@ import type { LinterWarning, BaselineEntry } from '../types/bridge-api'
  * exists with a matching (node_id, rule_id) composite key.
  *
  * @param currentViolations — Full set of violations from the current audit.
- *   Each entry must have `id` (data-bridge-id, used as node_id) and a rule id
+ *   Each entry must have `id` (data-flint-id, used as node_id) and a rule id
  *   embedded in `message` or carried via the `ruleId` field on the extended type.
- *   In Bridge's LinterWarning the rule identifier is the violation `type`
+ *   In Flint's LinterWarning the rule identifier is the violation `type`
  *   (e.g. 'color-drift', 'a11y') — the composite key is (id, type).
  * @param baseline — Rows returned by baseline:get(filePath).
  */

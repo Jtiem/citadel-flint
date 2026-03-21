@@ -1,0 +1,78 @@
+{
+  "name": "flint-vscode",
+  "displayName": "Flint Governance",
+  "description": "Flint governance audits in VS Code -- amber squiggles for design drift, hover text with Delta-E scores, quick-fix code actions.",
+  "version": "0.1.0",
+  "publisher": "flint-dev",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "icon": "images/icon.png",
+  "categories": [
+    "Linters",
+    "Other"
+  ],
+  "activationEvents": [
+    "workspaceContains:flint-manifest.json",
+    "workspaceContains:.flint"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "typescriptreact",
+        "extensions": [".tsx"]
+      },
+      {
+        "id": "javascriptreact",
+        "extensions": [".jsx"]
+      },
+      {
+        "id": "typescript",
+        "extensions": [".ts"]
+      },
+      {
+        "id": "javascript",
+        "extensions": [".js"]
+      }
+    ],
+    "commands": [
+      {
+        "command": "flint.auditFile",
+        "title": "Flint: Audit Current File"
+      },
+      {
+        "command": "flint.auditWorkspace",
+        "title": "Flint: Audit Workspace"
+      }
+    ],
+    "configuration": {
+      "title": "Flint Governance",
+      "properties": {
+        "flint.serverPath": {
+          "type": "string",
+          "default": "",
+          "description": "Custom path to the Flint MCP server entry point (server.js). Leave empty to auto-detect from workspace."
+        },
+        "flint.autoAuditOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically run Flint audit when a file is saved."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "watch": "tsc -p tsconfig.json --watch",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.0.0"
+  }
+}

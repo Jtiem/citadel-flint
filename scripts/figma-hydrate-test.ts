@@ -5,7 +5,7 @@ import generate from '@babel/generator'
 
 // Load Mock Files
 const figmaJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'mock-figma-export.json'), 'utf8'))
-const manifest = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'bridge-manifest.json'), 'utf8')).components
+const manifest = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'flint-manifest.json'), 'utf8')).components
 
 function generateJsxElement(nodeData: any): t.JSXElement {
     const componentDef = manifest[nodeData.figmaComponent]
@@ -63,7 +63,7 @@ function generateJsxElement(nodeData: any): t.JSXElement {
 }
 
 function processFigmaToAST() {
-    console.log(`🚀 Bridge Hydrator: Processing Screen [${figmaJson.screenName}]`)
+    console.log(`🚀 Flint Hydrator: Processing Screen [${figmaJson.screenName}]`)
 
     // 1. Collect all necessary imports
     const requiredImports = new Set<string>()

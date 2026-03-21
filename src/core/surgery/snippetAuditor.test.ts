@@ -5,17 +5,17 @@
  *
  * Four adversarial stress categories:
  *   1. Nested Shadow  — nested .map() must get unique index names (no shadowing)
- *   2. Fragment Chaos — fragment roots must not receive data-bridge-id (no crash)
+ *   2. Fragment Chaos — fragment roots must not receive data-flint-id (no crash)
  *   3. Precision Threshold — ΔE just below 2.0 (auto-fix) vs. just above (throw)
  *   4. Idempotency    — running the auditor twice must produce a 1:1 string match
  *
- * All tests are pure/headless: no React, no Electron IPC, no window.bridgeAPI.
+ * All tests are pure/headless: no React, no Electron IPC, no window.flintAPI.
  */
 
 import { describe, it, expect } from 'vitest'
 import { auditSnippet, MithrilViolationError } from './snippetAuditor'
 import { findClosestToken } from '../../utils/tokenMatcher'
-import type { DesignToken } from '../../types/bridge-api'
+import type { DesignToken } from '../../types/flint-api'
 
 // ── Token factory ─────────────────────────────────────────────────────────────
 
@@ -53,9 +53,9 @@ const List = () => items.map((item) => (
         // Inner map: params become (sub, index_1) — NOT (sub, index)
         expect(out).toMatch(/\.map\(\(sub,\s*index_1\)/)
         // outer div stamped with index
-        expect(out).toContain('data-bridge-id={`node-${index}`}')
+        expect(out).toContain('data-flint-id={`node-${index}`}')
         // inner span stamped with index_1
-        expect(out).toContain('data-bridge-id={`node-${index_1}`}')
+        expect(out).toContain('data-flint-id={`node-${index_1}`}')
         // Ensure the raw word 'index_1' is used and 'index' is not used for inner
         const innerMapMatch = /\.map\(\(sub,\s*([\w_]+)\)/.exec(out)
         expect(innerMapMatch?.[1]).toBe('index_1')
@@ -80,9 +80,9 @@ const A = () => a.map((x) => (
         expect(out).toMatch(/\.map\(\(x,\s*index\)/)
         expect(out).toMatch(/\.map\(\(y,\s*index_1\)/)
         expect(out).toMatch(/\.map\(\(z,\s*index_2\)/)
-        expect(out).toContain('data-bridge-id={`node-${index}`}')
-        expect(out).toContain('data-bridge-id={`node-${index_1}`}')
-        expect(out).toContain('data-bridge-id={`node-${index_2}`}')
+        expect(out).toContain('data-flint-id={`node-${index}`}')
+        expect(out).toContain('data-flint-id={`node-${index_1}`}')
+        expect(out).toContain('data-flint-id={`node-${index_2}`}')
     })
 
     // 1-c: Outer map already has explicit (item, index) — inner must still get index_1
@@ -101,18 +101,18 @@ const B = () => items.map((item, index) => (
         expect(out).toMatch(/\.map\(\(item,\s*index\)/)
         // Inner gets index_1 to avoid shadowing
         expect(out).toMatch(/\.map\(\(sub,\s*index_1\)/)
-        expect(out).toContain('data-bridge-id={`node-${index_1}`}')
+        expect(out).toContain('data-flint-id={`node-${index_1}`}')
     })
 
-    // 1-d: Already has data-bridge-id — must not double-inject
-    it('does not inject a second data-bridge-id when one is already present', () => {
+    // 1-d: Already has data-flint-id — must not double-inject
+    it('does not inject a second data-flint-id when one is already present', () => {
         const raw = `
 const C = () => items.map((item, index) => (
-  <div data-bridge-id={\`node-\${index}\`}>{item.name}</div>
+  <div data-flint-id={\`node-\${index}\`}>{item.name}</div>
 ))
 `
         const out = auditSnippet(raw)
-        const count = (out.match(/data-bridge-id/g) ?? []).length
+        const count = (out.match(/data-flint-id/g) ?? []).length
         expect(count).toBe(1)
     })
 
@@ -140,8 +140,8 @@ const D = () => (
 
 describe('Fragment Chaos Test', () => {
 
-    // 2-a: Expression-body fragment — index injected, no data-bridge-id (can't prop a fragment)
-    it('adds the index param for an expression-body fragment, but does not inject data-bridge-id', () => {
+    // 2-a: Expression-body fragment — index injected, no data-flint-id (can't prop a fragment)
+    it('adds the index param for an expression-body fragment, but does not inject data-flint-id', () => {
         const raw = `
 const E = () => items.map((item) => (
   <>
@@ -153,8 +153,8 @@ const E = () => items.map((item) => (
         const out = auditSnippet(raw)
         // index IS injected
         expect(out).toMatch(/\.map\(\(item,\s*index\)/)
-        // data-bridge-id is NOT injected (fragments have no props)
-        expect(out).not.toContain('data-bridge-id')
+        // data-flint-id is NOT injected (fragments have no props)
+        expect(out).not.toContain('data-flint-id')
     })
 
     // 2-b: Block-body fragment — same graceful handling
@@ -170,10 +170,10 @@ const F = () => items.map((item) => {
 `
         const out = auditSnippet(raw)
         expect(out).toMatch(/\.map\(\(item,\s*index\)/)
-        expect(out).not.toContain('data-bridge-id')
+        expect(out).not.toContain('data-flint-id')
     })
 
-    // 2-c: Array return (multiple root elements without a wrapper) — no data-bridge-id
+    // 2-c: Array return (multiple root elements without a wrapper) — no data-flint-id
     it('does not crash when the map callback returns an array of elements', () => {
         const raw = `
 const G = () => items.map((item) => [
@@ -184,8 +184,8 @@ const G = () => items.map((item) => [
         const out = auditSnippet(raw)
         // index param still gets injected
         expect(out).toMatch(/\.map\(\(item,\s*index\)/)
-        // no data-bridge-id since root is an ArrayExpression, not a JSXElement
-        expect(out).not.toContain('data-bridge-id')
+        // no data-flint-id since root is an ArrayExpression, not a JSXElement
+        expect(out).not.toContain('data-flint-id')
     })
 })
 
@@ -219,7 +219,7 @@ describe('Precision Threshold Test', () => {
         // hex is gone
         expect(out).not.toContain('#f6f6f6')
         // replaced with the CSS var
-        expect(out).toContain('var(--bridge-token-color-surface-base)')
+        expect(out).toContain('var(--flint-token-color-surface-base)')
     })
 
     // 3-b: ΔE >= 2.0 → MithrilViolationError thrown (hard gate)
@@ -272,11 +272,11 @@ const J = () => (
 
     // 3-f: CSS var values already present are not re-processed
     it('leaves already-substituted CSS vars untouched', () => {
-        const raw = `const M = () => <div style={{ color: 'var(--bridge-token-color-surface-base)' }} />`
+        const raw = `const M = () => <div style={{ color: 'var(--flint-token-color-surface-base)' }} />`
         // 'var(...)' does not match HEX_RE → colour gate skips it → no violation
         expect(() => auditSnippet(raw, [whiteToken])).not.toThrow()
         const out = auditSnippet(raw, [whiteToken])
-        expect(out).toContain('var(--bridge-token-color-surface-base)')
+        expect(out).toContain('var(--flint-token-color-surface-base)')
     })
 })
 
@@ -301,7 +301,7 @@ const N = () => items.map((item) => (
         const raw = `const O = () => <div style={{ color: '#f6f6f6' }} />`
         const tokens = [makeColorToken('color.surface.base', '#ffffff')]
         const out1 = auditSnippet(raw, tokens)
-        // out1 has var(--bridge-token-...) instead of #f6f6f6
+        // out1 has var(--flint-token-...) instead of #f6f6f6
         const out2 = auditSnippet(out1, tokens)
         expect(out2).toBe(out1)
     })
@@ -330,7 +330,7 @@ describe('Edge cases', () => {
     })
 
     // Block-body map with explicit return — Commandment 3 still applies
-    it('injects data-bridge-id into the return JSXElement of a block-body callback', () => {
+    it('injects data-flint-id into the return JSXElement of a block-body callback', () => {
         const raw = `
 const Q = () => items.map((item) => {
   const label = item.name.toUpperCase()
@@ -339,14 +339,14 @@ const Q = () => items.map((item) => {
 `
         const out = auditSnippet(raw)
         expect(out).toMatch(/\.map\(\(item,\s*index\)/)
-        expect(out).toContain('data-bridge-id={`node-${index}`}')
+        expect(out).toContain('data-flint-id={`node-${index}`}')
     })
 
     // No .map() calls → code returned unchanged (minus Babel normalisation)
     it('returns code without modification when there are no .map() calls', () => {
         const raw = `const R = () => <div className="text-white">hello</div>`
         const out = auditSnippet(raw)
-        expect(out).not.toContain('data-bridge-id')
+        expect(out).not.toContain('data-flint-id')
         expect(out).not.toContain('index')
     })
 
@@ -355,6 +355,6 @@ const Q = () => items.map((item) => {
         const token = makeColorToken('color.brand.primary', '#f6f6f6')
         const raw = `const S = () => <div style={{ color: '#f6f6f6' }} />`
         const out = auditSnippet(raw, [token])
-        expect(out).toContain('var(--bridge-token-color-brand-primary)')
+        expect(out).toContain('var(--flint-token-color-brand-primary)')
     })
 })

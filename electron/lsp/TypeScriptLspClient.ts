@@ -131,7 +131,7 @@ export class TypeScriptLspClient implements ILspClient {
 
         // Swallow uncaught worker errors so validation failures never crash the main process.
         this._worker.on('error', (err) => {
-            console.error('[Bridge LSP] TypeScript worker error:', err)
+            console.error('[Flint LSP] TypeScript worker error:', err)
             this._worker = null  // allow restart on next validate
         })
     }
@@ -154,7 +154,7 @@ export class TypeScriptLspClient implements ILspClient {
             // 5 000 ms safety timeout — never block the orchestrator indefinitely.
             const timer = setTimeout(() => {
                 worker.off('message', handler)
-                console.warn('[Bridge LSP] TypeScript validation timed out')
+                console.warn('[Flint LSP] TypeScript validation timed out')
                 resolve(null)  // treat timeout as passing (safer UX)
             }, 5000)
 

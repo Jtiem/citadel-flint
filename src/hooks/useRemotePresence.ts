@@ -12,7 +12,7 @@
  */
 
 import { useState, useEffect, useMemo } from 'react'
-import type { PresenceRow } from '../types/bridge-api'
+import type { PresenceRow } from '../types/flint-api'
 import { presenceSessionId } from '../services/PresenceService'
 
 const POLL_INTERVAL_MS = 200 // 5 reads/sec
@@ -27,7 +27,7 @@ export function useRemotePresence(): PresenceRow[] {
 
     useEffect(() => {
         const id = setInterval(() => {
-            window.bridgeAPI
+            window.flintAPI
                 .readPresence()
                 .then((all) => {
                     setRows(all.filter((r) => r.id !== presenceSessionId))
@@ -48,7 +48,7 @@ export function useRemotePresence(): PresenceRow[] {
 /**
  * Returns the Set of `locked_node_id` values currently held by remote users.
  * An empty string in `locked_node_id` means the user is idle (not dragging).
- * Only non-empty values are included so callers can use `.has(bridgeId)`.
+ * Only non-empty values are included so callers can use `.has(flintId)`.
  *
  * This is derived from `useRemotePresence` — no additional IPC calls.
  */
@@ -66,14 +66,14 @@ export function useLockedNodeIds(): Set<string> {
 }
 
 /**
- * Returns `true` when `bridgeId` is currently locked by any remote user
+ * Returns `true` when `flintId` is currently locked by any remote user
  * (i.e. they have started dragging it). Returns `false` for null/empty IDs.
  *
  * @example
  * const isLocked = useIsNodeLocked(selectedNodeId)
  */
-export function useIsNodeLocked(bridgeId: string | null | undefined): boolean {
+export function useIsNodeLocked(flintId: string | null | undefined): boolean {
     const lockedIds = useLockedNodeIds()
-    if (!bridgeId) return false
-    return lockedIds.has(bridgeId)
+    if (!flintId) return false
+    return lockedIds.has(flintId)
 }

@@ -46,7 +46,7 @@ const _tv =
 /** Updates the `className` JSX attribute on a target element. */
 interface UpdateClassNameMutation {
     op: 'updateClassName'
-    /** The `data-bridge-id` or structural `"tag:line:col"` ID of the element. */
+    /** The `data-flint-id` or structural `"tag:line:col"` ID of the element. */
     nodeId: string
     /** Full Tailwind class string to set. */
     className: string
@@ -55,9 +55,9 @@ interface UpdateClassNameMutation {
 /** Moves a JSX element relative to another element in the tree. */
 interface MoveNodeMutation {
     op: 'moveNode'
-    /** `data-bridge-id` of the element to move. */
+    /** `data-flint-id` of the element to move. */
     sourceId: string
-    /** `data-bridge-id` of the reference element. */
+    /** `data-flint-id` of the reference element. */
     targetId: string
     /** Insertion relationship relative to `targetId`. */
     position: 'before' | 'after' | 'inside'
@@ -66,14 +66,14 @@ interface MoveNodeMutation {
 /** Removes a JSX element (and all its children) from the tree. */
 interface DeleteNodeMutation {
     op: 'deleteNode'
-    /** `data-bridge-id` of the element to remove. */
+    /** `data-flint-id` of the element to remove. */
     nodeId: string
 }
 
 /** Sets an arbitrary JSX prop to a new serialised string or boolean value. */
 interface UpdatePropMutation {
     op: 'updateProp'
-    /** `data-bridge-id` of the target element. */
+    /** `data-flint-id` of the target element. */
     nodeId: string
     /** Prop name, e.g. `"aria-label"`, `"href"`, `"data-testid"`. */
     propName: string
@@ -84,7 +84,7 @@ interface UpdatePropMutation {
 /** Updates the first direct JSXText child of a target element. */
 interface UpdateTextContentMutation {
     op: 'updateTextContent'
-    /** `data-bridge-id` or structural `"tag:line:col"` ID of the element. */
+    /** `data-flint-id` or structural `"tag:line:col"` ID of the element. */
     nodeId: string
     /** New text value to set. */
     text: string
@@ -93,7 +93,7 @@ interface UpdateTextContentMutation {
 /** Appends a new JSX element as the last child of a target node. */
 interface InjectComponentMutation {
     op: 'injectComponent'
-    /** `data-bridge-id` of the target element to append into. */
+    /** `data-flint-id` of the target element to append into. */
     targetNodeId: string
     /** Raw JSX snippet, e.g. `'<Button>OK</Button>'`. */
     jsxSnippet: string
@@ -104,7 +104,7 @@ interface InjectComponentMutation {
 /** Replaces a hardcoded Tailwind arbitrary-value class with a design-token class. */
 interface ApplyTokenFixMutation {
     op: 'applyTokenFix'
-    /** `data-bridge-id` of the target element. */
+    /** `data-flint-id` of the target element. */
     nodeId: string
     /** The exact hardcoded class to replace, e.g. `"bg-[#f3f3f3]"`. */
     hardcodedClass: string
@@ -117,6 +117,16 @@ interface ApplyTokenFixMutation {
  * The discriminant `op` field lets the batch executor switch safely
  * without type assertions.
  */
+// ── CATALOG.1-3: Interactive UI mutation types ───────────────────────────────
+
+interface EmitHookMutation { op: 'emitHook'; componentName: string; hookStatement: string; position?: 'first' | 'last' }
+interface EmitHandlerMutation { op: 'emitHandler'; componentName: string; handlerCode: string }
+interface EmitCallbackMutation { op: 'emitCallback'; nodeId: string; propName: string; expression: string }
+interface EmitImportMutation { op: 'emitImport'; importSnippet: string }
+interface EmitConditionalMutation { op: 'emitConditional'; nodeId: string; condition: string; mode: 'and' | 'ternary'; fallback?: string }
+interface EmitMapMutation { op: 'emitMap'; nodeId: string; arrayExpression: string; iteratorName: string; keyExpression: string }
+interface ComposeSlotMutation { op: 'composeSlot'; parentId: string; slotName: string; jsxSnippet: string; importSnippet?: string }
+
 export type ASTMutation =
     | UpdateClassNameMutation
     | MoveNodeMutation
@@ -125,6 +135,13 @@ export type ASTMutation =
     | UpdateTextContentMutation
     | InjectComponentMutation
     | ApplyTokenFixMutation
+    | EmitHookMutation
+    | EmitHandlerMutation
+    | EmitCallbackMutation
+    | EmitImportMutation
+    | EmitConditionalMutation
+    | EmitMapMutation
+    | ComposeSlotMutation
 
 // ── Inverse Mutation Types (Phase D) ─────────────────────────────────────────
 
@@ -156,7 +173,7 @@ export type InverseMutation =
 
 /**
  * Returns true when the JSX element at `path` matches `nodeId`.
- * Supports both bridge IDs (data-bridge-id attribute) and structural IDs
+ * Supports both flint IDs (data-flint-id attribute) and structural IDs
  * ("tagName:line:col" — matched by source location).
  */
 function jsxMatchesId(
@@ -177,7 +194,7 @@ function jsxMatchesId(
         if (
             attr.type === 'JSXAttribute' &&
             attr.name.type === 'JSXIdentifier' &&
-            attr.name.name === 'data-bridge-id' &&
+            attr.name.name === 'data-flint-id' &&
             attr.value?.type === 'StringLiteral' &&
             attr.value.value === nodeId
         ) {
@@ -396,11 +413,11 @@ export function applyMutationBatch(
                 // Garbage Collection (Phase E — Commandment 12):
                 // After a successful AST deletion, fire the IPC cleanup so the
                 // main process can remove any dangling component_overrides row for
-                // this bridge ID, preventing a "Zombie" export lock.
+                // this flint ID, preventing a "Zombie" export lock.
                 // Optional-chained: degrades gracefully until the main-process
                 // handler is registered. Guarded against headless test environments.
                 if (typeof window !== 'undefined') {
-                    void window.bridgeAPI.tokens.clearOverride?.(mutation.nodeId)
+                    void window.flintAPI.tokens.clearOverride?.(mutation.nodeId)
                 }
                 break
             }
@@ -423,6 +440,19 @@ export function applyMutationBatch(
                 break
             }
 
+            // CATALOG.1-3: Renderer-side stubs — mutations deferred to MCP engine
+            case 'emitHook':
+            case 'emitHandler':
+            case 'emitCallback':
+            case 'emitImport':
+            case 'emitConditional':
+            case 'emitMap':
+            case 'composeSlot': {
+                inversions.push({ op: 'restoreCode', code: generateCodeFromAST(ast) })
+                console.warn(`[ASTService] ${mutation.op}: renderer-side stub — mutation deferred to MCP engine`)
+                break
+            }
+
             default: {
                 const _exhaustive: never = mutation
                 throw new Error(`Unhandled mutation type: ${(_exhaustive as any).type}`)
@@ -436,7 +466,7 @@ export function applyMutationBatch(
 // ── Pre-flight Zombie Check (Phase D) ─────────────────────────────────────────
 
 /**
- * Returns `true` when the JSX element identified by `bridgeId` (data-bridge-id
+ * Returns `true` when the JSX element identified by `flintId` (data-flint-id
  * attribute) still exists in `code`.
  *
  * Used before applying an undo to detect "zombie" nodes — elements that were
@@ -445,7 +475,7 @@ export function applyMutationBatch(
  *
  * Always returns `false` when `code` cannot be parsed.
  */
-export function nodeExists(code: string, bridgeId: string): boolean {
+export function nodeExists(code: string, flintId: string): boolean {
     const ast = parseCodeToAST(code)
     if (ast === null) return false
 
@@ -456,9 +486,9 @@ export function nodeExists(code: string, bridgeId: string): boolean {
                 if (
                     attr.type === 'JSXAttribute' &&
                     attr.name.type === 'JSXIdentifier' &&
-                    attr.name.name === 'data-bridge-id' &&
+                    attr.name.name === 'data-flint-id' &&
                     attr.value?.type === 'StringLiteral' &&
-                    attr.value.value === bridgeId
+                    attr.value.value === flintId
                 ) {
                     found = true
                     path.stop()
@@ -480,7 +510,7 @@ export function nodeExists(code: string, bridgeId: string): boolean {
  * restored). Otherwise the property-level inverses are applied via
  * `applyMutationBatch` in a single parse→generate cycle.
  *
- * Callers should run `nodeExists()` on each bridge ID before calling this
+ * Callers should run `nodeExists()` on each flint ID before calling this
  * to detect and block zombie-node undos.
  */
 export function applyInversions(

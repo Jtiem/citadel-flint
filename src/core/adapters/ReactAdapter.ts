@@ -3,19 +3,19 @@
  *
  * Abstract Syntax Protocol (ASP) — Phase N.1
  *
- * Implements IBridgeAdapter for React/TypeScript/JSX source files (.tsx, .ts,
+ * Implements IFlintAdapter for React/TypeScript/JSX source files (.tsx, .ts,
  * .jsx, .js). Wraps all existing Babel-based AST logic from:
- *   - src/core/ast-parser.ts       — parse, generate, buildVisualTree, injectBridgeIds
+ *   - src/core/ast-parser.ts       — parse, generate, buildVisualTree, injectFlintIds
  *   - src/core/ASTService.ts       — applyMutationBatch, nodeExists, applyInversions, transplantNode
  *
  * This is a zero-behaviour-change refactor. No logic is modified — only
- * encapsulated behind the IBridgeAdapter interface so Bridge Core can call
+ * encapsulated behind the IFlintAdapter interface so Flint Core can call
  * language-specific operations without knowing which language is active.
  *
  * Renderer Process only — no Node.js imports.
  */
 
-import type { IBridgeAdapter } from './types'
+import type { IFlintAdapter } from './types'
 import type { ASTMutation, InverseMutation } from '../ASTService'
 import type { VisualLayer } from '../ast-parser'
 
@@ -24,7 +24,7 @@ import {
     parseCodeToAST,
     generateCodeFromAST,
     buildVisualTree,
-    injectBridgeIds,
+    injectFlintIds,
     transplantNode as babelTransplantNode,
 } from '../ast-parser'
 
@@ -38,13 +38,13 @@ import type { File } from '@babel/types'
 // ── ReactAdapter ──────────────────────────────────────────────────────────────
 
 /**
- * Bridge language adapter for React / TypeScript / JSX files.
+ * Flint language adapter for React / TypeScript / JSX files.
  *
  * Internally uses Babel for all AST operations. The `ast` passed between
  * methods is always a Babel `File` node, but callers treat it as `unknown`
- * per the IBridgeAdapter contract—callers never inspect the AST directly.
+ * per the IFlintAdapter contract—callers never inspect the AST directly.
  */
-export class ReactAdapter implements IBridgeAdapter {
+export class ReactAdapter implements IFlintAdapter {
 
     /**
      * Parse TSX/JSX/TS/JS source into a Babel File AST.
@@ -70,11 +70,11 @@ export class ReactAdapter implements IBridgeAdapter {
     }
 
     /**
-     * Inject `data-bridge-id` attributes onto all JSX elements that do not
+     * Inject `data-flint-id` attributes onto all JSX elements that do not
      * already carry one. Idempotent. Mutates `ast` in-place and returns it.
      */
-    injectBridgeIds(ast: unknown): unknown {
-        injectBridgeIds(ast as File)
+    injectFlintIds(ast: unknown): unknown {
+        injectFlintIds(ast as File)
         return ast
     }
 
@@ -90,11 +90,11 @@ export class ReactAdapter implements IBridgeAdapter {
     }
 
     /**
-     * Returns `true` when the element identified by `bridgeId` (data-bridge-id)
+     * Returns `true` when the element identified by `flintId` (data-flint-id)
      * still exists in `code`. Used for zombie-node pre-flight checks before undo.
      */
-    nodeExists(code: string, bridgeId: string): boolean {
-        return babelNodeExists(code, bridgeId)
+    nodeExists(code: string, flintId: string): boolean {
+        return babelNodeExists(code, flintId)
     }
 
     /**
@@ -141,7 +141,7 @@ export class ReactAdapter implements IBridgeAdapter {
                         if (
                             attr.type === 'JSXAttribute' &&
                             attr.name.type === 'JSXIdentifier' &&
-                            attr.name.name === 'data-bridge-id' &&
+                            attr.name.name === 'data-flint-id' &&
                             attr.value?.type === 'StringLiteral' &&
                             attr.value.value === nodeId
                         ) {

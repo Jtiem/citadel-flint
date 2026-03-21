@@ -1,7 +1,7 @@
 /**
  * governanceRulesManifest.ts — src/core/governanceRulesManifest.ts
  *
- * Static list of all 49 governance rules known to Bridge.
+ * Static list of all 49 governance rules known to Flint.
  * The GovernanceStore only tracks *overrides* from these defaults —
  * this manifest is the single source of truth for display metadata.
  */

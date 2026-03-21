@@ -11,7 +11,7 @@
  *   3. terminal:data  — null byte sanitization
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import path from 'node:path'
 import os from 'node:os'
 
@@ -73,7 +73,7 @@ function validateAndSanitizeInput(
 
 describe('SEC.5 — terminal:spawn cwd validation (project root)', () => {
     const home = os.homedir()
-    const projectRoot = path.join(home, 'Projects', 'my-bridge-app')
+    const projectRoot = path.join(home, 'Projects', 'my-flint-app')
 
     it('accepts cwd at exact project root', () => {
         const result = validateCwd(projectRoot, projectRoot, home)
@@ -116,8 +116,8 @@ describe('SEC.5 — terminal:spawn cwd validation (project root)', () => {
     })
 
     it('rejects prefix-matching path that is not a real subdirectory', () => {
-        // e.g., project root is /Users/alice/Projects/my-bridge-app
-        // attacker tries /Users/alice/Projects/my-bridge-app-evil
+        // e.g., project root is /Users/alice/Projects/my-flint-app
+        // attacker tries /Users/alice/Projects/my-flint-app-evil
         const evil = projectRoot + '-evil'
         const result = validateCwd(evil, projectRoot, home)
         expect(result.allowed).toBe(false)

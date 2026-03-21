@@ -1,17 +1,17 @@
 #!/usr/bin/env node
 /**
- * CLI Gate -- bridge-ci/src/cli-gate.ts
+ * CLI Gate -- flint-ci/src/cli-gate.ts
  *
- * Standalone CLI that runs the same Bridge governance checks locally.
+ * Standalone CLI that runs the same Flint governance checks locally.
  * No GitHub Actions dependency -- can be run by any developer before pushing.
  *
  * Usage:
- *   npx bridge-gate src/                    # Scan all source files in src/
- *   npx bridge-gate --changed               # Scan only git-changed files
- *   npx bridge-gate --sarif out.sarif       # Write SARIF report
- *   npx bridge-gate --fail-on-warning       # Fail on amber-level violations too
- *   npx bridge-gate --tokens .bridge/tokens.json  # Custom token file
- *   npx bridge-gate --policy .bridge/policy.json   # Custom policy file
+ *   npx flint-gate src/                    # Scan all source files in src/
+ *   npx flint-gate --changed               # Scan only git-changed files
+ *   npx flint-gate --sarif out.sarif       # Write SARIF report
+ *   npx flint-gate --fail-on-warning       # Fail on amber-level violations too
+ *   npx flint-gate --tokens .flint/tokens.json  # Custom token file
+ *   npx flint-gate --policy .flint/policy.json   # Custom policy file
  *
  * Exit codes:
  *   0 -- All checks passed
@@ -23,7 +23,7 @@ import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from '
 import { execSync } from 'node:child_process'
 import { join, relative } from 'node:path'
 import { auditFiles, shouldFail, generateSarif } from './audit-engine.js'
-import type { DesignToken, BridgePolicy } from './types.js'
+import type { DesignToken, FlintPolicy } from './types.js'
 import { DEFAULT_POLICY } from './types.js'
 
 // -- Constants -----------------------------------------------------------------
@@ -151,8 +151,8 @@ function parseArgs(argv: string[]): CliArgs {
         changed: false,
         sarifOutput: null,
         failOnWarning: false,
-        tokenFile: '.bridge/tokens.json',
-        policyFile: '.bridge/policy.json',
+        tokenFile: '.flint/tokens.json',
+        policyFile: '.flint/policy.json',
         help: false,
     }
 
@@ -167,7 +167,7 @@ function parseArgs(argv: string[]): CliArgs {
             case '--sarif':
             case '-s':
                 i++
-                args.sarifOutput = argv[i] ?? 'bridge-results.sarif'
+                args.sarifOutput = argv[i] ?? 'flint-results.sarif'
                 break
             case '--fail-on-warning':
             case '-w':
@@ -176,12 +176,12 @@ function parseArgs(argv: string[]): CliArgs {
             case '--tokens':
             case '-t':
                 i++
-                args.tokenFile = argv[i] ?? '.bridge/tokens.json'
+                args.tokenFile = argv[i] ?? '.flint/tokens.json'
                 break
             case '--policy':
             case '-p':
                 i++
-                args.policyFile = argv[i] ?? '.bridge/policy.json'
+                args.policyFile = argv[i] ?? '.flint/policy.json'
                 break
             case '--help':
             case '-h':
@@ -203,10 +203,10 @@ function parseArgs(argv: string[]): CliArgs {
 
 function printHelp(): void {
     console.log(`
-${ANSI.bold}Bridge Governance Gate${ANSI.reset} -- Local CI governance checks
+${ANSI.bold}Flint Governance Gate${ANSI.reset} -- Local CI governance checks
 
 ${ANSI.cyan}USAGE:${ANSI.reset}
-  bridge-gate [options] [paths...]
+  flint-gate [options] [paths...]
 
 ${ANSI.cyan}ARGUMENTS:${ANSI.reset}
   paths              One or more directories or files to scan
@@ -215,15 +215,15 @@ ${ANSI.cyan}OPTIONS:${ANSI.reset}
   --changed, -c      Scan only git-changed files (vs merge base)
   --sarif, -s FILE   Write SARIF 2.1.0 report to FILE
   --fail-on-warning  Exit 1 on amber violations (not just critical)
-  --tokens, -t FILE  Path to design tokens JSON (default: .bridge/tokens.json)
-  --policy, -p FILE  Path to policy JSON (default: .bridge/policy.json)
+  --tokens, -t FILE  Path to design tokens JSON (default: .flint/tokens.json)
+  --policy, -p FILE  Path to policy JSON (default: .flint/policy.json)
   --help, -h         Show this help message
 
 ${ANSI.cyan}EXAMPLES:${ANSI.reset}
-  bridge-gate src/                           Scan all source files in src/
-  bridge-gate --changed                      Scan only git-changed files
-  bridge-gate --sarif report.sarif src/      Scan and write SARIF
-  bridge-gate -w --changed                   Strict mode on changed files
+  flint-gate src/                           Scan all source files in src/
+  flint-gate --changed                      Scan only git-changed files
+  flint-gate --sarif report.sarif src/      Scan and write SARIF
+  flint-gate -w --changed                   Strict mode on changed files
 
 ${ANSI.cyan}EXIT CODES:${ANSI.reset}
   0  All checks passed
@@ -239,7 +239,7 @@ function printSummary(summary: ReturnType<typeof auditFiles>, blocked: boolean):
 
     console.log()
     console.log(`${ANSI.bold}${divider}${ANSI.reset}`)
-    console.log(`${ANSI.bold}  Bridge Governance Gate  ${ANSI.reset}`)
+    console.log(`${ANSI.bold}  Flint Governance Gate  ${ANSI.reset}`)
     console.log(`${ANSI.bold}${divider}${ANSI.reset}`)
     console.log()
     console.log(`  Files scanned:          ${summary.totalFiles}`)
@@ -299,7 +299,7 @@ function main(): void {
 
     // Load tokens and policy
     const tokens = readJsonFile<DesignToken[]>(args.tokenFile, [])
-    const policy = readJsonFile<BridgePolicy>(args.policyFile, DEFAULT_POLICY)
+    const policy = readJsonFile<FlintPolicy>(args.policyFile, DEFAULT_POLICY)
 
     if (tokens.length > 0) {
         console.log(`${ANSI.dim}Loaded ${tokens.length} design tokens from ${args.tokenFile}${ANSI.reset}`)

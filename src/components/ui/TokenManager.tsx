@@ -20,7 +20,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { Upload, Trash2, X, Search } from 'lucide-react'
 import { useTokenStore } from '../../store/tokenStore'
-import type { DesignToken, TokenType } from '../../types/bridge-api'
+import type { DesignToken, TokenType } from '../../types/flint-api'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

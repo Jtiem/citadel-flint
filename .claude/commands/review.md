@@ -1,6 +1,6 @@
 # /review — Pre-Commit Code Review Gate
 
-Automated code review using `bridge-code-reviewer` agents. Runs on staged or recent changes, groups files by domain, and produces a structured SHIP/SHIP-WITH-FIXES/BLOCK verdict.
+Automated code review using `flint-code-reviewer` agents. Runs on staged or recent changes, groups files by domain, and produces a structured SHIP/SHIP-WITH-FIXES/BLOCK verdict.
 
 ## Usage
 
@@ -17,13 +17,13 @@ Invoke with `/review` before committing. Accepts optional arguments:
 1. **Detect scope**: Identify changed files from git diff (uncommitted or commit range)
 2. **Classify domains**: Group files into review domains based on path patterns:
    - `electron/` → **Security + IPC** (high scrutiny — process boundary, secrets, ACLs)
-   - `bridge-mcp/src/core/governance/` → **Governance** (SQLite services, scoring, provenance)
-   - `bridge-mcp/src/server.ts` → **MCP Surface** (tool registration, input validation)
-   - `bridge-mcp/src/tools/` → **MCP Tools** (handler logic, response shapes)
+   - `flint-mcp/src/core/governance/` → **Governance** (SQLite services, scoring, provenance)
+   - `flint-mcp/src/server.ts` → **MCP Surface** (tool registration, input validation)
+   - `flint-mcp/src/tools/` → **MCP Tools** (handler logic, response shapes)
    - `src/components/` → **Glass UI** (React components, Commandment compliance)
    - `src/store/` → **State Management** (cross-store contamination, IPC boundary)
    - `src/core/` → **Core Engine** (AST surgery, linter rules)
-3. **Launch parallel reviewers**: One `bridge-code-reviewer` agent per domain (max 3 concurrent)
+3. **Launch parallel reviewers**: One `flint-code-reviewer` agent per domain (max 3 concurrent)
 4. **Aggregate verdicts**: Merge results into a single report
 
 ## Review Checklist (injected into each reviewer)
@@ -37,13 +37,13 @@ Invoke with `/review` before committing. Accepts optional arguments:
 - [ ] Error handling present and doesn't leak internals
 
 ### Security domain (electron/):
-- [ ] IPC channels typed in `bridge-api.d.ts`
+- [ ] IPC channels typed in `flint-api.d.ts`
 - [ ] No secrets exposed to renderer
 - [ ] Input validation on all IPC handlers
 - [ ] ACLs enforced (mcp-policy.ts, agentPolicy.ts)
 - [ ] Crypto uses proper primitives (randomBytes, not Math.random)
 
-### Governance domain (bridge-mcp/src/core/governance/):
+### Governance domain (flint-mcp/src/core/governance/):
 - [ ] All SQL uses parameterized queries
 - [ ] DB constraints enforced at schema level
 - [ ] Connection lifecycle managed (open/close, DI pattern)
@@ -58,7 +58,7 @@ Invoke with `/review` before committing. Accepts optional arguments:
 
 ### Glass UI (src/components/, src/store/):
 - [ ] No cross-store imports (contamination)
-- [ ] No direct `window.bridgeAPI` calls inside stores
+- [ ] No direct `window.flintAPI` calls inside stores
 - [ ] Tailwind tokens only (no hardcoded hex)
 - [ ] Accessibility attributes on interactive elements
 
@@ -89,7 +89,7 @@ The review produces a structured report:
 
 ## Integration with Feature Build Workflow
 
-This command is invoked automatically by `bridge-git-guru` as part of the pre-commit gate in Phase 2 of the Contract-First Feature Build workflow. It runs AFTER TSC + tests pass and BEFORE the commit is created.
+This command is invoked automatically by `flint-git-guru` as part of the pre-commit gate in Phase 2 of the Contract-First Feature Build workflow. It runs AFTER TSC + tests pass and BEFORE the commit is created.
 
 Manual invocation is also encouraged at any time during development.
 
@@ -117,15 +117,15 @@ git diff --name-only HEAD
 
 Apply path-based classification:
 - `electron/**` (excluding tests) → Security + IPC domain
-- `bridge-mcp/src/core/governance/**` → Governance domain
-- `bridge-mcp/src/server.ts`, `bridge-mcp/src/tools/**` → MCP Surface domain
+- `flint-mcp/src/core/governance/**` → Governance domain
+- `flint-mcp/src/server.ts`, `flint-mcp/src/tools/**` → MCP Surface domain
 - `src/components/**`, `src/store/**`, `src/hooks/**` → Glass UI domain
 - `src/core/**` → Core Engine domain
 - `**/__tests__/**`, `**/*.test.*` → Tests (reviewed alongside their source domain)
 
 ### Step 3: Launch reviewers
 
-For each domain with changed files, spawn a `bridge-code-reviewer` agent with:
+For each domain with changed files, spawn a `flint-code-reviewer` agent with:
 - The file list for that domain
 - The domain-specific checklist items from above
 - The instruction: "This is a CODE REVIEW — do NOT modify any files. Read and analyze only."

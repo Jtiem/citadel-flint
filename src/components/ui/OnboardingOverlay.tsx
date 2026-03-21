@@ -2,13 +2,13 @@
  * OnboardingOverlay — src/components/ui/OnboardingOverlay.tsx
  *
  * Lightweight 3-step tooltip overlay shown once on first project open.
- * Reads/writes `bridge-onboarding-complete` in localStorage to track
+ * Reads/writes `flint-onboarding-complete` in localStorage to track
  * completion state across sessions.
  *
  * Steps:
  *   1. "Your Canvas"     — explains the infinite canvas / live preview
  *   2. "Inspect & Edit"  — explains the properties / governance sidebar
- *   3. "Talk to Bridge"  — explains the MCP chat interface
+ *   3. "Talk to Flint"  — explains the MCP chat interface
  *
  * Mount it in the top-level IDE layout. It self-unmounts once the user
  * clicks "Got it" on the final step.
@@ -16,8 +16,9 @@
 
 import { useState, useEffect } from 'react'
 import { X } from 'lucide-react'
+import { BRAND } from '../../../shared/brand'
 
-const STORAGE_KEY = 'bridge-onboarding-complete'
+const STORAGE_KEY = `${BRAND.productLower}-onboarding-complete`
 
 interface Step {
     title: string
@@ -38,8 +39,8 @@ const STEPS: Step[] = [
         side: 'right',
     },
     {
-        title: 'Talk to Bridge',
-        body: 'Use the chat panel to ask Bridge to audit, fix, or generate components via MCP. It has full context of your open file and selected node.',
+        title: `Talk to ${BRAND.product}`,
+        body: `Use the chat in your IDE (Claude Code, Cursor, or VS Code) to ask ${BRAND.product} to audit, fix, or generate components. ${BRAND.product} has full context of your open file and selected node.`,
         side: 'right',
     },
 ]

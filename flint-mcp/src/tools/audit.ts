@@ -1,0 +1,434 @@
+/**
+ * flint_audit tool handler — flint-mcp/src/tools/audit.ts
+ *
+ * Runs Mithril + A11y audits on source code.
+ * Accepts a FlintConfig to respect policy thresholds.
+ */
+
+import { parse } from '@babel/parser'
+import { auditAll } from '../core/MithrilLinter.js'
+import { A11yLinter } from '../core/A11yLinter.js'
+import type { FlintConfig } from '../core/config.js'
+import type { DesignToken } from '../types.js'
+import fs from 'node:fs'
+import path from 'node:path'
+import { loadProjectContext } from '../core/projectContext.js'
+import type { ProjectContext } from '../core/projectContext.js'
+import { getErrorEntryByRuleId } from '../core/errorTaxonomy.js'
+import { resolveProvenance } from '../core/governance/ruleProvenanceRegistry.js'
+import type { RuleProvenance } from '../core/governance/types.js'
+import { toolName, configPath, logTag } from '../brand.js'
+
+export type { ProjectContext }
+
+export const FLINT_AUDIT_TOOL = {
+    name: toolName('audit'),
+    description:
+        'Run a comprehensive Mithril + A11y audit on component source code. ' +
+        'Returns structured violations with ruleIds, severity, and fix suggestions. ' +
+        'Supports batch mode via filePaths for auditing multiple files at once.',
+    inputSchema: {
+        type: 'object' as const,
+        properties: {
+            source: {
+                type: 'string',
+                description: 'Raw TSX/JSX source code to audit.',
+            },
+            filePath: {
+                type: 'string',
+                description: 'File path for context (used in reporting).',
+            },
+            filePaths: {
+                type: 'array',
+                items: { type: 'string' },
+                description:
+                    'Audit multiple files at once. Returns aggregated results with per-file breakdown.',
+            },
+            ruleIds: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Optional: only check specific rule IDs.',
+            },
+            severity: {
+                type: 'string',
+                enum: ['info', 'warning', 'critical'],
+                description: 'Optional: minimum severity threshold.',
+            },
+            healOnAudit: {
+                type: 'boolean',
+                description:
+                    'When true, applies tier-1 token healing to exact-match violations before auditing. ' +
+                    'Note: heal pass requires the Glass IPC pipeline (Electron main process). ' +
+                    'In headless MCP mode this flag is acknowledged but the heal pass is skipped.',
+            },
+        },
+        required: ['source', 'filePath'],
+    },
+} as const
+
+export interface AuditArgs {
+    source: string
+    filePath: string
+    filePaths?: string[]
+    ruleIds?: string[]
+    severity?: 'info' | 'warning' | 'critical'
+    healOnAudit?: boolean
+}
+
+export interface HealOnAuditStatus {
+    skipped: true
+    reason: string
+}
+
+export interface AuditResult {
+    violations: Array<{
+        id: string
+        ruleId: string
+        severity: string
+        message: string
+        type: string
+        /** Plain-language explanation of why this rule exists. Populated by CX.3 errorTaxonomy. */
+        explanation?: string
+        /** Actionable recovery steps. Populated by CX.3 errorTaxonomy. */
+        recovery?: string
+        /** GOV.1: Rule provenance metadata — sourceAuthority, regulatoryReference, rationale. */
+        provenance?: RuleProvenance
+    }>
+    mithrilCount: number
+    a11yCount: number
+    policyMode: {
+        mithril: string
+        a11y: string
+    }
+    /** Present only when the caller passed healOnAudit: true. */
+    healOnAudit?: HealOnAuditStatus
+    /** One-sentence human-readable summary of audit findings. CX.1 */
+    summary: string
+    /** Project-level health context. Omitted when unavailable. CX.1 */
+    project_context?: ProjectContext
+}
+
+export interface BatchFileResult {
+    filePath: string
+    violations: AuditResult['violations']
+    a11y: AuditResult['violations']
+    mithrilCount: number
+    a11yCount: number
+    error?: string
+}
+
+export interface BatchAuditResult {
+    summary: {
+        totalFiles: number
+        totalViolations: number
+        healthScore: number
+        grade: string
+        /** One-sentence human-readable summary. CX.1 */
+        text: string
+    }
+    files: BatchFileResult[]
+    policyMode: {
+        mithril: string
+        a11y: string
+    }
+    /** Project-level health context. Omitted when unavailable. CX.1 */
+    project_context?: ProjectContext
+}
+
+// ── CX.1 Summary generation ────────────────────────────────────────────────
+
+/**
+ * Generate a one-sentence plain-English summary of single-file audit findings.
+ */
+export function generateAuditSummary(
+    filePath: string,
+    violations: AuditResult['violations'],
+    mithrilCount: number,
+    a11yCount: number,
+): string {
+    const basename = path.basename(filePath)
+    const total = violations.length
+
+    if (total === 0) {
+        return `No violations found in ${basename}. This file is export-ready.`
+    }
+
+    // fixable = Mithril violations (flint_fix can auto-fix them; a11y requires manual fix)
+    const fixable = mithrilCount
+
+    if (a11yCount === 0) {
+        return `Found ${total} violation(s) in ${basename} -- ${fixable} auto-fixable.`
+    }
+
+    return (
+        `Found ${total} violation(s) in ${basename} -- ` +
+        `${mithrilCount} design drift, ${a11yCount} accessibility. ` +
+        `${fixable} auto-fixable.`
+    )
+}
+
+/**
+ * Generate a one-sentence plain-English summary of a batch audit result.
+ */
+export function generateBatchAuditSummary(
+    totalFiles: number,
+    totalViolations: number,
+    healthScore: number,
+    grade: string,
+): string {
+    return (
+        `Audited ${totalFiles} files. ` +
+        `${totalViolations} total violation(s). ` +
+        `Health: ${healthScore}/100 (Grade ${grade}).`
+    )
+}
+
+export async function handleFlintAudit(
+    args: AuditArgs,
+    config: FlintConfig,
+): Promise<AuditResult> {
+    const { source, filePath, healOnAudit } = args
+    const policy = config.policy
+
+    // ING.3 — healOnAudit: best-effort parameter, gracefully degraded in headless MCP mode.
+    // The full heal pipeline (IngestionAuditor) requires the Electron main process (SQLite
+    // token access + FileTransactionManager). When running headlessly we acknowledge the
+    // parameter, emit a console notice, and continue with the standard audit.
+    if (healOnAudit === true) {
+        console.log(
+            `${logTag()} healOnAudit: heal pass not available in headless MCP mode` +
+            ' — run via Glass IPC for full pipeline',
+        )
+    }
+
+    // Load tokens from project root
+    const tokensPath = path.join(config.projectRoot, configPath('design-tokens.json'))
+    let tokens: DesignToken[] = []
+    if (fs.existsSync(tokensPath)) {
+        try {
+            const raw = JSON.parse(fs.readFileSync(tokensPath, 'utf-8'))
+            tokens = Array.isArray(raw) ? raw : Object.values(raw)
+        } catch {
+            // Use empty tokens
+        }
+    }
+
+    const ast = parse(source, {
+        sourceType: 'module',
+        plugins: ['jsx', 'typescript'],
+    })
+
+    const violations: AuditResult['violations'] = []
+
+    // Mithril audit (respects policy mode)
+    let mithrilCount = 0
+    if (policy.mithril.mode !== 'off') {
+        const mithrilWarnings = auditAll(
+            ast as Parameters<typeof auditAll>[0],
+            tokens,
+            {
+                deltaE_threshold: policy.mithril.deltaE_threshold,
+                deltaE_critical_threshold: policy.mithril.deltaE_critical_threshold,
+            },
+        )
+        mithrilCount = mithrilWarnings.size
+        for (const [id, w] of mithrilWarnings) {
+            const violation: AuditResult['violations'][number] = {
+                id,
+                ruleId: w.ruleId ?? 'MITHRIL-UNKNOWN',
+                severity: w.severity,
+                message: w.message,
+                type: w.type,
+            }
+            // CX.3: attach explanation/recovery from LinterWarning (populated by taxonomyFields) or taxonomy lookup
+            const explanation = w.explanation ?? getErrorEntryByRuleId(w.ruleId ?? '')?.explanation
+            const recovery = w.recovery ?? getErrorEntryByRuleId(w.ruleId ?? '')?.recovery
+            if (explanation !== undefined) violation.explanation = explanation
+            if (recovery !== undefined) violation.recovery = recovery
+            // GOV.1: attach provenance metadata
+            violation.provenance = resolveProvenance(w.ruleId ?? 'MITHRIL-UNKNOWN')
+            violations.push(violation)
+        }
+    }
+
+    // A11y audit (respects policy mode)
+    let a11yCount = 0
+    if (policy.a11y.mode !== 'off') {
+        const a11yViolations = A11yLinter.audit(
+            ast as Parameters<typeof A11yLinter.audit>[0],
+        )
+        for (const [id, messages] of Object.entries(a11yViolations)) {
+            for (const msg of messages) {
+                // Check if this rule is disabled
+                const ruleIdMatch = msg.match(/^(A11Y-\d{3})/)
+                const ruleId = ruleIdMatch?.[1] ?? 'A11Y-UNKNOWN'
+                if (policy.a11y.disabled_rules.includes(ruleId)) continue
+
+                a11yCount++
+                const a11yViolation: AuditResult['violations'][number] = {
+                    id,
+                    ruleId,
+                    severity: 'critical',
+                    message: msg,
+                    type: 'a11y',
+                }
+                // CX.3: attach explanation/recovery from error taxonomy
+                const a11yEntry = getErrorEntryByRuleId(ruleId)
+                if (a11yEntry !== null) {
+                    a11yViolation.explanation = a11yEntry.explanation
+                    a11yViolation.recovery = a11yEntry.recovery
+                }
+                // GOV.1: attach provenance metadata
+                a11yViolation.provenance = resolveProvenance(ruleId)
+                violations.push(a11yViolation)
+            }
+        }
+    }
+
+    const summary = generateAuditSummary(filePath, violations, mithrilCount, a11yCount)
+
+    const result: AuditResult = {
+        violations,
+        mithrilCount,
+        a11yCount,
+        policyMode: {
+            mithril: policy.mithril.mode,
+            a11y: policy.a11y.mode,
+        },
+        summary,
+    }
+
+    // CX.1: Attach project_context footer (best-effort, never blocks audit)
+    try {
+        const projectCtx = loadProjectContext(config.projectRoot)
+        if (projectCtx !== null) {
+            result.project_context = projectCtx
+        }
+    } catch {
+        // project_context is best-effort — never block audit result
+    }
+
+    if (healOnAudit === true) {
+        result.healOnAudit = {
+            skipped: true,
+            reason: 'heal pass requires Glass IPC pipeline',
+        }
+    }
+
+    return result
+}
+
+/**
+ * Compute a letter grade from a 0-100 health score.
+ * A: 90-100, B: 80-89, C: 70-79, D: 60-69, F: <60
+ */
+function gradeFromScore(score: number): string {
+    if (score >= 90) return 'A'
+    if (score >= 80) return 'B'
+    if (score >= 70) return 'C'
+    if (score >= 60) return 'D'
+    return 'F'
+}
+
+/**
+ * Health score: starts at 100, deducts per violation.
+ * Critical violations cost 10 points each, amber/warning 3 points each,
+ * capped at a minimum of 0.
+ */
+function computeHealthScore(files: BatchFileResult[]): number {
+    let score = 100
+    for (const file of files) {
+        for (const v of file.violations) {
+            score -= v.severity === 'critical' ? 10 : 3
+        }
+    }
+    return Math.max(0, score)
+}
+
+export async function handleFlintAuditBatch(
+    filePaths: string[],
+    sharedArgs: Pick<AuditArgs, 'ruleIds' | 'severity'>,
+    config: FlintConfig,
+): Promise<BatchAuditResult> {
+    const fileResults: BatchFileResult[] = []
+    let policyMode = { mithril: config.policy.mithril.mode, a11y: config.policy.a11y.mode }
+
+    for (const fp of filePaths) {
+        let source: string
+        try {
+            source = fs.readFileSync(fp, 'utf-8')
+        } catch (err) {
+            fileResults.push({
+                filePath: fp,
+                violations: [],
+                a11y: [],
+                mithrilCount: 0,
+                a11yCount: 0,
+                error: `Could not read file: ${err instanceof Error ? err.message : String(err)}`,
+            })
+            continue
+        }
+
+        let result: AuditResult
+        try {
+            result = await handleFlintAudit(
+                { source, filePath: fp, ...sharedArgs },
+                config,
+            )
+        } catch (err) {
+            fileResults.push({
+                filePath: fp,
+                violations: [],
+                a11y: [],
+                mithrilCount: 0,
+                a11yCount: 0,
+                error: `Audit failed: ${err instanceof Error ? err.message : String(err)}`,
+            })
+            continue
+        }
+
+        policyMode = result.policyMode as typeof policyMode
+
+        const mithrilViolations = result.violations.filter((v) => v.type !== 'a11y')
+        const a11yViolations = result.violations.filter((v) => v.type === 'a11y')
+
+        fileResults.push({
+            filePath: fp,
+            violations: mithrilViolations,
+            a11y: a11yViolations,
+            mithrilCount: result.mithrilCount,
+            a11yCount: result.a11yCount,
+        })
+    }
+
+    const totalViolations = fileResults.reduce(
+        (sum, f) => sum + f.violations.length + f.a11y.length,
+        0,
+    )
+    const healthScore = computeHealthScore(fileResults)
+    const grade = gradeFromScore(healthScore)
+
+    const result: BatchAuditResult = {
+        summary: {
+            totalFiles: filePaths.length,
+            totalViolations,
+            healthScore,
+            grade,
+            text: generateBatchAuditSummary(filePaths.length, totalViolations, healthScore, grade),
+        },
+        files: fileResults,
+        policyMode,
+    }
+
+    // CX.1: Attach project_context footer (best-effort, never blocks audit)
+    try {
+        const projectCtx = loadProjectContext(config.projectRoot)
+        if (projectCtx !== null) {
+            result.project_context = projectCtx
+        }
+    } catch {
+        // project_context is best-effort — never block batch audit result
+    }
+
+    return result
+}

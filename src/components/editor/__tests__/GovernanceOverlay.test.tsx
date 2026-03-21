@@ -10,7 +10,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { GovernanceOverlay } from '../../editor/GovernanceOverlay'
 import { useEditorStore } from '../../../store/editorStore'
-import type { LinterWarning } from '../../../types/bridge-api'
+import type { LinterWarning } from '../../../types/flint-api'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -138,10 +138,10 @@ describe('GovernanceOverlay', () => {
     // 9. Shows the node ID
     it('renders the node ID (prefixed with #) in each violation row', () => {
         const map = new Map<string, LinterWarning>([
-            ['bridge-node-xyz', makeWarning()],
+            ['flint-node-xyz', makeWarning()],
         ])
         seedWarnings(map)
         render(<GovernanceOverlay />)
-        expect(screen.getByText('#bridge-node-xyz')).toBeDefined()
+        expect(screen.getByText('#flint-node-xyz')).toBeDefined()
     })
 })

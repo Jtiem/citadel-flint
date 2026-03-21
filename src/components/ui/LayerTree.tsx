@@ -24,8 +24,8 @@
  *
  *   During drag, custom DOM events are dispatched so LivePreview can mirror
  *   the same indicators inside the iframe:
- *     bridge:dragOver  — { targetId, position }
- *     bridge:dragClear — (no detail)
+ *     flint:dragOver  — { targetId, position }
+ *     flint:dragClear — (no detail)
  *   A `lastBroadcast` ref prevents redundant dispatches on every mousemove.
  *
  * Depth indentation uses inline style (not dynamic Tailwind classes) because
@@ -36,6 +36,7 @@
  */
 
 import { useState, useRef } from 'react'
+import { BRAND } from '../../../shared/brand'
 import { Diamond, Hash, Type, Code2, ChevronRight, ChevronDown, AlertTriangle, Lock } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
 import { useCanvasStore } from '../../store/canvasStore'
@@ -107,12 +108,12 @@ function LayerRow({ layer, depth, collapsedIds, onToggleCollapsed, lockedIds }: 
 
     function handleDragStart(e: React.DragEvent): void {
         e.dataTransfer.setData('text/plain', layer.id)
-        // Bridge-namespaced keys allow FileExplorer to identify cross-file drops
+        // Flint-namespaced keys allow FileExplorer to identify cross-file drops
         // without conflicting with other drag sources.
-        e.dataTransfer.setData('application/bridge-source-id', layer.id)
+        e.dataTransfer.setData('application/flint-source-id', layer.id)
         const sourceFile = useCanvasStore.getState().activeFilePath
         if (sourceFile !== null) {
-            e.dataTransfer.setData('application/bridge-source-file', sourceFile)
+            e.dataTransfer.setData('application/flint-source-file', sourceFile)
         }
         e.dataTransfer.effectAllowed = 'move'
         setIsDragging(true)
@@ -122,7 +123,7 @@ function LayerRow({ layer, depth, collapsedIds, onToggleCollapsed, lockedIds }: 
         setIsDragging(false)
         setDropPosition(null)
         lastBroadcast.current = null
-        window.dispatchEvent(new CustomEvent('bridge:dragClear'))
+        window.dispatchEvent(new CustomEvent(`${BRAND.productLower}:dragClear`))
     }
 
     function handleDragOver(e: React.DragEvent): void {
@@ -143,7 +144,7 @@ function LayerRow({ layer, depth, collapsedIds, onToggleCollapsed, lockedIds }: 
         if (lb === null || lb.targetId !== layer.id || lb.position !== position) {
             lastBroadcast.current = { targetId: layer.id, position }
             window.dispatchEvent(
-                new CustomEvent('bridge:dragOver', { detail: { targetId: layer.id, position } })
+                new CustomEvent(`${BRAND.productLower}:dragOver`, { detail: { targetId: layer.id, position } })
             )
         }
     }
@@ -155,7 +156,7 @@ function LayerRow({ layer, depth, collapsedIds, onToggleCollapsed, lockedIds }: 
         if (row !== null && row.contains(e.relatedTarget as Node | null)) return
         setDropPosition(null)
         lastBroadcast.current = null
-        window.dispatchEvent(new CustomEvent('bridge:dragClear'))
+        window.dispatchEvent(new CustomEvent(`${BRAND.productLower}:dragClear`))
     }
 
     function handleDrop(e: React.DragEvent): void {
@@ -168,7 +169,7 @@ function LayerRow({ layer, depth, collapsedIds, onToggleCollapsed, lockedIds }: 
         moveLayerNode(sourceId, layer.id, dropPosition)
         setDropPosition(null)
         lastBroadcast.current = null
-        window.dispatchEvent(new CustomEvent('bridge:dragClear'))
+        window.dispatchEvent(new CustomEvent(`${BRAND.productLower}:dragClear`))
     }
 
     // ── Render ────────────────────────────────────────────────────────────────

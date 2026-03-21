@@ -25,7 +25,7 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+// No child_process — all data gathered via file reads for <50ms execution
 
 // Configuration
 const CONFIG = {
@@ -39,10 +39,6 @@ const CONFIG = {
   maxAgents: 15,
   topology: 'hierarchical-mesh',
 };
-
-// Cross-platform helpers
-const isWindows = process.platform === 'win32';
-const nullDevice = isWindows ? 'NUL' : '/dev/null';
 
 // ANSI colors
 const c = {
@@ -64,25 +60,37 @@ const c = {
   brightWhite: '\x1b[1;37m',
 };
 
-// Get user info
+// Get user info — pure file reads, no subprocess spawning
 function getUserInfo() {
   let name = 'user';
   let gitBranch = '';
   let modelName = 'Unknown';
 
+  // Read git user name from .git/config or ~/.gitconfig (no execSync)
   try {
-    const gitUserCmd = isWindows
-      ? 'git config user.name 2>NUL || echo user'
-      : 'git config user.name 2>/dev/null || echo "user"';
-    const gitBranchCmd = isWindows
-      ? 'git branch --show-current 2>NUL || echo.'
-      : 'git branch --show-current 2>/dev/null || echo ""';
-    name = execSync(gitUserCmd, { encoding: 'utf-8' }).trim();
-    gitBranch = execSync(gitBranchCmd, { encoding: 'utf-8' }).trim();
-    if (gitBranch === '.') gitBranch = ''; // Windows echo. outputs a dot
-  } catch (e) {
-    // Ignore errors
-  }
+    const gitConfigPaths = [
+      path.join(process.cwd(), '.git', 'config'),
+      path.join(require('os').homedir(), '.gitconfig'),
+    ];
+    for (const cfgPath of gitConfigPaths) {
+      if (fs.existsSync(cfgPath)) {
+        const content = fs.readFileSync(cfgPath, 'utf-8');
+        const match = content.match(/\[user\][^\[]*?name\s*=\s*(.+)/);
+        if (match) { name = match[1].trim(); break; }
+      }
+    }
+  } catch (e) { /* ignore */ }
+
+  // Read branch from .git/HEAD (no execSync)
+  try {
+    const headPath = path.join(process.cwd(), '.git', 'HEAD');
+    if (fs.existsSync(headPath)) {
+      const head = fs.readFileSync(headPath, 'utf-8').trim();
+      if (head.startsWith('ref: refs/heads/')) {
+        gitBranch = head.slice('ref: refs/heads/'.length);
+      }
+    }
+  } catch (e) { /* ignore */ }
 
   // Auto-detect model from Claude Code's config
   try {
@@ -237,7 +245,7 @@ function getLearningStats() {
 
 // Get V3 progress from learning state (grows as system learns)
 function getV3Progress() {
-  const learning = getLearningStats();
+  const learning = getCachedLearningStats();
 
   // DDD progress based on actual learned patterns
   // New install: 0 patterns = 0/5 domains, 0% DDD
@@ -298,19 +306,24 @@ function getSecurityStatus() {
   };
 }
 
-// Get swarm status
+// Get swarm status — check lock/pid files instead of ps aux
 function getSwarmStatus() {
   let activeAgents = 0;
   let coordinationActive = false;
 
   try {
-    if (isWindows) {
-      // Windows: use tasklist and findstr
-      const ps = execSync('tasklist 2>NUL | findstr /I "agentic-flow" 2>NUL | find /C /V "" 2>NUL || echo 0', { encoding: 'utf-8' });
-      activeAgents = Math.max(0, parseInt(ps.trim()) || 0);
-    } else {
-      const ps = execSync('ps aux 2>/dev/null | grep -c agentic-flow || echo "0"', { encoding: 'utf-8' });
-      activeAgents = Math.max(0, parseInt(ps.trim()) - 1);
+    // Check for agent directories/lock files instead of spawning ps
+    const agentDirs = [
+      path.join(process.cwd(), '.claude-flow', 'agents'),
+      path.join(process.cwd(), '.swarm', 'agents'),
+    ];
+    for (const dir of agentDirs) {
+      if (fs.existsSync(dir)) {
+        try {
+          const files = fs.readdirSync(dir);
+          activeAgents = Math.max(activeAgents, files.length);
+        } catch (e) { /* ignore */ }
+      }
     }
     coordinationActive = activeAgents > 0;
   } catch (e) {
@@ -324,30 +337,22 @@ function getSwarmStatus() {
   };
 }
 
-// Get system metrics (dynamic based on actual state)
+// Cache for getLearningStats — called by both getV3Progress and getSystemMetrics
+let _learningStatsCache = null;
+function getCachedLearningStats() {
+  if (!_learningStatsCache) _learningStatsCache = getLearningStats();
+  return _learningStatsCache;
+}
+
+// Get system metrics — no subprocess spawning
 function getSystemMetrics() {
-  let memoryMB = 0;
-  let subAgents = 0;
+  // Use Node.js API directly instead of ps aux (saves ~1000ms)
+  const memoryMB = Math.floor(process.memoryUsage().heapUsed / 1024 / 1024);
 
-  try {
-    if (isWindows) {
-      // Windows: use tasklist for memory info, fallback to process.memoryUsage
-      // tasklist memory column is complex to parse, use Node.js API instead
-      memoryMB = Math.floor(process.memoryUsage().heapUsed / 1024 / 1024);
-    } else {
-      const mem = execSync('ps aux | grep -E "(node|agentic|claude)" | grep -v grep | awk \'{sum += $6} END {print int(sum/1024)}\'', { encoding: 'utf-8' });
-      memoryMB = parseInt(mem.trim()) || 0;
-    }
-  } catch (e) {
-    // Fallback
-    memoryMB = Math.floor(process.memoryUsage().heapUsed / 1024 / 1024);
-  }
-
-  // Get learning stats for intelligence %
-  const learning = getLearningStats();
+  // Get learning stats (cached)
+  const learning = getCachedLearningStats();
 
   // Intelligence % from REAL intelligence loop data (ADR-050)
-  // Composite: 40% confidence mean + 30% access ratio + 30% pattern density
   let intelligencePct = 0;
   if (learning.confidenceMean > 0 || (learning.patterns > 0 && learning.accessedCount > 0)) {
     const confScore = Math.min(100, Math.floor(learning.confidenceMean * 100));
@@ -356,27 +361,20 @@ function getSystemMetrics() {
     const densityScore = Math.min(100, Math.floor(learning.patterns / 5));
     intelligencePct = Math.floor(confScore * 0.4 + accessScore * 0.3 + densityScore * 0.3);
   }
-  // Fallback: legacy pattern count
   if (intelligencePct === 0 && learning.patterns > 0) {
     intelligencePct = Math.min(100, Math.floor(learning.patterns / 10));
   }
 
-  // Context % based on session history
   const contextPct = Math.min(100, Math.floor(learning.sessions * 5));
 
-  // Count active sub-agents from process list
+  // Count sub-agents from directory listing instead of ps aux
+  let subAgents = 0;
   try {
-    if (isWindows) {
-      // Windows: use tasklist and findstr for agent counting
-      const agents = execSync('tasklist 2>NUL | findstr /I "claude-flow" 2>NUL | find /C /V "" 2>NUL || echo 0', { encoding: 'utf-8' });
-      subAgents = Math.max(0, parseInt(agents.trim()) || 0);
-    } else {
-      const agents = execSync('ps aux 2>/dev/null | grep -c "claude-flow.*agent" || echo "0"', { encoding: 'utf-8' });
-      subAgents = Math.max(0, parseInt(agents.trim()) - 1);
+    const agentDir = path.join(process.cwd(), '.claude-flow', 'agents');
+    if (fs.existsSync(agentDir)) {
+      subAgents = fs.readdirSync(agentDir).length;
     }
-  } catch (e) {
-    // Ignore - default to 0
-  }
+  } catch (e) { /* ignore */ }
 
   return {
     memoryMB,

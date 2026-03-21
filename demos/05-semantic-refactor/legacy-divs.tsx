@@ -1,30 +1,3 @@
-/**
- * LegacyDivs — demos/05-semantic-refactor/legacy-divs.tsx
- *
- * A user profile settings panel written in raw HTML before the design system
- * component library existed. Every layout construct is a bare <div> with a
- * BEM-style className; every text node is a <span>; interactive controls are
- * built from scratch instead of using the canonical primitives.
- *
- * Bridge semantic refactor target: the AI reads the component registry via
- * bridge_query_registry, then uses bridge_ast_mutate to upgrade each
- * structural primitive to its design system equivalent:
- *
- *   <div className="box">          →  <Box>
- *   <div className="stack">        →  <Stack>
- *   <div className="flex-row">     →  <Inline>
- *   <span className="text-label">  →  <Text variant="label">
- *   <span className="text-body">   →  <Text variant="body">
- *   <span className="text-caption">→  <Text variant="caption">
- *   <div className="divider">      →  <Divider>
- *   <button className="btn-*">     →  <Button variant="*">
- *   <input className="input-*">    →  <TextField>
- *   <select className="select-*">  →  <SelectField>
- *
- * The AFTER state has the same visual output but the AST references typed
- * design system components that the governance engine can audit and trace.
- */
-
 import React, { useState } from 'react';
 
 interface UserProfile {

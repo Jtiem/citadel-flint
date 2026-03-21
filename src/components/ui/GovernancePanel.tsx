@@ -15,7 +15,7 @@
  *   - Reads/writes overrides via useGovernanceStore
  *   - Pending changes tracked locally; committed on Save, discarded on Reset/Close
  *
- * Mithril Safety: all classes from Bridge design token palette only.
+ * Mithril Safety: all classes from Flint design token palette only.
  */
 
 import { useEffect, useState, useCallback } from 'react'
@@ -31,8 +31,11 @@ import {
 // Planned rules are displayed in a visually distinct state so users understand
 // they are roadmap items and will never fire in the current release.
 const PLANNED_BADGE = (
-    <span className="rounded border border-zinc-700/40 bg-zinc-800/60 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-zinc-600">
-        Coming soon
+    <span
+        className="rounded border border-zinc-700/40 bg-zinc-800/60 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-zinc-600"
+        title="This rule is in development and will be enforced in a future update."
+    >
+        In development
     </span>
 )
 import { useGovernanceStore, type RuleOverride } from '../../store/governanceStore'
@@ -255,7 +258,7 @@ export function GovernancePanel({ onClose }: GovernancePanelProps) {
             const override: RuleOverride = { enabled }
             setOverride(ruleId, override)
             // GOV.2: fire-and-forget telemetry — do not await
-            window.bridgeAPI.governance.recordOverride({
+            window.flintAPI.governance.recordOverride({
                 ruleId,
                 action: enabled ? 'enable' : 'disable',
                 newValue: override,
@@ -269,7 +272,7 @@ export function GovernancePanel({ onClose }: GovernancePanelProps) {
         (ruleId: string) => {
             resetOverride(ruleId)
             // GOV.2: fire-and-forget telemetry — do not await
-            window.bridgeAPI.governance.recordOverride({
+            window.flintAPI.governance.recordOverride({
                 ruleId,
                 action: 'reset',
                 newValue: null,
@@ -291,7 +294,7 @@ export function GovernancePanel({ onClose }: GovernancePanelProps) {
     const handleReset = () => {
         resetAll()
         // GOV.2: fire-and-forget telemetry for reset_all — do not await
-        window.bridgeAPI.governance.recordOverride({
+        window.flintAPI.governance.recordOverride({
             ruleId: '*',
             action: 'reset_all',
             newValue: null,

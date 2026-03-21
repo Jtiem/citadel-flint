@@ -12,6 +12,7 @@
  */
 
 import { create } from 'zustand'
+import { BRAND } from '../../shared/brand'
 import type { RuleSeverity } from '../core/governanceRulesManifest'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -30,7 +31,7 @@ interface GovernanceState {
     loadFromFile: () => Promise<void>
 }
 
-const STORAGE_KEY = 'bridge:governance:overrides'
+const STORAGE_KEY = `${BRAND.productLower}:governance:overrides`
 
 // ── Store ─────────────────────────────────────────────────────────────────────
 
@@ -61,7 +62,7 @@ export const useGovernanceStore = create<GovernanceState>((set, get) => ({
     async saveToFile() {
         const payload = { version: 1 as const, rules: get().overrides }
         try {
-            await window.bridgeAPI.saveRuleOverrides(payload)
+            await window.flintAPI.saveRuleOverrides?.(payload)
         } catch {
             // Fallback to localStorage if IPC unavailable (e.g. test env)
             localStorage.setItem(STORAGE_KEY, JSON.stringify(get().overrides))
@@ -70,7 +71,7 @@ export const useGovernanceStore = create<GovernanceState>((set, get) => ({
 
     async loadFromFile() {
         try {
-            const data = await window.bridgeAPI.getRuleOverrides()
+            const data = await window.flintAPI.getRuleOverrides?.()
             if (data?.rules) {
                 set({ overrides: data.rules as Record<string, RuleOverride> })
                 return

@@ -1,5 +1,5 @@
 ---
-description: Synchronize CLAUDE.md, HANDOFF.md, and BRIDGE-PULSE.md after code changes
+description: Synchronize CLAUDE.md, HANDOFF.md, and FLINT-PULSE.md after code changes
 ---
 
 # /sync-docs — Documentation Synchronization Workflow
@@ -8,7 +8,7 @@ Run this workflow after any significant code change to keep project documentatio
 
 ## Steps
 
-1. Read `.bridge-context/BRIDGE-PULSE.md` to understand the current session state.
+1. Read `.flint-context/FLINT-PULSE.md` to understand the current session state.
 
 2. Read `CLAUDE.md` and `HANDOFF.md` to understand what is currently documented.
 
@@ -25,7 +25,7 @@ Run this workflow after any significant code change to keep project documentatio
 // turbo
 7. Run `npx tsc --noEmit` to verify zero TypeScript errors.
 
-8. Update `.bridge-context/BRIDGE-PULSE.md` with:
+8. Update `.flint-context/FLINT-PULSE.md` with:
    - Current "Active Buffer" (the primary file being worked on).
    - Updated "Pending Transactions" list.
    - Updated "Last Session Synchronization" block with today's date and modified files.

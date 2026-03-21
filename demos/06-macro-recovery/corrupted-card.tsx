@@ -1,28 +1,3 @@
-/**
- * CorruptedCard — demos/06-macro-recovery/corrupted-card.tsx
- *
- * CURRENT STATE (HEAD): the RepoCard after an AI-assisted refactor went
- * wrong. The developer asked the AI to "extract the language bar into its
- * own component" — but the AI used `git checkout src/components/ui/RepoCard.tsx`
- * (a global file replacement) instead of a targeted transplant, which
- * silently reverted two other sections that had been updated in the same
- * commit:
- *
- *   1. The entire `repo-card-metrics` block (stars, forks, issues, updated
- *      timestamp) was deleted — the node with data-bridge-id="repo-card-metrics"
- *      is gone from the AST.
- *
- *   2. The `repo-card-footer` action bar was replaced with a broken stub
- *      that renders no buttons and has an unclosed JSX expression.
- *
- * Bridge macro-recovery: the RecoveryPanel finds this via `bridge_debt_report`
- * (health score drops from 94 to 61 because two WCAG nodes and four token
- * references are missing). The user opens Git Time Machine, selects commit
- * a3f8b12, and Bridge uses `ast:git-show` + `bridge_ast_mutate` to transplant
- * only the two missing subtrees back into this file — Commandment 11:
- * "never git checkout a shared file; transplant specific nodes."
- */
-
 import React, { useState } from 'react';
 
 interface Language {
@@ -65,13 +40,11 @@ function timeAgo(iso: string): string {
   return `${years} year${years > 1 ? 's' : ''} ago`;
 }
 
-// LanguageBar extracted into its own component as requested —
-// but the refactor clobbered the sections around it.
 function LanguageBar({ languages }: { languages: Language[] }) {
   if (languages.length === 0) return null;
   return (
     <div
-      data-bridge-id="repo-card-lang-bar"
+      data-flint-id="repo-card-lang-bar"
       className="px-5 pb-4"
     >
       <div className="flex rounded-full overflow-hidden h-1.5 mt-2" role="img" aria-label="Language breakdown">
@@ -108,12 +81,12 @@ export default function RepoCard({
 
   return (
     <article
-      data-bridge-id="repo-card-root"
+      data-flint-id="repo-card-root"
       className="bg-white border border-gray-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow"
     >
-      {/* Card header — intact */}
+      {/* Card header */}
       <div
-        data-bridge-id="repo-card-header"
+        data-flint-id="repo-card-header"
         className="px-5 pt-5 pb-4"
       >
         <div className="flex items-start justify-between gap-3">
@@ -149,7 +122,7 @@ export default function RepoCard({
 
         {description && (
           <p
-            data-bridge-id="repo-card-description"
+            data-flint-id="repo-card-description"
             className="mt-2.5 text-sm text-gray-600 line-clamp-2 leading-relaxed"
           >
             {description}
@@ -158,7 +131,7 @@ export default function RepoCard({
 
         {topics.length > 0 && (
           <div
-            data-bridge-id="repo-card-topics"
+            data-flint-id="repo-card-topics"
             className="mt-3 flex flex-wrap gap-1.5"
           >
             {topics.slice(0, 5).map((topic) => (
@@ -178,27 +151,12 @@ export default function RepoCard({
         )}
       </div>
 
-      {/*
-        DELETED: repo-card-metrics block (stars / forks / issues / updated)
-        was here. The node data-bridge-id="repo-card-metrics" is gone.
-        Bridge identifies this as a missing node during the AST diff.
-      */}
-
-      {/* Language bar — the only thing the refactor was supposed to change */}
       <LanguageBar languages={languages} />
 
-      {/*
-        CORRUPTED: repo-card-footer was replaced with a broken stub.
-        The original action bar (Star / Fork / Watch / View on GitHub)
-        is gone. Bridge's debt report drops the health score from 94 → 61
-        because three interactive affordances and their aria-label attributes
-        are missing, failing A11Y-002 (button accessible name) x3.
-      */}
       <div
-        data-bridge-id="repo-card-footer"
+        data-flint-id="repo-card-footer"
         className="px-4 py-3 border-t border-gray-100 bg-gray-50 flex items-center gap-2"
       >
-        {/* TODO: restore action buttons — accidentally deleted during LanguageBar extraction */}
       </div>
     </article>
   );

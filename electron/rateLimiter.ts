@@ -30,11 +30,13 @@ export class TokenBucket {
     private refillRate: number
     private tokens: number
     private lastRefillTime: number
+    private nowFn: () => number
 
     constructor(
         requestsPerMinute: number,
-        private nowFn: () => number = Date.now,
+        nowFn: () => number = Date.now,
     ) {
+        this.nowFn = nowFn
         this.capacity = requestsPerMinute
         this.refillRate = requestsPerMinute / 60_000   // tokens per ms
         this.tokens = requestsPerMinute                // start full

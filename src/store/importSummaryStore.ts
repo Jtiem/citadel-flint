@@ -5,7 +5,7 @@
  *
  * This store holds the result of the IngestionAuditor.heal() pass that runs in
  * the main process after each Figma /ingest-ast call. The summary is pushed
- * from main -> renderer via the 'bridge:import-summary' IPC channel and received
+ * from main -> renderer via the 'flint:import-summary' IPC channel and received
  * by the useEffect listener in App.tsx (see contract Section 5.2).
  *
  * State:
@@ -25,7 +25,7 @@
  *   isAllClean    — true when tier2 is empty and tier3Unknown is 0.
  *
  * Anti-pattern guard:
- *   This store does NOT call window.bridgeAPI. IPC calls happen in component
+ *   This store does NOT call window.flintAPI. IPC calls happen in component
  *   useEffect hooks (App.tsx for onSummary, ImportSummary.tsx for snapToToken
  *   and undoAllHeals). Cross-store imports are also prohibited.
  *
@@ -33,7 +33,7 @@
  */
 
 import { create } from 'zustand'
-import type { IngestionSummary } from '../types/bridge-api'
+import type { IngestionSummary } from '../types/flint-api'
 
 // ── Store shape ────────────────────────────────────────────────────────────────
 

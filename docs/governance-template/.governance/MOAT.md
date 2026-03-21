@@ -62,7 +62,7 @@ This filter prevents feature creep by tying every decision to strategic defensib
 
 ---
 
-## Example (from Bridge)
+## Example (from Flint)
 
 **Moat 1: Determinism** — AST-driven mutation (not LLM guessing). Same input always produces same output. Compliance-grade reproducibility.
 

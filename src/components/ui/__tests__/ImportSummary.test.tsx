@@ -16,16 +16,16 @@
  *   - Toast hidden when isPanelMode = true
  *
  * Test isolation:
- *   window.bridgeAPI is mocked via the global setup (src/components/__tests__/setup.ts).
+ *   window.flintAPI is mocked via the global setup (src/components/__tests__/setup.ts).
  *   Zustand stores are reset in beforeEach via resetAllStores().
  *   The importSummaryStore is reset manually in each test that needs a specific state.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, act, fireEvent, waitFor } from '@testing-library/react'
 import { ImportSummaryToastMount, ImportSummaryPanelView } from '../ImportSummary'
 import { useImportSummaryStore } from '../../../store/importSummaryStore'
-import type { IngestionSummary, IngestionFix, IngestionFlag } from '../../../types/bridge-api'
+import type { IngestionSummary, IngestionFix, IngestionFlag } from '../../../types/flint-api'
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -231,9 +231,9 @@ describe('ImportSummaryPanelView', () => {
     })
 
     // ING-16: Snap button calls IPC and removes item from store
-    it('clicking Snap calls bridgeAPI.importSummary.snapToToken and removes the item', async () => {
+    it('clicking Snap calls flintAPI.importSummary.snapToToken and removes the item', async () => {
         const mockSnapToToken = vi.fn().mockResolvedValue({ ok: true })
-        ;(window.bridgeAPI as any).importSummary = {
+        ;(window.flintAPI as any).importSummary = {
             snapToToken: mockSnapToToken,
             undoAllHeals: vi.fn().mockResolvedValue({ ok: true }),
             onSummary: vi.fn().mockReturnValue(() => {}),
@@ -249,7 +249,7 @@ describe('ImportSummaryPanelView', () => {
         })
         render(<ImportSummaryPanelView />)
 
-        const snapBtn = screen.getByLabelText(/snap .* to token/i)
+        const snapBtn = screen.getByLabelText(/apply token fix/i)
         fireEvent.click(snapBtn)
 
         await waitFor(() => {
@@ -270,7 +270,7 @@ describe('ImportSummaryPanelView', () => {
     // ING-17: Undo all heals calls IPC and clears store
     it('clicking "Undo all heals" calls undoAllHeals IPC and clears summary', async () => {
         const mockUndoAllHeals = vi.fn().mockResolvedValue({ ok: true })
-        ;(window.bridgeAPI as any).importSummary = {
+        ;(window.flintAPI as any).importSummary = {
             snapToToken: vi.fn().mockResolvedValue({ ok: true }),
             undoAllHeals: mockUndoAllHeals,
             onSummary: vi.fn().mockReturnValue(() => {}),

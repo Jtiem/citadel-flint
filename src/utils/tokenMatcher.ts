@@ -18,7 +18,7 @@
  * Renderer Process only — no Node.js imports.
  */
 
-import type { DesignToken } from '../types/bridge-api'
+import type { DesignToken } from '../types/flint-api'
 
 // ── Thresholds ────────────────────────────────────────────────────────────────
 

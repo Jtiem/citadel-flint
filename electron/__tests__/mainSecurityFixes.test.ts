@@ -13,7 +13,7 @@
  *   Fix 3 (P1-3) — terminal:spawn cwd restricted to home directory
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import path from 'node:path'
 import os from 'node:os'
 
@@ -42,7 +42,7 @@ describe('Fix 1 (P0-3) — figma:status secret stripping', () => {
             lastWebhookAt: 1700000000000,
             tokenCount: 42,
             port: 4545,
-            secret: 'bridge-dev-secret-phase2',
+            secret: 'flint-dev-secret-phase2',
         }
         const result = stripSecret(raw)
         expect(result).not.toHaveProperty('secret')
@@ -136,7 +136,7 @@ describe('Fix 2 (P1-2) — safeStorage API key encryption', () => {
 
     it('returns null for malformed encrypted input', () => {
         // Provide invalid base64 / non-decodable input.
-        const result = decryptApiKey('not-valid-encrypted-content!!!@#$%')
+        decryptApiKey('not-valid-encrypted-content!!!@#$%')
         // Our mock will still try to decode; the real safeStorage would throw.
         // Test that the null guard in decryptApiKey is exercised.
         // Here we simulate a throwing decryptString:
@@ -255,7 +255,7 @@ describe('Fix 3 (P1-3) — terminal:spawn cwd restriction', () => {
     })
 
     it('allows a subdirectory of home', () => {
-        const subdir = path.join(home, 'Projects', 'my-bridge-project')
+        const subdir = path.join(home, 'Projects', 'my-flint-project')
         expect(validateCwd(subdir).allowed).toBe(true)
     })
 

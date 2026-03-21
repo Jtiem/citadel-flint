@@ -56,8 +56,8 @@ function providerGuard(
         onChunk({
             type: 'error',
             error:
-                'Bridge requires an Anthropic API key for AI-assisted editing. ' +
-                'The Bridge Tool Catalog (Commandment 15) and in-memory validation ' +
+                'Flint requires an Anthropic API key for AI-assisted editing. ' +
+                'The Flint Tool Catalog (Commandment 15) and in-memory validation ' +
                 '(Commandment 16) are only enforced via Anthropic tool-use. ' +
                 'Non-Anthropic providers bypass all governance checks. ' +
                 'Please configure an Anthropic API key in AI Settings.',

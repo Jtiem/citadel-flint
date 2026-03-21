@@ -1,7 +1,7 @@
 /**
  * FileExplorer — src/components/ui/FileExplorer.tsx
  *
- * Module F.1: Recursive file tree sidebar for the Bridge Project Workspace.
+ * Module F.1: Recursive file tree sidebar for the Flint Project Workspace.
  * Phase F.2: File nodes are drop targets for cross-file component moves.
  *
  * Architecture:
@@ -16,7 +16,7 @@
  *
  * Cross-file drop protocol:
  *   When a LayerTree row is dragged over a file node, `FileItem` checks for
- *   the `application/bridge-source-file` drag type before accepting the drop.
+ *   the `application/flint-source-file` drag type before accepting the drop.
  *   On a valid drop it calls `useASTBufferStore.getState().crossFileMove(...)`,
  *   which buffers both files, performs Babel AST surgery, atomically saves via
  *   `saveFileBatch`, and pushes tagged history entries.
@@ -31,7 +31,7 @@
 import { useState } from 'react'
 import { useCanvasStore } from '../../store/canvasStore'
 import { useASTBufferStore } from '../../store/astBufferStore'
-import type { FileTreeNode } from '../../types/bridge-api'
+import type { FileTreeNode } from '../../types/flint-api'
 
 // ── FileItem ──────────────────────────────────────────────────────────────────
 
@@ -52,8 +52,8 @@ function FileItem({ node, depth }: FileItemProps) {
     const paddingLeft = depth * 12
 
     function handleDragOver(e: React.DragEvent<HTMLButtonElement>): void {
-        // Only accept drops that carry a bridge source file — i.e. LayerTree rows.
-        if (!e.dataTransfer.types.includes('application/bridge-source-file')) return
+        // Only accept drops that carry a flint source file — i.e. LayerTree rows.
+        if (!e.dataTransfer.types.includes('application/flint-source-file')) return
         e.preventDefault()
         e.dataTransfer.dropEffect = 'move'
         setIsDragTarget(true)
@@ -70,8 +70,8 @@ function FileItem({ node, depth }: FileItemProps) {
         e.preventDefault()
         setIsDragTarget(false)
 
-        const sourceNodeId = e.dataTransfer.getData('application/bridge-source-id')
-        const sourceFilePath = e.dataTransfer.getData('application/bridge-source-file')
+        const sourceNodeId = e.dataTransfer.getData('application/flint-source-id')
+        const sourceFilePath = e.dataTransfer.getData('application/flint-source-file')
 
         // Ignore drops from the same file (single-file moves stay in LayerTree)
         // or drops that didn't originate from a LayerTree row.
@@ -92,11 +92,11 @@ function FileItem({ node, depth }: FileItemProps) {
             e.preventDefault()
             return
         }
-        e.dataTransfer.setData('application/bridge-component-file', node.path)
+        e.dataTransfer.setData('application/flint-component-file', node.path)
         // File-level drags carry no specific node ID — the drop target uses the
         // source file's root JSX element as the composition anchor. An empty
         // string signals "whole-file compose" to the canvas drop handler.
-        e.dataTransfer.setData('application/bridge-source-id', '')
+        e.dataTransfer.setData('application/flint-source-id', '')
         e.dataTransfer.effectAllowed = 'copy'
     }
 

@@ -2,27 +2,33 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "Bridge MCP Server",
+      "name": "Flint MCP Server",
       "runtimeExecutable": "node",
-      "runtimeArgs": ["bridge-mcp/dist/cli.js", "serve"]
+      "runtimeArgs": ["flint-mcp/dist/cli.js", "serve"]
     },
     {
       "name": "Figma Ingestion Server",
       "runtimeExecutable": "node",
-      "runtimeArgs": ["bridge-mcp/dist/core/ingestion/server.js"],
+      "runtimeArgs": ["flint-mcp/dist/core/ingestion/server.js"],
       "port": 4545
     },
     {
       "name": "Vitest (Watch)",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["vitest", "--watch", "--config", "bridge-mcp/vitest.config.ts"]
+      "runtimeArgs": ["vitest", "--watch", "--config", "flint-mcp/vitest.config.ts"]
     }
     ,
     {
-      "name": "Bridge Website",
+      "name": "Flint Website",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--prefix", "website"],
       "port": 5173
+    },
+    {
+      "name": "Demo Preview",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "--config", "demos/vite.config.ts"],
+      "port": 5174
     }
   ]
 }

@@ -1,0 +1,116 @@
+appId: com.flint.glass
+productName: Flint Glass
+copyright: Copyright 2026 Flint
+
+directories:
+  buildResources: build-resources
+  output: release
+
+# ── Source exclusions ────────────────────────────────────────────────────────
+# Only compiled output ships. All TypeScript source is excluded.
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - flint-mcp/dist/**/*
+  - node_modules/**/*
+  - package.json
+  # Exclude source code — testers get compiled JS only
+  - "!src/**"
+  - "!electron/**"
+  - "!flint-mcp/src/**"
+  - "!flint-vscode/**"
+  - "!vscode-extension/**"
+  - "!demos/**"
+  - "!docs/**"
+  - "!website/**"
+  - "!.flint-context/**"
+  - "!.claude/**"
+  - "!.claude-flow/**"
+  - "!.git/**"
+  - "!**/*.ts"
+  - "!**/*.tsx"
+  - "!**/*.map"
+  - "!**/*.test.*"
+  - "!**/__tests__/**"
+  - "!**/vitest.config.*"
+  - "!**/tsconfig.*"
+  - "!scripts/**"
+  - "!CLAUDE.md"
+  - "!HANDOFF.md"
+
+# ── Extra resources ──────────────────────────────────────────────────────────
+# Demo project shipped with beta builds for first-launch experience.
+# Copied to process.resourcesPath so the main process can access it.
+extraResources:
+  - from: build-resources/demo-project
+    to: build-resources/demo-project
+    filter:
+      - "**/*"
+
+# ── ASAR ─────────────────────────────────────────────────────────────────────
+asar: true
+asarUnpack:
+  # Native .node binaries must live outside the ASAR (dlopen requirement)
+  - "**/*.node"
+  # MCP server must be outside ASAR — it is spawned as a child process by the
+  # main process and the OS cannot execute files from inside an ASAR archive.
+  - "flint-mcp/dist/**"
+
+# ── Native modules ───────────────────────────────────────────────────────────
+# electron-rebuild handles better-sqlite3, node-pty, sqlite-vec, bufferutil, utf-8-validate
+npmRebuild: true
+
+# ── macOS ────────────────────────────────────────────────────────────────────
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build-resources/entitlements.mac.plist
+  entitlementsInherit: build-resources/entitlements.mac.plist
+  # Uncomment when you have an Apple Developer certificate:
+  # identity: "Developer ID Application: Your Name (TEAM_ID)"
+  # notarize:
+  #   teamId: ${env.APPLE_TEAM_ID}
+
+# ── Windows ──────────────────────────────────────────────────────────────────
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+
+# ── Linux ────────────────────────────────────────────────────────────────────
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+  category: Development
+
+# ── Before-build hook ────────────────────────────────────────────────────────
+# Stamps FLINT_BETA_EXPIRY / FLINT_BETA_BUILD_ID into the compiled output.
+beforeBuild: scripts/before-build.cjs
+
+# ── GitHub Releases publish ───────────────────────────────────────────────────
+# electron-updater reads this section to locate the update feed.
+# NOTE: electron-updater must be added to package.json dependencies before
+# auto-update can function at runtime (it is not yet present).
+publish:
+  provider: github
+  owner: Jtiem
+  repo: lunar-elevator-flint
+
+# ── DMG layout ───────────────────────────────────────────────────────────────
+dmg:
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications

@@ -35,6 +35,10 @@
     }
   },
   "include": [
-    "src"
+    "src",
+    "shared"
+  ],
+  "exclude": [
+    "src/stories"
   ]
 }

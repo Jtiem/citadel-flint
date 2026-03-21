@@ -1,0 +1,67 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-surface text-ink font-sans text-base font-normal;
+  }
+
+  ::selection {
+    @apply bg-accent/15 text-ink;
+  }
+}
+
+@layer components {
+  .section-container {
+    @apply mx-auto max-w-page px-6 sm:px-8;
+  }
+
+  .prose-container {
+    @apply mx-auto max-w-prose;
+  }
+
+  .content-container {
+    @apply mx-auto max-w-content;
+  }
+
+  .gradient-text {
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #d946ef 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .gradient-border {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .gradient-border::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6, #d946ef);
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  .stat-highlight {
+    @apply text-accent font-semibold;
+  }
+
+  .code-block {
+    @apply bg-surface-code text-white/90 font-mono text-sm rounded-2xl p-5 overflow-x-auto;
+  }
+}

@@ -31,7 +31,6 @@ import {
 } from '../agentEscalation'
 import type {
     EscalationRule,
-    MRSTierInput,
 } from '../agentEscalation'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -202,12 +201,7 @@ describe('AGV3-04 — RULE-004: Mutation velocity (20 in 5 minutes)', () => {
     it('mutations older than 5 minutes do not count for velocity', () => {
         // Record 20 mutations with timestamps > 5 minutes ago
         const sixMinAgo = Date.now() - 6 * 60 * 1000
-        // Directly manipulate history for this test
-        const history = Array.from({ length: 20 }, () => ({
-            timestamp: sixMinAgo,
-            tier: 'green' as MRSTierInput,
-            score: 0.10,
-        }))
+        // Test verifies that stale mutations (>5min ago) don't count
         // Access internal state via a fresh engine
         const specialEngine = new EscalationEngine()
         // Use the public API with time manipulation
@@ -501,12 +495,12 @@ describe('AGV3-12 — resetAll clears all agents', () => {
 // ── AGV3-13/14/15: loadEscalationRules ─────────────────────────────────────
 
 describe('AGV3-13/14/15 — loadEscalationRules', () => {
-    const tmpDir = path.join(os.tmpdir(), `bridge-agv3-test-${Date.now()}`)
-    const bridgeDir = path.join(tmpDir, '.bridge')
-    const rulesPath = path.join(bridgeDir, 'escalation-rules.json')
+    const tmpDir = path.join(os.tmpdir(), `flint-agv3-test-${Date.now()}`)
+    const flintDir = path.join(tmpDir, '.flint')
+    const rulesPath = path.join(flintDir, 'escalation-rules.json')
 
     beforeEach(async () => {
-        await mkdir(bridgeDir, { recursive: true })
+        await mkdir(flintDir, { recursive: true })
     })
 
     afterEach(async () => {

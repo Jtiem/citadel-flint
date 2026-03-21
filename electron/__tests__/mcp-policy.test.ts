@@ -56,13 +56,13 @@ describe('SEC3-01 — RENDERER_ALLOWED_MCP_TOOLS structure', () => {
 
 describe('SEC3-02 — expected tools are present in the allowlist', () => {
     const EXPECTED_ALLOWED = [
-        'bridge_status',
-        'bridge_audit',
-        'bridge_debt_report',
-        'bridge_query_registry',
-        'bridge_generate_dbom',
-        'bridge_accessibility_report',
-        'bridge_audit_report',
+        'flint_status',
+        'flint_audit',
+        'flint_debt_report',
+        'flint_query_registry',
+        'flint_generate_dbom',
+        'flint_accessibility_report',
+        'flint_audit_report',
     ]
 
     for (const tool of EXPECTED_ALLOWED) {
@@ -80,13 +80,13 @@ describe('SEC3-02 — expected tools are present in the allowlist', () => {
 
 describe('SEC3-03 — write-oriented and agent-only tools are excluded', () => {
     const EXCLUDED_TOOLS = [
-        'bridge_ast_mutate',
-        'bridge_fix',
-        'bridge_ingest_figma',
-        'bridge_sync_tokens',
-        'bridge_swarm_audit_fix',
-        'bridge_add_remote_library',
-        'bridge_annotate',
+        'flint_ast_mutate',
+        'flint_fix',
+        'flint_ingest_figma',
+        'flint_sync_tokens',
+        'flint_swarm_audit_fix',
+        'flint_add_remote_library',
+        'flint_annotate',
     ]
 
     for (const tool of EXCLUDED_TOOLS) {
@@ -99,18 +99,18 @@ describe('SEC3-03 — write-oriented and agent-only tools are excluded', () => {
 // ── SEC3-04: Allowed tool passes the guard ────────────────────────────────────
 
 describe('SEC3-04 — allowed tools pass the allowlist guard', () => {
-    it('bridge_status passes through', () => {
-        const result = allowlistGuard('bridge_status')
+    it('flint_status passes through', () => {
+        const result = allowlistGuard('flint_status')
         expect(result.allowed).toBe(true)
     })
 
-    it('bridge_audit passes through', () => {
-        const result = allowlistGuard('bridge_audit')
+    it('flint_audit passes through', () => {
+        const result = allowlistGuard('flint_audit')
         expect(result.allowed).toBe(true)
     })
 
-    it('bridge_generate_dbom passes through', () => {
-        const result = allowlistGuard('bridge_generate_dbom')
+    it('flint_generate_dbom passes through', () => {
+        const result = allowlistGuard('flint_generate_dbom')
         expect(result.allowed).toBe(true)
     })
 })
@@ -118,26 +118,26 @@ describe('SEC3-04 — allowed tools pass the allowlist guard', () => {
 // ── SEC3-05: Disallowed tool is rejected with a descriptive error ──────────────
 
 describe('SEC3-05 — disallowed tool is rejected with descriptive error', () => {
-    it('bridge_ast_mutate is rejected', () => {
-        const result = allowlistGuard('bridge_ast_mutate')
+    it('flint_ast_mutate is rejected', () => {
+        const result = allowlistGuard('flint_ast_mutate')
         expect(result.allowed).toBe(false)
         if (!result.allowed) {
             expect(result.error).toContain('not in the renderer allowlist')
-            expect(result.error).toContain('bridge_ast_mutate')
+            expect(result.error).toContain('flint_ast_mutate')
         }
     })
 
-    it('bridge_ingest_figma is rejected', () => {
-        const result = allowlistGuard('bridge_ingest_figma')
+    it('flint_ingest_figma is rejected', () => {
+        const result = allowlistGuard('flint_ingest_figma')
         expect(result.allowed).toBe(false)
         if (!result.allowed) {
             expect(result.error).toContain('not in the renderer allowlist')
-            expect(result.error).toContain('bridge_ingest_figma')
+            expect(result.error).toContain('flint_ingest_figma')
         }
     })
 
-    it('bridge_fix is rejected', () => {
-        const result = allowlistGuard('bridge_fix')
+    it('flint_fix is rejected', () => {
+        const result = allowlistGuard('flint_fix')
         expect(result.allowed).toBe(false)
         if (!result.allowed) {
             expect(result.error).toContain('not in the renderer allowlist')
@@ -145,12 +145,12 @@ describe('SEC3-05 — disallowed tool is rejected with descriptive error', () =>
     })
 
     it('error message includes list of allowed tools', () => {
-        const result = allowlistGuard('bridge_ast_mutate')
+        const result = allowlistGuard('flint_ast_mutate')
         expect(result.allowed).toBe(false)
         if (!result.allowed) {
             // The error message should name the tools the renderer IS allowed to call
-            expect(result.error).toContain('bridge_status')
-            expect(result.error).toContain('bridge_audit')
+            expect(result.error).toContain('flint_status')
+            expect(result.error).toContain('flint_audit')
         }
     })
 })
@@ -175,7 +175,7 @@ describe('SEC3-06 — unknown tool is rejected', () => {
     })
 
     it('tool with correct prefix but wrong name is rejected', () => {
-        const result = allowlistGuard('bridge_super_admin_nuke')
+        const result = allowlistGuard('flint_super_admin_nuke')
         expect(result.allowed).toBe(false)
     })
 })

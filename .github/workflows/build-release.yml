@@ -1,0 +1,128 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Build + Release
+# ──────────────────────────────────────────────────────────────────────────────
+# Triggered on version tags (v*.*.*). Builds Flint Glass for macOS, Linux,
+# and Windows, then publishes artifacts to GitHub Releases via electron-builder.
+#
+# Required GitHub Secrets (Settings > Secrets and variables > Actions):
+#
+#   ALL PLATFORMS:
+#     GH_TOKEN — GitHub Personal Access Token with `contents: write` scope.
+#                Used by electron-builder to upload release artifacts.
+#                Create at: https://github.com/settings/tokens
+#
+#   macOS CODE SIGNING:
+#     CSC_LINK              — Base64-encoded .p12 certificate file.
+#                             Export from Keychain Access, then:
+#                             base64 -i certificate.p12 | pbcopy
+#     CSC_KEY_PASSWORD       — Password for the .p12 certificate.
+#     APPLE_ID               — Apple ID email for notarization.
+#     APPLE_APP_SPECIFIC_PASSWORD — App-specific password for notarization.
+#                             Generate at: https://appleid.apple.com/account/manage
+#     APPLE_TEAM_ID          — 10-character Apple Developer Team ID.
+#                             Find at: https://developer.apple.com/account
+#
+#   WINDOWS CODE SIGNING:
+#     WIN_CSC_LINK           — Base64-encoded .pfx certificate for Windows signing.
+#     WIN_CSC_KEY_PASSWORD   — Password for the .pfx certificate.
+#
+# ──────────────────────────────────────────────────────────────────────────────
+
+name: Build + Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+# Only one release build per tag
+concurrency:
+  group: build-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build (${{ matrix.platform }})
+    timeout-minutes: 40
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Apple Silicon + Intel universal build (macos-14 = ARM64 runner)
+          - os: macos-14
+            platform: mac
+          # Linux AppImage (x64)
+          - os: ubuntu-latest
+            platform: linux
+          # Windows NSIS installer (x64)
+          - os: windows-latest
+            platform: win
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── 2. Node.js ──────────────────────────────────────────────────────────
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # ── 3. Install dependencies ─────────────────────────────────────────────
+      - name: Install dependencies
+        run: npm ci
+
+      # ── 4. Install MCP engine dependencies ──────────────────────────────────
+      - name: Install flint-mcp dependencies
+        run: |
+          cd flint-mcp
+          npm ci
+
+      # ── 5. TypeScript — root project ────────────────────────────────────────
+      - name: Typecheck (root)
+        run: npx tsc --noEmit
+
+      # ── 6. TypeScript — MCP engine ──────────────────────────────────────────
+      - name: Typecheck (flint-mcp)
+        run: npx tsc --noEmit --project flint-mcp/tsconfig.json
+
+      # ── 7. Core tests ───────────────────────────────────────────────────────
+      - name: Core tests
+        run: npm test
+
+      # ── 8. Glass component tests ────────────────────────────────────────────
+      - name: Glass component tests
+        run: npm run test:react
+
+      # ── 9. MCP engine tests ─────────────────────────────────────────────────
+      - name: MCP engine tests
+        run: |
+          cd flint-mcp
+          npm test
+
+      # ── 10. Build Vite + Electron ───────────────────────────────────────────
+      # electron-builder runs vite build internally via the "build" script,
+      # then packages the output into platform-specific installers.
+      - name: Build and publish
+        run: npx electron-builder --publish always
+        env:
+          # GitHub token for uploading release artifacts
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+
+          # ── macOS code signing + notarization ─────────────────────────────
+          # These are only needed on the macOS runner.
+          CSC_LINK: ${{ matrix.platform == 'mac' && secrets.CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ matrix.platform == 'mac' && secrets.CSC_KEY_PASSWORD || '' }}
+          APPLE_ID: ${{ matrix.platform == 'mac' && secrets.APPLE_ID || '' }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ matrix.platform == 'mac' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ matrix.platform == 'mac' && secrets.APPLE_TEAM_ID || '' }}
+
+          # ── Windows code signing ──────────────────────────────────────────
+          # These are only needed on the Windows runner.
+          WIN_CSC_LINK: ${{ matrix.platform == 'win' && secrets.WIN_CSC_LINK || '' }}
+          WIN_CSC_KEY_PASSWORD: ${{ matrix.platform == 'win' && secrets.WIN_CSC_KEY_PASSWORD || '' }}

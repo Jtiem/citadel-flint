@@ -2,7 +2,7 @@
  * Normalizer — electron/normalizer.ts
  *
  * Maps raw Figma Variables API payloads to the W3C DTCG token schema
- * that Bridge stores in the design_tokens SQLite table.
+ * that Flint stores in the design_tokens SQLite table.
  *
  * All Figma-specific types are internal to this module. The public surface
  * exports only `normalizeFigmaVariables`.
@@ -132,7 +132,7 @@ function serializeValue(value: FigmaVariableValue, type: FigmaVariableType): str
 }
 
 /**
- * Constructs the Bridge `token_path` from a Figma collection name + variable name.
+ * Constructs the Flint `token_path` from a Figma collection name + variable name.
  *
  * Rules:
  *   - Collection name → lowercase, spaces → hyphens (e.g. "Color Tokens" → "color-tokens")
@@ -182,7 +182,7 @@ function resolveModeNme(
  */
 export function normalizeFigmaVariables(figmaPayload: unknown): NewDesignToken[] {
     if (!isFigmaVariablesPayload(figmaPayload)) {
-        console.warn('[Bridge] normalizeFigmaVariables: payload failed type guard — skipping')
+        console.warn('[Flint] normalizeFigmaVariables: payload failed type guard — skipping')
         return []
     }
 
@@ -216,7 +216,7 @@ export function normalizeFigmaVariables(figmaPayload: unknown): NewDesignToken[]
     }
 
     console.log(
-        `[Bridge] normalizeFigmaVariables: produced ${tokens.length} tokens` +
+        `[Flint] normalizeFigmaVariables: produced ${tokens.length} tokens` +
         ` (${Object.keys(variableCollections).length} collections)`
     )
     return tokens

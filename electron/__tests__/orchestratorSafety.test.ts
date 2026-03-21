@@ -1,10 +1,10 @@
 /**
  * orchestratorSafety.test.ts
  *
- * Validates Commandments 15 and 16 of the Bridge orchestrator safety layer.
+ * Validates Commandments 15 and 16 of the Flint orchestrator safety layer.
  *
  * C15 — Granular AST Tools Only
- *   The BRIDGE_TOOLS catalog must contain exactly the allowed set of granular,
+ *   The FLINT_TOOLS catalog must contain exactly the allowed set of granular,
  *   node-targeted operations. No tool may accept a raw source-code string.
  *
  * C16 — In-Memory Validation Loop
@@ -19,7 +19,7 @@
  * because esbuild 0.27.x fails to parse certain Unicode characters present in
  * the file's template literals. The tests below cover the same contractual surface:
  *
- *   C15 — catalog shape is verified via the EXPECTED_BRIDGE_TOOLS specification
+ *   C15 — catalog shape is verified via the EXPECTED_FLINT_TOOLS specification
  *         defined inline (matching the actual orchestrator.ts source).
  *
  *   C16 — the real checkClassNameForColorDrift and formatViolationsForAI
@@ -48,49 +48,78 @@ import {
 import type { ILspClient, LspDiagnostic } from '../lsp/types'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// C15 — Bridge Tool Catalog specification
+// C15 — Flint Tool Catalog specification
 //
-// These tests verify that the BRIDGE_TOOLS catalog in orchestrator.ts satisfies
+// These tests verify that the FLINT_TOOLS catalog in orchestrator.ts satisfies
 // the Commandment 15 contract. The catalog is specified here as the authoritative
 // contract; if the orchestrator diverges, these tests fail.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // The exact set of tools that Commandment 15 allows. Derived from orchestrator.ts.
 const EXPECTED_TOOL_NAMES = [
-    'bridge_read_code',
-    'bridge_read_tokens',
-    'bridge_audit_mithril',
-    'bridge_audit_a11y',
-    'bridge_update_props',
-    'bridge_update_text',
-    'bridge_insert_node',
-    'bridge_wrap_node',
-    'bridge_delete_node',
-    'bridge_add_class',
-    'bridge_remove_class',
-    'bridge_search_design_system',
+    // ── Phase M: read + audit ──────────────────────────────────────────────────
+    'flint_read_code',
+    'flint_read_tokens',
+    'flint_audit_mithril',
+    'flint_audit_a11y',
+    // ── Original node-targeted mutations ──────────────────────────────────────
+    'flint_update_props',
+    'flint_update_text',
+    'flint_insert_node',
+    'flint_wrap_node',
+    'flint_delete_node',
+    'flint_add_class',
+    'flint_remove_class',
+    // ── Design system search ───────────────────────────────────────────────────
+    'flint_search_design_system',
+    // ── CATALOG.1: Component logic (node-targeted) ─────────────────────────────
+    'flint_emit_callback',
+    // ── CATALOG.1: Component logic (component-targeted) ────────────────────────
+    'flint_emit_hook',
+    'flint_emit_handler',
+    // ── CATALOG.1: Import management ───────────────────────────────────────────
+    'flint_emit_import',
+    // ── CATALOG.2: Rendering control flow (node-targeted) ──────────────────────
+    'flint_emit_conditional',
+    'flint_emit_map',
+    // ── CATALOG.3: Compound component slots ────────────────────────────────────
+    'flint_compose_slot',
 ] as const
 
 type ToolName = (typeof EXPECTED_TOOL_NAMES)[number]
 
-// Mutation tools — those that accept a targetId and apply a structural change.
+// Node-targeted mutation tools — each requires a targetId for node-level surgery.
 const MUTATION_TOOLS: ToolName[] = [
-    'bridge_update_props',
-    'bridge_update_text',
-    'bridge_insert_node',
-    'bridge_wrap_node',
-    'bridge_delete_node',
-    'bridge_add_class',
-    'bridge_remove_class',
+    'flint_update_props',
+    'flint_update_text',
+    'flint_insert_node',
+    'flint_wrap_node',
+    'flint_delete_node',
+    'flint_add_class',
+    'flint_remove_class',
+    // CATALOG node-targeted mutations
+    'flint_emit_callback',
+    'flint_emit_conditional',
+    'flint_emit_map',
+]
+
+// Component-level catalog tools — mutations that target a component function by
+// name or operate at file-level. They use componentName, parentId, or
+// importSnippet instead of targetId.
+const CATALOG_COMPONENT_TOOLS: ToolName[] = [
+    'flint_emit_hook',
+    'flint_emit_handler',
+    'flint_emit_import',
+    'flint_compose_slot',
 ]
 
 // Read-only tools — no targetId, no mutation.
 const READ_ONLY_TOOLS: ToolName[] = [
-    'bridge_read_code',
-    'bridge_read_tokens',
-    'bridge_audit_mithril',
-    'bridge_audit_a11y',
-    'bridge_search_design_system',
+    'flint_read_code',
+    'flint_read_tokens',
+    'flint_audit_mithril',
+    'flint_audit_a11y',
+    'flint_search_design_system',
 ]
 
 // Raw source-code fields that are FORBIDDEN in any tool's input schema.
@@ -109,29 +138,29 @@ interface MinimalToolSchema {
 
 // The catalog as it appears in orchestrator.ts (replicated for contract testing).
 // Any mismatch between this and the actual orchestrator source is a C15 violation.
-const BRIDGE_TOOLS_SPEC: MinimalToolSchema[] = [
+const FLINT_TOOLS_SPEC: MinimalToolSchema[] = [
     {
-        name: 'bridge_read_code',
+        name: 'flint_read_code',
         description: 'Read the current source code of the active file.',
         input_schema: { type: 'object', properties: {}, required: [] },
     },
     {
-        name: 'bridge_read_tokens',
-        description: 'Read all design tokens from the Bridge token store.',
+        name: 'flint_read_tokens',
+        description: 'Read all design tokens from the Flint token store.',
         input_schema: { type: 'object', properties: {}, required: [] },
     },
     {
-        name: 'bridge_audit_mithril',
+        name: 'flint_audit_mithril',
         description: 'Read all current Mithril Safety violations',
         input_schema: { type: 'object', properties: {}, required: [] },
     },
     {
-        name: 'bridge_audit_a11y',
+        name: 'flint_audit_a11y',
         description: 'Read all current WCAG 2.1 AA accessibility violations.',
         input_schema: { type: 'object', properties: {}, required: [] },
     },
     {
-        name: 'bridge_update_props',
+        name: 'flint_update_props',
         description: 'Modify one or more JSX attributes on a single target node.',
         input_schema: {
             type: 'object',
@@ -144,7 +173,7 @@ const BRIDGE_TOOLS_SPEC: MinimalToolSchema[] = [
         },
     },
     {
-        name: 'bridge_update_text',
+        name: 'flint_update_text',
         description: 'Modify the visible text content of a single JSX element.',
         input_schema: {
             type: 'object',
@@ -157,7 +186,7 @@ const BRIDGE_TOOLS_SPEC: MinimalToolSchema[] = [
         },
     },
     {
-        name: 'bridge_insert_node',
+        name: 'flint_insert_node',
         description: 'Insert a new JSX element relative to an existing target node.',
         input_schema: {
             type: 'object',
@@ -173,7 +202,7 @@ const BRIDGE_TOOLS_SPEC: MinimalToolSchema[] = [
         },
     },
     {
-        name: 'bridge_wrap_node',
+        name: 'flint_wrap_node',
         description: 'Wrap an existing JSX element in a new parent element.',
         input_schema: {
             type: 'object',
@@ -187,7 +216,7 @@ const BRIDGE_TOOLS_SPEC: MinimalToolSchema[] = [
         },
     },
     {
-        name: 'bridge_delete_node',
+        name: 'flint_delete_node',
         description: 'Remove a JSX element and all its children from the tree.',
         input_schema: {
             type: 'object',
@@ -199,7 +228,7 @@ const BRIDGE_TOOLS_SPEC: MinimalToolSchema[] = [
         },
     },
     {
-        name: 'bridge_add_class',
+        name: 'flint_add_class',
         description: 'Append one design-token Tailwind class to a node\'s className.',
         input_schema: {
             type: 'object',
@@ -212,7 +241,7 @@ const BRIDGE_TOOLS_SPEC: MinimalToolSchema[] = [
         },
     },
     {
-        name: 'bridge_remove_class',
+        name: 'flint_remove_class',
         description: 'Remove one specific Tailwind class from a node\'s className.',
         input_schema: {
             type: 'object',
@@ -225,7 +254,7 @@ const BRIDGE_TOOLS_SPEC: MinimalToolSchema[] = [
         },
     },
     {
-        name: 'bridge_search_design_system',
+        name: 'flint_search_design_system',
         description: 'Search the design system knowledge base for component patterns.',
         input_schema: {
             type: 'object',
@@ -235,34 +264,135 @@ const BRIDGE_TOOLS_SPEC: MinimalToolSchema[] = [
             required: ['query'],
         },
     },
+    // ── CATALOG.1: Component logic ─────────────────────────────────────────────
+    {
+        name: 'flint_emit_hook',
+        description: 'Inject a React hook call at the top of a component function body.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                componentName: { type: 'string' },
+                hookStatement: { type: 'string' },
+                importSnippet: { type: 'string' },
+                reasoning: { type: 'string' },
+            },
+            required: ['componentName', 'hookStatement', 'reasoning'],
+        },
+    },
+    {
+        name: 'flint_emit_handler',
+        description: 'Inject a named handler function inside a component body.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                componentName: { type: 'string' },
+                handlerCode: { type: 'string' },
+                reasoning: { type: 'string' },
+            },
+            required: ['componentName', 'handlerCode', 'reasoning'],
+        },
+    },
+    {
+        name: 'flint_emit_callback',
+        description: 'Wire a handler reference to an event prop on a JSX element.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                targetId: { type: 'string' },
+                propName: { type: 'string' },
+                expression: { type: 'string' },
+                reasoning: { type: 'string' },
+            },
+            required: ['targetId', 'propName', 'expression', 'reasoning'],
+        },
+    },
+    {
+        name: 'flint_emit_import',
+        description: 'Add an import declaration to the file. Deduplicates at the specifier level.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                importSnippet: { type: 'string' },
+                reasoning: { type: 'string' },
+            },
+            required: ['importSnippet', 'reasoning'],
+        },
+    },
+    // ── CATALOG.2: Rendering control flow ─────────────────────────────────────
+    {
+        name: 'flint_emit_conditional',
+        description: 'Wrap a JSX element in a conditional guard (&&) or ternary.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                targetId: { type: 'string' },
+                condition: { type: 'string' },
+                mode: { type: 'string', enum: ['and', 'ternary'] },
+                fallback: { type: 'string' },
+                reasoning: { type: 'string' },
+            },
+            required: ['targetId', 'condition', 'mode', 'reasoning'],
+        },
+    },
+    {
+        name: 'flint_emit_map',
+        description: 'Wrap a JSX element in an array.map() for list rendering with stable key injection.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                targetId: { type: 'string' },
+                arrayExpression: { type: 'string' },
+                iteratorName: { type: 'string' },
+                keyExpression: { type: 'string' },
+                reasoning: { type: 'string' },
+            },
+            required: ['targetId', 'arrayExpression', 'iteratorName', 'keyExpression', 'reasoning'],
+        },
+    },
+    // ── CATALOG.3: Compound component slots ───────────────────────────────────
+    {
+        name: 'flint_compose_slot',
+        description: 'Insert content into a compound component slot (e.g. Dialog.Header, Tabs.Panel).',
+        input_schema: {
+            type: 'object',
+            properties: {
+                parentId: { type: 'string' },
+                slotName: { type: 'string' },
+                jsxSnippet: { type: 'string' },
+                importSnippet: { type: 'string' },
+                reasoning: { type: 'string' },
+            },
+            required: ['parentId', 'slotName', 'jsxSnippet', 'reasoning'],
+        },
+    },
 ]
 
-describe('C15 — Bridge Tool Catalog contract', () => {
+describe('C15 — Flint Tool Catalog contract', () => {
     it('catalog is non-empty', () => {
-        expect(BRIDGE_TOOLS_SPEC.length).toBeGreaterThan(0)
+        expect(FLINT_TOOLS_SPEC.length).toBeGreaterThan(0)
     })
 
     it('catalog contains no duplicate tool names', () => {
-        const names = BRIDGE_TOOLS_SPEC.map((t) => t.name)
+        const names = FLINT_TOOLS_SPEC.map((t) => t.name)
         expect(new Set(names).size).toBe(names.length)
     })
 
     it('every tool name is in the allowed set', () => {
         const allowed = new Set<string>(EXPECTED_TOOL_NAMES)
-        for (const tool of BRIDGE_TOOLS_SPEC) {
+        for (const tool of FLINT_TOOLS_SPEC) {
             expect(allowed.has(tool.name), `Unexpected tool name: "${tool.name}"`).toBe(true)
         }
     })
 
     it('all expected tool names are present in the catalog (catalog is complete)', () => {
-        const present = new Set(BRIDGE_TOOLS_SPEC.map((t) => t.name))
+        const present = new Set(FLINT_TOOLS_SPEC.map((t) => t.name))
         for (const name of EXPECTED_TOOL_NAMES) {
             expect(present.has(name), `Missing tool: "${name}"`).toBe(true)
         }
     })
 
     it('no tool exposes a raw source-code field (C15: no full-file replacements)', () => {
-        for (const tool of BRIDGE_TOOLS_SPEC) {
+        for (const tool of FLINT_TOOLS_SPEC) {
             const propNames = Object.keys(tool.input_schema.properties)
             for (const forbidden of FORBIDDEN_INPUT_FIELDS) {
                 expect(
@@ -275,7 +405,7 @@ describe('C15 — Bridge Tool Catalog contract', () => {
 
     it('every mutation tool has a required targetId (ops are node-targeted)', () => {
         for (const name of MUTATION_TOOLS) {
-            const tool = BRIDGE_TOOLS_SPEC.find((t) => t.name === name)!
+            const tool = FLINT_TOOLS_SPEC.find((t) => t.name === name)!
             expect(tool.input_schema.required, `${name} missing required fields`).toBeDefined()
             expect(
                 tool.input_schema.required!.includes('targetId'),
@@ -286,7 +416,7 @@ describe('C15 — Bridge Tool Catalog contract', () => {
 
     it('every mutation tool has a required reasoning field', () => {
         for (const name of MUTATION_TOOLS) {
-            const tool = BRIDGE_TOOLS_SPEC.find((t) => t.name === name)!
+            const tool = FLINT_TOOLS_SPEC.find((t) => t.name === name)!
             expect(
                 tool.input_schema.required!.includes('reasoning'),
                 `Mutation tool "${name}" is missing required "reasoning"`
@@ -296,7 +426,7 @@ describe('C15 — Bridge Tool Catalog contract', () => {
 
     it('read-only tools have no targetId field', () => {
         for (const name of READ_ONLY_TOOLS) {
-            const tool = BRIDGE_TOOLS_SPEC.find((t) => t.name === name)!
+            const tool = FLINT_TOOLS_SPEC.find((t) => t.name === name)!
             expect(
                 Object.keys(tool.input_schema.properties).includes('targetId'),
                 `Read-only tool "${name}" should not have targetId`
@@ -304,52 +434,116 @@ describe('C15 — Bridge Tool Catalog contract', () => {
         }
     })
 
-    it('bridge_insert_node position field is constrained to a four-value enum', () => {
-        const tool = BRIDGE_TOOLS_SPEC.find((t) => t.name === 'bridge_insert_node')!
+    it('flint_insert_node position field is constrained to a four-value enum', () => {
+        const tool = FLINT_TOOLS_SPEC.find((t) => t.name === 'flint_insert_node')!
         const positionProp = tool.input_schema.properties.position
         expect(Array.isArray(positionProp.enum)).toBe(true)
         expect(positionProp.enum).toEqual(['before', 'after', 'firstChild', 'lastChild'])
     })
 
-    it('bridge_insert_node requires targetId, position, nodeType, and reasoning', () => {
-        const tool = BRIDGE_TOOLS_SPEC.find((t) => t.name === 'bridge_insert_node')!
+    it('flint_insert_node requires targetId, position, nodeType, and reasoning', () => {
+        const tool = FLINT_TOOLS_SPEC.find((t) => t.name === 'flint_insert_node')!
         expect(tool.input_schema.required).toContain('targetId')
         expect(tool.input_schema.required).toContain('position')
         expect(tool.input_schema.required).toContain('nodeType')
         expect(tool.input_schema.required).toContain('reasoning')
     })
 
-    it('bridge_wrap_node requires targetId, wrapperType, and reasoning', () => {
-        const tool = BRIDGE_TOOLS_SPEC.find((t) => t.name === 'bridge_wrap_node')!
+    it('flint_wrap_node requires targetId, wrapperType, and reasoning', () => {
+        const tool = FLINT_TOOLS_SPEC.find((t) => t.name === 'flint_wrap_node')!
         expect(tool.input_schema.required).toContain('targetId')
         expect(tool.input_schema.required).toContain('wrapperType')
         expect(tool.input_schema.required).toContain('reasoning')
     })
 
-    it('bridge_add_class and bridge_remove_class each require a single className field', () => {
-        for (const name of ['bridge_add_class', 'bridge_remove_class'] as const) {
-            const tool = BRIDGE_TOOLS_SPEC.find((t) => t.name === name)!
+    it('flint_add_class and flint_remove_class each require a single className field', () => {
+        for (const name of ['flint_add_class', 'flint_remove_class'] as const) {
+            const tool = FLINT_TOOLS_SPEC.find((t) => t.name === name)!
             expect(tool.input_schema.required).toContain('className')
         }
     })
 
-    it('bridge_search_design_system requires a query field', () => {
-        const tool = BRIDGE_TOOLS_SPEC.find((t) => t.name === 'bridge_search_design_system')!
+    it('flint_search_design_system requires a query field', () => {
+        const tool = FLINT_TOOLS_SPEC.find((t) => t.name === 'flint_search_design_system')!
         expect(tool.input_schema.required).toContain('query')
     })
 
-    it('mutation tools total exactly 7', () => {
-        const mutationCount = BRIDGE_TOOLS_SPEC.filter((t) =>
+    it('mutation tools total exactly 10', () => {
+        const mutationCount = FLINT_TOOLS_SPEC.filter((t) =>
             MUTATION_TOOLS.includes(t.name as ToolName)
         ).length
-        expect(mutationCount).toBe(7)
+        expect(mutationCount).toBe(10)
     })
 
     it('read-only tools total exactly 5', () => {
-        const roCount = BRIDGE_TOOLS_SPEC.filter((t) =>
+        const roCount = FLINT_TOOLS_SPEC.filter((t) =>
             READ_ONLY_TOOLS.includes(t.name as ToolName)
         ).length
         expect(roCount).toBe(5)
+    })
+
+    it('catalog component tools total exactly 4', () => {
+        const count = FLINT_TOOLS_SPEC.filter((t) =>
+            CATALOG_COMPONENT_TOOLS.includes(t.name as ToolName)
+        ).length
+        expect(count).toBe(4)
+    })
+
+    it('every catalog component tool has a required reasoning field', () => {
+        for (const name of CATALOG_COMPONENT_TOOLS) {
+            const tool = FLINT_TOOLS_SPEC.find((t) => t.name === name)!
+            expect(
+                tool.input_schema.required!.includes('reasoning'),
+                `Catalog component tool "${name}" is missing required "reasoning"`
+            ).toBe(true)
+        }
+    })
+
+    it('flint_emit_hook requires componentName and hookStatement', () => {
+        const tool = FLINT_TOOLS_SPEC.find((t) => t.name === 'flint_emit_hook')!
+        expect(tool.input_schema.required).toContain('componentName')
+        expect(tool.input_schema.required).toContain('hookStatement')
+        expect(tool.input_schema.required).toContain('reasoning')
+    })
+
+    it('flint_emit_handler requires componentName and handlerCode', () => {
+        const tool = FLINT_TOOLS_SPEC.find((t) => t.name === 'flint_emit_handler')!
+        expect(tool.input_schema.required).toContain('componentName')
+        expect(tool.input_schema.required).toContain('handlerCode')
+        expect(tool.input_schema.required).toContain('reasoning')
+    })
+
+    it('flint_emit_import requires importSnippet (no targetId)', () => {
+        const tool = FLINT_TOOLS_SPEC.find((t) => t.name === 'flint_emit_import')!
+        expect(tool.input_schema.required).toContain('importSnippet')
+        expect(tool.input_schema.required).toContain('reasoning')
+        expect(Object.keys(tool.input_schema.properties)).not.toContain('targetId')
+    })
+
+    it('flint_compose_slot requires parentId, slotName, and jsxSnippet', () => {
+        const tool = FLINT_TOOLS_SPEC.find((t) => t.name === 'flint_compose_slot')!
+        expect(tool.input_schema.required).toContain('parentId')
+        expect(tool.input_schema.required).toContain('slotName')
+        expect(tool.input_schema.required).toContain('jsxSnippet')
+        expect(tool.input_schema.required).toContain('reasoning')
+    })
+
+    it('flint_emit_map requires keyExpression for Commandment 3 compliance', () => {
+        const tool = FLINT_TOOLS_SPEC.find((t) => t.name === 'flint_emit_map')!
+        expect(tool.input_schema.required).toContain('keyExpression')
+        expect(tool.input_schema.required).toContain('arrayExpression')
+        expect(tool.input_schema.required).toContain('iteratorName')
+    })
+
+    it('flint_emit_conditional mode field is constrained to and/ternary enum', () => {
+        const tool = FLINT_TOOLS_SPEC.find((t) => t.name === 'flint_emit_conditional')!
+        const modeProp = tool.input_schema.properties.mode
+        expect(Array.isArray(modeProp.enum)).toBe(true)
+        expect(modeProp.enum).toEqual(['and', 'ternary'])
+    })
+
+    it('catalog tools total 19 (12 original + 7 CATALOG)', () => {
+        expect(FLINT_TOOLS_SPEC.length).toBe(19)
     })
 })
 
@@ -367,12 +561,8 @@ const TOKEN_ZINC_900: MithrilToken = {
     token_value: '#18181b',
 }
 
-// A token with a slightly different value (very close to zinc-900).
-const TOKEN_ZINC_900_NEAR: MithrilToken = {
-    token_path: 'color/zinc/900-near',
-    token_type: 'color',
-    token_value: '#1a1a1e', // small drift from #18181b
-}
+// Near-match token reserved for future delta-E tests
+// const TOKEN_ZINC_900_NEAR = { token_path: 'color/zinc/900-near', token_type: 'color', token_value: '#1a1a1e' }
 
 describe('C16 — checkClassNameForColorDrift: real CIEDE2000 implementation', () => {
     it('MITHRIL_THRESHOLD is 2.0', () => {
@@ -595,7 +785,7 @@ describe('C16 — formatViolationsForAI output contract', () => {
         expect(msg).toContain('text-[#00ff00]')
     })
 
-    it('output includes instruction to use bridge_read_tokens', () => {
+    it('output includes instruction to use flint_read_tokens', () => {
         const violation: ColorViolation = {
             className: 'bg-[#ff0000]',
             hexValue: '#ff0000',
@@ -604,7 +794,7 @@ describe('C16 — formatViolationsForAI output contract', () => {
             nearestTokenValue: null,
         }
         const msg = formatViolationsForAI([violation])
-        expect(msg).toContain('bridge_read_tokens')
+        expect(msg).toContain('flint_read_tokens')
     })
 })
 
@@ -761,11 +951,11 @@ describe('C16 — MithrilToken and ColorViolation type contracts', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('C16 — validateToolInput guard logic (pure function tests)', () => {
-    // Guard 1: data-bridge-id must never be modified.
-    function checkBridgeIdTampering(props: Record<string, unknown>): string | null {
+    // Guard 1: data-flint-id must never be modified.
+    function checkFlintIdTampering(props: Record<string, unknown>): string | null {
         for (const k of Object.keys(props)) {
-            if (k === 'data-bridge-id') {
-                return 'Commandment 7 violation: data-bridge-id must never be modified.'
+            if (k === 'data-flint-id') {
+                return 'Commandment 7 violation: data-flint-id must never be modified.'
             }
         }
         return null
@@ -789,14 +979,14 @@ describe('C16 — validateToolInput guard logic (pure function tests)', () => {
         return null
     }
 
-    it('checkBridgeIdTampering returns error when data-bridge-id is in props', () => {
-        const result = checkBridgeIdTampering({ 'data-bridge-id': 'hacked' })
+    it('checkFlintIdTampering returns error when data-flint-id is in props', () => {
+        const result = checkFlintIdTampering({ 'data-flint-id': 'hacked' })
         expect(result).not.toBeNull()
         expect(result).toMatch(/Commandment 7/i)
     })
 
-    it('checkBridgeIdTampering returns null for compliant props', () => {
-        const result = checkBridgeIdTampering({ className: 'bg-zinc-900', 'aria-label': 'Card' })
+    it('checkFlintIdTampering returns null for compliant props', () => {
+        const result = checkFlintIdTampering({ className: 'bg-zinc-900', 'aria-label': 'Card' })
         expect(result).toBeNull()
     })
 
@@ -833,15 +1023,15 @@ describe('C16 — validateToolInput guard logic (pure function tests)', () => {
         expect(checkCompoundClassName('')).toBeNull()
     })
 
-    it('Mithril gate: checkClassNameForColorDrift fires for bridge_add_class (not remove)', () => {
-        // For bridge_add_class, the Mithril check runs.
-        // For bridge_remove_class, it does NOT (removing can never introduce drift).
+    it('Mithril gate: checkClassNameForColorDrift fires for flint_add_class (not remove)', () => {
+        // For flint_add_class, the Mithril check runs.
+        // For flint_remove_class, it does NOT (removing can never introduce drift).
         // This mirrors the orchestrator logic on lines 411-419.
         const tokens = [TOKEN_ZINC_900]
         const addClassResult = checkClassNameForColorDrift('bg-[#ff0000]', tokens)
-        expect(addClassResult.length).toBeGreaterThan(0) // would block bridge_add_class
+        expect(addClassResult.length).toBeGreaterThan(0) // would block flint_add_class
 
-        // For bridge_remove_class: checkClassNameForColorDrift is never called.
+        // For flint_remove_class: checkClassNameForColorDrift is never called.
         // We verify this by asserting a spy is NOT invoked when the remove path executes.
         const spy = vi.fn(checkClassNameForColorDrift)
         // Simulating the remove_class path — spy is NOT called (orchestrator skips it).
@@ -849,11 +1039,11 @@ describe('C16 — validateToolInput guard logic (pure function tests)', () => {
         expect(typeof spy).toBe('function')
     })
 
-    it('guard pipeline runs in correct order: bridge-id check before prop type check', () => {
-        // The orchestrator checks bridge-id FIRST, then prop types.
-        // If data-bridge-id is present AND value is non-string, bridge-id error wins.
-        const props = { 'data-bridge-id': 123 } // non-string AND id tampering
-        const idError = checkBridgeIdTampering(props)
+    it('guard pipeline runs in correct order: flint-id check before prop type check', () => {
+        // The orchestrator checks flint-id FIRST, then prop types.
+        // If data-flint-id is present AND value is non-string, flint-id error wins.
+        const props = { 'data-flint-id': 123 } // non-string AND id tampering
+        const idError = checkFlintIdTampering(props)
         expect(idError).not.toBeNull()
         // id error takes precedence — we don't even get to prop type check
         const typeError = idError ?? checkPropValueTypes(props)

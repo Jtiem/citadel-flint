@@ -1,8 +1,8 @@
 /**
  * ActivityFeed — src/components/ui/ActivityFeed.tsx
  *
- * Read-only log of MCP tool invocations. Polls `.bridge/activity-log.jsonl`
- * every 3 seconds via the bridgeAPI.readFile IPC channel.
+ * Read-only log of MCP tool invocations. Polls `.flint/activity-log.jsonl`
+ * every 3 seconds via the flintAPI.readFile IPC channel.
  *
  * Each JSONL line is expected to have the shape:
  *   { tool: string, input: unknown, outcome: 'success'|'error'|'blocked', durationMs?: number, timestamp: string|number }
@@ -15,7 +15,7 @@
  *   - "View" button on error rows that contain a file path in inputSummary
  *   - Header count badges for error and blocked entries
  *
- * Mithril Safety: all classes from Bridge design token palette only.
+ * Mithril Safety: all classes from Flint design token palette only.
  */
 
 import { useEffect, useState, useRef, useCallback } from 'react'
@@ -36,25 +36,25 @@ type OutcomeFilter = 'success' | 'error' | 'blocked'
 // ── Tool label translation map ────────────────────────────────────────────────
 
 const TOOL_LABELS: Record<string, string> = {
-    bridge_status: 'Status Check',
-    bridge_get_context: 'Read Context',
-    bridge_audit: 'Design Audit',
+    flint_status: 'Status Check',
+    flint_get_context: 'Read Context',
+    flint_audit: 'Design Audit',
     audit_ui_component: 'Component Audit',
-    bridge_fix: 'Auto-Fix',
-    bridge_ast_mutate: 'Code Change',
-    bridge_ingest_figma: 'Figma Import',
-    bridge_sync_tokens: 'Token Sync',
-    bridge_query_registry: 'Component Search',
-    bridge_debt_report: 'Debt Report',
-    bridge_annotate: 'Annotation',
-    bridge_vpat_report: 'Accessibility Report',
-    bridge_consensus_status: 'Consensus Check',
-    bridge_anomaly_report: 'Anomaly Detection',
-    bridge_theme_validate: 'Theme Validation',
-    bridge_compare_layouts: 'Layout Comparison',
-    bridge_migrate_ds: 'Design System Migration',
-    bridge_migrate_tw: 'Tailwind Migration',
-    bridge_platform_export: 'Platform Export',
+    flint_fix: 'Auto-Fix',
+    flint_ast_mutate: 'Code Change',
+    flint_ingest_figma: 'Figma Import',
+    flint_sync_tokens: 'Token Sync',
+    flint_query_registry: 'Component Search',
+    flint_debt_report: 'Debt Report',
+    flint_annotate: 'Annotation',
+    flint_vpat_report: 'Accessibility Report',
+    flint_consensus_status: 'Consensus Check',
+    flint_anomaly_report: 'Anomaly Detection',
+    flint_theme_validate: 'Theme Validation',
+    flint_compare_layouts: 'Layout Comparison',
+    flint_migrate_ds: 'Design System Migration',
+    flint_migrate_tw: 'Tailwind Migration',
+    flint_platform_export: 'Platform Export',
     read_design_intent: 'Design Intent',
     generate_component: 'Generate Component',
     hydrate_figma_data: 'Figma Hydration',
@@ -202,8 +202,8 @@ function EntryRow({ entry, index }: EntryRowProps) {
 
     const handleViewFile = useCallback(() => {
         if (!filePath) return
-        // Navigate to the file via bridgeAPI if available
-        window.bridgeAPI?.openFile?.(filePath)
+        // Navigate to the file via flintAPI if available
+        window.flintAPI?.openFile?.(filePath)
     }, [filePath])
 
     return (
@@ -261,7 +261,7 @@ function EntryRow({ entry, index }: EntryRowProps) {
 // ── ActivityFeed ───────────────────────────────────────────────────────────────
 
 const POLL_INTERVAL_MS = 3000
-const LOG_PATH = '.bridge/activity-log.jsonl'
+const LOG_PATH = '.flint/activity-log.jsonl'
 
 export function ActivityFeed() {
     const [entries, setEntries] = useState<ActivityEntry[]>([])
@@ -272,7 +272,7 @@ export function ActivityFeed() {
 
     const fetchLog = async () => {
         try {
-            const raw = await window.bridgeAPI?.readFile?.(LOG_PATH)
+            const raw = await window.flintAPI?.readFile?.(LOG_PATH)
             if (!raw) return
             const parsed = parseActivityLog(raw)
             setEntries(parsed)
@@ -432,7 +432,7 @@ export function ActivityFeed() {
                         <Activity size={20} className="mb-2 text-zinc-800" />
                         <p className="text-xs text-zinc-600">No activity yet</p>
                         <p className="mt-1 text-[10px] text-zinc-700">
-                            MCP tool calls will appear here in real time
+                            Audits, fixes, imports, and other actions will appear here as you work
                         </p>
                     </div>
                 ) : visibleEntries.length === 0 ? (

@@ -1,8 +1,8 @@
-# Bridge UX Journey Maps — Agent Context Document
+# Flint UX Journey Maps — Agent Context Document
 
 **Version:** 1.0  
 **Date:** 2026-03-15  
-**Covers:** Bridge Glass v7.2 + Bridge MCP (13 tools, 6 resources, 3 prompts)  
+**Covers:** Flint Glass v7.2 + Flint MCP (13 tools, 6 resources, 3 prompts)  
 **Purpose:** UX-centered journey maps with balanced system detail. Optimized for consumption by AI agents (Claude Code, Cursor, MCP-connected LLMs) during development, review, and design decision-making.  
 **Companion to:** `JOURNEY-MAPS.md` (full system-level technical spec)
 
@@ -39,15 +39,15 @@
 | `GitManager` | J2.5, J6.4, J6.5 |
 | `ingestion-server.ts` | J8.1, J8.2, J8.3, J8.4 |
 | `normalizer.ts` | J8.2 |
-| `bridge_audit` (MCP) | J7.2, J7.4 |
-| `bridge_fix` (MCP) | J7.3 |
-| `bridge_debt_report` (MCP) | J7.5 |
+| `flint_audit` (MCP) | J7.2, J7.4 |
+| `flint_fix` (MCP) | J7.3 |
+| `flint_debt_report` (MCP) | J7.5 |
 
 ---
 
 ## Journey 1: First Launch
 
-**Persona:** Designer opening Bridge Glass for the first time  
+**Persona:** Designer opening Flint Glass for the first time  
 **Entry point:** App icon / `npm run dev`  
 **Success state:** User sees clear options to start working  
 **Emotional arc:** Curious → Anxious → Curious → Confident
@@ -56,7 +56,7 @@
 
 | Lane | Detail |
 |------|--------|
-| **Doing** | Double-clicks Bridge Glass or runs `npm run dev` in terminal |
+| **Doing** | Double-clicks Flint Glass or runs `npm run dev` in terminal |
 | **Thinking** | "Let's see what this looks like..." |
 | **Feeling** | Curious |
 | **Touchpoints** | Electron window, Terminal |
@@ -74,7 +74,7 @@
 | **Thinking** | "Is it loading? Did it crash?" |
 | **Feeling** | Anxious |
 | **Touchpoints** | Blank window (briefly) |
-| **System** | `useContextSync` hook mounts, writes initial `.bridge/context.json` |
+| **System** | `useContextSync` hook mounts, writes initial `.flint/context.json` |
 | **IPC** | `syncContext` — writes context JSON to disk |
 | **Performance** | First context write < 250ms after mount |
 | **Error states** | `ELECTRON_RUN_AS_NODE` set → window never appears. Vite not running → blank window |
@@ -88,7 +88,7 @@
 | **Thinking** | "OK, what are my options here?" |
 | **Feeling** | Curious |
 | **Touchpoints** | `LaunchScreen.tsx`, Recent projects list |
-| **System** | `App.tsx` checks `canvasStore.projectRoot === null` → renders `<LaunchScreen />`. Reads recent projects from `bridge-registry.db` via IPC |
+| **System** | `App.tsx` checks `canvasStore.projectRoot === null` → renders `<LaunchScreen />`. Reads recent projects from `flint-registry.db` via IPC |
 | **IPC** | `registry:list-projects` → returns `ProjectEntry[]` |
 | **Performance** | LaunchScreen visible < 200ms after mount |
 | **Error states** | Registry DB corrupt → empty recent list (graceful). No projects → empty state with prominent New/Open |
@@ -122,10 +122,10 @@
 | **Thinking** | "I know which folder my component is in" |
 | **Feeling** | Confident |
 | **Touchpoints** | `LaunchScreen.tsx` button, OS menu bar |
-| **System** | `window.bridgeAPI.openDirectory()` or `main.ts` receives `menu:open-project` |
+| **System** | `window.flintAPI.openDirectory()` or `main.ts` receives `menu:open-project` |
 | **IPC** | `dialog:open-directory` (renderer → main) |
 | **Performance** | Dialog opens < 100ms |
-| **Commandments** | C14 (Bypass Prohibition): File dialog goes through bridgeAPI |
+| **Commandments** | C14 (Bypass Prohibition): File dialog goes through flintAPI |
 | **Opportunity** | Keyboard shortcut hint (Cmd+O) |
 
 ### J2.2 — Pick folder
@@ -144,11 +144,11 @@
 
 | Lane | Detail |
 |------|--------|
-| **Doing** | Sees brief loading state while Bridge scans the folder |
+| **Doing** | Sees brief loading state while Flint scans the folder |
 | **Thinking** | "Hopefully it finds my files" |
 | **Feeling** | Uncertain |
 | **Touchpoints** | Loading indicator |
-| **System** | `main.ts` validates folder: checks for `.tsx` files, reads workspace structure, registers in `bridge-registry.db` |
+| **System** | `main.ts` validates folder: checks for `.tsx` files, reads workspace structure, registers in `flint-registry.db` |
 | **IPC** | `project:opened` → renderer with `{ projectRoot, files }` |
 | **Performance** | Folder scan < 500ms for typical project (< 1000 files) |
 | **Error states** | No `.tsx` files → error toast. Permission denied → error toast with path |
@@ -163,10 +163,10 @@
 | **Thinking** | "Oh nice, it's already showing my component!" |
 | **Feeling** | Delighted |
 | **Touchpoints** | Infinite canvas (`XYCanvas.tsx`), `LivePreview.tsx`, LayerTree, `ShieldOverlay.tsx` badges |
-| **System** | `canvasStore.openProject()` → `setActiveFile(files[0])` triggers Clean Slate Protocol: (1) `editorStore.clearAST()`, (2) CLEAR_PREVIEW to iframe, (3) `file:read` IPC, (4) `setCode()` → parse → buildVisualTree → lint. `historyStore.clear()` — fresh undo stack. Babel parse → `injectBridgeIds(ast)` → `MithrilLinter.lint()` + `A11yLinter.lint()` |
+| **System** | `canvasStore.openProject()` → `setActiveFile(files[0])` triggers Clean Slate Protocol: (1) `editorStore.clearAST()`, (2) CLEAR_PREVIEW to iframe, (3) `file:read` IPC, (4) `setCode()` → parse → buildVisualTree → lint. `historyStore.clear()` — fresh undo stack. Babel parse → `injectFlintIds(ast)` → `MithrilLinter.lint()` + `A11yLinter.lint()` |
 | **IPC** | `readFile` (renderer → main) |
 | **Performance** | Store hydration < 50ms, file read < 100ms, parse < 200ms, lint < 150ms. Total < 500ms |
-| **Commandments** | C7 (ID Preservation): `injectBridgeIds` on every parse. C9 (CIEDE2000): Perceptual color distance. C10: Fresh undo stack |
+| **Commandments** | C7 (ID Preservation): `injectFlintIds` on every parse. C9 (CIEDE2000): Perceptual color distance. C10: Fresh undo stack |
 | **Opportunity** | Staggered animation — preview first, then badges fade in |
 
 ### J2.5 — Orient to workspace
@@ -238,7 +238,7 @@
 | **Thinking** | "Wow, that was fast. Badge is gone. Let me fix the next one." |
 | **Feeling** | Delighted |
 | **Touchpoints** | Preview re-renders, badge disappears, re-lint runs |
-| **System** | `editorStore.applyBatch([{ type: 'fixToken', nodeId, ruleId, tokenValue }])` → `ASTService.applyMutationBatch` → Babel traverse → find by `data-bridge-id` → replace hardcoded value → generate inverse → `injectBridgeIds(ast)` → re-lint. Auto-save: `FileTransactionManager` atomic `.tmp` → `rename`. Shadow git commit |
+| **System** | `editorStore.applyBatch([{ type: 'fixToken', nodeId, ruleId, tokenValue }])` → `ASTService.applyMutationBatch` → Babel traverse → find by `data-flint-id` → replace hardcoded value → generate inverse → `injectFlintIds(ast)` → re-lint. Auto-save: `FileTransactionManager` atomic `.tmp` → `rename`. Shadow git commit |
 | **IPC** | `saveFile` (renderer → main) via auto-save |
 | **Performance** | Mutation: < 50ms. File write: < 100ms. Re-lint: < 150ms. Total: < 350ms |
 | **Error states** | Target node deleted → no-op (C10 pre-flight). Token missing → fix fails, error toast. Disk write fails → retry |
@@ -253,8 +253,8 @@
 | **Thinking** | "I'll fix this myself in my editor" |
 | **Feeling** | Focused |
 | **Touchpoints** | External code editor |
-| **System** | `fs.watch` in main process detects change → fires `bridge:file-changed` IPC → renderer reloads file → `editorStore.setCode(newContents)` → re-parse → re-lint (loops back to J3.1) |
-| **IPC** | `bridge:file-changed` (main → renderer). `readFile` (renderer → main) |
+| **System** | `fs.watch` in main process detects change → fires `flint:file-changed` IPC → renderer reloads file → `editorStore.setCode(newContents)` → re-parse → re-lint (loops back to J3.1) |
+| **IPC** | `flint:file-changed` (main → renderer). `readFile` (renderer → main) |
 | **Performance** | fs.watch notification: < 100ms. Reload + re-lint: < 500ms |
 | **Error states** | `fs.watch` misses change → 3s poll fallback. File deleted → LaunchScreen |
 
@@ -286,7 +286,7 @@
 | **Thinking** | "Time to hand this off to the dev team" |
 | **Feeling** | Confident |
 | **Touchpoints** | Export button in `StatusBar.tsx`, `ExportModal.tsx` opens |
-| **System** | `StatusBar.tsx` dispatches `CustomEvent('bridge:open-export')`. `ExportModal.tsx` mounts, fetches `readOverrides()` + `getComplianceSummary(ruleIds)` in parallel |
+| **System** | `StatusBar.tsx` dispatches `CustomEvent('flint:open-export')`. `ExportModal.tsx` mounts, fetches `readOverrides()` + `getComplianceSummary(ruleIds)` in parallel |
 | **IPC** | `tokens:readOverrides`, `governance:getComplianceSummary` |
 | **Performance** | Modal open: < 50ms |
 | **Commandments** | C6 (Gatekeeper Rule): Export gate is the enforcement point |
@@ -296,7 +296,7 @@
 
 | Lane | Detail |
 |------|--------|
-| **Doing** | Watches "Auditing..." spinner as Bridge checks every file in the workspace |
+| **Doing** | Watches "Auditing..." spinner as Flint checks every file in the workspace |
 | **Thinking** | "Checking all files, not just the one I was looking at..." |
 | **Feeling** | Anxious |
 | **Touchpoints** | `ExportModal.tsx` audit spinner, per-file progress |
@@ -362,11 +362,11 @@
 | **Thinking** | "I want to change the padding on this card" |
 | **Feeling** | Focused |
 | **Touchpoints** | `LivePreview.tsx` iframe, `ShieldOverlay.tsx` selection outline, LayerTree highlight |
-| **System** | In `design` mode: iframe bridge-init script listens for clicks on `data-bridge-id` elements. Posts `{ type: 'CANVAS_CLICK', id: bridgeId }`. `ShieldOverlay.tsx` validates source, checks presence lock via `lockedNodeIdsRef`, calls `setSelectedNode(id)` + `setActiveSelection(id)` |
+| **System** | In `design` mode: iframe flint-init script listens for clicks on `data-flint-id` elements. Posts `{ type: 'CANVAS_CLICK', id: flintId }`. `ShieldOverlay.tsx` validates source, checks presence lock via `lockedNodeIdsRef`, calls `setSelectedNode(id)` + `setActiveSelection(id)` |
 | **IPC** | None (postMessage, not Electron IPC) |
 | **Performance** | Click → selection state: < 30ms |
 | **Error states** | Non-element click → selection cleared. `interact` mode → clicks pass through to iframe |
-| **Commandments** | C7 (ID Preservation): Selection keys on `data-bridge-id` |
+| **Commandments** | C7 (ID Preservation): Selection keys on `data-flint-id` |
 | **Opportunity** | Multi-select (shift+click) for batch property changes |
 
 ### J5.2 — Inspect properties
@@ -403,7 +403,7 @@
 | **Thinking** | "That's exactly what I wanted. Or wait... let me undo and try something else." |
 | **Feeling** | Delighted |
 | **Touchpoints** | `LivePreview.tsx` re-render, governance re-lint, auto-save indicator |
-| **System** | Full mutation pipeline: (1) Babel traverse by `data-bridge-id`, (2) apply mutation, (3) generate inverse → push to `historyStore.past`, (4) `injectBridgeIds(ast)`, (5) `syncCode()` → code from AST, (6) LivePreview re-renders srcdoc, (7) MithrilLinter + A11yLinter re-run, (8) auto-save via `FileTransactionManager`, (9) `GitManager.shadowCommit()` |
+| **System** | Full mutation pipeline: (1) Babel traverse by `data-flint-id`, (2) apply mutation, (3) generate inverse → push to `historyStore.past`, (4) `injectFlintIds(ast)`, (5) `syncCode()` → code from AST, (6) LivePreview re-renders srcdoc, (7) MithrilLinter + A11yLinter re-run, (8) auto-save via `FileTransactionManager`, (9) `GitManager.shadowCommit()` |
 | **IPC** | `saveFile` (renderer → main) — auto-save with debounce |
 | **Performance** | Mutation + code gen: < 80ms. Preview: < 200ms. Auto-save: < 100ms. Total: < 300ms |
 | **Commandments** | C1, C7, C10, C12, C13 |
@@ -465,7 +465,7 @@
 | **Thinking** | "I need that specific version of this button from 3 edits ago" |
 | **Feeling** | Focused |
 | **Touchpoints** | `RecoveryPanel.tsx`, commit timeline |
-| **System** | `window.bridgeAPI.gitLog(filePath)` → `git log --pretty=format:%H|%s|%at` → returns `[{ hash, message, timestamp }]` |
+| **System** | `window.flintAPI.gitLog(filePath)` → `git log --pretty=format:%H|%s|%at` → returns `[{ hash, message, timestamp }]` |
 | **IPC** | `ast:git-log` (renderer → main) |
 | **Performance** | Git log: < 500ms |
 | **Opportunity** | Visual commit timeline with preview thumbnails |
@@ -474,7 +474,7 @@
 
 | Lane | Detail |
 |------|--------|
-| **Doing** | Selects a specific commit + node. Bridge transplants just that node into the current AST |
+| **Doing** | Selects a specific commit + node. Flint transplants just that node into the current AST |
 | **Thinking** | "It only changed the button, not the whole file? That's incredible." |
 | **Feeling** | Delighted |
 | **Touchpoints** | Node picker, transplant confirmation, preview updates |
@@ -493,14 +493,14 @@
 **Success state:** Agent verifies compliance and reports project health score  
 **Emotional arc:** Neutral → Focused → Confident → Relieved → Confident
 
-### J7.1 — Connect to Bridge
+### J7.1 — Connect to Flint
 
 | Lane | Detail |
 |------|--------|
-| **Doing** | AI agent establishes MCP stdio connection, calls `bridge_status` |
+| **Doing** | AI agent establishes MCP stdio connection, calls `flint_status` |
 | **Thinking** | [Agent: Check project health before making changes] |
 | **Feeling** | Neutral |
-| **Touchpoints** | MCP stdio transport, `bridge_status` response `{ ok, projectRoot, version, toolCount, resourceCount }` |
+| **Touchpoints** | MCP stdio transport, `flint_status` response `{ ok, projectRoot, version, toolCount, resourceCount }` |
 | **Performance** | Server start: < 1s. Status call: < 50ms |
 | **Error states** | Server not installed → MCP client error. Invalid root → `{ ok: false, error }` |
 | **Opportunity** | Auto-connect on Claude Code session start |
@@ -509,10 +509,10 @@
 
 | Lane | Detail |
 |------|--------|
-| **Doing** | Calls `bridge_audit({ filePath })` — receives SARIF violations report |
+| **Doing** | Calls `flint_audit({ filePath })` — receives SARIF violations report |
 | **Thinking** | [Agent: 4 violations found — 2 color, 1 a11y, 1 spacing] |
 | **Feeling** | Focused |
-| **Touchpoints** | `bridge_audit` MCP tool, SARIF 2.1.0 response, `governance_events` table |
+| **Touchpoints** | `flint_audit` MCP tool, SARIF 2.1.0 response, `governance_events` table |
 | **System** | `tools/audit.ts`: read file → parse AST → `MithrilLinter.lint(ast, tokens)` + `A11yLinter.lint(ast)` → SARIF format → record in `governance_events` |
 | **Performance** | Single file audit: < 500ms |
 | **Commandments** | C8 (Audit-First). C9 (CIEDE2000) |
@@ -522,10 +522,10 @@
 
 | Lane | Detail |
 |------|--------|
-| **Doing** | Calls `bridge_fix({ filePath, ruleId })` for each fixable violation |
+| **Doing** | Calls `flint_fix({ filePath, ruleId })` for each fixable violation |
 | **Thinking** | [Agent: Replacing hardcoded #ff0000 with token color.danger.500] |
 | **Feeling** | Confident |
-| **Touchpoints** | `bridge_fix` MCP tool, atomic file write, `mutations_ledger` table |
+| **Touchpoints** | `flint_fix` MCP tool, atomic file write, `mutations_ledger` table |
 | **System** | `tools/fix.ts`: read → parse → locate by ruleId + nodeId → deterministic fix → generate code → atomic write → record in `mutations_ledger` |
 | **Performance** | Fix single violation: < 300ms |
 | **Error states** | Not auto-fixable → `{ fixed: false, reason: 'manual fix required' }`. Node gone → `{ fixed: false }` |
@@ -536,23 +536,23 @@
 
 | Lane | Detail |
 |------|--------|
-| **Doing** | Re-runs `bridge_audit` to confirm violations are resolved |
+| **Doing** | Re-runs `flint_audit` to confirm violations are resolved |
 | **Thinking** | [Agent: Re-audit passed — 0 violations remaining] |
 | **Feeling** | Relieved |
-| **Touchpoints** | `bridge_audit` (verification pass), clean SARIF |
+| **Touchpoints** | `flint_audit` (verification pass), clean SARIF |
 | **Performance** | < 500ms |
 | **Commandments** | C8 (Audit-First): Verify after every mutation |
-| **Opportunity** | Auto-verify: have `bridge_fix` return post-fix audit result |
+| **Opportunity** | Auto-verify: have `flint_fix` return post-fix audit result |
 
 ### J7.5 — Report health
 
 | Lane | Detail |
 |------|--------|
-| **Doing** | Calls `bridge_debt_report({ track: true })` for project score and trends |
+| **Doing** | Calls `flint_debt_report({ track: true })` for project score and trends |
 | **Thinking** | [Agent: Score 87/100, Grade B+, trending up] |
 | **Feeling** | Confident |
-| **Touchpoints** | `bridge_debt_report` MCP tool, debt history tracking, `bridge://dashboard` resource |
-| **System** | Scans all workspace files → health score (0-100), grade (A-F), top violated rules + files. If `track: true` → appends to `.bridge/debt-history.json`. If Glass is open → dashboard updates via `fs.watch` |
+| **Touchpoints** | `flint_debt_report` MCP tool, debt history tracking, `flint://dashboard` resource |
+| **System** | Scans all workspace files → health score (0-100), grade (A-F), top violated rules + files. If `track: true` → appends to `.flint/debt-history.json`. If Glass is open → dashboard updates via `fs.watch` |
 | **Performance** | Full project scan: < 5s for 50 files |
 | **Commandments** | C4 (Local-First) |
 | **Opportunity** | Slack/GitHub integration for automated health reports |
@@ -562,21 +562,21 @@
 ## Journey 8: Figma Import
 
 **Persona:** Designer syncing designs from Figma  
-**Entry point:** Figma plugin "Send to Bridge"  
-**Success state:** Figma tokens and components live in Bridge, linter has tokens for comparison  
+**Entry point:** Figma plugin "Send to Flint"  
+**Success state:** Figma tokens and components live in Flint, linter has tokens for comparison  
 **Emotional arc:** Confident → Anxious → Delighted → Delighted → Confident
 
 ### J8.1 — Send from Figma
 
 | Lane | Detail |
 |------|--------|
-| **Doing** | In Figma, clicks "Send to Bridge" plugin button |
+| **Doing** | In Figma, clicks "Send to Flint" plugin button |
 | **Thinking** | "Let me push my latest design tokens and this component over" |
 | **Feeling** | Confident |
-| **Touchpoints** | Figma plugin UI, HTTP POST to `localhost:4545` with `x-bridge-secret` |
+| **Touchpoints** | Figma plugin UI, HTTP POST to `localhost:4545` with `x-flint-secret` |
 | **System** | Three endpoints: `/ingest` (design variables), `/ingest-ast` (component AST), `/ingest-asset` (images) |
 | **Performance** | Request received: < 50ms |
-| **Error states** | Wrong/missing `x-bridge-secret` → 401. Server not running → connection refused. Malformed payload → 400 |
+| **Error states** | Wrong/missing `x-flint-secret` → 401. Server not running → connection refused. Malformed payload → 400 |
 | **Commandments** | C4 (Local-First): Loopback HTTP only |
 | **Opportunity** | Bulk export: send all changed frames at once |
 
@@ -584,10 +584,10 @@
 
 | Lane | Detail |
 |------|--------|
-| **Doing** | Switches to Bridge Glass, watches for confirmation |
-| **Thinking** | "Did it go through? Is Bridge connected?" |
+| **Doing** | Switches to Flint Glass, watches for confirmation |
+| **Thinking** | "Did it go through? Is Flint connected?" |
 | **Feeling** | Anxious |
-| **Touchpoints** | Figma plugin status, Bridge `StatusBar.tsx` (Figma dot) |
+| **Touchpoints** | Figma plugin status, Flint `StatusBar.tsx` (Figma dot) |
 | **Opportunity** | Real-time sync indicator: pulsing dot during transfer |
 
 ### J8.3 — Tokens arrive
@@ -597,9 +597,9 @@
 | **Doing** | Sees StatusBar Figma dot turn emerald green. Token count updates |
 | **Thinking** | "142 tokens synced. My colors and typography are up to date." |
 | **Feeling** | Delighted |
-| **Touchpoints** | StatusBar Figma indicator, token count, `bridge:tokens-updated` IPC |
-| **System** | `normalizeFigmaVariables(payload)` → Figma Variables to W3C DTCG rows → `batchUpsertTokens()` atomic SQLite transaction → fires `bridge:tokens-updated` + `bridge:figma-connected` with `{ tokenCount, timestamp }`. `tokenStore.fetchTokens()` refreshes in renderer |
-| **IPC** | `bridge:tokens-updated` (main → renderer). `bridge:figma-connected` (main → renderer) |
+| **Touchpoints** | StatusBar Figma indicator, token count, `flint:tokens-updated` IPC |
+| **System** | `normalizeFigmaVariables(payload)` → Figma Variables to W3C DTCG rows → `batchUpsertTokens()` atomic SQLite transaction → fires `flint:tokens-updated` + `flint:figma-connected` with `{ tokenCount, timestamp }`. `tokenStore.fetchTokens()` refreshes in renderer |
+| **IPC** | `flint:tokens-updated` (main → renderer). `flint:figma-connected` (main → renderer) |
 | **Performance** | Normalization + write: < 500ms for 200 tokens |
 | **Commandments** | C2 (No Hallucinated Styling). C12 (Atomic Queuing) |
 | **Opportunity** | Toast showing what changed: "12 new tokens, 3 updated" |
@@ -608,12 +608,12 @@
 
 | Lane | Detail |
 |------|--------|
-| **Doing** | If AST was sent: sees new component appear on canvas with Bridge IDs injected |
+| **Doing** | If AST was sent: sees new component appear on canvas with Flint IDs injected |
 | **Thinking** | "My Figma design is now real React code? Let me check it." |
 | **Feeling** | Delighted |
 | **Touchpoints** | `LivePreview.tsx` (new component), LayerTree updates, AST hydration |
-| **System** | Validates against `BridgeSDIPayload` schema → writes `.bridge/current-intent.json` → fires `bridge:hydro-paste-auto` → `hydrate_figma_data` converts Figma AST → React JSX → `editorStore.setCode(hydrated)` |
-| **IPC** | `bridge:hydro-paste-auto` (main → renderer). `saveFile` (auto-save) |
+| **System** | Validates against `FlintSDIPayload` schema → writes `.flint/current-intent.json` → fires `flint:hydro-paste-auto` → `hydrate_figma_data` converts Figma AST → React JSX → `editorStore.setCode(hydrated)` |
+| **IPC** | `flint:hydro-paste-auto` (main → renderer). `saveFile` (auto-save) |
 | **Performance** | Hydration: < 1s. Total Figma click to canvas: < 3s |
 | **Commandments** | C1 (Code is Truth). C4 (Local-First). C7 (ID Preservation) |
 | **Opportunity** | Side-by-side: Figma source vs hydrated React output |
@@ -633,7 +633,7 @@
 
 ## Journey 9: Developer Workflow (Contract-First)
 
-**Persona:** Developer or AI swarm building a new Bridge feature  
+**Persona:** Developer or AI swarm building a new Flint feature  
 **Entry point:** Feature request  
 **Success state:** Feature implemented, tested, PR merged  
 **Emotional arc:** Focused → Confident → Anxious → Relieved
@@ -642,11 +642,11 @@
 
 | Lane | Detail |
 |------|--------|
-| **Doing** | Creates feature branch. `bridge-architect` reads source, writes TypeScript contracts |
+| **Doing** | Creates feature branch. `flint-architect` reads source, writes TypeScript contracts |
 | **Thinking** | "What interfaces do I need? Where are the process boundaries?" |
 | **Feeling** | Focused |
-| **Touchpoints** | Git branch, contract artifact (`.bridge-context/contracts/<n>.md`), source file analysis |
-| **System** | `bridge-git-guru` creates branch. `bridge-architect` reads affected sources → identifies ownership (process, store, component) → writes interfaces, IPC channels, store shapes, component props → checks commandments → writes contract |
+| **Touchpoints** | Git branch, contract artifact (`.flint-context/contracts/<n>.md`), source file analysis |
+| **System** | `flint-git-guru` creates branch. `flint-architect` reads affected sources → identifies ownership (process, store, component) → writes interfaces, IPC channels, store shapes, component props → checks commandments → writes contract |
 | **Performance** | Simple: 5-10 min. Complex: 30+ min |
 | **Opportunity** | Auto-generate contract template from feature description |
 
@@ -658,7 +658,7 @@
 | **Thinking** | "Group A builds the plumbing, Group B builds the UI on top" |
 | **Feeling** | Confident |
 | **Touchpoints** | Per-agent source files, `npx tsc --noEmit` gate per agent |
-| **System** | Group A (parallel): `bridge-electron-ipc` (IPC + preload), `bridge-state-architect` (stores). Group B (after A): `bridge-design-engineer` (UI), `bridge-test-writer` (tests). Each reads contract → implements exact interfaces → runs TSC |
+| **System** | Group A (parallel): `flint-electron-ipc` (IPC + preload), `flint-state-architect` (stores). Group B (after A): `flint-design-engineer` (UI), `flint-test-writer` (tests). Each reads contract → implements exact interfaces → runs TSC |
 | **Error states** | Contract gap → STOP, return to J9.1 for revision. Type error → fix before proceeding |
 | **Commandments** | C15 (Granular AST Tools) if modifying orchestrator |
 | **Opportunity** | Progress dashboard showing each agent's status |
@@ -667,7 +667,7 @@
 
 | Lane | Detail |
 |------|--------|
-| **Doing** | `bridge-integration-validator` runs 8 checks |
+| **Doing** | `flint-integration-validator` runs 8 checks |
 | **Thinking** | "Moment of truth — does it all fit together?" |
 | **Feeling** | Anxious |
 | **Touchpoints** | Validation report, 8-check checklist, SHIP/FIX/REDESIGN verdict |
@@ -684,7 +684,7 @@
 | **Thinking** | "Green across the board. Ready for review." |
 | **Feeling** | Relieved |
 | **Touchpoints** | GitHub PR, test suite results, contract traceability |
-| **System** | `bridge-git-guru`: full pre-commit gate (TSC + ALL suites) → push → `gh pr create` with body from contract + validation report → post-merge cleanup (checkout main, delete branch) |
+| **System** | `flint-git-guru`: full pre-commit gate (TSC + ALL suites) → push → `gh pr create` with body from contract + validation report → post-merge cleanup (checkout main, delete branch) |
 | **Performance** | Push + PR: < 30s |
 | **Opportunity** | Auto-link PR to journey map steps affected |
 

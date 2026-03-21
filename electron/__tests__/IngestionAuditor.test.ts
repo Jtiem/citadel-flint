@@ -16,7 +16,7 @@ import {
     TIER2_DELTA_E,
     VIOLATION_CAP,
 } from '../ingestion/IngestionAuditor.js'
-import type { AuditorToken, IngestionSummary } from '../ingestion/IngestionAuditor.js'
+import type { AuditorToken } from '../ingestion/IngestionAuditor.js'
 
 // ── Test Token Fixtures ────────────────────────────────────────────────────────
 
@@ -71,7 +71,7 @@ function makeJsx(className: string, nodeId = 'node-001'): string {
     return `
 export default function Comp() {
   return (
-    <div data-bridge-id="${nodeId}" className="${className}">
+    <div data-flint-id="${nodeId}" className="${className}">
       Hello
     </div>
   )
@@ -81,7 +81,7 @@ export default function Comp() {
 
 function makeJsxMulti(elements: { nodeId: string; className: string }[]): string {
     const inner = elements
-        .map((el) => `    <div data-bridge-id="${el.nodeId}" className="${el.className}">x</div>`)
+        .map((el) => `    <div data-flint-id="${el.nodeId}" className="${el.className}">x</div>`)
         .join('\n')
     return `
 export default function Comp() {
@@ -275,15 +275,15 @@ describe('ING-09: Mixed tiers in single file', () => {
     })
 })
 
-// ── ING-10: Healed AST preserves all data-bridge-id values ───────────────────
+// ── ING-10: Healed AST preserves all data-flint-id values ───────────────────
 
-describe('ING-10: data-bridge-id preservation', () => {
-    it('heal() never modifies data-bridge-id attributes', () => {
+describe('ING-10: data-flint-id preservation', () => {
+    it('heal() never modifies data-flint-id attributes', () => {
         const nodeId = 'abc-123-xyz'
         const code = makeJsx('bg-[#3B82F6] p-[16px]', nodeId)
         const result = heal(code, ALL_TOKENS)
         // The nodeId must appear in healed code unchanged
-        expect(result.healedCode).toContain(`data-bridge-id="${nodeId}"`)
+        expect(result.healedCode).toContain(`data-flint-id="${nodeId}"`)
     })
 
     it('heal() reports the correct nodeId in tier1Fixed entries', () => {

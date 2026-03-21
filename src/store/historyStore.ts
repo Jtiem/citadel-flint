@@ -35,18 +35,18 @@ import type { DropPosition } from '../utils/astModifier'
  * Stores the exact parameters passed to `astBufferStore.crossFileMove` so the
  * RecoveryController can re-invoke the operation on Cmd+Shift+Z without
  * recalculating the AST diff. `targetNodeId` is always the resolved non-null
- * bridge-id (the null-fallback is resolved inside crossFileMove before the
+ * flint-id (the null-fallback is resolved inside crossFileMove before the
  * plan is built).
  */
 export interface CrossFileMoveRedoPlan {
     readonly type: 'crossFileMove'
     /** Absolute path of the file the moved node originated from. */
     readonly sourceFilePath: string
-    /** bridge-id of the node that was moved. */
+    /** flint-id of the node that was moved. */
     readonly sourceNodeId: string
     /** Absolute path of the file the node was moved into. */
     readonly targetFilePath: string
-    /** bridge-id of the insertion target (always resolved — never null). */
+    /** flint-id of the insertion target (always resolved — never null). */
     readonly targetNodeId: string
     /** Relative position for the re-insertion. */
     readonly position: DropPosition

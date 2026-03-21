@@ -1,5 +1,5 @@
 /**
- * Audit Engine -- bridge-ci/src/audit-engine.ts
+ * Audit Engine -- flint-ci/src/audit-engine.ts
  *
  * Core orchestrator that parses source files and runs both Mithril and A11y
  * linters. Produces FileAuditResult and AuditSummary for the CI gate and CLI.
@@ -17,7 +17,7 @@ import { A11yLinter } from './a11y-linter.js'
 import { buildSarifReport } from './sarif-builder.js'
 import type {
     DesignToken,
-    BridgePolicy,
+    FlintPolicy,
     FileAuditResult,
     AuditSummary,
     SarifReport,
@@ -56,7 +56,7 @@ export function auditFile(
     filePath: string,
     code: string,
     tokens: DesignToken[],
-    policy: BridgePolicy = DEFAULT_POLICY,
+    policy: FlintPolicy = DEFAULT_POLICY,
 ): FileAuditResult {
     const ast = parseSource(code)
     if (ast === null) {
@@ -127,7 +127,7 @@ export function auditFile(
 export function auditFiles(
     files: Array<{ path: string; content: string }>,
     tokens: DesignToken[],
-    policy: BridgePolicy = DEFAULT_POLICY,
+    policy: FlintPolicy = DEFAULT_POLICY,
 ): AuditSummary {
     const results: FileAuditResult[] = []
     let totalMithrilWarnings = 0
@@ -184,7 +184,7 @@ export function auditFiles(
  */
 export function shouldFail(
     summary: AuditSummary,
-    policy: BridgePolicy,
+    policy: FlintPolicy,
     failOnWarning: boolean,
 ): boolean {
     // A11y violations always block if mode is 'blocking'

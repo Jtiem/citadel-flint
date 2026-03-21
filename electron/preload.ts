@@ -1,13 +1,14 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import { BRAND, ipcChannel } from '../shared/brand.ts'
 
 /**
- * The Preload Bridge — all communication between the React Renderer
+ * The Preload Flint — all communication between the React Renderer
  * and the Node.js Main Process MUST go through this explicit API.
  *
- * Exposed globally as `window.bridgeAPI`.
+ * Exposed globally as `window.flintAPI`.
  */
-contextBridge.exposeInMainWorld('bridgeAPI', {
-    /** Health-check: verifies the IPC bridge is functional */
+contextBridge.exposeInMainWorld(BRAND.apiName, {
+    /** Health-check: verifies the IPC flint is functional */
     ping: (): Promise<string> => ipcRenderer.invoke('ping'),
 
     /**
@@ -39,28 +40,28 @@ contextBridge.exposeInMainWorld('bridgeAPI', {
             ipcRenderer.invoke('figma:disconnect'),
 
         /**
-         * Subscribes to 'bridge:figma-connected' push events fired by the
+         * Subscribes to ipcChannel('figma-connected') push events fired by the
          * ingestion server after each successful POST /ingest.
          * Returns an unsubscribe function for useEffect cleanup.
          */
         onConnected: (callback: (event: { tokenCount: number; timestamp: number }) => void): (() => void) => {
             const listener = (_event: Electron.IpcRendererEvent, data: { tokenCount: number; timestamp: number }) => callback(data)
-            ipcRenderer.on('bridge:figma-connected', listener)
+            ipcRenderer.on(ipcChannel('figma-connected'), listener)
             return () => {
-                ipcRenderer.removeListener('bridge:figma-connected', listener)
+                ipcRenderer.removeListener(ipcChannel('figma-connected'), listener)
             }
         },
 
         /**
-         * Subscribes to 'bridge:figma-error' push events fired by the
+         * Subscribes to ipcChannel('figma-error') push events fired by the
          * ingestion server when it rejects a request (401, 400).
          * Returns an unsubscribe function for useEffect cleanup.
          */
         onError: (callback: (event: { statusCode: number; reason: string; timestamp: number }) => void): (() => void) => {
             const listener = (_event: Electron.IpcRendererEvent, data: { statusCode: number; reason: string; timestamp: number }) => callback(data)
-            ipcRenderer.on('bridge:figma-error', listener)
+            ipcRenderer.on(ipcChannel('figma-error'), listener)
             return () => {
-                ipcRenderer.removeListener('bridge:figma-error', listener)
+                ipcRenderer.removeListener(ipcChannel('figma-error'), listener)
             }
         },
 
@@ -69,14 +70,14 @@ contextBridge.exposeInMainWorld('bridgeAPI', {
          * Call in useEffect cleanup if not using the individual unsubscribers.
          */
         removeListeners: (): void => {
-            ipcRenderer.removeAllListeners('bridge:figma-connected')
-            ipcRenderer.removeAllListeners('bridge:figma-error')
+            ipcRenderer.removeAllListeners(ipcChannel('figma-connected'))
+            ipcRenderer.removeAllListeners(ipcChannel('figma-error'))
         },
     },
 
     /**
      * Design token CRUD — backed by the design_tokens SQLite table.
-     * All payloads are plain serialisable objects; no Node.js types cross the bridge.
+     * All payloads are plain serialisable objects; no Node.js types cross the flint.
      */
     tokens: {
         /**
@@ -130,38 +131,38 @@ contextBridge.exposeInMainWorld('bridgeAPI', {
             ipcRenderer.invoke('tokens:clear-all'),
 
         /**
-         * Removes the `component_overrides` row associated with `bridgeId`.
+         * Removes the `component_overrides` row associated with `flintId`.
          * Called by the AST deleteNode garbage collector (Phase E) to release
          * export locks after a node is deleted from the source file.
          *
-         * Silent no-op if the bridge ID has no override row (idempotent).
+         * Silent no-op if the flint ID has no override row (idempotent).
          */
-        clearOverride: (bridgeId: string): Promise<void> =>
-            ipcRenderer.invoke('tokens:clear-override', bridgeId),
+        clearOverride: (flintId: string): Promise<void> =>
+            ipcRenderer.invoke('tokens:clear-override', flintId),
 
         /**
          * Inserts or replaces a single property row in `component_overrides`
-         * for `bridgeId`, keyed by `propertyKey` (e.g. `"style"`, `"textContent"`).
+         * for `flintId`, keyed by `propertyKey` (e.g. `"style"`, `"textContent"`).
          *
          * Called by PropertiesPanel after every style / textContent commit so
          * the Export Gate (canExport) blocks until all overrides are resolved.
          *
-         * The composite key (bridge_id, property_key) is idempotent: calling
+         * The composite key (flint_id, property_key) is idempotent: calling
          * this multiple times for the same element + property upserts in-place.
          */
         upsertOverride: (
-            bridgeId: string,
+            flintId: string,
             propertyKey: string,
             propertyValue: string,
         ): Promise<void> =>
-            ipcRenderer.invoke('tokens:upsert-override', bridgeId, propertyKey, propertyValue),
+            ipcRenderer.invoke('tokens:upsert-override', flintId, propertyKey, propertyValue),
 
         /**
          * Returns all rows in `component_overrides`, ordered by `updated_at` DESC.
-         * Used by `ExportModal` to list every bridge ID + property blocking export.
+         * Used by `ExportModal` to list every flint ID + property blocking export.
          */
         readOverrides: (): Promise<{
-            bridge_id: string
+            flint_id: string
             property_key: string
             property_value: string
             updated_at: number
@@ -187,12 +188,12 @@ contextBridge.exposeInMainWorld('bridgeAPI', {
      * accumulating duplicate listeners across React re-renders.
      */
     onTokensUpdated: (callback: () => void): void => {
-        ipcRenderer.on('bridge:tokens-updated', (_event) => callback())
+        ipcRenderer.on(ipcChannel('tokens-updated'), (_event) => callback())
     },
 
-    /** Removes all listeners registered for the 'bridge:tokens-updated' channel. */
+    /** Removes all listeners registered for the ipcChannel('tokens-updated') channel. */
     removeTokensUpdatedListener: (): void => {
-        ipcRenderer.removeAllListeners('bridge:tokens-updated')
+        ipcRenderer.removeAllListeners(ipcChannel('tokens-updated'))
     },
 
     /**
@@ -202,7 +203,7 @@ contextBridge.exposeInMainWorld('bridgeAPI', {
      * the caller never starts with stale data. Subsequently, every time any
      * token mutation (create / update / delete / clearAll / Figma ingest)
      * commits to the design_tokens table the main process emits
-     * 'bridge:tokens-updated', which re-fetches the full list and calls
+     * ipcChannel('tokens-updated'), which re-fetches the full list and calls
      * `callback` again.
      *
      * Returns an unsubscribe function. Pass it to `useEffect` cleanup:
@@ -222,11 +223,11 @@ contextBridge.exposeInMainWorld('bridgeAPI', {
         const onUpdate = (): void => {
             void ipcRenderer.invoke('tokens:read-all').then(callback)
         }
-        ipcRenderer.on('bridge:tokens-updated', onUpdate)
+        ipcRenderer.on(ipcChannel('tokens-updated'), onUpdate)
         // Deliver current state immediately so the caller is never empty on start.
         void ipcRenderer.invoke('tokens:read-all').then(callback)
         return (): void => {
-            ipcRenderer.removeListener('bridge:tokens-updated', onUpdate)
+            ipcRenderer.removeListener(ipcChannel('tokens-updated'), onUpdate)
         }
     },
 
@@ -239,7 +240,7 @@ contextBridge.exposeInMainWorld('bridgeAPI', {
      *
      * @param payload.id     — Session UUID uniquely identifying this user's row.
      * @param payload.userId — Display name or generated handle for the UI.
-     * @param payload.nodeId — bridge ID of the currently selected layer (or '').
+     * @param payload.nodeId — flint ID of the currently selected layer (or '').
      * @param payload.x      — Cursor X coordinate in canvas space.
      * @param payload.y      — Cursor Y coordinate in canvas space.
      */
@@ -318,8 +319,8 @@ contextBridge.exposeInMainWorld('bridgeAPI', {
         ipcRenderer.invoke('dialog:selectFolder'),
 
     /**
-     * Project Registry API — backed by the global `bridge-registry.db`.
-     * Tracks recently opened / created Bridge workspaces.
+     * Project Registry API — backed by the global `flint-registry.db`.
+     * Tracks recently opened / created Flint workspaces.
      */
     registry: {
         /** Returns up to 10 recently opened projects, newest first. */
@@ -348,7 +349,7 @@ contextBridge.exposeInMainWorld('bridgeAPI', {
      */
     project: {
         /**
-         * Scaffolds a new Bridge workspace by copying a bundled template into
+         * Scaffolds a new Flint workspace by copying a bundled template into
          * an empty user-selected directory, upserts into the registry, and
          * returns the scanned FileTreeNode tree.
          *
@@ -371,7 +372,7 @@ contextBridge.exposeInMainWorld('bridgeAPI', {
             ipcRenderer.invoke('project:openPath', folderPath),
 
         /**
-         * Resets an existing project to the known-good 'bridge-demo' state.
+         * Resets an existing project to the known-good 'flint-demo' state.
          * Overwrites existing files within targetPath.
          */
         resetToDemo: (targetPath: string): Promise<{
@@ -380,7 +381,7 @@ contextBridge.exposeInMainWorld('bridgeAPI', {
             ipcRenderer.invoke('project:reset-to-demo', targetPath),
 
         /**
-         * Instantly scaffolds a new project in ~/Bridge Projects/Untitled-N
+         * Instantly scaffolds a new project in ~/Flint Projects/Untitled-N
          * with no folder picker dialog. Returns the FileTreeNode tree rooted
          * at the new project directory.
          */
@@ -388,6 +389,15 @@ contextBridge.exposeInMainWorld('bridgeAPI', {
             name: string; path: string; type: 'file' | 'directory'; children?: unknown[]
         }> =>
             ipcRenderer.invoke('project:create-scratchpad'),
+
+        /**
+         * CK.3: Re-scans the active project for React components, merges the
+         * result into flint-manifest.json, and re-seeds the RAG store.
+         *
+         * Returns { components, ragChunks } — both zero when no project is open.
+         */
+        reindex: (): Promise<{ components: number; ragChunks: number }> =>
+            ipcRenderer.invoke('project:reindex'),
     },
 
     /**
@@ -444,11 +454,15 @@ contextBridge.exposeInMainWorld('bridgeAPI', {
         onSaveProjectAs: (callback: () => void): void => {
             ipcRenderer.on('menu:save-project-as', () => callback())
         },
+        onResetState: (callback: () => void): void => {
+            ipcRenderer.on('menu:reset-state', () => callback())
+        },
         removeMenuListeners: (): void => {
             ipcRenderer.removeAllListeners('menu:new-project')
             ipcRenderer.removeAllListeners('menu:open-project')
             ipcRenderer.removeAllListeners('menu:close-project')
             ipcRenderer.removeAllListeners('menu:save-project-as')
+            ipcRenderer.removeAllListeners('menu:reset-state')
         },
     },
 
@@ -489,21 +503,21 @@ contextBridge.exposeInMainWorld('bridgeAPI', {
         getConfig: (): Promise<{ hasKey: boolean; provider: string; model: string | null; baseURL: string | null }> =>
             ipcRenderer.invoke('ai:get-config'),
 
-        /** Persist the full AI config (API key, provider, model, baseURL) to ~/.bridge/config.json. */
+        /** Persist the full AI config (API key, provider, model, baseURL) to ~/.flint/config.json. */
         saveConfig: (config: { apiKey?: string; provider: string; model?: string; baseURL?: string }): Promise<void> =>
             ipcRenderer.invoke('ai:save-config', config),
 
-        // ── Phase N: Figma-to-Bridge AST Hydration ─────────────────────────
+        // ── Phase N: Figma-to-Flint AST Hydration ─────────────────────────
         /** Sends a Figma component JSON clipboard payload to be converted into an AST React String payload. */
         hydroPaste: (payloadStr: string): Promise<{ ok?: boolean; imports?: string[]; codeSnippets?: string[]; error?: string }> =>
-            ipcRenderer.invoke('bridge:hydro-paste', payloadStr),
+            ipcRenderer.invoke(ipcChannel('hydro-paste'), payloadStr),
 
         /** Listen for automatic hydro-paste events pushed from the ingestion server. Returns unsubscribe fn. */
         onHydroPasteAuto: (callback: (payload: string) => void): (() => void) => {
             const listener = (_event: Electron.IpcRendererEvent, payload: string) => callback(payload)
-            ipcRenderer.on('bridge:hydro-paste-auto', listener)
+            ipcRenderer.on(ipcChannel('hydro-paste-auto'), listener)
             return () => {
-                ipcRenderer.removeListener('bridge:hydro-paste-auto', listener)
+                ipcRenderer.removeListener(ipcChannel('hydro-paste-auto'), listener)
             }
         },
 
@@ -520,6 +534,9 @@ contextBridge.exposeInMainWorld('bridgeAPI', {
         /** Return the current chunk count in the RAG store. */
         ragCount: (): Promise<number> =>
             ipcRenderer.invoke('ai:rag-count'),
+        /** CK.1: Re-seed the RAG store from the active project's manifest, tokens, and docs. */
+        seedRAG: (): Promise<{ ingested: number; sources: string[] }> =>
+            ipcRenderer.invoke('ai:seed-rag'),
     },
 
     // ── Phase N.4: Preview Engine IPC ─────────────────────────────────────────
@@ -551,13 +568,13 @@ contextBridge.exposeInMainWorld('bridgeAPI', {
     // ── Phase COLLAB.4: Annotation IPC surface ────────────────────────────────
 
     /**
-     * Annotation read + resolve API — backed by .bridge/annotations.json.
+     * Annotation read + resolve API — backed by .flint/annotations.json.
      *
      * readAll()              — Returns all annotations ([] when file missing).
      * resolve(id)            — Marks annotation as resolved; atomic tmp→rename.
-     * onChanged(cb)          — Registers a callback for 'bridge:annotations-changed'
+     * onChanged(cb)          — Registers a callback for ipcChannel('annotations-changed')
      *                          push events sent by main-process fs.watch.
-     * removeChangedListener()— Removes all 'bridge:annotations-changed' listeners.
+     * removeChangedListener()— Removes all ipcChannel('annotations-changed') listeners.
      *
      * Call `removeChangedListener()` in useEffect cleanup to prevent accumulating
      * duplicate listeners across React re-renders.
@@ -570,11 +587,11 @@ contextBridge.exposeInMainWorld('bridgeAPI', {
             ipcRenderer.invoke('annotations:resolve', id),
 
         onChanged: (cb: () => void): void => {
-            ipcRenderer.on('bridge:annotations-changed', () => cb())
+            ipcRenderer.on(ipcChannel('annotations-changed'), () => cb())
         },
 
         removeChangedListener: (): void => {
-            ipcRenderer.removeAllListeners('bridge:annotations-changed')
+            ipcRenderer.removeAllListeners(ipcChannel('annotations-changed'))
         },
     },
 
@@ -595,7 +612,7 @@ contextBridge.exposeInMainWorld('bridgeAPI', {
         },
     },
 
-    // ── Phase W: MCP Push Channel + Bidirectional Action Bridge ───────────────
+    // ── Phase W: MCP Push Channel + Bidirectional Action Flint ───────────────
 
     /**
      * MCP integration API.
@@ -603,9 +620,9 @@ contextBridge.exposeInMainWorld('bridgeAPI', {
      * callTool(name, args)  — Invoke an MCP tool in the main process via stdio.
      * readResource(uri)      — Read an MCP resource by URI.
      * status()               — Returns { connected: boolean, serverPid: number | null }.
-     * onEvent(cb)            — Subscribe to 'bridge:mcp-event' push events.
+     * onEvent(cb)            — Subscribe to ipcChannel('mcp-event') push events.
      *                          The callback receives MCPEvent[] batched within 500ms.
-     * removeEventListener()  — Remove all 'bridge:mcp-event' listeners.
+     * removeEventListener()  — Remove all ipcChannel('mcp-event') listeners.
      *
      * Process boundary law:
      *   renderer → preload → main → mcpClient → stdio → MCP server child process
@@ -621,28 +638,28 @@ contextBridge.exposeInMainWorld('bridgeAPI', {
             ipcRenderer.invoke('mcp:status'),
 
         onEvent: (callback: (events: unknown[]) => void): void => {
-            ipcRenderer.on('bridge:mcp-event', (_event, events: unknown[]) => callback(events))
+            ipcRenderer.on(ipcChannel('mcp-event'), (_event, events: unknown[]) => callback(events))
         },
 
         removeEventListener: (): void => {
-            ipcRenderer.removeAllListeners('bridge:mcp-event')
+            ipcRenderer.removeAllListeners(ipcChannel('mcp-event'))
         },
     },
 
     // ── Phase ING: Import Summary IPC ────────────────────────────────────────
     /**
      * Import Summary API — surfaces ingestion heal pass results in the renderer.
-     * Contract: .bridge-context/contracts/ING-IngestionHeal.md §3.1
+     * Contract: .flint-context/contracts/ING-IngestionHeal.md §3.1
      */
     importSummary: {
         /**
-         * Subscribes to 'bridge:import-summary' push events (fired after each
+         * Subscribes to ipcChannel('import-summary') push events (fired after each
          * /ingest-ast heal pass). Returns an unsubscribe fn for useEffect cleanup.
          */
         onSummary: (callback: (summary: unknown) => void): (() => void) => {
             const listener = (_event: Electron.IpcRendererEvent, data: unknown) => callback(data)
-            ipcRenderer.on('bridge:import-summary', listener)
-            return () => { ipcRenderer.removeListener('bridge:import-summary', listener) }
+            ipcRenderer.on(ipcChannel('import-summary'), listener)
+            return () => { ipcRenderer.removeListener(ipcChannel('import-summary'), listener) }
         },
 
         /** Applies a tier-2 snap-to-token fix. Returns { ok, updatedSummary? }. */
@@ -658,9 +675,9 @@ contextBridge.exposeInMainWorld('bridgeAPI', {
         undoAllHeals: (preHealCode: string): Promise<{ ok: boolean }> =>
             ipcRenderer.invoke('import:undo-all-heals', preHealCode),
 
-        /** Removes all 'bridge:import-summary' listeners. */
+        /** Removes all ipcChannel('import-summary') listeners. */
         removeListeners: (): void => {
-            ipcRenderer.removeAllListeners('bridge:import-summary')
+            ipcRenderer.removeAllListeners(ipcChannel('import-summary'))
         },
     },
 
@@ -703,7 +720,7 @@ contextBridge.exposeInMainWorld('bridgeAPI', {
     // ── Policy Engine ──────────────────────────────────────────────────────────
 
     /**
-     * Reads the active governance policy (.bridge/policy.json) from the project root.
+     * Reads the active governance policy (.flint/policy.json) from the project root.
      * Returns the DEFAULT_POLICY when no project is open or file is missing.
      *
      * Used by canvasStore.canExport() and ExportModal to determine which
@@ -762,7 +779,7 @@ contextBridge.exposeInMainWorld('bridgeAPI', {
             ipcRenderer.invoke('governance:compliance-summary', ruleIds),
 
         /**
-         * Subscribe to 'bridge:governance-override-recorded' push events.
+         * Subscribe to ipcChannel('governance-override-recorded') push events.
          * The main process broadcasts this after each successful governance:record-override.
          * StatusBar uses this to re-fetch the override count without polling.
          *
@@ -770,9 +787,9 @@ contextBridge.exposeInMainWorld('bridgeAPI', {
          */
         onOverrideRecorded: (cb: () => void): (() => void) => {
             const listener = (): void => cb()
-            ipcRenderer.on('bridge:governance-override-recorded', listener)
+            ipcRenderer.on(ipcChannel('governance-override-recorded'), listener)
             return (): void => {
-                ipcRenderer.removeListener('bridge:governance-override-recorded', listener)
+                ipcRenderer.removeListener(ipcChannel('governance-override-recorded'), listener)
             }
         },
     },
@@ -780,28 +797,311 @@ contextBridge.exposeInMainWorld('bridgeAPI', {
     // ── Phase ACX.5: Context Sync Pipeline ────────────────────────────────────
 
     /**
-     * Writes a BridgeContext snapshot to `.bridge/context.json` via the main
+     * Writes a FlintContext snapshot to `.flint/context.json` via the main
      * process. Called by `useContextSync` every 200 ms (debounced) so the MCP
-     * server always has fresh Glass state available via `bridge_get_context`.
+     * server always has fresh Glass state available via `flint_get_context`.
      *
      * Fire-and-forget — the renderer does not need the resolved value.
      *
      * Process boundary law: we deliberately do NOT expose `fs` here. The write
-     * goes through the main process, which enforces the `.bridge/` directory
+     * goes through the main process, which enforces the `.flint/` directory
      * boundary and performs an atomic tmp→rename write.
      */
     syncContext: (context: unknown): Promise<void> =>
         ipcRenderer.invoke('context:sync', context),
 
     /**
-     * Returns an enriched context snapshot assembled from `.bridge/context.json`
+     * Returns an enriched context snapshot assembled from `.flint/context.json`
      * plus live SQLite metrics (token count, active override count).
      *
-     * Used by the ACX session-context assembly to pre-populate `bridge://session-context`
+     * Used by the ACX session-context assembly to pre-populate `flint://session-context`
      * without requiring the MCP server to make additional IPC calls.
      */
     context: {
         getEnriched: (): Promise<unknown> =>
             ipcRenderer.invoke('context:get-enriched'),
+    },
+
+    // ── Beta Distribution IPC ────────────────────────────────────────────────
+
+    /**
+     * Beta build API — expiry info, feedback submission, and update notifications.
+     *
+     * getInfo()                — Returns build ID, expiry date, days remaining.
+     * submitFeedback(fb)       — Saves feedback locally + optionally posts to GitHub.
+     * onUpdateAvailable(cb)    — Subscribes to 'beta:update-available' push events.
+     * onExpiredRemote(cb)      — Subscribes to 'beta:expired-remote' push events.
+     * removeListeners()        — Removes all beta push event listeners.
+     */
+    beta: {
+        getInfo: (): Promise<{
+            buildId: string
+            expiryDate: string | null
+            daysRemaining: number | null
+            isBeta: boolean
+        }> => ipcRenderer.invoke('beta:get-info'),
+
+        submitFeedback: (feedback: {
+            category: 'bug' | 'feature' | 'usability' | 'other'
+            description: string
+            severity: 'cosmetic' | 'annoying' | 'blocker'
+            context?: string
+        }): Promise<{ saved: boolean }> =>
+            ipcRenderer.invoke('beta:submit-feedback', feedback),
+
+        /**
+         * Copies the bundled demo project to a temp directory and returns the path.
+         * The demo project contains a component with intentional violations and
+         * a matching design-tokens.json so testers can experience governance immediately.
+         */
+        loadDemoProject: (): Promise<{ projectPath: string } | { error: string }> =>
+            ipcRenderer.invoke('beta:load-demo-project'),
+
+        onUpdateAvailable: (callback: (event: {
+            version: string
+            downloadUrl: string
+            message: string
+        }) => void): (() => void) => {
+            const listener = (_event: Electron.IpcRendererEvent, data: { version: string; downloadUrl: string; message: string }) => callback(data)
+            ipcRenderer.on('beta:update-available', listener)
+            return () => { ipcRenderer.removeListener('beta:update-available', listener) }
+        },
+
+        onExpiredRemote: (callback: (event: { message: string }) => void): (() => void) => {
+            const listener = (_event: Electron.IpcRendererEvent, data: { message: string }) => callback(data)
+            ipcRenderer.on('beta:expired-remote', listener)
+            return () => { ipcRenderer.removeListener('beta:expired-remote', listener) }
+        },
+
+        removeListeners: (): void => {
+            ipcRenderer.removeAllListeners('beta:update-available')
+            ipcRenderer.removeAllListeners('beta:expired-remote')
+        },
+    },
+
+    // ── ONBOARD.1: Setup Wizard IPC ──────────────────────────────────────────
+    setup: {
+        /** Detect which IDEs are installed by checking known settings file paths. */
+        detectIDEs: (): Promise<{
+            ides: Array<{ name: string; settingsPath: string; detected: boolean }>
+            mcpServerPath: string
+        }> => ipcRenderer.invoke('setup:detect-ides'),
+
+        /** Check if this is the first launch (no .flint/setup.json with firstLaunchComplete). */
+        checkFirstLaunch: (): Promise<{ isFirstLaunch: boolean }> =>
+            ipcRenderer.invoke('setup:check-first-launch'),
+
+        /** Write the first-launch-complete flag to ~/.flint/setup.json. */
+        completeFirstLaunch: (): Promise<void> =>
+            ipcRenderer.invoke('setup:complete-first-launch'),
+
+        /** Auto-write the Flint MCP entry into the IDE's config file. Merges with existing config. */
+        writeMCPConfig: (ideName: string, configPath: string, mcpServerPath: string): Promise<{ written: boolean }> =>
+            ipcRenderer.invoke('setup:write-mcp-config', ideName, configPath, mcpServerPath),
+
+        /** Delete ~/.flint/setup.json so the next launch shows the full onboarding flow. */
+        resetState: (): Promise<void> => ipcRenderer.invoke('app:reset-state'),
+    },
+
+    // ── Phase CV2.3: Component Cards on Canvas ────────────────────────────────
+
+    /**
+     * Component card IPC surface — reads flint-manifest.json and persists
+     * spatial card positions via FileTransactionManager.
+     *
+     * list()           — Returns ComponentCardData[] for the active project.
+     * savePositions()  — Atomically writes .flint/card-positions.json.
+     * loadPositions()  — Reads .flint/card-positions.json; returns {} if missing.
+     */
+    components: {
+        /** Returns all indexed components for the active project. */
+        list: (): Promise<unknown[]> =>
+            ipcRenderer.invoke('components:list'),
+
+        /** Persists card spatial positions to .flint/card-positions.json. */
+        savePositions: (positions: Record<string, { x: number; y: number }>): Promise<void> =>
+            ipcRenderer.invoke('components:save-positions', positions),
+
+        /** Loads persisted card positions. Returns {} if no file exists. */
+        loadPositions: (): Promise<Record<string, { x: number; y: number }>> =>
+            ipcRenderer.invoke('components:load-positions'),
+
+        /**
+         * CV2.6: Persists a user-defined category override for a component.
+         * Writes to .flint/category-overrides.json via FileTransactionManager.
+         * The `components:list` handler reads and applies these overrides after
+         * auto-derivation from file path convention.
+         */
+        setCategory: (payload: { componentId: string; category: string }): Promise<void> =>
+            ipcRenderer.invoke('components:set-category', payload),
+    },
+
+    // ── Phase CV2.2: Component Thumbnail Generator ────────────────────────────
+
+    /**
+     * Component thumbnail generation and retrieval (Phase CV2.2).
+     *
+     * Thumbnails are static PNGs rendered via offscreen BrowserWindow capture,
+     * cached in .flint/thumbnails/. All operations are pull-based (no push events).
+     *
+     * Process boundary law:
+     *   renderer → preload → main → ThumbnailGenerator → hidden BrowserWindow
+     *
+     * Security: componentName is sanitized in the main process before any file I/O.
+     */
+    thumbnails: {
+        /**
+         * Generate a thumbnail for a single component file.
+         * Returns a cache hit immediately if the PNG exists; otherwise renders.
+         */
+        generate: (payload: {
+            filePath: string
+            componentName: string
+            width?: number
+            height?: number
+        }): Promise<{
+            componentName: string
+            thumbnailPath: string
+            generated: boolean
+            error: string | null
+        }> => ipcRenderer.invoke('thumbnails:generate', payload),
+
+        /**
+         * Batch generate thumbnails for all components in flint-manifest.json.
+         * Processes sequentially to avoid GPU contention.
+         */
+        generateAll: (): Promise<{
+            total: number
+            succeeded: number
+            failed: number
+            results: Array<{
+                componentName: string
+                thumbnailPath: string
+                generated: boolean
+                error: string | null
+            }>
+        }> => ipcRenderer.invoke('thumbnails:generate-all'),
+
+        /**
+         * Read a cached thumbnail as a base64 data URL string.
+         * Returns null if not cached — caller should call generate() first.
+         */
+        get: (componentName: string): Promise<string | null> =>
+            ipcRenderer.invoke('thumbnails:get', componentName),
+
+        /**
+         * Invalidate (delete) the cached thumbnail for a specific component.
+         * Called automatically on ast:save-file; can also be called manually.
+         */
+        invalidate: (componentName: string): Promise<void> =>
+            ipcRenderer.invoke('thumbnails:invalidate', componentName),
+    },
+
+    // ── Phase REM.2.1: Governance Autopilot ──────────────────────────────────
+
+    /**
+     * Governance Autopilot — watches the active file and broadcasts governed
+     * source after each save (500 ms debounce).
+     *
+     * enable(filePath)   — Start watching `filePath` and run an initial audit.
+     * disable()          — Stop watching. Idempotent.
+     * onResult(callback) — Subscribe to AutopilotResult push events.
+     *                      Returns an unsubscribe fn for useEffect cleanup.
+     */
+    autopilot: {
+        enable: (filePath: string): Promise<void> =>
+            ipcRenderer.invoke('autopilot:enable', filePath),
+
+        disable: (): Promise<void> =>
+            ipcRenderer.invoke('autopilot:disable'),
+
+        onResult: (callback: (result: {
+            filePath: string
+            governedSource: string
+            fixableCount: number
+            mithrilCount: number
+            a11yCount: number
+            timestamp: number
+        }) => void): (() => void) => {
+            const listener = (
+                _event: Electron.IpcRendererEvent,
+                data: {
+                    filePath: string
+                    governedSource: string
+                    fixableCount: number
+                    mithrilCount: number
+                    a11yCount: number
+                    timestamp: number
+                }
+            ) => callback(data)
+            ipcRenderer.on(ipcChannel('autopilot-result'), listener)
+            return () => {
+                ipcRenderer.removeListener(ipcChannel('autopilot-result'), listener)
+            }
+        },
+    },
+
+    // ── CR.4: Component Scope Management ─────────────────────────────────────
+    /**
+     * Component scope management API — backed by flint-manifest.json (registry)
+     * and .flint/policy.json (componentScope allow-list).
+     *
+     * getRegistryAndScope() — Returns the full component registry from
+     *   flint-manifest.json and the current componentScope from policy.json
+     *   in a single round-trip. null scope = all components allowed.
+     *
+     * setScope(update) — Persists scope changes to .flint/policy.json via
+     *   FileTransactionManager (Commandment 12). Pass null to clear restrictions.
+     *
+     * Process boundary law: no fs in renderer. All I/O via these IPC wrappers.
+     */
+    scope: {
+        /**
+         * Returns the full component registry + current scope from policy.json.
+         * Single round-trip — renderer never reads the registry and policy separately.
+         */
+        getRegistryAndScope: (): Promise<unknown> =>
+            ipcRenderer.invoke('scope:get-registry-and-scope'),
+
+        /**
+         * Persists the updated componentScope to .flint/policy.json.
+         * Pass null to clear the scope (all components allowed).
+         */
+        setScope: (update: { scope: string[] | null }): Promise<{ ok: boolean; error?: string }> =>
+            ipcRenderer.invoke('scope:set-scope', update),
+    },
+
+    // ── EN.1: Enrichment Draft Reading and Approval ───────────────────────────
+    /**
+     * Enrichment draft management API — backed by .flint/enrichment-drafts.json
+     * and flint-manifest.json.
+     *
+     * getDrafts() — Returns all pending enrichment drafts plus computed stats
+     *   (bare / draft / enriched / total component counts). Single round-trip.
+     *
+     * approve(payload) — Approves or dismisses a single draft. On approve,
+     *   the draft fields (with any renderer-side edits) are merged into
+     *   flint-manifest.json and the RAG store is re-seeded. On dismiss,
+     *   the draft is removed without touching the manifest.
+     *
+     * Process boundary law: no fs in renderer. All I/O via these IPC wrappers.
+     */
+    enrichment: {
+        /** Returns all pending enrichment drafts + component enrichment stats. */
+        getDrafts: (): Promise<unknown> =>
+            ipcRenderer.invoke('enrichment:get-drafts'),
+
+        /**
+         * Approves or dismisses a single enrichment draft.
+         * On 'approve': merges draft into manifest + re-seeds RAG.
+         * On 'dismiss': removes draft without touching the manifest.
+         * editedFields overrides specific draft fields before merge.
+         */
+        approve: (payload: {
+            componentName: string
+            action: 'approve' | 'dismiss'
+            editedFields?: Record<string, unknown>
+        }): Promise<{ ok: boolean; remainingDrafts: number; error?: string }> =>
+            ipcRenderer.invoke('enrichment:approve', payload),
     },
 })

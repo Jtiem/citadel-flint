@@ -12,7 +12,7 @@
  *   #41 — OnboardingNudge is suppressed after the dismiss flag is set
  *
  * Environment: jsdom (vitest.config.react.ts)
- * Setup: src/components/__tests__/setup.ts — mocks bridgeAPI, resets stores,
+ * Setup: src/components/__tests__/setup.ts — mocks flintAPI, resets stores,
  *        provides a localStorage mock, clears mocks between tests.
  */
 
@@ -33,10 +33,10 @@ const STARTER_TEMPLATE = `export default function App() {
     <div className="flex min-h-screen items-center justify-center bg-gray-950">
       <div className="text-center">
         <h1 className="text-4xl font-bold tracking-tight text-white">
-          Hello, Bridge!
+          Hello, Flint!
         </h1>
         <p className="mt-2 text-sm text-gray-400">
-          Open this file in Bridge IDE to start editing.
+          Open this file in Flint IDE to start editing.
         </p>
         <div className="mt-8 flex justify-center gap-3">
           <button
@@ -70,37 +70,38 @@ function defaultLaunchProps() {
 
 // ── #33: LaunchScreen "New Project" button calls onNewProject ─────────────────
 
-describe('#33 — LaunchScreen "New Project" button', () => {
-    it('calls onNewProject when the "New Project" button is clicked', async () => {
-        // The registry call fires on mount; resolve it immediately.
-        ;(window.bridgeAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+describe('#33 — LaunchScreen "Prototype from Figma" path', () => {
+    it('navigates to Figma step when "Prototype from Figma" is clicked', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        ;(window.flintAPI.figma?.status as ReturnType<typeof vi.fn>)?.mockResolvedValue({
+            running: true, lastWebhookAt: null, tokenCount: 0, port: 4545,
+        })
 
         const props = defaultLaunchProps()
         render(<LaunchScreen {...props} />)
 
-        // Wait for the button to appear (async getRecent resolves first).
         await waitFor(() => {
-            expect(screen.getByText('New Project')).toBeDefined()
+            expect(screen.getByText('Prototype from Figma')).toBeDefined()
         })
 
-        fireEvent.click(screen.getByText('New Project'))
+        fireEvent.click(screen.getByText('Prototype from Figma'))
 
         await waitFor(() => {
-            expect(props.onNewProject).toHaveBeenCalledOnce()
+            expect(screen.getByText('Connect your Figma file')).toBeDefined()
         })
     })
 
-    it('does NOT call onOpenFolder or onLoadDemo when New Project is clicked', async () => {
-        ;(window.bridgeAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+    it('does NOT call onOpenFolder or onLoadDemo when Prototype path starts', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        ;(window.flintAPI.figma?.status as ReturnType<typeof vi.fn>)?.mockResolvedValue({
+            running: true, lastWebhookAt: null, tokenCount: 0, port: 4545,
+        })
         const props = defaultLaunchProps()
         render(<LaunchScreen {...props} />)
 
-        await waitFor(() => screen.getByText('New Project'))
-        fireEvent.click(screen.getByText('New Project'))
+        await waitFor(() => screen.getByText('Prototype from Figma'))
+        fireEvent.click(screen.getByText('Prototype from Figma'))
 
-        await waitFor(() => {
-            expect(props.onNewProject).toHaveBeenCalledOnce()
-        })
         expect(props.onOpenFolder).not.toHaveBeenCalled()
         expect(props.onLoadDemo).not.toHaveBeenCalled()
     })
@@ -172,7 +173,7 @@ describe('#38 — Starter template static content rules', () => {
 
 // ── #40: OnboardingNudge renders on first-run conditions ─────────────────────
 //
-// Bridge does not currently ship a standalone OnboardingNudge component; the
+// Flint does not currently ship a standalone OnboardingNudge component; the
 // first-run nudge behaviour is delivered through OnboardingOverlay. These tests
 // validate the key first-run gating conditions that must hold for any nudge
 // component in the Journey 10 flow:
@@ -186,38 +187,35 @@ describe('#40 — First-run nudge: renders when conditions are met', () => {
         // setup.ts calls localStorageMock.clear() in beforeEach.
         // getItem returns null when no value has been set.
         ;(localStorage.getItem as ReturnType<typeof vi.fn>).mockReturnValue(null)
-        const value = localStorage.getItem('bridge-onboarding-nudge-dismissed')
+        const value = localStorage.getItem('flint-onboarding-nudge-dismissed')
         expect(value).toBeNull()
     })
 
     it('getItem returns null for an unknown key (first-run state)', () => {
         ;(localStorage.getItem as ReturnType<typeof vi.fn>).mockReturnValue(null)
-        expect(localStorage.getItem('bridge-onboarding-nudge-dismissed')).toBeNull()
+        expect(localStorage.getItem('flint-onboarding-nudge-dismissed')).toBeNull()
     })
 
-    it('renders a "Connect Figma" action text within LaunchScreen on first visit', async () => {
-        // The LaunchScreen always shows Connect Figma — this doubles as the
-        // first-run CTA that an OnboardingNudge would surface.
-        ;(window.bridgeAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+    it('renders "Prototype from Figma" as the primary Figma-related path on first visit', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
 
         render(<LaunchScreen {...defaultLaunchProps()} />)
 
         await waitFor(() => {
-            expect(screen.getByText('Connect Figma')).toBeDefined()
+            expect(screen.getByText('Prototype from Figma')).toBeDefined()
         })
     })
 
-    it('renders action buttons in the LaunchScreen when workspaceFiles is null (no project loaded)', async () => {
-        // workspaceFiles === null is the canonical first-run / no-project state.
-        ;(window.bridgeAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+    it('renders the three JTBD goal cards when workspaceFiles is null (no project loaded)', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
 
         const props = defaultLaunchProps()
         render(<LaunchScreen {...props} />)
 
         await waitFor(() => {
-            expect(screen.getByText('New Project')).toBeDefined()
-            expect(screen.getByText('Open Folder')).toBeDefined()
-            expect(screen.getByText('Load Demo')).toBeDefined()
+            expect(screen.getByText('Prototype from Figma')).toBeDefined()
+            expect(screen.getByText('Connect my design system')).toBeDefined()
+            expect(screen.getByText('Audit existing code')).toBeDefined()
         })
     })
 })
@@ -226,9 +224,9 @@ describe('#40 — First-run nudge: renders when conditions are met', () => {
 
 describe('#41 — First-run nudge: suppressed when dismiss flag is set', () => {
     it('localStorage.setItem stores the dismiss flag correctly', () => {
-        localStorage.setItem('bridge-onboarding-nudge-dismissed', 'true')
+        localStorage.setItem('flint-onboarding-nudge-dismissed', 'true')
         expect(localStorage.setItem).toHaveBeenCalledWith(
-            'bridge-onboarding-nudge-dismissed',
+            'flint-onboarding-nudge-dismissed',
             'true',
         )
     })
@@ -236,7 +234,7 @@ describe('#41 — First-run nudge: suppressed when dismiss flag is set', () => {
     it('getItem returns "true" after the dismiss flag is written', () => {
         // Simulate a page reload after the user dismissed the nudge.
         ;(localStorage.getItem as ReturnType<typeof vi.fn>).mockReturnValue('true')
-        const dismissed = localStorage.getItem('bridge-onboarding-nudge-dismissed')
+        const dismissed = localStorage.getItem('flint-onboarding-nudge-dismissed')
         expect(dismissed).toBe('true')
     })
 
@@ -245,7 +243,7 @@ describe('#41 — First-run nudge: suppressed when dismiss flag is set', () => {
         //   if (localStorage.getItem(NUDGE_KEY) === 'true') return null
         ;(localStorage.getItem as ReturnType<typeof vi.fn>).mockReturnValue('true')
 
-        const NUDGE_KEY = 'bridge-onboarding-nudge-dismissed'
+        const NUDGE_KEY = 'flint-onboarding-nudge-dismissed'
         function shouldShowNudge(): boolean {
             return localStorage.getItem(NUDGE_KEY) !== 'true'
         }
@@ -256,7 +254,7 @@ describe('#41 — First-run nudge: suppressed when dismiss flag is set', () => {
     it('nudge guard returns true (show) when the flag is absent', () => {
         ;(localStorage.getItem as ReturnType<typeof vi.fn>).mockReturnValue(null)
 
-        const NUDGE_KEY = 'bridge-onboarding-nudge-dismissed'
+        const NUDGE_KEY = 'flint-onboarding-nudge-dismissed'
         function shouldShowNudge(): boolean {
             return localStorage.getItem(NUDGE_KEY) !== 'true'
         }
@@ -268,7 +266,7 @@ describe('#41 — First-run nudge: suppressed when dismiss flag is set', () => {
         // Only the exact string "true" suppresses the nudge.
         ;(localStorage.getItem as ReturnType<typeof vi.fn>).mockReturnValue('yes')
 
-        const NUDGE_KEY = 'bridge-onboarding-nudge-dismissed'
+        const NUDGE_KEY = 'flint-onboarding-nudge-dismissed'
         function shouldShowNudge(): boolean {
             return localStorage.getItem(NUDGE_KEY) !== 'true'
         }

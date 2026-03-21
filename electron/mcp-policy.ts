@@ -19,34 +19,34 @@
  * Enforced by the mcp:call-tool handler in main.ts.
  *
  * Derived by auditing every mcp.callTool(...) call site in src/:
- *   - bridge_generate_dbom: ExportModal.tsx (DBOM download)
+ *   - flint_generate_dbom: ExportModal.tsx (DBOM download)
  *
  * Additional read-oriented / report-generation tools included because
  * Glass panels legitimately invoke them:
- *   - bridge_status: health check for status indicators
- *   - bridge_audit: governance audit (GovernanceOverlay, ExportModal pre-flight)
- *   - bridge_debt_report: health score (GovernanceDashboard)
- *   - bridge_query_registry: component search (Asset Management Hub)
- *   - bridge_accessibility_report: VPAT report (ExportModal compliance section)
- *   - bridge_audit_report: provenance report (ExportModal compliance summary)
+ *   - flint_status: health check for status indicators
+ *   - flint_audit: governance audit (GovernanceOverlay, ExportModal pre-flight)
+ *   - flint_debt_report: health score (GovernanceDashboard)
+ *   - flint_query_registry: component search (Asset Management Hub)
+ *   - flint_accessibility_report: VPAT report (ExportModal compliance section)
+ *   - flint_audit_report: provenance report (ExportModal compliance summary)
  *
  * Explicitly excluded (write-oriented or agent-only):
- *   - bridge_ast_mutate: mutations go through editorStore.applyBatch → ast:save-file
- *   - bridge_fix: auto-fix triggers editorStore.applyBatch directly
- *   - bridge_ingest_figma: triggered by HTTP server route, not Glass
- *   - bridge_sync_tokens: triggered by ingestion server, not Glass
- *   - bridge_swarm_audit_fix: agent-only swarm orchestration
- *   - bridge_add_remote_library: agent-only library management
- *   - bridge_annotate: annotations created by MCP agents, Glass reads via annotations:read-all IPC
+ *   - flint_ast_mutate: mutations go through editorStore.applyBatch → ast:save-file
+ *   - flint_fix: auto-fix triggers editorStore.applyBatch directly
+ *   - flint_ingest_figma: triggered by HTTP server route, not Glass
+ *   - flint_sync_tokens: triggered by ingestion server, not Glass
+ *   - flint_swarm_audit_fix: agent-only swarm orchestration
+ *   - flint_add_remote_library: agent-only library management
+ *   - flint_annotate: annotations created by MCP agents, Glass reads via annotations:read-all IPC
  */
 export const RENDERER_ALLOWED_MCP_TOOLS: readonly string[] = Object.freeze([
-    'bridge_status',
-    'bridge_audit',
-    'bridge_debt_report',
-    'bridge_query_registry',
-    'bridge_generate_dbom',
-    'bridge_accessibility_report',
-    'bridge_audit_report',
+    'flint_status',
+    'flint_audit',
+    'flint_debt_report',
+    'flint_query_registry',
+    'flint_generate_dbom',
+    'flint_accessibility_report',
+    'flint_audit_report',
 ])
 
 // ── AGV.1: Per-Agent Tool ACL ────────────────────────────────────────────────

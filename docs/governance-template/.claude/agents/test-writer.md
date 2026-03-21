@@ -58,8 +58,32 @@ describe('ModuleName', () => {
 - Snapshot tests as a substitute for behavioral assertions
 - Skipping error path coverage
 
-## Handoff Protocol
-When tests are written:
-1. Run the full test suite to confirm no regressions
-2. Report pass/fail count and any flaky tests
-3. Note coverage gaps that remain
+## Completion Gate
+Every implementation task is **unverified** until all of the following are reported
+in this exact format:
+
+```
+[Package]: X/X passing (Y new)
+[Package2]: X/X passing (0 new)
+TSC: 0 errors
+```
+
+Where `Y new` is the count of tests added this task. If any pre-existing test
+fails, fix it before marking work complete. No exceptions.
+
+### Required coverage by domain
+
+| Domain | Minimum |
+|--------|---------|
+| Service functions | Happy path + each filter + error path |
+| Public APIs | All parameters validated, error messages actionable |
+| UI components | Renders without crash + key interactions + conditional states |
+| IPC/integration | Request/response shape + error propagation |
+
+## Anti-Patterns (REFUSE these)
+- Tests that depend on execution order
+- Tests that hit the network or filesystem without explicit injectable mocks
+- `expect(result).toBeTruthy()` — assert on specific values
+- Snapshot tests as a substitute for behavioral assertions
+- Skipping error path coverage
+- Reporting "tests pass" without providing exact counts

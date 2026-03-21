@@ -32,13 +32,13 @@ import { createPortal } from 'react-dom'
 import { AlertTriangle, X } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
 import { useTokenStore } from '../../store/tokenStore'
-import type { DesignToken, TokenType } from '../../types/bridge-api'
+import type { DesignToken, TokenType } from '../../types/flint-api'
 import { tokenToClass } from '../../utils/classMapper'
 
 // ── Prefix catalogue ───────────────────────────────────────────────────────────
 
 /**
- * Every Tailwind prefix that Bridge tokens can back, paired with its
+ * Every Tailwind prefix that Flint tokens can back, paired with its
  * token type. Ordered by specificity so more-specific prefixes are tested
  * before generic ones (e.g. `border-` before `b-`).
  */
@@ -330,7 +330,7 @@ export function GhostOverlay() {
 
                             {entry.suggestion === null && (
                                 <span className="text-[10px] text-zinc-600 italic">
-                                    no token match
+                                    no matching token — add this value to your design tokens
                                 </span>
                             )}
                         </li>

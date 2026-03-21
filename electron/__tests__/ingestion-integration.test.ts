@@ -35,7 +35,7 @@ const TOKENS: AuditorToken[] = [BLUE_500_TOKEN]
 function makeComponent(className: string, nodeId = 'node-ing-001'): string {
     return `export default function Card() {
   return (
-    <div data-bridge-id="${nodeId}" className="${className}">
+    <div data-flint-id="${nodeId}" className="${className}">
       Hello
     </div>
   )
@@ -96,13 +96,13 @@ describe('ING-13: Full pipeline — tokens present → tier-1 fix applied', () =
         ).not.toThrow()
     })
 
-    it('data-bridge-id is preserved verbatim after tier-1 fix', () => {
+    it('data-flint-id is preserved verbatim after tier-1 fix', () => {
         const nodeId = 'ing-13-preserve-id'
         const code = makeComponent('bg-[#3B82F6]', nodeId)
 
         const result = heal(code, TOKENS)
 
-        expect(result.healedCode).toContain(`data-bridge-id="${nodeId}"`)
+        expect(result.healedCode).toContain(`data-flint-id="${nodeId}"`)
     })
 
     it('preHealCode in the summary equals the original input', () => {

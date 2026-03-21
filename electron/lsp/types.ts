@@ -23,7 +23,7 @@ export interface LspDiagnostic {
 }
 
 /**
- * Abstract contract for all language validators used by the Bridge Orchestrator.
+ * Abstract contract for all language validators used by the Flint Orchestrator.
  */
 export interface ILspClient {
     /**

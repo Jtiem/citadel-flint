@@ -2,11 +2,11 @@
  * ActivityFeed.test.tsx
  *
  * 10 tests for the ActivityFeed component. The component polls
- * `.bridge/activity-log.jsonl` via window.bridgeAPI.readFile and renders
+ * `.flint/activity-log.jsonl` via window.flintAPI.readFile and renders
  * parsed entries newest-first, capped at 50.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { ActivityFeed } from '../ActivityFeed'
 
@@ -31,7 +31,7 @@ function makeEntry(overrides: Record<string, unknown> = {}) {
 describe('ActivityFeed', () => {
     // 1. Shows empty state when there are no entries
     it('shows empty state when no entries exist in the log', async () => {
-        ;(window.bridgeAPI.readFile as ReturnType<typeof vi.fn>).mockResolvedValue('')
+        ;(window.flintAPI.readFile as ReturnType<typeof vi.fn>).mockResolvedValue('')
         render(<ActivityFeed />)
         await waitFor(() => {
             expect(screen.getByText('No activity yet')).toBeDefined()
@@ -41,7 +41,7 @@ describe('ActivityFeed', () => {
     // 2. Renders entries from JSONL data
     it('renders entries parsed from JSONL content', async () => {
         const raw = makeJSONL([makeEntry({ tool: 'audit_ui_component' })])
-        ;(window.bridgeAPI.readFile as ReturnType<typeof vi.fn>).mockResolvedValue(raw)
+        ;(window.flintAPI.readFile as ReturnType<typeof vi.fn>).mockResolvedValue(raw)
         render(<ActivityFeed />)
         await waitFor(() => {
             expect(screen.getByText('Component Audit')).toBeDefined()
@@ -50,8 +50,8 @@ describe('ActivityFeed', () => {
 
     // 3. Shows tool name as badge
     it('renders the tool name inside a badge element', async () => {
-        const raw = makeJSONL([makeEntry({ tool: 'bridge_get_context' })])
-        ;(window.bridgeAPI.readFile as ReturnType<typeof vi.fn>).mockResolvedValue(raw)
+        const raw = makeJSONL([makeEntry({ tool: 'flint_get_context' })])
+        ;(window.flintAPI.readFile as ReturnType<typeof vi.fn>).mockResolvedValue(raw)
         render(<ActivityFeed />)
         await waitFor(() => {
             expect(screen.getByText('Read Context')).toBeDefined()
@@ -61,7 +61,7 @@ describe('ActivityFeed', () => {
     // 4. Shows "success" outcome badge in emerald
     it('renders a success outcome badge with emerald styling', async () => {
         const raw = makeJSONL([makeEntry({ outcome: 'success' })])
-        ;(window.bridgeAPI.readFile as ReturnType<typeof vi.fn>).mockResolvedValue(raw)
+        ;(window.flintAPI.readFile as ReturnType<typeof vi.fn>).mockResolvedValue(raw)
         render(<ActivityFeed />)
         await waitFor(() => {
             const badge = document.querySelector('.text-emerald-400')
@@ -72,7 +72,7 @@ describe('ActivityFeed', () => {
     // 5. Shows "error" outcome badge in red
     it('renders an error outcome badge with red styling', async () => {
         const raw = makeJSONL([makeEntry({ outcome: 'error' })])
-        ;(window.bridgeAPI.readFile as ReturnType<typeof vi.fn>).mockResolvedValue(raw)
+        ;(window.flintAPI.readFile as ReturnType<typeof vi.fn>).mockResolvedValue(raw)
         render(<ActivityFeed />)
         await waitFor(() => {
             const badge = document.querySelector('.text-red-400')
@@ -83,7 +83,7 @@ describe('ActivityFeed', () => {
     // 6. Shows "blocked" outcome badge in amber
     it('renders a blocked outcome badge with amber styling', async () => {
         const raw = makeJSONL([makeEntry({ outcome: 'blocked' })])
-        ;(window.bridgeAPI.readFile as ReturnType<typeof vi.fn>).mockResolvedValue(raw)
+        ;(window.flintAPI.readFile as ReturnType<typeof vi.fn>).mockResolvedValue(raw)
         render(<ActivityFeed />)
         await waitFor(() => {
             const badge = document.querySelector('.text-amber-400')
@@ -97,7 +97,7 @@ describe('ActivityFeed', () => {
             'NOT VALID JSON %%%',
             JSON.stringify(makeEntry({ tool: 'good_tool' })),
         ].join('\n')
-        ;(window.bridgeAPI.readFile as ReturnType<typeof vi.fn>).mockResolvedValue(raw)
+        ;(window.flintAPI.readFile as ReturnType<typeof vi.fn>).mockResolvedValue(raw)
         render(<ActivityFeed />)
         await waitFor(() => {
             expect(screen.getByText('good_tool')).toBeDefined()
@@ -110,7 +110,7 @@ describe('ActivityFeed', () => {
             makeEntry({ tool: 'old_tool' }),
             makeEntry({ tool: 'new_tool' }),
         ])
-        ;(window.bridgeAPI.readFile as ReturnType<typeof vi.fn>).mockResolvedValue(raw)
+        ;(window.flintAPI.readFile as ReturnType<typeof vi.fn>).mockResolvedValue(raw)
         render(<ActivityFeed />)
         await waitFor(() => {
             const badges = screen.getAllByText(/old_tool|new_tool/)
@@ -125,7 +125,7 @@ describe('ActivityFeed', () => {
             makeEntry({ tool: `capped_tool_${i}` })
         )
         const raw = makeJSONL(entries)
-        ;(window.bridgeAPI.readFile as ReturnType<typeof vi.fn>).mockResolvedValue(raw)
+        ;(window.flintAPI.readFile as ReturnType<typeof vi.fn>).mockResolvedValue(raw)
         render(<ActivityFeed />)
         await waitFor(() => {
             // Each entry renders the tool name in a badge; count them
@@ -138,7 +138,7 @@ describe('ActivityFeed', () => {
     it('renders a formatted timestamp string for each entry', async () => {
         const ts = new Date('2026-03-14T10:30:45Z').toISOString()
         const raw = makeJSONL([makeEntry({ tool: 'timestamped_tool', timestamp: ts })])
-        ;(window.bridgeAPI.readFile as ReturnType<typeof vi.fn>).mockResolvedValue(raw)
+        ;(window.flintAPI.readFile as ReturnType<typeof vi.fn>).mockResolvedValue(raw)
         render(<ActivityFeed />)
         await waitFor(() => {
             // The timestamp is rendered in a ml-auto span after the tool badge

@@ -1,7 +1,7 @@
 /**
  * ASTService — Unit Tests
  *
- * Scope: pure, headless logic. No React, no Electron IPC, no window.bridgeAPI.
+ * Scope: pure, headless logic. No React, no Electron IPC, no window.flintAPI.
  *
  * What we verify:
  *   1. applyMutationBatch — implements the batch engine (replaces Phase B stub).
@@ -188,14 +188,14 @@ describe('applyMutationBatch', () => {
 
 describe('nodeExists', () => {
 
-    it('returns true when the data-bridge-id exists in the source', () => {
+    it('returns true when the data-flint-id exists in the source', () => {
         const code = `export default function App() {
-  return <div data-bridge-id="abc123">hello</div>
+  return <div data-flint-id="abc123">hello</div>
 }`
         expect(nodeExists(code, 'abc123')).toBe(true)
     })
 
-    it('returns false when the data-bridge-id is absent', () => {
+    it('returns false when the data-flint-id is absent', () => {
         const code = `export default function App() {
   return <div className="foo">hello</div>
 }`
@@ -338,29 +338,29 @@ void [_updateClass, _move, _delete, _updateProp, _updateTextContent, _injectComp
 
 // ── Phase E.3 — ID Preservation ───────────────────────────────────────────────
 //
-// Commandment 13: "Preserve IDs — the data-bridge-id must never be removed or
+// Commandment 13: "Preserve IDs — the data-flint-id must never be removed or
 // altered during a mutation."
 //
 // Every write-path operation (updateClassName, updateProp, new-prop injection)
-// must leave the data-bridge-id attribute byte-for-byte identical in the
+// must leave the data-flint-id attribute byte-for-byte identical in the
 // resulting AST. `nodeExists` is the AST-level oracle: it traverses with
-// @babel/traverse and checks attr.value.value === bridgeId at the node level.
+// @babel/traverse and checks attr.value.value === flintId at the node level.
 
 describe('Phase E.3 — ID Preservation', () => {
 
     // Use a non-structural ID (no trailing `:line:col` digits) so jsxMatchesId
-    // falls through to the data-bridge-id attribute-value path rather than
+    // falls through to the data-flint-id attribute-value path rather than
     // attempting positional matching. Positional IDs are fine for other tests;
     // here we specifically exercise the attribute write-path.
-    const BRIDGE_ID = 'save-btn-a3f'
+    const FLINT_ID = 'save-btn-a3f'
 
-    // Component with a fully-specified element carrying a bridge ID.
-    // BRIDGE_ID is passed as nodeId so the engine matches on the attribute value.
+    // Component with a fully-specified element carrying a flint ID.
+    // FLINT_ID is passed as nodeId so the engine matches on the attribute value.
     const SOURCE = `export default function App() {
   return (
     <div>
       <button
-        data-bridge-id="${BRIDGE_ID}"
+        data-flint-id="${FLINT_ID}"
         className="text-red-500 font-bold"
         aria-label="Save"
       >
@@ -370,57 +370,57 @@ describe('Phase E.3 — ID Preservation', () => {
   )
 }`
 
-    it('data-bridge-id survives an updateClassName mutation', () => {
+    it('data-flint-id survives an updateClassName mutation', () => {
         const { code } = applyMutationBatch(SOURCE, [
-            { op: 'updateClassName', nodeId: BRIDGE_ID, className: 'text-blue-500 font-bold' },
+            { op: 'updateClassName', nodeId: FLINT_ID, className: 'text-blue-500 font-bold' },
         ])
         // AST-level assertion: nodeExists uses @babel/traverse and checks
-        // attr.name.name === 'data-bridge-id' && attr.value.value === BRIDGE_ID.
-        expect(nodeExists(code, BRIDGE_ID)).toBe(true)
+        // attr.name.name === 'data-flint-id' && attr.value.value === FLINT_ID.
+        expect(nodeExists(code, FLINT_ID)).toBe(true)
         // Confirm the mutation was actually applied (not a silent no-op).
         expect(code).toContain('text-blue-500')
         expect(code).not.toContain('text-red-500')
     })
 
-    it('data-bridge-id survives an updateProp mutation on an existing attribute', () => {
+    it('data-flint-id survives an updateProp mutation on an existing attribute', () => {
         const { code } = applyMutationBatch(SOURCE, [
-            { op: 'updateProp', nodeId: BRIDGE_ID, propName: 'aria-label', value: 'Submit' },
+            { op: 'updateProp', nodeId: FLINT_ID, propName: 'aria-label', value: 'Submit' },
         ])
-        expect(nodeExists(code, BRIDGE_ID)).toBe(true)
+        expect(nodeExists(code, FLINT_ID)).toBe(true)
         expect(code).toContain('"Submit"')
     })
 
-    it('data-bridge-id survives a prop injection (attribute did not previously exist)', () => {
+    it('data-flint-id survives a prop injection (attribute did not previously exist)', () => {
         // updateProp on a propName not yet present synthesises a new JSXAttribute
-        // and splices it into openingElement.attributes. The bridge-id attr must
+        // and splices it into openingElement.attributes. The flint-id attr must
         // not be displaced or overwritten.
         const { code } = applyMutationBatch(SOURCE, [
-            { op: 'updateProp', nodeId: BRIDGE_ID, propName: 'data-testid', value: 'save-btn' },
+            { op: 'updateProp', nodeId: FLINT_ID, propName: 'data-testid', value: 'save-btn' },
         ])
-        expect(nodeExists(code, BRIDGE_ID)).toBe(true)
+        expect(nodeExists(code, FLINT_ID)).toBe(true)
         expect(code).toContain('"save-btn"')
     })
 
-    it('data-bridge-id value is byte-for-byte identical after a multi-mutation batch', () => {
+    it('data-flint-id value is byte-for-byte identical after a multi-mutation batch', () => {
         // Apply className + new-prop in a single batch cycle.
         const { code } = applyMutationBatch(SOURCE, [
-            { op: 'updateClassName', nodeId: BRIDGE_ID, className: 'bg-green-500' },
-            { op: 'updateProp', nodeId: BRIDGE_ID, propName: 'aria-label', value: 'Updated' },
+            { op: 'updateClassName', nodeId: FLINT_ID, className: 'bg-green-500' },
+            { op: 'updateProp', nodeId: FLINT_ID, propName: 'aria-label', value: 'Updated' },
         ])
         // nodeExists validates the exact string value at AST attribute level —
         // it would fail if the ID were truncated, prefixed, or emptied.
-        expect(nodeExists(code, BRIDGE_ID)).toBe(true)
+        expect(nodeExists(code, FLINT_ID)).toBe(true)
         // Belt-and-suspenders: the source literal must also be present as-is.
-        expect(code).toContain(`data-bridge-id="${BRIDGE_ID}"`)
+        expect(code).toContain(`data-flint-id="${FLINT_ID}"`)
     })
 
-    it('bridge-id inversion restores original className without touching the ID', () => {
+    it('flint-id inversion restores original className without touching the ID', () => {
         // Apply then invert: the entire round-trip must leave the ID intact.
         const { code: mutated, inversions } = applyMutationBatch(SOURCE, [
-            { op: 'updateClassName', nodeId: BRIDGE_ID, className: 'text-blue-500' },
+            { op: 'updateClassName', nodeId: FLINT_ID, className: 'text-blue-500' },
         ])
         const restored = applyInversions(mutated, inversions)
-        expect(nodeExists(restored, BRIDGE_ID)).toBe(true)
+        expect(nodeExists(restored, FLINT_ID)).toBe(true)
         expect(restored).toContain('text-red-500')
         expect(restored).not.toContain('text-blue-500')
     })
@@ -645,10 +645,10 @@ describe('synthesizeImports (Phase B — Import Synthesizer)', () => {
 
 describe('applyMutationBatch — injectComponent round-trip', () => {
 
-    it('injects a component as last child and stamps a data-bridge-id', () => {
+    it('injects a component as last child and stamps a data-flint-id', () => {
         const src = `export default function App() {
   return (
-    <div data-bridge-id="root-div">
+    <div data-flint-id="root-div">
       <span>existing</span>
     </div>
   )
@@ -662,8 +662,8 @@ describe('applyMutationBatch — injectComponent round-trip', () => {
         ])
         // The injected element must appear in the output.
         expect(code).toContain('Click me')
-        // injectComponent stamps a random data-bridge-id on the injected node.
-        expect(code).toMatch(/data-bridge-id="[a-z0-9]+"/)
+        // injectComponent stamps a random data-flint-id on the injected node.
+        expect(code).toMatch(/data-flint-id="[a-z0-9]+"/)
         // Structural inverse: snapshot
         expect(inversions).toHaveLength(1)
         expect(inversions[0].op).toBe('restoreCode')
@@ -672,7 +672,7 @@ describe('applyMutationBatch — injectComponent round-trip', () => {
     it('injectComponent inverse restores the pre-injection source exactly', () => {
         const src = `export default function App() {
   return (
-    <div data-bridge-id="root-div">
+    <div data-flint-id="root-div">
       <span>existing</span>
     </div>
   )
@@ -695,7 +695,7 @@ describe('applyMutationBatch — injectComponent round-trip', () => {
     it('injectComponent with importSnippet prepends the import declaration', () => {
         const src = `export default function App() {
   return (
-    <div data-bridge-id="container">
+    <div data-flint-id="container">
     </div>
   )
 }`
@@ -758,7 +758,7 @@ describe('applyMutationBatch — updateTextContent round-trip', () => {
 
     it('updates the text content of a JSX element', () => {
         const src = `export default function App() {
-  return <p data-bridge-id="headline">Old text</p>
+  return <p data-flint-id="headline">Old text</p>
 }`
         const { code, inversions } = applyMutationBatch(src, [
             { op: 'updateTextContent', nodeId: 'headline', text: 'New text' },
@@ -775,7 +775,7 @@ describe('applyMutationBatch — updateTextContent round-trip', () => {
 
     it('updateTextContent inverse restores the original text', () => {
         const src = `export default function App() {
-  return <p data-bridge-id="headline">Old text</p>
+  return <p data-flint-id="headline">Old text</p>
 }`
         const { code: mutated, inversions } = applyMutationBatch(src, [
             { op: 'updateTextContent', nodeId: 'headline', text: 'New text' },
@@ -791,13 +791,13 @@ describe('applyMutationBatch — updateTextContent round-trip', () => {
 describe('applyMutationBatch — adversarial inputs', () => {
 
     // ── Nonexistent node ID ───────────────────────────────────────────────────
-    // When the targeted data-bridge-id is not present, the batch engine must
+    // When the targeted data-flint-id is not present, the batch engine must
     // not silently corrupt the AST — it should produce unchanged output rather
     // than throwing (the internal helpers are all no-ops on miss).
 
     it('nonexistent node ID — updateClassName on missing id produces no change', () => {
         const src = `export default function App() {
-  return <div data-bridge-id="real-id" className="text-white">hello</div>
+  return <div data-flint-id="real-id" className="text-white">hello</div>
 }`
         const { code, inversions } = applyMutationBatch(src, [
             { op: 'updateClassName', nodeId: 'does-not-exist', className: 'text-black' },
@@ -811,7 +811,7 @@ describe('applyMutationBatch — adversarial inputs', () => {
 
     it('nonexistent node ID — updateProp on missing id produces no change', () => {
         const src = `export default function App() {
-  return <input data-bridge-id="real-input" aria-label="original" />
+  return <input data-flint-id="real-input" aria-label="original" />
 }`
         const { code } = applyMutationBatch(src, [
             { op: 'updateProp', nodeId: 'ghost-node', propName: 'aria-label', value: 'replaced' },
@@ -824,7 +824,7 @@ describe('applyMutationBatch — adversarial inputs', () => {
         const src = `export default function App() {
   return (
     <div>
-      <span data-bridge-id="keep-me">stay</span>
+      <span data-flint-id="keep-me">stay</span>
     </div>
   )
 }`
@@ -868,8 +868,8 @@ describe('applyMutationBatch — adversarial inputs', () => {
     it('inject into self-closing element is a silent no-op', () => {
         const src = `export default function App() {
   return (
-    <div data-bridge-id="container">
-      <img data-bridge-id="img-target" src="/logo.png" />
+    <div data-flint-id="container">
+      <img data-flint-id="img-target" src="/logo.png" />
     </div>
   )
 }`

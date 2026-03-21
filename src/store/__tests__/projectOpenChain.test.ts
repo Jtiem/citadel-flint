@@ -17,7 +17,7 @@ import { useEditorStore } from '../editorStore'
 import { useHistoryStore } from '../historyStore'
 import { LanguageRegistry } from '../../core/adapters/types'
 import { ReactAdapter } from '../../core/adapters/ReactAdapter'
-import type { FileTreeNode } from '../../types/bridge-api'
+import type { FileTreeNode } from '../../types/flint-api'
 
 // ── Register the React adapter once so LanguageRegistry.getAdapter() works ──
 
@@ -70,10 +70,10 @@ beforeEach(() => {
     vi.clearAllMocks()
     resetStores()
 
-    // Install a fresh bridgeAPI mock on each test so individual tests can
+    // Install a fresh flintAPI mock on each test so individual tests can
     // override readFile / saveFile without polluting neighbours.
     ;(globalThis as any).window = (globalThis as any).window ?? {}
-    ;(window as any).bridgeAPI = {
+    ;(window as any).flintAPI = {
         readFile: vi.fn().mockResolvedValue(MOCK_TSX_CONTENT),
         saveFile: vi.fn().mockResolvedValue(undefined),
     }
@@ -121,14 +121,14 @@ describe('setActiveFile — Clean Slate Protocol', () => {
         useEditorStore.setState({
             rawCode: 'previous code',
             ast: {} as unknown,     // non-null sentinel
-            visualTree: [{ id: 'old-node', label: 'div', depth: 0, children: [] }],
+            visualTree: [{ id: 'old-node', tagName: 'div', line: 1, children: [] }],
         })
 
         // During setActiveFile there is a moment (after clearAST, before setCode)
         // when the editor must be empty. We capture that moment by observing
         // the state transition. We do this by wrapping readFile to sample state.
         let astDuringRead: unknown = 'NOT_SAMPLED'
-        ;(window as any).bridgeAPI.readFile = vi.fn().mockImplementation(async () => {
+        ;(window as any).flintAPI.readFile = vi.fn().mockImplementation(async () => {
             // At this point clearAST() has already been called but setCode()
             // has not yet been invoked — the editor should be blank.
             astDuringRead = useEditorStore.getState().ast
@@ -147,10 +147,10 @@ describe('setActiveFile — Clean Slate Protocol', () => {
         expect(useCanvasStore.getState().activeFilePath).toBe(MOCK_FILE_PATH)
     })
 
-    it('calls window.bridgeAPI.readFile with the correct path', async () => {
+    it('calls window.flintAPI.readFile with the correct path', async () => {
         await useCanvasStore.getState().setActiveFile(MOCK_FILE_PATH)
 
-        expect((window as any).bridgeAPI.readFile).toHaveBeenCalledWith(MOCK_FILE_PATH)
+        expect((window as any).flintAPI.readFile).toHaveBeenCalledWith(MOCK_FILE_PATH)
     })
 })
 
@@ -218,7 +218,7 @@ describe('setActiveFile — historyStore clean-slate', () => {
 
 describe('setActiveFile — IPC failure handling', () => {
     it('leaves ast null when readFile rejects (graceful degradation)', async () => {
-        ;(window as any).bridgeAPI.readFile = vi.fn().mockRejectedValue(new Error('ENOENT: file not found'))
+        ;(window as any).flintAPI.readFile = vi.fn().mockRejectedValue(new Error('ENOENT: file not found'))
 
         await useCanvasStore.getState().setActiveFile(MOCK_FILE_PATH)
 
@@ -227,7 +227,7 @@ describe('setActiveFile — IPC failure handling', () => {
     })
 
     it('still sets activeFilePath even when readFile rejects', async () => {
-        ;(window as any).bridgeAPI.readFile = vi.fn().mockRejectedValue(new Error('permission denied'))
+        ;(window as any).flintAPI.readFile = vi.fn().mockRejectedValue(new Error('permission denied'))
 
         await useCanvasStore.getState().setActiveFile(MOCK_FILE_PATH)
 
@@ -236,7 +236,7 @@ describe('setActiveFile — IPC failure handling', () => {
     })
 
     it('rawCode stays empty string when readFile rejects', async () => {
-        ;(window as any).bridgeAPI.readFile = vi.fn().mockRejectedValue(new Error('timeout'))
+        ;(window as any).flintAPI.readFile = vi.fn().mockRejectedValue(new Error('timeout'))
 
         await useCanvasStore.getState().setActiveFile(MOCK_FILE_PATH)
 
@@ -244,7 +244,7 @@ describe('setActiveFile — IPC failure handling', () => {
     })
 
     it('visualTree stays empty when readFile rejects', async () => {
-        ;(window as any).bridgeAPI.readFile = vi.fn().mockRejectedValue(new Error('not found'))
+        ;(window as any).flintAPI.readFile = vi.fn().mockRejectedValue(new Error('not found'))
 
         await useCanvasStore.getState().setActiveFile(MOCK_FILE_PATH)
 
@@ -262,28 +262,28 @@ describe('setActiveFile — dirty-file flush before switch', () => {
         useCanvasStore.setState({ activeFilePath: FIRST_FILE, saveState: 'editing' })
         useEditorStore.setState({ rawCode: UNSAVED_CODE })
 
-        ;(window as any).bridgeAPI.saveFile = vi.fn().mockResolvedValue(undefined)
-        ;(window as any).bridgeAPI.readFile = vi.fn().mockResolvedValue(MOCK_TSX_CONTENT)
+        ;(window as any).flintAPI.saveFile = vi.fn().mockResolvedValue(undefined)
+        ;(window as any).flintAPI.readFile = vi.fn().mockResolvedValue(MOCK_TSX_CONTENT)
 
         await useCanvasStore.getState().setActiveFile(SECOND_FILE)
 
         // Dirty flush should have called saveFile with the stale file's path and code.
-        expect((window as any).bridgeAPI.saveFile).toHaveBeenCalledWith(FIRST_FILE, UNSAVED_CODE)
+        expect((window as any).flintAPI.saveFile).toHaveBeenCalledWith(FIRST_FILE, UNSAVED_CODE)
     })
 
     it('does NOT call saveFile when switching from a clean (idle) file', async () => {
         // saveState is 'idle' — no pending edits.
         useCanvasStore.setState({ activeFilePath: '/project/src/Clean.tsx', saveState: 'idle' })
 
-        ;(window as any).bridgeAPI.saveFile = vi.fn().mockResolvedValue(undefined)
-        ;(window as any).bridgeAPI.readFile = vi.fn().mockResolvedValue(MOCK_TSX_CONTENT)
+        ;(window as any).flintAPI.saveFile = vi.fn().mockResolvedValue(undefined)
+        ;(window as any).flintAPI.readFile = vi.fn().mockResolvedValue(MOCK_TSX_CONTENT)
 
         await useCanvasStore.getState().setActiveFile(MOCK_FILE_PATH)
 
         // No pre-switch flush needed — saveFile must not be invoked for old file.
         // (triggerAutoSave inside setCode may call it for the NEW file, so we
         //  only assert the specific first-argument path was not the old path.)
-        const saveCalls = (window as any).bridgeAPI.saveFile.mock.calls as [string, string][]
+        const saveCalls = (window as any).flintAPI.saveFile.mock.calls as [string, string][]
         const oldFileFlush = saveCalls.find(([path]) => path === '/project/src/Clean.tsx')
         expect(oldFileFlush).toBeUndefined()
     })

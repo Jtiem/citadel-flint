@@ -1,5 +1,5 @@
 /**
- * Audit Engine Tests -- bridge-ci/src/audit-engine.test.ts
+ * Audit Engine Tests -- flint-ci/src/audit-engine.test.ts
  *
  * Verifies the CI governance gate correctly detects Mithril design token
  * drift and WCAG accessibility violations in source files.
@@ -7,7 +7,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { parseSource, auditFile, auditFiles, shouldFail } from './audit-engine.js'
-import type { DesignToken, BridgePolicy } from './types.js'
+import type { DesignToken, FlintPolicy } from './types.js'
 import { DEFAULT_POLICY } from './types.js'
 
 // -- Test Tokens ---------------------------------------------------------------
@@ -72,7 +72,7 @@ describe('auditFile - Mithril', () => {
     it('detects color drift in arbitrary hex values', () => {
         const code = `
             export default function App() {
-                return <div data-bridge-id="node-1" className="bg-[#ff0000]">Red</div>
+                return <div data-flint-id="node-1" className="bg-[#ff0000]">Red</div>
             }
         `
         const result = auditFile('test.tsx', code, TEST_TOKENS)
@@ -84,7 +84,7 @@ describe('auditFile - Mithril', () => {
     it('passes when color matches a token', () => {
         const code = `
             export default function App() {
-                return <div data-bridge-id="node-1" className="bg-[#3b82f6]">Blue</div>
+                return <div data-flint-id="node-1" className="bg-[#3b82f6]">Blue</div>
             }
         `
         const result = auditFile('test.tsx', code, TEST_TOKENS)
@@ -94,7 +94,7 @@ describe('auditFile - Mithril', () => {
     it('detects spacing drift', () => {
         const code = `
             export default function App() {
-                return <div data-bridge-id="node-1" className="p-[37px]">Content</div>
+                return <div data-flint-id="node-1" className="p-[37px]">Content</div>
             }
         `
         const result = auditFile('test.tsx', code, TEST_TOKENS)
@@ -105,7 +105,7 @@ describe('auditFile - Mithril', () => {
     it('passes when spacing matches a token', () => {
         const code = `
             export default function App() {
-                return <div data-bridge-id="node-1" className="p-[16px]">Content</div>
+                return <div data-flint-id="node-1" className="p-[16px]">Content</div>
             }
         `
         const result = auditFile('test.tsx', code, TEST_TOKENS)
@@ -114,7 +114,7 @@ describe('auditFile - Mithril', () => {
         expect(spacingViolations.length).toBe(0)
     })
 
-    it('skips elements without data-bridge-id', () => {
+    it('skips elements without data-flint-id', () => {
         const code = `
             export default function App() {
                 return <div className="bg-[#ff0000]">No ID</div>
@@ -206,10 +206,10 @@ describe('auditFile - Policy', () => {
     it('skips Mithril checks when mode is off', () => {
         const code = `
             export default function App() {
-                return <div data-bridge-id="node-1" className="bg-[#ff0000]">Red</div>
+                return <div data-flint-id="node-1" className="bg-[#ff0000]">Red</div>
             }
         `
-        const policy: BridgePolicy = {
+        const policy: FlintPolicy = {
             ...DEFAULT_POLICY,
             mithril: { ...DEFAULT_POLICY.mithril, mode: 'off' },
         }
@@ -223,7 +223,7 @@ describe('auditFile - Policy', () => {
                 return <img src="photo.jpg" />
             }
         `
-        const policy: BridgePolicy = {
+        const policy: FlintPolicy = {
             ...DEFAULT_POLICY,
             a11y: { ...DEFAULT_POLICY.a11y, mode: 'off' },
         }
@@ -238,7 +238,7 @@ describe('auditFile - Policy', () => {
                 return <img src="photo.jpg" />
             }
         `
-        const policy: BridgePolicy = {
+        const policy: FlintPolicy = {
             ...DEFAULT_POLICY,
             a11y: { ...DEFAULT_POLICY.a11y, disabled_rules: ['A11Y-001'] },
         }
@@ -250,10 +250,10 @@ describe('auditFile - Policy', () => {
     it('skips Mithril checks for ignored file patterns', () => {
         const code = `
             export default function App() {
-                return <div data-bridge-id="node-1" className="bg-[#ff0000]">Red</div>
+                return <div data-flint-id="node-1" className="bg-[#ff0000]">Red</div>
             }
         `
-        const policy: BridgePolicy = {
+        const policy: FlintPolicy = {
             ...DEFAULT_POLICY,
             mithril: { ...DEFAULT_POLICY.mithril, ignore_patterns: ['test\\.tsx$'] },
         }
@@ -270,7 +270,7 @@ describe('auditFiles', () => {
             {
                 path: 'clean.tsx',
                 content: `export default function App() {
-                    return <div data-bridge-id="n1" className="bg-[#3b82f6]">
+                    return <div data-flint-id="n1" className="bg-[#3b82f6]">
                         <img src="x.jpg" alt="photo" />
                     </div>
                 }`,
@@ -278,7 +278,7 @@ describe('auditFiles', () => {
             {
                 path: 'dirty.tsx',
                 content: `export default function App() {
-                    return <div data-bridge-id="n2" className="bg-[#ff0000]">
+                    return <div data-flint-id="n2" className="bg-[#ff0000]">
                         <img src="x.jpg" />
                     </div>
                 }`,
@@ -322,7 +322,7 @@ describe('shouldFail', () => {
             amberCount: 0,
             results: [],
         }
-        const policy: BridgePolicy = {
+        const policy: FlintPolicy = {
             ...DEFAULT_POLICY,
             a11y: { ...DEFAULT_POLICY.a11y, mode: 'advisory' },
         }

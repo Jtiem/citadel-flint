@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import type { TokenType } from '../../types/bridge-api'
+import type { TokenType } from '../../types/flint-api'
 import { useTokenStore } from '../../store/tokenStore'
 import { normalizePath, tokenToClass } from '../../utils/classMapper'
 import { Accordion, CompactSelect, ColorPickerSwatch, TokenAutocomplete } from './primitives'

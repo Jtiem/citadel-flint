@@ -61,7 +61,7 @@ function seedVisualTree() {
 
 beforeEach(() => {
     resetAllStores()
-    ;(window as unknown as Record<string, unknown>).bridgeAPI = {
+    ;(window as unknown as Record<string, unknown>).flintAPI = {
         syncContext: vi.fn().mockResolvedValue({ ok: true }),
     }
 })
@@ -73,7 +73,7 @@ afterEach(() => {
 // ── 5.1: editorStore selection ────────────────────────────────────────────────
 
 describe('editorStore — setSelectedNode (Journey 5.1)', () => {
-    it('sets selectedNodeId to the provided bridge id', () => {
+    it('sets selectedNodeId to the provided flint id', () => {
         const { setSelectedNode } = useEditorStore.getState()
         setSelectedNode('div:5:4')
 
@@ -224,7 +224,7 @@ describe('useContextSync — selectedNodeId propagation (Journey 5.2)', () => {
         renderHook(() => useContextSync())
         act(() => { vi.advanceTimersByTime(200) })
 
-        const calls = (window.bridgeAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls
+        const calls = (window.flintAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls
         expect(calls).toHaveLength(1)
         expect(calls[0][0].selectedNodeId).toBe('div:5:4')
     })
@@ -234,7 +234,7 @@ describe('useContextSync — selectedNodeId propagation (Journey 5.2)', () => {
         renderHook(() => useContextSync())
         act(() => { vi.advanceTimersByTime(200) })
 
-        const ctx = (window.bridgeAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls[0][0]
+        const ctx = (window.flintAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls[0][0]
         expect(ctx.selectedNodeId).toBeNull()
     })
 
@@ -260,7 +260,7 @@ describe('useContextSync — selectedNodeId propagation (Journey 5.2)', () => {
         })
 
         // Only one call should have fired (the final debounce), carrying 'p:7:6'
-        const calls = (window.bridgeAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls
+        const calls = (window.flintAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls
         expect(calls).toHaveLength(1)
         expect(calls[0][0].selectedNodeId).toBe('p:7:6')
     })
@@ -274,7 +274,7 @@ describe('useContextSync — selectedNodeId propagation (Journey 5.2)', () => {
         })
 
         expect(
-            (window.bridgeAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls
+            (window.flintAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls
         ).toHaveLength(1)
 
         // Update selection and rerender so the hook picks up the new value,
@@ -289,7 +289,7 @@ describe('useContextSync — selectedNodeId propagation (Journey 5.2)', () => {
             vi.advanceTimersByTime(200)
         })
 
-        const calls = (window.bridgeAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls
+        const calls = (window.flintAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls
         expect(calls).toHaveLength(2)
         expect(calls[1][0].selectedNodeId).toBe('div:5:4')
     })

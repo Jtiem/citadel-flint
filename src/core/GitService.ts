@@ -4,9 +4,9 @@
  * Renderer-side Git Transplant Service (Phase D — Commandment 11).
  *
  * Provides `getSpecificNodeFromGit`: given an absolute file path, a
- * data-bridge-id, and a git commit hash, retrieves the file content at that
- * commit via IPC (`window.bridgeAPI.gitShow`), parses it into a temporary AST,
- * and extracts only the JSXElement that carries the matching bridge ID.
+ * data-flint-id, and a git commit hash, retrieves the file content at that
+ * commit via IPC (`window.flintAPI.gitShow`), parses it into a temporary AST,
+ * and extracts only the JSXElement that carries the matching flint ID.
  *
  * This enables surgical transplants: the caller can inject the recovered node
  * into the current AST without a destructive `git checkout`.
@@ -28,30 +28,30 @@ const traverse =
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
- * Retrieves the JSXElement with `data-bridge-id === bridgeId` as it existed
+ * Retrieves the JSXElement with `data-flint-id === flintId` as it existed
  * at `commitHash` in the file at `filePath`.
  *
  * Algorithm:
- *   1. Calls `window.bridgeAPI.gitShow(filePath, commitHash)` → old source.
+ *   1. Calls `window.flintAPI.gitShow(filePath, commitHash)` → old source.
  *   2. Parses the old source into a temporary AST.
- *   3. Traverses the AST to find the first JSXElement whose `data-bridge-id`
- *      attribute matches `bridgeId`.
+ *   3. Traverses the AST to find the first JSXElement whose `data-flint-id`
+ *      attribute matches `flintId`.
  *   4. Returns the node (or null if not found / parse error / IPC error).
  *
  * Does NOT modify the working tree. Does NOT call `git checkout`.
  *
  * @param filePath   Absolute path to the source file in the user's project.
- * @param bridgeId   The `data-bridge-id` attribute value to search for.
+ * @param flintId   The `data-flint-id` attribute value to search for.
  * @param commitHash A full or abbreviated git commit SHA (4–64 hex chars).
  * @returns          The matching JSXElement node, or null on any failure.
  */
 export async function getSpecificNodeFromGit(
     filePath: string,
-    bridgeId: string,
+    flintId: string,
     commitHash: string
 ): Promise<JSXElement | null> {
     // Delegate the git read to the main process via IPC.
-    const oldSource = await window.bridgeAPI.gitShow(filePath, commitHash)
+    const oldSource = await window.flintAPI.gitShow(filePath, commitHash)
     if (oldSource === null) return null
 
     // Parse into a temp AST — never touches the store's live ast.
@@ -66,9 +66,9 @@ export async function getSpecificNodeFromGit(
                 if (
                     attr.type === 'JSXAttribute' &&
                     attr.name.type === 'JSXIdentifier' &&
-                    attr.name.name === 'data-bridge-id' &&
+                    attr.name.name === 'data-flint-id' &&
                     attr.value?.type === 'StringLiteral' &&
-                    attr.value.value === bridgeId
+                    attr.value.value === flintId
                 ) {
                     found = path.node
                     path.stop()

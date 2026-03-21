@@ -1,7 +1,7 @@
 /**
  * AST Buffer Store — src/store/astBufferStore.ts
  *
- * Phase F.2: Headless multi-file AST buffer for the Bridge Project Workspace.
+ * Phase F.2: Headless multi-file AST buffer for the Flint Project Workspace.
  *
  * Maintains a `Map<filePath, BabelAST>` of parsed Babel ASTs for files that
  * are part of the open workspace but are NOT currently loaded in the Monaco
@@ -10,7 +10,7 @@
  * switch in the active editor.
  *
  * 7D Hardening (Commandment 13):
- *   Every buffer loaded via `loadBuffer` has `injectBridgeIds(ast)` applied
+ *   Every buffer loaded via `loadBuffer` has `injectFlintIds(ast)` applied
  *   immediately after parsing. This guarantees that all headless ASTs are
  *   ID-complete before any mutation function touches them, regardless of
  *   whether the source file was previously opened in the editor.
@@ -31,7 +31,7 @@ import { create } from 'zustand'
 // Adapter resolution is done per-file via LanguageRegistry.
 import { LanguageRegistry } from '../core/adapters/types'
 // Internal Babel-specific helpers for the cross-file move pipeline.
-// These will be absorbed into IBridgeAdapter in a future Phase N sub-step
+// These will be absorbed into IFlintAdapter in a future Phase N sub-step
 // as the cross-file move gains multi-language support.
 // `File` is kept here for the explicit casts at the Babel call sites below.
 import type { File } from '@babel/types'
@@ -50,7 +50,7 @@ interface ASTBufferState {
      *
      * Each value is the adapter-specific AST for the file, produced by
      * `LanguageRegistry.getAdapter(filePath).parse()` with
-     * `injectBridgeIds` applied (7D hardening) — Phase N.1.
+     * `injectFlintIds` applied (7D hardening) — Phase N.1.
      *
      * Always create a new Map reference on mutation — never mutate in-place.
      */
@@ -59,7 +59,7 @@ interface ASTBufferState {
 
 interface ASTBufferActions {
     /**
-     * Reads `filePath` via IPC, parses it, injects bridge IDs (7D hardening),
+     * Reads `filePath` via IPC, parses it, injects flint IDs (7D hardening),
      * and stores the result in `buffers`.
      *
      * Idempotent: a no-op when `filePath` is already buffered. Callers should
@@ -98,7 +98,7 @@ interface ASTBufferActions {
      *   4. Synthesizes any missing imports into the target AST (Phase B).
      *   5. Inserts the extracted node into the target AST.
      *   6. Atomically saves both files via `saveFileBatch` (Commandment 12).
-     *   7. Re-parses and re-injects bridge IDs in both buffers (7D hardening).
+     *   7. Re-parses and re-injects flint IDs in both buffers (7D hardening).
      *   8. Syncs the active editor if either file is currently open.
      *   9. Pushes two tagged `HistoryEntry` objects for cross-file undo
      *      (skipped when `options.isRecovery` is true — Phase H).
@@ -140,12 +140,12 @@ export const useASTBufferStore = create<ASTBufferState & ASTBufferActions>((set,
     loadBuffer: async (filePath: string) => {
         if (get().buffers.has(filePath)) return
         try {
-            const content = await window.bridgeAPI.readFile(filePath)
+            const content = await window.flintAPI.readFile(filePath)
             const adapter = LanguageRegistry.getAdapter(filePath)
             const ast = adapter.parse(content)
             if (ast === null) return
-            // 7D Hardening: inject data-bridge-id attributes before storing.
-            adapter.injectBridgeIds(ast)
+            // 7D Hardening: inject data-flint-id attributes before storing.
+            adapter.injectFlintIds(ast)
             set((state) => {
                 const next = new Map(state.buffers)
                 next.set(filePath, ast)
@@ -217,7 +217,7 @@ export const useASTBufferStore = create<ASTBufferState & ASTBufferActions>((set,
         if (cloneMode) {
             const clonedAST = srcAdapter.parse(preMoveSourceCode)
             if (clonedAST === null) return
-            srcAdapter.injectBridgeIds(clonedAST)
+            srcAdapter.injectFlintIds(clonedAST)
             extractionAST = clonedAST as File
         } else {
             extractionAST = sourceAST as File
@@ -236,7 +236,7 @@ export const useASTBufferStore = create<ASTBufferState & ASTBufferActions>((set,
                 // Insertion failed — restore the source AST to its pre-move state.
                 const restoredSource = srcAdapter.parse(preMoveSourceCode)
                 if (restoredSource !== null) {
-                    srcAdapter.injectBridgeIds(restoredSource)
+                    srcAdapter.injectFlintIds(restoredSource)
                     set((state) => {
                         const next = new Map(state.buffers)
                         next.set(sourceFilePath, restoredSource)
@@ -256,17 +256,17 @@ export const useASTBufferStore = create<ASTBufferState & ASTBufferActions>((set,
         // In cloneMode, only write the target file (source is unchanged).
         try {
             if (cloneMode) {
-                await window.bridgeAPI.saveFileBatch({
+                await window.flintAPI.saveFileBatch({
                     [targetFilePath]: newTargetCode,
                 })
             } else {
-                await window.bridgeAPI.saveFileBatch({
+                await window.flintAPI.saveFileBatch({
                     [sourceFilePath]: newSourceCode,
                     [targetFilePath]: newTargetCode,
                 })
             }
         } catch (err) {
-            console.error('[Bridge] crossFileMove: saveFileBatch failed:', err)
+            console.error('[Flint] crossFileMove: saveFileBatch failed:', err)
             // Restore buffers to pre-move state.
             const restoredTarget = tgtAdapter.parse(preMoveTargetCode)
             set((state) => {
@@ -274,12 +274,12 @@ export const useASTBufferStore = create<ASTBufferState & ASTBufferActions>((set,
                 if (!cloneMode) {
                     const restoredSource = srcAdapter.parse(preMoveSourceCode)
                     if (restoredSource !== null) {
-                        srcAdapter.injectBridgeIds(restoredSource)
+                        srcAdapter.injectFlintIds(restoredSource)
                         next.set(sourceFilePath, restoredSource)
                     }
                 }
                 if (restoredTarget !== null) {
-                    tgtAdapter.injectBridgeIds(restoredTarget)
+                    tgtAdapter.injectFlintIds(restoredTarget)
                     next.set(targetFilePath, restoredTarget)
                 }
                 return { buffers: next }
@@ -295,12 +295,12 @@ export const useASTBufferStore = create<ASTBufferState & ASTBufferActions>((set,
             if (!cloneMode) {
                 const finalSource = srcAdapter.parse(newSourceCode)
                 if (finalSource !== null) {
-                    srcAdapter.injectBridgeIds(finalSource)
+                    srcAdapter.injectFlintIds(finalSource)
                     next.set(sourceFilePath, finalSource)
                 }
             }
             if (finalTarget !== null) {
-                tgtAdapter.injectBridgeIds(finalTarget)
+                tgtAdapter.injectFlintIds(finalTarget)
                 next.set(targetFilePath, finalTarget)
             }
             return { buffers: next }

@@ -11,7 +11,7 @@
  */
 
 import { create } from 'zustand'
-import type { AssetMeta } from '../types/bridge-api'
+import type { AssetMeta } from '../types/flint-api'
 
 // ── State shape ────────────────────────────────────────────────────────────────
 
@@ -76,7 +76,7 @@ export const useAssetStore = create<AssetState & AssetActions>((set, get) => ({
     fetchAssets: async () => {
         set({ isLoading: true })
         try {
-            const assets = await window.bridgeAPI.assets.getMetadata()
+            const assets = await window.flintAPI.assets!.getMetadata()
             const { searchQuery } = get()
             set({
                 assets,
@@ -101,7 +101,7 @@ export const useAssetStore = create<AssetState & AssetActions>((set, get) => ({
     setViewMode: (mode) => set({ viewMode: mode }),
 
     runAudit: async () => {
-        const result = await window.bridgeAPI.assets.auditZombies()
+        const result = await window.flintAPI.assets!.auditZombies()
         set({ lastAuditResult: result })
         // Re-fetch so zombie badges reflect the updated flags immediately
         await get().fetchAssets()

@@ -26,7 +26,7 @@
  *   opacity.*        → strip 'opacity'
  */
 
-import type { DesignToken } from '../types/bridge-api'
+import type { DesignToken } from '../types/flint-api'
 
 /** Recursive nested string map used to build Tailwind theme extension objects. */
 type NestedRecord = { [key: string]: string | NestedRecord }

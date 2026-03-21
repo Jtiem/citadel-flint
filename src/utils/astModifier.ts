@@ -36,6 +36,7 @@ import {
     jsxIdentifier,
     stringLiteral,
 } from '@babel/types'
+import * as t from '@babel/types'
 import type { NodePath } from '@babel/traverse'
 
 // ── CJS interop ───────────────────────────────────────────────────────────────
@@ -68,9 +69,9 @@ interface FoundNode {
  *
  * Supports two id formats:
  *   Structural: "tagName:line:col" — matched by source location.
- *   Bridge:     any other string   — matched by data-bridge-id attribute value.
+ *   Flint:     any other string   — matched by data-flint-id attribute value.
  *
- * Bridge IDs are written by injectComponent and survive AST round-trips and
+ * Flint IDs are written by injectComponent and survive AST round-trips and
  * drag-and-drop reorderings, so they must be the preferred lookup key for
  * injected components.
  */
@@ -90,12 +91,12 @@ function findNode(ast: File, id: string): FoundNode | null {
                 const loc = path.node.loc
                 matched = loc?.start.line === line && loc.start.column === col
             } else {
-                // Bridge-id lookup: scan attributes for data-bridge-id === id.
+                // Flint-id lookup: scan attributes for data-flint-id === id.
                 for (const attr of path.node.openingElement.attributes) {
                     if (
                         attr.type === 'JSXAttribute' &&
                         attr.name.type === 'JSXIdentifier' &&
-                        attr.name.name === 'data-bridge-id' &&
+                        attr.name.name === 'data-flint-id' &&
                         attr.value?.type === 'StringLiteral' &&
                         attr.value.value === id
                     ) {
@@ -229,7 +230,7 @@ function parseJSXSnippet(jsxSnippet: string): JSXElement | null {
     try {
         // Wrap in a unique root tag that is extremely unlikely to collide with
         // real component names and won't confuse code-generation.
-        const wrapperAst = parse(`(<__bridge__>${jsxSnippet}</__bridge__>)`, {
+        const wrapperAst = parse(`(<__flint__>${jsxSnippet}</__flint__>)`, {
             sourceType: 'module',
             plugins: ['jsx', 'typescript'],
         })
@@ -284,11 +285,11 @@ export function injectComponent(
     const newElement = parseJSXSnippet(jsxSnippet)
     if (newElement === null) return fileAST
 
-    // Stamp a unique data-bridge-id before inserting so the IPC bridge can
+    // Stamp a unique data-flint-id before inserting so the IPC flint can
     // select the element in the live preview.
-    const bridgeId = Math.random().toString(36).slice(2, 9)
+    const flintId = Math.random().toString(36).slice(2, 9)
     newElement.openingElement.attributes.push(
-        jsxAttribute(jsxIdentifier('data-bridge-id'), stringLiteral(bridgeId))
+        jsxAttribute(jsxIdentifier('data-flint-id'), stringLiteral(flintId))
     )
 
     const tgt = findNode(fileAST, targetNodeId)
@@ -379,7 +380,7 @@ export function insertNode(
  *
  * @param fileAST      A freshly-parsed copy of the File AST (never the live
  *                     store reference — this function mutates in-place).
- * @param nodeId       Stable node id (bridge id or "tagName:line:col").
+ * @param nodeId       Stable node id (flint id or "tagName:line:col").
  * @param hardcodedClass  The exact class token to remove, including any
  *                        variant chain (e.g. "hover:bg-[#f3f3f3]").
  * @param tokenClass   The replacement class, including the same variant chain
@@ -417,4 +418,348 @@ export function applyTokenFix(
     }
 
     return fileAST
+}
+
+// ── CATALOG.1-3: renderer-side mirrors ────────────────────────────────────────
+//
+// Exact mirrors of flint-mcp/src/core/ast-modifier.ts (CATALOG.1-3 exports).
+// All functions operate on Babel ASTs only — no Node.js APIs — and are safe
+// to call in the sandboxed renderer process.
+//
+// ASTService.ts stubs these ops with a restoreCode inversion until the approval
+// flow confirms execution; at that point the Electron main process re-applies
+// them via the MCP engine. These mirrors exist so type-checked callers and
+// future renderer-side execution paths share a single signature source.
+
+function parseExpression(expressionStr: string): t.Expression {
+    const wrapper = parse(`(${expressionStr})`, { sourceType: 'module', plugins: ['jsx', 'typescript'] })
+    const stmt = wrapper.program.body[0]
+    if (!t.isExpressionStatement(stmt)) throw new Error(`Could not parse expression: ${expressionStr}`)
+    return stmt.expression
+}
+
+function parseStatementSnippet(snippet: string): t.Statement {
+    const wrapper = parse(snippet, { sourceType: 'module', plugins: ['jsx', 'typescript'] })
+    if (wrapper.program.body.length === 0) throw new Error(`Could not parse statement: ${snippet}`)
+    return wrapper.program.body[0]
+}
+
+function findComponentBody(ast: File, componentName: string): t.BlockStatement | null {
+    let body: t.BlockStatement | null = null
+    traverse(ast, {
+        FunctionDeclaration(path) {
+            if (path.node.id?.name === componentName && path.node.body) {
+                body = path.node.body
+                path.stop()
+            }
+        },
+        VariableDeclarator(path) {
+            if (!t.isIdentifier(path.node.id, { name: componentName })) return
+            const init = path.node.init
+            if (!t.isArrowFunctionExpression(init) && !t.isFunctionExpression(init)) return
+            if (t.isBlockStatement(init.body)) {
+                body = init.body
+            } else {
+                // Concise arrow: () => <expr> — promote to block form.
+                const newBlock = t.blockStatement([t.returnStatement(init.body as t.Expression)])
+                init.body = newBlock
+                body = newBlock
+            }
+            path.stop()
+        },
+    })
+    return body
+}
+
+/**
+ * Adds an import declaration to the file. If the same module source is already
+ * imported, merges new specifiers rather than creating a second declaration.
+ * Inserts after the last existing import, or at the top if none exist.
+ *
+ * Throws if `importSnippet` is not a valid import statement.
+ */
+export function emitImport(ast: File, importSnippet: string): void {
+    const parsed = parse(importSnippet, { sourceType: 'module', plugins: ['jsx', 'typescript'] })
+    const newImport = parsed.program.body[0]
+    if (!t.isImportDeclaration(newImport)) throw new Error(`Not a valid import: ${importSnippet}`)
+    const source = newImport.source.value
+    for (const node of ast.program.body) {
+        if (t.isImportDeclaration(node) && node.source.value === source) {
+            for (const spec of newImport.specifiers) {
+                const exists = node.specifiers.some(ex => {
+                    if (t.isImportSpecifier(spec) && t.isImportSpecifier(ex))
+                        return (t.isIdentifier(spec.imported) ? spec.imported.name : '') ===
+                               (t.isIdentifier(ex.imported) ? ex.imported.name : '')
+                    if (t.isImportDefaultSpecifier(spec) && t.isImportDefaultSpecifier(ex)) return true
+                    if (t.isImportNamespaceSpecifier(spec) && t.isImportNamespaceSpecifier(ex)) return true
+                    return false
+                })
+                if (!exists) node.specifiers.push(spec)
+            }
+            return
+        }
+    }
+    let lastIdx = -1
+    for (let i = 0; i < ast.program.body.length; i++) {
+        if (t.isImportDeclaration(ast.program.body[i])) lastIdx = i
+    }
+    ast.program.body.splice(lastIdx + 1, 0, newImport)
+}
+
+/**
+ * Injects a hook call statement inside the named component's function body.
+ * `position` controls placement:
+ *   'first' — unshifted to the top (before all other statements).
+ *   'last'  — inserted before the return statement (default).
+ *
+ * Throws if the component cannot be found or `hookStatement` is invalid.
+ */
+export function emitHook(
+    ast: File,
+    componentName: string,
+    hookStatement: string,
+    position: 'first' | 'last' = 'last'
+): void {
+    const body = findComponentBody(ast, componentName)
+    if (!body) throw new Error(`Component not found: ${componentName}`)
+    const stmt = parseStatementSnippet(hookStatement)
+    if (position === 'first') {
+        body.body.unshift(stmt)
+    } else {
+        let idx = 0
+        for (let i = 0; i < body.body.length; i++) {
+            if (t.isReturnStatement(body.body[i])) break
+            idx = i + 1
+        }
+        body.body.splice(idx, 0, stmt)
+    }
+}
+
+/**
+ * Injects a handler function declaration inside the named component's body,
+ * immediately before the return statement.
+ *
+ * Throws if the component cannot be found or `handlerCode` is invalid.
+ */
+export function emitHandler(ast: File, componentName: string, handlerCode: string): void {
+    const body = findComponentBody(ast, componentName)
+    if (!body) throw new Error(`Component not found: ${componentName}`)
+    const stmt = parseStatementSnippet(handlerCode)
+    let ri = body.body.findIndex(n => t.isReturnStatement(n))
+    if (ri === -1) ri = body.body.length
+    body.body.splice(ri, 0, stmt)
+}
+
+/**
+ * Wires a handler expression to an event prop on the JSX element identified
+ * by `nodeId` (data-flint-id). If the prop already exists, it is replaced.
+ *
+ * Throws if the node cannot be found or `expression` is invalid JS.
+ */
+export function emitCallback(
+    ast: File,
+    nodeId: string,
+    propName: string,
+    expression: string
+): void {
+    let found = false
+    traverse(ast, {
+        JSXOpeningElement(path) {
+            const attrs = path.node.attributes
+            const ba = attrs.find(a =>
+                t.isJSXAttribute(a) && t.isJSXIdentifier(a.name, { name: 'data-flint-id' })
+            )
+            if (!ba || !t.isJSXAttribute(ba)) return
+            if (!t.isStringLiteral(ba.value) || ba.value.value !== nodeId) return
+            const pe = parseExpression(expression)
+            const na = t.jsxAttribute(t.jsxIdentifier(propName), t.jsxExpressionContainer(pe))
+            const ei = attrs.findIndex(a =>
+                t.isJSXAttribute(a) && t.isJSXIdentifier(a.name, { name: propName })
+            )
+            if (ei >= 0) attrs[ei] = na
+            else attrs.push(na)
+            found = true
+            path.stop()
+        },
+    })
+    if (!found) throw new Error(`Node not found: ${nodeId}`)
+}
+
+/**
+ * Wraps the JSX element identified by `nodeId` in a conditional rendering
+ * expression:
+ *   'and'     → {condition && <Element/>}
+ *   'ternary' → {condition ? <Element/> : <Fallback/>}
+ *
+ * Silently no-ops when the element has no JSXElement parent.
+ * Throws if the node cannot be found.
+ */
+export function emitConditional(
+    ast: File,
+    nodeId: string,
+    condition: string,
+    mode: 'and' | 'ternary',
+    fallback?: string
+): void {
+    const found = findNode(ast, nodeId)
+    if (!found) throw new Error(`Node not found: ${nodeId}`)
+    if (!found.parentChildren) return
+    const condExpr = parseExpression(condition)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const children = found.parentChildren as any[]
+    const idx = children.indexOf(found.node)
+    if (idx === -1) return
+    let expr: t.Expression
+    if (mode === 'ternary') {
+        const fb = fallback && fallback !== 'null' ? parseExpression(fallback) : t.nullLiteral()
+        expr = t.conditionalExpression(condExpr, found.node as unknown as t.Expression, fb)
+    } else {
+        expr = t.logicalExpression('&&', condExpr, found.node as unknown as t.Expression)
+    }
+    children[idx] = t.jsxExpressionContainer(expr)
+}
+
+/**
+ * Wraps the JSX element identified by `nodeId` in an `array.map()` expression,
+ * injecting a stable `key` prop (Commandment 3).
+ *
+ * `keyExpression` MUST reference a stable identifier — "index" or any
+ * expression ending in ".index" is rejected.
+ *
+ * Silently no-ops when the element has no JSXElement parent.
+ * Throws if the node cannot be found or the key expression is invalid.
+ */
+export function emitMap(
+    ast: File,
+    nodeId: string,
+    arrayExpression: string,
+    iteratorName: string,
+    keyExpression: string
+): void {
+    if (keyExpression === 'index' || keyExpression.endsWith('.index'))
+        throw new Error('emitMap: keyExpression must not be "index" (Commandment 3)')
+    const found = findNode(ast, nodeId)
+    if (!found) throw new Error(`Node not found: ${nodeId}`)
+    if (!found.parentChildren) return
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const children = found.parentChildren as any[]
+    const idx = children.indexOf(found.node)
+    if (idx === -1) return
+    const keyAttr = t.jsxAttribute(
+        t.jsxIdentifier('key'),
+        t.jsxExpressionContainer(parseExpression(keyExpression))
+    )
+    const attrs = found.node.openingElement.attributes
+    const eki = attrs.findIndex(a =>
+        t.isJSXAttribute(a) && t.isJSXIdentifier(a.name, { name: 'key' })
+    )
+    if (eki >= 0) attrs[eki] = keyAttr
+    else attrs.push(keyAttr)
+    const ae = parseExpression(arrayExpression)
+    const mc = t.callExpression(
+        t.memberExpression(ae, t.identifier('map')),
+        [t.arrowFunctionExpression([t.identifier(iteratorName)], found.node as unknown as t.Expression)]
+    )
+    children[idx] = t.jsxExpressionContainer(mc)
+}
+
+/**
+ * Parses a JSX snippet and returns all top-level JSXElement children.
+ * Used by composeSlot to support multi-element slot content.
+ */
+function parseJSXSnippetChildren(jsxSnippet: string): JSXElement[] {
+    try {
+        const wrapperAst = parse(`(<__flint__>${jsxSnippet}</__flint__>)`, {
+            sourceType: 'module',
+            plugins: ['jsx', 'typescript'],
+        })
+        const body0 = wrapperAst.program.body[0]
+        if (body0 === undefined || body0.type !== 'ExpressionStatement') return []
+        const expr = (body0 as ExpressionStatement).expression
+        if (!isJSXElement(expr)) return []
+        return expr.children.filter((c): c is JSXElement => isJSXElement(c))
+    } catch {
+        return []
+    }
+}
+
+/**
+ * Inserts content into a compound component slot (e.g. Dialog.Header, Tabs.Panel).
+ * If the named slot already exists among the parent's children, snippet nodes are
+ * appended to it. If not, a new slot element is created and prepended.
+ *
+ * `slotName` must be in "Component.Slot" dot format.
+ *
+ * Throws if the parent node is not found or `slotName` is malformed.
+ */
+export function composeSlot(
+    ast: File,
+    parentId: string,
+    slotName: string,
+    jsxSnippet: string,
+    importSnippetStr?: string
+): void {
+    const found = findNode(ast, parentId)
+    if (!found) {
+        throw new Error(`composeSlot: parent node not found for flint ID "${parentId}"`)
+    }
+
+    const dotIndex = slotName.indexOf('.')
+    if (dotIndex === -1 || dotIndex === 0 || dotIndex === slotName.length - 1) {
+        throw new Error(`composeSlot: invalid slot name "${slotName}" — must be "Component.Slot" format`)
+    }
+    const objectName = slotName.slice(0, dotIndex)
+    const propertyName = slotName.slice(dotIndex + 1)
+
+    const snippetNodes = parseJSXSnippetChildren(jsxSnippet)
+    if (snippetNodes.length === 0) return
+
+    if (importSnippetStr) {
+        const importAst = parse(importSnippetStr, { sourceType: 'module', plugins: ['jsx', 'typescript'] })
+        const importDecl = importAst.program.body[0]
+        if (importDecl !== undefined && isImportDeclaration(importDecl)) {
+            const exists = ast.program.body.some(
+                n => isImportDeclaration(n) &&
+                     (n as ImportDeclaration).source.value === (importDecl as ImportDeclaration).source.value
+            )
+            if (!exists) {
+                let lastImportIdx = -1
+                for (let i = 0; i < ast.program.body.length; i++) {
+                    if (isImportDeclaration(ast.program.body[i])) lastImportIdx = i
+                }
+                ast.program.body.splice(lastImportIdx + 1, 0, importDecl)
+            }
+        }
+    }
+
+    if (found.node.openingElement.selfClosing) {
+        found.node.openingElement.selfClosing = false
+        found.node.closingElement = t.jsxClosingElement(
+            found.node.openingElement.name as unknown as t.JSXMemberExpression
+        )
+        found.node.children = []
+    }
+
+    const existingSlot = found.node.children.find((child): child is JSXElement => {
+        if (!isJSXElement(child)) return false
+        const name = child.openingElement.name
+        return (
+            t.isJSXMemberExpression(name) &&
+            t.isJSXIdentifier(name.object) && name.object.name === objectName &&
+            t.isJSXIdentifier(name.property) && name.property.name === propertyName
+        )
+    })
+
+    if (existingSlot) {
+        for (const node of snippetNodes) {
+            existingSlot.children.push(node)
+        }
+    } else {
+        const openMember = t.jsxMemberExpression(t.jsxIdentifier(objectName), t.jsxIdentifier(propertyName))
+        const closeMember = t.jsxMemberExpression(t.jsxIdentifier(objectName), t.jsxIdentifier(propertyName))
+        const opening = t.jsxOpeningElement(openMember, [], false)
+        const closing = t.jsxClosingElement(closeMember)
+        const slotElement = t.jsxElement(opening, closing, snippetNodes as unknown as JSXElement['children'], false)
+        found.node.children.unshift(slotElement)
+    }
 }

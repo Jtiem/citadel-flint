@@ -22,10 +22,10 @@ import '@testing-library/jest-dom'
 
 // ── Store ────────────────────────────────────────────────────────────────────
 import { useCanvasStore } from '../../store/canvasStore'
-import type { FileTreeNode } from '../../types/bridge-api'
+import type { FileTreeNode } from '../../types/flint-api'
 
 // ── Stub setup helpers from existing test infrastructure ─────────────────────
-import { createMockBridgeAPI, resetAllStores } from './setup'
+import { createMockFlintAPI, resetAllStores } from './setup'
 
 // ── Heavy component mocks ─────────────────────────────────────────────────────
 // These stubs prevent jsdom from choking on @xyflow/react, ResizeObserver,
@@ -111,6 +111,25 @@ vi.mock('../../components/ui/FigmaSetupWizard', () => ({
     FigmaSetupWizard: () => <div data-testid="figma-setup-wizard" />,
 }))
 
+// Stub SetupWizard so we can verify it renders without running its internal IPC
+vi.mock('../../components/ui/SetupWizard', () => ({
+    SetupWizard: ({ onComplete }: { onComplete: () => void }) => (
+        <div data-testid="setup-wizard">
+            <button onClick={onComplete}>Complete Wizard</button>
+        </div>
+    ),
+}))
+
+// Stub BetaWelcome — shouldShowBetaWelcome returns false in tests (no beta env var)
+vi.mock('../../components/ui/BetaWelcome', () => ({
+    BetaWelcome: ({ onSkip }: { onSkip: () => void }) => (
+        <div data-testid="beta-welcome">
+            <button onClick={onSkip}>Skip</button>
+        </div>
+    ),
+    shouldShowBetaWelcome: () => false,
+}))
+
 // Silence hooks that use IPC or timers
 vi.mock('../../hooks/useContextSync', () => ({
     useContextSync: vi.fn(),
@@ -145,13 +164,13 @@ const POPULATED_TREE: FileTreeNode = {
 describe('App — LaunchScreen mount gate (Journey 1, Step 1.1)', () => {
     beforeEach(() => {
         // resetAllStores() sets workspaceFiles: null, which is our baseline.
-        // createMockBridgeAPI() is already applied by the global beforeEach in
+        // createMockFlintAPI() is already applied by the global beforeEach in
         // setup.ts, but we augment it here to add the missing removeChangedListener
         // and to ensure annotations.onChanged is callable.
         resetAllStores()
-        const api = createMockBridgeAPI()
+        const api = createMockFlintAPI()
         ;(api.annotations as any).removeChangedListener = vi.fn()
-        ;(window as any).bridgeAPI = api
+        ;(window as any).flintAPI = api
     })
 
     // ── Test 1 ────────────────────────────────────────────────────────────────
@@ -163,8 +182,8 @@ describe('App — LaunchScreen mount gate (Journey 1, Step 1.1)', () => {
             render(<App />)
         })
 
-        // LaunchScreen has the "Bridge IDE" heading
-        expect(screen.getByRole('heading', { name: /bridge ide/i })).toBeInTheDocument()
+        // LaunchScreen has the "Flint IDE" heading
+        expect(screen.getByText('What brings you to Flint?')).toBeInTheDocument()
 
         // Workspace panels must NOT be present
         expect(screen.queryByTestId('xy-canvas')).not.toBeInTheDocument()
@@ -188,10 +207,10 @@ describe('App — LaunchScreen mount gate (Journey 1, Step 1.1)', () => {
         expect(screen.getByTestId('layer-tree')).toBeInTheDocument()
 
         // LaunchScreen heading must NOT appear
-        expect(screen.queryByRole('heading', { name: /bridge ide/i })).not.toBeInTheDocument()
+        expect(screen.queryByText('What brings you to Flint?')).not.toBeInTheDocument()
 
-        // The workspace header always shows "Bridge Glass"
-        expect(screen.getByRole('heading', { name: /bridge glass/i })).toBeInTheDocument()
+        // The workspace header always shows "Flint Glass"
+        expect(screen.getByRole('heading', { name: /flint glass/i })).toBeInTheDocument()
     })
 
     // ── Test 3 ────────────────────────────────────────────────────────────────
@@ -232,7 +251,7 @@ describe('App — LaunchScreen mount gate (Journey 1, Step 1.1)', () => {
 
         // Workspace is visible
         expect(screen.getByTestId('xy-canvas')).toBeInTheDocument()
-        expect(screen.queryByRole('heading', { name: /bridge ide/i })).not.toBeInTheDocument()
+        expect(screen.queryByText('What brings you to Flint?')).not.toBeInTheDocument()
 
         // Simulate closing the project (equivalent to clicking "Close Project"
         // or the native menu event triggering closeWorkspace())
@@ -241,11 +260,78 @@ describe('App — LaunchScreen mount gate (Journey 1, Step 1.1)', () => {
         })
 
         // LaunchScreen must reappear
-        expect(screen.getByRole('heading', { name: /bridge ide/i })).toBeInTheDocument()
+        expect(screen.getByText('What brings you to Flint?')).toBeInTheDocument()
 
         // Workspace panels must be gone
         expect(screen.queryByTestId('xy-canvas')).not.toBeInTheDocument()
         expect(screen.queryByTestId('status-bar')).not.toBeInTheDocument()
         expect(screen.queryByTestId('layer-tree')).not.toBeInTheDocument()
+    })
+})
+
+// ── ONBOARD.1: Setup Wizard gate in App.tsx ───────────────────────────────────
+//
+// The wizard gate sits BEFORE the LaunchScreen gate. When checkFirstLaunch
+// returns isFirstLaunch: true, the app renders SetupWizard. When it returns
+// isFirstLaunch: false, the app proceeds past the wizard to LaunchScreen or
+// the workspace. While waiting for checkFirstLaunch to resolve, the app
+// renders null (no flash of content).
+
+describe('App — Setup Wizard gate (ONBOARD.1)', () => {
+    beforeEach(() => {
+        resetAllStores()
+        const api = createMockFlintAPI()
+        ;(api.annotations as any).removeChangedListener = vi.fn()
+        ;(window as any).flintAPI = api
+    })
+
+    // ── Wizard gate test 1 ────────────────────────────────────────────────────
+    it('renders SetupWizard when checkFirstLaunch returns { isFirstLaunch: true }', async () => {
+        ;(window.flintAPI.setup!.checkFirstLaunch as ReturnType<typeof vi.fn>).mockResolvedValue({
+            isFirstLaunch: true,
+        })
+
+        await act(async () => {
+            render(<App />)
+        })
+
+        expect(screen.getByTestId('setup-wizard')).toBeInTheDocument()
+        // LaunchScreen must NOT appear while wizard is shown
+        expect(screen.queryByText('What brings you to Flint?')).not.toBeInTheDocument()
+    })
+
+    // ── Wizard gate test 2 ────────────────────────────────────────────────────
+    it('renders LaunchScreen (not wizard) when checkFirstLaunch returns { isFirstLaunch: false }', async () => {
+        ;(window.flintAPI.setup!.checkFirstLaunch as ReturnType<typeof vi.fn>).mockResolvedValue({
+            isFirstLaunch: false,
+        })
+        // workspaceFiles is null (from resetAllStores) so LaunchScreen should appear
+        expect(useCanvasStore.getState().workspaceFiles).toBeNull()
+
+        await act(async () => {
+            render(<App />)
+        })
+
+        expect(screen.getByText('What brings you to Flint?')).toBeInTheDocument()
+        expect(screen.queryByTestId('setup-wizard')).not.toBeInTheDocument()
+    })
+
+    // ── Wizard gate test 3 ────────────────────────────────────────────────────
+    it('renders null while waiting for checkFirstLaunch to resolve', async () => {
+        // Never resolve — the promise hangs so setupComplete stays null
+        ;(window.flintAPI.setup!.checkFirstLaunch as ReturnType<typeof vi.fn>).mockReturnValue(
+            new Promise(() => {}),
+        )
+
+        let container!: HTMLElement
+        await act(async () => {
+            ;({ container } = render(<App />))
+        })
+
+        // App returns null when setupComplete === null, so no content in DOM
+        expect(container.firstChild).toBeNull()
+        // Neither wizard nor LaunchScreen should be present
+        expect(screen.queryByTestId('setup-wizard')).not.toBeInTheDocument()
+        expect(screen.queryByText('What brings you to Flint?')).not.toBeInTheDocument()
     })
 })

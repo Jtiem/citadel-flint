@@ -1,5 +1,12 @@
 {
   "mcpServers": {
+    "flint": {
+      "command": "/usr/local/bin/node",
+      "args": [
+        "/Users/tiemann/Lunar-Elevator-Bridge/flint-mcp/dist/server.js"
+      ],
+      "cwd": "/Users/tiemann/Lunar-Elevator-Bridge"
+    },
     "claude-flow": {
       "command": "npx",
       "args": [

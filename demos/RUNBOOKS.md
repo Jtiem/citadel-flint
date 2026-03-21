@@ -1,25 +1,62 @@
-# Bridge MCP — Demo Runbooks
+# Flint MCP — Demo Runbooks
 
 Step-by-step presenter guides for all 9 demos. Each runbook is self-contained: exact tool calls, expected output highlights, and "what to say" cues for live delivery.
 
 **Prerequisites for all demos:**
 ```sh
-cd bridge-mcp && npm install && npm run build
+cd flint-mcp && npm install && npm run build
 ```
-Connect an MCP client (Claude Code, Cursor, or any MCP-compatible IDE) to the Bridge MCP server before stepping through any demo. The server resolves `projectRoot` from the `demos/` directory unless stated otherwise.
+Connect an MCP client (Claude Code, Cursor, or any MCP-compatible IDE) to the Flint MCP server before stepping through any demo. The server resolves `projectRoot` from the `demos/` directory unless stated otherwise.
 
 ---
 
-## Demo 1: RAG UI Builder — Design system awareness from a vector query
+## Demo 1: The Governance Definition of Compliant — Well-structured code that still fails
+
+**Time:** ~2 minutes
+**Complexity:** Low
+**Impressiveness:** High (opener hook)
+
+### Setup
+- Open `demos/01-rag-ui-builder/banner-compliant.tsx` in your IDE
+- No other windows needed — the drama is in the contrast between how it looks and what Flint reports
+
+### Steps
+
+1. **Show the file without comment.** Let the audience read it for a moment. Flint IDs on every element, semantic HTML (`<section>`, `<h2>`, `<button>`), props-driven content, clean structure. Say: "Here's a component a developer submitted for review. Would you approve this PR?"
+
+2. **Run the audit.** In your MCP client, call:
+   ```
+   audit_ui_component
+     file: "demos/01-rag-ui-builder/banner-compliant.tsx"
+   ```
+
+3. **Show the violation report.** Four Mithril violations (hardcoded hex colors and spacing values), two A11y failures. Say: "Flint wouldn't. Four design system violations. Two accessibility failures. This is *banner-compliant.tsx* — the name is what a developer calls compliant."
+
+4. **Pause. Then explain.** Say: "Every hex color in this file is hardcoded. `#0066FF` is not a design token. `[48px]` is not a design token. The next time brand blue updates in Figma, this component silently drifts. No code review catches that — it looks right at the pixel level. The governance engine reads the contract, not the intent."
+
+5. **Transition.** Say: "Now let me show you what AI-generated code looks like with no governance at all."
+
+### What to highlight
+- The file passes a human code review: Flint IDs present, semantic HTML, no obvious bugs
+- Mithril violations are hardcoded token values — `#0066FF`, `[12px]`, `[48px]`, `[16px]` — none referencing design tokens
+- This is the opener because it reframes the audience's definition of "compliant" before any other demo runs
+
+### Fixture
+- `demos/01-rag-ui-builder/banner-compliant.tsx` — `AnnouncementBanner` with Flint IDs on every element, props-driven content, and zero design token references; all colors and spacing hardcoded inline
+
+---
+
+## Demo 1 (Extended): RAG UI Builder — Design system awareness from a vector query
 
 **Time:** ~4 minutes
 **Complexity:** Med
 **Impressiveness:** High
+**Note:** Not in the standard live run. Use when audience includes AI/ML engineers or when you have extra time.
 
 ### Setup
 - Open `demos/01-rag-ui-builder/broken-layout.tsx` in your IDE
-- Bridge MCP server running; `demos/design-tokens.json` accessible
-- Have Bridge Glass open and showing the file in the canvas (optional but adds visual impact)
+- Flint MCP server running; `demos/design-tokens.json` accessible
+- Have Flint Glass open and showing the file in the canvas (optional but adds visual impact)
 
 ### Steps
 
@@ -27,17 +64,17 @@ Connect an MCP client (Claude Code, Cursor, or any MCP-compatible IDE) to the Br
 
 2. **Query the registry.** In your MCP client, call:
    ```
-   bridge_query_registry
+   flint_query_registry
      semantic_query: "notification panel with dismiss button"
      projectRoot: "<absolute path to demos/>"
      limit: 3
    ```
 
-3. **Show the Shadow Storybook output.** The response returns up to 3 matching components with their full TypeScript prop interfaces, import paths, and usage examples. Say: "Bridge ran a hybrid vector + keyword search over `sqlite-vec`. It returned `NotificationCard`, `DismissButton`, and `Stack` — the exact primitives this file needs — with their complete prop contracts."
+3. **Show the Shadow Storybook output.** The response returns up to 3 matching components with their full TypeScript prop interfaces, import paths, and usage examples. Say: "Flint ran a hybrid vector + keyword search over `sqlite-vec`. It returned `NotificationCard`, `DismissButton`, and `Stack` — the exact primitives this file needs — with their complete prop contracts."
 
-4. **Inject the matched component.** Call `bridge_ast_mutate`:
+4. **Inject the matched component.** Call `flint_ast_mutate`:
    ```
-   bridge_ast_mutate
+   flint_ast_mutate
      targetPath: "<absolute path to demos/01-rag-ui-builder/broken-layout.tsx>"
      mutations: [
        {
@@ -60,11 +97,11 @@ Connect an MCP client (Claude Code, Cursor, or any MCP-compatible IDE) to the Br
      writeFile: true
    ```
 
-5. **Show the diff.** Return to the file. The hardcoded `bg-blue-500` header is now `backgroundColor: var(--color-primary)` and the layout is wrapped in a typed `<Stack>` component. Say: "The AI didn't write a string of code. It emitted a structured op, Bridge executed it via Babel AST traversal, and the import was synthesized automatically."
+5. **Show the diff.** Return to the file. The hardcoded `bg-blue-500` header is now `backgroundColor: var(--color-primary)` and the layout is wrapped in a typed `<Stack>` component. Say: "The AI didn't write a string of code. It emitted a structured op, Flint executed it via Babel AST traversal, and the import was synthesized automatically."
 
 ### What to highlight
-- The `bridge_query_registry` return includes TypeScript interfaces — the AI knows the exact prop shape before writing a single character
-- Token fixup (`fixToken` op) is deterministic: Babel finds the node by `data-bridge-id`, patches the value, regenerates — no regex involved
+- The `flint_query_registry` return includes TypeScript interfaces — the AI knows the exact prop shape before writing a single character
+- Token fixup (`fixToken` op) is deterministic: Babel finds the node by `data-flint-id`, patches the value, regenerates — no regex involved
 - `writeFile: true` routes through `FileTransactionManager` — atomic `.tmp` → `rename`, never a partial write
 
 ### Fixture
@@ -97,14 +134,14 @@ Connect an MCP client (Claude Code, Cursor, or any MCP-compatible IDE) to the Br
      componentPath: "<absolute path to demos/02-self-correcting/buggy-component.tsx>"
    ```
 
-4. **Show the validation output.** The response surfaces all three errors with exact TypeScript error codes, line numbers, and the type mismatch description. Say: "Bridge ran `tsc --noEmit` in memory on this file before surfacing any diff. The user never saw a proposed change — the loop caught it first."
+4. **Show the validation output.** The response surfaces all three errors with exact TypeScript error codes, line numbers, and the type mismatch description. Say: "Flint ran `tsc --noEmit` in memory on this file before surfacing any diff. The user never saw a proposed change — the loop caught it first."
 
 5. **Drive the point home.** Say: "In-memory TSC validation is Commandment 16. It's not optional and it's not a lint rule — it's a compiler pass that runs synchronously in the orchestrator before confirmation UI is shown. If the output doesn't type-check, it doesn't reach you."
 
 ### What to highlight
-- The errors are real TypeScript errors the language server would catch — Bridge's loop is not a reimplementation, it calls TSC directly
+- The errors are real TypeScript errors the language server would catch — Flint's loop is not a reimplementation, it calls TSC directly
 - The check happens inside `orchestrator.ts` before any IPC message leaves the main process
-- This is the difference between a governance product and a linter: linters flag style, Bridge blocks unsound output at the type system level
+- This is the difference between a governance product and a linter: linters flag style, Flint blocks unsound output at the type system level
 
 ### Fixture
 - `demos/02-self-correcting/buggy-component.tsx` — `DataTable` with three deliberate type errors: `string` assigned to `number` prop, extra parameter in callback, and invalid `keyof Row` literal
@@ -120,11 +157,11 @@ Connect an MCP client (Claude Code, Cursor, or any MCP-compatible IDE) to the Br
 ### Setup
 - Open `demos/03-mithril-shadow-audit/drift-component.tsx` in your IDE
 - Have `demos/design-tokens.json` visible or ready to display (shows the canonical `color.primary: #0066FF`)
-- Bridge Glass open for the visual overlay reveal (optional but strongly recommended)
+- Flint Glass open for the visual overlay reveal (optional but strongly recommended)
 
 ### Steps
 
-1. **Establish context.** Say: "A designer eyeballed this pricing card straight from a Figma screenshot instead of copying the token values. It looks right at a glance. Let's see what Bridge thinks."
+1. **Establish context.** Say: "A designer eyeballed this pricing card straight from a Figma screenshot instead of copying the token values. It looks right at a glance. Let's see what Flint thinks."
 
 2. **Point to the five inline style values:**
    - Header: `backgroundColor: '#0055EE'`
@@ -150,7 +187,7 @@ Connect an MCP client (Claude Code, Cursor, or any MCP-compatible IDE) to the Br
 
 5. **Auto-fix the violations.** Call:
    ```
-   bridge_fix
+   flint_fix
      targetPath: "<absolute path to demos/03-mithril-shadow-audit/drift-component.tsx>"
      writeFile: true
    ```
@@ -159,8 +196,8 @@ Connect an MCP client (Claude Code, Cursor, or any MCP-compatible IDE) to the Br
 
 ### What to highlight
 - CIEDE2000 is the same algorithm used in professional color management — it perceives color the way humans do, not as hex distance
-- The ΔE threshold (2.0 by default, configurable via `bridge_set_policy`) is the standard "just-noticeable difference" used in ISO print standards
-- `bridge_fix` is not "suggest a fix" — it is a batch of `fixToken` AST mutations that write the correct token references back to disk
+- The ΔE threshold (2.0 by default, configurable via `flint_set_policy`) is the standard "just-noticeable difference" used in ISO print standards
+- `flint_fix` is not "suggest a fix" — it is a batch of `fixToken` AST mutations that write the correct token references back to disk
 
 ### Fixture
 - `demos/03-mithril-shadow-audit/drift-component.tsx` — `PricingCard` with 5 violations: header `#0055EE` (ΔE 8.4), badge `#FF3333` (ΔE 58.2), card background `#1a1a2e` (ΔE 11.6), icon `#00AAFF` (ΔE 18.7), and `fontSize: '15px'` (not in token set)
@@ -175,7 +212,7 @@ Connect an MCP client (Claude Code, Cursor, or any MCP-compatible IDE) to the Br
 
 ### Setup
 - Open `demos/04-sentinel/violating-ux.tsx` in your IDE
-- MCP client configured to use the `bridge-sentinel` prompt (available via `ListPromptsRequestSchema`)
+- MCP client configured to use the `flint-sentinel` prompt (available via `ListPromptsRequestSchema`)
 
 ### Steps
 
@@ -183,7 +220,7 @@ Connect an MCP client (Claude Code, Cursor, or any MCP-compatible IDE) to the Br
 
 2. **Explain what a normal linter would do.** Say: "A linter would say nothing. There are no syntax errors, no token violations. This is perfectly valid TypeScript. The problem is cognitive, not syntactic."
 
-3. **Invoke the Sentinel prompt.** In your MCP client, invoke the `bridge-sentinel` prompt and pass the component source as the user message. The Sentinel is a domain-configurable governance persona — it applies UX psychology, not just rules.
+3. **Invoke the Sentinel prompt.** In your MCP client, invoke the `flint-sentinel` prompt and pass the component source as the user message. The Sentinel is a domain-configurable governance persona — it applies UX psychology, not just rules.
 
 4. **Read the Sentinel's rejection.** The response will cite each named violation:
    - `SENTINEL-CL-001` — Hick's Law: 10 choices exceed the 7±2 cognitive threshold; recommended: primary actions ≤ 5, remainder in overflow menu
@@ -195,8 +232,8 @@ Connect an MCP client (Claude Code, Cursor, or any MCP-compatible IDE) to the Br
 5. **Contrast with a linter.** Say: "Notice what this is not — it's not a list of style warnings. It's a named cognitive load violation with the specific psychological principle, the threshold that was exceeded, and a concrete architectural recommendation. The Sentinel knows Hick's Law. It knows Miller's Law. It's reasoning about the human using this UI."
 
 ### What to highlight
-- The `bridge-sentinel` is an MCP prompt — a reusable governance persona, not a one-off prompt
-- It is domain-configurable: you can scope it to healthcare (HIPAA), finance (WCAG EN 301 549), or consumer (`bridge-sentinel` default)
+- The `flint-sentinel` is an MCP prompt — a reusable governance persona, not a one-off prompt
+- It is domain-configurable: you can scope it to healthcare (HIPAA), finance (WCAG EN 301 549), or consumer (`flint-sentinel` default)
 - The rejection is structured output with named violation codes — it can be parsed by CI systems, stored in the governance events table, and tracked over time
 
 ### Fixture
@@ -212,7 +249,7 @@ Connect an MCP client (Claude Code, Cursor, or any MCP-compatible IDE) to the Br
 
 ### Setup
 - Open `demos/05-semantic-refactor/legacy-divs.tsx` in your IDE
-- Optionally have the component registry loaded (Bridge MCP server running with `bridge-manifest.json`)
+- Optionally have the component registry loaded (Flint MCP server running with `flint-manifest.json`)
 
 ### Steps
 
@@ -227,9 +264,9 @@ Connect an MCP client (Claude Code, Cursor, or any MCP-compatible IDE) to the Br
    - `<select className="select-default">` → `<SelectField>`
    - `<button className="btn-primary">` → `<Button variant="primary">`
 
-3. **Run the batch mutation.** Call `bridge_ast_mutate` with a batch of `inject` and `updateClassName` ops targeting each structural element by its `data-bridge-id`. For example:
+3. **Run the batch mutation.** Call `flint_ast_mutate` with a batch of `inject` and `updateClassName` ops targeting each structural element by its `data-flint-id`. For example:
    ```
-   bridge_ast_mutate
+   flint_ast_mutate
      targetPath: "<absolute path to demos/05-semantic-refactor/legacy-divs.tsx>"
      mutations: [
        { "type": "inject", "args": { "targetId": "profile-settings-root", "component": "Box", "props": {} } },
@@ -262,31 +299,31 @@ Connect an MCP client (Claude Code, Cursor, or any MCP-compatible IDE) to the Br
 
 ### Setup
 - Open both `demos/06-macro-recovery/corrupted-card.tsx` (active file) and `demos/06-macro-recovery/original-card.tsx` (reference) side by side
-- Bridge Glass open with the RecoveryPanel visible (right sidebar, History tab)
-- Bridge MCP server running
+- Flint Glass open with the RecoveryPanel visible (right sidebar, History tab)
+- Flint MCP server running
 
 ### Steps
 
 1. **Show the corrupted card.** Open `corrupted-card.tsx`. Point to the two empty comment blocks:
-   - Lines 181-186: "DELETED: repo-card-metrics block — the node `data-bridge-id='repo-card-metrics'` is gone"
+   - Lines 181-186: "DELETED: repo-card-metrics block — the node `data-flint-id='repo-card-metrics'` is gone"
    - Lines 191-201: "CORRUPTED: repo-card-footer — action bar replaced with empty stub and a TODO comment"
    Say: "This happened because an AI refactor used `git checkout src/components/ui/RepoCard.tsx` — a global file replacement. It only needed to extract the language bar. Instead it silently reverted two sections that had been updated in the same commit."
 
 2. **Show the health score drop.** Call:
    ```
-   bridge_debt_report
+   flint_debt_report
      glob: "demos/06-macro-recovery/corrupted-card.tsx"
      format: "markdown"
    ```
    Point to the health score (61) and the violation count — three missing `aria-label` attributes from the deleted action buttons, plus missing token references in the metrics section.
 
-3. **Open the Git Time Machine.** In Bridge Glass, open the RecoveryPanel. Show the commit list (populated by `ast:git-log` IPC). Select commit `a3f8b12` — the last known good state.
+3. **Open the Git Time Machine.** In Flint Glass, open the RecoveryPanel. Show the commit list (populated by `ast:git-log` IPC). Select commit `a3f8b12` — the last known good state.
 
-4. **Load the original node via IPC.** Say: "Bridge calls `ast:git-show` — it reads the AST of the file at that specific commit, in memory, and extracts just the nodes we need by `data-bridge-id`. It does not check out the file. Commandment 11: never `git checkout` a shared file."
+4. **Load the original node via IPC.** Say: "Flint calls `ast:git-show` — it reads the AST of the file at that specific commit, in memory, and extracts just the nodes we need by `data-flint-id`. It does not check out the file. Commandment 11: never `git checkout` a shared file."
 
 5. **Perform the transplant.** Call:
    ```
-   bridge_ast_mutate
+   flint_ast_mutate
      targetPath: "<absolute path to demos/06-macro-recovery/corrupted-card.tsx>"
      mutations: [
        {
@@ -315,7 +352,7 @@ Connect an MCP client (Claude Code, Cursor, or any MCP-compatible IDE) to the Br
 7. **Re-run the debt report.** Health score returns to 94. Say: "Two subtrees, one tool call, zero lines written by hand. The surrounding refactor was never touched."
 
 ### What to highlight
-- Bridge IDs (`data-bridge-id`) are the surgical addresses — they survive reformatting, rename refactors, and line number shifts
+- Flint IDs (`data-flint-id`) are the surgical addresses — they survive reformatting, rename refactors, and line number shifts
 - `ast:git-show` reads the Git object store directly, without touching the working tree
 - Commandment 11 is the principle that makes this safe: you can always transplant a node from history without risk of reverting unrelated changes in the same file
 
@@ -339,7 +376,7 @@ Connect an MCP client (Claude Code, Cursor, or any MCP-compatible IDE) to the Br
 
 1. **Establish the before state.** Call:
    ```
-   bridge_debt_report
+   flint_debt_report
      glob: "demos/**/*.tsx"
      format: "markdown"
      track: true
@@ -348,7 +385,7 @@ Connect an MCP client (Claude Code, Cursor, or any MCP-compatible IDE) to the Br
 
 2. **Launch the swarm.** Call:
    ```
-   bridge_swarm_audit_fix
+   flint_swarm_audit_fix
      glob: "demos/**/*.tsx"
      autoFix: true
      projectRoot: "<absolute path to demos/>"
@@ -366,10 +403,10 @@ Connect an MCP client (Claude Code, Cursor, or any MCP-compatible IDE) to the Br
 
 4. **Show the `fileReports` array.** Each file has a `before` and `after` entry showing the specific violations fixed. Show `drift-component.tsx` going from 5 violations to 0.
 
-5. **Re-run the debt report.** Call `bridge_debt_report` again with `track: true`. Health score is now 91. Say: "And because we passed `track: true`, this snapshot is appended to `.bridge/debt-history.json`. You can chart this in CI."
+5. **Re-run the debt report.** Call `flint_debt_report` again with `track: true`. Health score is now 91. Say: "And because we passed `track: true`, this snapshot is appended to `.flint/debt-history.json`. You can chart this in CI."
 
 ### What to highlight
-- `bridge_swarm_audit_fix` is a single registered MCP tool — not a macro, not a script, one call
+- `flint_swarm_audit_fix` is a single registered MCP tool — not a macro, not a script, one call
 - The swarm applies the same Mithril + A11y engine that runs per-file, but in parallel across the glob
 - `track: true` enables trend tracking — you can gate PRs on health score regressions
 
@@ -392,7 +429,7 @@ Connect an MCP client (Claude Code, Cursor, or any MCP-compatible IDE) to the Br
 
 1. **Show the empty registry.** Call:
    ```
-   bridge_query_registry
+   flint_query_registry
      semantic_query: "primary action button"
      projectRoot: "<absolute path to project root>"
      limit: 3
@@ -401,8 +438,8 @@ Connect an MCP client (Claude Code, Cursor, or any MCP-compatible IDE) to the Br
 
 2. **Add a remote library.** Call:
    ```
-   bridge_add_remote_library
-     url: "https://raw.githubusercontent.com/<org>/<repo>/main/bridge-manifest.json"
+   flint_add_remote_library
+     url: "https://raw.githubusercontent.com/<org>/<repo>/main/flint-manifest.json"
      projectRoot: "<absolute path to project root>"
    ```
 
@@ -414,16 +451,16 @@ Connect an MCP client (Claude Code, Cursor, or any MCP-compatible IDE) to the Br
      "components": ["Button", "Card", "Stack", "TextField", "Badge", ...]
    }
    ```
-   Say: "No git clone. No npm install. Bridge fetched the raw manifest, validated it, and indexed all 12 components into the `sqlite-vec` store. Available immediately."
+   Say: "No git clone. No npm install. Flint fetched the raw manifest, validated it, and indexed all 12 components into the `sqlite-vec` store. Available immediately."
 
 4. **Re-run the registry query.** Same call as step 1. Now returns `Button` with its full TypeScript prop interface, import path, and usage example from the Shadow Storybook artifact.
 
 5. **Show the RAG vector.** Say: "That query matched `primary action button` to `Button` via cosine similarity on the component's description embedding. It didn't match on the string `button` — it matched on the meaning."
 
 ### What to highlight
-- The `bridge-manifest.json` format is the standard Bridge registry contract — any team can publish one alongside their component library
+- The `flint-manifest.json` format is the standard Flint registry contract — any team can publish one alongside their component library
 - The fetch is fully offline after ingestion — no runtime network dependency
-- The same RAG mechanism powers `bridge_query_registry`, `hydrate_figma_data`, and the AI orchestrator's component selection — adding one library enriches all three
+- The same RAG mechanism powers `flint_query_registry`, `hydrate_figma_data`, and the AI orchestrator's component selection — adding one library enriches all three
 
 ### Fixture
 - No dedicated fixture file; the demo starts from an empty registry state and uses a live remote manifest URL. The `demos/design-tokens.json` token set is used for token compliance checks on any injected components.
@@ -437,7 +474,7 @@ Connect an MCP client (Claude Code, Cursor, or any MCP-compatible IDE) to the Br
 **Impressiveness:** Extreme
 
 ### Setup
-- Bridge Glass running (`unset ELECTRON_RUN_AS_NODE && npm run dev`)
+- Flint Glass running (`unset ELECTRON_RUN_AS_NODE && npm run dev`)
 - At least two `.tsx` files loaded in the workspace tree (visible in the left panel FileExplorer)
 - Canvas showing the active file's LivePreview node
 
@@ -445,20 +482,20 @@ Connect an MCP client (Claude Code, Cursor, or any MCP-compatible IDE) to the Br
 
 1. **Show the starting state.** Two files visible in the left panel. Active file is open on the canvas. Say: "The left panel shows the file tree. The canvas shows a live preview of the active component. There is no terminal. There is no code editor. This is a read-only observability layer — but it can trigger mutations."
 
-2. **Drag a file onto the canvas.** Grab a `.tsx` file from the FileExplorer left panel and drag it onto the canvas drop zone. A blue ring appears on the canvas as the drag enters the drop target. Say: "The blue ring is the drop affordance. Bridge is telling you it knows what to do with this file."
+2. **Drag a file onto the canvas.** Grab a `.tsx` file from the FileExplorer left panel and drag it onto the canvas drop zone. A blue ring appears on the canvas as the drag enters the drop target. Say: "The blue ring is the drop affordance. Flint is telling you it knows what to do with this file."
 
-3. **Release the drag.** Bridge:
+3. **Release the drag.** Flint:
    - Parses the dropped file's AST (via `astBufferStore`)
    - Identifies the top-level exported component
    - Emits an `inject` mutation to the active file
    - Synthesizes the import statement
 
-4. **Open the active file in the IDE.** The cloned component reference is there, import synthesized at the top of the file. Say: "Bridge wrote an import and injected a JSX reference. It knew the component's name and export type from the AST — no guessing, no template string."
+4. **Open the active file in the IDE.** The cloned component reference is there, import synthesized at the top of the file. Say: "Flint wrote an import and injected a JSX reference. It knew the component's name and export type from the AST — no guessing, no template string."
 
 5. **Hit Cmd+Z.** The clone is removed from the active file. The source file is untouched. Say: "Undo removes exactly the node that was injected. `historyStore` tracked the inverse operation. The source file was never modified — this was always a one-way copy."
 
 ### What to highlight
-- This crosses the Glass/MCP process boundary: the drag gesture in the Electron renderer triggers an IPC call to the main process, which calls `bridge_ast_mutate` via the bidirectional action bridge (`mcpClient.ts`)
+- This crosses the Glass/MCP process boundary: the drag gesture in the Electron renderer triggers an IPC call to the main process, which calls `flint_ast_mutate` via the bidirectional action flint (`mcpClient.ts`)
 - Import synthesis (`ASTService.synthesizeImports`) merges the new import without duplicating existing ones, regardless of the import style used in the file
 - Cross-file undo (Phase H) tracks the inverse at the `historyStore` level — undoing in the active file does not require touching the source file
 
@@ -467,4 +504,4 @@ Connect an MCP client (Claude Code, Cursor, or any MCP-compatible IDE) to the Br
 
 ---
 
-*Last updated: 2026-03-15*
+*Last updated: 2026-03-19*

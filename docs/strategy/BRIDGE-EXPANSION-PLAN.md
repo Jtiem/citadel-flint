@@ -1,15 +1,15 @@
-# Bridge Strategic Expansion Plan — 7 Use Cases
+# Flint Strategic Expansion Plan — 7 Use Cases
 
 **Date:** 2026-03-12
 **Status:** PLANNING
-**Baseline:** 347/347 bridge-mcp tests passing · 14 test files · TSC 0 errors
+**Baseline:** 347/347 flint-mcp tests passing · 14 test files · TSC 0 errors
 **Branch:** feature/mcp-pivot
 
 ---
 
 ## Executive Summary
 
-Bridge's governance engine — AST parsing, DTCG token enforcement, CIEDE2000 perceptual distance, WCAG accessibility linting, and deterministic auto-fix — is currently scoped to design-to-code fidelity for a single project. This plan extends Bridge into **7 new use cases** that transform it from a developer tool into an enterprise platform. Each phase builds on existing infrastructure with minimal new dependencies.
+Flint's governance engine — AST parsing, DTCG token enforcement, CIEDE2000 perceptual distance, WCAG accessibility linting, and deterministic auto-fix — is currently scoped to design-to-code fidelity for a single project. This plan extends Flint into **7 new use cases** that transform it from a developer tool into an enterprise platform. Each phase builds on existing infrastructure with minimal new dependencies.
 
 ---
 
@@ -21,11 +21,11 @@ Bridge's governance engine — AST parsing, DTCG token enforcement, CIEDE2000 pe
 
 ### What It Does
 
-A GitHub Action (and generic CLI command) that runs `bridge audit` on every PR. Blocks merge when design violations exist — same as the Export Gate, but in CI instead of the desktop app.
+A GitHub Action (and generic CLI command) that runs `flint audit` on every PR. Blocks merge when design violations exist — same as the Export Gate, but in CI instead of the desktop app.
 
 ### Why It Matters
 
-- Turns Bridge from single-developer to **team-scale** infrastructure
+- Turns Flint from single-developer to **team-scale** infrastructure
 - Every team using Tailwind + a design system is a potential user
 - "Design linting in CI" is an emerging category with no dominant player
 - The entire audit engine already exists — this is packaging, not building
@@ -34,12 +34,12 @@ A GitHub Action (and generic CLI command) that runs `bridge audit` on every PR. 
 
 | Task | ID | File(s) | Description |
 |------|----|---------|-------------|
-| CLI audit command | 1.1 | `bridge-mcp/src/cli.ts` | `bridge-mcp audit <glob> --tokens <path> --format json|sarif|github` — runs `audit_ui_component` logic headlessly, exits non-zero on violations |
-| SARIF output formatter | 1.2 | `bridge-mcp/src/core/formatters.ts` | Output violations in SARIF format for GitHub Code Scanning integration |
-| GitHub Action wrapper | 1.3 | `.github/actions/bridge-audit/action.yml` | Composite action: install bridge-mcp, run audit, post PR comment with violation summary |
-| PR comment formatter | 1.4 | `bridge-mcp/src/core/formatters.ts` | Markdown table: severity, rule code, file:line, description, suggested fix |
-| Threshold configuration | 1.5 | `bridge-mcp/src/core/config.ts` | `.bridge/ci-config.json` — configurable thresholds: `blockOn: ["CRITICAL"]`, `warnOn: ["AMBER"]`, `allowList: ["SPC-001"]` |
-| Exit code semantics | 1.6 | `bridge-mcp/src/cli.ts` | `0` = clean, `1` = violations found, `2` = config error |
+| CLI audit command | 1.1 | `flint-mcp/src/cli.ts` | `flint-mcp audit <glob> --tokens <path> --format json|sarif|github` — runs `audit_ui_component` logic headlessly, exits non-zero on violations |
+| SARIF output formatter | 1.2 | `flint-mcp/src/core/formatters.ts` | Output violations in SARIF format for GitHub Code Scanning integration |
+| GitHub Action wrapper | 1.3 | `.github/actions/flint-audit/action.yml` | Composite action: install flint-mcp, run audit, post PR comment with violation summary |
+| PR comment formatter | 1.4 | `flint-mcp/src/core/formatters.ts` | Markdown table: severity, rule code, file:line, description, suggested fix |
+| Threshold configuration | 1.5 | `flint-mcp/src/core/config.ts` | `.flint/ci-config.json` — configurable thresholds: `blockOn: ["CRITICAL"]`, `warnOn: ["AMBER"]`, `allowList: ["SPC-001"]` |
+| Exit code semantics | 1.6 | `flint-mcp/src/cli.ts` | `0` = clean, `1` = violations found, `2` = config error |
 
 ### Tests
 
@@ -53,15 +53,15 @@ A GitHub Action (and generic CLI command) that runs `bridge audit` on every PR. 
 
 | Agent | Role |
 |-------|------|
-| `bridge-architect` | Validate CLI/CI architecture before implementation |
+| `flint-architect` | Validate CLI/CI architecture before implementation |
 | `cli-developer` | Build the CLI audit command and exit code semantics |
 | `cicd-engineer` | Build GitHub Action wrapper and SARIF integration |
-| `bridge-test-writer` | Write Vitest tests for all formatters and CLI paths |
-| `bridge-code-reviewer` | Final review before merge |
+| `flint-test-writer` | Write Vitest tests for all formatters and CLI paths |
+| `flint-code-reviewer` | Final review before merge |
 
 ### Deliverables
 
-- `npx bridge-mcp audit "src/**/*.tsx" --tokens design-tokens.json` works standalone
+- `npx flint-mcp audit "src/**/*.tsx" --tokens design-tokens.json` works standalone
 - GitHub Action posts violation summary as PR comment
 - SARIF upload enables GitHub Code Scanning "Security" tab integration
 
@@ -75,7 +75,7 @@ A GitHub Action (and generic CLI command) that runs `bridge audit` on every PR. 
 
 ### What It Does
 
-`bridge-mcp report <glob>` scans an entire codebase and produces a design debt report: total violations, breakdown by severity/category/file, trend over time, and a "Design Health Score" (0-100).
+`flint-mcp report <glob>` scans an entire codebase and produces a design debt report: total violations, breakdown by severity/category/file, trend over time, and a "Design Health Score" (0-100).
 
 ### Why It Matters
 
@@ -88,12 +88,12 @@ A GitHub Action (and generic CLI command) that runs `bridge audit` on every PR. 
 
 | Task | ID | File(s) | Description |
 |------|----|---------|-------------|
-| Report aggregator | 2.1 | `bridge-mcp/src/core/violations/reporter.ts` | Scan glob, collect all violations, aggregate by file/severity/category/rule |
-| Health score algorithm | 2.2 | `bridge-mcp/src/core/violations/scorer.ts` | `score = 100 - (criticals * 10 + ambers * 3 + warnings * 1)` clamped to 0-100. Weighted by file count for normalization |
-| Report output formats | 2.3 | `bridge-mcp/src/core/formatters.ts` | JSON, Markdown, HTML dashboard (single-file, Tailwind CDN) |
-| Trend tracking | 2.4 | `bridge-mcp/src/core/violations/history.ts` | `.bridge/debt-history.json` — append score + violation counts per run with timestamp. CLI `--track` flag |
-| CLI report command | 2.5 | `bridge-mcp/src/cli.ts` | `bridge-mcp report "src/**/*.tsx" --tokens <path> --format html --track` |
-| MCP tool | 2.6 | `bridge-mcp/src/server.ts` | `bridge_debt_report` MCP tool — returns aggregated report as structured JSON |
+| Report aggregator | 2.1 | `flint-mcp/src/core/violations/reporter.ts` | Scan glob, collect all violations, aggregate by file/severity/category/rule |
+| Health score algorithm | 2.2 | `flint-mcp/src/core/violations/scorer.ts` | `score = 100 - (criticals * 10 + ambers * 3 + warnings * 1)` clamped to 0-100. Weighted by file count for normalization |
+| Report output formats | 2.3 | `flint-mcp/src/core/formatters.ts` | JSON, Markdown, HTML dashboard (single-file, Tailwind CDN) |
+| Trend tracking | 2.4 | `flint-mcp/src/core/violations/history.ts` | `.flint/debt-history.json` — append score + violation counts per run with timestamp. CLI `--track` flag |
+| CLI report command | 2.5 | `flint-mcp/src/cli.ts` | `flint-mcp report "src/**/*.tsx" --tokens <path> --format html --track` |
+| MCP tool | 2.6 | `flint-mcp/src/server.ts` | `flint_debt_report` MCP tool — returns aggregated report as structured JSON |
 
 ### Tests
 
@@ -107,15 +107,15 @@ A GitHub Action (and generic CLI command) that runs `bridge audit` on every PR. 
 
 | Agent | Role |
 |-------|------|
-| `bridge-ast-surgeon` | Build aggregator and scorer (works with existing violation types) |
+| `flint-ast-surgeon` | Build aggregator and scorer (works with existing violation types) |
 | `cli-developer` | Wire CLI report command |
-| `bridge-design-engineer` | Build HTML dashboard output (single-file Tailwind CDN page) |
-| `bridge-test-writer` | Write tests for scorer, aggregator, and trend tracking |
+| `flint-design-engineer` | Build HTML dashboard output (single-file Tailwind CDN page) |
+| `flint-test-writer` | Write tests for scorer, aggregator, and trend tracking |
 
 ### Deliverables
 
-- `npx bridge-mcp report "src/**/*.tsx" --format html` generates a shareable design debt dashboard
-- `bridge_debt_report` MCP tool returns structured data for AI-driven analysis
+- `npx flint-mcp report "src/**/*.tsx" --format html` generates a shareable design debt dashboard
+- `flint_debt_report` MCP tool returns structured data for AI-driven analysis
 - Design Health Score: single number that communicates codebase quality to non-engineers
 
 ---
@@ -128,26 +128,26 @@ A GitHub Action (and generic CLI command) that runs `bridge audit` on every PR. 
 
 ### What It Does
 
-`bridge-mcp migrate-tw <glob> --from 3 --to 4` scans Tailwind v3 code and surgically transforms it to v4 syntax. Uses AST-level transforms (not regex), validates output against the design token set, and reports what changed.
+`flint-mcp migrate-tw <glob> --from 3 --to 4` scans Tailwind v3 code and surgically transforms it to v4 syntax. Uses AST-level transforms (not regex), validates output against the design token set, and reports what changed.
 
 ### Why It Matters
 
 - Every Tailwind project will face this migration — massive addressable audience
 - Most migration tools use regex codemods that break on edge cases
-- Bridge's AST approach produces **provably correct** output validated against design tokens
-- Demonstrates Bridge's AST surgery capabilities to a new audience
+- Flint's AST approach produces **provably correct** output validated against design tokens
+- Demonstrates Flint's AST surgery capabilities to a new audience
 
 ### Implementation
 
 | Task | ID | File(s) | Description |
 |------|----|---------|-------------|
-| TW migration rule set | 3.1 | `bridge-mcp/src/core/migrations/tailwind-v3-to-v4.ts` | Map of deprecated/changed classes: `bg-opacity-X` → `bg-color/X`, `flex-grow` → `grow`, config-based color names, etc. |
-| AST class transformer | 3.2 | `bridge-mcp/src/core/migrations/classTransformer.ts` | Babel visitor: traverse JSX `className` attributes, apply migration rules, preserve non-Tailwind classes |
-| Config migrator | 3.3 | `bridge-mcp/src/core/migrations/configMigrator.ts` | Transform `tailwind.config.js` → CSS-based config (Tailwind v4 pattern) |
-| Migration report | 3.4 | `bridge-mcp/src/core/migrations/report.ts` | Per-file diff: old class → new class, line number, confidence level |
+| TW migration rule set | 3.1 | `flint-mcp/src/core/migrations/tailwind-v3-to-v4.ts` | Map of deprecated/changed classes: `bg-opacity-X` → `bg-color/X`, `flex-grow` → `grow`, config-based color names, etc. |
+| AST class transformer | 3.2 | `flint-mcp/src/core/migrations/classTransformer.ts` | Babel visitor: traverse JSX `className` attributes, apply migration rules, preserve non-Tailwind classes |
+| Config migrator | 3.3 | `flint-mcp/src/core/migrations/configMigrator.ts` | Transform `tailwind.config.js` → CSS-based config (Tailwind v4 pattern) |
+| Migration report | 3.4 | `flint-mcp/src/core/migrations/report.ts` | Per-file diff: old class → new class, line number, confidence level |
 | Post-migration audit | 3.5 | Integration | Run `audit_ui_component` on migrated output to verify zero token violations |
-| CLI migrate command | 3.6 | `bridge-mcp/src/cli.ts` | `bridge-mcp migrate-tw "src/**/*.tsx" --from 3 --to 4 --dry-run` |
-| MCP tool | 3.7 | `bridge-mcp/src/server.ts` | `bridge_migrate_tailwind` MCP tool |
+| CLI migrate command | 3.6 | `flint-mcp/src/cli.ts` | `flint-mcp migrate-tw "src/**/*.tsx" --from 3 --to 4 --dry-run` |
+| MCP tool | 3.7 | `flint-mcp/src/server.ts` | `flint_migrate_tailwind` MCP tool |
 
 ### Tests
 
@@ -162,14 +162,14 @@ A GitHub Action (and generic CLI command) that runs `bridge audit` on every PR. 
 
 | Agent | Role |
 |-------|------|
-| `bridge-architect` | Design migration rule format and transformer architecture |
-| `bridge-ast-surgeon` | Build AST class transformer and Babel visitors |
-| `bridge-test-writer` | Write comprehensive class mapping tests |
-| `bridge-code-reviewer` | Review migration accuracy |
+| `flint-architect` | Design migration rule format and transformer architecture |
+| `flint-ast-surgeon` | Build AST class transformer and Babel visitors |
+| `flint-test-writer` | Write comprehensive class mapping tests |
+| `flint-code-reviewer` | Review migration accuracy |
 
 ### Deliverables
 
-- `npx bridge-mcp migrate-tw "src/**/*.tsx" --from 3 --to 4` performs safe, AST-level migration
+- `npx flint-mcp migrate-tw "src/**/*.tsx" --from 3 --to 4` performs safe, AST-level migration
 - Post-migration governance audit proves output is design-system compliant
 - Migration report shows exactly what changed, where, and why
 
@@ -183,25 +183,25 @@ A GitHub Action (and generic CLI command) that runs `bridge audit` on every PR. 
 
 ### What It Does
 
-`bridge-mcp theme-validate <glob> --themes brand-a.json,brand-b.json` validates that a single codebase renders correctly under multiple brand token sets. Each theme is a DTCG token file; Bridge swaps tokens and re-audits to catch violations specific to each brand.
+`flint-mcp theme-validate <glob> --themes brand-a.json,brand-b.json` validates that a single codebase renders correctly under multiple brand token sets. Each theme is a DTCG token file; Flint swaps tokens and re-audits to catch violations specific to each brand.
 
 ### Why It Matters
 
 - SaaS companies building white-label products need to prove N brands work correctly
 - Currently done manually or with visual regression (slow, flaky)
-- Bridge's token-based approach is **deterministic** — "Brand B's primary color is #FF6600, and line 47 uses hardcoded #2563EB which won't resolve under this theme"
+- Flint's token-based approach is **deterministic** — "Brand B's primary color is #FF6600, and line 47 uses hardcoded #2563EB which won't resolve under this theme"
 - Creates a new revenue stream: per-brand licensing
 
 ### Implementation
 
 | Task | ID | File(s) | Description |
 |------|----|---------|-------------|
-| Multi-theme config | 4.1 | `bridge-mcp/src/core/config.ts` | `.bridge/themes/` directory, each file a DTCG token set with a theme name |
-| Theme-aware audit | 4.2 | `bridge-mcp/src/core/violations/themeAuditor.ts` | Loop: load theme tokens → run audit → tag violations with theme name |
-| Cross-theme report | 4.3 | `bridge-mcp/src/core/violations/themeReporter.ts` | Matrix output: violation × theme. "This violation appears in Brand B only because Brand B has no green-100 token" |
-| Theme diff tool | 4.4 | `bridge-mcp/src/core/tokenMapper.ts` | Compare two theme token sets: missing tokens, value differences, coverage gaps |
-| CLI command | 4.5 | `bridge-mcp/src/cli.ts` | `bridge-mcp theme-validate "src/**/*.tsx" --themes themes/` |
-| MCP tool | 4.6 | `bridge-mcp/src/server.ts` | `bridge_validate_themes` MCP tool |
+| Multi-theme config | 4.1 | `flint-mcp/src/core/config.ts` | `.flint/themes/` directory, each file a DTCG token set with a theme name |
+| Theme-aware audit | 4.2 | `flint-mcp/src/core/violations/themeAuditor.ts` | Loop: load theme tokens → run audit → tag violations with theme name |
+| Cross-theme report | 4.3 | `flint-mcp/src/core/violations/themeReporter.ts` | Matrix output: violation × theme. "This violation appears in Brand B only because Brand B has no green-100 token" |
+| Theme diff tool | 4.4 | `flint-mcp/src/core/tokenMapper.ts` | Compare two theme token sets: missing tokens, value differences, coverage gaps |
+| CLI command | 4.5 | `flint-mcp/src/cli.ts` | `flint-mcp theme-validate "src/**/*.tsx" --themes themes/` |
+| MCP tool | 4.6 | `flint-mcp/src/server.ts` | `flint_validate_themes` MCP tool |
 
 ### Tests
 
@@ -215,14 +215,14 @@ A GitHub Action (and generic CLI command) that runs `bridge audit` on every PR. 
 
 | Agent | Role |
 |-------|------|
-| `bridge-architect` | Design theme configuration and audit loop architecture |
-| `bridge-ast-surgeon` | Extend audit pipeline with theme context |
-| `bridge-design-engineer` | Build cross-theme HTML report |
-| `bridge-test-writer` | Write multi-theme test scenarios |
+| `flint-architect` | Design theme configuration and audit loop architecture |
+| `flint-ast-surgeon` | Extend audit pipeline with theme context |
+| `flint-design-engineer` | Build cross-theme HTML report |
+| `flint-test-writer` | Write multi-theme test scenarios |
 
 ### Deliverables
 
-- `npx bridge-mcp theme-validate "src/**/*.tsx" --themes themes/` validates all brands in one pass
+- `npx flint-mcp theme-validate "src/**/*.tsx" --themes themes/` validates all brands in one pass
 - Cross-theme matrix report: "Brand B has 12 violations Brand A doesn't"
 - Theme diff tool for comparing token coverage across brands
 
@@ -236,25 +236,25 @@ A GitHub Action (and generic CLI command) that runs `bridge audit` on every PR. 
 
 ### What It Does
 
-`bridge-mcp migrate-ds <glob> --from tokens-v4.json --to tokens-v5.json` maps old design tokens to new ones and surgically updates all consuming code. Handles renamed tokens, changed values, deprecated tokens, and new tokens.
+`flint-mcp migrate-ds <glob> --from tokens-v4.json --to tokens-v5.json` maps old design tokens to new ones and surgically updates all consuming code. Handles renamed tokens, changed values, deprecated tokens, and new tokens.
 
 ### Why It Matters
 
 - Every enterprise with a design system upgrades every 12-18 months
 - Current process: manual search-and-replace, visual regression, weeks of QA
-- Bridge makes it **deterministic**: "These 47 files reference `color.brand-blue` which was renamed to `color.primary` in v5"
+- Flint makes it **deterministic**: "These 47 files reference `color.brand-blue` which was renamed to `color.primary` in v5"
 - Same AST transform pipeline as Tailwind migration (Phase 3) — amortized effort
 
 ### Implementation
 
 | Task | ID | File(s) | Description |
 |------|----|---------|-------------|
-| Token diff engine | 5.1 | `bridge-mcp/src/core/migrations/tokenDiff.ts` | Compare two DTCG token files: renamed, removed, value-changed, added tokens |
-| Token migration map | 5.2 | `bridge-mcp/src/core/migrations/tokenMigrationMap.ts` | User-defined or auto-detected renames: `{ "color.brand-blue": "color.primary" }` |
-| Class migration visitor | 5.3 | `bridge-mcp/src/core/migrations/classTransformer.ts` | Extend Phase 3 transformer: old Tailwind class (from old token) → new Tailwind class (from new token) |
+| Token diff engine | 5.1 | `flint-mcp/src/core/migrations/tokenDiff.ts` | Compare two DTCG token files: renamed, removed, value-changed, added tokens |
+| Token migration map | 5.2 | `flint-mcp/src/core/migrations/tokenMigrationMap.ts` | User-defined or auto-detected renames: `{ "color.brand-blue": "color.primary" }` |
+| Class migration visitor | 5.3 | `flint-mcp/src/core/migrations/classTransformer.ts` | Extend Phase 3 transformer: old Tailwind class (from old token) → new Tailwind class (from new token) |
 | Migration validation | 5.4 | Integration | Post-migration audit against new token set → zero violations |
-| CLI command | 5.5 | `bridge-mcp/src/cli.ts` | `bridge-mcp migrate-ds "src/**/*.tsx" --from old-tokens.json --to new-tokens.json --map renames.json` |
-| MCP tool | 5.6 | `bridge-mcp/src/server.ts` | `bridge_migrate_design_system` MCP tool |
+| CLI command | 5.5 | `flint-mcp/src/cli.ts` | `flint-mcp migrate-ds "src/**/*.tsx" --from old-tokens.json --to new-tokens.json --map renames.json` |
+| MCP tool | 5.6 | `flint-mcp/src/server.ts` | `flint_migrate_design_system` MCP tool |
 
 ### Tests
 
@@ -268,14 +268,14 @@ A GitHub Action (and generic CLI command) that runs `bridge audit` on every PR. 
 
 | Agent | Role |
 |-------|------|
-| `bridge-architect` | Design token diff algorithm and migration map format |
-| `bridge-ast-surgeon` | Build token-aware class transformer |
-| `bridge-test-writer` | Write token diff and migration tests |
-| `bridge-code-reviewer` | Validate migration accuracy |
+| `flint-architect` | Design token diff algorithm and migration map format |
+| `flint-ast-surgeon` | Build token-aware class transformer |
+| `flint-test-writer` | Write token diff and migration tests |
+| `flint-code-reviewer` | Validate migration accuracy |
 
 ### Deliverables
 
-- `npx bridge-mcp migrate-ds "src/**/*.tsx" --from v4.json --to v5.json` performs safe design system migration
+- `npx flint-mcp migrate-ds "src/**/*.tsx" --from v4.json --to v5.json` performs safe design system migration
 - Token diff report: clear summary of what changed between versions
 - Post-migration governance proves output is compliant with the new token set
 
@@ -289,25 +289,25 @@ A GitHub Action (and generic CLI command) that runs `bridge audit` on every PR. 
 
 ### What It Does
 
-Extend Bridge's 10-rule A11yLinter to full WCAG 2.1 AA coverage (~50 rules) with auto-fix capabilities, compliance reporting formats (VPAT, ACR), and domain-specific rule sets for Section 508 (government), HIPAA (healthcare), and ADA (general).
+Extend Flint's 10-rule A11yLinter to full WCAG 2.1 AA coverage (~50 rules) with auto-fix capabilities, compliance reporting formats (VPAT, ACR), and domain-specific rule sets for Section 508 (government), HIPAA (healthcare), and ADA (general).
 
 ### Why It Matters
 
 - Legal mandates: Section 508, ADA Title III, EU Accessibility Act (2025)
-- Existing tools (axe, Lighthouse) detect but don't fix — Bridge does both
-- Compliance reports (VPAT) are manually written today — Bridge can auto-generate from audit data
+- Existing tools (axe, Lighthouse) detect but don't fix — Flint does both
+- Compliance reports (VPAT) are manually written today — Flint can auto-generate from audit data
 - The A11yLinter already exists with 10 rules — this is extension, not greenfield
 
 ### Implementation
 
 | Task | ID | File(s) | Description |
 |------|----|---------|-------------|
-| Extended WCAG rules | 6.1 | `bridge-mcp/src/core/A11yLinter.ts` | Add 40+ rules: focus management, color contrast (APCA), ARIA roles, landmark regions, live regions, keyboard navigation, motion preferences |
-| Auto-fix for a11y | 6.2 | `bridge-mcp/src/tools/fix.ts` | Extend `bridge_fix` with a11y auto-fixes: add missing labels, fix heading hierarchy, add ARIA attributes, add role landmarks |
-| VPAT generator | 6.3 | `bridge-mcp/src/core/compliance/vpat.ts` | Generate Voluntary Product Accessibility Template from audit results — maps violations to WCAG success criteria |
-| Domain rule sets | 6.4 | `bridge-mcp/src/domains/` | `healthcare/` (HIPAA UI requirements), `government/` (Section 508), `legal/` (ADA Title III) |
-| Contrast checker (APCA) | 6.5 | `bridge-mcp/src/core/validators/strategies/apca.ts` | APCA (Advanced Perceptual Contrast Algorithm) — next-gen contrast ratio for WCAG 3.0 readiness |
-| CLI and MCP | 6.6 | `bridge-mcp/src/cli.ts`, `server.ts` | `bridge-mcp a11y-audit`, `bridge_accessibility_report` MCP tool |
+| Extended WCAG rules | 6.1 | `flint-mcp/src/core/A11yLinter.ts` | Add 40+ rules: focus management, color contrast (APCA), ARIA roles, landmark regions, live regions, keyboard navigation, motion preferences |
+| Auto-fix for a11y | 6.2 | `flint-mcp/src/tools/fix.ts` | Extend `flint_fix` with a11y auto-fixes: add missing labels, fix heading hierarchy, add ARIA attributes, add role landmarks |
+| VPAT generator | 6.3 | `flint-mcp/src/core/compliance/vpat.ts` | Generate Voluntary Product Accessibility Template from audit results — maps violations to WCAG success criteria |
+| Domain rule sets | 6.4 | `flint-mcp/src/domains/` | `healthcare/` (HIPAA UI requirements), `government/` (Section 508), `legal/` (ADA Title III) |
+| Contrast checker (APCA) | 6.5 | `flint-mcp/src/core/validators/strategies/apca.ts` | APCA (Advanced Perceptual Contrast Algorithm) — next-gen contrast ratio for WCAG 3.0 readiness |
+| CLI and MCP | 6.6 | `flint-mcp/src/cli.ts`, `server.ts` | `flint-mcp a11y-audit`, `flint_accessibility_report` MCP tool |
 
 ### Tests
 
@@ -321,11 +321,11 @@ Extend Bridge's 10-rule A11yLinter to full WCAG 2.1 AA coverage (~50 rules) with
 
 | Agent | Role |
 |-------|------|
-| `bridge-architect` | Design rule extension architecture and domain system |
-| `bridge-accessibility` | Build new WCAG rules and APCA contrast checker |
-| `bridge-ast-surgeon` | Build a11y auto-fix AST transforms |
+| `flint-architect` | Design rule extension architecture and domain system |
+| `flint-accessibility` | Build new WCAG rules and APCA contrast checker |
+| `flint-ast-surgeon` | Build a11y auto-fix AST transforms |
 | `compliance-auditor` | Validate VPAT output format and regulatory accuracy |
-| `bridge-test-writer` | Write tests for all 40+ new rules |
+| `flint-test-writer` | Write tests for all 40+ new rules |
 
 ### Deliverables
 
@@ -344,25 +344,25 @@ Extend Bridge's 10-rule A11yLinter to full WCAG 2.1 AA coverage (~50 rules) with
 
 ### What It Does
 
-Same DTCG tokens powering multiple output targets: Tailwind (web), React Native StyleSheet (mobile), CSS custom properties (email/docs), Swift/Kotlin (native mobile). Bridge validates each platform's output against the single token source.
+Same DTCG tokens powering multiple output targets: Tailwind (web), React Native StyleSheet (mobile), CSS custom properties (email/docs), Swift/Kotlin (native mobile). Flint validates each platform's output against the single token source.
 
 ### Why It Matters
 
 - "One design system, four platforms, zero drift" — enterprise aspiration, nobody delivers it
 - Currently done with Style Dictionary or Theo — these generate tokens but don't **validate usage**
-- Bridge adds the validation layer: "Your iOS app uses `UIColor(hex: "#3B82F6")` but the token is `#2563EB`"
-- Extends Bridge beyond web into mobile and native — massive TAM expansion
+- Flint adds the validation layer: "Your iOS app uses `UIColor(hex: "#3B82F6")` but the token is `#2563EB`"
+- Extends Flint beyond web into mobile and native — massive TAM expansion
 
 ### Implementation
 
 | Task | ID | File(s) | Description |
 |------|----|---------|-------------|
-| Platform output targets | 7.1 | `bridge-mcp/src/core/platforms/` | Token transformer: DTCG → Tailwind classes, CSS vars, RN StyleSheet, Swift UIColor, Kotlin Color |
-| Platform-specific parsers | 7.2 | `bridge-mcp/src/core/parsers/` | Extend parser registry: `.swift` (SwiftUI), `.kt` (Jetpack Compose), `.css` (vanilla), `.tsx` (React Native StyleSheet patterns) |
-| Cross-platform audit | 7.3 | `bridge-mcp/src/core/violations/` | Audit non-Tailwind code against DTCG tokens: detect raw hex values that should be token references |
-| Platform-specific rules | 7.4 | `bridge-mcp/src/domains/` | `mobile/` domain: RN-specific patterns, SwiftUI modifiers, Compose theme references |
-| Sync validation | 7.5 | `bridge-mcp/src/core/platforms/syncValidator.ts` | Compare token usage across platforms: "Web uses `color.primary` in 47 places, iOS uses it in 12, Android uses it in 8 — 3 Android files use hardcoded hex instead" |
-| CLI and MCP | 7.6 | `bridge-mcp/src/cli.ts`, `server.ts` | `bridge-mcp cross-platform-audit`, `bridge_cross_platform_report` MCP tool |
+| Platform output targets | 7.1 | `flint-mcp/src/core/platforms/` | Token transformer: DTCG → Tailwind classes, CSS vars, RN StyleSheet, Swift UIColor, Kotlin Color |
+| Platform-specific parsers | 7.2 | `flint-mcp/src/core/parsers/` | Extend parser registry: `.swift` (SwiftUI), `.kt` (Jetpack Compose), `.css` (vanilla), `.tsx` (React Native StyleSheet patterns) |
+| Cross-platform audit | 7.3 | `flint-mcp/src/core/violations/` | Audit non-Tailwind code against DTCG tokens: detect raw hex values that should be token references |
+| Platform-specific rules | 7.4 | `flint-mcp/src/domains/` | `mobile/` domain: RN-specific patterns, SwiftUI modifiers, Compose theme references |
+| Sync validation | 7.5 | `flint-mcp/src/core/platforms/syncValidator.ts` | Compare token usage across platforms: "Web uses `color.primary` in 47 places, iOS uses it in 12, Android uses it in 8 — 3 Android files use hardcoded hex instead" |
+| CLI and MCP | 7.6 | `flint-mcp/src/cli.ts`, `server.ts` | `flint-mcp cross-platform-audit`, `flint_cross_platform_report` MCP tool |
 
 ### Tests
 
@@ -375,12 +375,12 @@ Same DTCG tokens powering multiple output targets: Tailwind (web), React Native 
 
 | Agent | Role |
 |-------|------|
-| `bridge-architect` | Design platform abstraction layer |
-| `bridge-ast-surgeon` | Build platform-specific parsers |
+| `flint-architect` | Design platform abstraction layer |
+| `flint-ast-surgeon` | Build platform-specific parsers |
 | `swift-expert` | Swift/SwiftUI token extraction and validation |
 | `kotlin-specialist` | Kotlin/Compose token extraction and validation |
 | `mobile-developer` | React Native StyleSheet pattern detection |
-| `bridge-test-writer` | Write cross-platform test suites |
+| `flint-test-writer` | Write cross-platform test suites |
 
 ### Deliverables
 
@@ -408,11 +408,11 @@ Each phase uses a **5-agent Expert Tier S squad** via `deploy_elite_swarm.cjs`:
 
 | Role | Agent Type | Responsibility |
 |------|-----------|---------------|
-| Lead | `bridge-architect` | Architecture validation, design review |
-| Builder | `bridge-ast-surgeon` or domain specialist | Core implementation |
+| Lead | `flint-architect` | Architecture validation, design review |
+| Builder | `flint-ast-surgeon` or domain specialist | Core implementation |
 | Integrator | `cli-developer` or `cicd-engineer` | CLI/MCP/CI wiring |
-| Tester | `bridge-test-writer` | Comprehensive test coverage |
-| Reviewer | `bridge-code-reviewer` | Final review, merge readiness |
+| Tester | `flint-test-writer` | Comprehensive test coverage |
+| Reviewer | `flint-code-reviewer` | Final review, merge readiness |
 
 ### Dependency Graph
 
@@ -443,14 +443,14 @@ Phase 6 (Accessibility) — independent, can parallelize with 3-5
 
 ## Competitive Moat
 
-Each phase deepens Bridge's unique advantage:
+Each phase deepens Flint's unique advantage:
 
 1. **CI/CD Gate** — "Design linting as infrastructure" (no competitor does this)
 2. **Design Debt** — "Quantified design health" (new category)
 3. **TW Migration** — "Governance-verified migration" (codemods can't do this)
-4. **White-Label** — "Multi-brand token validation" (Style Dictionary generates, Bridge validates)
+4. **White-Label** — "Multi-brand token validation" (Style Dictionary generates, Flint validates)
 5. **DS Migration** — "Deterministic token remapping" (manual today)
 6. **Accessibility** — "Detect AND fix" (axe/Lighthouse only detect)
 7. **Cross-Platform** — "Token governance beyond web" (nobody does this)
 
-The compounding effect: by Phase 5, Bridge has the only tool that can migrate a design system, validate it across multiple brands, audit accessibility, and prove compliance — all through the same AST pipeline. That's an enterprise platform, not a developer tool.
+The compounding effect: by Phase 5, Flint has the only tool that can migrate a design system, validate it across multiple brands, audit accessibility, and prove compliance — all through the same AST pipeline. That's an enterprise platform, not a developer tool.

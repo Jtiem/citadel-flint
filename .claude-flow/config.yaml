@@ -15,7 +15,7 @@ memory:
   persistPath: .claude-flow/data
   cacheSize: 100
   # ADR-049: Self-Learning Memory
-  learningBridge:
+  learningFlint:
     enabled: true
     sonaMode: balanced
     confidenceDecayRate: 0.005

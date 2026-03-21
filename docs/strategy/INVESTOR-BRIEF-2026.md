@@ -1,4 +1,4 @@
-# Bridge: Investor & Public Communications Brief
+# Flint: Investor & Public Communications Brief
 **March 2026 | Prepared for Justin Tiemann**
 
 ---
@@ -6,10 +6,10 @@
 ## 1. Positioning
 
 ### One-Sentence Statement
-Bridge is the governance infrastructure layer that makes AI-generated UI code safe to ship -- deterministically enforcing design systems, accessibility, and brand compliance at the AST level before code reaches production.
+Flint is the governance infrastructure layer that makes AI-generated UI code safe to ship -- deterministically enforcing design systems, accessibility, and brand compliance at the AST level before code reaches production.
 
 ### Elevator Pitch (30 seconds)
-> AI agents are writing 41% of all code today -- headed toward 90% by early 2027. But nobody is checking whether that code matches the design system, passes accessibility standards, or preserves brand integrity. Bridge is the governance layer that sits inside the AI generation loop. Using perceptual color science and AST-level code analysis, Bridge catches design drift, enforces WCAG compliance, and blocks non-compliant code from shipping -- deterministically, not probabilistically. It's the type checker for design systems.
+> AI agents are writing 41% of all code today -- headed toward 90% by early 2027. But nobody is checking whether that code matches the design system, passes accessibility standards, or preserves brand integrity. Flint is the governance layer that sits inside the AI generation loop. Using perceptual color science and AST-level code analysis, Flint catches design drift, enforces WCAG compliance, and blocks non-compliant code from shipping -- deterministically, not probabilistically. It's the type checker for design systems.
 
 ### Category
 **AI code quality infrastructure** -- not "governance" (political baggage), not "design tools" (sounds niche), not "developer tools" (saturated). For AI-focused investors, use "the governance layer for agentic code generation." For enterprise/compliance investors, use "the Snyk model applied to design systems and accessibility."
@@ -63,36 +63,36 @@ Bridge is the governance infrastructure layer that makes AI-generated UI code sa
 - ~80% of enterprises have design systems
 - Only ~30% sustain compliance after 18 months
 - Design inconsistency adds 20-40% overhead to frontend development cycles
-- The 50-point gap between existence and compliance is the market Bridge addresses
+- The 50-point gap between existence and compliance is the market Flint addresses
 
 ---
 
 ## 3. Five Headline Narratives for a Pitch Deck
 
 ### Narrative 1: "The Type Checker for Design Systems" (Strongest Lead)
-Every engineer understands what TypeScript did: turned runtime errors into compile-time errors. Bridge does the same for design compliance. "Wrong blue in production" becomes "wrong blue blocked before commit."
+Every engineer understands what TypeScript did: turned runtime errors into compile-time errors. Flint does the same for design compliance. "Wrong blue in production" becomes "wrong blue blocked before commit."
 
-### Narrative 2: "AI Generates Code. Bridge Governs It."
-Positions Bridge as the inevitable complement to the AI code generation wave. Every dollar invested in Cursor ($1.1B raised), Copilot, v0, and Claude Code increases the need for governance. Picks-and-shovels play.
+### Narrative 2: "AI Generates Code. Flint Governs It."
+Positions Flint as the inevitable complement to the AI code generation wave. Every dollar invested in Cursor ($1.1B raised), Copilot, v0, and Claude Code increases the need for governance. Picks-and-shovels play.
 
 ### Narrative 3: "The Missing Safety Layer for AI-Generated UI"
-Fear-based narrative for regulatory-aware investors. "Who is responsible when AI-generated UI violates ADA or the EU Accessibility Act?" With 5,100+ lawsuits/year and EUR 3M fines, Bridge is the answer.
+Fear-based narrative for regulatory-aware investors. "Who is responsible when AI-generated UI violates ADA or the EU Accessibility Act?" With 5,100+ lawsuits/year and EUR 3M fines, Flint is the answer.
 
 ### Narrative 4: "Design Debt is the Next Technical Debt"
-Category-creation narrative. Technical debt has SonarQube. Design debt has nothing. Bridge's HealthScore (0-100, grade A-F) makes design debt visible, measurable, and actionable.
+Category-creation narrative. Technical debt has SonarQube. Design debt has nothing. Flint's HealthScore (0-100, grade A-F) makes design debt visible, measurable, and actionable.
 
 ### Narrative 5: "The Snyk for Design Compliance"
-Comp-based narrative. Snyk proved deterministic AST scanning + CI/CD blocking = multi-billion-dollar business ($8.5B valuation). Bridge applies the identical pattern to design/accessibility compliance. Same architecture, adjacent market, proven model.
+Comp-based narrative. Snyk proved deterministic AST scanning + CI/CD blocking = multi-billion-dollar business ($8.5B valuation). Flint applies the identical pattern to design/accessibility compliance. Same architecture, adjacent market, proven model.
 
 ---
 
 ## 4. Competitive Position
 
-**No competitor occupies Bridge's intersection across all seven capability dimensions.**
+**No competitor occupies Flint's intersection across all seven capability dimensions.**
 
 | Tool | Tokens | AST Gov | WCAG Gate | Figma | MCP | Deterministic | Color Science |
 |------|--------|---------|-----------|-------|-----|---------------|---------------|
-| **Bridge** | **Full** | **Full** | **Yes** | **Full** | **Yes** | **Yes** | **CIEDE2000** |
+| **Flint** | **Full** | **Full** | **Yes** | **Full** | **Yes** | **Yes** | **CIEDE2000** |
 | Knapsack | Docs | None | None | Docs | No | N/A | None |
 | Supernova | Files | None | None | Import | No | N/A | None |
 | Specify | Files | None | None | Import | No | N/A | None |
@@ -105,10 +105,10 @@ Comp-based narrative. Snyk proved deterministic AST scanning + CI/CD blocking = 
 | v0 | None | None | None | None | No | N/A | None |
 
 **Key differentiators investors care about:**
-1. **Deterministic, not probabilistic.** LLM-based code review produces different outputs for the same code. Bridge produces identical results every time -- required for compliance.
-2. **Shift-left beyond CI/CD.** axe-core checks after rendering. SonarQube checks after writing. Bridge checks during generation -- at the MCP tool call layer.
+1. **Deterministic, not probabilistic.** LLM-based code review produces different outputs for the same code. Flint produces identical results every time -- required for compliance.
+2. **Shift-left beyond CI/CD.** axe-core checks after rendering. SonarQube checks after writing. Flint checks during generation -- at the MCP tool call layer.
 3. **Perceptual color science.** No competitor uses CIEDE2000. Pixel-diff tools can't distinguish a brand violation (ΔE=5.0) from an imperceptible rounding error (ΔE=0.3).
-4. **MCP-native.** With 6,400+ servers in the ecosystem and every major AI tool supporting it, Bridge's MCP architecture is zero-friction distribution.
+4. **MCP-native.** With 6,400+ servers in the ecosystem and every major AI tool supporting it, Flint's MCP architecture is zero-friction distribution.
 
 ---
 
@@ -118,11 +118,11 @@ Comp-based narrative. Snyk proved deterministic AST scanning + CI/CD blocking = 
 
 2. **Regulatory Teeth.** EU Accessibility Act (EUR 3M fines), 5,100+ ADA lawsuits/year (37% YoY growth), pro se filings up 40% (AI-assisted). Accessibility compliance has legal liability, not just UX cost.
 
-3. **MCP as Universal Distribution.** 6,400+ servers, adopted by every major platform. One Bridge MCP server = distribution across Claude Code, Cursor, VS Code, Windsurf, and every future MCP-compatible agent. No IDE plugins needed.
+3. **MCP as Universal Distribution.** 6,400+ servers, adopted by every major platform. One Flint MCP server = distribution across Claude Code, Cursor, VS Code, Windsurf, and every future MCP-compatible agent. No IDE plugins needed.
 
-4. **Design Systems Unenforced.** 80% of enterprises have design systems, 30% sustain compliance. 50-point gap = massive design debt. Bridge closes it automatically.
+4. **Design Systems Unenforced.** 80% of enterprises have design systems, 30% sustain compliance. 50-point gap = massive design debt. Flint closes it automatically.
 
-5. **Proven Shift-Left Model.** Snyk ($8.5B) proved deterministic AST rules + CI/CD blocking as a category. Bridge applies it to a new domain with a 3-4 year lag.
+5. **Proven Shift-Left Model.** Snyk ($8.5B) proved deterministic AST rules + CI/CD blocking as a category. Flint applies it to a new domain with a 3-4 year lag.
 
 ---
 
@@ -131,10 +131,10 @@ Comp-based narrative. Snyk proved deterministic AST scanning + CI/CD blocking = 
 | Objection | Counter |
 |-----------|---------|
 | **"Can't ESLint do this?"** | ESLint can't calculate CIEDE2000 color distance, traverse JSX semantics, or participate in MCP agent loops. Spell-check vs. legal contract reviewer. |
-| **"Feature, not a company. Figma/Vercel will build it."** | Figma optimizes for keeping designers in Figma. Vercel optimizes for deployment speed. Neither has incentive to build a neutral governance layer. Bridge works across all tools -- that's structurally impossible for a single-platform vendor. |
-| **"Market too small."** | Design governance alone is ~$500M. But Bridge's parser-agnostic rule engine extends to IaC security, HIPAA UI, Section 508, PCI DSS. Real TAM is "deterministic governance for AI-generated code." |
-| **"UX designer, not a technical founder."** | Bridge exists at design systems x code infrastructure x AI governance. A designer who understands AST manipulation and perceptual color science is exactly right. 414+ passing tests, working MCP server, 43 production modules, and clear architecture speak to execution. |
-| **"Developer tools are hard to sell."** | Three distribution channels: (1) CI/CD gate (`npx bridge-mcp audit`) -- 5 min to integrate. (2) MCP auto-discovery -- agents find Bridge, not the other way around. (3) Design debt report creates a "show your boss" artifact. |
+| **"Feature, not a company. Figma/Vercel will build it."** | Figma optimizes for keeping designers in Figma. Vercel optimizes for deployment speed. Neither has incentive to build a neutral governance layer. Flint works across all tools -- that's structurally impossible for a single-platform vendor. |
+| **"Market too small."** | Design governance alone is ~$500M. But Flint's parser-agnostic rule engine extends to IaC security, HIPAA UI, Section 508, PCI DSS. Real TAM is "deterministic governance for AI-generated code." |
+| **"UX designer, not a technical founder."** | Flint exists at design systems x code infrastructure x AI governance. A designer who understands AST manipulation and perceptual color science is exactly right. 414+ passing tests, working MCP server, 43 production modules, and clear architecture speak to execution. |
+| **"Developer tools are hard to sell."** | Three distribution channels: (1) CI/CD gate (`npx flint-mcp audit`) -- 5 min to integrate. (2) MCP auto-discovery -- agents find Flint, not the other way around. (3) Design debt report creates a "show your boss" artifact. |
 
 ---
 
@@ -157,7 +157,7 @@ Comp-based narrative. Snyk proved deterministic AST scanning + CI/CD blocking = 
 | Test cases | 414+ | Across 19 test files |
 
 **Business metrics to build toward:**
-- Teams/orgs using Bridge (alpha/beta)
+- Teams/orgs using Flint (alpha/beta)
 - Time to integrate (target: under 5 minutes)
 - Violation detection rate vs. manual code review
 - MCP tool calls per AI agent session (integration depth)
@@ -167,11 +167,11 @@ Comp-based narrative. Snyk proved deterministic AST scanning + CI/CD blocking = 
 
 ## 8. Technical Architecture (Investor-Friendly)
 
-Bridge has two components. Both ship. Neither requires the other.
+Flint has two components. Both ship. Neither requires the other.
 
 ```
 +-------------------------------+    +-------------------------------+
-|  Bridge MCP (Headless Engine) |    |  Bridge Glass (Observability) |
+|  Flint MCP (Headless Engine) |    |  Flint Glass (Observability) |
 |                               |    |                               |
 |  10 Tools: audit, fix, mutate |    |  Electron 35 desktop app      |
 |  4 Resources: live state      |    |  Infinite canvas + preview    |
@@ -184,9 +184,9 @@ Bridge has two components. Both ship. Neither requires the other.
 ```
 
 **Why this matters to investors:**
-- **Bridge MCP** is the revenue product. Zero UI dependency. Works in any AI agent that speaks MCP.
-- **Bridge Glass** is the retention product. Makes governance visible. Creates the "show your boss" artifact.
-- Separation means Bridge MCP can be sold headless (CI/CD, API) while Glass creates the visual hook for adoption.
+- **Flint MCP** is the revenue product. Zero UI dependency. Works in any AI agent that speaks MCP.
+- **Flint Glass** is the retention product. Makes governance visible. Creates the "show your boss" artifact.
+- Separation means Flint MCP can be sold headless (CI/CD, API) while Glass creates the visual hook for adoption.
 
 ---
 
@@ -198,7 +198,7 @@ Three waves of UX gap-fill to move JTBD completeness from 7.5 to 9.0:
 |------|-----------|---------------|
 | **Wave 1** (Q2 2026) | Activity Feed upgrade, Figma status panel, spatial governance overlays, MCP tool discoverability | Glass becomes a live control surface, not just a viewer |
 | **Wave 2** (Q2 2026) | Annotation rendering in Glass, Governance Health Dashboard | Cross-channel coherence -- MCP chat decisions visible in Glass |
-| **Wave 3** (Q3 2026) | MCP-to-Glass push channel, Bidirectional Action Bridge | Glass can trigger MCP tools -- audit, fix, approve from the canvas |
+| **Wave 3** (Q3 2026) | MCP-to-Glass push channel, Bidirectional Action Flint | Glass can trigger MCP tools -- audit, fix, approve from the canvas |
 
 **Expansion domains (same rule engine, new markets):**
 - Infrastructure-as-Code compliance (Terraform, Pulumi)
@@ -212,8 +212,8 @@ Three waves of UX gap-fill to move JTBD completeness from 7.5 to 9.0:
 
 1. **Open with the problem:** AI is writing 41% of code. Nobody checks if it matches the design system or passes accessibility.
 2. **Show the pain:** Real example -- AI-generated component with subtle color drift. Show hex values, ΔE score, why it matters for brand. Then show the missing aria-label that costs $50K in litigation.
-3. **Present Bridge:** The type checker for design systems. Deterministic. AST-level. MCP-native.
-4. **Demo the loop:** AI generates code -> Bridge audits it -> Bridge blocks or auto-fixes -> clean code ships. Show it running as an MCP tool inside Claude Code or Cursor.
+3. **Present Flint:** The type checker for design systems. Deterministic. AST-level. MCP-native.
+4. **Demo the loop:** AI generates code -> Flint audits it -> Flint blocks or auto-fixes -> clean code ships. Show it running as an MCP tool inside Claude Code or Cursor.
 5. **Show the moat:** Perceptual color science, deterministic rule engine, 6,400+ MCP ecosystem.
 6. **Show the competitive landscape:** The 7-column table. No competitor has "Yes" across all columns.
 7. **Show the market:** $30B AI code gen market, 5,100+ accessibility lawsuits/year, EU Accessibility Act in force.

@@ -9,7 +9,7 @@
  *   • No Figma design tokens have been imported yet
  *   • The user has not previously dismissed this nudge
  *
- * Dismissal is persisted to localStorage under 'bridge-onboarding-nudge-dismissed'
+ * Dismissal is persisted to localStorage under 'flint-onboarding-nudge-dismissed'
  * so it does not re-appear on subsequent opens of the same session.
  *
  * This component does NOT block the canvas or use a backdrop. It is purely
@@ -21,7 +21,7 @@ import { X, Figma, MousePointer2 } from 'lucide-react'
 import { useCanvasStore } from '../../store/canvasStore'
 import { useTokenStore } from '../../store/tokenStore'
 
-const DISMISSED_KEY = 'bridge-onboarding-nudge-dismissed'
+const DISMISSED_KEY = 'flint-onboarding-nudge-dismissed'
 
 /** Count the total number of leaf files in the workspace tree. */
 function countFiles(node: { type: string; children?: { type: string; children?: unknown[] }[] } | null): number {

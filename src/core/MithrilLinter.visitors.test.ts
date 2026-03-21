@@ -23,7 +23,7 @@ import {
     visitOpacity,
     auditAll,
 } from './MithrilLinter'
-import type { DesignToken } from '../types/bridge-api'
+import type { DesignToken } from '../types/flint-api'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -113,7 +113,7 @@ describe('visitTypography (MITHRIL-TYP-*)', () => {
     it('returns empty map when no arbitrary typography classes are present', () => {
         const ast = parseSource(`
             export default function A() {
-                return <div data-bridge-id="n1" className="font-bold text-lg leading-6 tracking-wide" />
+                return <div data-flint-id="n1" className="font-bold text-lg leading-6 tracking-wide" />
             }
         `)
         const result = visitTypography(ast, ALL_TOKENS)
@@ -123,7 +123,7 @@ describe('visitTypography (MITHRIL-TYP-*)', () => {
     it('flags an arbitrary font-family not in the token set (TYP-001)', () => {
         const ast = parseSource(`
             export default function A() {
-                return <h1 data-bridge-id="n1" className="font-[Comic_Sans_MS]" />
+                return <h1 data-flint-id="n1" className="font-[Comic_Sans_MS]" />
             }
         `)
         const result = visitTypography(ast, ALL_TOKENS)
@@ -142,7 +142,7 @@ describe('visitTypography (MITHRIL-TYP-*)', () => {
         // So we test with the exact token value as the arbitrary value.
         const ast = parseSource(`
             export default function A() {
-                return <h1 data-bridge-id="n1" className="font-[Inter, ui-sans-serif, system-ui, sans-serif]" />
+                return <h1 data-flint-id="n1" className="font-[Inter, ui-sans-serif, system-ui, sans-serif]" />
             }
         `)
         const result = visitTypography(ast, ALL_TOKENS)
@@ -152,7 +152,7 @@ describe('visitTypography (MITHRIL-TYP-*)', () => {
     it('flags an arbitrary font-size not in the dimension token set (TYP-002)', () => {
         const ast = parseSource(`
             export default function A() {
-                return <p data-bridge-id="n1" className="text-[37px]" />
+                return <p data-flint-id="n1" className="text-[37px]" />
             }
         `)
         const result = visitTypography(ast, ALL_TOKENS)
@@ -166,7 +166,7 @@ describe('visitTypography (MITHRIL-TYP-*)', () => {
         // 16px matches DIMENSION_TOKENS[0]
         const ast = parseSource(`
             export default function A() {
-                return <p data-bridge-id="n1" className="text-[16px]" />
+                return <p data-flint-id="n1" className="text-[16px]" />
             }
         `)
         const result = visitTypography(ast, ALL_TOKENS)
@@ -179,7 +179,7 @@ describe('visitTypography (MITHRIL-TYP-*)', () => {
         // '900' is checked against fontFamily tokens, finds no match → violation.
         const ast = parseSource(`
             export default function A() {
-                return <span data-bridge-id="n1" className="font-[900]" />
+                return <span data-flint-id="n1" className="font-[900]" />
             }
         `)
         const result = visitTypography(ast, ALL_TOKENS)
@@ -193,7 +193,7 @@ describe('visitTypography (MITHRIL-TYP-*)', () => {
         // The TYP-001 regex catches all font-[...] — so a matching fontFamily token clears it.
         const ast = parseSource(`
             export default function A() {
-                return <span data-bridge-id="n1" className="font-[Inter, ui-sans-serif, system-ui, sans-serif]" />
+                return <span data-flint-id="n1" className="font-[Inter, ui-sans-serif, system-ui, sans-serif]" />
             }
         `)
         const result = visitTypography(ast, ALL_TOKENS)
@@ -203,7 +203,7 @@ describe('visitTypography (MITHRIL-TYP-*)', () => {
     it('flags an arbitrary leading value not in the token set (TYP-004)', () => {
         const ast = parseSource(`
             export default function A() {
-                return <p data-bridge-id="n1" className="leading-[2.0]" />
+                return <p data-flint-id="n1" className="leading-[2.0]" />
             }
         `)
         const result = visitTypography(ast, ALL_TOKENS)
@@ -216,7 +216,7 @@ describe('visitTypography (MITHRIL-TYP-*)', () => {
     it('does not flag a leading value that matches a token', () => {
         const ast = parseSource(`
             export default function A() {
-                return <p data-bridge-id="n1" className="leading-[1.5]" />
+                return <p data-flint-id="n1" className="leading-[1.5]" />
             }
         `)
         const result = visitTypography(ast, ALL_TOKENS)
@@ -226,7 +226,7 @@ describe('visitTypography (MITHRIL-TYP-*)', () => {
     it('flags an arbitrary tracking value not in the token set (TYP-005)', () => {
         const ast = parseSource(`
             export default function A() {
-                return <p data-bridge-id="n1" className="tracking-[0.5em]" />
+                return <p data-flint-id="n1" className="tracking-[0.5em]" />
             }
         `)
         const result = visitTypography(ast, ALL_TOKENS)
@@ -241,7 +241,7 @@ describe('visitTypography (MITHRIL-TYP-*)', () => {
         // but only the first encountered should be stored.
         const ast = parseSource(`
             export default function A() {
-                return <p data-bridge-id="n1" className="font-[900] leading-[2.0]" />
+                return <p data-flint-id="n1" className="font-[900] leading-[2.0]" />
             }
         `)
         const result = visitTypography(ast, ALL_TOKENS)
@@ -250,7 +250,7 @@ describe('visitTypography (MITHRIL-TYP-*)', () => {
         expect(w.message).toMatch(/MITHRIL-TYP-001/)
     })
 
-    it('skips nodes without data-bridge-id', () => {
+    it('skips nodes without data-flint-id', () => {
         const ast = parseSource(`
             export default function A() {
                 return <p className="font-[900]" />
@@ -264,7 +264,7 @@ describe('visitTypography (MITHRIL-TYP-*)', () => {
         // font-[900] is caught by TYP-001 (fontFamily) — suggestion is first fontFamily token
         const ast = parseSource(`
             export default function A() {
-                return <span data-bridge-id="n1" className="font-[900]" />
+                return <span data-flint-id="n1" className="font-[900]" />
             }
         `)
         const result = visitTypography(ast, ALL_TOKENS)
@@ -276,7 +276,7 @@ describe('visitTypography (MITHRIL-TYP-*)', () => {
     it('handles responsive prefix on arbitrary typography class', () => {
         const ast = parseSource(`
             export default function A() {
-                return <p data-bridge-id="n1" className="md:leading-[2.0]" />
+                return <p data-flint-id="n1" className="md:leading-[2.0]" />
             }
         `)
         const result = visitTypography(ast, ALL_TOKENS)
@@ -292,7 +292,7 @@ describe('visitSpacing (MITHRIL-SPC-001)', () => {
     it('returns empty map when no arbitrary spacing classes are present', () => {
         const ast = parseSource(`
             export default function A() {
-                return <div data-bridge-id="n1" className="p-4 m-2 gap-6 w-full" />
+                return <div data-flint-id="n1" className="p-4 m-2 gap-6 w-full" />
             }
         `)
         const result = visitSpacing(ast, ALL_TOKENS)
@@ -302,7 +302,7 @@ describe('visitSpacing (MITHRIL-SPC-001)', () => {
     it('flags an arbitrary padding value not in the dimension token set', () => {
         const ast = parseSource(`
             export default function A() {
-                return <div data-bridge-id="n1" className="p-[37px]" />
+                return <div data-flint-id="n1" className="p-[37px]" />
             }
         `)
         const result = visitSpacing(ast, ALL_TOKENS)
@@ -318,7 +318,7 @@ describe('visitSpacing (MITHRIL-SPC-001)', () => {
         // 16px matches DIMENSION_TOKENS spacing.4
         const ast = parseSource(`
             export default function A() {
-                return <div data-bridge-id="n1" className="p-[16px]" />
+                return <div data-flint-id="n1" className="p-[16px]" />
             }
         `)
         const result = visitSpacing(ast, ALL_TOKENS)
@@ -330,9 +330,9 @@ describe('visitSpacing (MITHRIL-SPC-001)', () => {
             export default function A() {
                 return (
                     <div>
-                        <div data-bridge-id="m1" className="mt-[13px]" />
-                        <div data-bridge-id="g1" className="gap-[22px]" />
-                        <div data-bridge-id="w1" className="w-[999px]" />
+                        <div data-flint-id="m1" className="mt-[13px]" />
+                        <div data-flint-id="g1" className="gap-[22px]" />
+                        <div data-flint-id="w1" className="w-[999px]" />
                     </div>
                 )
             }
@@ -346,7 +346,7 @@ describe('visitSpacing (MITHRIL-SPC-001)', () => {
     it('flags rem and em units as arbitrary spacing values', () => {
         const ast = parseSource(`
             export default function A() {
-                return <div data-bridge-id="n1" className="p-[2.5rem]" />
+                return <div data-flint-id="n1" className="p-[2.5rem]" />
             }
         `)
         const result = visitSpacing(ast, ALL_TOKENS)
@@ -354,7 +354,7 @@ describe('visitSpacing (MITHRIL-SPC-001)', () => {
         expect(result.get('n1')!.message).toContain('2.5rem')
     })
 
-    it('skips nodes without data-bridge-id', () => {
+    it('skips nodes without data-flint-id', () => {
         const ast = parseSource(`
             export default function A() {
                 return <div className="p-[37px]" />
@@ -367,7 +367,7 @@ describe('visitSpacing (MITHRIL-SPC-001)', () => {
     it('populates nearestToken when dimension tokens exist', () => {
         const ast = parseSource(`
             export default function A() {
-                return <div data-bridge-id="n1" className="p-[37px]" />
+                return <div data-flint-id="n1" className="p-[37px]" />
             }
         `)
         const result = visitSpacing(ast, ALL_TOKENS)
@@ -384,7 +384,7 @@ describe('visitShadows (MITHRIL-SHD-001)', () => {
     it('returns empty map when no arbitrary shadow classes are present', () => {
         const ast = parseSource(`
             export default function A() {
-                return <div data-bridge-id="n1" className="shadow-lg shadow-md" />
+                return <div data-flint-id="n1" className="shadow-lg shadow-md" />
             }
         `)
         const result = visitShadows(ast, ALL_TOKENS)
@@ -394,7 +394,7 @@ describe('visitShadows (MITHRIL-SHD-001)', () => {
     it('flags an arbitrary shadow value not in the token set', () => {
         const ast = parseSource(`
             export default function A() {
-                return <div data-bridge-id="n1" className="shadow-[0_8px_30px_rgb(0,0,0,0.12)]" />
+                return <div data-flint-id="n1" className="shadow-[0_8px_30px_rgb(0,0,0,0.12)]" />
             }
         `)
         const result = visitShadows(ast, ALL_TOKENS)
@@ -410,7 +410,7 @@ describe('visitShadows (MITHRIL-SHD-001)', () => {
         // Tailwind arbitrary value uses underscores for spaces
         const ast = parseSource(`
             export default function A() {
-                return <div data-bridge-id="n1" className="shadow-[0_1px_2px_0_rgb(0_0_0_/_0.05)]" />
+                return <div data-flint-id="n1" className="shadow-[0_1px_2px_0_rgb(0_0_0_/_0.05)]" />
             }
         `)
         const result = visitShadows(ast, ALL_TOKENS)
@@ -421,14 +421,14 @@ describe('visitShadows (MITHRIL-SHD-001)', () => {
         const noShadowTokens = ALL_TOKENS.filter(t => t.token_type !== 'shadow')
         const ast = parseSource(`
             export default function A() {
-                return <div data-bridge-id="n1" className="shadow-[0_8px_30px_rgb(0,0,0,0.12)]" />
+                return <div data-flint-id="n1" className="shadow-[0_8px_30px_rgb(0,0,0,0.12)]" />
             }
         `)
         const result = visitShadows(ast, noShadowTokens)
         expect(result.size).toBe(0)
     })
 
-    it('skips nodes without data-bridge-id', () => {
+    it('skips nodes without data-flint-id', () => {
         const ast = parseSource(`
             export default function A() {
                 return <div className="shadow-[0_8px_30px_rgb(0,0,0,0.12)]" />
@@ -441,7 +441,7 @@ describe('visitShadows (MITHRIL-SHD-001)', () => {
     it('populates nearestToken when shadow tokens exist', () => {
         const ast = parseSource(`
             export default function A() {
-                return <div data-bridge-id="n1" className="shadow-[0_99px_99px_black]" />
+                return <div data-flint-id="n1" className="shadow-[0_99px_99px_black]" />
             }
         `)
         const result = visitShadows(ast, ALL_TOKENS)
@@ -458,7 +458,7 @@ describe('visitOpacity (MITHRIL-OPC-001)', () => {
     it('returns empty map when no arbitrary opacity classes are present', () => {
         const ast = parseSource(`
             export default function A() {
-                return <div data-bridge-id="n1" className="opacity-50 opacity-75" />
+                return <div data-flint-id="n1" className="opacity-50 opacity-75" />
             }
         `)
         const result = visitOpacity(ast, ALL_TOKENS)
@@ -468,7 +468,7 @@ describe('visitOpacity (MITHRIL-OPC-001)', () => {
     it('flags an arbitrary opacity value not in the token set', () => {
         const ast = parseSource(`
             export default function A() {
-                return <div data-bridge-id="n1" className="opacity-[0.73]" />
+                return <div data-flint-id="n1" className="opacity-[0.73]" />
             }
         `)
         const result = visitOpacity(ast, ALL_TOKENS)
@@ -484,7 +484,7 @@ describe('visitOpacity (MITHRIL-OPC-001)', () => {
         // opacity.muted token value: '50'
         const ast = parseSource(`
             export default function A() {
-                return <div data-bridge-id="n1" className="opacity-[50]" />
+                return <div data-flint-id="n1" className="opacity-[50]" />
             }
         `)
         const result = visitOpacity(ast, ALL_TOKENS)
@@ -495,14 +495,14 @@ describe('visitOpacity (MITHRIL-OPC-001)', () => {
         const noOpacityTokens = ALL_TOKENS.filter(t => t.token_type !== 'opacity')
         const ast = parseSource(`
             export default function A() {
-                return <div data-bridge-id="n1" className="opacity-[0.73]" />
+                return <div data-flint-id="n1" className="opacity-[0.73]" />
             }
         `)
         const result = visitOpacity(ast, noOpacityTokens)
         expect(result.size).toBe(0)
     })
 
-    it('skips nodes without data-bridge-id', () => {
+    it('skips nodes without data-flint-id', () => {
         const ast = parseSource(`
             export default function A() {
                 return <div className="opacity-[0.73]" />
@@ -515,7 +515,7 @@ describe('visitOpacity (MITHRIL-OPC-001)', () => {
     it('handles responsive prefix on arbitrary opacity class', () => {
         const ast = parseSource(`
             export default function A() {
-                return <div data-bridge-id="n1" className="hover:opacity-[0.33]" />
+                return <div data-flint-id="n1" className="hover:opacity-[0.33]" />
             }
         `)
         const result = visitOpacity(ast, ALL_TOKENS)
@@ -531,7 +531,7 @@ describe('auditAll — cross-visitor priority (B.1-e)', () => {
         // Node has both a color violation (bg-[#000000]) and a typography violation (font-[900])
         const ast = parseSource(`
             export default function A() {
-                return <div data-bridge-id="n1" className="bg-[#000000] font-[900]" />
+                return <div data-flint-id="n1" className="bg-[#000000] font-[900]" />
             }
         `)
         const merged = auditAll(ast, ALL_TOKENS)
@@ -544,7 +544,7 @@ describe('auditAll — cross-visitor priority (B.1-e)', () => {
     it('color violation takes precedence over spacing violation on the same node', () => {
         const ast = parseSource(`
             export default function A() {
-                return <div data-bridge-id="n1" className="bg-[#000000] p-[37px]" />
+                return <div data-flint-id="n1" className="bg-[#000000] p-[37px]" />
             }
         `)
         const merged = auditAll(ast, ALL_TOKENS)
@@ -557,10 +557,10 @@ describe('auditAll — cross-visitor priority (B.1-e)', () => {
             export default function A() {
                 return (
                     <div>
-                        <p data-bridge-id="typ" className="font-[900]" />
-                        <div data-bridge-id="spc" className="p-[37px]" />
-                        <div data-bridge-id="shd" className="shadow-[0_99px_99px_black]" />
-                        <div data-bridge-id="opc" className="opacity-[0.73]" />
+                        <p data-flint-id="typ" className="font-[900]" />
+                        <div data-flint-id="spc" className="p-[37px]" />
+                        <div data-flint-id="shd" className="shadow-[0_99px_99px_black]" />
+                        <div data-flint-id="opc" className="opacity-[0.73]" />
                     </div>
                 )
             }
@@ -575,7 +575,7 @@ describe('auditAll — cross-visitor priority (B.1-e)', () => {
     it('returns empty map when no violations of any kind exist', () => {
         const ast = parseSource(`
             export default function A() {
-                return <div data-bridge-id="n1" className="bg-blue-500 p-4 font-bold" />
+                return <div data-flint-id="n1" className="bg-blue-500 p-4 font-bold" />
             }
         `)
         const merged = auditAll(ast, ALL_TOKENS)
@@ -587,10 +587,10 @@ describe('auditAll — cross-visitor priority (B.1-e)', () => {
             export default function A() {
                 return (
                     <div>
-                        <p data-bridge-id="typ" className="font-[900]" />
-                        <div data-bridge-id="spc" className="p-[37px]" />
-                        <div data-bridge-id="shd" className="shadow-[0_99px_99px_black]" />
-                        <div data-bridge-id="opc" className="opacity-[0.73]" />
+                        <p data-flint-id="typ" className="font-[900]" />
+                        <div data-flint-id="spc" className="p-[37px]" />
+                        <div data-flint-id="shd" className="shadow-[0_99px_99px_black]" />
+                        <div data-flint-id="opc" className="opacity-[0.73]" />
                     </div>
                 )
             }

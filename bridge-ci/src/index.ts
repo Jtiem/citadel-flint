@@ -1,7 +1,7 @@
 /**
- * GitHub Action Entry Point -- bridge-ci/src/index.ts
+ * GitHub Action Entry Point -- flint-ci/src/index.ts
  *
- * This is the main entry point for the Bridge Governance Gate GitHub Action.
+ * This is the main entry point for the Flint Governance Gate GitHub Action.
  * It integrates with @actions/core and @actions/github to:
  *
  *   1. Discover changed .tsx/.ts/.jsx/.js files in the PR
@@ -20,7 +20,7 @@ import * as github from '@actions/github'
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import { auditFiles, shouldFail, generateSarif } from './audit-engine.js'
-import type { DesignToken, BridgePolicy } from './types.js'
+import type { DesignToken, FlintPolicy } from './types.js'
 import { DEFAULT_POLICY } from './types.js'
 
 // -- Helpers -------------------------------------------------------------------
@@ -126,7 +126,7 @@ function formatPrComment(
     const statusIcon = blocked ? 'X' : 'check'
     const statusText = blocked ? 'BLOCKED' : 'PASSED'
 
-    let body = `## Bridge Governance Gate: ${statusText}\n\n`
+    let body = `## Flint Governance Gate: ${statusText}\n\n`
     body += `| Metric | Count |\n`
     body += `|--------|-------|\n`
     body += `| Files scanned | ${summary.totalFiles} |\n`
@@ -179,7 +179,7 @@ function formatPrComment(
     }
 
     body += `---\n`
-    body += `*Bridge Governance Gate v1.0.0 -- Mithril Safety + WCAG 2.1 AA*\n`
+    body += `*Flint Governance Gate v1.0.0 -- Mithril Safety + WCAG 2.1 AA*\n`
 
     return body
 }
@@ -189,19 +189,19 @@ function formatPrComment(
 async function run(): Promise<void> {
     try {
         // Read action inputs
-        const tokenFilePath = core.getInput('token_file') || '.bridge/tokens.json'
-        const policyPath = core.getInput('policy_path') || '.bridge/policy.json'
+        const tokenFilePath = core.getInput('token_file') || '.flint/tokens.json'
+        const policyPath = core.getInput('policy_path') || '.flint/policy.json'
         const failOnWarning = core.getInput('fail_on_warning') === 'true'
-        const sarifOutput = core.getInput('sarif_output') || 'bridge-results.sarif'
+        const sarifOutput = core.getInput('sarif_output') || 'flint-results.sarif'
 
-        core.info('Bridge Governance Gate starting...')
+        core.info('Flint Governance Gate starting...')
 
         // Load design tokens
         const tokens = readJsonFile<DesignToken[]>(tokenFilePath, [])
         core.info(`Loaded ${tokens.length} design tokens from ${tokenFilePath}`)
 
         // Load policy
-        const policy = readJsonFile<BridgePolicy>(policyPath, DEFAULT_POLICY)
+        const policy = readJsonFile<FlintPolicy>(policyPath, DEFAULT_POLICY)
         core.info(`Policy loaded: Mithril=${policy.mithril.mode}, A11y=${policy.a11y.mode}`)
 
         // Get changed files
@@ -260,7 +260,7 @@ async function run(): Promise<void> {
                 const prNumber = github.context.payload.pull_request.number
                 const commentBody = formatPrComment(summary, blocked)
 
-                // Look for an existing Bridge comment to update
+                // Look for an existing Flint comment to update
                 const comments = await octokit.rest.issues.listComments({
                     owner: github.context.repo.owner,
                     repo: github.context.repo.repo,
@@ -269,7 +269,7 @@ async function run(): Promise<void> {
                 })
 
                 const existingComment = comments.data.find(
-                    c => c.body?.includes('Bridge Governance Gate')
+                    c => c.body?.includes('Flint Governance Gate')
                 )
 
                 if (existingComment) {
@@ -304,17 +304,17 @@ async function run(): Promise<void> {
 
         if (blocked) {
             core.setFailed(
-                `Bridge Governance Gate BLOCKED: ${summary.criticalCount} critical, ` +
+                `Flint Governance Gate BLOCKED: ${summary.criticalCount} critical, ` +
                 `${summary.amberCount} amber violations across ${summary.filesWithViolations} files.`
             )
         } else {
-            core.info('Bridge Governance Gate PASSED.')
+            core.info('Flint Governance Gate PASSED.')
         }
     } catch (error) {
         if (error instanceof Error) {
-            core.setFailed(`Bridge Governance Gate failed: ${error.message}`)
+            core.setFailed(`Flint Governance Gate failed: ${error.message}`)
         } else {
-            core.setFailed(`Bridge Governance Gate failed with unexpected error`)
+            core.setFailed(`Flint Governance Gate failed with unexpected error`)
         }
     }
 }

@@ -6,8 +6,8 @@
  * A self-contained, synchronous implementation of the CIEDE2000 color-drift
  * check for use inside the AI Orchestrator's validation loop (Phase M).
  *
- * Why a separate file (not importing bridge-mcp/src/core/MithrilLinter.ts)?
- *   bridge-mcp is a separate ESM package with its own node_modules resolution
+ * Why a separate file (not importing flint-mcp/src/core/MithrilLinter.ts)?
+ *   flint-mcp is a separate ESM package with its own node_modules resolution
  *   and build pipeline. Cross-package path imports are brittle and not permitted
  *   by the monorepo boundary rules. This module inlines the color-drift logic
  *   so the Electron main process has zero cross-boundary coupling.
@@ -24,7 +24,7 @@
  *   if (violations.length > 0) { ...reject... }
  */
 
-// ── DesignToken shape (mirrors electron/token-types.ts + bridge-mcp/src/types.ts) ──
+// ── DesignToken shape (mirrors electron/token-types.ts + flint-mcp/src/types.ts) ──
 // Kept local so this file has no cross-package imports.
 export interface MithrilToken {
     token_path: string
@@ -45,7 +45,7 @@ export interface ColorViolation {
     nearestTokenValue: string | null
 }
 
-// ── CIEDE2000 math (inlined from bridge-mcp/src/core/MithrilLinter.ts) ────────
+// ── CIEDE2000 math (inlined from flint-mcp/src/core/MithrilLinter.ts) ────────
 // Keeping this in sync with the MithrilLinter is Commandment 17's responsibility.
 // Any change to the CIEDE2000 implementation in MithrilLinter.ts must be
 // reflected here.
@@ -266,6 +266,6 @@ export function formatViolationsForAI(violations: ColorViolation[]): string {
         `The following arbitrary color class(es) deviate from the design token set by more than ΔE 2.0: ` +
         parts.join('; ') +
         `. Replace these with token-aligned Tailwind classes. ` +
-        `Call bridge_read_tokens to find the correct class names.`
+        `Call flint_read_tokens to find the correct class names.`
     )
 }

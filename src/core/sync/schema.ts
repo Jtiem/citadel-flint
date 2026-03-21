@@ -1,7 +1,7 @@
 /**
  * Sync Schema — src/core/sync/schema.ts
  *
- * Renderer-side type definitions for the Bridge IDE sync layer.
+ * Renderer-side type definitions for the Flint IDE sync layer.
  *
  * This is the renderer-process mirror of `electron/sync-schema.ts`.
  * No cross-boundary imports are allowed (two-tsconfig architecture),
@@ -23,7 +23,7 @@
 // ── Partition names ───────────────────────────────────────────────────────────
 
 /**
- * The three SQLite tables managed by the Bridge sync layer.
+ * The three SQLite tables managed by the Flint sync layer.
  * Must match the `table` field of each `BucketDescriptor` in
  * `electron/sync-schema.ts`.
  */

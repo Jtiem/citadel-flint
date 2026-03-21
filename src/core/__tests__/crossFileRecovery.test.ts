@@ -34,11 +34,11 @@ const mockSaveFileBatch = vi.fn(async () => undefined)
 const mockReadFile = vi.fn(async () => '')
 const mockSaveFile = vi.fn(async () => undefined)
 
-// The bridgeAPI mock is set in setup.ts but may not include saveFileBatch.
+// The flintAPI mock is set in setup.ts but may not include saveFileBatch.
 // Override it here.
 beforeEach(() => {
-    ;(window as any).bridgeAPI = {
-        ...((window as any).bridgeAPI ?? {}),
+    ;(window as any).flintAPI = {
+        ...((window as any).flintAPI ?? {}),
         saveFileBatch: mockSaveFileBatch,
         readFile: mockReadFile,
         saveFile: mockSaveFile,
@@ -51,20 +51,21 @@ const FILE_A = '/project/src/ComponentA.tsx'
 const FILE_B = '/project/src/ComponentB.tsx'
 
 const CODE_A_BEFORE = `export default function A() {
-  return <div data-bridge-id="div:1:0" className="p-4">Hello</div>
+  return <div data-flint-id="div:1:0" className="p-4">Hello</div>
 }`
 
-const CODE_A_AFTER = `export default function A() {
-  return <div data-bridge-id="div:1:0" className="p-4"></div>
-}`
+// Expected output after cross-file move (used for reference, not in assertions)
+// const CODE_A_AFTER = `export default function A() {
+//   return <div data-flint-id="div:1:0" className="p-4"></div>
+// }`
 
 const CODE_B_BEFORE = `export default function B() {
-  return <section data-bridge-id="section:1:0">World</section>
+  return <section data-flint-id="section:1:0">World</section>
 }`
 
-const CODE_B_AFTER = `export default function B() {
-  return <section data-bridge-id="section:1:0"><div data-bridge-id="div:1:0" className="p-4">Hello</div>World</section>
-}`
+// const CODE_B_AFTER = `export default function B() {
+//   return <section data-flint-id="section:1:0"><div data-flint-id="div:1:0" className="p-4">Hello</div>World</section>
+// }`
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -97,7 +98,7 @@ function makeCrossFileUndoEntries(): HistoryEntry[] {
                 targetFilePath: FILE_B,
                 sourceNodeId: 'div:1:0',
                 targetNodeId: 'section:1:0',
-                position: 'lastChild' as const,
+                position: 'inside' as const,
             },
         },
         {
@@ -134,6 +135,7 @@ describe('applyCrossFileUndo (J6.3)', () => {
         await applyUndo()
 
         expect(mockSaveFileBatch).toHaveBeenCalledTimes(1)
+        // @ts-expect-error — test accessing mock call args with unknown shape
         const batchArg = mockSaveFileBatch.mock.calls[0][0] as Record<string, string>
         expect(batchArg[FILE_A]).toBe(CODE_A_BEFORE)
         expect(batchArg[FILE_B]).toBe(CODE_B_BEFORE)

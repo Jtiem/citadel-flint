@@ -1,10 +1,10 @@
 /**
- * useContextSync — Writes Bridge's live state to .bridge/context.json
- * so the headless MCP server can read it via bridge_get_context.
+ * useContextSync — Writes Flint's live state to .flint/context.json
+ * so the headless MCP server can read it via flint_get_context.
  *
- * Subscribes to canvasStore and editorStore, assembles a BridgeContext
+ * Subscribes to canvasStore and editorStore, assembles a FlintContext
  * snapshot on every meaningful state change (debounced at 200 ms), and
- * calls window.bridgeAPI.syncContext. Fire-and-forget — returns nothing.
+ * calls window.flintAPI.syncContext. Fire-and-forget — returns nothing.
  *
  * Mount this hook once at the application root (e.g. App.tsx) so the
  * context file stays fresh throughout the session without any manual
@@ -16,7 +16,7 @@ import { useCanvasStore } from '../store/canvasStore'
 import { useEditorStore } from '../store/editorStore'
 import { useGovernanceStore } from '../store/governanceStore'
 import { useImportSummaryStore } from '../store/importSummaryStore'
-import type { BridgeContext } from '../types/bridge-api'
+import type { FlintContext } from '../types/flint-api'
 
 /** Debounce interval in milliseconds. */
 const DEBOUNCE_MS = 200
@@ -32,7 +32,8 @@ export function useContextSync(): void {
 
     // ── editorStore slices ────────────────────────────────────────────────────
     const selectedNodeId   = useEditorStore((s) => s.selectedNodeId)
-    const cursorPosition   = useEditorStore((s) => s.cursorPosition)
+    // cursorPosition is declared in FlintContext but not yet tracked in editorStore
+    const cursorPosition: { line: number; column: number } | null = null
     const linterWarnings   = useEditorStore((s) => s.linterWarnings)
     const rawCode          = useEditorStore((s) => s.rawCode)
     const visualTree       = useEditorStore((s) => s.visualTree)
@@ -55,11 +56,11 @@ export function useContextSync(): void {
         timerRef.current = setTimeout(() => {
             timerRef.current = null
 
-            // Guard: IPC bridge may not be available in test environments.
-            if (typeof window === 'undefined' || !window.bridgeAPI?.syncContext) return
+            // Guard: IPC flint may not be available in test environments.
+            if (typeof window === 'undefined' || !window.flintAPI?.syncContext) return
 
             // ── Assemble violation summary from linterWarnings Map ────────────
-            // linterWarnings is Map<bridgeId, LinterWarning>. We need counts
+            // linterWarnings is Map<flintId, LinterWarning>. We need counts
             // broken down by category and a deduplicated list of node IDs.
             const warnings = linterWarnings instanceof Map
                 ? Array.from(linterWarnings.values())
@@ -107,7 +108,7 @@ export function useContextSync(): void {
                 : null
 
             // ── ACX.5: sourceExcerpt — first 200 lines of the active file ─────
-            // Provides agents immediate source context without a bridge_read_code
+            // Provides agents immediate source context without a flint_read_code
             // call. Derived synchronously from editorStore.rawCode.
             const sourceExcerpt: string | null = rawCode
                 ? rawCode.split('\n').slice(0, 200).join('\n')
@@ -116,7 +117,7 @@ export function useContextSync(): void {
             // ── ACX.5: selectedNodeSummary — descriptor of the selected node ──
             // Walks the visualTree to find the selected node and its parent.
             // Returns null when no node is selected or the node is not found.
-            let selectedNodeSummary: BridgeContext['selectedNodeSummary'] = null
+            let selectedNodeSummary: FlintContext['selectedNodeSummary'] = null
             if (selectedNodeId && visualTree.length > 0) {
                 // Flatten the tree to locate node + parent in one pass.
                 type LayerEntry = { layer: { id: string; tagName: string; className?: string; props?: Record<string, string | boolean>; children: typeof visualTree }; parentId: string | null }
@@ -124,17 +125,17 @@ export function useContextSync(): void {
                 while (stack.length > 0) {
                     const entry = stack.pop()!
                     if (entry.layer.id === selectedNodeId) {
-                        // Map props to string values only (exclude boolean props and bridge-id).
+                        // Map props to string values only (exclude boolean props and flint-id).
                         const rawProps = entry.layer.props ?? {}
                         const stringProps: Record<string, string> = {}
                         for (const [k, v] of Object.entries(rawProps)) {
-                            if (k !== 'data-bridge-id' && typeof v === 'string') {
+                            if (k !== 'data-flint-id' && typeof v === 'string') {
                                 stringProps[k] = v
                             }
                         }
                         selectedNodeSummary = {
                             tagName: entry.layer.tagName,
-                            bridgeId: entry.layer.id,
+                            flintId: entry.layer.id,
                             className: entry.layer.className ?? null,
                             props: stringProps,
                             childCount: entry.layer.children.length,
@@ -163,14 +164,14 @@ export function useContextSync(): void {
                   ].filter(Boolean).join(', ')
                 : null
 
-            const violationSnapshot: BridgeContext['violationSnapshot'] = {
+            const violationSnapshot: FlintContext['violationSnapshot'] = {
                 total: totalViolations,
                 criticalCount,
                 exportBlocked: exportBlockedByViolations,
                 exportBlockReason,
             }
 
-            const ctx: BridgeContext = {
+            const ctx: FlintContext = {
                 timestamp: Date.now(),
                 activeFile: activeFilePath ?? null,
                 selectedNodeId: selectedNodeId ?? null,
@@ -195,7 +196,7 @@ export function useContextSync(): void {
                 violationSnapshot,
             }
 
-            void window.bridgeAPI.syncContext(ctx)
+            void window.flintAPI.syncContext(ctx)
         }, DEBOUNCE_MS)
 
         // Cleanup: cancel the pending timer if the component unmounts or

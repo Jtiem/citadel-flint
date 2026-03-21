@@ -21,8 +21,8 @@ import { useHistoryStore } from '../historyStore'
 // ── Minimal TSX fixtures ────────────────────────────────────────────────────
 
 /**
- * A minimal React component file with two JSX nodes that have bridge IDs.
- * We rely on `injectBridgeIds` running inside `loadBuffer` to assign IDs,
+ * A minimal React component file with two JSX nodes that have flint IDs.
+ * We rely on `injectFlintIds` running inside `loadBuffer` to assign IDs,
  * but for these tests we mock `readFile` to return pre-stamped content so
  * the IDs are predictable.
  */
@@ -30,8 +30,8 @@ const SOURCE_TSX = `
 import React from 'react';
 export default function Source() {
   return (
-    <div data-bridge-id="root-source">
-      <span data-bridge-id="child-source">Hello</span>
+    <div data-flint-id="root-source">
+      <span data-flint-id="child-source">Hello</span>
     </div>
   );
 }
@@ -41,8 +41,8 @@ const TARGET_TSX = `
 import React from 'react';
 export default function Target() {
   return (
-    <div data-bridge-id="root-target">
-      <p data-bridge-id="child-target">World</p>
+    <div data-flint-id="root-target">
+      <p data-flint-id="child-target">World</p>
     </div>
   );
 }
@@ -62,7 +62,7 @@ beforeEach(() => {
     // Reset history store
     useHistoryStore.setState({ past: [], future: [], canUndo: false, canRedo: false })
 
-    // Mock bridgeAPI
+    // Mock flintAPI
     const mockReadFile = vi.fn((path: string) => {
         if (path === SOURCE_PATH) return Promise.resolve(SOURCE_TSX)
         if (path === TARGET_PATH) return Promise.resolve(TARGET_TSX)
@@ -71,7 +71,7 @@ beforeEach(() => {
 
     const mockSaveFileBatch = vi.fn().mockResolvedValue(undefined)
 
-    ;(window as unknown as Record<string, unknown>).bridgeAPI = {
+    ;(window as unknown as Record<string, unknown>).flintAPI = {
         readFile: mockReadFile,
         saveFileBatch: mockSaveFileBatch,
     }
@@ -80,7 +80,7 @@ beforeEach(() => {
 // ── Helper ───────────────────────────────────────────────────────────────────
 
 function getSaveFileBatch() {
-    return (window.bridgeAPI as unknown as Record<string, ReturnType<typeof vi.fn>>).saveFileBatch
+    return (window.flintAPI as unknown as Record<string, ReturnType<typeof vi.fn>>).saveFileBatch
 }
 
 // ── cloneMode: true ───────────────────────────────────────────────────────────
@@ -236,7 +236,7 @@ describe('crossFileMove — same-file guard', () => {
 
 describe('crossFileMove — buffer loading under cloneMode', () => {
     it('loads both buffers regardless of cloneMode', async () => {
-        const readFile = (window.bridgeAPI as unknown as Record<string, ReturnType<typeof vi.fn>>).readFile
+        const readFile = (window.flintAPI as unknown as Record<string, ReturnType<typeof vi.fn>>).readFile
 
         await useASTBufferStore.getState().crossFileMove(
             SOURCE_PATH,
@@ -248,7 +248,7 @@ describe('crossFileMove — buffer loading under cloneMode', () => {
         )
 
         // Both files must have been read (loadBuffer is called for both paths)
-        const calledPaths = readFile.mock.calls.map(([p]: [string]) => p)
+        const calledPaths = readFile.mock.calls.map((args: unknown[]) => args[0] as string)
         expect(calledPaths).toContain(SOURCE_PATH)
         expect(calledPaths).toContain(TARGET_PATH)
     })

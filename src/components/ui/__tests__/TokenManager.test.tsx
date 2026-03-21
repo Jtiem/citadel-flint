@@ -2,14 +2,14 @@
  * TokenManager.test.tsx
  *
  * 11 tests for the TokenManager component. The component fetches all tokens
- * from window.bridgeAPI.tokens.readAll(), groups them by collection_name,
+ * from window.flintAPI.tokens.readAll(), groups them by collection_name,
  * and provides a search filter.
  */
 
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { TokenManager } from '../TokenManager'
-import type { DesignToken } from '../../../types/bridge-api'
+import type { DesignToken } from '../../../types/flint-api'
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -39,14 +39,14 @@ describe('TokenManager', () => {
     // 1. Shows loading state initially (before fetch resolves)
     it('shows loading text while tokens are being fetched', () => {
         // Never resolves during this check
-        ;(window.bridgeAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockReturnValue(new Promise(() => {}))
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockReturnValue(new Promise(() => {}))
         render(<TokenManager />)
         expect(screen.getByText('Loading…')).toBeDefined()
     })
 
     // 2. Shows tokens after fetch resolves
     it('renders token paths after tokens are fetched', async () => {
-        ;(window.bridgeAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(SAMPLE_TOKENS)
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(SAMPLE_TOKENS)
         render(<TokenManager />)
         await waitFor(() => {
             expect(screen.getByText('color.primary')).toBeDefined()
@@ -55,7 +55,7 @@ describe('TokenManager', () => {
 
     // 3. Shows empty state when no tokens
     it('shows empty state message when token list is empty', async () => {
-        ;(window.bridgeAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue([])
         render(<TokenManager />)
         await waitFor(() => {
             expect(screen.getByText('Import DTCG JSON')).toBeDefined()
@@ -64,7 +64,7 @@ describe('TokenManager', () => {
 
     // 4. Groups tokens by collection_name
     it('groups tokens under their collection_name header', async () => {
-        ;(window.bridgeAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(SAMPLE_TOKENS)
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(SAMPLE_TOKENS)
         render(<TokenManager />)
         await waitFor(() => {
             // Collection header text is the raw collection_name (CSS uppercase via Tailwind)
@@ -76,7 +76,7 @@ describe('TokenManager', () => {
 
     // 5. Shows collection header with count badge
     it('renders a count badge next to each collection header', async () => {
-        ;(window.bridgeAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(SAMPLE_TOKENS)
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(SAMPLE_TOKENS)
         render(<TokenManager />)
         await waitFor(() => {
             // Colors collection has 2 tokens
@@ -86,7 +86,7 @@ describe('TokenManager', () => {
 
     // 6. Shows color swatch for color-type tokens
     it('renders a color swatch span for tokens with token_type "color"', async () => {
-        ;(window.bridgeAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue([
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue([
             makeToken({ id: 10, token_type: 'color', token_value: '#ff0000' }),
         ])
         render(<TokenManager />)
@@ -99,7 +99,7 @@ describe('TokenManager', () => {
 
     // 7. No swatch rendered for non-color tokens
     it('does NOT render a color swatch for non-color token types', async () => {
-        ;(window.bridgeAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue([
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue([
             makeToken({ id: 11, token_type: 'dimension', token_value: '16px' }),
         ])
         render(<TokenManager />)
@@ -112,7 +112,7 @@ describe('TokenManager', () => {
 
     // 8. Search filters by token_path
     it('filters the token list by token_path when a query is entered', async () => {
-        ;(window.bridgeAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(SAMPLE_TOKENS)
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(SAMPLE_TOKENS)
         render(<TokenManager />)
         await waitFor(() => screen.getByText('color.primary'))
 
@@ -127,7 +127,7 @@ describe('TokenManager', () => {
 
     // 9. Search filters by token_value
     it('filters the token list by token_value when a query is entered', async () => {
-        ;(window.bridgeAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(SAMPLE_TOKENS)
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(SAMPLE_TOKENS)
         render(<TokenManager />)
         await waitFor(() => screen.getByText('color.primary'))
 
@@ -142,7 +142,7 @@ describe('TokenManager', () => {
 
     // 10. Search shows "no matches" message when filter returns nothing
     it('shows "No tokens match your search" when the query matches nothing', async () => {
-        ;(window.bridgeAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(SAMPLE_TOKENS)
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(SAMPLE_TOKENS)
         render(<TokenManager />)
         await waitFor(() => screen.getByText('color.primary'))
 
@@ -156,7 +156,7 @@ describe('TokenManager', () => {
 
     // 11. Shows error state when fetch fails
     it('shows an error message when the token fetch rejects', async () => {
-        ;(window.bridgeAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockRejectedValue(
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockRejectedValue(
             new Error('IPC unavailable')
         )
         render(<TokenManager />)

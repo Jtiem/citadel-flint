@@ -11,12 +11,88 @@
  *   post-edit      - Record edit outcome for learning
  *   session-restore - Restore previous session state
  *   session-end    - End session and persist state
+ *   compact-manual - Preserve context before manual compaction
+ *   compact-auto   - Preserve context before auto compaction
  */
 
 const path = require('path');
 const fs = require('fs');
 
 const helpersDir = __dirname;
+const DATA_DIR = path.join(process.cwd(), '.claude-flow', 'data');
+const SESSION_DIR = path.join(process.cwd(), '.claude-flow', 'sessions');
+
+function readJSONFile(filePath) {
+  try {
+    if (fs.existsSync(filePath)) return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  } catch { /* corrupt or missing */ }
+  return null;
+}
+
+function readJSONLFile(filePath) {
+  try {
+    if (fs.existsSync(filePath)) {
+      return fs.readFileSync(filePath, 'utf-8').trim().split('\n')
+        .filter(Boolean).map(line => { try { return JSON.parse(line); } catch { return null; } })
+        .filter(Boolean);
+    }
+  } catch { /* missing */ }
+  return [];
+}
+
+function writeCompactContext(trigger) {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+
+  const sessionData = readJSONFile(path.join(SESSION_DIR, 'current.json'));
+  const ranked = readJSONFile(path.join(DATA_DIR, 'ranked-context.json'));
+  const pending = readJSONLFile(path.join(DATA_DIR, 'pending-insights.jsonl'));
+  const graph = readJSONFile(path.join(DATA_DIR, 'graph-state.json'));
+
+  const ts = new Date().toISOString();
+  const lines = [`# Compact Context (${trigger})`, `Generated: ${ts}`, ''];
+
+  // Session
+  if (sessionData && (sessionData.id || sessionData.startTime)) {
+    lines.push('## Session', `- ID: ${sessionData.id || 'n/a'}`, `- Started: ${sessionData.startTime || 'n/a'}`, '');
+  }
+
+  // Top intelligence patterns
+  if (ranked && Array.isArray(ranked) && ranked.length > 0) {
+    const top5 = ranked.slice(0, 5);
+    lines.push('## Top Intelligence Patterns', '| Rank | Pattern | Score |', '|------|---------|-------|');
+    top5.forEach((p, i) => {
+      const name = (p.name || p.id || 'unnamed').substring(0, 40);
+      const score = (p.score || p.pageRank || 0).toFixed(3);
+      lines.push(`| ${i + 1} | ${name} | ${score} |`);
+    });
+    lines.push('');
+  }
+
+  // Recently edited files
+  if (pending.length > 0) {
+    const recentEdits = pending.filter(p => (p.type === 'edit' || p.file) && (p.file || p.path)).slice(-10);
+    if (recentEdits.length > 0) {
+      lines.push('## Recently Edited Files');
+      const seen = new Set();
+      recentEdits.forEach(e => {
+        const f = e.file || e.path;
+        if (!seen.has(f)) { seen.add(f); lines.push(`- ${f}`); }
+      });
+      lines.push('');
+    }
+  }
+
+  // Graph summary
+  if (graph && (Array.isArray(graph.nodes) || Array.isArray(graph.edges))) {
+    const nodes = Array.isArray(graph.nodes) ? graph.nodes.length : 0;
+    const edges = Array.isArray(graph.edges) ? graph.edges.length : 0;
+    lines.push('## Intelligence Graph', `- Nodes: ${nodes}`, `- Edges: ${edges}`, '');
+  }
+
+  const outPath = path.join(DATA_DIR, 'compact-context.md');
+  fs.writeFileSync(outPath, lines.join('\n'), 'utf-8');
+  return { sessionId: sessionData?.id, patterns: ranked?.length || 0, edits: pending.length, graphNodes: graph?.nodes?.length || 0 };
+}
 
 // Safe require with stdout suppression - the helper modules have CLI
 // sections that run unconditionally on require(), so we mute console
@@ -235,6 +311,24 @@ const handlers = {
       } catch (e) { /* non-fatal */ }
     }
     console.log('[OK] Task completed');
+  },
+
+  'compact-manual': () => {
+    try {
+      const result = writeCompactContext('manual');
+      console.log(`[COMPACT] Context preserved: ${result.patterns} patterns, ${result.edits} edits, ${result.graphNodes} graph nodes`);
+    } catch (e) {
+      console.log(`[WARN] Compact context failed: ${e.message}`);
+    }
+  },
+
+  'compact-auto': () => {
+    try {
+      const result = writeCompactContext('auto');
+      console.log(`[COMPACT] Context preserved: ${result.patterns} patterns, ${result.edits} edits, ${result.graphNodes} graph nodes`);
+    } catch (e) {
+      console.log(`[WARN] Compact context failed: ${e.message}`);
+    }
   },
 
   'stats': () => {

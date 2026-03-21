@@ -59,8 +59,8 @@
   },
   "config": {
     "autoStart": false,
-    "logDir": "/Users/justintiemann/Documents/AI Coding/Lunar Elevator - Bridge/.claude-flow/logs",
-    "stateFile": "/Users/justintiemann/Documents/AI Coding/Lunar Elevator - Bridge/.claude-flow/daemon-state.json",
+    "logDir": "/Users/justintiemann/Documents/AI Coding/Lunar Elevator - Flint/.claude-flow/logs",
+    "stateFile": "/Users/justintiemann/Documents/AI Coding/Lunar Elevator - Flint/.claude-flow/daemon-state.json",
     "maxConcurrent": 2,
     "workerTimeoutMs": 300000,
     "resourceThresholds": {

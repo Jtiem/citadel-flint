@@ -3,7 +3,7 @@
  *
  * Static AST-level accessibility linter (Phase B.3 — Commandment 5).
  *
- * Bridge Commandment 5 states: "Accessibility is a Compiler Error — Missing
+ * Flint Commandment 5 states: "Accessibility is a Compiler Error — Missing
  * a11y attributes trigger a 'Critical Block' for exports."
  *
  * ## Rules Enforced (v2 — Enterprise WCAG 2.1 AA)
@@ -33,7 +33,7 @@ import type { File as BabelFile, JSXOpeningElement } from '@babel/types'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-/** Maps `data-bridge-id` → list of violation messages for that element. */
+/** Maps `data-flint-id` → list of violation messages for that element. */
 export type A11yViolations = Record<string, string[]>
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -92,11 +92,11 @@ function hasTextChildren(
 }
 
 /**
- * Derives the label key used in violations: the `data-bridge-id` value if
+ * Derives the label key used in violations: the `data-flint-id` value if
  * present, otherwise a positional fallback like `"img-3"`.
  */
-function getBridgeId(opening: JSXOpeningElement, fallback: string): string {
-    const attr = getJsxAttr(opening, 'data-bridge-id')
+function getFlintId(opening: JSXOpeningElement, fallback: string): string {
+    const attr = getJsxAttr(opening, 'data-flint-id')
     if (!attr || attr.type !== 'JSXAttribute') return fallback
     const val = attr.value
     if (val?.type === 'StringLiteral') return val.value
@@ -130,7 +130,7 @@ function getNonEmptyAttr(opening: JSXOpeningElement, name: string): boolean {
 export const A11yLinter = {
     /**
      * Traverses the provided Babel AST and returns every accessibility violation
-     * found, grouped by `data-bridge-id` (or a positional fallback key).
+     * found, grouped by `data-flint-id` (or a positional fallback key).
      *
      * @param ast - A Babel `File` node produced by `parseCodeToAST`.
      * @returns    An object mapping element keys to arrays of violation messages.
@@ -166,9 +166,9 @@ export const A11yLinter = {
                     headingsSeen.push(level)
                     if (level > last + 1) {
                         elementIndex += 1
-                        const bridgeId = getBridgeId(opening, `heading-${elementIndex}`)
+                        const flintId = getFlintId(opening, `heading-${elementIndex}`)
                         addViolation(
-                            bridgeId,
+                            flintId,
                             `A11Y-010: Heading <${tag}> skips level. Previous heading was <h${last}>. ` +
                             'Heading levels must not be skipped — use sequential levels for screen readers.',
                         )
@@ -179,14 +179,14 @@ export const A11yLinter = {
                 if (!AUDITED_TAGS.includes(tag)) return
 
                 elementIndex += 1
-                const bridgeId = getBridgeId(opening, `${tag}-${elementIndex}`)
+                const flintId = getFlintId(opening, `${tag}-${elementIndex}`)
 
                 // ── A11Y-001: <img> must have alt ─────────────────────────────
                 if (tag === 'img') {
                     const altAttr = getJsxAttr(opening, 'alt')
                     if (altAttr === undefined) {
                         addViolation(
-                            bridgeId,
+                            flintId,
                             'A11Y-001: <img> is missing an `alt` attribute. ' +
                             'Add alt="" for decorative images or a descriptive string for informational ones.',
                         )
@@ -205,7 +205,7 @@ export const A11yLinter = {
                     if (!hasAriaLabel && !hasTitle && !hasText) {
                         const ruleId = tag === 'button' ? 'A11Y-002' : 'A11Y-003'
                         addViolation(
-                            bridgeId,
+                            flintId,
                             `${ruleId}: <${tag}> has no accessible name. ` +
                             'Add text content, aria-label="…", or title="…".',
                         )
@@ -223,7 +223,7 @@ export const A11yLinter = {
 
                     if (!hasId && !hasAriaLabel && !hasTitle && !hasAriaLabelledBy) {
                         addViolation(
-                            bridgeId,
+                            flintId,
                             'A11Y-004: <input> has no programmatic label. ' +
                             'Add id="…" (+ a matching <label htmlFor>), aria-label="…", or aria-labelledby="…".',
                         )
@@ -239,7 +239,7 @@ export const A11yLinter = {
                     const hasTitle = getNonEmptyAttr(opening, 'title')
                     if (!hasAriaLabel && !hasAriaLabelledBy && !hasTitle) {
                         addViolation(
-                            bridgeId,
+                            flintId,
                             'A11Y-005: <select> has no accessible label. ' +
                             'Add aria-label="…", aria-labelledby="…", or pair with a <label htmlFor>.',
                         )
@@ -255,7 +255,7 @@ export const A11yLinter = {
                     const hasTitle = getNonEmptyAttr(opening, 'title')
                     if (!hasAriaLabel && !hasAriaLabelledBy && !hasTitle) {
                         addViolation(
-                            bridgeId,
+                            flintId,
                             'A11Y-006: <textarea> has no accessible label. ' +
                             'Add aria-label="…", aria-labelledby="…", or pair with a <label htmlFor>.',
                         )
@@ -277,7 +277,7 @@ export const A11yLinter = {
                     )
                     if (!hasAriaLabel && !hasAriaLabelledBy && !hasCaption) {
                         addViolation(
-                            bridgeId,
+                            flintId,
                             'A11Y-008: <table> has no accessible summary. ' +
                             'Add a <caption> child, aria-label="…", or aria-labelledby="…".',
                         )
@@ -290,7 +290,7 @@ export const A11yLinter = {
                     const hasLang = getNonEmptyAttr(opening, 'lang')
                     if (!hasLang) {
                         addViolation(
-                            bridgeId,
+                            flintId,
                             'A11Y-009: <html> is missing a `lang` attribute. ' +
                             'Add lang="en" (or appropriate BCP 47 language tag) for screen reader language detection.',
                         )
@@ -329,9 +329,9 @@ export const A11yLinter = {
                 if (!openEl || openEl.type !== 'JSXOpeningElement') return
 
                 elementIndex += 1
-                const bridgeId = getBridgeId(openEl, `tabindex-${elementIndex}`)
+                const flintId = getFlintId(openEl, `tabindex-${elementIndex}`)
                 addViolation(
-                    bridgeId,
+                    flintId,
                     `A11Y-007: tabIndex="${numericVal}" disrupts natural tab order. ` +
                     'Use tabIndex={0} to include in natural order, or tabIndex={-1} to remove from flow.',
                 )

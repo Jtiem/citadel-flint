@@ -3,19 +3,19 @@
  *
  * Abstract Syntax Protocol (ASP) — Phase N.5
  *
- * Implements IBridgeAdapter for Vue 3 Single-File Components (.vue).
+ * Implements IFlintAdapter for Vue 3 Single-File Components (.vue).
  *
  * Strategy
  * ─────────
  * Vue SFCs have three blocks: <template>, <script>, and <style>.
- * Bridge only edits the **<template>** block. We leave <script> and <style>
+ * Flint only edits the **<template>** block. We leave <script> and <style>
  * entirely untouched so we don't interfere with TypeScript types,
  * Composition API setup, or scoped styles.
  *
  * The template AST produced by @vue/compiler-sfc is an "element node" tree
  * (NodeTypes.ELEMENT = 1). We traverse it to:
  *   1. Build the VisualLayer tree (read-only projection for the Layer Tree UI)
- *   2. Inject data-bridge-id attributes (by rewriting the raw source text)
+ *   2. Inject data-flint-id attributes (by rewriting the raw source text)
  *   3. Perform AST mutations (className, text, prop, delete, move)
  *
  * Mutation strategy: We use the source `loc` (start/end offsets) embedded in
@@ -26,7 +26,7 @@
  * Renderer Process only — no Node.js imports.
  */
 
-import type { IBridgeAdapter } from './types'
+import type { IFlintAdapter } from './types'
 import type { ASTMutation, InverseMutation } from '../ASTService'
 import type { VisualLayer } from '../ast-parser'
 import {
@@ -59,7 +59,7 @@ function makeId(): string {
  */
 function parseSfc(code: string): SFCDescriptor | null {
     try {
-        const { descriptor, errors } = parse(code, { filename: 'bridge.vue' })
+        const { descriptor, errors } = parse(code, { filename: 'flint.vue' })
         if (errors.length > 0 && !descriptor.template) return null
         return descriptor
     } catch {
@@ -68,11 +68,11 @@ function parseSfc(code: string): SFCDescriptor | null {
 }
 
 /**
- * Reads the data-bridge-id prop from a Vue ElementNode.
+ * Reads the data-flint-id prop from a Vue ElementNode.
  */
-function getBridgeId(node: ElementNode): string | undefined {
+function getFlintId(node: ElementNode): string | undefined {
     for (const prop of node.props) {
-        if (prop.type === NodeTypes.ATTRIBUTE && prop.name === 'data-bridge-id') {
+        if (prop.type === NodeTypes.ATTRIBUTE && prop.name === 'data-flint-id') {
             return prop.value?.content ?? undefined
         }
     }
@@ -116,17 +116,17 @@ interface FoundNode {
 
 function findById(
     nodes: TemplateChildNode[],
-    bridgeId: string,
+    flintId: string,
     parent: ElementNode | null = null,
 ): FoundNode | null {
     for (let i = 0; i < nodes.length; i++) {
         const child = nodes[i]
         if (child.type === NodeTypes.ELEMENT) {
             const el = child as ElementNode
-            if (getBridgeId(el) === bridgeId) {
+            if (getFlintId(el) === flintId) {
                 return { node: el, parent, index: i, parentChildren: nodes }
             }
-            const found = findById(el.children as TemplateChildNode[], bridgeId, el)
+            const found = findById(el.children as TemplateChildNode[], flintId, el)
             if (found) return found
         }
     }
@@ -140,7 +140,7 @@ function buildLayers(nodes: TemplateChildNode[]): VisualLayer[] {
     for (const node of nodes) {
         if (node.type !== NodeTypes.ELEMENT) continue
         const el = node as ElementNode
-        const id = getBridgeId(el)
+        const id = getFlintId(el)
         if (!id) continue
         result.push({
             id,
@@ -184,14 +184,14 @@ function applySplices(source: string, splices: Splice[]): string {
 // ── VueAdapter ────────────────────────────────────────────────────────────────
 
 /**
- * Bridge language adapter for Vue 3 Single-File Components (.vue).
+ * Flint language adapter for Vue 3 Single-File Components (.vue).
  *
  * Internally stores the parsed SFCDescriptor as the `ast` (opaque to callers
- * as `unknown` per IBridgeAdapter contract).
+ * as `unknown` per IFlintAdapter contract).
  */
-export class VueAdapter implements IBridgeAdapter {
+export class VueAdapter implements IFlintAdapter {
 
-    // ── IBridgeAdapter ────────────────────────────────────────────────────────
+    // ── IFlintAdapter ────────────────────────────────────────────────────────
 
     parse(code: string): SFCDescriptor | null {
         return parseSfc(code)
@@ -212,7 +212,7 @@ export class VueAdapter implements IBridgeAdapter {
         return buildLayers((descriptor.template.ast.children as TemplateChildNode[]) ?? [])
     }
 
-    injectBridgeIds(ast: unknown): unknown {
+    injectFlintIds(ast: unknown): unknown {
         // ID injection is done at the text-source level (not AST mutation) so
         // the injected attributes appear in the literal .vue file content.
         // This method returns the descriptor unchanged — the actual injection
@@ -221,18 +221,18 @@ export class VueAdapter implements IBridgeAdapter {
         // elements in the descriptor have IDs in-memory.
         //
         // The real injection path that mutates the file is handled by
-        // `injectBridgeIdsIntoSource()` below, which is called from editorStore.
+        // `injectFlintIdsIntoSource()` below, which is called from editorStore.
         return ast
     }
 
     /**
-     * Injects data-bridge-id attributes into every <template> element that
+     * Injects data-flint-id attributes into every <template> element that
      * doesn't already have one. Works on the raw source string and returns the
      * modified .vue source.
      *
      * Called from editorStore.setCode() before AST parsing to get a stable ID set.
      */
-    injectBridgeIdsIntoSource(code: string): string {
+    injectFlintIdsIntoSource(code: string): string {
         const descriptor = parseSfc(code)
         if (!descriptor?.template?.ast) return code
 
@@ -243,15 +243,15 @@ export class VueAdapter implements IBridgeAdapter {
             for (const node of nodes) {
                 if (node.type !== NodeTypes.ELEMENT) continue
                 const el = node as ElementNode
-                if (getBridgeId(el) === undefined) {
-                    // Insert data-bridge-id as the first attribute after the tag name.
+                if (getFlintId(el) === undefined) {
+                    // Insert data-flint-id as the first attribute after the tag name.
                     // el.loc.start points to '<'; the tag name ends at startTag end.
                     // We find the insertion point just before the first prop or '>'.
                     const tagEnd = el.loc.start.offset + 1 + el.tag.length
                     splices.push({
                         start: tagEnd,
                         end: tagEnd,
-                        replacement: ` data-bridge-id="${makeId()}"`,
+                        replacement: ` data-flint-id="${makeId()}"`,
                     })
                 }
                 walk(el.children as TemplateChildNode[])
@@ -481,11 +481,11 @@ export class VueAdapter implements IBridgeAdapter {
         return { code: current, inversions }
     }
 
-    nodeExists(code: string, bridgeId: string): boolean {
+    nodeExists(code: string, flintId: string): boolean {
         const descriptor = parseSfc(code)
         if (!descriptor?.template?.ast) return false
         const nodes = (descriptor.template.ast.children ?? []) as TemplateChildNode[]
-        return findById(nodes, bridgeId) !== null
+        return findById(nodes, flintId) !== null
     }
 
     /**
@@ -506,7 +506,7 @@ export class VueAdapter implements IBridgeAdapter {
 
     transplantNode(liveAst: unknown, _historicAst: unknown, _nodeId: string): void {
         // Structural transplant for Vue is a snapshot-based undo (handled by
-        // the 'restoreCode' inverse). This no-op keeps the IBridgeAdapter
+        // the 'restoreCode' inverse). This no-op keeps the IFlintAdapter
         // contract satisfied; the real recovery goes through Phase D's gitManager.
         void liveAst
     }

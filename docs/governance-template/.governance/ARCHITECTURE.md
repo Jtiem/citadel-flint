@@ -38,7 +38,7 @@
 [Describe the security/isolation model. Which code runs where? What can't talk to what?]
 
 ```
-[Process A]  <-->  [Bridge/IPC]  <-->  [Process B]
+[Process A]  <-->  [Flint/IPC]  <-->  [Process B]
   has: X, Y           exposes: Z         has: W
   cannot: A, B                           cannot: C, D
 ```

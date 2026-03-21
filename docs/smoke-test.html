@@ -1,0 +1,1207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flint Smoke Test — March 21, 2026</title>
+<style>
+  :root {
+    --bg: #0e0e12;
+    --surface: #16161d;
+    --surface-hover: #1c1c26;
+    --border: #2a2a36;
+    --text: #e4e4ed;
+    --text-muted: #8888a0;
+    --accent: #6366f1;
+    --accent-dim: #4f46e5;
+    --green: #22c55e;
+    --green-bg: rgba(34,197,94,0.08);
+    --red: #ef4444;
+    --red-bg: rgba(239,68,68,0.08);
+    --amber: #f59e0b;
+    --amber-bg: rgba(245,158,11,0.08);
+    --skip-color: #6b7280;
+    --skip-bg: rgba(107,114,128,0.08);
+    --radius: 10px;
+    --mono: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 0;
+  }
+
+  .header {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    backdrop-filter: blur(12px);
+  }
+
+  .header h1 {
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  .header .date {
+    color: var(--text-muted);
+    font-size: 14px;
+  }
+
+  .progress-bar-container {
+    position: sticky;
+    top: 53px;
+    z-index: 99;
+    background: var(--bg);
+    padding: 0 24px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .progress-stats {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    padding: 10px 0 8px;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+
+  .progress-stats .stat {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .progress-stats .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+
+  .progress-stats .dot.pass { background: var(--green); }
+  .progress-stats .dot.fail { background: var(--red); }
+  .progress-stats .dot.skip { background: var(--skip-color); }
+
+  .progress-track {
+    width: 100%;
+    height: 6px;
+    background: var(--surface);
+    border-radius: 3px;
+    overflow: hidden;
+    display: flex;
+  }
+
+  .progress-fill-pass {
+    height: 100%;
+    background: var(--green);
+    transition: width 0.3s ease;
+  }
+
+  .progress-fill-fail {
+    height: 100%;
+    background: var(--red);
+    transition: width 0.3s ease;
+  }
+
+  .progress-fill-skip {
+    height: 100%;
+    background: var(--skip-color);
+    transition: width 0.3s ease;
+  }
+
+  .container {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 32px 24px 120px;
+  }
+
+  .intro {
+    color: var(--text-muted);
+    font-size: 15px;
+    margin-bottom: 32px;
+    line-height: 1.7;
+    border-left: 3px solid var(--accent);
+    padding-left: 16px;
+  }
+
+  .phase {
+    margin-bottom: 40px;
+  }
+
+  .phase-header {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 4px;
+  }
+
+  .phase-header h2 {
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  .phase-time {
+    font-size: 13px;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+
+  .phase-progress {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 16px;
+  }
+
+  .section {
+    margin-bottom: 20px;
+  }
+
+  .section h3 {
+    font-size: 14px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+  }
+
+  .command-hint {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    margin-bottom: 10px;
+    color: var(--accent);
+    cursor: pointer;
+    position: relative;
+  }
+
+  .command-hint:hover::after {
+    content: 'click to copy';
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+  }
+
+  .command-hint.copied::after {
+    content: 'copied';
+    color: var(--green);
+  }
+
+  .check-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    margin-bottom: 4px;
+    transition: background 0.15s;
+    cursor: pointer;
+    user-select: none;
+    position: relative;
+  }
+
+  .check-item:hover {
+    background: var(--surface-hover);
+  }
+
+  .check-item.state-pass {
+    background: var(--green-bg);
+  }
+
+  .check-item.state-fail {
+    background: var(--red-bg);
+  }
+
+  .check-item.state-skip {
+    background: var(--skip-bg);
+  }
+
+  .check-btn {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    border: 2px solid var(--border);
+    background: transparent;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s;
+    color: transparent;
+    margin-top: 1px;
+  }
+
+  .state-pass .check-btn {
+    border-color: var(--green);
+    background: var(--green);
+    color: #fff;
+  }
+
+  .state-fail .check-btn {
+    border-color: var(--red);
+    background: var(--red);
+    color: #fff;
+  }
+
+  .state-skip .check-btn {
+    border-color: var(--skip-color);
+    background: var(--skip-color);
+    color: #fff;
+  }
+
+  .check-label {
+    font-size: 14px;
+    line-height: 1.5;
+    flex: 1;
+  }
+
+  .check-label code {
+    font-family: var(--mono);
+    font-size: 12px;
+    background: var(--surface);
+    padding: 1px 5px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+  }
+
+  .state-pass .check-label {
+    color: var(--green);
+  }
+
+  .state-fail .check-label {
+    text-decoration: line-through;
+    color: var(--red);
+  }
+
+  .state-skip .check-label {
+    color: var(--skip-color);
+    font-style: italic;
+  }
+
+  .check-actions {
+    display: none;
+    gap: 4px;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  .check-item:hover .check-actions,
+  .check-item.state-fail .check-actions,
+  .check-item.state-skip .check-actions {
+    display: flex;
+  }
+
+  .action-btn {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-muted);
+    cursor: pointer;
+    font-family: inherit;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+  }
+
+  .action-btn:hover { border-color: var(--text-muted); color: var(--text); }
+  .action-btn.fail-btn:hover { border-color: var(--red); color: var(--red); }
+  .action-btn.skip-btn:hover { border-color: var(--skip-color); color: var(--skip-color); }
+
+  .note-input {
+    display: none;
+    width: 100%;
+    margin-top: 6px;
+    padding: 6px 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    resize: none;
+    min-height: 32px;
+  }
+
+  .note-input:focus { border-color: var(--accent); }
+
+  .state-fail .note-input,
+  .state-skip .note-input {
+    display: block;
+  }
+
+  .callout {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    margin: 12px 0;
+    font-size: 14px;
+    color: var(--text-muted);
+    line-height: 1.6;
+  }
+
+  .callout strong {
+    color: var(--text);
+  }
+
+  .callout.action {
+    border-left: 3px solid var(--accent);
+  }
+
+  .callout.skip-note {
+    border-left: 3px solid var(--amber);
+  }
+
+  .expected-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 8px 0;
+    font-size: 14px;
+  }
+
+  .expected-table th {
+    text-align: left;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .expected-table td {
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .expected-table td:first-child {
+    font-family: var(--mono);
+    font-size: 13px;
+    white-space: nowrap;
+  }
+
+  .badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+
+  .badge.approved { background: var(--green-bg); color: var(--green); }
+  .badge.blocked { background: var(--red-bg); color: var(--red); }
+
+  .trouble-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+    margin-top: 8px;
+  }
+
+  .trouble-table th {
+    text-align: left;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .trouble-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+
+  .trouble-table tr:last-child td { border-bottom: none; }
+
+  .divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 32px 0;
+  }
+
+  .notes-section {
+    margin-top: 48px;
+  }
+
+  .notes-section h2 {
+    font-size: 20px;
+    font-weight: 600;
+    margin-bottom: 12px;
+  }
+
+  .notes-area {
+    width: 100%;
+    min-height: 120px;
+    padding: 12px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-size: 14px;
+    font-family: inherit;
+    line-height: 1.6;
+    outline: none;
+    resize: vertical;
+  }
+
+  .notes-area:focus { border-color: var(--accent); }
+
+  .notes-area::placeholder { color: var(--text-muted); }
+
+  .export-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    padding: 12px 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    z-index: 100;
+  }
+
+  .export-bar .summary {
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+
+  .export-btn {
+    padding: 8px 20px;
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: inherit;
+  }
+
+  .export-btn:hover { background: var(--accent-dim); }
+
+  @media (max-width: 600px) {
+    .header { padding: 12px 16px; }
+    .progress-bar-container { padding: 0 16px 10px; }
+    .container { padding: 24px 16px 120px; }
+    .check-actions { display: flex; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Flint Smoke Test</h1>
+  <span class="date">March 21, 2026</span>
+</div>
+
+<div class="progress-bar-container">
+  <div class="progress-stats">
+    <span class="stat"><span class="dot pass"></span> <span id="pass-count">0</span> pass</span>
+    <span class="stat"><span class="dot fail"></span> <span id="fail-count">0</span> fail</span>
+    <span class="stat"><span class="dot skip"></span> <span id="skip-count">0</span> skip</span>
+    <span style="margin-left: auto;" id="pct-label">0%</span>
+  </div>
+  <div class="progress-track">
+    <div class="progress-fill-pass" id="progress-pass" style="width:0%"></div>
+    <div class="progress-fill-fail" id="progress-fail" style="width:0%"></div>
+    <div class="progress-fill-skip" id="progress-skip" style="width:0%"></div>
+  </div>
+</div>
+
+<div class="container">
+
+  <p class="intro">Walk through Flint like a first-time user. Mark each item pass, fail, or skip. I handle all the terminal stuff — you just test the product.</p>
+
+  <!-- BEFORE YOU START -->
+  <div class="phase">
+    <div class="phase-header"><h2>Before you start</h2></div>
+    <div class="callout action">Tell me <strong>"prep for smoke test"</strong> in Claude Code. I'll reset demo files, rebuild the engine, and confirm everything is green. Don't start until I say ready.</div>
+  </div>
+
+  <hr class="divider">
+
+  <!-- PHASE 1 -->
+  <div class="phase" data-phase="1">
+    <div class="phase-header">
+      <h2>Phase 1: Slash Commands</h2>
+      <span class="phase-time">10 min</span>
+    </div>
+    <p class="phase-progress" data-phase-progress="1"></p>
+
+    <div class="section">
+      <h3>See what's available</h3>
+      <div class="command-hint" onclick="copyCommand(this)">/flint</div>
+      <div class="check-item" data-id="1-1"><div class="check-btn"></div><div class="check-label">Clean reference card appears with commands in <strong>Inspect</strong>, <strong>Fix</strong>, and <strong>Ship</strong> groups</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="1-2"><div class="check-btn"></div><div class="check-label">About 10 commands total — not a wall of 100+</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="1-3"><div class="check-btn"></div><div class="check-label">No infrastructure jargon visible (no "swarm-orchestration", no "sparc:batch-executor")</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+
+    <div class="section">
+      <h3>Check that Flint is alive</h3>
+      <div class="command-hint" onclick="copyCommand(this)">/status</div>
+      <div class="check-item" data-id="1-4"><div class="check-btn"></div><div class="check-label">You get a response (not an error)</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="1-5"><div class="check-btn"></div><div class="check-label">It mentions your project folder</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+
+    <div class="section">
+      <h3>Audit a component</h3>
+      <div class="command-hint" onclick="copyCommand(this)">/audit demos/01-rag-ui-builder/banner-compliant.tsx</div>
+      <div class="check-item" data-id="1-6"><div class="check-btn"></div><div class="check-label">Governance report appears in chat — not a tiny collapsed tool result line</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="1-7"><div class="check-btn"></div><div class="check-label">Report says <strong>BLOCKED</strong> at the top</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="1-8"><div class="check-btn"></div><div class="check-label">Design System violations table and Accessibility violations table both visible</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="1-9"><div class="check-btn"></div><div class="check-label">Ends with plain-English next step like "say <code>/fix ...</code> to remediate"</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+
+    <div class="section">
+      <h3>Fix a component</h3>
+      <div class="command-hint" onclick="copyCommand(this)">/fix demos/03-mithril-shadow-audit/drift-component.tsx</div>
+      <div class="check-item" data-id="1-10"><div class="check-btn"></div><div class="check-label">Shows a dry-run preview first (what it plans to change)</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="1-11"><div class="check-btn"></div><div class="check-label">Asks if you want to apply — say yes, fixes apply</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="1-12"><div class="check-btn"></div><div class="check-label">Automatically re-audits and shows improvement</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+
+    <div class="section">
+      <h3>Sweep a folder</h3>
+      <div class="command-hint" onclick="copyCommand(this)">/sweep demos/**/*.tsx</div>
+      <div class="check-item" data-id="1-13"><div class="check-btn"></div><div class="check-label">Multiple files audited and fixed in one pass</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="1-14"><div class="check-btn"></div><div class="check-label">Summary: files scanned, violations fixed, health score before/after</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+
+    <div class="section">
+      <h3>Health report</h3>
+      <div class="command-hint" onclick="copyCommand(this)">/report demos/**/*.tsx</div>
+      <div class="check-item" data-id="1-15"><div class="check-btn"></div><div class="check-label">Health score (0-100), letter grade (A-F), top violated rules and files</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+
+    <div class="section">
+      <h3>Search the registry</h3>
+      <div class="command-hint" onclick="copyCommand(this)">/query announcement banner</div>
+      <div class="check-item" data-id="1-16"><div class="check-btn"></div><div class="check-label">Matching components appear, or "no matching components" — both are fine</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+
+    <div class="section">
+      <h3>Bill of Materials</h3>
+      <div class="command-hint" onclick="copyCommand(this)">/dbom demos/**/*.tsx</div>
+      <div class="check-item" data-id="1-17"><div class="check-btn"></div><div class="check-label">Structured inventory: tokens, components, violations</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+
+    <div class="callout action">Tell me <strong>"reset demos"</strong> before moving on.</div>
+  </div>
+
+  <hr class="divider">
+
+  <!-- PHASE 2 -->
+  <div class="phase" data-phase="2">
+    <div class="phase-header">
+      <h2>Phase 2: Flint Glass Opens</h2>
+      <span class="phase-time">10 min</span>
+    </div>
+    <p class="phase-progress" data-phase-progress="2"></p>
+
+    <div class="callout action">Tell me <strong>"launch Flint"</strong> — I'll start it from the terminal.</div>
+
+    <div class="section">
+      <h3>The window</h3>
+      <div class="check-item" data-id="2-1"><div class="check-btn"></div><div class="check-label">Dark-themed window opens with Flint logo in header</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="2-2"><div class="check-btn"></div><div class="check-label">No blank white screen, no crash</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+
+    <div class="section">
+      <h3>Onboarding screen</h3>
+      <div class="check-item" data-id="2-3"><div class="check-btn"></div><div class="check-label"><strong>Prototype from Figma</strong> — mentions Figma file + component library</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="2-4"><div class="check-btn"></div><div class="check-label"><strong>Connect my design system</strong> — mentions auto-detecting your stack</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="2-5"><div class="check-btn"></div><div class="check-label"><strong>Audit existing code</strong> — mentions 50 WCAG accessibility rules</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="2-6"><div class="check-btn"></div><div class="check-label">Each card has: title, description, "You'll need" line, numbered steps</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="2-7"><div class="check-btn"></div><div class="check-label">Recent projects at bottom (if any exist)</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+
+    <div class="callout"><strong>What to look for:</strong> Do the cards feel clear? Does a first-time user know which one to pick? Is any description too technical?</div>
+  </div>
+
+  <hr class="divider">
+
+  <!-- PHASE 3 -->
+  <div class="phase" data-phase="3">
+    <div class="phase-header">
+      <h2>Phase 3: Audit Existing Code</h2>
+      <span class="phase-time">10 min</span>
+    </div>
+    <p class="phase-progress" data-phase-progress="3"></p>
+
+    <div class="section">
+      <h3>Open the audit-test project</h3>
+      <div class="check-item" data-id="3-1"><div class="check-btn"></div><div class="check-label">Click <strong>"Audit existing code"</strong> — see "Which folder should Flint audit?"</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="3-2"><div class="check-btn"></div><div class="check-label">Choose <strong>Documents &gt; audit-test</strong> — progress spinner, then 3-panel layout opens</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="3-3"><div class="check-btn"></div><div class="check-label">Left panel shows files with <code>src/components/ui/</code> and 6 files</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+
+    <div class="section">
+      <h3>Open and preview a component</h3>
+      <div class="check-item" data-id="3-4"><div class="check-btn"></div><div class="check-label">Click <strong>AlertDialog.tsx</strong> — LivePreview shows rendered component (not blank)</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+
+    <div class="section">
+      <h3>Audit from Claude Code</h3>
+      <div class="command-hint" onclick="copyCommand(this)">/audit src/components/ui/AlertDialog.tsx</div>
+      <div class="check-item" data-id="3-5"><div class="check-btn"></div><div class="check-label"><strong>BLOCKED</strong> verdict with Design System + Accessibility violation tables</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="3-6"><div class="check-btn"></div><div class="check-label">"What's Next" section with plain-English guidance</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="3-7"><div class="check-btn"></div><div class="check-label">Roughly 4 design system + 3 accessibility violations</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+
+    <div class="section">
+      <h3>Audit the full library</h3>
+      <p style="color:var(--text-muted);font-size:14px;margin-bottom:8px;">Run <code>/audit</code> on each file:</p>
+      <table class="expected-table">
+        <thead><tr><th>File</th><th>Expected</th></tr></thead>
+        <tbody>
+          <tr><td>Button.tsx</td><td><span class="badge approved">Approved</span> clean, uses design tokens</td></tr>
+          <tr><td>Badge.tsx</td><td><span class="badge approved">Approved</span></td></tr>
+          <tr><td>Card.tsx</td><td><span class="badge blocked">Blocked</span> hardcoded line-height, heading skip</td></tr>
+          <tr><td>Input.tsx</td><td><span class="badge blocked">Blocked</span> hardcoded colors, missing label</td></tr>
+          <tr><td>AlertDialog.tsx</td><td><span class="badge blocked">Blocked</span> hardcoded colors, heading skip</td></tr>
+          <tr><td>DataTable.tsx</td><td><span class="badge blocked">Blocked</span> hardcoded color, no table caption</td></tr>
+        </tbody>
+      </table>
+      <div class="check-item" data-id="3-8"><div class="check-btn"></div><div class="check-label">All 6 files match expected verdicts in the table above</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="Which file didn't match?"></textarea></div>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <!-- PHASE 4 -->
+  <div class="phase" data-phase="4">
+    <div class="phase-header">
+      <h2>Phase 4: Connect Design System</h2>
+      <span class="phase-time">10 min</span>
+    </div>
+    <p class="phase-progress" data-phase-progress="4"></p>
+
+    <div class="callout action">Tell me <strong>"restart Glass"</strong> — I'll close and relaunch it.</div>
+
+    <div class="section">
+      <h3>Connect flow</h3>
+      <div class="check-item" data-id="4-1"><div class="check-btn"></div><div class="check-label">Click <strong>"Connect my design system"</strong> — see "Where is your codebase?"</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="4-2"><div class="check-btn"></div><div class="check-label">Choose <strong>Documents &gt; audit-test</strong> — 3-panel layout opens</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+
+    <div class="section">
+      <h3>Governance Dashboard</h3>
+      <div class="check-item" data-id="4-3"><div class="check-btn"></div><div class="check-label">Click <strong>"health"</strong> tab — circular ring with letter grade (A-F)</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="4-4"><div class="check-btn"></div><div class="check-label">Top violated rules list appears below the ring</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="4-5"><div class="check-btn"></div><div class="check-label">No "Delta Mode" badge yet (you haven't set a baseline)</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+
+    <div class="section">
+      <h3>Set a baseline</h3>
+      <div class="check-item" data-id="4-6"><div class="check-btn"></div><div class="check-label">Click <strong>"Set Baseline"</strong> — "Delta Mode" badge appears</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="4-7"><div class="check-btn"></div><div class="check-label">Hover the badge — tooltip explains it counts only new violations</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <!-- PHASE 5 -->
+  <div class="phase" data-phase="5">
+    <div class="phase-header">
+      <h2>Phase 5: Figma Plugin</h2>
+      <span class="phase-time">15 min</span>
+    </div>
+    <p class="phase-progress" data-phase-progress="5"></p>
+
+    <div class="callout skip-note"><strong>Skip this phase</strong> if Figma isn't open with a file that has components. It's not on the critical path.</div>
+
+    <div class="section">
+      <h3>Install &amp; connect</h3>
+      <div class="check-item" data-id="5-1"><div class="check-btn"></div><div class="check-label">Figma &gt; Plugins &gt; Development &gt; Import from manifest &gt; select <code>figma-plugin/manifest.json</code></div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="5-2"><div class="check-btn"></div><div class="check-label">Enter endpoint + secret in plugin — shows <strong>"Connected"</strong></div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+
+    <div class="section">
+      <h3>Sync &amp; export</h3>
+      <div class="check-item" data-id="5-3"><div class="check-btn"></div><div class="check-label">Click <strong>"Sync Variables"</strong> — completes without error</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="5-4"><div class="check-btn"></div><div class="check-label">Select a component, click <strong>"Export Selection"</strong> — LivePreview updates</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="5-5"><div class="check-btn"></div><div class="check-label">Run <code>/audit</code> on the generated file — catches hardcoded values + missing a11y</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <!-- PHASE 6 -->
+  <div class="phase" data-phase="6">
+    <div class="phase-header">
+      <h2>Phase 6: Every Panel</h2>
+      <span class="phase-time">10 min</span>
+    </div>
+    <p class="phase-progress" data-phase-progress="6"></p>
+
+    <div class="section">
+      <h3>StatusBar</h3>
+      <div class="check-item" data-id="6-1"><div class="check-btn"></div><div class="check-label">Export gate shows "Blocked" or "Ready" based on violations</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="6-2"><div class="check-btn"></div><div class="check-label">No tokens → amber "No design system" dot with helpful hover tooltip</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+
+    <div class="section">
+      <h3>Activity Feed</h3>
+      <div class="check-item" data-id="6-3"><div class="check-btn"></div><div class="check-label">Click <strong>"activity"</strong> tab — empty state says "No activity yet — Audits, fixes, imports..."</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="6-4"><div class="check-btn"></div><div class="check-label">After an audit: entries appear and are readable</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+
+    <div class="section">
+      <h3>Governance Panel</h3>
+      <div class="check-item" data-id="6-5"><div class="check-btn"></div><div class="check-label">Rules list with on/off toggles — some show <strong>"In development"</strong> badge</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+
+    <div class="section">
+      <h3>Ghost Overlay</h3>
+      <div class="check-item" data-id="6-6"><div class="check-btn"></div><div class="check-label">Open a violated component — ghost overlay highlights hardcoded classes</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="6-7"><div class="check-btn"></div><div class="check-label">No token match says "no matching token — add this value to your design tokens"</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+
+    <div class="section">
+      <h3>Violation Tooltip</h3>
+      <div class="check-item" data-id="6-8"><div class="check-btn"></div><div class="check-label">Hover a badge — color drift shows something like "ΔE 5.2 (limit: 2.0) — noticeably different"</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+
+    <div class="callout"><strong>What to look for:</strong> Does "ΔE 5.2" mean anything to a designer who doesn't know color science? Should we add more context?</div>
+
+    <div class="section">
+      <h3>Agent Dashboard</h3>
+      <div class="check-item" data-id="6-9"><div class="check-btn"></div><div class="check-label">Click <strong>"agents"</strong> tab — header says "Agent Risk Dashboard" with explanation</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+
+    <div class="callout"><strong>What to look for:</strong> Is the Agent Dashboard useful to you, or is it developer-facing noise?</div>
+  </div>
+
+  <hr class="divider">
+
+  <!-- PHASE 7 -->
+  <div class="phase" data-phase="7">
+    <div class="phase-header">
+      <h2>Phase 7: Export Gate</h2>
+      <span class="phase-time">5 min</span>
+    </div>
+    <p class="phase-progress" data-phase-progress="7"></p>
+
+    <div class="section">
+      <h3>Blocked export</h3>
+      <div class="check-item" data-id="7-1"><div class="check-btn"></div><div class="check-label">Open a violated component, press <strong>Cmd+E</strong> — Export Modal shows <strong>BLOCKED</strong></div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="7-2"><div class="check-btn"></div><div class="check-label">Lists specific violations with explanations</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+
+    <div class="section">
+      <h3>Clean export</h3>
+      <div class="check-item" data-id="7-3"><div class="check-btn"></div><div class="check-label">Open <strong>Button.tsx</strong>, press <strong>Cmd+E</strong> — Export Modal shows <strong>PASS</strong> with code preview</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+
+    <div class="callout"><strong>What to look for:</strong> Is the blocked state scary or helpful? Does the user know what to do to get unblocked?</div>
+  </div>
+
+  <hr class="divider">
+
+  <!-- PHASE 8 -->
+  <div class="phase" data-phase="8">
+    <div class="phase-header">
+      <h2>Phase 8: Recovery &amp; Shortcuts</h2>
+      <span class="phase-time">5 min</span>
+    </div>
+    <p class="phase-progress" data-phase-progress="8"></p>
+
+    <div class="section">
+      <h3>Recovery Panel</h3>
+      <div class="check-item" data-id="8-1"><div class="check-btn"></div><div class="check-label">Click clock icon — empty state when no file is open</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="8-2"><div class="check-btn"></div><div class="check-label">With file open, no node selected: "Select a component in the canvas to restore..."</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+
+    <div class="section">
+      <h3>Keyboard shortcuts</h3>
+      <div class="check-item" data-id="8-3"><div class="check-btn"></div><div class="check-label"><strong>Cmd+Z</strong> — undo works</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="8-4"><div class="check-btn"></div><div class="check-label"><strong>Cmd+Shift+Z</strong> — redo works</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="8-5"><div class="check-btn"></div><div class="check-label"><strong>Cmd+O</strong> — folder picker &nbsp;&nbsp; <strong>Cmd+E</strong> — Export Modal</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <!-- PHASE 9 -->
+  <div class="phase" data-phase="9">
+    <div class="phase-header">
+      <h2>Phase 9: shadcn Comparison</h2>
+      <span class="phase-time">5 min</span>
+    </div>
+    <p class="phase-progress" data-phase-progress="9"></p>
+
+    <div class="section">
+      <h3>Well-built library</h3>
+      <div class="command-hint" onclick="copyCommand(this)">/audit ~/Documents/flint-audit-shadcn/src/components/ui/button.tsx</div>
+      <div class="check-item" data-id="9-1"><div class="check-btn"></div><div class="check-label">Result: <span class="badge approved">Approved</span> — clean, no violations</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="command-hint" onclick="copyCommand(this)">/audit ~/Documents/flint-audit-shadcn/src/components/ui/dialog.tsx</div>
+      <div class="check-item" data-id="9-2"><div class="check-btn"></div><div class="check-label">Result: <span class="badge approved">Approved</span></div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+
+    <div class="section">
+      <h3>Hand-rolled comparison</h3>
+      <div class="command-hint" onclick="copyCommand(this)">/audit ~/Documents/audit-test/src/components/ui/AlertDialog.tsx</div>
+      <div class="check-item" data-id="9-3"><div class="check-btn"></div><div class="check-label">Result: <span class="badge blocked">Blocked</span> — hardcoded values, missing accessibility</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+
+    <div class="callout"><strong>What to look for:</strong> Is the contrast clear? Would a stakeholder understand why one passes and the other doesn't?</div>
+  </div>
+
+  <hr class="divider">
+
+  <!-- PHASE 10: BETA EXPERIENCE -->
+  <div class="phase" data-phase="10">
+    <div class="phase-header">
+      <h2>Phase 10: Beta Experience</h2>
+      <span class="phase-time">10 min</span>
+    </div>
+    <p class="phase-progress" data-phase-progress="10"></p>
+
+    <div class="callout">These features only appear in the <strong>packaged beta build</strong> (the .app in <code>release/mac-arm64/</code>). If you're testing from <code>npm run dev</code>, skip this phase.</div>
+
+    <div class="section">
+      <h3>Beta Welcome Screen</h3>
+      <div class="check-item" data-id="10-1"><div class="check-btn"></div><div class="check-label">On first launch of the beta build, a <strong>welcome screen</strong> appears (not the onboarding cards)</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="10-2"><div class="check-btn"></div><div class="check-label">Shows 3 value steps: <strong>See violations</strong>, <strong>Auto-fix with one click</strong>, <strong>Export when clean</strong></div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="10-3"><div class="check-btn"></div><div class="check-label">Shows build ID and days remaining (e.g., "beta-0.1.0-20260321 &middot; 29 days left")</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="10-4"><div class="check-btn"></div><div class="check-label"><strong>"Try the Demo"</strong> button works — loads a project with intentional violations</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="10-5"><div class="check-btn"></div><div class="check-label"><strong>"Skip"</strong> goes to the normal onboarding (3 cards)</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="10-6"><div class="check-btn"></div><div class="check-label">Closing and reopening does NOT show it again (remembered in localStorage)</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+
+    <div class="section">
+      <h3>MCP Setup Wizard</h3>
+      <div class="check-item" data-id="10-7"><div class="check-btn"></div><div class="check-label">Setup wizard detects which IDEs are installed (Claude Code, Cursor, VS Code)</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="10-8"><div class="check-btn"></div><div class="check-label">Shows the MCP config snippet to copy or auto-writes it</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="10-9"><div class="check-btn"></div><div class="check-label">Verify step confirms MCP connection (green check or error state)</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+
+    <div class="callout"><strong>What to look for:</strong> Would a beta tester who has never seen Flint know what to do after the welcome screen? Is the setup wizard clear enough to get MCP connected without asking for help?</div>
+  </div>
+
+  <hr class="divider">
+
+  <!-- PHASE 11: CANVAS VIEWS & BUILD MODE -->
+  <div class="phase" data-phase="11">
+    <div class="phase-header">
+      <h2>Phase 11: Canvas Views &amp; Build Mode</h2>
+      <span class="phase-time">10 min</span>
+    </div>
+    <p class="phase-progress" data-phase-progress="11"></p>
+
+    <div class="section">
+      <h3>Canvas View Toggle</h3>
+      <div class="check-item" data-id="11-1"><div class="check-btn"></div><div class="check-label">Top-center of the canvas: a 3-segment toggle — <strong>Preview</strong>, <strong>Build</strong>, <strong>Govern</strong></div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="11-2"><div class="check-btn"></div><div class="check-label">Clicking each segment switches the canvas view (layout changes)</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="11-3"><div class="check-btn"></div><div class="check-label"><strong>Preview</strong> mode shows the LivePreview iframe (existing behavior)</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+
+    <div class="section">
+      <h3>Build Mode</h3>
+      <div class="check-item" data-id="11-4"><div class="check-btn"></div><div class="check-label">Switch to <strong>Build</strong> — canvas shows component cards (not the iframe)</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="11-5"><div class="check-btn"></div><div class="check-label">Component cards show: thumbnail, component name, category badge</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="11-6"><div class="check-btn"></div><div class="check-label">Cards have an <strong>"Insert"</strong> button</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="11-7"><div class="check-btn"></div><div class="check-label">Clicking a card selects it (indigo ring highlight)</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+
+    <div class="section">
+      <h3>Recipe Strip</h3>
+      <div class="check-item" data-id="11-8"><div class="check-btn"></div><div class="check-label">In Build mode: a horizontally-scrollable strip of recipe chips at the top</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="11-9"><div class="check-btn"></div><div class="check-label">Recipes include: Login Form, Nav Bar, Data Table, Notification, etc.</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="11-10"><div class="check-btn"></div><div class="check-label">Each chip shows a green or amber dot (green = all components available, amber = some missing)</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="11-11"><div class="check-btn"></div><div class="check-label">Clicking a recipe inserts it into the active file</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+
+    <div class="section">
+      <h3>Govern Mode</h3>
+      <div class="check-item" data-id="11-12"><div class="check-btn"></div><div class="check-label">Switch to <strong>Govern</strong> — cards show health grade, ΔE score, A11y status</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="11-13"><div class="check-btn"></div><div class="check-label">Dependency edges connect cards that import each other</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+
+    <div class="callout"><strong>What to look for:</strong> Is the toggle obvious? Does Build mode feel like a useful discovery surface, or just a grid of cards? Are the recipe chips self-explanatory?</div>
+  </div>
+
+  <hr class="divider">
+
+  <!-- PHASE 12: COMMAND PALETTE & FEEDBACK -->
+  <div class="phase" data-phase="12">
+    <div class="phase-header">
+      <h2>Phase 12: Command Palette &amp; Feedback</h2>
+      <span class="phase-time">5 min</span>
+    </div>
+    <p class="phase-progress" data-phase-progress="12"></p>
+
+    <div class="section">
+      <h3>Command Palette</h3>
+      <div class="check-item" data-id="12-1"><div class="check-btn"></div><div class="check-label">Press <strong>Cmd+K</strong> — a Raycast-style palette appears as an overlay</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="12-2"><div class="check-btn"></div><div class="check-label">Typing filters commands (fuzzy search)</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="12-3"><div class="check-btn"></div><div class="check-label">Commands are grouped by category: governance, canvas, git, settings</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="12-4"><div class="check-btn"></div><div class="check-label">Each command shows a keyboard shortcut hint (if it has one)</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="12-5"><div class="check-btn"></div><div class="check-label">Selecting a command executes it and closes the palette</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="12-6"><div class="check-btn"></div><div class="check-label"><strong>Escape</strong> closes the palette cleanly</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+
+    <div class="section">
+      <h3>Beta Feedback Modal</h3>
+      <div class="check-item" data-id="12-7"><div class="check-btn"></div><div class="check-label">Press <strong>Cmd+Shift+F</strong> — feedback modal opens</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="12-8"><div class="check-btn"></div><div class="check-label">Category picker: Bug, Feature Request, Usability, Other</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="12-9"><div class="check-btn"></div><div class="check-label">Severity picker: Cosmetic, Annoying, Blocker</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+      <div class="check-item" data-id="12-10"><div class="check-btn"></div><div class="check-label">Submit works — shows success confirmation</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    </div>
+
+    <div class="callout"><strong>What to look for:</strong> Is Cmd+K discoverable? Does the feedback modal feel lightweight or heavy? Would you actually use it during testing, or just message me directly?</div>
+  </div>
+
+  <hr class="divider">
+
+  <!-- PHASE 13: DEMO DRY RUN -->
+  <div class="phase" data-phase="13">
+    <div class="phase-header">
+      <h2>Phase 13: Demo Dry Run</h2>
+      <span class="phase-time">15 min &middot; optional</span>
+    </div>
+    <p class="phase-progress" data-phase-progress="13"></p>
+
+    <div class="callout action">If you have time, tell me <strong>"reset demos and walk me through the demo script."</strong> I'll reset fixtures and we'll go through it together.</div>
+
+    <div class="check-item" data-id="13-1"><div class="check-btn"></div><div class="check-label">Full demo sequence runs without errors</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+    <div class="check-item" data-id="13-2"><div class="check-btn"></div><div class="check-label">Health score progression makes sense: starts low, ends high after sweep</div><div class="check-actions"><button class="action-btn fail-btn" onclick="setState(this,'fail')">Fail</button><button class="action-btn skip-btn" onclick="setState(this,'skip')">Skip</button></div><textarea class="note-input" placeholder="What went wrong?"></textarea></div>
+  </div>
+
+  <hr class="divider">
+
+  <!-- TROUBLE -->
+  <div class="phase">
+    <div class="phase-header"><h2>If something goes wrong</h2></div>
+    <table class="trouble-table">
+      <thead><tr><th>What you see</th><th>What to tell me</th></tr></thead>
+      <tbody>
+        <tr><td>Glass window is blank/white</td><td>"Glass is blank"</td></tr>
+        <tr><td>Slash command gives an error</td><td>Which command + paste the error</td></tr>
+        <tr><td>"Connection refused"</td><td>"Flint isn't connecting"</td></tr>
+        <tr><td>Preview is a blank iframe</td><td>"Preview is blank"</td></tr>
+        <tr><td>Figma plugin won't connect</td><td>"Figma can't connect"</td></tr>
+        <tr><td>Anything else weird</td><td>Screenshot + what you expected</td></tr>
+      </tbody>
+    </table>
+    <p style="color:var(--text-muted);font-size:14px;margin-top:12px;">You don't need to debug anything. That's my job.</p>
+  </div>
+
+  <hr class="divider">
+
+  <!-- NOTES -->
+  <div class="notes-section">
+    <h2>Notes</h2>
+    <textarea class="notes-area" id="general-notes" placeholder="What passed, what broke, what felt wrong even if it technically worked..."></textarea>
+  </div>
+
+</div>
+
+<!-- EXPORT BAR -->
+<div class="export-bar">
+  <div class="summary" id="bar-summary">0 of 62 checked</div>
+  <button class="export-btn" onclick="exportResults()">Copy Results</button>
+</div>
+
+<script>
+const TOTAL = document.querySelectorAll('.check-item').length;
+const STORAGE_KEY = 'flint-smoke-test-2026-03-21';
+
+function loadState() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    if (saved.items) {
+      for (const [id, data] of Object.entries(saved.items)) {
+        const el = document.querySelector(`[data-id="${id}"]`);
+        if (el && data.state) {
+          el.classList.add(`state-${data.state}`);
+          el.dataset.state = data.state;
+          const btn = el.querySelector('.check-btn');
+          if (data.state === 'pass') btn.textContent = '\u2713';
+          else if (data.state === 'fail') btn.textContent = '\u2717';
+          else if (data.state === 'skip') btn.textContent = '\u2014';
+          if (data.note) el.querySelector('.note-input').value = data.note;
+        }
+      }
+    }
+    if (saved.notes) document.getElementById('general-notes').value = saved.notes;
+  } catch(e) {}
+  updateCounts();
+}
+
+function saveState() {
+  const items = {};
+  document.querySelectorAll('.check-item').forEach(el => {
+    if (el.dataset.state) {
+      items[el.dataset.id] = {
+        state: el.dataset.state,
+        note: el.querySelector('.note-input').value || ''
+      };
+    }
+  });
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({
+    items,
+    notes: document.getElementById('general-notes').value
+  }));
+}
+
+function togglePass(item) {
+  const current = item.dataset.state;
+  item.classList.remove('state-pass', 'state-fail', 'state-skip');
+  const btn = item.querySelector('.check-btn');
+  if (current === 'pass') {
+    delete item.dataset.state;
+    btn.textContent = '';
+  } else {
+    item.dataset.state = 'pass';
+    item.classList.add('state-pass');
+    btn.textContent = '\u2713';
+  }
+  saveState();
+  updateCounts();
+}
+
+function setState(actionBtn, state) {
+  event.stopPropagation();
+  const item = actionBtn.closest('.check-item');
+  const current = item.dataset.state;
+  const btn = item.querySelector('.check-btn');
+  item.classList.remove('state-pass', 'state-fail', 'state-skip');
+  if (current === state) {
+    delete item.dataset.state;
+    btn.textContent = '';
+  } else {
+    item.dataset.state = state;
+    item.classList.add(`state-${state}`);
+    btn.textContent = state === 'fail' ? '\u2717' : '\u2014';
+    if (state === 'fail' || state === 'skip') {
+      setTimeout(() => item.querySelector('.note-input').focus(), 100);
+    }
+  }
+  saveState();
+  updateCounts();
+}
+
+function updateCounts() {
+  const all = document.querySelectorAll('.check-item');
+  let pass = 0, fail = 0, skip = 0;
+  all.forEach(el => {
+    if (el.dataset.state === 'pass') pass++;
+    else if (el.dataset.state === 'fail') fail++;
+    else if (el.dataset.state === 'skip') skip++;
+  });
+  const checked = pass + fail + skip;
+  const pct = Math.round((checked / TOTAL) * 100);
+  document.getElementById('pass-count').textContent = pass;
+  document.getElementById('fail-count').textContent = fail;
+  document.getElementById('skip-count').textContent = skip;
+  document.getElementById('pct-label').textContent = pct + '%';
+  document.getElementById('progress-pass').style.width = ((pass / TOTAL) * 100) + '%';
+  document.getElementById('progress-fail').style.width = ((fail / TOTAL) * 100) + '%';
+  document.getElementById('progress-skip').style.width = ((skip / TOTAL) * 100) + '%';
+  document.getElementById('bar-summary').textContent = `${checked} of ${TOTAL} checked`;
+
+  // Phase progress
+  for (let p = 1; p <= 13; p++) {
+    const phase = document.querySelector(`[data-phase="${p}"]`);
+    if (!phase) continue;
+    const items = phase.querySelectorAll('.check-item');
+    let pp = 0, pt = items.length;
+    items.forEach(i => { if (i.dataset.state) pp++; });
+    const label = document.querySelector(`[data-phase-progress="${p}"]`);
+    if (label) label.textContent = `${pp}/${pt} checked`;
+  }
+}
+
+function copyCommand(el) {
+  navigator.clipboard.writeText(el.textContent.trim());
+  el.classList.add('copied');
+  setTimeout(() => el.classList.remove('copied'), 1500);
+}
+
+function exportResults() {
+  let out = 'FLINT SMOKE TEST RESULTS — ' + new Date().toLocaleDateString() + '\n';
+  out += '='.repeat(50) + '\n\n';
+  const all = document.querySelectorAll('.check-item');
+  let pass = 0, fail = 0, skip = 0;
+  let failNotes = [];
+  all.forEach(el => {
+    const s = el.dataset.state || 'unchecked';
+    const label = el.querySelector('.check-label').textContent.trim();
+    const note = el.querySelector('.note-input').value.trim();
+    const icon = s === 'pass' ? '\u2705' : s === 'fail' ? '\u274C' : s === 'skip' ? '\u23ED' : '\u2B1C';
+    out += `${icon} ${label}\n`;
+    if (note) out += `   Note: ${note}\n`;
+    if (s === 'pass') pass++;
+    else if (s === 'fail') { fail++; failNotes.push({ label, note }); }
+    else if (s === 'skip') skip++;
+  });
+  out += '\n' + '='.repeat(50) + '\n';
+  out += `PASS: ${pass}  FAIL: ${fail}  SKIP: ${skip}  UNCHECKED: ${TOTAL - pass - fail - skip}\n\n`;
+  if (failNotes.length) {
+    out += 'FAILURES:\n';
+    failNotes.forEach(f => { out += `- ${f.label}${f.note ? ' — ' + f.note : ''}\n`; });
+    out += '\n';
+  }
+  const general = document.getElementById('general-notes').value.trim();
+  if (general) out += 'NOTES:\n' + general + '\n';
+  navigator.clipboard.writeText(out);
+  const btn = document.querySelector('.export-btn');
+  btn.textContent = 'Copied!';
+  setTimeout(() => btn.textContent = 'Copy Results', 2000);
+}
+
+// Click to toggle pass
+document.querySelectorAll('.check-item').forEach(item => {
+  item.querySelector('.check-btn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    togglePass(item);
+  });
+  item.addEventListener('click', (e) => {
+    if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'BUTTON') return;
+    togglePass(item);
+  });
+});
+
+// Save notes on input
+document.querySelectorAll('.note-input').forEach(n => n.addEventListener('input', saveState));
+document.getElementById('general-notes').addEventListener('input', saveState);
+
+loadState();
+</script>
+
+</body>
+</html>

@@ -9,7 +9,7 @@
  *   - Access-Control-Allow-Origin is set to '*'. This is safe because the server
  *     is loopback-only; wildcard CORS is required for Figma plugin iframes, which
  *     present a 'null' origin that cannot be matched by a specific origin string.
- *   - Every non-OPTIONS request must supply a matching x-bridge-secret header.
+ *   - Every non-OPTIONS request must supply a matching x-flint-secret header.
  *   - SEC.6: Per-route token-bucket rate limiting prevents DoS from misbehaving
  *     plugins or scripts. OPTIONS (CORS preflight) requests are always exempt.
  *
@@ -30,6 +30,7 @@ import type { AuditorToken } from './ingestion/index.js'
 // SEC.6: Rate limiter lives in a pure module with no Electron/SQLite imports
 // so it can be unit-tested in isolation.
 import { checkRateLimit } from './rateLimiter.js'
+import { BRAND, ipcChannel } from '../shared/brand.ts'
 
 const BASE_PORT = 4545
 const MAX_PORT_ATTEMPTS = 10
@@ -37,7 +38,7 @@ const MAX_PORT_ATTEMPTS = 10
 // SEC.2: Secret is no longer a compile-time constant. It is injected at runtime
 // by main.ts via startIngestionServer(secret) using crypto.randomBytes(32).
 // This prevents the hardcoded secret from shipping in the binary.
-let bridgeSecret: string | null = null
+let flintSecret: string | null = null
 
 let server: http.Server | null = null
 let activePort = BASE_PORT
@@ -100,7 +101,7 @@ function setCorsHeaders(res: http.ServerResponse): void {
     // origin that cannot be matched by a specific origin string.
     res.setHeader('Access-Control-Allow-Origin', '*')
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-bridge-secret')
+    res.setHeader('Access-Control-Allow-Headers', `Content-Type, ${BRAND.secretHeader}`)
     res.setHeader('Access-Control-Max-Age', '86400')
 }
 
@@ -147,19 +148,19 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     }
 
     // SEC.2: Guard against requests arriving before startIngestionServer sets the secret
-    if (bridgeSecret === null) {
+    if (flintSecret === null) {
         sendJson(res, 503, { error: 'Server not fully initialized' })
         return
     }
 
-    // 2. Enforce x-bridge-secret on all other methods
-    const secret = req.headers['x-bridge-secret']
-    if (!secret || secret !== bridgeSecret) {
-        const unauthorizedReason = 'Unauthorized: missing or invalid x-bridge-secret'
+    // 2. Enforce secret header on all other methods
+    const secret = req.headers[BRAND.secretHeader]
+    if (!secret || secret !== flintSecret) {
+        const unauthorizedReason = `Unauthorized: missing or invalid ${BRAND.secretHeader}`
         sendJson(res, 401, { error: unauthorizedReason })
         const errWindows = BrowserWindow.getAllWindows()
         if (errWindows.length > 0) {
-            errWindows[0].webContents.send('bridge:figma-error', {
+            errWindows[0].webContents.send(ipcChannel('figma-error'), {
                 statusCode: 401,
                 reason: unauthorizedReason,
                 timestamp: Date.now(),
@@ -191,7 +192,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
                     sendJson(res, 400, { error: emptyReason })
                     const badWindows = BrowserWindow.getAllWindows()
                     if (badWindows.length > 0) {
-                        badWindows[0].webContents.send('bridge:figma-error', {
+                        badWindows[0].webContents.send(ipcChannel('figma-error'), {
                             statusCode: 400,
                             reason: emptyReason,
                             timestamp: Date.now(),
@@ -208,22 +209,22 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
                 // Notify the renderer so the token store re-fetches automatically.
                 const windows = BrowserWindow.getAllWindows()
                 if (windows.length > 0) {
-                    windows[0].webContents.send('bridge:tokens-updated')
+                    windows[0].webContents.send(ipcChannel('tokens-updated'))
                     // Push connection event so FigmaSetupWizard / StatusBar can react.
-                    windows[0].webContents.send('bridge:figma-connected', {
+                    windows[0].webContents.send(ipcChannel('figma-connected'), {
                         tokenCount: tokens.length,
                         timestamp: lastWebhookAt,
                     })
                 }
 
-                console.log(`[Bridge] /ingest: upserted ${tokens.length} tokens`)
+                console.log(`${BRAND.logPrefix} /ingest: upserted ${tokens.length} tokens`)
                 sendJson(res, 200, { success: true, count: tokens.length })
             } catch {
                 const parseReason = 'Invalid JSON payload'
                 sendJson(res, 400, { error: parseReason })
                 const parseErrWindows = BrowserWindow.getAllWindows()
                 if (parseErrWindows.length > 0) {
-                    parseErrWindows[0].webContents.send('bridge:figma-error', {
+                    parseErrWindows[0].webContents.send(ipcChannel('figma-error'), {
                         statusCode: 400,
                         reason: parseReason,
                         timestamp: Date.now(),
@@ -272,7 +273,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
                     windows[0].webContents.send('figma-asset-received', { id: payload.id })
                 }
 
-                console.log(`[Bridge] Asset ingested: ${payload.id}`)
+                console.log(`${BRAND.logPrefix} Asset ingested: ${payload.id}`)
                 sendJson(res, 200, { success: true, id: payload.id })
             } catch {
                 sendJson(res, 400, { error: 'Invalid JSON payload' })
@@ -304,7 +305,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
                 // For /ingest-ast, the plugin sends { type, payload } where payload is the AST JSON string
                 // or just the AST JSON string directly. We'll handle both.
                 let figmaPayload: string;
-                if (payload && payload.type === 'application/x-bridge-figma-ast') {
+                if (payload && payload.type === 'application/x-flint-figma-ast') {
                     figmaPayload = typeof payload.payload === 'string'
                         ? payload.payload
                         : JSON.stringify(payload.payload)
@@ -326,10 +327,10 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
                     _storePreHealCode(figmaPayload)
                     const healWindows = BrowserWindow.getAllWindows()
                     if (healWindows.length > 0) {
-                        healWindows[0].webContents.send('bridge:import-summary', healResult.summary)
+                        healWindows[0].webContents.send(ipcChannel('import-summary'), healResult.summary)
                     }
                     console.log(
-                        `[Bridge] /ingest-ast: heal pass — ` +
+                        `${BRAND.logPrefix} /ingest-ast: heal pass — ` +
                         `tier1=${healResult.summary.tier1Fixed.length} ` +
                         `tier2=${healResult.summary.tier2Flagged.length} ` +
                         `tier3=${healResult.summary.tier3Unknown} ` +
@@ -337,17 +338,66 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
                     )
                 } catch (healErr) {
                     // Never block ingestion on heal errors — degrade gracefully
-                    console.error('[Bridge] /ingest-ast: heal error (raw payload used):', healErr)
+                    console.error(`${BRAND.logPrefix} /ingest-ast: heal error (raw payload used):`, healErr)
                 }
                 // ── End ING.1 ────────────────────────────────────────────────────────
+
+                // ── FIGMA-MAP.2: Extract and persist component ID mappings ────────
+                try {
+                    const parsedPayload = typeof healedPayload === 'string' ? JSON.parse(healedPayload) : healedPayload
+                    const figmaComponents: Array<{ id: string; name: string; fileKey: string }> = []
+                    const extractIds = (node: any) => {
+                        if (node?.figmaComponentId && node?.figmaComponent) {
+                            figmaComponents.push({
+                                id: node.figmaComponentId,
+                                name: node.figmaComponent,
+                                fileKey: node.figmaFileKey ?? 'unknown',
+                            })
+                        }
+                        if (Array.isArray(node?.children)) {
+                            for (const child of node.children) extractIds(child)
+                        }
+                    }
+                    extractIds(parsedPayload)
+
+                    if (figmaComponents.length > 0) {
+                        // Persist mappings to SQLite
+                        const createTable = db.prepare(`
+                            CREATE TABLE IF NOT EXISTS figma_component_mappings (
+                                figma_component_id TEXT PRIMARY KEY,
+                                figma_file_key TEXT NOT NULL,
+                                figma_component_name TEXT NOT NULL,
+                                project_component_name TEXT NOT NULL DEFAULT '',
+                                confidence TEXT NOT NULL DEFAULT 'auto-name',
+                                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                            )
+                        `)
+                        createTable.run()
+
+                        const upsert = db.prepare(`
+                            INSERT INTO figma_component_mappings (figma_component_id, figma_file_key, figma_component_name, updated_at)
+                            VALUES (?, ?, ?, datetime('now'))
+                            ON CONFLICT(figma_component_id) DO UPDATE SET
+                                figma_component_name = excluded.figma_component_name,
+                                updated_at = datetime('now')
+                        `)
+                        for (const fc of figmaComponents) {
+                            upsert.run(fc.id, fc.fileKey, fc.name)
+                        }
+                        console.log(`${BRAND.logPrefix} FIGMA-MAP: persisted ${figmaComponents.length} component ID mapping(s)`)
+                    }
+                } catch (mapErr) {
+                    console.error(`${BRAND.logPrefix} FIGMA-MAP: component ID extraction failed (non-blocking):`, mapErr)
+                }
+                // ── End FIGMA-MAP.2 ──────────────────────────────────────────────────
 
                 // Send healed code (or raw payload on heal error) to renderer
                 const windows = BrowserWindow.getAllWindows()
                 if (windows.length > 0) {
-                    windows[0].webContents.send('bridge:hydro-paste-auto', healedPayload)
+                    windows[0].webContents.send(ipcChannel('hydro-paste-auto'), healedPayload)
                 }
 
-                console.log('[Bridge] /ingest-ast: payload dispatched to renderer')
+                console.log(`${BRAND.logPrefix} /ingest-ast: payload dispatched to renderer`)
                 sendJson(res, 200, { success: true })
             } catch {
                 sendJson(res, 400, { error: 'Invalid JSON payload' })
@@ -376,7 +426,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
 function tryListen(port: number): void {
     if (port > BASE_PORT + MAX_PORT_ATTEMPTS) {
         console.error(
-            `[Bridge] Could not bind to any port in range ${BASE_PORT}–${BASE_PORT + MAX_PORT_ATTEMPTS}. Ingestion server not started.`
+            `${BRAND.logPrefix} Could not bind to any port in range ${BASE_PORT}–${BASE_PORT + MAX_PORT_ATTEMPTS}. Ingestion server not started.`
         )
         return
     }
@@ -386,41 +436,41 @@ function tryListen(port: number): void {
     attempt.listen(port, '127.0.0.1', () => {
         server = attempt
         activePort = port
-        console.log(`[Bridge] Ingestion server listening on http://127.0.0.1:${port}`)
+        console.log(`${BRAND.logPrefix} Ingestion server listening on http://127.0.0.1:${port}`)
         // SEC.2: Do NOT log the secret. It stays in main process memory only.
     })
 
     attempt.on('error', (err: NodeJS.ErrnoException) => {
         attempt.close()
         if (err.code === 'EADDRINUSE') {
-            console.warn(`[Bridge] Port ${port} in use, trying ${port + 1}…`)
+            console.warn(`${BRAND.logPrefix} Port ${port} in use, trying ${port + 1}…`)
             tryListen(port + 1)
         } else {
-            console.error('[Bridge] Ingestion server error:', err)
+            console.error(`${BRAND.logPrefix} Ingestion server error:`, err)
         }
     })
 }
 
 export function startIngestionServer(secret: string): void {
     if (server) {
-        console.warn('[Bridge] Ingestion server already running.')
+        console.warn(`${BRAND.logPrefix} Ingestion server already running.`)
         return
     }
     // SEC.2: Validate secret strength before accepting it
     if (!secret || secret.length < 32) {
         throw new Error('startIngestionServer requires a secret of at least 32 characters')
     }
-    bridgeSecret = secret
+    flintSecret = secret
     tryListen(BASE_PORT)
 }
 
 export function stopIngestionServer(): void {
     if (server) {
         server.close(() => {
-            console.log('[Bridge] Ingestion server stopped.')
+            console.log(`${BRAND.logPrefix} Ingestion server stopped.`)
         })
         server = null
-        bridgeSecret = null  // SEC.2: Clear secret on stop to prevent stale references
+        flintSecret = null  // SEC.2: Clear secret on stop to prevent stale references
     }
 }
 

@@ -1,8 +1,8 @@
 /**
- * SARIF Builder -- bridge-ci/src/sarif-builder.ts
+ * SARIF Builder -- flint-ci/src/sarif-builder.ts
  *
  * Generates GitHub Code Scanning-compatible SARIF 2.1.0 output from
- * an AuditSummary. This lets Bridge violations appear as native code
+ * an AuditSummary. This lets Flint violations appear as native code
  * annotations in GitHub pull request diffs.
  *
  * Schema: https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json
@@ -213,7 +213,7 @@ export function buildSarifReport(summary: AuditSummary): SarifReport {
         // -- Parse errors --
         if (fileResult.parseError) {
             results.push({
-                ruleId: 'BRIDGE-PARSE',
+                ruleId: 'FLINT-PARSE',
                 level: 'error',
                 message: { text: fileResult.parseError },
                 locations: [{
@@ -225,7 +225,7 @@ export function buildSarifReport(summary: AuditSummary): SarifReport {
                     },
                 }],
             })
-            usedRuleIds.add('BRIDGE-PARSE')
+            usedRuleIds.add('FLINT-PARSE')
         }
     }
 
@@ -234,9 +234,9 @@ export function buildSarifReport(summary: AuditSummary): SarifReport {
     for (const ruleId of usedRuleIds) {
         if (RULE_DEFINITIONS[ruleId]) {
             rules.push(RULE_DEFINITIONS[ruleId])
-        } else if (ruleId === 'BRIDGE-PARSE') {
+        } else if (ruleId === 'FLINT-PARSE') {
             rules.push({
-                id: 'BRIDGE-PARSE',
+                id: 'FLINT-PARSE',
                 name: 'ParseError',
                 shortDescription: { text: 'Source file could not be parsed by Babel' },
                 defaultConfiguration: { level: 'error' },
@@ -245,7 +245,7 @@ export function buildSarifReport(summary: AuditSummary): SarifReport {
             rules.push({
                 id: ruleId,
                 name: ruleId,
-                shortDescription: { text: `Bridge governance rule ${ruleId}` },
+                shortDescription: { text: `Flint governance rule ${ruleId}` },
             })
         }
     }
@@ -256,9 +256,9 @@ export function buildSarifReport(summary: AuditSummary): SarifReport {
         runs: [{
             tool: {
                 driver: {
-                    name: 'Bridge Governance',
+                    name: 'Flint Governance',
                     version: '1.0.0',
-                    informationUri: 'https://github.com/ruvnet/bridge',
+                    informationUri: 'https://github.com/ruvnet/flint',
                     rules,
                 },
             },

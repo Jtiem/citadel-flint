@@ -1,4 +1,13 @@
 {
+  "mcpServers": {
+    "flint": {
+      "command": "/usr/local/bin/node",
+      "args": [
+        "/Users/tiemann/Lunar-Elevator-Flint/flint-mcp/dist/server.js"
+      ],
+      "cwd": "/Users/tiemann/Lunar-Elevator-Flint"
+    }
+  },
   "hooks": {
     "PreToolUse": [
       {
@@ -163,14 +172,55 @@
   },
   "permissions": {
     "allow": [
+      "Bash(git status*)",
+      "Bash(git log*)",
+      "Bash(git diff*)",
+      "Bash(git branch*)",
+      "Bash(git show*)",
+      "Bash(git fetch*)",
+      "Bash(git stash list*)",
+      "Bash(npx tsc*)",
+      "Bash(npx vitest*)",
+      "Bash(npm test*)",
+      "Bash(npm run test*)",
+      "Bash(npm run build*)",
+      "Bash(npx vite*)",
+      "Bash(node_modules/.bin/vitest*)",
+      "Bash(flint-mcp/node_modules/.bin/vitest*)",
+      "Bash(npm list*)",
+      "Bash(node .claude/*)",
       "Bash(npx @claude-flow*)",
       "Bash(npx claude-flow*)",
-      "Bash(node .claude/*)",
-      "mcp__claude-flow__:*"
+      "Bash(/opt/homebrew/bin/gh pr*)",
+      "Bash(/opt/homebrew/bin/gh auth*)",
+      "Bash(/opt/homebrew/bin/gh api*)",
+      "Bash(npx @vscode/vsce*)",
+      "mcp__flint__*",
+      "mcp__claude-flow__*",
+      "Edit(.flint-context/*)",
+      "Write(.flint-context/*)",
+      "Edit(HANDOFF.md)",
+      "Write(HANDOFF.md)",
+      "Edit(.claude/settings.json)",
+      "Write(.claude/helpers/*)"
     ],
     "deny": [
       "Read(./.env)",
-      "Read(./.env.*)"
+      "Read(./.env.*)",
+      "Bash(rm -rf *)",
+      "Bash(git push --force*)",
+      "Bash(git push -f *)",
+      "Bash(git reset --hard*)",
+      "Bash(git checkout -- .)",
+      "Bash(git clean -f*)",
+      "Bash(git branch -D *)",
+      "Bash(npm install*)",
+      "Bash(npm uninstall*)",
+      "Bash(npx npm*)",
+      "Bash(sudo *)",
+      "Bash(pkill *)",
+      "Bash(kill *)",
+      "Bash(> *)"
     ]
   },
   "attribution": {
@@ -225,7 +275,7 @@
     "memory": {
       "backend": "hybrid",
       "enableHNSW": true,
-      "learningBridge": {
+      "learningFlint": {
         "enabled": true
       },
       "memoryGraph": {

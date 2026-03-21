@@ -5,7 +5,7 @@
  * Loaded into the Monaco editor by the "Load Demo" button in LivePreview.
  *
  * Design token class names used (all resolved by the Tailwind CDN config
- * injected from the Bridge token store):
+ * injected from the Flint token store):
  *
  *   bg-surface-base        → page / canvas background
  *   bg-surface-card        → card / panel background
@@ -59,7 +59,7 @@ export default function PaymentCalculator() {
         {/* ── Header ─────────────────────────────────────────────── */}
         <div className="mb-8">
           <p className="text-xs font-semibold uppercase tracking-widest text-brand-primary mb-2">
-            Bridge IDE · Demo
+            Flint IDE · Demo
           </p>
           <h1 className="text-2xl font-bold text-content-primary tracking-tight">
             Enrollment Calculator

@@ -14,16 +14,16 @@
  *   - Auto-Fix is only offered when `warning.nearestToken` is non-null.
  *   - The hardcoded class being replaced is extracted from `warning.message`
  *     (the quoted token between single-quotes in the linter message string).
- *   - All colors and spacing use the Bridge design token palette.
+ *   - All colors and spacing use the Flint design token palette.
  *   - No hardcoded hex values. No arbitrary spacing values.
  *
- * Mithril Safety: all classes from Bridge design token palette.
+ * Mithril Safety: all classes from Flint design token palette.
  */
 
 import { useState } from 'react'
 import { AlertTriangle, ArrowRight, ShieldCheck, Wrench } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
-import type { LinterWarning } from '../../types/bridge-api'
+import type { LinterWarning } from '../../types/flint-api'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

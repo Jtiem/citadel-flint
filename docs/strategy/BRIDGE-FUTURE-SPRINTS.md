@@ -1,4 +1,4 @@
-# Bridge MCP — Future Sprints Roadmap
+# Flint MCP — Future Sprints Roadmap
 
 **Date:** 2026-03-13
 **Version:** 1.0
@@ -25,7 +25,7 @@ EXP.1 is complete. The remaining 16 workstreams are sequenced below by dependenc
 |----|------|--------|-------------|
 | EXP.1 | CI/CD Design Governance Gate | **DONE** | +62 (347→409) |
 
-Deliverables: `bridge audit <glob>` CLI, SARIF 2.1.0 formatter, PR comment formatter, GitHub Action, CI config schema, exit code semantics.
+Deliverables: `flint audit <glob>` CLI, SARIF 2.1.0 formatter, PR comment formatter, GitHub Action, CI config schema, exit code semantics.
 
 ---
 
@@ -42,7 +42,7 @@ These components serve multiple downstream phases. Build them once, reuse everyw
 | Export/Report generator (PDF/JSON/HTML) | INFRA.4 | GOV.1, EXP.2, EXP.6 | S2 | 2-3 days |
 | Session ledger schema | INFRA.5 | GOV.3-4 | S3 | 1-2 days |
 
-**Location:** All new tables in existing `bridge-registry.db`. No new databases.
+**Location:** All new tables in existing `flint-registry.db`. No new databases.
 
 ---
 
@@ -64,14 +64,14 @@ lastUpdated: timestamp
 
 **Implementation:**
 - Extend `Violation` type with `provenance` object
-- Store rule provenance in `bridge-registry.db` (no new database)
+- Store rule provenance in `flint-registry.db` (no new database)
 - Export Gate modal: add "Compliance Summary" section showing rule sources
 - Glass Observability HUDs: show regulatory citation on selection/hover
 - New "Audit Report" export format (PDF/JSON) for compliance officers
 
 **Why it's cheap:** Decorating existing violations with metadata — no linting logic changes.
 
-**Files:** `bridge-mcp/src/core/violations/types.ts`, `bridge-mcp/src/core/formatters.ts`, new `bridge-mcp/src/core/compliance/provenance.ts`
+**Files:** `flint-mcp/src/core/violations/types.ts`, `flint-mcp/src/core/formatters.ts`, new `flint-mcp/src/core/compliance/provenance.ts`
 
 ---
 
@@ -85,21 +85,21 @@ Implement a Provenance Ledger recording, for every committed mutation:
 - Approver identity (human or auto-approved)
 
 **Implementation:**
-- `mutations_ledger` table in `bridge-registry.db`: `id`, `timestamp`, `file_path`, `node_id`, `operation_type`, `source_intent_hash`, `registry_artifact_id`, `mrs_score`, `approved_by`, `justification`
+- `mutations_ledger` table in `flint-registry.db`: `id`, `timestamp`, `file_path`, `node_id`, `operation_type`, `source_intent_hash`, `registry_artifact_id`, `mrs_score`, `approved_by`, `justification`
 - Update `FileTransactionManager` to write provenance records on every atomic commit
-- `bridge://provenance` paginated MCP resource
-- `bridge_query_provenance` MCP tool for forensic lookups by node_id or time range
+- `flint://provenance` paginated MCP resource
+- `flint_query_provenance` MCP tool for forensic lookups by node_id or time range
 
 **Acceptance:** Every committed mutation has provenance record; queryable within 200ms.
 
-**Files:** `bridge-mcp/src/core/provenance/ledger.ts`, `bridge-mcp/src/core/provenance/resources.ts`, schema migration in `bridge-registry.db`
+**Files:** `flint-mcp/src/core/provenance/ledger.ts`, `flint-mcp/src/core/provenance/resources.ts`, schema migration in `flint-registry.db`
 
 ---
 
 #### GOV.2 — Override Telemetry
 **Effort:** 1 week · **Priority:** HIGH — critical for governance credibility
 
-Capture every `data-bridge-override` usage:
+Capture every `data-flint-override` usage:
 - Which node was bypassed
 - What rule was skipped
 - Who (session/user) triggered it
@@ -107,13 +107,13 @@ Capture every `data-bridge-override` usage:
 
 **Implementation:**
 - Hook into MithrilLinter's existing override detection
-- Write events to `override_events` table in `bridge-registry.db`
+- Write events to `override_events` table in `flint-registry.db`
 - Surface in Glass HUD: "Overrides (N)" badge in status bar
 - Dashboard view: list all overrides, filter by rule/date/component
 
 **The governance claim:** "Every bypass is logged. We can show auditors exactly when and why rules were suspended."
 
-**Files:** `bridge-mcp/src/core/governance/overrideTelemetry.ts`, schema in `bridge-registry.db`
+**Files:** `flint-mcp/src/core/governance/overrideTelemetry.ts`, schema in `flint-registry.db`
 
 ---
 
@@ -122,16 +122,16 @@ Capture every `data-bridge-override` usage:
 #### EXP.2 — Design Debt Quantification Report
 **Effort:** 1 sprint · **Priority:** HIGH · **Depends on:** EXP.1 (DONE)
 
-`bridge report <glob>` scans entire codebase → design debt report with Health Score (0-100).
+`flint report <glob>` scans entire codebase → design debt report with Health Score (0-100).
 
 **Implementation:**
 - Report aggregator: scan glob, collect violations, aggregate by file/severity/category/rule
 - Health Score: `100 - (criticals × 10 + ambers × 3 + warnings × 1)` clamped 0-100
 - Output formats: JSON, Markdown, HTML dashboard (single-file, Tailwind CDN)
-- Trend tracking: `.bridge/debt-history.json` with `--track` flag
-- `bridge_debt_report` MCP tool
+- Trend tracking: `.flint/debt-history.json` with `--track` flag
+- `flint_debt_report` MCP tool
 
-**Files:** `bridge-mcp/src/core/violations/reporter.ts`, `bridge-mcp/src/core/violations/scorer.ts`, `bridge-mcp/src/core/violations/history.ts`
+**Files:** `flint-mcp/src/core/violations/reporter.ts`, `flint-mcp/src/core/violations/scorer.ts`, `flint-mcp/src/core/violations/history.ts`
 
 ---
 
@@ -156,7 +156,7 @@ Mutation Risk Score (MRS) 0.0-1.0 accompanying every proposed AST mutation:
 
 **Acceptance:** 100% of mutation approvals carry MRS; Amber/Red tiers trigger documented human review.
 
-**Files:** `bridge-mcp/src/core/risk-compositor.ts`, `bridge-mcp/src/core/blast-radius.ts`
+**Files:** `flint-mcp/src/core/risk-compositor.ts`, `flint-mcp/src/core/blast-radius.ts`
 
 ---
 
@@ -168,23 +168,23 @@ Mutation Risk Score (MRS) 0.0-1.0 accompanying every proposed AST mutation:
 **The problem:** A session with 20 mutations might produce internally inconsistent state.
 
 **Validation pass after each batch mutation:**
-- All `data-bridge-id` values unique
+- All `data-flint-id` values unique
 - No orphaned nodes (referenced but not present)
 - Import statements match actual usage
 
 **Implementation:**
 - Wire into existing `applyMutationBatch` in ASTService.ts (already returns inversions — add validation pass)
-- Store session mutation history as ledger in `bridge-registry.db`
+- Store session mutation history as ledger in `flint-registry.db`
 - Validation failures surface as new error category in Mithril Safety Score
 
-**Files:** `bridge-mcp/src/core/governance/sessionValidator.ts`, integration in `bridge-mcp/src/core/ast-modifier.ts`
+**Files:** `flint-mcp/src/core/governance/sessionValidator.ts`, integration in `flint-mcp/src/core/ast-modifier.ts`
 
 ---
 
 #### EXP.3 — Tailwind v3→v4 Migration
 **Effort:** 2 sprints · **Priority:** HIGH — timely market opportunity
 
-`bridge migrate-tw <glob> --from 3 --to 4` — AST-level class transformation (not regex).
+`flint migrate-tw <glob> --from 3 --to 4` — AST-level class transformation (not regex).
 
 **Implementation:**
 - Migration rule set: `bg-opacity-X` → `bg-color/X`, `flex-grow` → `grow`, etc.
@@ -192,7 +192,7 @@ Mutation Risk Score (MRS) 0.0-1.0 accompanying every proposed AST mutation:
 - Config migrator: `tailwind.config.js` → CSS-based config (v4 pattern)
 - Post-migration audit: run `audit_ui_component` to verify zero token violations
 
-**Files:** `bridge-mcp/src/core/migrations/tailwind-v3-to-v4.ts`, `bridge-mcp/src/core/migrations/classTransformer.ts`, `bridge-mcp/src/core/migrations/configMigrator.ts`
+**Files:** `flint-mcp/src/core/migrations/tailwind-v3-to-v4.ts`, `flint-mcp/src/core/migrations/classTransformer.ts`, `flint-mcp/src/core/migrations/configMigrator.ts`
 
 ---
 
@@ -204,14 +204,14 @@ Mutation Risk Score (MRS) 0.0-1.0 accompanying every proposed AST mutation:
 Universal AST Adapter layer decoupling the mutation engine from Babel/JSX.
 
 **Implementation:**
-- `BridgeNode` canonical schema (syntax-neutral intermediate representation)
+- `FlintNode` canonical schema (syntax-neutral intermediate representation)
 - `LinterPlugin` interface accepting any rule set
-- `PluginRegistry` in `bridge-manifest.json` mapping domain profiles to parser/linter configs
+- `PluginRegistry` in `flint-manifest.json` mapping domain profiles to parser/linter configs
 - Two reference adapters: JSON-schema adapter + plain-text clause parser
 
 **Acceptance:** New domain adapters register without modifying core engine files; two non-JSX adapters pass integration tests.
 
-**Files:** `bridge-mcp/src/core/universal-ast.ts`, `bridge-mcp/src/core/plugin-registry.ts`
+**Files:** `flint-mcp/src/core/universal-ast.ts`, `flint-mcp/src/core/plugin-registry.ts`
 
 ---
 
@@ -228,16 +228,16 @@ For mutations scoring Amber/Red on MRS: route to stateless secondary agent for i
 
 **Acceptance:** Zero cases where Red-tier mutation reaches filesystem without logged second-agent verdict.
 
-**Files:** `bridge-mcp/src/core/consensus-gate.ts`
+**Files:** `flint-mcp/src/core/consensus-gate.ts`
 
 ---
 
 #### EXP.4 — White-Label / Multi-Brand Theming
 **Effort:** 2 sprints · **Priority:** MEDIUM
 
-`bridge theme-validate <glob> --themes brand-a.json,brand-b.json` — validates single codebase under multiple brand token sets.
+`flint theme-validate <glob> --themes brand-a.json,brand-b.json` — validates single codebase under multiple brand token sets.
 
-**Files:** `bridge-mcp/src/core/violations/themeAuditor.ts`, `bridge-mcp/src/core/violations/themeReporter.ts`
+**Files:** `flint-mcp/src/core/violations/themeAuditor.ts`, `flint-mcp/src/core/violations/themeReporter.ts`
 
 ---
 
@@ -263,16 +263,16 @@ For mutations scoring Amber/Red on MRS: route to stateless secondary agent for i
 - Ambient alert on anomalies (amber glow, not blocking)
 - Weekly/monthly trend reports for enterprise customers
 
-**Files:** `bridge-mcp/src/core/governance/anomalyDetector.ts`, `bridge-mcp/src/core/governance/baselineBuilder.ts`
+**Files:** `flint-mcp/src/core/governance/anomalyDetector.ts`, `flint-mcp/src/core/governance/baselineBuilder.ts`
 
 ---
 
 #### EXP.5 — Design System Version Migration
 **Effort:** 2 sprints · **Priority:** MEDIUM · **Depends on:** EXP.3
 
-`bridge migrate-ds <glob> --from v4.json --to v5.json` — token diff + class remapping.
+`flint migrate-ds <glob> --from v4.json --to v5.json` — token diff + class remapping.
 
-**Files:** `bridge-mcp/src/core/migrations/tokenDiff.ts`, `bridge-mcp/src/core/migrations/tokenMigrationMap.ts`
+**Files:** `flint-mcp/src/core/migrations/tokenDiff.ts`, `flint-mcp/src/core/migrations/tokenMigrationMap.ts`
 
 ---
 
@@ -283,7 +283,7 @@ For mutations scoring Amber/Red on MRS: route to stateless secondary agent for i
 
 Extend 10-rule A11yLinter to 50+ WCAG 2.1 AA rules with auto-fix, VPAT generation, APCA contrast, and domain-specific rule sets (Section 508, HIPAA, ADA).
 
-**Files:** `bridge-mcp/src/core/A11yLinter.ts`, `bridge-mcp/src/core/compliance/vpat.ts`, `bridge-mcp/src/core/validators/strategies/apca.ts`
+**Files:** `flint-mcp/src/core/A11yLinter.ts`, `flint-mcp/src/core/compliance/vpat.ts`, `flint-mcp/src/core/validators/strategies/apca.ts`
 
 ---
 
@@ -292,7 +292,7 @@ Extend 10-rule A11yLinter to 50+ WCAG 2.1 AA rules with auto-fix, VPAT generatio
 
 DTCG → 5 platform outputs (Tailwind, CSS vars, RN, Swift, Kotlin) with cross-platform audit.
 
-**Files:** `bridge-mcp/src/core/platforms/`, `bridge-mcp/src/core/parsers/` (Swift, Kotlin, RN extensions)
+**Files:** `flint-mcp/src/core/platforms/`, `flint-mcp/src/core/parsers/` (Swift, Kotlin, RN extensions)
 
 ---
 
@@ -302,16 +302,16 @@ DTCG → 5 platform outputs (Tailwind, CSS vars, RN, Swift, Kotlin) with cross-p
 >
 > **Architecture principle:** The Glass has zero business logic. All sync algorithms, conflict detection, OAuth, and Figma API calls live in the headless MCP server. The Glass extension (VS Code/Cursor) reads MCP Resources for display and calls MCP Tools for user actions.
 >
-> **Scope boundary:** Glass UI panels (SyncStatusPanel, ConflictModal, SyncHistoryDash) belong in the **Bridge Glass roadmap**, not here. This window implements the MCP engine: OAuth, sync engine, MCP tools, MCP resources, and MithrilLinter integration.
+> **Scope boundary:** Glass UI panels (SyncStatusPanel, ConflictModal, SyncHistoryDash) belong in the **Flint Glass roadmap**, not here. This window implements the MCP engine: OAuth, sync engine, MCP tools, MCP resources, and MithrilLinter integration.
 >
-> **Database target correction:** New tables go in `~/.bridge-standalone/bridge.db` (the existing `store.ts` database), not `bridge-registry.db`. This aligns with `mutations_ledger`, `override_events`, and `governance_events` already in that database.
+> **Database target correction:** New tables go in `~/.flint-standalone/flint.db` (the existing `store.ts` database), not `flint-registry.db`. This aligns with `mutations_ledger`, `override_events`, and `governance_events` already in that database.
 
 ---
 
 #### SYNC.1 — Database Schema + OAuth + Figma API Service (Week 18-19)
 **Effort:** 1-2 weeks · **Priority:** FOUNDATIONAL · **Depends on:** EXP.7 (DTCG token format)
 
-Add four new tables to `bridge.db`:
+Add four new tables to `flint.db`:
 
 | Table | Key Fields | Purpose |
 |-------|-----------|---------|
@@ -322,15 +322,15 @@ Add four new tables to `bridge.db`:
 
 **OAuth via MCP Tool (MCP-native, no Electron dependency):**
 
-Create `bridge-mcp/src/core/sync/figmaAuthService.ts`:
-- OAuth 2.0 PKCE flow — `bridge_figma_connect` tool returns `{ authUrl }` for browser redirect
+Create `flint-mcp/src/core/sync/figmaAuthService.ts`:
+- OAuth 2.0 PKCE flow — `flint_figma_connect` tool returns `{ authUrl }` for browser redirect
 - MCP server listens on localhost callback port for OAuth code exchange
-- Store tokens in system keychain (`keytar`) or `.bridge/credentials.json`
+- Store tokens in system keychain (`keytar`) or `.flint/credentials.json`
 - Auto-refresh before expiration
 
 **Figma API Service (MCP-side wrapper):**
 
-Create `bridge-mcp/src/core/sync/figmaApiService.ts`:
+Create `flint-mcp/src/core/sync/figmaApiService.ts`:
 - `getVariables(fileKey, accessToken)` — GET `/v1/files/:key/variables/local`
 - `getVariableCollections(fileKey, accessToken)` — collection metadata
 - `createVariable(fileKey, collectionId, name, resolvedValue, accessToken)` — create new Figma variable (for promotion)
@@ -338,22 +338,22 @@ Create `bridge-mcp/src/core/sync/figmaApiService.ts`:
 - Exponential backoff on 429 responses; read-only graceful degradation when write permission absent
 
 **MCP tools (connection):**
-- `bridge_figma_connect` — initiates OAuth flow, returns `{ authUrl }` for browser
-- `bridge_figma_link_file` — links a Figma file to this project (takes `fileKey`)
+- `flint_figma_connect` — initiates OAuth flow, returns `{ authUrl }` for browser
+- `flint_figma_link_file` — links a Figma file to this project (takes `fileKey`)
 
 **MCP resource (connection):**
-- `bridge://figma-connection` — `{ connected, fileName, lastSync, permissions }`
+- `flint://figma-connection` — `{ connected, fileName, lastSync, permissions }`
 
-**Acceptance:** Tables created; OAuth round-trips; `figmaApiService.ts` can read/write variables with a valid Figma PAT; `bridge://figma-connection` resource returns connection status.
+**Acceptance:** Tables created; OAuth round-trips; `figmaApiService.ts` can read/write variables with a valid Figma PAT; `flint://figma-connection` resource returns connection status.
 
-**Files:** Schema added to `bridge-mcp/src/core/ingestion/store.ts`, new `bridge-mcp/src/core/sync/figmaAuthService.ts`, new `bridge-mcp/src/core/sync/figmaApiService.ts`, new `bridge-mcp/src/core/sync/types.ts`
+**Files:** Schema added to `flint-mcp/src/core/ingestion/store.ts`, new `flint-mcp/src/core/sync/figmaAuthService.ts`, new `flint-mcp/src/core/sync/figmaApiService.ts`, new `flint-mcp/src/core/sync/types.ts`
 
 ---
 
 #### SYNC.2 — Three-Way Diff Sync Engine (Week 19-21)
 **Effort:** 2 weeks · **Priority:** CRITICAL · **Depends on:** SYNC.1, EXP.5 (token diff pattern)
 
-Create `bridge-mcp/src/core/sync/tokenSyncEngine.ts` with three-way diff:
+Create `flint-mcp/src/core/sync/tokenSyncEngine.ts` with three-way diff:
 - **Figma Variables** — current state from API
 - **`token_source` last-sync state** — last known reconciled value in DB
 - **`design_tokens` table** — current code state
@@ -373,19 +373,19 @@ Diff output categories:
 **Webhook endpoint** extension to `ingestion-server.ts`: `POST /figma-webhook` — verifies passcode, calls `tokenSyncEngine.diff()`, debounces 100ms.
 
 **MCP tools (sync operations):**
-- `bridge_sync_pull` — fetches latest Figma Variables, runs diff, auto-applies non-conflicts, queues conflicts
-- `bridge_sync_push` — promotes code-only tokens to Figma Variables (takes `{ tokenIds }`)
-- `bridge_resolve_conflict` — resolves one conflict: `{ tokenId, resolution: 'figma' | 'code' | 'alias' }`
-- `bridge_resolve_all` — bulk resolve: `{ resolution: 'accept_all_figma' | 'keep_all_code' }` (for conflict explosion scenarios)
+- `flint_sync_pull` — fetches latest Figma Variables, runs diff, auto-applies non-conflicts, queues conflicts
+- `flint_sync_push` — promotes code-only tokens to Figma Variables (takes `{ tokenIds }`)
+- `flint_resolve_conflict` — resolves one conflict: `{ tokenId, resolution: 'figma' | 'code' | 'alias' }`
+- `flint_resolve_all` — bulk resolve: `{ resolution: 'accept_all_figma' | 'keep_all_code' }` (for conflict explosion scenarios)
 
 **MCP resources (sync state):**
-- `bridge://sync-status` — `{ totalTokens, synced, pending, conflicts, lastCheck }`
-- `bridge://pending-conflicts` — array of `{ tokenId, tokenName, figmaValue, codeValue, deltaE }`
-- `bridge://sync-history` — paginated audit trail from `sync_history` table (filter by direction, date, token type)
+- `flint://sync-status` — `{ totalTokens, synced, pending, conflicts, lastCheck }`
+- `flint://pending-conflicts` — array of `{ tokenId, tokenName, figmaValue, codeValue, deltaE }`
+- `flint://sync-history` — paginated audit trail from `sync_history` table (filter by direction, date, token type)
 
 **Acceptance:** All 7 diff categories correctly classified; conflicts written to `pending_conflicts`; MCP tools all respond correctly.
 
-**Files:** `bridge-mcp/src/core/sync/tokenSyncEngine.ts`, `bridge-mcp/src/core/sync/syncResources.ts`, additions to `bridge-mcp/src/server.ts`, additions to `ingestion-server.ts`
+**Files:** `flint-mcp/src/core/sync/tokenSyncEngine.ts`, `flint-mcp/src/core/sync/syncResources.ts`, additions to `flint-mcp/src/server.ts`, additions to `ingestion-server.ts`
 
 ---
 
@@ -396,12 +396,12 @@ Add two new violation types to MithrilLinter:
 
 | Rule ID | Name | Condition | Severity | Quick Fix |
 |---------|------|-----------|----------|-----------|
-| `SYNC-001` | Token Out of Sync | Token value in code diverges from Figma source of truth (by ΔE > 2.0 for colors) | AMBER | "Pull from Figma" (calls `bridge_resolve_conflict { resolution: 'figma' }`) |
-| `SYNC-002` | Orphaned Token | Token exists in code with no Figma mapping | WARNING | "Promote to Figma" (calls `bridge_sync_push`) |
+| `SYNC-001` | Token Out of Sync | Token value in code diverges from Figma source of truth (by ΔE > 2.0 for colors) | AMBER | "Pull from Figma" (calls `flint_resolve_conflict { resolution: 'figma' }`) |
+| `SYNC-002` | Orphaned Token | Token exists in code with no Figma mapping | WARNING | "Promote to Figma" (calls `flint_sync_push`) |
 
 **Token Integrity Ratio (TIR) extension:** Include `SYNC-001` and `SYNC-002` violations in TIR calculation so synced tokens count positively.
 
-**Files:** `bridge-mcp/src/core/governance/MithrilLinter.ts`, `bridge-mcp/src/core/compliance/provenance.ts` (add SYNC rule entries)
+**Files:** `flint-mcp/src/core/governance/MithrilLinter.ts`, `flint-mcp/src/core/compliance/provenance.ts` (add SYNC rule entries)
 
 ---
 
@@ -410,20 +410,20 @@ Add two new violation types to MithrilLinter:
 
 **Sync history MCP resource enhancements:**
 - Filter by: direction (push/pull), token type, date range, actor
-- Export to JSON/CSV via `bridge_debt_report` integration (re-use EXP.2 formatters)
-- `bridge_export_sync_history` tool outputs JSON/CSV
-- Include sync health summary in `bridge://dashboard` resource
+- Export to JSON/CSV via `flint_debt_report` integration (re-use EXP.2 formatters)
+- `flint_export_sync_history` tool outputs JSON/CSV
+- Include sync health summary in `flint://dashboard` resource
 
 **Error resilience:**
 - Handle Figma API rate limits (429) with exponential backoff + local cache
 - Handle network failures: queue writes to `sync_history` with `status: 'pending_retry'`
-- Handle permission errors: detect read-only mode upfront, surface via `bridge://figma-connection`
+- Handle permission errors: detect read-only mode upfront, surface via `flint://figma-connection`
 - Offline detection: queue writes, retry on reconnect
-- Token expiration: auto-refresh or prompt re-auth via `bridge_figma_connect`
+- Token expiration: auto-refresh or prompt re-auth via `flint_figma_connect`
 - Process-restart recovery: reload `pending_conflicts` from DB on `tokenSyncEngine` init
 
 **CI/CD integration:**
-- `bridge sync --check` CLI command for CI pipelines — exit code 1 if unresolved conflicts exist
+- `flint sync --check` CLI command for CI pipelines — exit code 1 if unresolved conflicts exist
 - GitHub Action wrapper (re-use EXP.1 CI/CD pattern)
 
 **Success metrics for SYNC.1-4:**
@@ -434,20 +434,20 @@ Add two new violation types to MithrilLinter:
 | Code → Figma promotion success rate | > 99% (excluding permission errors) |
 | Conflict durability across process restart | 100% |
 | SYNC-001/SYNC-002 false positive rate | < 2% |
-| `bridge://sync-status` response time | < 200ms |
+| `flint://sync-status` response time | < 200ms |
 
-**Files:** Additions to `bridge-mcp/src/server.ts` (resource updates), `bridge-mcp/src/core/sync/tokenSyncEngine.ts` (retry logic), `bridge-mcp/src/core/reporting/` (sync history formatters), `bridge-mcp/src/cli.ts` (sync --check command)
+**Files:** Additions to `flint-mcp/src/server.ts` (resource updates), `flint-mcp/src/core/sync/tokenSyncEngine.ts` (retry logic), `flint-mcp/src/core/reporting/` (sync history formatters), `flint-mcp/src/cli.ts` (sync --check command)
 
 ---
 
-> **Deferred to Bridge Glass Roadmap (not this document):**
-> - `bridge-glass/src/panels/SyncStatusPanel.tsx` — sidebar status view (reads `bridge://sync-status`)
-> - `bridge-glass/src/modals/ConflictModal.tsx` — conflict resolution UI (reads `bridge://pending-conflicts`, calls `bridge_resolve_conflict`)
-> - `bridge-glass/src/panels/SyncHistoryDash.tsx` — audit trail dashboard (reads `bridge://sync-history`)
-> - `bridge-glass/src/hooks/useMCPResource.ts` — resource polling hook
-> - `bridge-glass/src/hooks/useMCPTool.ts` — tool invocation hook
+> **Deferred to Flint Glass Roadmap (not this document):**
+> - `flint-glass/src/panels/SyncStatusPanel.tsx` — sidebar status view (reads `flint://sync-status`)
+> - `flint-glass/src/modals/ConflictModal.tsx` — conflict resolution UI (reads `flint://pending-conflicts`, calls `flint_resolve_conflict`)
+> - `flint-glass/src/panels/SyncHistoryDash.tsx` — audit trail dashboard (reads `flint://sync-history`)
+> - `flint-glass/src/hooks/useMCPResource.ts` — resource polling hook
+> - `flint-glass/src/hooks/useMCPTool.ts` — tool invocation hook
 >
-> The MCP tool surface (`bridge_resolve_conflict`, `bridge_sync_push`, `bridge://sync-status`) provides full headless access. Glass UI is additive — reads Resources, calls Tools, owns zero business logic.
+> The MCP tool surface (`flint_resolve_conflict`, `flint_sync_push`, `flint://sync-status`) provides full headless access. Glass UI is additive — reads Resources, calls Tools, owns zero business logic.
 
 ---
 
@@ -557,11 +557,11 @@ Each phase uses a **5-agent Expert Tier S squad**:
 
 | Role | Agent Type | Responsibility |
 |------|-----------|---------------|
-| Lead | `bridge-architect` | Architecture validation, design review |
-| Builder | `bridge-ast-surgeon` or domain specialist | Core implementation |
+| Lead | `flint-architect` | Architecture validation, design review |
+| Builder | `flint-ast-surgeon` or domain specialist | Core implementation |
 | Integrator | `cli-developer` or `cicd-engineer` | CLI/MCP/CI wiring |
-| Tester | `bridge-test-writer` | Comprehensive test coverage |
-| Reviewer | `bridge-code-reviewer` | Final review, merge readiness |
+| Tester | `flint-test-writer` | Comprehensive test coverage |
+| Reviewer | `flint-code-reviewer` | Final review, merge readiness |
 
 ---
 
@@ -569,9 +569,9 @@ Each phase uses a **5-agent Expert Tier S squad**:
 
 | Plan | Direction | Scope |
 |------|-----------|-------|
-| **EXP.1-7** | Horizontal | New use cases — extends what Bridge can do |
-| **V.1-V.4** | Vertical | Architectural depth — strengthens how Bridge does it |
-| **GOV.1-GOV.4** | Internal | Governance integrity — ensures Bridge practices what it preaches |
+| **EXP.1-7** | Horizontal | New use cases — extends what Flint can do |
+| **V.1-V.4** | Vertical | Architectural depth — strengthens how Flint does it |
+| **GOV.1-GOV.4** | Internal | Governance integrity — ensures Flint practices what it preaches |
 
 All three are orthogonal and composable. GOV phases provide the infrastructure (provenance, telemetry, validation) that makes EXP deliverables enterprise-credible and V phases architecturally sound.
 
@@ -580,6 +580,6 @@ All three are orthogonal and composable. GOV phases provide the infrastructure (
 ## Out of Scope
 
 - IDE/Electron/canvas-specific work — headless MCP exclusively
-- Fine-tuning or model training — Bridge assumes model hallucination and constructs containment
-- General-purpose guardrails frameworks — Bridge's pre-commit interception is structurally superior
+- Fine-tuning or model training — Flint assumes model hallucination and constructs containment
+- General-purpose guardrails frameworks — Flint's pre-commit interception is structurally superior
 - Any changes to the existing 409 passing tests — only additions

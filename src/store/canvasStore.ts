@@ -2,17 +2,17 @@
  * Canvas Store — src/store/canvasStore.ts
  *
  * Phase E additions:
- *   mithrilViolations — bridge IDs whose current style has ΔE > 2.0 against
+ *   mithrilViolations — flint IDs whose current style has ΔE > 2.0 against
  *                       their closest design token.
  *   overridesExist    — true when the component_overrides DB table is non-empty.
- *   a11yViolations    — Record<bridgeId, string[]> from A11yLinter. Each key is
- *                       a data-bridge-id (or fallback label) and each value is an
+ *   a11yViolations    — Record<flintId, string[]> from A11yLinter. Each key is
+ *                       a data-flint-id (or fallback label) and each value is an
  *                       array of human-readable rule violation messages.
  *   canExport         — derived selector: false when any of the above are present.
  *                       This is the Export Gate (Commandments 5 + 6).
  *
  * triggerAutoSave is called by editorStore mutations and by setCode (debounced).
- * It enqueues an atomic write via window.bridgeAPI.saveFile (IPC → main process
+ * It enqueues an atomic write via window.flintAPI.saveFile (IPC → main process
  * → FileTransactionManager) and transitions saveState accordingly:
  *
  *   idle ──(change)──► editing ──(debounce fires)──► saving ──(write ok)──► saved ──(2s)──► idle
@@ -22,17 +22,59 @@
  */
 
 import { create } from 'zustand'
-import type { FileTreeNode, BridgePolicy } from '../types/bridge-api'
+import type { FileTreeNode, FlintPolicy } from '../types/flint-api'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 export type SaveState = 'idle' | 'editing' | 'saving' | 'saved'
 export type CanvasMode = 'design' | 'interact'
-export type RightTab = 'properties' | 'tokens' | 'activity' | 'health' | 'recovery'
+export type RightTab = 'properties' | 'tokens' | 'activity' | 'health' | 'agents' | 'scope' | 'recovery'
 
 /**
- * Bounding box for a single bridge node as reported by the in-iframe
- * bridge-init script via NODE_LAYOUT postMessage. All values are in
+ * Responsive preview breakpoint for the LivePreview container.
+ *   mobile  — 375 px (iPhone SE)
+ *   tablet  — 768 px (iPad)
+ *   desktop — full width (no constraint, current default)
+ *
+ * Cycling order (forward): mobile → tablet → desktop → mobile.
+ * Controlled by Shift+scroll in preview mode and by the StatusBar chip.
+ */
+export type PreviewBreakpoint = 'mobile' | 'tablet' | 'desktop'
+
+/** Pixel widths for each breakpoint. Desktop has no constraint (undefined). */
+export const BREAKPOINT_WIDTHS: Record<PreviewBreakpoint, number | undefined> = {
+    mobile: 375,
+    tablet: 768,
+    desktop: undefined,
+}
+
+/** Human-readable labels for the StatusBar chip. */
+export const BREAKPOINT_LABELS: Record<PreviewBreakpoint, string> = {
+    mobile: 'Mobile 375px',
+    tablet: 'Tablet 768px',
+    desktop: 'Desktop',
+}
+
+/** Forward cycling order. */
+const BREAKPOINT_CYCLE: PreviewBreakpoint[] = ['mobile', 'tablet', 'desktop']
+
+/**
+ * The three canvas view modes. Only 'preview' is functional in CV2.1.
+ * 'build' and 'govern' render placeholder panels until CV2.3/CV2.4.
+ *
+ *   preview — current behavior: single LivePreview iframe node on the canvas
+ *   build   — component library cards (CV2.3 will implement)
+ *   govern  — compliance map cards (CV2.4 will implement)
+ *
+ * Note: do not confuse with `canvasMode` ('design' | 'interact'), which controls
+ * pointer-event behavior within the LivePreview iframe. `canvasView` controls
+ * which top-level content the canvas area shows — these are orthogonal concerns.
+ */
+export type CanvasView = 'preview' | 'build' | 'govern'
+
+/**
+ * Bounding box for a single flint node as reported by the in-iframe
+ * flint-init script via NODE_LAYOUT postMessage. All values are in
  * iframe-relative pixels (origin = top-left of the iframe).
  */
 export interface NodeLayout {
@@ -45,16 +87,26 @@ export interface NodeLayout {
 // ── Store shape ────────────────────────────────────────────────────────────────
 
 interface CanvasState {
-    /** The data-bridge-id of the element being dragged, or null when idle. */
+    /** The data-flint-id of the element being dragged, or null when idle. */
     dragSourceId: string | null
-    /** The data-bridge-id of the element currently selected in the canvas, or null. */
+    /** The data-flint-id of the element currently selected in the canvas, or null. */
     activeSelection: string | null
     /** Absolute path of the file loaded into the editor, or null when no file is open. */
     activeFilePath: string | null
     /** Current phase of the auto-save pipeline. */
     saveState: SaveState
+    /** True when Governance Autopilot is active for the current file. */
+    autopilotEnabled: boolean
+    /** Post-fix governed source code, null when no fix available or autopilot off. */
+    governedCode: string | null
+    /** Count of violations fixable by applying the governed version. */
+    governedFixCount: number
+    /** Timestamp of the last autopilot result. */
+    governedTimestamp: number | null
+    /** True when the ⌘K command palette overlay is open. */
+    commandPaletteOpen: boolean
     /**
-     * Bridge IDs of elements whose current style value produces a CIEDE2000 ΔE > 2.0
+     * Flint IDs of elements whose current style value produces a CIEDE2000 ΔE > 2.0
      * against the closest design token. Empty array = no violations.
      *
      * Set by PropertiesPanel after every className commit via MithrilLinter.
@@ -66,7 +118,7 @@ interface CanvasState {
      */
     overridesExist: boolean
     /**
-     * Recursive file tree returned by `window.bridgeAPI.openFolder()`.
+     * Recursive file tree returned by `window.flintAPI.openFolder()`.
      * Null when no project folder has been opened.
      */
     workspaceFiles: FileTreeNode | null
@@ -78,7 +130,7 @@ interface CanvasState {
     expandedFolders: Set<string>
     /**
      * Accessibility violations discovered by `A11yLinter.audit()` on the current AST.
-     * Keyed by `data-bridge-id` (or a positional fallback like `"img-3"`).
+     * Keyed by `data-flint-id` (or a positional fallback like `"img-3"`).
      * Each value is an array of human-readable rule messages (e.g. A11Y-001 …).
      * An empty object means the file passes all accessibility checks.
      */
@@ -90,8 +142,19 @@ interface CanvasState {
      */
     canvasMode: CanvasMode
     /**
-     * Bounding boxes for every bridge node that has reported a NODE_LAYOUT
-     * postMessage from the iframe. Keyed by data-bridge-id.
+     * Current canvas view mode (CV2.1).
+     *   'preview' — Live Preview iframe (default, current behavior).
+     *   'build'   — Component library cards (CV2.3 placeholder).
+     *   'govern'  — Compliance map cards (CV2.4 placeholder).
+     *
+     * Resets to 'preview' on closeWorkspace so view state never bleeds
+     * across projects. This field is renderer-only — not written to
+     * .flint/context.json (the MCP server does not need to know the view).
+     */
+    canvasView: CanvasView
+    /**
+     * Bounding boxes for every flint node that has reported a NODE_LAYOUT
+     * postMessage from the iframe. Keyed by data-flint-id.
      * Used by ShieldOverlay to position governance badges and heat tints.
      */
     nodeLayouts: Record<string, NodeLayout>
@@ -102,13 +165,21 @@ interface CanvasState {
      */
     rightTab: RightTab
     /**
-     * Cached governance policy from `.bridge/policy.json`.
+     * Cached governance policy from `.flint/policy.json`.
      * Loaded via `policy:get` IPC on project open; null when no project is open
      * or the IPC surface is unavailable (e.g. Vitest).
      *
      * Used by canExport() to determine which violation categories block export.
      */
-    cachedPolicy: BridgePolicy | null
+    cachedPolicy: FlintPolicy | null
+    /**
+     * Current responsive breakpoint for the Live Preview container.
+     * Controls the maxWidth applied to the preview iframe wrapper.
+     * Only meaningful when canvasView === 'preview'.
+     *
+     * Resets to 'desktop' on closeWorkspace.
+     */
+    previewBreakpoint: PreviewBreakpoint
 }
 
 interface CanvasActions {
@@ -152,7 +223,7 @@ interface CanvasActions {
      */
     triggerAutoSave: (code: string, debounceMs?: number) => void
     /**
-     * Replaces the full set of active Mithril violation bridge IDs.
+     * Replaces the full set of active Mithril violation flint IDs.
      * Pass an empty array to clear all violations.
      */
     setMithrilViolations: (ids: string[]) => void
@@ -173,6 +244,12 @@ interface CanvasActions {
      */
     setCanvasMode: (mode: CanvasMode) => void
     /**
+     * Switches the canvas view mode (CV2.1). Called by:
+     *   - CanvasViewToggle segmented control clicks
+     *   - Cmd+1/2/3 keyboard shortcuts in App.tsx
+     */
+    setCanvasView: (view: CanvasView) => void
+    /**
      * Records a single node's bounding box as reported by the iframe.
      * Called from ShieldOverlay when a NODE_LAYOUT postMessage arrives.
      */
@@ -185,13 +262,40 @@ interface CanvasActions {
     /**
      * Loads the governance policy from the main process via `policy:get` IPC.
      * Caches the result in `cachedPolicy` for synchronous access by `canExport()`.
-     * Call on project open and after any `bridge_set_policy` MCP tool call.
+     * Call on project open and after any `flint_set_policy` MCP tool call.
      */
     loadPolicy: () => Promise<void>
     /**
      * Directly sets the cached policy (e.g. from a test or fallback).
      */
-    setCachedPolicy: (policy: BridgePolicy | null) => void
+    setCachedPolicy: (policy: FlintPolicy | null) => void
+    /**
+     * Sets the preview breakpoint explicitly. Accepts 'mobile', 'tablet', or 'desktop'.
+     */
+    setPreviewBreakpoint: (breakpoint: PreviewBreakpoint) => void
+    /**
+     * Cycles the preview breakpoint in the requested direction.
+     *   'up'   — mobile → tablet → desktop → mobile (forward cycle)
+     *   'down' — desktop → tablet → mobile → desktop (reverse cycle)
+     * No-op when canvasView !== 'preview'.
+     */
+    cyclePreviewBreakpoint: (direction: 'up' | 'down') => void
+    /**
+     * Toggles the Governance Autopilot on or off.
+     */
+    setAutopilotEnabled: (enabled: boolean) => void
+    /**
+     * Stores the governed source and fix count from the latest autopilot result.
+     * Pass null for code to clear the governed state without touching the flag.
+     */
+    setGovernedResult: (code: string | null, fixCount: number) => void
+    /**
+     * Clears the governed result (code, count, timestamp) without disabling autopilot.
+     * Called when the file changes or fixes are applied.
+     */
+    clearGovernedResult: () => void
+    /** Opens or closes the ⌘K command palette. */
+    setCommandPaletteOpen: (open: boolean) => void
     /**
      * Returns to the Launch Screen by nullifying all workspace state.
      * Cancels any pending auto-save timer before clearing state.
@@ -227,9 +331,16 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     workspaceFiles: null,
     expandedFolders: new Set<string>(),
     canvasMode: 'design' as CanvasMode,
+    canvasView: 'preview' as CanvasView,
     nodeLayouts: {},
     rightTab: 'properties' as RightTab,
     cachedPolicy: null,
+    autopilotEnabled: false,
+    governedCode: null,
+    governedFixCount: 0,
+    governedTimestamp: null,
+    commandPaletteOpen: false,
+    previewBreakpoint: 'desktop' as PreviewBreakpoint,
 
     startDrag: (sourceId) => set({ dragSourceId: sourceId }),
     endDrag: () => set({ dragSourceId: null }),
@@ -266,9 +377,9 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
             if (currentCode) {
                 try {
                     set({ saveState: 'saving' })
-                    await window.bridgeAPI.saveFile(activeFilePath, currentCode)
+                    await window.flintAPI.saveFile(activeFilePath, currentCode)
                 } catch (err) {
-                    console.error('[Bridge] Pre-switch save failed:', err)
+                    console.error('[Flint] Pre-switch save failed:', err)
                 } finally {
                     set({ saveState: 'idle' })
                 }
@@ -277,7 +388,7 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
 
         // ── Clean Slate Protocol (Mithril Rule) ──────────────────────────────
         // Wipe the AST and all layer-tree state BEFORE setting the new path.
-        // This removes every data-bridge-id overlay from the previous file
+        // This removes every data-flint-id overlay from the previous file
         // immediately, preventing "Ghost Layers".
         const { useEditorStore } = await import('./editorStore')
         useEditorStore.getState().clearAST()
@@ -286,10 +397,10 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
 
         // ── Hydrate editor with new file content ─────────────────────────────
         try {
-            const content = await window.bridgeAPI.readFile(filePath)
+            const content = await window.flintAPI.readFile(filePath)
             useEditorStore.getState().setCode(content)
         } catch (err) {
-            console.error('[Bridge] Failed to read file:', err)
+            console.error('[Flint] Failed to read file:', err)
         }
     },
 
@@ -297,22 +408,44 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     setOverridesExist: (exists) => set({ overridesExist: exists }),
     setA11yViolations: (violations) => set({ a11yViolations: violations }),
     setCanvasMode: (mode) => set({ canvasMode: mode }),
+    setCanvasView: (view) => set({ canvasView: view }),
+    setPreviewBreakpoint: (breakpoint) => set({ previewBreakpoint: breakpoint }),
+    cyclePreviewBreakpoint: (direction) => {
+        const { previewBreakpoint } = get()
+        const currentIndex = BREAKPOINT_CYCLE.indexOf(previewBreakpoint)
+        const len = BREAKPOINT_CYCLE.length
+        const nextIndex =
+            direction === 'up'
+                ? (currentIndex + 1) % len
+                : (currentIndex - 1 + len) % len
+        set({ previewBreakpoint: BREAKPOINT_CYCLE[nextIndex] })
+    },
     setNodeLayout: (id, layout) =>
         set((state) => ({ nodeLayouts: { ...state.nodeLayouts, [id]: layout } })),
     setRightTab: (tab) => set({ rightTab: tab }),
 
     loadPolicy: async () => {
         try {
-            const policy = await window.bridgeAPI.policy?.get()
+            const policy = await window.flintAPI.policy?.get()
             if (policy) {
                 set({ cachedPolicy: policy })
             }
         } catch (err) {
-            console.error('[Bridge] Failed to load policy:', err)
+            console.error('[Flint] Failed to load policy:', err)
         }
     },
 
     setCachedPolicy: (policy) => set({ cachedPolicy: policy }),
+
+    setAutopilotEnabled: (enabled) => set({ autopilotEnabled: enabled }),
+
+    setGovernedResult: (code, fixCount) =>
+        set({ governedCode: code, governedFixCount: fixCount, governedTimestamp: Date.now() }),
+
+    clearGovernedResult: () =>
+        set({ governedCode: null, governedFixCount: 0, governedTimestamp: null }),
+
+    setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
 
     closeWorkspace: () => {
         if (_saveTimer !== null) {
@@ -330,9 +463,16 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
             saveState: 'idle',
             expandedFolders: new Set<string>(),
             canvasMode: 'design',
+            canvasView: 'preview',
             nodeLayouts: {},
             rightTab: 'properties',
+            commandPaletteOpen: false,
             cachedPolicy: null,
+            autopilotEnabled: false,
+            governedCode: null,
+            governedFixCount: 0,
+            governedTimestamp: null,
+            previewBreakpoint: 'desktop',
         })
     },
 
@@ -373,7 +513,7 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
             if (!filePath) return
 
             set({ saveState: 'saving' })
-            window.bridgeAPI
+            window.flintAPI
                 .saveFile(filePath, code)
                 .then(() => {
                     set({ saveState: 'saved' })
@@ -384,7 +524,7 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
                     }, 2000)
                 })
                 .catch((err: unknown) => {
-                    console.error('[Bridge] Auto-save failed:', err)
+                    console.error('[Flint] Auto-save failed:', err)
                     set({ saveState: 'idle' })
                 })
         }

@@ -46,7 +46,7 @@ const { mockSafeStorage } = vi.hoisted(() => {
 
 vi.mock('electron', () => ({
     safeStorage: mockSafeStorage,
-    app: { getPath: vi.fn(() => '/tmp/test-bridge-home') },
+    app: { getPath: vi.fn(() => '/tmp/test-flint-home') },
 }))
 
 // ── Stub heavy dependencies so orchestrator.ts can be imported ────────────────
@@ -101,23 +101,25 @@ import {
 
 // ── Test fixture helpers ───────────────────────────────────────────────────────
 
-const TEST_HOME = path.join(os.tmpdir(), 'bridge-safeStorage-test')
-const TEST_CONFIG_DIR = path.join(TEST_HOME, '.bridge')
-const TEST_CONFIG_PATH = path.join(TEST_CONFIG_DIR, 'config.json')
+// Test fixture paths — not used directly; the actual config path is derived
+// from os.homedir() by orchestrator.ts at module load time.
+// const TEST_HOME = path.join(os.tmpdir(), 'flint-safeStorage-test')
+// const TEST_CONFIG_DIR = path.join(TEST_HOME, '.flint')
+// const TEST_CONFIG_PATH = path.join(TEST_CONFIG_DIR, 'config.json')
 
 /**
  * Writes a config object to the test fixture path.
  * orchestrator.ts derives CONFIG_PATH from `homedir()` at module init time.
  * Because the module is already loaded and CONFIG_PATH is a module-level
  * const, we patch it via the Node module cache after the first import.
- * Instead, we write to the real homedir path (~/.bridge/config.json) during
+ * Instead, we write to the real homedir path (~/.flint/config.json) during
  * tests and restore afterwards using a temp copy strategy.
  *
- * Simpler approach: since orchestrator's CONFIG_PATH is `path.join(homedir(), '.bridge', 'config.json')`
+ * Simpler approach: since orchestrator's CONFIG_PATH is `path.join(homedir(), '.flint', 'config.json')`
  * and homedir() is evaluated at module-load time (not via the `app` mock),
  * we write directly to the real path. Tests use `afterEach` cleanup.
  */
-const REAL_CONFIG_DIR = path.join(os.homedir(), '.bridge')
+const REAL_CONFIG_DIR = path.join(os.homedir(), '.flint')
 const REAL_CONFIG_PATH = path.join(REAL_CONFIG_DIR, 'config.json')
 
 async function writeTestConfig(obj: Record<string, unknown>): Promise<void> {
@@ -459,7 +461,7 @@ describe('SEC4-06 — empty / missing config graceful degradation', () => {
         expect(result).toBe(true)
     })
 
-    it('writeConfig creates the .bridge directory if it does not exist', async () => {
+    it('writeConfig creates the .flint directory if it does not exist', async () => {
         // Remove config dir entirely.
         if (existsSync(REAL_CONFIG_DIR)) {
             await rm(REAL_CONFIG_DIR, { recursive: true, force: true })

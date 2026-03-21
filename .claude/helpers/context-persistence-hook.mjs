@@ -254,7 +254,7 @@ class SQLiteBackend {
 
   /**
    * Confidence decay: reduce confidence for entries not accessed recently.
-   * Decay rate: 0.5% per hour (matches LearningBridge default).
+   * Decay rate: 0.5% per hour (matches LearningFlint default).
    * Entries with confidence below 0.1 are floor-clamped.
    */
   decayConfidence(namespace, hoursElapsed = 1) {

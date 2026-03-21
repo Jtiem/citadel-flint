@@ -18,7 +18,7 @@
  *   SEC2-05 — startIngestionServer rejects weak secrets
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { randomBytes } from 'node:crypto'
 
 // ── SEC2-01: randomBytes-based secret generation ───────────────────────────────
@@ -80,7 +80,7 @@ describe('SEC2-02 — secret strength validation', () => {
 // ── SEC2-03: getFigmaStatus return type contract ───────────────────────────────
 // We test the contract shape without importing the module.
 // The shape is enforced by TypeScript, but we verify it as a runtime contract
-// using the type definition from src/types/bridge-api.d.ts.
+// using the type definition from src/types/flint-api.d.ts.
 
 describe('SEC2-03 — getFigmaStatus return type has no secret field', () => {
     /**
@@ -131,16 +131,16 @@ describe('SEC2-04 — server startup does not log the secret', () => {
 
         // Simulate the log that tryListen() emits on successful bind (SEC.2 version)
         const port = 4545
-        console.log(`[Bridge] Ingestion server listening on http://127.0.0.1:${port}`)
+        console.log(`[Flint] Ingestion server listening on http://127.0.0.1:${port}`)
         // SEC.2: The following log line was removed from the source:
-        //   console.log(`[Bridge] x-bridge-secret: ${BRIDGE_SECRET}`)
+        //   console.log(`[Flint] x-flint-secret: ${FLINT_SECRET}`)
         // We verify that if a startup log IS emitted, it does not contain the secret
 
         const testSecret = randomBytes(32).toString('hex')
         const allLogCalls = logSpy.mock.calls.flat().join(' ')
 
         expect(allLogCalls).not.toContain(testSecret)
-        expect(allLogCalls).not.toContain('x-bridge-secret')
+        expect(allLogCalls).not.toContain('x-flint-secret')
 
         logSpy.mockRestore()
     })
@@ -150,7 +150,7 @@ describe('SEC2-04 — server startup does not log the secret', () => {
 
         // Simulate calling console.log with port info (the allowed log)
         const secret = randomBytes(32).toString('hex')
-        console.log('[Bridge] Ingestion server listening on http://127.0.0.1:4545')
+        console.log('[Flint] Ingestion server listening on http://127.0.0.1:4545')
 
         // Verify the secret did not appear in any log
         const calls = consoleSpy.mock.calls.flat().join('\n')

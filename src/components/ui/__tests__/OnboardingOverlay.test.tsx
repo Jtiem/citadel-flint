@@ -2,7 +2,7 @@
  * OnboardingOverlay.test.tsx
  *
  * 8 tests for the OnboardingOverlay component. The overlay reads/writes
- * localStorage key "bridge-onboarding-complete" to track whether to show
+ * localStorage key "flint-onboarding-complete" to track whether to show
  * the 3-step onboarding flow.
  */
 
@@ -10,7 +10,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { OnboardingOverlay } from '../OnboardingOverlay'
 
-const STORAGE_KEY = 'bridge-onboarding-complete'
+const STORAGE_KEY = 'flint-onboarding-complete'
 
 // ── Suite ─────────────────────────────────────────────────────────────────────
 
@@ -51,7 +51,7 @@ describe('OnboardingOverlay', () => {
         render(<OnboardingOverlay />)
         fireEvent.click(screen.getByText('Next'))
         fireEvent.click(screen.getByText('Next'))
-        expect(screen.getByText('Talk to Bridge')).toBeDefined()
+        expect(screen.getByText('Talk to Flint')).toBeDefined()
     })
 
     // 6. "Got it" on last step sets localStorage and hides the overlay

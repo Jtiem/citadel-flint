@@ -4,11 +4,11 @@ description: Plan a new module or feature with full architectural impact analysi
 
 # /architect — Architecture Planning Workflow
 
-Run this workflow when designing a new module, feature, or Phase for Bridge IDE.
+Run this workflow when designing a new module, feature, or Phase for Flint IDE.
 
 ## Steps
 
-1. Read `.bridge-context/BRIDGE-PULSE.md` for the current session state and pending transactions.
+1. Read `.flint-context/FLINT-PULSE.md` for the current session state and pending transactions.
 
 2. Read `CLAUDE.md` for the v5.7 architecture specification and module breakdown.
 
@@ -21,7 +21,7 @@ Run this workflow when designing a new module, feature, or Phase for Bridge IDE.
    - Files that will be **created** (with proposed location and purpose).
    - Files that will be **deleted** (if any).
 
-6. Analyze **AST Impact**: Identify which `data-bridge-id` nodes, Babel visitor patterns, or store actions will change. Cross-reference against the `ASTService.ts` mutation types.
+6. Analyze **AST Impact**: Identify which `data-flint-id` nodes, Babel visitor patterns, or store actions will change. Cross-reference against the `ASTService.ts` mutation types.
 
 7. Verify **Mithril Compliance**: Check if the feature introduces any new `className` patterns that need token mapping. If so, note which tokens must be added to the SQLite store.
 

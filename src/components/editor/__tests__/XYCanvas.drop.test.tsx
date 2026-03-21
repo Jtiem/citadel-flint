@@ -7,13 +7,13 @@
  *
  * Covers:
  *   - Canvas renders without crashing
- *   - onDragOver prevents default when bridge component drag type is present
- *   - onDragOver does NOT prevent default for non-bridge drags
+ *   - onDragOver prevents default when flint component drag type is present
+ *   - onDragOver does NOT prevent default for non-flint drags
  *   - onDrop calls crossFileMove when valid drag data is present
  *   - onDrop is a no-op when no sourceFile in dataTransfer
  *   - onDrop is a no-op when activeFilePath is null
  *   - onDrop is a no-op when sourceFile === targetFile
- *   - isDragOver ring applied on dragEnter, not applied for non-bridge drags
+ *   - isDragOver ring applied on dragEnter, not applied for non-flint drags
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -51,8 +51,8 @@ vi.mock('../../../store/astBufferStore', () => ({
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const BRIDGE_COMPONENT_FILE_TYPE = 'application/bridge-component-file'
-const BRIDGE_SOURCE_ID_TYPE = 'application/bridge-source-id'
+const FLINT_COMPONENT_FILE_TYPE = 'application/flint-component-file'
+const FLINT_SOURCE_ID_TYPE = 'application/flint-source-id'
 
 const SOURCE_PATH = '/project/src/Source.tsx'
 const TARGET_PATH = '/project/src/Target.tsx'
@@ -106,19 +106,19 @@ describe('XYCanvas', () => {
     })
 
     describe('onDragOver', () => {
-        it('calls preventDefault when bridge component drag type is present', () => {
+        it('calls preventDefault when flint component drag type is present', () => {
             render(<XYCanvas />)
             const container = screen.getByTestId('xy-canvas-container')
 
             const prevented = fireEvent.dragOver(container, {
-                dataTransfer: makeDataTransfer({ [BRIDGE_COMPONENT_FILE_TYPE]: SOURCE_PATH }),
+                dataTransfer: makeDataTransfer({ [FLINT_COMPONENT_FILE_TYPE]: SOURCE_PATH }),
             })
 
             // fireEvent returns false when preventDefault was called
             expect(prevented).toBe(false)
         })
 
-        it('does NOT call preventDefault for non-bridge drag types', () => {
+        it('does NOT call preventDefault for non-flint drag types', () => {
             render(<XYCanvas />)
             const container = screen.getByTestId('xy-canvas-container')
 
@@ -149,8 +149,8 @@ describe('XYCanvas', () => {
 
             fireEvent.drop(container, {
                 dataTransfer: makeDataTransfer({
-                    [BRIDGE_COMPONENT_FILE_TYPE]: SOURCE_PATH,
-                    [BRIDGE_SOURCE_ID_TYPE]: 'child-source',
+                    [FLINT_COMPONENT_FILE_TYPE]: SOURCE_PATH,
+                    [FLINT_SOURCE_ID_TYPE]: 'child-source',
                 }),
             })
 
@@ -173,8 +173,8 @@ describe('XYCanvas', () => {
 
             fireEvent.drop(container, {
                 dataTransfer: makeDataTransfer({
-                    [BRIDGE_SOURCE_ID_TYPE]: 'child-source',
-                    // No BRIDGE_COMPONENT_FILE_TYPE
+                    [FLINT_SOURCE_ID_TYPE]: 'child-source',
+                    // No FLINT_COMPONENT_FILE_TYPE
                 }),
             })
 
@@ -190,8 +190,8 @@ describe('XYCanvas', () => {
 
             fireEvent.drop(container, {
                 dataTransfer: makeDataTransfer({
-                    [BRIDGE_COMPONENT_FILE_TYPE]: SOURCE_PATH,
-                    [BRIDGE_SOURCE_ID_TYPE]: 'child-source',
+                    [FLINT_COMPONENT_FILE_TYPE]: SOURCE_PATH,
+                    [FLINT_SOURCE_ID_TYPE]: 'child-source',
                 }),
             })
 
@@ -207,8 +207,8 @@ describe('XYCanvas', () => {
 
             fireEvent.drop(container, {
                 dataTransfer: makeDataTransfer({
-                    [BRIDGE_COMPONENT_FILE_TYPE]: SOURCE_PATH,
-                    [BRIDGE_SOURCE_ID_TYPE]: 'child-source',
+                    [FLINT_COMPONENT_FILE_TYPE]: SOURCE_PATH,
+                    [FLINT_SOURCE_ID_TYPE]: 'child-source',
                 }),
             })
 
@@ -216,14 +216,14 @@ describe('XYCanvas', () => {
             expect(mockCrossFileMove).not.toHaveBeenCalled()
         })
 
-        it('uses empty string for sourceNodeId when BRIDGE_SOURCE_ID_TYPE is absent', async () => {
+        it('uses empty string for sourceNodeId when FLINT_SOURCE_ID_TYPE is absent', async () => {
             render(<XYCanvas />)
             const container = screen.getByTestId('xy-canvas-container')
 
             fireEvent.drop(container, {
                 dataTransfer: makeDataTransfer({
-                    [BRIDGE_COMPONENT_FILE_TYPE]: SOURCE_PATH,
-                    // No BRIDGE_SOURCE_ID_TYPE
+                    [FLINT_COMPONENT_FILE_TYPE]: SOURCE_PATH,
+                    // No FLINT_SOURCE_ID_TYPE
                 }),
             })
 
@@ -237,13 +237,13 @@ describe('XYCanvas', () => {
     })
 
     describe('isDragOver visual feedback', () => {
-        it('applies ring class on dragEnter with bridge component type', () => {
+        it('applies ring class on dragEnter with flint component type', () => {
             render(<XYCanvas />)
             const container = screen.getByTestId('xy-canvas-container')
 
             fireEvent.dragEnter(container, {
                 dataTransfer: makeDataTransfer({
-                    [BRIDGE_COMPONENT_FILE_TYPE]: SOURCE_PATH,
+                    [FLINT_COMPONENT_FILE_TYPE]: SOURCE_PATH,
                 }),
             })
 
@@ -251,7 +251,7 @@ describe('XYCanvas', () => {
             expect(container.className).toContain('ring-blue-400')
         })
 
-        it('does NOT apply ring class on dragEnter without bridge component type', () => {
+        it('does NOT apply ring class on dragEnter without flint component type', () => {
             render(<XYCanvas />)
             const container = screen.getByTestId('xy-canvas-container')
 
@@ -269,7 +269,7 @@ describe('XYCanvas', () => {
             // First enter
             fireEvent.dragEnter(container, {
                 dataTransfer: makeDataTransfer({
-                    [BRIDGE_COMPONENT_FILE_TYPE]: SOURCE_PATH,
+                    [FLINT_COMPONENT_FILE_TYPE]: SOURCE_PATH,
                 }),
             })
             expect(container.className).toContain('ring-2')
@@ -277,7 +277,7 @@ describe('XYCanvas', () => {
             // Then drop — ring should be cleared
             fireEvent.drop(container, {
                 dataTransfer: makeDataTransfer({
-                    [BRIDGE_COMPONENT_FILE_TYPE]: SOURCE_PATH,
+                    [FLINT_COMPONENT_FILE_TYPE]: SOURCE_PATH,
                 }),
             })
             expect(container.className).not.toContain('ring-2')

@@ -18,7 +18,7 @@
  *   - Viewport culling — badges only rendered for nodes within visible area
  *   - Badge cap — max 50 badges, sorted criticals first
  *
- * Mithril Safety: all classes from Bridge design token palette.
+ * Mithril Safety: all classes from Flint design token palette.
  * No hardcoded hex values. No arbitrary spacing values.
  */
 
@@ -28,7 +28,7 @@ import { useEditorStore } from '../../store/editorStore'
 import { useCanvasStore } from '../../store/canvasStore'
 import { useNotificationStore } from '../../store/notificationStore'
 import { ViolationTooltip } from './ViolationTooltip'
-import type { LinterWarning } from '../../types/bridge-api'
+import type { LinterWarning } from '../../types/flint-api'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -36,7 +36,7 @@ interface ShieldOverlayProps {
     iframeRef: React.RefObject<HTMLIFrameElement | null>
 }
 
-// Messages posted by the in-iframe bridge-init script
+// Messages posted by the in-iframe flint-init script
 interface CanvasClickMessage {
     type: 'CANVAS_CLICK'
     id: string
@@ -164,7 +164,7 @@ export function ShieldOverlay({ iframeRef }: ShieldOverlayProps) {
         const poll = async () => {
             if (cancelled) return
             try {
-                const rows = await window.bridgeAPI.readPresence()
+                const rows = await window.flintAPI.readPresence()
                 if (!cancelled) {
                     lockedNodeIdsRef.current = new Set(
                         rows.map((r) => r.node_id).filter(Boolean)

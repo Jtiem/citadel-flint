@@ -22,8 +22,8 @@
  * STORE INTEGRATION (contract Section 5.1):
  *   Reads from useImportSummaryStore — summary, isVisible, isPanelMode.
  *   Calls: dismiss(), openPanel(), removeTier2Item(), replaceWithPreHeal().
- *   IPC calls: window.bridgeAPI.importSummary.snapToToken() on Snap click.
- *              window.bridgeAPI.importSummary.undoAllHeals() on Undo click.
+ *   IPC calls: window.flintAPI.importSummary.snapToToken() on Snap click.
+ *              window.flintAPI.importSummary.undoAllHeals() on Undo click.
  *   For "View on canvas": useEditorStore.getState().setSelectedNode(nodeId)
  *                         + useCanvasStore.getState().setActiveSelection(nodeId)
  *
@@ -34,7 +34,7 @@
  *     Shown when isPanelMode is true, replacing the standard tab content.
  *
  * MITHRIL SAFETY:
- *   All colors from the Bridge design token palette only.
+ *   All colors from the Flint design token palette only.
  *   No hardcoded hex values. No arbitrary spacing values.
  *
  * Renderer process only — no Node.js imports.
@@ -54,7 +54,7 @@ import {
 import { useImportSummaryStore } from '../../store/importSummaryStore'
 import { useEditorStore } from '../../store/editorStore'
 import { useCanvasStore } from '../../store/canvasStore'
-import type { IngestionFix, IngestionFlag, SnapToTokenPayload } from '../../types/bridge-api'
+import type { IngestionFix, IngestionFlag, SnapToTokenPayload } from '../../types/flint-api'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -105,11 +105,12 @@ function Tier2FlagRow({ flag, onSnap, isSnapping }: Tier2FlagRowProps) {
                 type="button"
                 onClick={() => onSnap(flag)}
                 disabled={isSnapping}
-                aria-label={`Snap ${flag.originalValue} to token ${flag.suggestedToken}`}
+                aria-label={`Apply token fix: replace ${flag.originalValue} with ${flag.suggestedToken}`}
+                title="Apply the suggested design token to this value"
                 className="shrink-0 flex items-center gap-1 rounded border border-indigo-500/30 bg-indigo-600/10 px-1.5 py-0.5 text-[10px] text-indigo-400 transition-colors hover:bg-indigo-600/20 hover:text-indigo-300 disabled:cursor-not-allowed disabled:opacity-50"
             >
                 <Zap size={9} />
-                {isSnapping ? 'Snapping…' : 'Snap'}
+                {isSnapping ? 'Fixing…' : 'Fix'}
             </button>
         </div>
     )
@@ -268,7 +269,7 @@ export function ImportSummaryPanelView() {
     const tier3Count = summary.tier3Unknown
 
     const handleSnap = async (flag: IngestionFlag) => {
-        if (!window.bridgeAPI?.importSummary) return
+        if (!window.flintAPI?.importSummary) return
         setSnappingNodeId(flag.nodeId)
         try {
             const payload: SnapToTokenPayload = {
@@ -277,7 +278,7 @@ export function ImportSummaryPanelView() {
                 className: flag.suggestedClass,
                 originalClass: flag.originalValue,
             }
-            const result = await window.bridgeAPI.importSummary.snapToToken(payload)
+            const result = await window.flintAPI.importSummary.snapToToken(payload)
             if (result.ok) {
                 removeTier2Item(flag.nodeId)
             }
@@ -294,11 +295,11 @@ export function ImportSummaryPanelView() {
     }
 
     const handleUndoAllHeals = async () => {
-        if (!window.bridgeAPI?.importSummary) return
+        if (!window.flintAPI?.importSummary) return
         setUndoing(true)
         setUndoError(null)
         try {
-            const result = await window.bridgeAPI.importSummary.undoAllHeals(summary.preHealCode)
+            const result = await window.flintAPI.importSummary.undoAllHeals(summary.preHealCode)
             if (result.ok) {
                 replaceWithPreHeal()
             } else {

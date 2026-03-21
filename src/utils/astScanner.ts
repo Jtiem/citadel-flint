@@ -52,7 +52,7 @@ const ARBITRARY_COLOR_RE =
 export interface DriftCandidate {
     /**
      * Stable node identifier — matches the id produced by `buildVisualTree`:
-     * data-bridge-id value when present, otherwise "tagName:line:col".
+     * data-flint-id value when present, otherwise "tagName:line:col".
      */
     nodeId: string
     /**
@@ -94,15 +94,15 @@ export function scanArbitraryColors(ast: File): DriftCandidate[] {
             const loc = path.node.loc
 
             // ── Resolve node id (mirrors buildVisualTree logic) ────────────────
-            let bridgeId: string | undefined
+            let flintId: string | undefined
             for (const attr of opening.attributes) {
                 if (
                     attr.type === 'JSXAttribute' &&
                     attr.name.type === 'JSXIdentifier' &&
-                    attr.name.name === 'data-bridge-id' &&
+                    attr.name.name === 'data-flint-id' &&
                     attr.value?.type === 'StringLiteral'
                 ) {
-                    bridgeId = attr.value.value
+                    flintId = attr.value.value
                     break
                 }
             }
@@ -112,7 +112,7 @@ export function scanArbitraryColors(ast: File): DriftCandidate[] {
                     : 'unknown'
             const line = loc?.start.line ?? 0
             const col = loc?.start.column ?? 0
-            const nodeId = bridgeId ?? `${tagName}:${line}:${col}`
+            const nodeId = flintId ?? `${tagName}:${line}:${col}`
 
             // ── Scan className attribute ───────────────────────────────────────
             for (const attr of opening.attributes) {

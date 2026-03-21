@@ -3,11 +3,11 @@
  *
  * Abstract Syntax Protocol (ASP) — Phase N.1
  *
- * Defines the core IBridgeAdapter interface that every language adapter
+ * Defines the core IFlintAdapter interface that every language adapter
  * (React, HTML, Vue, Angular…) must implement, and the LanguageRegistry
  * singleton that dispatches to the correct adapter based on file extension.
  *
- * Bridge Core (editorStore, astBufferStore, recoveryController, ASTService)
+ * Flint Core (editorStore, astBufferStore, recoveryController, ASTService)
  * MUST only interact with language-specific logic through this interface.
  * Direct Babel imports in core stores are a violation of Phase N.
  *
@@ -21,19 +21,19 @@
 export type { ASTMutation, InverseMutation } from '../ASTService'
 export type { VisualLayer } from '../ast-parser'
 
-// ── IBridgeAdapter ────────────────────────────────────────────────────────────
+// ── IFlintAdapter ────────────────────────────────────────────────────────────
 
 import type { ASTMutation, InverseMutation } from '../ASTService'
 import type { VisualLayer } from '../ast-parser'
 
 /**
- * The contract every Bridge language adapter must fulfill.
+ * The contract every Flint language adapter must fulfill.
  *
  * The `ast` parameter type is intentionally `unknown` — each adapter owns its
- * AST representation internally. Core bridge code never inspects the raw AST;
+ * AST representation internally. Core flint code never inspects the raw AST;
  * it only works through the methods below.
  */
-export interface IBridgeAdapter {
+export interface IFlintAdapter {
     /**
      * Parse source code into this adapter's internal AST representation.
      * Returns `null` on parse failure (e.g., syntax error during live edit).
@@ -52,11 +52,11 @@ export interface IBridgeAdapter {
     buildVisualTree(ast: unknown): VisualLayer[]
 
     /**
-     * Inject `data-bridge-id` attributes onto all elements that do not
+     * Inject `data-flint-id` attributes onto all elements that do not
      * already carry one. Mutates `ast` in-place and returns it.
      * Idempotent: calling this multiple times is safe.
      */
-    injectBridgeIds(ast: unknown): unknown
+    injectFlintIds(ast: unknown): unknown
 
     /**
      * Apply an ordered batch of AST mutation operations to `code` in a
@@ -71,11 +71,11 @@ export interface IBridgeAdapter {
     ): { code: string; inversions: InverseMutation[] }
 
     /**
-     * Returns `true` when the element identified by `bridgeId`
-     * (`data-bridge-id` attribute) still exists in `code`.
+     * Returns `true` when the element identified by `flintId`
+     * (`data-flint-id` attribute) still exists in `code`.
      * Used for zombie-node pre-flight checks before applying undo.
      */
-    nodeExists(code: string, bridgeId: string): boolean
+    nodeExists(code: string, flintId: string): boolean
 
     /**
      * Validate `code` in-memory (e.g., TypeScript type-check, HTML structure).
@@ -109,7 +109,7 @@ export interface IBridgeAdapter {
 // ── LanguageRegistry ──────────────────────────────────────────────────────────
 
 /**
- * Maps file extensions to their registered IBridgeAdapter implementations.
+ * Maps file extensions to their registered IFlintAdapter implementations.
  * Acts as the single dispatch point for all language-specific operations.
  *
  * Usage:
@@ -117,13 +117,13 @@ export interface IBridgeAdapter {
  *   const ast = adapter.parse(code)
  */
 class LanguageRegistryClass {
-    private readonly adapters = new Map<string, IBridgeAdapter>()
+    private readonly adapters = new Map<string, IFlintAdapter>()
 
     /**
      * Register an adapter for one or more file extensions.
      * Extensions should be provided without the leading dot, e.g. `'tsx'`.
      */
-    register(extensions: string[], adapter: IBridgeAdapter): void {
+    register(extensions: string[], adapter: IFlintAdapter): void {
         for (const ext of extensions) {
             this.adapters.set(ext.toLowerCase(), adapter)
         }
@@ -137,7 +137,7 @@ class LanguageRegistryClass {
      *
      * @param filePath Absolute or relative path including the file extension.
      */
-    getAdapter(filePath: string): IBridgeAdapter {
+    getAdapter(filePath: string): IFlintAdapter {
         const ext = filePath.split('.').pop()?.toLowerCase() ?? ''
         const adapter = this.adapters.get(ext)
         if (adapter) return adapter
@@ -147,11 +147,11 @@ class LanguageRegistryClass {
         // but prevents hard crashes during incremental N.1 rollout.
         const fallback = this.adapters.get('tsx') ?? this.adapters.get('ts')
         if (fallback) {
-            console.warn(`[Bridge] LanguageRegistry: no adapter for ".${ext}", falling back to ReactAdapter`)
+            console.warn(`[Flint] LanguageRegistry: no adapter for ".${ext}", falling back to ReactAdapter`)
             return fallback
         }
 
-        throw new Error(`[Bridge] LanguageRegistry: no adapter registered and no ReactAdapter fallback available. Call LanguageRegistry.register() before using the store.`)
+        throw new Error(`[Flint] LanguageRegistry: no adapter registered and no ReactAdapter fallback available. Call LanguageRegistry.register() before using the store.`)
     }
 
     /**

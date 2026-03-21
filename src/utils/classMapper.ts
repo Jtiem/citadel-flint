@@ -36,7 +36,7 @@
  *   tokenToClass('opacity.muted',        'opacity',   'opacity-')  → 'opacity-muted'
  */
 
-import type { TokenType } from '../types/bridge-api'
+import type { TokenType } from '../types/flint-api'
 
 // ── Leading segments to strip per token type ──────────────────────────────────
 

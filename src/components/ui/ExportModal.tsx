@@ -26,7 +26,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ShieldAlert, ShieldCheck, X, Copy, Check, AlertTriangle, FileDown, Download, Wrench } from 'lucide-react'
 import { useCanvasStore } from '../../store/canvasStore'
 import { useEditorStore } from '../../store/editorStore'
-import type { LinterWarning, OverrideRow, ComplianceSummary } from '../../types/bridge-api'
+import type { LinterWarning, OverrideRow, ComplianceSummary } from '../../types/flint-api'
 
 // ── Props ──────────────────────────────────────────────────────────────────────
 
@@ -87,7 +87,7 @@ export function ExportModal({ onClose }: ExportModalProps) {
 
         // Phase 1 — overrides fetch
         const overridesPromise: Promise<OverrideRow[]> = (() => {
-            const readOverrides = window.bridgeAPI.tokens.readOverrides
+            const readOverrides = window.flintAPI.tokens.readOverrides
             if (readOverrides === undefined) return Promise.resolve([])
             return readOverrides()
         })()
@@ -95,7 +95,7 @@ export function ExportModal({ onClose }: ExportModalProps) {
         // Phase 2 — compliance summary
         const summaryPromise: Promise<ComplianceSummary | null> =
             ruleIds.length > 0
-                ? window.bridgeAPI.governance.getComplianceSummary(ruleIds)
+                ? window.flintAPI.governance.getComplianceSummary(ruleIds)
                       .catch((err: Error) => {
                           console.error('[ExportModal] getComplianceSummary error:', err.message)
                           return null
@@ -145,9 +145,9 @@ export function ExportModal({ onClose }: ExportModalProps) {
     )
 
     // ── Snap-select a node when user clicks its ID in the violation list ───────
-    const handleSelectNode = useCallback((bridgeId: string) => {
-        setSelectedNode(bridgeId)
-        setActiveSelection(bridgeId)
+    const handleSelectNode = useCallback((flintId: string) => {
+        setSelectedNode(flintId)
+        setActiveSelection(flintId)
         onClose()
     }, [setSelectedNode, setActiveSelection, onClose])
 
@@ -171,11 +171,11 @@ export function ExportModal({ onClose }: ExportModalProps) {
         setDbomDownloading(true)
         setDbomError(null)
         try {
-            const mcp = window.bridgeAPI.mcp
+            const mcp = window.flintAPI.mcp
             if (!mcp?.callTool) {
-                throw new Error('MCP bridge not available')
+                throw new Error('MCP flint not available')
             }
-            const result = await mcp.callTool('bridge_generate_dbom', { format: 'json' })
+            const result = await mcp.callTool('flint_generate_dbom', { format: 'json' })
             // result is { content: [{ type: 'text', text: string }] }
             const content = (result as { content?: Array<{ type: string; text: string }> })?.content
             const text = Array.isArray(content) ? (content[0]?.text ?? '{}') : '{}'
@@ -317,25 +317,28 @@ export function ExportModal({ onClose }: ExportModalProps) {
                             {/* Property overrides */}
                             {overrideRows.length > 0 && (
                                 <div>
-                                    <h3 className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-amber-400">
+                                    <h3 className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-amber-400">
                                         <AlertTriangle className="h-3 w-3" />
                                         Property Overrides ({overrideRows.length})
                                     </h3>
+                                    <p className="mb-2 text-[11px] text-gray-400">
+                                        Values you manually changed that differ from the design system. Reset them in the Properties panel or apply the design token to clear.
+                                    </p>
                                     <ul className="space-y-1.5">
                                         {overrideRows.map((row) => (
                                             <li
-                                                key={`${row.bridge_id}::${row.property_key}`}
+                                                key={`${row.flint_id}::${row.property_key}`}
                                                 className="rounded border border-gray-700 bg-gray-800/60 px-3 py-2"
                                             >
                                                 <div className="flex items-start justify-between gap-2">
                                                     <div className="min-w-0 flex-1">
                                                         <button
                                                             type="button"
-                                                            onClick={() => handleSelectNode(row.bridge_id)}
+                                                            onClick={() => handleSelectNode(row.flint_id)}
                                                             className="truncate font-mono text-[10px] text-indigo-400 transition-colors hover:text-indigo-300 hover:underline"
-                                                            title={`Navigate to ${row.bridge_id}`}
+                                                            title={`Navigate to ${row.flint_id}`}
                                                         >
-                                                            {row.bridge_id}
+                                                            {row.flint_id}
                                                         </button>
                                                         <p className="mt-0.5 font-mono text-[10px] text-zinc-400">
                                                             <span className="text-gray-400">{row.property_key}</span>
@@ -358,19 +361,19 @@ export function ExportModal({ onClose }: ExportModalProps) {
                                         Accessibility Violations ({Object.keys(a11yViolations).length})
                                     </h3>
                                     <ul className="space-y-1.5">
-                                        {Object.entries(a11yViolations).map(([bridgeId, messages]) =>
+                                        {Object.entries(a11yViolations).map(([flintId, messages]) =>
                                             messages.map((msg) => (
                                                 <li
-                                                    key={`${bridgeId}::${msg}`}
+                                                    key={`${flintId}::${msg}`}
                                                     className="rounded border border-red-900/40 bg-red-900/10 px-3 py-2"
                                                 >
                                                     <button
                                                         type="button"
-                                                        onClick={() => handleSelectNode(bridgeId)}
+                                                        onClick={() => handleSelectNode(flintId)}
                                                         className="font-mono text-[10px] text-red-400 transition-colors hover:text-red-300 hover:underline"
-                                                        title={`Navigate to ${bridgeId}`}
+                                                        title={`Navigate to ${flintId}`}
                                                     >
-                                                        {bridgeId}
+                                                        {flintId}
                                                     </button>
                                                     <p className="mt-0.5 text-[10px] text-zinc-400">
                                                         {msg}

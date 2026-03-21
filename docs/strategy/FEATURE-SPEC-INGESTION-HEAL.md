@@ -18,7 +18,7 @@ Today, every Figma import follows a punishing pattern:
 Figma → hydrate → canvas shows 14 red badges → designer spends 5 min fixing → export
 ```
 
-Governance only activates *after* hydration. Bridge creates technical debt at the exact moment of creation, then immediately asks the user to pay it down. This produces an anxiety dip at J8.3–J8.5 in the journey map and undermines the core promise of Figma-to-canvas speed.
+Governance only activates *after* hydration. Flint creates technical debt at the exact moment of creation, then immediately asks the user to pay it down. This produces an anxiety dip at J8.3–J8.5 in the journey map and undermines the core promise of Figma-to-canvas speed.
 
 The MithrilLinter, A11yLinter, and `ASTService.applyMutationBatch` already know how to detect and fix token violations. They just run too late — after the code hits `editorStore`, after badges render, after the designer's confidence drops.
 
@@ -78,13 +78,13 @@ The heal pass inserts into the existing J8.3 (AST Hydration) pipeline:
 [ingestion-server.ts receives /ingest-ast]
          |
          v
-[Validate against BridgeSDIPayload schema]
+[Validate against FlintSDIPayload schema]
          |
          v
 [hydrate_figma_data → React JSX AST]       ← existing
          |
          v
-[injectBridgeIds(hydratedAST)]              ← existing
+[injectFlintIds(hydratedAST)]              ← existing
          |
          v
 ┌─────────────────────────────────────────┐
@@ -111,7 +111,7 @@ The heal pass inserts into the existing J8.3 (AST Hydration) pipeline:
 
 **Problem:** Tokens arrive via `/ingest` and AST via `/ingest-ast`. If AST arrives first, the heal pass has no tokens to compare against.
 
-**Solution:** The `IngestionAuditor` reads tokens directly from SQLite via `tokenStore.getTokens()` at heal time. If the token table is empty (no prior `/ingest` call), the heal pass is a no-op — it skips tier 1 and tier 2 entirely, and all values fall through to tier 3 (standard governance). This is the correct degradation: without tokens, Bridge can't know what's correct, so it doesn't guess.
+**Solution:** The `IngestionAuditor` reads tokens directly from SQLite via `tokenStore.getTokens()` at heal time. If the token table is empty (no prior `/ingest` call), the heal pass is a no-op — it skips tier 1 and tier 2 entirely, and all values fall through to tier 3 (standard governance). This is the correct degradation: without tokens, Flint can't know what's correct, so it doesn't guess.
 
 **Recommended workflow for Figma plugin:** Send `/ingest` (tokens) first, then `/ingest-ast` (components). Document this ordering in the plugin UI. The ingestion server should log a warning if `/ingest-ast` arrives with zero tokens in the database.
 
@@ -146,7 +146,7 @@ interface IngestionSummary {
 }
 
 interface IngestionFix {
-  nodeId: string                     // data-bridge-id
+  nodeId: string                     // data-flint-id
   ruleId: string                     // e.g. MITHRIL-COL-001
   originalValue: string              // e.g. "#3B82F6"
   fixedToToken: string               // e.g. "color.blue.500"
@@ -168,7 +168,7 @@ interface IngestionFlag {
 
 | Channel | Direction | Payload | Purpose |
 |---------|-----------|---------|---------|
-| `bridge:import-summary` | main → renderer | `IngestionSummary` | Pushes heal results to renderer for toast |
+| `flint:import-summary` | main → renderer | `IngestionSummary` | Pushes heal results to renderer for toast |
 | `import:snap-to-token` | renderer → main | `{ nodeId, tokenPath, className }` | User clicks "snap" on a tier-2 flag |
 
 The `import:snap-to-token` handler reuses the existing `applyTokenFix` path in ASTService — no new mutation logic needed. After snapping, it re-audits the single node and updates the summary.
@@ -182,7 +182,7 @@ The 3-second Figma-to-canvas target must hold. Current pipeline:
 | HTTP receive | < 50ms | < 50ms (unchanged) |
 | Schema validation | < 10ms | < 10ms (unchanged) |
 | Hydration | < 1s | < 1s (unchanged) |
-| `injectBridgeIds` | < 50ms | < 50ms (unchanged) |
+| `injectFlintIds` | < 50ms | < 50ms (unchanged) |
 | **Heal pass** | **N/A** | **< 200ms** (NEW) |
 | `editorStore.setCode` | < 200ms | < 200ms (unchanged) |
 | Lint + render | < 500ms | **< 300ms** (FASTER — fewer violations to render) |
@@ -262,7 +262,7 @@ The anxiety dip between J8.4 and J8.5 is eliminated.
 | C1 (Code is Truth) | Healed code is written to `.tsx` as the canonical source. Pre-heal code is never persisted to disk |
 | C2 (No Hallucinated Styling) | Tier-1 fixes enforce token compliance at ingestion time, not just at lint time |
 | C4 (Local-First) | All heal logic runs locally in the main process. No external calls |
-| C7 (ID Preservation) | `injectBridgeIds` runs before the heal pass. Heal mutates values, never structure — IDs are untouched |
+| C7 (ID Preservation) | `injectFlintIds` runs before the heal pass. Heal mutates values, never structure — IDs are untouched |
 | C8 (Audit-First) | The heal pass IS an audit. It runs `auditAll()` before the code reaches the editor |
 | C9 (CIEDE2000) | Tier classification uses the same `findClosestToken` + CIEDE2000 math as MithrilLinter |
 | C12 (Atomic Queuing) | Healed file written via `FileTransactionManager` (existing auto-save path) |
@@ -270,15 +270,15 @@ The anxiety dip between J8.4 and J8.5 is eliminated.
 
 ## 8. MCP Integration
 
-The MCP agent workflow (J7) should also benefit. Add an optional `healOnAudit` parameter to `bridge_audit`:
+The MCP agent workflow (J7) should also benefit. Add an optional `healOnAudit` parameter to `flint_audit`:
 
 ```typescript
 // Existing: audit only
-bridge_audit({ filePath: "src/Card.tsx" })
+flint_audit({ filePath: "src/Card.tsx" })
 // → { violations: [...], sarif: {...} }
 
 // New: audit + auto-heal tier-1
-bridge_audit({ filePath: "src/Card.tsx", healOnAudit: true })
+flint_audit({ filePath: "src/Card.tsx", healOnAudit: true })
 // → { violations: [...], sarif: {...}, healed: { tier1Fixed: [...], tier2Flagged: [...] } }
 ```
 
@@ -299,7 +299,7 @@ This lets an agent import from Figma via MCP, heal automatically, and report the
 | ING-07 | Zero tokens in DB → heal pass is no-op | Edge | HIGH |
 | ING-08 | 100+ violations → auto-fix skipped, classify only | Edge | MEDIUM |
 | ING-09 | Mixed tiers in single file → correct classification per node | Mixed | HIGH |
-| ING-10 | Healed AST preserves all `data-bridge-id` values | C7 | HIGH |
+| ING-10 | Healed AST preserves all `data-flint-id` values | C7 | HIGH |
 | ING-11 | Healed code generates valid JSX (parse round-trip) | C13 | HIGH |
 | ING-12 | Heal duration < 200ms for 50-node component | Perf | MEDIUM |
 
@@ -312,7 +312,7 @@ This lets an agent import from Figma via MCP, heal automatically, and report the
 | ING-15 | Import Summary toast renders with correct counts | HIGH |
 | ING-16 | "Snap to token" IPC → value updated → re-audit passes | HIGH |
 | ING-17 | "Undo all heals" → original hydrated code restored | MEDIUM |
-| ING-18 | MCP `bridge_audit({ healOnAudit: true })` → tier-1 fixes applied | MEDIUM |
+| ING-18 | MCP `flint_audit({ healOnAudit: true })` → tier-1 fixes applied | MEDIUM |
 
 ### 9.3 Journey map coverage
 
@@ -327,26 +327,26 @@ This lets an agent import from Figma via MCP, heal automatically, and report the
 
 ### Phase ING.1 — Core heal logic (Sprint 1)
 
-**Agent:** bridge-architect (contract) → bridge-electron-ipc (implementation)  
+**Agent:** flint-architect (contract) → flint-electron-ipc (implementation)  
 **Model tier:** Sonnet/Pro (AST traversal logic requires high reasoning)
 
 1. Create `electron/ingestion/IngestionAuditor.ts`
 2. Implement `classifyViolation()` — takes a `LinterWarning` + token list, returns tier
 3. Implement `heal()` — runs `auditAll()`, classifies, applies tier-1 via `applyTokenFix`, returns `IngestionHealResult`
 4. Wire into `ingestion-server.ts` `/ingest-ast` handler, between hydration and IPC
-5. Add `bridge:import-summary` IPC channel
+5. Add `flint:import-summary` IPC channel
 6. Tests: ING-01 through ING-12
 
 **Deliverable:** Healed code reaches `editorStore`. No UI yet.
 
 ### Phase ING.2 — Import Summary UI (Sprint 1, parallel)
 
-**Agent:** bridge-design-engineer  
+**Agent:** flint-design-engineer  
 **Model tier:** Sonnet/Pro (React state + UX precision)
 
 1. Create `src/store/importSummaryStore.ts` — Zustand store for `IngestionSummary`
 2. Create `src/components/ui/ImportSummary.tsx` — toast + panel variants
-3. Listen for `bridge:import-summary` IPC in `App.tsx`, populate store
+3. Listen for `flint:import-summary` IPC in `App.tsx`, populate store
 4. Implement "Snap to token" click handler → `import:snap-to-token` IPC
 5. Implement "Undo all heals" — store pre-heal code, restore on click
 6. Tests: ING-15, ING-16, ING-17
@@ -355,12 +355,12 @@ This lets an agent import from Figma via MCP, heal automatically, and report the
 
 ### Phase ING.3 — Integration + MCP (Sprint 2)
 
-**Agent:** bridge-integration-validator + bridge-mcp-architect  
+**Agent:** flint-integration-validator + flint-mcp-architect  
 **Model tier:** Sonnet/Pro
 
 1. End-to-end integration test: Figma plugin → tokens → AST → heal → canvas
-2. Add `healOnAudit` parameter to `bridge_audit` MCP tool
-3. Update `bridge-mcp/src/tools/audit.ts` to optionally run heal pass
+2. Add `healOnAudit` parameter to `flint_audit` MCP tool
+3. Update `flint-mcp/src/tools/audit.ts` to optionally run heal pass
 4. Tests: ING-13, ING-14, ING-18
 5. Update `JOURNEY-MAPS-UX.md` J8 phases with ING behavior
 6. Update `HANDOFF.md` and `CLAUDE.md`
@@ -393,7 +393,7 @@ This lets an agent import from Figma via MCP, heal automatically, and report the
 | `02-Figma-Accuracy-Strategy.md` | ING implements the "Negotiate & Heal" tier (Section 2A: AI Token Negotiator). Tier-1 is the auto-snap. Tier-2 is the negotiation workspace. The Fallback Hierarchy (Section 4) maps directly to tier-3 handling |
 | `13-Success-Metrics-KPIs.md` | ING directly improves Token Integrity Ratio (TIR) at ingestion time. TIR measurement should be captured pre-heal and post-heal for reporting |
 | `05-Fidelity-Validation-Test-Plan.md` | The "Production Gate Auditor" (Section 3) now has a partner: the "Ingestion Gate Auditor" that runs the same checks earlier in the pipeline |
-| `04-Production-Readiness-Strategy.md` | ING moves Bridge further from "Detect & Warn" toward "Heal & Ship" — the code is production-closer at the moment of creation |
+| `04-Production-Readiness-Strategy.md` | ING moves Flint further from "Detect & Warn" toward "Heal & Ship" — the code is production-closer at the moment of creation |
 | `JOURNEY-MAPS-UX.md` | J8 phases updated. New phase J8.3a (Heal pass) inserted. J8.5 emotional state changes from Anxious to Confident |
 
 ---
@@ -408,7 +408,7 @@ This lets an agent import from Figma via MCP, heal automatically, and report the
 | **Thinking** | "It imported AND cleaned up my tokens? Nice." |
 | **Feeling** | Delighted (was: Delighted then immediately Anxious) |
 | **Touchpoints** | `LivePreview.tsx`, ImportSummary toast, clean `ShieldOverlay.tsx` |
-| **System** | After hydration + `injectBridgeIds`: `IngestionAuditor.heal(ast, tokens)` runs. Tier-1 fixes applied to AST. `editorStore.setCode(healedCode)`. `bridge:import-summary` IPC fires with summary. ImportSummary toast renders |
+| **System** | After hydration + `injectFlintIds`: `IngestionAuditor.heal(ast, tokens)` runs. Tier-1 fixes applied to AST. `editorStore.setCode(healedCode)`. `flint:import-summary` IPC fires with summary. ImportSummary toast renders |
 | **Performance** | Hydration: < 1s. Heal: < 200ms. Total: < 1.2s (within 3s budget) |
 | **Opportunity** | Celebrate zero-violation imports with a clean-sweep animation |
 

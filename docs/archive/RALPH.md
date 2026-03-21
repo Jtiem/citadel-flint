@@ -1,4 +1,4 @@
-# Bridge IDE — Ralph Task
+# Flint IDE — Ralph Task
 
 ## Goal
 Run `npm test`. If any tests fail, read the error output, locate the

@@ -1,7 +1,7 @@
 /**
  * orchestratorStore.ts — src/store/orchestratorStore.ts
  *
- * Zustand store for the Bridge Auditor / Orchestration Engine (Phase L).
+ * Zustand store for the Flint Auditor / Orchestration Engine (Phase L).
  *
  * Holds:
  *   - Conversation history shown in AgentChatPanel.
@@ -9,12 +9,12 @@
  *   - Pending tool calls awaiting user confirmation.
  *
  * The store does NOT call the LLM directly. It delegates to:
- *   window.bridgeAPI.ai.chat()   — initiates the IPC → main → Anthropic flow.
- *   window.bridgeAPI.ai.onChunk  — receives streamed OrchestratorChunk objects.
+ *   window.flintAPI.ai.chat()   — initiates the IPC → main → Anthropic flow.
+ *   window.flintAPI.ai.onChunk  — receives streamed OrchestratorChunk objects.
  */
 
 import { create } from 'zustand'
-import type { ChatMessage } from '../types/bridge-api'
+import type { ChatMessage } from '../types/flint-api'
 import { useEditorStore } from './editorStore'
 import { useCanvasStore } from './canvasStore'
 
@@ -25,11 +25,11 @@ import { useCanvasStore } from './canvasStore'
 // back into the conversation, then re-prompt the LLM — no user approval needed.
 
 const READ_ONLY_TOOLS = new Set([
-    'bridge_read_code',
-    'bridge_read_tokens',
-    'bridge_audit_mithril',
-    'bridge_audit_a11y',
-    'bridge_search_design_system',
+    'flint_read_code',
+    'flint_read_tokens',
+    'flint_audit_mithril',
+    'flint_audit_a11y',
+    'flint_search_design_system',
 ])
 
 interface PendingReadOnlyTool {
@@ -44,15 +44,15 @@ interface PendingReadOnlyTool {
  */
 async function executeReadOnlyTool(toolName: string, toolInput: Record<string, unknown>): Promise<string> {
     switch (toolName) {
-        case 'bridge_read_code': {
+        case 'flint_read_code': {
             const code = useEditorStore.getState().rawCode
             return code || '(no file open)'
         }
-        case 'bridge_read_tokens': {
-            const tokens = await window.bridgeAPI.tokens.readAll()
+        case 'flint_read_tokens': {
+            const tokens = await window.flintAPI.tokens.readAll()
             return JSON.stringify(tokens, null, 2)
         }
-        case 'bridge_audit_mithril': {
+        case 'flint_audit_mithril': {
             const warnings = useEditorStore.getState().linterWarnings
             const violations = useCanvasStore.getState().mithrilViolations
             return JSON.stringify({
@@ -63,14 +63,14 @@ async function executeReadOnlyTool(toolName: string, toolInput: Record<string, u
                 }),
             }, null, 2)
         }
-        case 'bridge_audit_a11y': {
+        case 'flint_audit_a11y': {
             const a11y = useCanvasStore.getState().a11yViolations
             return JSON.stringify(a11y, null, 2)
         }
-        case 'bridge_search_design_system': {
+        case 'flint_search_design_system': {
             const query = typeof toolInput.query === 'string' ? toolInput.query : ''
-            if (!window.bridgeAPI.ai.queryRAG) return '(RAG not configured)'
-            const results = await window.bridgeAPI.ai.queryRAG(query)
+            if (!window.flintAPI.ai.queryRAG) return '(RAG not configured)'
+            const results = await window.flintAPI.ai.queryRAG(query)
             return JSON.stringify(results, null, 2)
         }
         default:
@@ -93,11 +93,17 @@ export interface AgentMessage {
 
 export interface PendingToolCall {
     id: string              // Anthropic tool_use_id
-    toolName: string        // e.g. 'bridge_apply_batch'
+    toolName: string        // e.g. 'flint_apply_batch'
     input: Record<string, unknown>
     status: 'pending' | 'approved' | 'rejected'
     /** Raw result returned from the tool execution (for expand view) */
     result?: unknown
+    /**
+     * Snapshot of rawCode captured the moment this mutation tool_call arrived,
+     * before any mutations are applied. Used by DiffCard to show a before/after
+     * comparison of the targeted AST node.
+     */
+    beforeSnapshot?: string
 }
 
 export type ComplexityTier = 'flash' | 'thinking'
@@ -188,7 +194,7 @@ async function _dispatchChat(
     const controller = new AbortController()
     set({ isThinking: true, streamBuffer: '', activeStatus: 'Contacting API...', _abortController: controller })
 
-    window.bridgeAPI.ai.removeChunkListener()
+    window.flintAPI.ai.removeChunkListener()
 
     // ── Phase M: Collect read-only tool calls during streaming ────────────────
     // Deduplicates by toolUseId (backend emits tool_call at content_block_start
@@ -196,7 +202,7 @@ async function _dispatchChat(
     const pendingReadOnly: PendingReadOnlyTool[] = []
     const seenToolIds = new Set<string>()
 
-    window.bridgeAPI.ai.onChunk((chunk) => {
+    window.flintAPI.ai.onChunk((chunk) => {
         if (controller.signal.aborted) return
         const store = get()
         if (chunk.type === 'text' && chunk.text) {
@@ -225,7 +231,7 @@ async function _dispatchChat(
             // A tool call failed in-memory validation. Feed the error back to
             // the AI as a tool_result so it can correct itself without the user
             // ever seeing a broken diff card.
-            console.warn(`[Bridge] Invisible recovery: ${chunk.toolName} validation failed: ${chunk.error}`)
+            console.warn(`[Flint] Invisible recovery: ${chunk.toolName} validation failed: ${chunk.error}`)
             store._flushAssistantTurn()
             const currentMessages = get().messages
             set({
@@ -244,7 +250,7 @@ async function _dispatchChat(
 
         } else if (chunk.type === 'done') {
             store._flushAssistantTurn()
-            window.bridgeAPI.ai.removeChunkListener()
+            window.flintAPI.ai.removeChunkListener()
 
             if (pendingReadOnly.length > 0) {
                 // ── Phase M: Auto-execute read-only tools, then re-prompt ─────
@@ -283,7 +289,7 @@ async function _dispatchChat(
                             })
                         } catch (err) {
                             const errMsg = err instanceof Error ? err.message : String(err)
-                            console.error(`[Bridge] Read-only tool ${tool.toolName} failed:`, errMsg)
+                            console.error(`[Flint] Read-only tool ${tool.toolName} failed:`, errMsg)
                             const currentMessages = get().messages
                             set({
                                 messages: [
@@ -309,12 +315,12 @@ async function _dispatchChat(
             store._flushAssistantTurn()
             store._addErrorMessage(chunk.error ?? 'Unknown error')
             store._finishStream()
-            window.bridgeAPI.ai.removeChunkListener()
+            window.flintAPI.ai.removeChunkListener()
         }
     })
 
     const apiMessages = buildApiMessages(get().messages)
-    await window.bridgeAPI.ai.chat(apiMessages, {})
+    await window.flintAPI.ai.chat(apiMessages, {})
 }
 
 // ── Store ─────────────────────────────────────────────────────────────────────
@@ -335,17 +341,17 @@ export const useOrchestratorStore = create<OrchestratorState & OrchestratorActio
     // ── Config ────────────────────────────────────────────────────────────────
 
     initConfig: async () => {
-        const cfg = await window.bridgeAPI.ai.getConfig()
+        const cfg = await window.flintAPI.ai.getConfig()
         set({ hasConfig: cfg.hasKey, currentProvider: cfg.provider, currentModel: cfg.model, currentBaseURL: cfg.baseURL })
     },
 
     saveApiKey: async (key: string) => {
-        await window.bridgeAPI.ai.saveConfig({ apiKey: key, provider: 'anthropic' })
+        await window.flintAPI.ai.saveConfig({ apiKey: key, provider: 'anthropic' })
         set({ hasConfig: true })
     },
 
     saveSettings: async (settings: { provider: 'anthropic' | 'openai' | 'gemini'; apiKey?: string; model?: string; baseURL?: string }) => {
-        await window.bridgeAPI.ai.saveConfig(settings)
+        await window.flintAPI.ai.saveConfig(settings)
         set({ currentProvider: settings.provider })
         if (settings.apiKey) set({ hasConfig: true })
         if (settings.model) set({ currentModel: settings.model })
@@ -371,7 +377,7 @@ export const useOrchestratorStore = create<OrchestratorState & OrchestratorActio
         if (_abortController) {
             _abortController.abort()
         }
-        window.bridgeAPI.ai.removeChunkListener()
+        window.flintAPI.ai.removeChunkListener()
         const { streamBuffer } = get()
         // Flush whatever partial text was received before stopping.
         if (streamBuffer.trim()) {
@@ -415,7 +421,7 @@ export const useOrchestratorStore = create<OrchestratorState & OrchestratorActio
     },
 
     clearHistory: () => {
-        window.bridgeAPI.ai.removeChunkListener()
+        window.flintAPI.ai.removeChunkListener()
         set({ messages: [], streamBuffer: '', pendingToolCalls: [], isThinking: false })
     },
 
@@ -433,8 +439,8 @@ export const useOrchestratorStore = create<OrchestratorState & OrchestratorActio
 
         // ── Phase M: Route new 7-op tool names to ASTMutation ops ────────────
         const MUTATION_TOOLS = new Set([
-            'bridge_update_props', 'bridge_update_text', 'bridge_insert_node',
-            'bridge_wrap_node', 'bridge_delete_node', 'bridge_add_class', 'bridge_remove_class'
+            'flint_update_props', 'flint_update_text', 'flint_insert_node',
+            'flint_wrap_node', 'flint_delete_node', 'flint_add_class', 'flint_remove_class'
         ])
 
         if (MUTATION_TOOLS.has(call.toolName)) {
@@ -442,7 +448,7 @@ export const useOrchestratorStore = create<OrchestratorState & OrchestratorActio
             let mutations: unknown[] = []
 
             switch (call.toolName) {
-                case 'bridge_update_props': {
+                case 'flint_update_props': {
                     const props = (input.props as Record<string, string>) ?? {}
                     mutations = Object.entries(props).map(([propName, value]) => ({
                         op: 'updateProp',
@@ -452,34 +458,34 @@ export const useOrchestratorStore = create<OrchestratorState & OrchestratorActio
                     }))
                     break
                 }
-                case 'bridge_update_text':
+                case 'flint_update_text':
                     mutations = [{ op: 'updateTextContent', nodeId: input.targetId, text: input.text }]
                     break
-                case 'bridge_insert_node':
+                case 'flint_insert_node':
                     mutations = [{
                         op: 'injectComponent',
                         targetNodeId: input.targetId,
                         jsxSnippet: `<${input.nodeType}${input.children ? `>${input.children}</${input.nodeType}>` : ' /'}>`
                     }]
                     break
-                case 'bridge_wrap_node':
+                case 'flint_wrap_node':
                     mutations = [{ op: 'wrapNode', nodeId: input.targetId, wrapperElement: input.wrapperType }]
                     break
-                case 'bridge_delete_node':
+                case 'flint_delete_node':
                     mutations = [{ op: 'deleteNode', nodeId: input.targetId }]
                     break
-                case 'bridge_add_class': {
+                case 'flint_add_class': {
                     // Read current className, append new class via updateClassName
                     mutations = [{ op: 'addClassName', nodeId: input.targetId, className: input.className }]
                     break
                 }
-                case 'bridge_remove_class':
+                case 'flint_remove_class':
                     mutations = [{ op: 'removeClassName', nodeId: input.targetId, className: input.className }]
                     break
             }
 
             if (mutations.length > 0) {
-                await window.bridgeAPI.applyBatch(mutations)
+                await window.flintAPI.applyBatch(mutations)
                 const reasoning = typeof input.reasoning === 'string' ? input.reasoning : ''
                 set((s) => ({
                     messages: [
@@ -546,11 +552,22 @@ export const useOrchestratorStore = create<OrchestratorState & OrchestratorActio
     },
 
     _addToolCallMessage: (toolName: string, toolUseId: string, input: Record<string, unknown>) => {
+        // Capture rawCode before any mutations are applied so DiffCard can
+        // show a before/after comparison. Read-only tools don't need this.
+        const MUTATION_TOOL_NAMES_SET = new Set([
+            'flint_update_props', 'flint_update_text', 'flint_insert_node',
+            'flint_wrap_node', 'flint_delete_node', 'flint_add_class', 'flint_remove_class',
+        ])
+        const beforeSnapshot = MUTATION_TOOL_NAMES_SET.has(toolName)
+            ? (useEditorStore.getState().rawCode ?? undefined)
+            : undefined
+
         const call: PendingToolCall = {
             id: toolUseId,
             toolName,
             input,
             status: 'pending',
+            beforeSnapshot,
         }
         set((s) => ({
             pendingToolCalls: [...s.pendingToolCalls, call],

@@ -1,7 +1,7 @@
 /**
  * AgentChatPanel.tsx — src/components/ui/AgentChatPanel.tsx
  *
- * Bridge Auditor Chat UI — Phase L (Full UX Upgrade)
+ * Flint Auditor Chat UI — Phase L (Full UX Upgrade)
  *
  * All 3 phases implemented:
  *
@@ -22,11 +22,12 @@
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { BRAND } from '../../../shared/brand'
 import ReactMarkdown from 'react-markdown'
 import rehypeHighlight from 'rehype-highlight'
 import 'highlight.js/styles/github-dark.css'
 import {
-    Bot, Send, Trash2, Key, CheckCircle2, XCircle, Loader2, Zap,
+    Bot, Send, Trash2, Key, CheckCircle2, Loader2,
     Square, Copy, Check, Pencil, RotateCcw, ChevronDown, ChevronRight,
     FileCode, Cpu, Settings, Activity,
 } from 'lucide-react'
@@ -36,6 +37,7 @@ import { useCanvasStore } from '../../store/canvasStore'
 import { useEditorStore } from '../../store/editorStore'
 import { AgentSettingsModal } from './AgentSettingsModal'
 import { ActivityFeed } from './ActivityFeed'
+import { DiffCard } from './DiffCard'
 import type { AgentMessage, PendingToolCall } from '../../store/orchestratorStore'
 
 // ── Suggested prompts shown in empty state ────────────────────────────────────
@@ -78,7 +80,7 @@ function ConfigScreen({ onOpenSettings }: { onOpenSettings?: () => void }) {
             <div>
                 <h2 className="text-sm font-semibold text-gray-200">Connect Anthropic Claude</h2>
                 <p className="mt-1 text-xs text-gray-500">
-                    Your key is stored in <code className="text-gray-400">~/.bridge/config.json</code>
+                    Your key is stored in <code className="text-gray-400">~/.flint/config.json</code>
                     {' '}and never leaves your machine.
                 </p>
             </div>
@@ -203,8 +205,8 @@ function CodeBlock({ children, className, ...rest }: React.HTMLAttributes<HTMLEl
 // ── Tool Call Diff Card ───────────────────────────────────────────────────────
 
 const MUTATION_TOOL_NAMES = new Set([
-    'bridge_update_props', 'bridge_update_text', 'bridge_insert_node',
-    'bridge_wrap_node', 'bridge_delete_node', 'bridge_add_class', 'bridge_remove_class',
+    'flint_update_props', 'flint_update_text', 'flint_insert_node',
+    'flint_wrap_node', 'flint_delete_node', 'flint_add_class', 'flint_remove_class',
 ])
 
 function ToolCallCard({ call }: { call: PendingToolCall }) {
@@ -212,88 +214,14 @@ function ToolCallCard({ call }: { call: PendingToolCall }) {
     const rejectToolCall = useOrchestratorStore((s) => s.rejectToolCall)
     const [expanded, setExpanded] = useState(false)
 
-    const input = call.input
-    const reasoning = typeof input.reasoning === 'string' ? input.reasoning : ''
-    const targetId = typeof input.targetId === 'string' ? input.targetId.slice(0, 8) : '—'
-    const isPending = call.status === 'pending'
-
-    // All Phase M mutation tools get the rich diff card treatment
+    // All Phase M mutation tools get the enhanced DiffCard treatment
     if (MUTATION_TOOL_NAMES.has(call.toolName)) {
-        // Build a human-readable summary of what will change
-        let summary = ''
-        if (call.toolName === 'bridge_update_props') {
-            const props = (input.props as Record<string, string>) ?? {}
-            summary = Object.entries(props)
-                .map(([k, v]) => `${k} → "${v}"`)
-                .join(', ')
-        } else if (call.toolName === 'bridge_update_text') {
-            summary = `"${input.text ?? ''}"`
-        } else if (call.toolName === 'bridge_insert_node') {
-            summary = `<${input.nodeType ?? 'element'}> ${input.position ?? ''} #${targetId}`
-        } else if (call.toolName === 'bridge_wrap_node') {
-            summary = `wrap in <${input.wrapperType ?? 'div'}>`
-        } else if (call.toolName === 'bridge_delete_node') {
-            summary = `delete #${targetId}`
-        } else if (call.toolName === 'bridge_add_class') {
-            summary = `+ "${input.className ?? ''}"`
-        } else if (call.toolName === 'bridge_remove_class') {
-            summary = `- "${input.className ?? ''}"`
-        }
-
         return (
-            <div className={`rounded border text-[11px] transition-colors ${isPending
-                ? 'border-indigo-500/40 bg-indigo-950/40'
-                : call.status === 'approved'
-                    ? 'border-emerald-500/30 bg-emerald-950/20'
-                    : 'border-red-500/30 bg-red-950/20'
-                }`}>
-                {/* Header */}
-                <div className="flex items-center gap-2 border-b border-white/5 px-3 py-2">
-                    <Zap className="h-3 w-3 text-yellow-400" />
-                    <span className="font-medium font-mono text-yellow-400">{call.toolName}</span>
-                    <span className="ml-auto font-mono text-zinc-500 text-[10px]">#{targetId}</span>
-                </div>
-
-                {/* Summary */}
-                <div className="border-b border-white/5 px-3 py-1.5 font-mono text-[10px] text-indigo-300">
-                    {summary}
-                </div>
-
-                {/* Reasoning */}
-                {reasoning && (
-                    <p className="border-b border-white/5 px-3 py-1.5 text-gray-400 italic">{reasoning}</p>
-                )}
-
-                {/* Actions */}
-                {isPending && (
-                    <div className="flex gap-2 border-t border-white/5 px-3 py-2">
-                        <button
-                            type="button"
-                            onClick={() => void approveToolCall(call.id)}
-                            className="flex items-center gap-1 rounded bg-emerald-600/20 px-2.5 py-1 text-[10px] font-medium text-emerald-400 transition-colors hover:bg-emerald-600/30"
-                        >
-                            <CheckCircle2 className="h-3 w-3" />
-                            Apply
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => rejectToolCall(call.id)}
-                            className="flex items-center gap-1 rounded bg-red-600/10 px-2.5 py-1 text-[10px] font-medium text-red-400 transition-colors hover:bg-red-600/20"
-                        >
-                            <XCircle className="h-3 w-3" />
-                            Reject
-                        </button>
-                    </div>
-                )}
-                {!isPending && (
-                    <div className="px-3 py-1.5 text-[10px]">
-                        {call.status === 'approved'
-                            ? <span className="text-emerald-400">✅ Applied</span>
-                            : <span className="text-red-400">❌ Rejected</span>
-                        }
-                    </div>
-                )}
-            </div>
+            <DiffCard
+                call={call}
+                onApprove={(id) => void approveToolCall(id)}
+                onReject={(id) => rejectToolCall(id)}
+            />
         )
     }
 
@@ -606,7 +534,7 @@ export function AgentChatPanel() {
                     {/* Header */}
                     <div className="flex shrink-0 items-center gap-2 border-b border-gray-800/60 px-3 py-2">
                         <Bot className="h-3.5 w-3.5 text-indigo-400" />
-                        <span className="text-[11px] font-semibold text-gray-300">Bridge Auditor</span>
+                        <span className="text-[11px] font-semibold text-gray-300">{BRAND.product} Auditor</span>
                         {lastTier && (
                             <span className={`ml-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${lastTier === 'flash' ? 'bg-yellow-900/30 text-yellow-400' : 'bg-purple-900/30 text-purple-400'
                                 }`}>
@@ -650,7 +578,7 @@ export function AgentChatPanel() {
                         {messages.length === 0 && (
                             <div className="px-4 py-4 text-center">
                                 <Bot className="mx-auto mb-3 h-6 w-6 text-indigo-500/40" />
-                                <p className="text-[11px] text-zinc-500">Bridge Auditor is ready. Every change requires your approval before touching the AST.</p>
+                                <p className="text-[11px] text-zinc-500">{BRAND.product} Auditor is ready. Every change requires your approval before touching the AST.</p>
                                 <div className="mt-3 space-y-1">
                                     {SUGGESTIONS.map((s) => (
                                         <button

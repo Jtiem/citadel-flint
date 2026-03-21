@@ -22,6 +22,8 @@
 - [ ] **Read what it wrote.** Don't just accept AI output blindly. Read it like a code review.
 - [ ] **Check for hallucinations.** AI sometimes imports packages that don't exist, calls functions with wrong arguments, or makes up API endpoints.
 - [ ] **Check for hardcoded values.** AI loves to hardcode things that should be configurable (colors, URLs, sizes, strings).
+- [ ] **If multiple AI agents ran in parallel:** Check that they didn't modify the same file. Merge conflicts from parallel agents are silent — they don't warn you, they just overwrite each other's work.
+- [ ] **Check test counts, not just pass/fail.** "All tests pass" means nothing if the agent deleted the tests. Verify the count is the same or higher than before.
 
 ## Commit Message
 

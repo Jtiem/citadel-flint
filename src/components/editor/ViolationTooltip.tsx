@@ -12,18 +12,18 @@
  *   edges; the caller is responsible for ensuring it fits within the overlay's
  *   bounding box.
  *
- * Mithril Safety: all classes from Bridge design token palette.
+ * Mithril Safety: all classes from Flint design token palette.
  * No hardcoded hex values. No arbitrary spacing values.
  */
 
 import { useEffect, useRef } from 'react'
 import { AlertTriangle, ArrowRight, ShieldAlert, X } from 'lucide-react'
-import type { LinterWarning } from '../../types/bridge-api'
+import type { LinterWarning } from '../../types/flint-api'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 export interface ViolationTooltipProps {
-    /** data-bridge-id of the node whose violations are shown. */
+    /** data-flint-id of the node whose violations are shown. */
     nodeId: string
     /**
      * Top-left anchor in iframe-relative pixels.
@@ -49,6 +49,7 @@ function typeLabel(type: LinterWarning['type']): string {
         case 'shadow-drift':     return 'Shadow Drift'
         case 'opacity-drift':    return 'Opacity Drift'
         case 'a11y':             return 'Accessibility'
+        case 'semantic-drift':   return 'Semantic Drift'
     }
 }
 
@@ -90,7 +91,7 @@ export function ViolationTooltip({
     return (
         <div
             ref={cardRef}
-            data-bridge-id={`violation-tooltip-${nodeId}`}
+            data-flint-id={`violation-tooltip-${nodeId}`}
             role="dialog"
             aria-label={`Governance violations for ${nodeId}`}
             className="pointer-events-auto absolute z-50"
@@ -164,7 +165,7 @@ export function ViolationTooltip({
                                 <p className="text-xs text-zinc-400">{typeLabel(w.type)}</p>
                                 {w.value > 0 && w.type === 'color-drift' && (
                                     <p className="text-xs text-zinc-500 mt-0.5">
-                                        ΔE {w.value.toFixed(1)}
+                                        ΔE {w.value.toFixed(1)} (limit: 2.0) — {w.value > 10 ? 'very different from token' : w.value > 5 ? 'noticeably different' : 'slightly off'}
                                     </p>
                                 )}
                                 {w.nearestToken && (

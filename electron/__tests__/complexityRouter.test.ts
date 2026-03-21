@@ -154,8 +154,8 @@ function classifyComplexity(input: RouterInput): ComplexityTier {
 
     if (floor === 'atomic' && (
         input.priorToolCallCount >= 5 ||
-        input.priorToolNames.includes('bridge_insert_node') ||
-        input.priorToolNames.includes('bridge_wrap_node') ||
+        input.priorToolNames.includes('flint_insert_node') ||
+        input.priorToolNames.includes('flint_wrap_node') ||
         input.priorUniqueTargetIds >= 2
     )) {
         floor = 'compound'
@@ -202,7 +202,7 @@ function buildAssessment(input: RouterInput): ComplexityAssessment {
         signals.push({ source: 'prior_tool_depth', reason: `Prior turn used ${input.priorToolCallCount} tools`, tierContribution: 'compound' })
     }
 
-    if (input.priorToolNames.includes('bridge_insert_node') || input.priorToolNames.includes('bridge_wrap_node')) {
+    if (input.priorToolNames.includes('flint_insert_node') || input.priorToolNames.includes('flint_wrap_node')) {
         signals.push({ source: 'prior_structural_tool', reason: 'Prior turn used structural insert/wrap', tierContribution: 'compound' })
     }
 
@@ -323,15 +323,15 @@ describe('classifyComplexity — Classification Algorithm', () => {
         expect(classifyComplexity(atomic('Change the label', { sessionTurns: 9 }))).toBe('compound')
     })
 
-    it('prior structural tool bridge_insert_node raises atomic to compound', () => {
+    it('prior structural tool flint_insert_node raises atomic to compound', () => {
         expect(classifyComplexity(atomic('Change the label', {
-            priorToolNames: ['bridge_insert_node'],
+            priorToolNames: ['flint_insert_node'],
         }))).toBe('compound')
     })
 
-    it('prior structural tool bridge_wrap_node raises atomic to compound', () => {
+    it('prior structural tool flint_wrap_node raises atomic to compound', () => {
         expect(classifyComplexity(atomic('Change the label', {
-            priorToolNames: ['bridge_wrap_node'],
+            priorToolNames: ['flint_wrap_node'],
         }))).toBe('compound')
     })
 
@@ -501,7 +501,7 @@ describe('buildAssessment — Signal Transparency', () => {
 
     it('prior structural tool fires prior_structural_tool signal', () => {
         const assessment = buildAssessment(atomic('Change the label', {
-            priorToolNames: ['bridge_insert_node'],
+            priorToolNames: ['flint_insert_node'],
         }))
         const signal = assessment.signals.find((s) => s.source === 'prior_structural_tool')
         expect(signal).toBeDefined()
@@ -554,7 +554,7 @@ describe('classifyComplexity — Performance', () => {
             openFileCount: 5,
             activeFileExtension: 'tsx',
             priorToolCallCount: 7,
-            priorToolNames: ['bridge_read_code', 'bridge_update_props', 'bridge_add_class', 'bridge_insert_node', 'bridge_wrap_node', 'bridge_read_tokens', 'bridge_audit_mithril'],
+            priorToolNames: ['flint_read_code', 'flint_update_props', 'flint_add_class', 'flint_insert_node', 'flint_wrap_node', 'flint_read_tokens', 'flint_audit_mithril'],
             priorUniqueTargetIds: 4,
         }
 
@@ -637,7 +637,7 @@ describe('ACX.4 — Task-specified scenarios', () => {
 
     it('prior tool insert_node in prior turn → compound minimum', () => {
         const result = classifyComplexity(atomic('change the heading text', {
-            priorToolNames: ['bridge_insert_node'],
+            priorToolNames: ['flint_insert_node'],
         }))
         expect(result).toBe('compound')
     })

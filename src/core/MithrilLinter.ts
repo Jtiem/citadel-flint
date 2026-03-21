@@ -31,7 +31,7 @@ import _traverse from '@babel/traverse'
 import * as t from '@babel/types'
 import type { File } from '@babel/types'
 import { findClosestToken, SYSTEMIZABLE_THRESHOLD } from '../utils/tokenMatcher'
-import type { DesignToken, LinterWarning } from '../types/bridge-api'
+import type { DesignToken, LinterWarning } from '../types/flint-api'
 
 // CJS/ESM interop — mirrors the pattern used in astScanner.ts and ASTService.ts.
 const traverse =
@@ -153,12 +153,12 @@ export function calculateDrift(styleValue: string, tokenValue: string): number |
 
 // ── Shared AST helpers ────────────────────────────────────────────────────────
 
-/** Resolves `data-bridge-id` from a JSXOpeningElement's attribute list. */
-function getBridgeId(openEl: t.JSXOpeningElement): string | null {
+/** Resolves `data-flint-id` from a JSXOpeningElement's attribute list. */
+function getFlintId(openEl: t.JSXOpeningElement): string | null {
     const attr = openEl.attributes.find(
         (a): a is t.JSXAttribute =>
             t.isJSXAttribute(a) &&
-            t.isJSXIdentifier(a.name, { name: 'data-bridge-id' })
+            t.isJSXIdentifier(a.name, { name: 'data-flint-id' })
     )
     if (attr === undefined || !t.isStringLiteral(attr.value)) return null
     return attr.value.value
@@ -190,7 +190,7 @@ function severity(delta: number): LinterWarning['severity'] {
 const ARBITRARY_COLOR_RE = /^(?:[\w-]+:)*[\w-]+-\[(?<hex>#[0-9a-fA-F]{3,8})\]$/
 
 /**
- * MITHRIL-COL — Traverses a Babel File AST and returns a `Map<bridgeId, LinterWarning>` for
+ * MITHRIL-COL — Traverses a Babel File AST and returns a `Map<flintId, LinterWarning>` for
  * every JSX element whose `className` contains at least one Tailwind
  * arbitrary-value hex colour whose closest design token exceeds
  * `MITHRIL_THRESHOLD` (2.0 ΔE).
@@ -205,7 +205,7 @@ export function visitClassNames(ast: File, tokens: DesignToken[]): Map<string, L
             if (!t.isJSXIdentifier(path.node.name, { name: 'className' })) return
             const openEl = path.parentPath?.node
             if (!t.isJSXOpeningElement(openEl)) return
-            const nodeId = getBridgeId(openEl)
+            const nodeId = getFlintId(openEl)
             if (nodeId === null) return
 
             const classStr = getClassString(path.node)
@@ -278,7 +278,7 @@ export function visitTypography(ast: File, tokens: DesignToken[]): Map<string, L
             if (!t.isJSXIdentifier(path.node.name, { name: 'className' })) return
             const openEl = path.parentPath?.node
             if (!t.isJSXOpeningElement(openEl)) return
-            const nodeId = getBridgeId(openEl)
+            const nodeId = getFlintId(openEl)
             if (nodeId === null) return
             const classStr = getClassString(path.node)
             if (classStr === null) return
@@ -347,7 +347,7 @@ export function visitSpacing(ast: File, tokens: DesignToken[]): Map<string, Lint
             if (!t.isJSXIdentifier(path.node.name, { name: 'className' })) return
             const openEl = path.parentPath?.node
             if (!t.isJSXOpeningElement(openEl)) return
-            const nodeId = getBridgeId(openEl)
+            const nodeId = getFlintId(openEl)
             if (nodeId === null) return
             const classStr = getClassString(path.node)
             if (classStr === null) return
@@ -405,7 +405,7 @@ export function visitShadows(ast: File, tokens: DesignToken[]): Map<string, Lint
             if (!t.isJSXIdentifier(path.node.name, { name: 'className' })) return
             const openEl = path.parentPath?.node
             if (!t.isJSXOpeningElement(openEl)) return
-            const nodeId = getBridgeId(openEl)
+            const nodeId = getFlintId(openEl)
             if (nodeId === null) return
             const classStr = getClassString(path.node)
             if (classStr === null) return
@@ -460,7 +460,7 @@ export function visitOpacity(ast: File, tokens: DesignToken[]): Map<string, Lint
             if (!t.isJSXIdentifier(path.node.name, { name: 'className' })) return
             const openEl = path.parentPath?.node
             if (!t.isJSXOpeningElement(openEl)) return
-            const nodeId = getBridgeId(openEl)
+            const nodeId = getFlintId(openEl)
             if (nodeId === null) return
             const classStr = getClassString(path.node)
             if (classStr === null) return
@@ -500,7 +500,7 @@ export function visitOpacity(ast: File, tokens: DesignToken[]): Map<string, Lint
 
 /**
  * Runs all five Mithril visitors over `ast` and merges results into a single
- * `Map<bridgeId, LinterWarning>`.
+ * `Map<flintId, LinterWarning>`.
  *
  * When a node has multiple violations, the **color drift** warning takes
  * precedence (ΔE is the most precise signal); other dimensions are recorded

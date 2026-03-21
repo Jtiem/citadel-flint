@@ -1,11 +1,11 @@
 /**
  * electron/mcpClient.ts — MCP Client (Phase W.3)
  *
- * Manages a bridge-mcp server child process via stdio and exposes
+ * Manages a flint-mcp server child process via stdio and exposes
  * `callTool()` and `readResource()` to the Electron main process.
  *
  * Protocol: JSON-RPC 2.0 over stdio (newline-delimited JSON).
- * This matches the StdioServerTransport used by bridge-mcp/src/server.ts
+ * This matches the StdioServerTransport used by flint-mcp/src/server.ts
  * and avoids adding @modelcontextprotocol/sdk as a root dependency.
  *
  * Lifecycle:
@@ -29,6 +29,7 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline'
+import { app } from 'electron'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -69,10 +70,16 @@ interface JsonRpcResponse {
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 /**
- * Absolute path to the bridge-mcp compiled server entry point.
- * Built by running `npm run build` inside the bridge-mcp/ workspace.
+ * Absolute path to the flint-mcp compiled server entry point.
+ *
+ * Development:  dist-electron/../flint-mcp/dist/server.js  (sibling directory)
+ * Production:   Resources/app.asar.unpacked/flint-mcp/dist/server.js
+ *               The server is listed under asarUnpack in electron-builder.yml so the
+ *               OS can spawn it as a real child process (files inside ASAR are virtual).
  */
-const SERVER_ENTRY = path.resolve(__dirname, '..', 'bridge-mcp', 'dist', 'server.js')
+const SERVER_ENTRY = app.isPackaged
+    ? path.join(process.resourcesPath, 'app.asar.unpacked', 'flint-mcp', 'dist', 'server.js')
+    : path.resolve(__dirname, '..', 'flint-mcp', 'dist', 'server.js')
 
 /** Timeout (ms) for individual RPC calls. */
 const CALL_TIMEOUT_MS = 30_000
@@ -171,8 +178,8 @@ class MCPClient {
         // Graceful degradation — if the server hasn't been built yet, log and bail.
         if (!existsSync(SERVER_ENTRY)) {
             console.warn(
-                '[Bridge] mcpClient: bridge-mcp server not built at %s. ' +
-                'Run `npm run build` inside bridge-mcp/ to enable the Bidirectional Action Bridge.',
+                '[Flint] mcpClient: flint-mcp server not built at %s. ' +
+                'Run `npm run build` inside flint-mcp/ to enable the Bidirectional Action Flint.',
                 SERVER_ENTRY
             )
             return
@@ -183,7 +190,7 @@ class MCPClient {
             cwd: this.projectRoot,
             env: {
                 ...process.env,
-                BRIDGE_PROJECT_ROOT: this.projectRoot,
+                FLINT_PROJECT_ROOT: this.projectRoot,
                 // Suppress colour codes that can corrupt JSON lines
                 NO_COLOR: '1',
             },
@@ -207,26 +214,26 @@ class MCPClient {
         })
 
         // Mirror the server's stderr to our stderr for visibility in the dev console.
-        // The server writes "[Bridge] Project root: …" and "Bridge MCP Server listening on stdio"
+        // The server writes "[Flint] Project root: …" and "Flint MCP Server listening on stdio"
         // to stderr — we use the latter as a connected signal.
         proc.stderr?.on('data', (chunk: Buffer) => {
             const text = chunk.toString()
-            if (!this.connected && text.includes('Bridge MCP Server listening')) {
+            if (!this.connected && text.includes('Flint MCP Server listening')) {
                 this.connected = true
-                console.log('[Bridge] mcpClient: connected (pid=%d)', proc.pid)
+                console.log('[Flint] mcpClient: connected (pid=%d)', proc.pid)
             }
-            process.stderr.write('[bridge-mcp] ' + text)
+            process.stderr.write('[flint-mcp] ' + text)
         })
 
         proc.once('error', (err) => {
-            console.error('[Bridge] mcpClient: spawn error', err)
+            console.error('[Flint] mcpClient: spawn error', err)
             this._handleCrash()
         })
 
         proc.once('exit', (code, signal) => {
             // Ignore if we already replaced this proc via stop()
             if (this.proc !== proc) return
-            console.warn('[Bridge] mcpClient: server exited (code=%s signal=%s)', code, signal)
+            console.warn('[Flint] mcpClient: server exited (code=%s signal=%s)', code, signal)
             this._handleCrash()
         })
 
@@ -236,25 +243,58 @@ class MCPClient {
     }
 
     private _sendHandshake(): void {
+        const handshakeId = this.nextId++
         const req: JsonRpcRequest = {
             jsonrpc: '2.0',
-            id: this.nextId++,
+            id: handshakeId,
             method: 'initialize',
             params: {
                 protocolVersion: '2024-11-05',
                 capabilities: {},
-                clientInfo: { name: 'bridge-glass', version: '1.0.0' },
+                clientInfo: { name: 'flint-glass', version: '1.0.0' },
             },
         }
+
+        // Register the handshake so _handleResponse dispatches it.
+        // On success: send the required `notifications/initialized` to complete
+        // the MCP protocol handshake (server stays in "initializing" state
+        // until this notification arrives and will queue — then timeout — all
+        // tool/resource calls without it).
+        const timer = setTimeout(() => {
+            this.pendingCalls.delete(handshakeId)
+        }, 3000)
+
+        this.pendingCalls.set(handshakeId, {
+            resolve: () => {
+                this._sendInitializedNotification()
+                if (!this.connected) {
+                    this.connected = true
+                    console.log('[Flint] mcpClient: connected via initialize handshake')
+                }
+            },
+            reject: () => { /* ignore initialize errors — stderr signal is fallback */ },
+            timer,
+        })
+
         this._send(req)
 
         // Fallback: assume connected after a settle period if stderr signal missed.
         setTimeout(() => {
             if (this.proc && !this.connected) {
                 this.connected = true
-                console.log('[Bridge] mcpClient: assumed connected after handshake settle')
+                console.log('[Flint] mcpClient: assumed connected after handshake settle')
+                // Send initialized notification even in fallback path so the server
+                // transitions out of "initializing" state.
+                this._sendInitializedNotification()
             }
         }, 2000)
+    }
+
+    /** Sends the MCP `notifications/initialized` notification (no id, no response). */
+    private _sendInitializedNotification(): void {
+        if (!this.proc?.stdin?.writable) return
+        const notification = { jsonrpc: '2.0', method: 'notifications/initialized' }
+        this.proc.stdin.write(JSON.stringify(notification) + '\n')
     }
 
     private _handleResponse(msg: JsonRpcResponse): void {
@@ -282,7 +322,7 @@ class MCPClient {
 
         if (isSecondCrash) {
             console.error(
-                '[Bridge] mcpClient: second crash within %dms — disabling auto-restart',
+                '[Flint] mcpClient: second crash within %dms — disabling auto-restart',
                 CRASH_WINDOW_MS
             )
             this.lastCrashMs = null
@@ -292,7 +332,7 @@ class MCPClient {
         this.lastCrashMs = now
         this.restarting = true
 
-        console.warn('[Bridge] mcpClient: scheduling restart in 1 s…')
+        console.warn('[Flint] mcpClient: scheduling restart in 1 s…')
         setTimeout(() => {
             this.restarting = false
             if (this.projectRoot !== null) {
@@ -318,7 +358,7 @@ class MCPClient {
 
     private _send(req: JsonRpcRequest): void {
         if (!this.proc?.stdin?.writable) {
-            console.warn('[Bridge] mcpClient: cannot send — stdin not writable')
+            console.warn('[Flint] mcpClient: cannot send — stdin not writable')
             return
         }
         const line = JSON.stringify(req) + '\n'
@@ -329,7 +369,7 @@ class MCPClient {
         if (!this.connected) {
             throw new Error(
                 'MCP server is not connected. ' +
-                'Ensure a project is open and bridge-mcp is built (npm run build inside bridge-mcp/).'
+                'Ensure a project is open and flint-mcp is built (npm run build inside flint-mcp/).'
             )
         }
     }

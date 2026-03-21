@@ -11,7 +11,7 @@
  * return arrays of syntactic and semantic errors, giving us equivalent fidelity
  * to the TypeScript LSP but with far less infrastructure.
  *
- * When the Bridge AI Orchestrator proposes a mutation for a `.vue` file, it
+ * When the Flint AI Orchestrator proposes a mutation for a `.vue` file, it
  * assembles a minimal Vue template snippet (e.g. `<div>{{ msg }}</div>`) and
  * calls `validateSnippet()`. The worker wraps it in a minimal SFC, runs the
  * compiler, and returns the first error (if any) as a human-readable string.
@@ -52,7 +52,7 @@ if (!isMainThread) {
             const sfcSource = `<template>\n${msg.snippet}\n</template>`
 
             const { descriptor, errors: parseErrors } = parse(sfcSource, {
-                filename: 'bridge-validate.vue',
+                filename: 'flint-validate.vue',
             })
 
             const errors: string[] = []
@@ -66,8 +66,8 @@ if (!isMainThread) {
             if (descriptor.template) {
                 const templateResult = compileTemplate({
                     source: descriptor.template.content,
-                    filename: 'bridge-validate.vue',
-                    id: 'bridge',
+                    filename: 'flint-validate.vue',
+                    id: 'flint',
                     compilerOptions: { mode: 'module' },
                 })
                 for (const e of templateResult.errors ?? []) {
@@ -79,7 +79,7 @@ if (!isMainThread) {
             if (descriptor.scriptSetup || descriptor.script) {
                 try {
                     const scriptResult = compileScript(descriptor, {
-                        id: 'bridge',
+                        id: 'flint',
                         isProd: false,
                     })
                     void scriptResult  // Errors are thrown, not returned
@@ -122,7 +122,7 @@ export class VueLspClient implements ILspClient {
         this._worker = new Worker(workerPath, { workerData: null })
 
         this._worker.on('error', (err) => {
-            console.error('[Bridge LSP] Vue worker error:', err)
+            console.error('[Flint LSP] Vue worker error:', err)
             this._worker = null  // allow restart on next validate
         })
     }
@@ -142,7 +142,7 @@ export class VueLspClient implements ILspClient {
             // 5 000 ms safety timeout — treat as clean on timeout (mirrors TS LSP)
             const timer = setTimeout(() => {
                 worker.off('message', handler)
-                console.warn('[Bridge LSP] Vue validation timed out')
+                console.warn('[Flint LSP] Vue validation timed out')
                 resolve(null)
             }, 5000)
 

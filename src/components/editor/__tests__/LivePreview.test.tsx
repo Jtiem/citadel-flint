@@ -100,14 +100,14 @@ describe('LivePreview — SEC.1 postMessage origin validation', () => {
         // srcdoc iframes report origin as the literal string 'null' per HTML spec.
         window.dispatchEvent(
             new MessageEvent('message', {
-                data: { type: 'CANVAS_CLICK', id: 'bridge-test-node' },
+                data: { type: 'CANVAS_CLICK', id: 'flint-test-node' },
                 origin: 'null',
             }),
         )
 
         await waitFor(() => {
             const { selectedNodeId } = useEditorStore.getState()
-            expect(selectedNodeId).toBe('bridge-test-node')
+            expect(selectedNodeId).toBe('flint-test-node')
         })
     })
 

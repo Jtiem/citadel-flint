@@ -13,10 +13,15 @@ Define which directories/files this agent owns:
 - `src/utils/` — shared utilities
 
 ## Before Writing Code
-1. Read the architect's implementation plan
-2. Check `.governance/COMMANDMENTS.md` for relevant constraints
-3. Check `.governance/ARCHITECTURE.md` for module boundaries
-4. Search for existing utilities that solve the problem before writing new code
+1. Run the `session-start` workflow — declare territory, update HANDOFF.md
+2. Read the architect's contract artifact from `.governance/contracts/`
+3. Check `.governance/COMMANDMENTS.md` for relevant constraints
+4. Check `.governance/ARCHITECTURE.md` for module boundaries
+5. Search for existing utilities that solve the problem before writing new code
+
+**If no contract artifact exists for a multi-file feature:** stop and request one
+from the architect before proceeding. Implementing without a contract produces
+divergent code that breaks integration.
 
 ## Coding Standards
 - Use structured transformations (Commandment 7) — never regex on source code

@@ -1,6 +1,6 @@
 (As of 2/28/2026) Please read CLAUDE.MD and HANDOFF.MD to be sure these are still relevant.
 
-Bridge IDE v5.7 Feature Scan & Gap Analysis
+Flint IDE v5.7 Feature Scan & Gap Analysis
 Based on the 
 architecture.md
  (v5.7) specification and the 
@@ -20,8 +20,8 @@ Spec: "Exports are permanently blocked if any active entries exist in the compon
 Current State: The component_overrides table exists in SQLite, but there is no UI preventing a user from compiling/exporting dirty code. The WCAG a11y linter is entirely unbuilt.
 2. Module D: The Code-First Recovery Engine
 Missing / Blocked: Macro-Recovery (Commandments 10 & 11)
-Spec: "Bridge extracts the specific target node from Git history (git show HEAD) and transplants it into the live AST."
-Current State: The IPC handler (window.bridgeAPI.gitShow) is stubbed in the Type definitions, but the actual AST transplant logic (
+Spec: "Flint extracts the specific target node from Git history (git show HEAD) and transplants it into the live AST."
+Current State: The IPC handler (window.flintAPI.gitShow) is stubbed in the Type definitions, but the actual AST transplant logic (
 transplantNode
 ) is missing. Furthermore, you cannot use this feature until a Git repository is initialized and cleanly committed.
 Missing: Micro-Recovery (Command Pattern Undo/Redo)
@@ -49,12 +49,12 @@ While text editing (7a) is done, the following Inspector tasks remain:
 7C (Node Deletion): deleteNode exists in the parser, but there is no UI/keyboard shortcut (
 Delete
  / Backspace on canvas) to trigger it.
-7D (Renderer ID Injection): The renderer trusts the main process to inject data-bridge-id. This should occur in 
+7D (Renderer ID Injection): The renderer trusts the main process to inject data-flint-id. This should occur in 
 ast-parser.ts
  to harden offline rendering.
 Phase F (Multi-AST): Dragging a .tsx file from the Explorer onto the Canvas to inject an imported component instance is unimplemented.
 5. Security & Orchestration
-Missing: The Bridge Auditor
+Missing: The Flint Auditor
 Spec: "Complexity analysis that routes tasks to 'Flash' or 'Thinking' AI models."
 Current State: There is no orchestration software built into the app to actively manage Claude/OpenAI calls or route tasks based on AST complexity. (Unless this refers exclusively to me, the system LLM, acting as the auditor.)
 Recommended Additions to the Current Plan

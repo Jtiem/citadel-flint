@@ -1,0 +1,67 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# PR Validation Gate
+# ──────────────────────────────────────────────────────────────────────────────
+# Runs on every pull request targeting main. All steps must pass before merge.
+# Validates: TypeScript compilation (root + MCP), core tests, Glass tests, MCP tests.
+# ──────────────────────────────────────────────────────────────────────────────
+
+name: PR Validate
+
+on:
+  pull_request:
+    branches: [main]
+
+# Cancel in-progress runs for the same PR (saves CI minutes)
+concurrency:
+  group: pr-validate-${{ github.head_ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Typecheck + Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── 2. Node.js ──────────────────────────────────────────────────────────
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # ── 3. Install root dependencies ────────────────────────────────────────
+      - name: Install dependencies
+        run: npm ci
+
+      # ── 4. TypeScript — root project ────────────────────────────────────────
+      # Covers: src/ (Glass UI), electron/ (main process), shared types
+      - name: Typecheck (root)
+        run: npx tsc --noEmit
+
+      # ── 5. TypeScript — MCP engine ──────────────────────────────────────────
+      # Separate tsconfig; the MCP engine is an independent package
+      - name: Typecheck (flint-mcp)
+        run: npx tsc --noEmit --project flint-mcp/tsconfig.json
+
+      # ── 6. Core / Electron tests ────────────────────────────────────────────
+      # vitest.config.ts — covers: stores, hooks, IPC handlers, services
+      - name: Core tests
+        run: npm test
+
+      # ── 7. Glass component tests ────────────────────────────────────────────
+      # vitest.config.react.ts — covers: React components (jsdom)
+      - name: Glass component tests
+        run: npm run test:react
+
+      # ── 8. MCP engine tests ─────────────────────────────────────────────────
+      # flint-mcp has its own package.json and vitest config
+      - name: MCP engine tests
+        run: |
+          cd flint-mcp
+          npm ci
+          npm test

@@ -8,7 +8,7 @@ import type { PowerSyncBackendConnector, PowerSyncCredentials, AbstractPowerSync
  * local modifications via the `uploadData` function.
  */
 
-export class BridgePowerSyncConnector implements PowerSyncBackendConnector {
+export class FlintPowerSyncConnector implements PowerSyncBackendConnector {
     private backendUrl: string
     private token: string
 
@@ -24,7 +24,7 @@ export class BridgePowerSyncConnector implements PowerSyncBackendConnector {
      */
     async fetchCredentials(): Promise<PowerSyncCredentials | null> {
         if (!this.backendUrl || !this.token) {
-            console.warn('[Bridge] PowerSync: URL or Token not configured. Sync disabled.')
+            console.warn('[Flint] PowerSync: URL or Token not configured. Sync disabled.')
             return null
         }
 
@@ -45,7 +45,7 @@ export class BridgePowerSyncConnector implements PowerSyncBackendConnector {
         if (!transaction) return
 
         try {
-            console.log(`[Bridge] Uploading ${transaction.crud.length} ops for sync...`)
+            console.log(`[Flint] Uploading ${transaction.crud.length} ops for sync...`)
             // In a real implementation:
             // 1. Iterate over transaction.crud
             // 2. Perform REST / RPC calls to Supabase or your backend.
@@ -54,7 +54,7 @@ export class BridgePowerSyncConnector implements PowerSyncBackendConnector {
             // Dummy success for now during Spec Development
             await transaction.complete()
         } catch (err) {
-            console.error('[Bridge] PowerSync upload failed:', err)
+            console.error('[Flint] PowerSync upload failed:', err)
             // If the upload fails, PowerSync will retry later. Do NOT call .complete()
             throw err
         }

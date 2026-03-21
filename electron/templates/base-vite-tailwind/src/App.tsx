@@ -2,7 +2,7 @@ export default function App() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-950 p-8">
       <div className="max-w-md rounded-xl border border-gray-800 bg-gray-900 p-8 shadow-lg">
-        <h1 className="text-2xl font-bold text-white">Welcome to Bridge</h1>
+        <h1 className="text-2xl font-bold text-white">Welcome to Flint</h1>
         <p className="mt-3 text-sm text-gray-400">
           This starter component is governed by your design system.
           Edit it to see live governance feedback.

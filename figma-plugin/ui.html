@@ -97,8 +97,8 @@
        ═══════════════════════════════════════════════════════════════════ -->
   <div id="viewSetup" class="view">
     <div class="setup-header">
-      <h2>Connect to Bridge</h2>
-      <p>Paste the endpoint and secret from the Bridge Glass setup wizard.</p>
+      <h2>Connect to Flint</h2>
+      <p>Paste the endpoint and secret from the Flint Glass setup wizard.</p>
     </div>
 
     <label>
@@ -106,12 +106,12 @@
       <input id="endpointInput" type="text" placeholder="http://127.0.0.1:4545" spellcheck="false" />
     </label>
     <label>
-      Secret (x-bridge-secret)
-      <input id="secretInput" type="text" placeholder="Paste from Bridge wizard" spellcheck="false" />
+      Secret (x-flint-secret)
+      <input id="secretInput" type="text" placeholder="Paste from Flint wizard" spellcheck="false" />
     </label>
     <button id="connectBtn">Connect</button>
     <p class="muted">
-      In Bridge Glass, click "Connect Figma" on the Launch Screen to get these values.
+      In Flint Glass, click "Connect Figma" on the Launch Screen to get these values.
     </p>
     <div id="setupStatus"></div>
   </div>
@@ -122,31 +122,31 @@
   <div id="viewChecking" class="view">
     <h2>
       <span class="dot dot-checking"></span>
-      Connecting to Bridge...
+      Connecting to Flint...
     </h2>
     <p>Checking <span id="checkingEndpoint"></span></p>
   </div>
 
   <!-- ═══════════════════════════════════════════════════════════════════
-       VIEW 3: CONNECTED — shown when Bridge is reachable
+       VIEW 3: CONNECTED — shown when Flint is reachable
        ═══════════════════════════════════════════════════════════════════ -->
   <div id="viewConnected" class="view">
     <h2>
       <span id="connectionDot" class="dot dot-connected"></span>
-      Bridge Link
+      Flint Link
     </h2>
 
     <div class="connected-banner">
-      <span>Connected to Bridge</span>
+      <span>Connected to Flint</span>
     </div>
 
-    <p>Sync your Figma variables to the local Bridge IDE token database.</p>
-    <button id="syncBtn">Sync Variables to Bridge</button>
+    <p>Sync your Figma variables to the local Flint IDE token database.</p>
+    <button id="syncBtn">Sync Variables to Flint</button>
 
     <div class="divider"></div>
 
-    <p>Hydrate Bridge AST using the currently selected Figma Component.</p>
-    <button id="exportBtn" class="btn-secondary">Export Selection to Bridge</button>
+    <p>Hydrate Flint AST using the currently selected Figma Component.</p>
+    <button id="exportBtn" class="btn-secondary">Export Selection to Flint</button>
 
     <div id="status"></div>
 
@@ -160,7 +160,7 @@
   <script>
     // ── Defaults ──────────────────────────────────────────────────────
     const DEFAULT_ENDPOINT = 'http://127.0.0.1:4545'
-    const DEFAULT_SECRET = 'bridge-dev-secret-phase2'
+    const DEFAULT_SECRET = 'flint-dev-secret-phase2'
 
     // ── DOM refs ──────────────────────────────────────────────────────
     const viewSetup = document.getElementById('viewSetup')
@@ -178,8 +178,8 @@
     const changeSettingsBtn = document.getElementById('changeSettingsBtn')
 
     // ── State ─────────────────────────────────────────────────────────
-    let bridgeEndpoint = DEFAULT_ENDPOINT
-    let bridgeSecret = DEFAULT_SECRET
+    let flintEndpoint = DEFAULT_ENDPOINT
+    let flintSecret = DEFAULT_SECRET
     let hasVerifiedConnection = false
 
     // ── View management ───────────────────────────────────────────────
@@ -207,13 +207,13 @@
 
         // OPTIONS returns 204 with CORS headers — server is alive
         hasVerifiedConnection = true
-        bridgeEndpoint = endpoint
-        bridgeSecret = secret
+        flintEndpoint = endpoint
+        flintSecret = secret
         showView('viewConnected')
         return true
       } catch (err) {
         // Server not reachable — but that's OK if we have saved creds,
-        // the user might want to try syncing anyway (Bridge may start later)
+        // the user might want to try syncing anyway (Flint may start later)
         return false
       }
     }
@@ -244,10 +244,10 @@
         // Show setup view with error
         showView('viewSetup')
         showSetupError(
-          `Cannot reach Bridge at ${endpoint}\n\n` +
-          '• Make sure Bridge is open and running\n' +
+          `Cannot reach Flint at ${endpoint}\n\n` +
+          '• Make sure Flint is open and running\n' +
           '• Check the endpoint is correct\n' +
-          '• Bridge must be running before you connect'
+          '• Flint must be running before you connect'
         )
         connectBtn.disabled = false
         connectBtn.textContent = 'Connect'
@@ -256,8 +256,8 @@
 
     // ── Change settings (from connected view) ─────────────────────────
     changeSettingsBtn.onclick = () => {
-      endpointInput.value = bridgeEndpoint
-      secretInput.value = bridgeSecret
+      endpointInput.value = flintEndpoint
+      secretInput.value = flintSecret
       hasVerifiedConnection = false
       showView('viewSetup')
     }
@@ -285,9 +285,9 @@
 
     function resetBtn() {
       syncBtn.disabled = false
-      syncBtn.textContent = 'Sync Variables to Bridge'
+      syncBtn.textContent = 'Sync Variables to Flint'
       exportBtn.disabled = false
-      exportBtn.textContent = 'Export Selection to Bridge'
+      exportBtn.textContent = 'Export Selection to Flint'
     }
 
     // ── Message handler ───────────────────────────────────────────────
@@ -299,19 +299,19 @@
       if (msg.type === 'settings-loaded') {
         if (msg.data && msg.data.endpoint && msg.data.secret) {
           // Has saved credentials — try connecting automatically
-          bridgeEndpoint = msg.data.endpoint
-          bridgeSecret = msg.data.secret
-          endpointInput.value = bridgeEndpoint
-          secretInput.value = bridgeSecret
+          flintEndpoint = msg.data.endpoint
+          flintSecret = msg.data.secret
+          endpointInput.value = flintEndpoint
+          secretInput.value = flintSecret
 
-          const reachable = await checkConnection(bridgeEndpoint, bridgeSecret)
+          const reachable = await checkConnection(flintEndpoint, flintSecret)
           if (!reachable) {
-            // Has creds but Bridge is offline — show connected view anyway
-            // (user may start Bridge later and sync will work)
+            // Has creds but Flint is offline — show connected view anyway
+            // (user may start Flint later and sync will work)
             hasVerifiedConnection = false
             connectionDot.className = 'dot dot-idle'
             document.querySelector('.connected-banner').innerHTML =
-              '<span style="color: #f59e0b;">Bridge not detected — start Bridge IDE, then sync</span>'
+              '<span style="color: #f59e0b;">Flint not detected — start Flint IDE, then sync</span>'
             showView('viewConnected')
           }
         } else {
@@ -326,11 +326,11 @@
       // Variable sync payload from code.ts
       if (msg.type === 'payload') {
         try {
-          const res = await fetch(`${bridgeEndpoint}/ingest`, {
+          const res = await fetch(`${flintEndpoint}/ingest`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'x-bridge-secret': bridgeSecret,
+              'x-flint-secret': flintSecret,
             },
             body: JSON.stringify(msg.data),
           })
@@ -340,12 +340,12 @@
             showStatus('success', `✓ Synced ${json.count} token${json.count === 1 ? '' : 's'} successfully.`)
             connectionDot.className = 'dot dot-connected'
             document.querySelector('.connected-banner').innerHTML =
-              '<span>Connected to Bridge</span>'
+              '<span>Connected to Flint</span>'
             hasVerifiedConnection = true
           } else if (res.status === 401) {
             showStatus('error',
               'Authentication failed — wrong secret.\n\n' +
-              'Click "Change connection settings" below and paste the correct secret from Bridge.')
+              'Click "Change connection settings" below and paste the correct secret from Flint.')
             connectionDot.className = 'dot dot-error'
           } else {
             const json = await res.json().catch(() => ({ error: res.statusText }))
@@ -354,8 +354,8 @@
           }
         } catch (err) {
           showStatus('error',
-            `Cannot reach Bridge at ${bridgeEndpoint}\n\n` +
-            '• Make sure Bridge is open and running\n' +
+            `Cannot reach Flint at ${flintEndpoint}\n\n` +
+            '• Make sure Flint is open and running\n' +
             '• Check connection settings below'
           )
           connectionDot.className = 'dot dot-error'
@@ -373,22 +373,22 @@
       if (msg.type === 'ast-payload') {
         const astData = typeof msg.data === 'string' ? msg.data : JSON.stringify(msg.data)
         const fullPayload = {
-          type: 'application/x-bridge-figma-ast',
+          type: 'application/x-flint-figma-ast',
           payload: astData
         }
 
         try {
-          const res = await fetch(`${bridgeEndpoint}/ingest-ast`, {
+          const res = await fetch(`${flintEndpoint}/ingest-ast`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'x-bridge-secret': bridgeSecret,
+              'x-flint-secret': flintSecret,
             },
             body: JSON.stringify(fullPayload),
           })
 
           if (res.ok) {
-            showStatus('success', '✓ Synced layout to Bridge!')
+            showStatus('success', '✓ Synced layout to Flint!')
             connectionDot.className = 'dot dot-connected'
             resetBtn()
             return
@@ -399,7 +399,7 @@
 
         try {
           await navigator.clipboard.writeText(JSON.stringify(fullPayload))
-          showStatus('success', '✓ Bridge busy — copied to clipboard. Use Cmd+V in Bridge.')
+          showStatus('success', '✓ Flint busy — copied to clipboard. Use Cmd+V in Flint.')
         } catch (err) {
           const textArea = document.createElement('textarea')
           textArea.value = JSON.stringify(fullPayload)
@@ -408,7 +408,7 @@
           textArea.select()
           try {
             document.execCommand('copy')
-            showStatus('success', '✓ Bridge busy — copied to clipboard. Use Cmd+V in Bridge.')
+            showStatus('success', '✓ Flint busy — copied to clipboard. Use Cmd+V in Flint.')
           } catch (e) {
             showStatus('error', 'Failed to sync or copy.')
           }

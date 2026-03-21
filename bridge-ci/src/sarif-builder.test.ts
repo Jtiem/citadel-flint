@@ -1,5 +1,5 @@
 /**
- * SARIF Builder Tests -- bridge-ci/src/sarif-builder.test.ts
+ * SARIF Builder Tests -- flint-ci/src/sarif-builder.test.ts
  *
  * Verifies the SARIF 2.1.0 output format is correct and GitHub Code Scanning
  * compatible.
@@ -44,7 +44,7 @@ describe('buildSarifReport', () => {
 
         // Runs
         expect(report.runs).toHaveLength(1)
-        expect(report.runs[0].tool.driver.name).toBe('Bridge Governance')
+        expect(report.runs[0].tool.driver.name).toBe('Flint Governance')
         expect(report.runs[0].tool.driver.version).toBe('1.0.0')
 
         // Results
@@ -129,7 +129,7 @@ describe('buildSarifReport', () => {
 
         const report = buildSarifReport(summary)
         expect(report.runs[0].results).toHaveLength(1)
-        expect(report.runs[0].results[0].ruleId).toBe('BRIDGE-PARSE')
+        expect(report.runs[0].results[0].ruleId).toBe('FLINT-PARSE')
         expect(report.runs[0].results[0].level).toBe('error')
     })
 

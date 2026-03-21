@@ -18,7 +18,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, act, fireEvent } from '@testing-library/react'
 import ImportAuditToast from '../ImportAuditToast'
 import { useImportSummaryStore } from '../../../store/importSummaryStore'
-import type { IngestionSummary, IngestionFix, IngestionFlag } from '../../../types/bridge-api'
+import type { IngestionSummary, IngestionFix, IngestionFlag } from '../../../types/flint-api'
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 

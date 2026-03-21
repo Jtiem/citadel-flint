@@ -3,7 +3,7 @@
  *
  * Tests for the `context:get-enriched` IPC handler (Phase ACX.5).
  *
- * The handler reads `.bridge/context.json` (returns a graceful default when
+ * The handler reads `.flint/context.json` (returns a graceful default when
  * missing), queries the SQLite `design_tokens` and `component_overrides` tables
  * for live metrics, and returns the merged EnrichedContext object.
  *
@@ -14,7 +14,7 @@
  *
  *   1. Implementing the exact handler logic inline (pure Node.js).
  *   2. Verifying the shape of the result against the EnrichedContext contract
- *      defined in `src/types/bridge-api.d.ts`.
+ *      defined in `src/types/flint-api.d.ts`.
  *
  *   This mirrors the established test architecture in orchestratorSafety.test.ts
  *   and complexityRouter.test.ts.
@@ -31,11 +31,11 @@ import os from 'node:os'
 // Electron APIs are needed.
 
 async function readEnrichedContext(
-    bridgeDir: string,
+    flintDir: string,
     tokenCount: number,
     activeOverrideCount: number,
 ): Promise<Record<string, unknown>> {
-    const contextPath = path.join(bridgeDir, 'context.json')
+    const contextPath = path.join(flintDir, 'context.json')
 
     let base: Record<string, unknown> = {}
     try {
@@ -60,7 +60,7 @@ async function readEnrichedContext(
 let tmpDir: string
 
 beforeEach(async () => {
-    tmpDir = await mkdtemp(path.join(os.tmpdir(), 'bridge-acx-test-'))
+    tmpDir = await mkdtemp(path.join(os.tmpdir(), 'flint-acx-test-'))
 })
 
 afterEach(async () => {
@@ -73,10 +73,10 @@ afterEach(async () => {
 
 describe('context:get-enriched — graceful degradation', () => {
     it('returns default base when context.json does not exist', async () => {
-        const bridgeDir = path.join(tmpDir, '.bridge')
-        await mkdir(bridgeDir, { recursive: true })
+        const flintDir = path.join(tmpDir, '.flint')
+        await mkdir(flintDir, { recursive: true })
 
-        const result = await readEnrichedContext(bridgeDir, 0, 0)
+        const result = await readEnrichedContext(flintDir, 0, 0)
 
         expect(result).toHaveProperty('activeFile', null)
         expect(result).toHaveProperty('tokenCount', 0)
@@ -86,18 +86,18 @@ describe('context:get-enriched — graceful degradation', () => {
     })
 
     it('returns null activeFile when context.json is missing', async () => {
-        const bridgeDir = path.join(tmpDir, '.bridge')
-        await mkdir(bridgeDir, { recursive: true })
+        const flintDir = path.join(tmpDir, '.flint')
+        await mkdir(flintDir, { recursive: true })
 
-        const result = await readEnrichedContext(bridgeDir, 0, 0)
+        const result = await readEnrichedContext(flintDir, 0, 0)
         expect(result['activeFile']).toBeNull()
     })
 
     it('enrichedAt is an ISO 8601 string', async () => {
-        const bridgeDir = path.join(tmpDir, '.bridge')
-        await mkdir(bridgeDir, { recursive: true })
+        const flintDir = path.join(tmpDir, '.flint')
+        await mkdir(flintDir, { recursive: true })
 
-        const result = await readEnrichedContext(bridgeDir, 5, 2)
+        const result = await readEnrichedContext(flintDir, 5, 2)
         const enrichedAt = result['enrichedAt'] as string
         expect(() => new Date(enrichedAt).toISOString()).not.toThrow()
     })
@@ -105,8 +105,8 @@ describe('context:get-enriched — graceful degradation', () => {
 
 describe('context:get-enriched — with context.json present', () => {
     it('merges context.json fields with live SQLite metrics', async () => {
-        const bridgeDir = path.join(tmpDir, '.bridge')
-        await mkdir(bridgeDir, { recursive: true })
+        const flintDir = path.join(tmpDir, '.flint')
+        await mkdir(flintDir, { recursive: true })
 
         const contextSnapshot = {
             timestamp: 1700000000000,
@@ -124,12 +124,12 @@ describe('context:get-enriched — with context.json present', () => {
         }
 
         await writeFile(
-            path.join(bridgeDir, 'context.json'),
+            path.join(flintDir, 'context.json'),
             JSON.stringify(contextSnapshot, null, 2),
             'utf8',
         )
 
-        const result = await readEnrichedContext(bridgeDir, 42, 3)
+        const result = await readEnrichedContext(flintDir, 42, 3)
 
         // All original fields should be preserved
         expect(result['timestamp']).toBe(1700000000000)
@@ -144,17 +144,17 @@ describe('context:get-enriched — with context.json present', () => {
     })
 
     it('live metrics override nothing from context.json — fields are additive', async () => {
-        const bridgeDir = path.join(tmpDir, '.bridge')
-        await mkdir(bridgeDir, { recursive: true })
+        const flintDir = path.join(tmpDir, '.flint')
+        await mkdir(flintDir, { recursive: true })
 
         const snapshot = { timestamp: 999, activeFile: '/some/file.tsx', customField: 'hello' }
         await writeFile(
-            path.join(bridgeDir, 'context.json'),
+            path.join(flintDir, 'context.json'),
             JSON.stringify(snapshot),
             'utf8',
         )
 
-        const result = await readEnrichedContext(bridgeDir, 10, 1)
+        const result = await readEnrichedContext(flintDir, 10, 1)
 
         // Custom field from context.json preserved
         expect(result['customField']).toBe('hello')
@@ -164,59 +164,59 @@ describe('context:get-enriched — with context.json present', () => {
     })
 
     it('returns tokenCount of 0 when no tokens exist', async () => {
-        const bridgeDir = path.join(tmpDir, '.bridge')
-        await mkdir(bridgeDir, { recursive: true })
+        const flintDir = path.join(tmpDir, '.flint')
+        await mkdir(flintDir, { recursive: true })
 
-        const result = await readEnrichedContext(bridgeDir, 0, 0)
+        const result = await readEnrichedContext(flintDir, 0, 0)
         expect(result['tokenCount']).toBe(0)
     })
 
     it('returns activeOverrideCount of 0 when no overrides exist', async () => {
-        const bridgeDir = path.join(tmpDir, '.bridge')
-        await mkdir(bridgeDir, { recursive: true })
+        const flintDir = path.join(tmpDir, '.flint')
+        await mkdir(flintDir, { recursive: true })
 
-        const result = await readEnrichedContext(bridgeDir, 5, 0)
+        const result = await readEnrichedContext(flintDir, 5, 0)
         expect(result['activeOverrideCount']).toBe(0)
     })
 
     it('handles malformed context.json gracefully', async () => {
-        const bridgeDir = path.join(tmpDir, '.bridge')
-        await mkdir(bridgeDir, { recursive: true })
+        const flintDir = path.join(tmpDir, '.flint')
+        await mkdir(flintDir, { recursive: true })
 
         await writeFile(
-            path.join(bridgeDir, 'context.json'),
+            path.join(flintDir, 'context.json'),
             'this is not valid json {{{',
             'utf8',
         )
 
         // Should not throw — returns default base instead
-        const result = await readEnrichedContext(bridgeDir, 0, 0)
+        const result = await readEnrichedContext(flintDir, 0, 0)
         expect(result).toHaveProperty('activeFile', null)
         expect(result).toHaveProperty('tokenCount', 0)
     })
 
     it('handles empty context.json gracefully', async () => {
-        const bridgeDir = path.join(tmpDir, '.bridge')
-        await mkdir(bridgeDir, { recursive: true })
+        const flintDir = path.join(tmpDir, '.flint')
+        await mkdir(flintDir, { recursive: true })
 
-        await writeFile(path.join(bridgeDir, 'context.json'), '', 'utf8')
+        await writeFile(path.join(flintDir, 'context.json'), '', 'utf8')
 
         // Empty file produces a JSON parse error — should fall back to defaults
-        const result = await readEnrichedContext(bridgeDir, 0, 0)
+        const result = await readEnrichedContext(flintDir, 0, 0)
         expect(result).toHaveProperty('activeFile', null)
     })
 
     it('enrichedAt is always set even when context.json has no timestamp', async () => {
-        const bridgeDir = path.join(tmpDir, '.bridge')
-        await mkdir(bridgeDir, { recursive: true })
+        const flintDir = path.join(tmpDir, '.flint')
+        await mkdir(flintDir, { recursive: true })
 
         await writeFile(
-            path.join(bridgeDir, 'context.json'),
+            path.join(flintDir, 'context.json'),
             JSON.stringify({ activeFile: null }),
             'utf8',
         )
 
-        const result = await readEnrichedContext(bridgeDir, 0, 0)
+        const result = await readEnrichedContext(flintDir, 0, 0)
         expect(result['enrichedAt']).toBeDefined()
         expect(typeof result['enrichedAt']).toBe('string')
     })
@@ -224,38 +224,38 @@ describe('context:get-enriched — with context.json present', () => {
 
 describe('context:get-enriched — EnrichedContext shape contract', () => {
     it('result always includes all required EnrichedContext fields', async () => {
-        const bridgeDir = path.join(tmpDir, '.bridge')
-        await mkdir(bridgeDir, { recursive: true })
+        const flintDir = path.join(tmpDir, '.flint')
+        await mkdir(flintDir, { recursive: true })
 
-        const result = await readEnrichedContext(bridgeDir, 10, 2)
+        const result = await readEnrichedContext(flintDir, 10, 2)
 
-        // Required fields per the EnrichedContext contract in bridge-api.d.ts
+        // Required fields per the EnrichedContext contract in flint-api.d.ts
         expect(result).toHaveProperty('tokenCount')
         expect(result).toHaveProperty('activeOverrideCount')
         expect(result).toHaveProperty('enrichedAt')
     })
 
     it('tokenCount is always a number', async () => {
-        const bridgeDir = path.join(tmpDir, '.bridge')
-        await mkdir(bridgeDir, { recursive: true })
+        const flintDir = path.join(tmpDir, '.flint')
+        await mkdir(flintDir, { recursive: true })
 
-        const result = await readEnrichedContext(bridgeDir, 7, 0)
+        const result = await readEnrichedContext(flintDir, 7, 0)
         expect(typeof result['tokenCount']).toBe('number')
     })
 
     it('activeOverrideCount is always a number', async () => {
-        const bridgeDir = path.join(tmpDir, '.bridge')
-        await mkdir(bridgeDir, { recursive: true })
+        const flintDir = path.join(tmpDir, '.flint')
+        await mkdir(flintDir, { recursive: true })
 
-        const result = await readEnrichedContext(bridgeDir, 0, 4)
+        const result = await readEnrichedContext(flintDir, 0, 4)
         expect(typeof result['activeOverrideCount']).toBe('number')
     })
 })
 
 describe('context:get-enriched — ACX.5 enriched fields passthrough', () => {
     it('preserves sourceExcerpt when present in context.json', async () => {
-        const bridgeDir = path.join(tmpDir, '.bridge')
-        await mkdir(bridgeDir, { recursive: true })
+        const flintDir = path.join(tmpDir, '.flint')
+        await mkdir(flintDir, { recursive: true })
 
         const snapshot = {
             timestamp: Date.now(),
@@ -264,18 +264,18 @@ describe('context:get-enriched — ACX.5 enriched fields passthrough', () => {
         }
 
         await writeFile(
-            path.join(bridgeDir, 'context.json'),
+            path.join(flintDir, 'context.json'),
             JSON.stringify(snapshot),
             'utf8',
         )
 
-        const result = await readEnrichedContext(bridgeDir, 0, 0)
+        const result = await readEnrichedContext(flintDir, 0, 0)
         expect(result['sourceExcerpt']).toBe(snapshot.sourceExcerpt)
     })
 
     it('preserves violationSnapshot when present in context.json', async () => {
-        const bridgeDir = path.join(tmpDir, '.bridge')
-        await mkdir(bridgeDir, { recursive: true })
+        const flintDir = path.join(tmpDir, '.flint')
+        await mkdir(flintDir, { recursive: true })
 
         const snapshot = {
             timestamp: Date.now(),
@@ -289,12 +289,12 @@ describe('context:get-enriched — ACX.5 enriched fields passthrough', () => {
         }
 
         await writeFile(
-            path.join(bridgeDir, 'context.json'),
+            path.join(flintDir, 'context.json'),
             JSON.stringify(snapshot),
             'utf8',
         )
 
-        const result = await readEnrichedContext(bridgeDir, 0, 0)
+        const result = await readEnrichedContext(flintDir, 0, 0)
         const vs = result['violationSnapshot'] as Record<string, unknown>
         expect(vs['total']).toBe(3)
         expect(vs['criticalCount']).toBe(1)
@@ -303,15 +303,15 @@ describe('context:get-enriched — ACX.5 enriched fields passthrough', () => {
     })
 
     it('preserves selectedNodeSummary when present in context.json', async () => {
-        const bridgeDir = path.join(tmpDir, '.bridge')
-        await mkdir(bridgeDir, { recursive: true })
+        const flintDir = path.join(tmpDir, '.flint')
+        await mkdir(flintDir, { recursive: true })
 
         const snapshot = {
             timestamp: Date.now(),
             activeFile: '/file.tsx',
             selectedNodeSummary: {
                 tagName: 'button',
-                bridgeId: 'button:12:4',
+                flintId: 'button:12:4',
                 className: 'bg-brand-primary text-white',
                 props: { type: 'submit' },
                 childCount: 1,
@@ -320,15 +320,15 @@ describe('context:get-enriched — ACX.5 enriched fields passthrough', () => {
         }
 
         await writeFile(
-            path.join(bridgeDir, 'context.json'),
+            path.join(flintDir, 'context.json'),
             JSON.stringify(snapshot),
             'utf8',
         )
 
-        const result = await readEnrichedContext(bridgeDir, 0, 0)
+        const result = await readEnrichedContext(flintDir, 0, 0)
         const ns = result['selectedNodeSummary'] as Record<string, unknown>
         expect(ns['tagName']).toBe('button')
-        expect(ns['bridgeId']).toBe('button:12:4')
+        expect(ns['flintId']).toBe('button:12:4')
         expect(ns['parentId']).toBe('div:10:2')
     })
 })

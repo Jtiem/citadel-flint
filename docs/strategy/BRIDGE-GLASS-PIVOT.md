@@ -1,14 +1,14 @@
-# Bridge Glass Pivot: Spatial Code Observability Strategy
+# Flint Glass Pivot: Spatial Code Observability Strategy
 
 **Status:** ADOPTED
 **Date:** 2026-03-13
-**Supersedes:** Any previous plans for a permanent split-pane Monaco Editor in the Bridge Glass shell.
+**Supersedes:** Any previous plans for a permanent split-pane Monaco Editor in the Flint Glass shell.
 
 ---
 
 ## 1. Vision: Visual-First Governance
 
-Bridge Glass is the "observability layer" for the headless Bridge MCP server. To maximize its effectiveness for UX designers and design system teams, the interface must prioritize high-fidelity visual real-state over legacy IDE panels.
+Flint Glass is the "observability layer" for the headless Flint MCP server. To maximize its effectiveness for UX designers and design system teams, the interface must prioritize high-fidelity visual real-state over legacy IDE panels.
 
 ### Key Pillars
 - **Zero Truth Conflict:** Glass does not compete with the primary IDE (VS Code/Cursor). It serves as a visual augmentation field.

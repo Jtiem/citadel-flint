@@ -12,29 +12,33 @@
  *   - The Export Gate is the UI surface for Commandment 6 (The Gatekeeper Rule).
  *
  * Phase W.2 addition: Figma connection status popover.
- *   - Polls `window.bridgeAPI.figma.status()` on mount and every 30 s.
+ *   - Polls `window.flintAPI.figma.status()` on mount and every 30 s.
  *   - Dot color: emerald (<24 h synced), amber (24–72 h stale), zinc (never / down).
  *   - Clicking the Figma area toggles a popover with server status, last sync
  *     timestamp, and token count.
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { ShieldCheck, ShieldAlert, X, Copy, Check, RefreshCw, Unplug, FolderInput } from 'lucide-react'
+import { BRAND } from '../../../shared/brand'
+import { ShieldCheck, ShieldAlert, X, Copy, Check, RefreshCw, Unplug, FolderInput, MessageSquare, Tablet, Smartphone } from 'lucide-react'
 import { useCanvasStore } from '../../store/canvasStore'
+import { BREAKPOINT_LABELS } from '../../store/canvasStore'
+import { useEditorStore } from '../../store/editorStore'
 import { useNotificationStore } from '../../store/notificationStore'
 import { SyncStatus } from '../ui/SyncStatus'
-import type { FigmaStatus } from '../../types/bridge-api'
+import { BetaFeedbackModal } from '../ui/BetaFeedbackModal'
+import type { FigmaStatus, BetaInfo } from '../../types/flint-api'
 
 // ── Scratchpad detection ───────────────────────────────────────────────────────
 
 /**
- * Returns true when `filePath` lives inside ~/Bridge Projects/Untitled-*.
+ * Returns true when `filePath` lives inside ~/{Product} Projects/Untitled-*.
  * These are projects created by the instant "New Project" flow with no dialog.
  */
 function isScratchpadPath(filePath: string | null): boolean {
     if (!filePath) return false
-    // Match ~/Bridge Projects/Untitled-<N>/... on any POSIX system
-    return /\/Bridge Projects\/Untitled-\d+\//.test(filePath)
+    // Match ~/{Product} Projects/Untitled-<N>/... on any POSIX system
+    return new RegExp(`/${BRAND.product} Projects/Untitled-\\d+/`).test(filePath)
 }
 
 // ── Figma staleness helpers ───────────────────────────────────────────────────
@@ -82,6 +86,20 @@ export function StatusBar() {
     const canExport = mithrilViolations.length === 0 && !overridesExist
     const push = useNotificationStore((s) => s.push)
 
+    // ── CV2.1: Canvas View Mode indicator ────────────────────────────────────
+    const canvasView = useCanvasStore((s) => s.canvasView)
+
+    // ── Responsive breakpoint chip ────────────────────────────────────────────
+    const previewBreakpoint = useCanvasStore((s) => s.previewBreakpoint)
+    const cyclePreviewBreakpoint = useCanvasStore((s) => s.cyclePreviewBreakpoint)
+
+    // ── Governance Autopilot (Phase REM.2.2) ─────────────────────────────────
+    const autopilotEnabled = useCanvasStore((s) => s.autopilotEnabled)
+    const governedCode = useCanvasStore((s) => s.governedCode)
+    const governedFixCount = useCanvasStore((s) => s.governedFixCount)
+    const setAutopilotEnabled = useCanvasStore((s) => s.setAutopilotEnabled)
+    const clearGovernedResult = useCanvasStore((s) => s.clearGovernedResult)
+
     // ── Scratchpad indicator ──────────────────────────────────────────────────
     const isScratchpad = isScratchpadPath(activeFilePath)
 
@@ -97,14 +115,14 @@ export function StatusBar() {
     const [overrideCount, setOverrideCount] = useState<number>(0)
 
     const fetchOverrideCount = useCallback(() => {
-        window.bridgeAPI.governance.getOverrideCount()
+        window.flintAPI.governance.getOverrideCount()
             .then(setOverrideCount)
             .catch(() => { /* governance IPC may not be ready on first paint */ })
     }, [])
 
     useEffect(() => {
         fetchOverrideCount()
-        const unsubscribe = window.bridgeAPI.governance.onOverrideRecorded(() => {
+        const unsubscribe = window.flintAPI.governance.onOverrideRecorded(() => {
             fetchOverrideCount()
         })
         return unsubscribe
@@ -123,7 +141,7 @@ export function StatusBar() {
     const [helpTooltipOpen, setHelpTooltipOpen] = useState(false)
 
     const fetchFigmaStatus = useCallback(() => {
-        window.bridgeAPI.figma.status()
+        window.flintAPI.figma.status()
             .then(setFigmaStatus)
             .catch(() => { /* server may not be ready on first paint */ })
     }, [])
@@ -136,7 +154,7 @@ export function StatusBar() {
 
     // ── Push-based figma event subscriptions ─────────────────────────────────
     useEffect(() => {
-        const unsubConnected = window.bridgeAPI.figma.onConnected((event) => {
+        const unsubConnected = window.flintAPI.figma.onConnected((event) => {
             push({
                 type: 'sync',
                 title: 'Figma synced',
@@ -147,7 +165,7 @@ export function StatusBar() {
             fetchFigmaStatus()
         })
 
-        const unsubError = window.bridgeAPI.figma.onError((event) => {
+        const unsubError = window.flintAPI.figma.onError((event) => {
             push({
                 type: 'error',
                 title: 'Figma sync error',
@@ -193,17 +211,70 @@ export function StatusBar() {
 
     // ── Disconnect handler ────────────────────────────────────────────────────
     const handleDisconnect = () => {
-        void window.bridgeAPI.figma.disconnect().then(() => {
+        void window.flintAPI.figma.disconnect().then(() => {
             fetchFigmaStatus()
             push({
                 type: 'info',
                 title: 'Figma server stopped',
-                message: 'Restart Bridge to reconnect.',
+                message: `Restart ${BRAND.product} to reconnect.`,
                 severity: 'warning',
                 autoDismissMs: 6000,
             })
         })
     }
+
+    // ── Beta distribution state ─────────────────────────────────────────────
+    const [betaInfo, setBetaInfo] = useState<BetaInfo | null>(null)
+    const [feedbackOpen, setFeedbackOpen] = useState(false)
+
+    useEffect(() => {
+        window.flintAPI.beta?.getInfo()
+            .then((info) => { if (info.isBeta) setBetaInfo(info) })
+            .catch(() => { /* beta API not available in dev */ })
+    }, [])
+
+    // Subscribe to beta update notifications
+    useEffect(() => {
+        const unsubUpdate = window.flintAPI.beta?.onUpdateAvailable((event) => {
+            push({
+                type: 'info',
+                title: 'New beta available',
+                message: event.message,
+                severity: 'warning',
+                autoDismissMs: 15000,
+            })
+        })
+
+        const unsubExpired = window.flintAPI.beta?.onExpiredRemote((event) => {
+            push({
+                type: 'error',
+                title: 'Beta expired',
+                message: event.message,
+                severity: 'error',
+                autoDismissMs: 0,
+            })
+        })
+
+        return () => {
+            unsubUpdate?.()
+            unsubExpired?.()
+        }
+    }, [push])
+
+    // ── Autopilot: apply governed code to the active file ────────────────────
+    const applyGovernedCode = useCallback(() => {
+        const { governedCode: code, autopilotEnabled: enabled } = useCanvasStore.getState()
+        if (!enabled || !code) return
+        useEditorStore.getState().setCode(code)
+        clearGovernedResult()
+        push({
+            type: 'mutation',
+            title: 'Governance Applied',
+            message: 'Auto-fixes applied to active file.',
+            severity: 'success',
+            autoDismissMs: 4000,
+        })
+    }, [clearGovernedResult, push])
 
     const dotColor = figmaDotColor(figmaStatus)
     // OPP-23: Figma sync pulsing indicator — true for 5 s after a webhook arrives
@@ -222,7 +293,7 @@ export function StatusBar() {
     const figmaButtonDotColor = hasNoTokens ? 'bg-amber-400' : dotColor
     const figmaButtonLabel = hasNoTokens ? 'No design system' : 'Figma'
     const figmaButtonTitle = hasNoTokens
-        ? 'Connect Figma or import tokens to enable governance'
+        ? 'No design tokens loaded — click to connect Figma or import tokens. This unlocks design system governance.'
         : 'Figma connection — click for details'
 
     return (
@@ -234,15 +305,44 @@ export function StatusBar() {
                 Babel AST Parser Active
             </span>
             <span className="text-xs text-gray-500">
-                Electron IPC Bridge
+                Electron IPC {BRAND.product}
             </span>
+
+            {/* ── CV2.1: Canvas View Mode indicator ────────────────────────── */}
+            {canvasView !== 'preview' && (
+                <span
+                    className="flex items-center gap-1 text-xs text-indigo-400"
+                    data-testid="statusbar-canvas-view"
+                >
+                    <span className="h-1.5 w-1.5 rounded-full bg-indigo-400" />
+                    {canvasView === 'build' ? 'Build View' : 'Govern View'}
+                </span>
+            )}
+
+            {/* ── Responsive breakpoint chip (preview mode only, non-desktop) ── */}
+            {canvasView === 'preview' && previewBreakpoint !== 'desktop' && (
+                <button
+                    type="button"
+                    onClick={() => { cyclePreviewBreakpoint('up') }}
+                    className="flex items-center gap-1 rounded border border-zinc-700/50 bg-zinc-800 px-1.5 py-0.5 text-xs text-zinc-400 transition-colors hover:border-zinc-600/60 hover:bg-zinc-700 hover:text-zinc-100"
+                    title={`Preview breakpoint: ${BREAKPOINT_LABELS[previewBreakpoint]} — click to cycle`}
+                    data-testid="statusbar-breakpoint-chip"
+                >
+                    {previewBreakpoint === 'mobile' ? (
+                        <Smartphone className="h-3 w-3" />
+                    ) : (
+                        <Tablet className="h-3 w-3" />
+                    )}
+                    {BREAKPOINT_LABELS[previewBreakpoint]}
+                </button>
+            )}
 
             {/* ── Scratchpad indicator ──────────────────────────────────────── */}
             {isScratchpad && (
                 <button
                     type="button"
                     title="Scratchpad project — click to save to a permanent location (Cmd+Shift+S)"
-                    onClick={() => { window.dispatchEvent(new CustomEvent('bridge:save-project-as')) }}
+                    onClick={() => { window.dispatchEvent(new CustomEvent(`${BRAND.productLower}:save-project-as`)) }}
                     className="flex items-center gap-1 rounded border border-amber-700/40 bg-amber-900/10 px-1.5 py-0.5 text-xs text-amber-400 transition-colors hover:border-amber-600/60 hover:bg-amber-900/20 hover:text-amber-300"
                 >
                     <FolderInput className="h-3 w-3" />
@@ -383,11 +483,34 @@ export function StatusBar() {
                 </span>
             )}
 
+            {/* ── Governance Autopilot (Phase REM.2.2) ──────────────────── */}
+            <button
+                type="button"
+                onClick={() => { setAutopilotEnabled(!autopilotEnabled) }}
+                className={`text-xs px-2 py-0.5 rounded transition-colors ${autopilotEnabled ? 'bg-emerald-600/20 text-emerald-400' : 'text-zinc-500 hover:text-zinc-300'}`}
+                title="Toggle Governance Autopilot (Cmd+Shift+G to apply fixes)"
+            >
+                Autopilot
+            </button>
+
+            {autopilotEnabled && (
+                <div
+                    className="flex cursor-pointer items-center gap-1.5 rounded px-2 py-0.5 text-xs transition-colors hover:bg-zinc-700"
+                    onClick={() => { if (governedCode && activeFilePath) { applyGovernedCode() } }}
+                    title={governedFixCount > 0 ? `Apply ${governedFixCount} governance fixes (Cmd+Shift+G)` : 'Autopilot active — watching for violations'}
+                >
+                    <span className={`h-2 w-2 rounded-full ${governedFixCount > 0 ? 'animate-pulse bg-emerald-400' : 'bg-zinc-500'}`} />
+                    <span className={governedFixCount > 0 ? 'text-emerald-400' : 'text-zinc-500'}>
+                        {governedFixCount > 0 ? `${governedFixCount} fixes ready` : 'Autopilot'}
+                    </span>
+                </div>
+            )}
+
             {/* Export Gate — Commandment 6 (The Gatekeeper Rule) */}
             <button
                 type="button"
                 onClick={() => {
-                    window.dispatchEvent(new CustomEvent('bridge:open-export'))
+                    window.dispatchEvent(new CustomEvent(`${BRAND.productLower}:open-export`))
                 }}
                 className={`flex items-center gap-1.5 text-xs transition-colors ${
                     canExport
@@ -413,9 +536,25 @@ export function StatusBar() {
                 )}
             </button>
 
-            <span className="ml-auto">
+            {/* ── Beta chip + feedback button ──────────────────────────── */}
+            {betaInfo && (
+                <button
+                    type="button"
+                    onClick={() => setFeedbackOpen(true)}
+                    className="ml-auto flex items-center gap-1.5 rounded border border-indigo-700/40 bg-indigo-900/10 px-2 py-0.5 text-xs text-indigo-400 transition-colors hover:border-indigo-600/60 hover:bg-indigo-900/20 hover:text-indigo-300"
+                    title={`Beta build ${betaInfo.buildId}${betaInfo.daysRemaining != null ? ` — ${betaInfo.daysRemaining} day${betaInfo.daysRemaining === 1 ? '' : 's'} remaining` : ''} — click to send feedback`}
+                >
+                    <MessageSquare className="h-3 w-3" />
+                    Beta {betaInfo.daysRemaining != null ? `(${betaInfo.daysRemaining}d)` : ''}
+                </button>
+            )}
+
+            <span className={betaInfo ? '' : 'ml-auto'}>
                 <SyncStatus />
             </span>
+
+            {/* Beta feedback modal */}
+            <BetaFeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
         </footer>
     )
 }

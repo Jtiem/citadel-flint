@@ -7,8 +7,8 @@
  *
  * Coverage:
  *   ensureRepo   — creates .git, .gitignore, initial commit; idempotent
- *   shadowCommit — creates bridge:sync commit; custom batchId; no-op cases
- *   getGitNode   — extracts JSX node by data-bridge-id; null cases
+ *   shadowCommit — creates flint:sync commit; custom batchId; no-op cases
+ *   getGitNode   — extracts JSX node by data-flint-id; null cases
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
@@ -54,7 +54,7 @@ describe('GitManager', () => {
     let mgr: GitManager
 
     beforeEach(async () => {
-        dir = join(tmpdir(), `bridge-git-test-${randomUUID()}`)
+        dir = join(tmpdir(), `flint-git-test-${randomUUID()}`)
         await mkdir(dir, { recursive: true })
         mgr = new GitManager()
     })
@@ -71,17 +71,17 @@ describe('GitManager', () => {
             expect(await fileExists(join(dir, '.git'))).toBe(true)
         })
 
-        it('creates a .gitignore containing node_modules and .bridge/tmp', async () => {
+        it('creates a .gitignore containing node_modules and .flint/tmp', async () => {
             await mgr.ensureRepo(dir)
             const content = await readFile(join(dir, '.gitignore'), 'utf8')
             expect(content).toContain('node_modules')
-            expect(content).toContain('.bridge/tmp')
+            expect(content).toContain('.flint/tmp')
         })
 
-        it('creates an initial bridge:init commit', async () => {
+        it('creates an initial flint:init commit', async () => {
             await mgr.ensureRepo(dir)
             const { stdout } = await execFileAsync('git', ['log', '--oneline'], { cwd: dir })
-            expect(stdout).toContain('bridge:init')
+            expect(stdout).toContain('flint:init')
         })
 
         it('produces exactly one commit on a fresh directory', async () => {
@@ -117,11 +117,11 @@ describe('GitManager', () => {
             await mgr.ensureRepo(dir)
         })
 
-        it('creates a bridge:sync commit when files have changed', async () => {
+        it('creates a flint:sync commit when files have changed', async () => {
             await writeFile(join(dir, 'App.tsx'), 'const x = 1')
             await mgr.shadowCommit(dir)
             const { stdout } = await execFileAsync('git', ['log', '--oneline'], { cwd: dir })
-            expect(stdout).toContain('bridge:sync:')
+            expect(stdout).toContain('flint:sync:')
             expect(await commitCount(dir)).toBe(2)
         })
 
@@ -129,7 +129,7 @@ describe('GitManager', () => {
             await writeFile(join(dir, 'App.tsx'), 'const y = 2')
             await mgr.shadowCommit(dir, 'test-batch-abc')
             const { stdout } = await execFileAsync('git', ['log', '--oneline'], { cwd: dir })
-            expect(stdout).toContain('bridge:sync:test-batch-abc')
+            expect(stdout).toContain('flint:sync:test-batch-abc')
         })
 
         it('is a no-op when the working tree is clean', async () => {
@@ -139,7 +139,7 @@ describe('GitManager', () => {
         })
 
         it('is a no-op in a directory that is not inside a git repo', async () => {
-            const noRepo = join(tmpdir(), `bridge-no-git-${randomUUID()}`)
+            const noRepo = join(tmpdir(), `flint-no-git-${randomUUID()}`)
             await mkdir(noRepo, { recursive: true })
             await expect(mgr.shadowCommit(noRepo)).resolves.toBeUndefined()
             await rm(noRepo, { recursive: true, force: true })
@@ -152,19 +152,19 @@ describe('GitManager', () => {
             // Pass the subdirectory — GitManager resolves the git root automatically
             await mgr.shadowCommit(subdir)
             const { stdout } = await execFileAsync('git', ['log', '--oneline'], { cwd: dir })
-            expect(stdout).toContain('bridge:sync:')
+            expect(stdout).toContain('flint:sync:')
         })
     })
 
     // ── getGitNode ────────────────────────────────────────────────────────────
 
     describe('getGitNode', () => {
-        it('returns the source text of the JSXElement matching dataBridgeId', async () => {
+        it('returns the source text of the JSXElement matching dataFlintId', async () => {
             await mgr.ensureRepo(dir)
             const src = `export default function App() {
   return (
-    <div data-bridge-id="div:2:4" className="container">
-      <span data-bridge-id="span:3:6">hello</span>
+    <div data-flint-id="div:2:4" className="container">
+      <span data-flint-id="span:3:6">hello</span>
     </div>
   )
 }`
@@ -175,7 +175,7 @@ describe('GitManager', () => {
 
             const result = await mgr.getGitNode(hash, fp, 'div:2:4')
             expect(result).not.toBeNull()
-            expect(result).toContain('data-bridge-id="div:2:4"')
+            expect(result).toContain('data-flint-id="div:2:4"')
             expect(result).toContain('container')
             expect(result).toContain('hello')
         })
@@ -184,8 +184,8 @@ describe('GitManager', () => {
             await mgr.ensureRepo(dir)
             const src = `export default function App() {
   return (
-    <div data-bridge-id="div:2:4">
-      <span data-bridge-id="span:3:6">world</span>
+    <div data-flint-id="div:2:4">
+      <span data-flint-id="span:3:6">world</span>
     </div>
   )
 }`
@@ -196,17 +196,17 @@ describe('GitManager', () => {
 
             const result = await mgr.getGitNode(hash, fp, 'span:3:6')
             expect(result).not.toBeNull()
-            expect(result).toContain('data-bridge-id="span:3:6"')
+            expect(result).toContain('data-flint-id="span:3:6"')
             expect(result).toContain('world')
             // Should NOT include the outer div
             expect(result).not.toContain('div:2:4')
         })
 
-        it('returns null for an unknown dataBridgeId', async () => {
+        it('returns null for an unknown dataFlintId', async () => {
             await mgr.ensureRepo(dir)
             const fp = join(dir, 'App.tsx')
             await writeFile(fp, `export default function App() {
-  return <div data-bridge-id="div:1:0">hi</div>
+  return <div data-flint-id="div:1:0">hi</div>
 }`)
             await mgr.shadowCommit(dir)
             const hash = await latestHash(dir)
@@ -222,7 +222,7 @@ describe('GitManager', () => {
         })
 
         it('returns null when the file path is not in a git repo', async () => {
-            const noRepo = join(tmpdir(), `bridge-no-git-${randomUUID()}`)
+            const noRepo = join(tmpdir(), `flint-no-git-${randomUUID()}`)
             await mkdir(noRepo, { recursive: true })
             const fp = join(noRepo, 'App.tsx')
             expect(await mgr.getGitNode('HEAD', fp, 'div:1:0')).toBeNull()

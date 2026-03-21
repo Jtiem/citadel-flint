@@ -2,17 +2,17 @@
  * editorStore.applyBatch.test.ts
  *
  * Tests for the applyBatch action in editorStore, specifically verifying
- * Commandment 7 — ID Preservation: injectBridgeIds must be called after
+ * Commandment 7 — ID Preservation: injectFlintIds must be called after
  * structural mutations so newly created or moved nodes are addressable
  * on the canvas.
  *
  * Covers:
- *   - injectBridgeIds is called (via adapter) after moveNode mutations
- *   - injectBridgeIds is called after injectComponent mutations
- *   - injectBridgeIds is NOT called for non-structural ops (updateClassName)
- *   - Resulting rawCode contains data-bridge-id on the injected element
- *   - Resulting rawCode contains data-bridge-id on moved elements
- *   - Non-structural batches leave existing bridge IDs intact
+ *   - injectFlintIds is called (via adapter) after moveNode mutations
+ *   - injectFlintIds is called after injectComponent mutations
+ *   - injectFlintIds is NOT called for non-structural ops (updateClassName)
+ *   - Resulting rawCode contains data-flint-id on the injected element
+ *   - Resulting rawCode contains data-flint-id on moved elements
+ *   - Non-structural batches leave existing flint IDs intact
  *   - Empty batch is a no-op
  *   - historyStore receives inversions after a structural mutation
  */
@@ -33,23 +33,23 @@ LanguageRegistry.register(['ts', 'tsx', 'js', 'jsx'], reactAdapter)
 // ── TSX fixtures ──────────────────────────────────────────────────────────────
 
 /**
- * A component with two nodes that already have bridge IDs.
- * injectBridgeIds is idempotent — these IDs should be preserved.
+ * A component with two nodes that already have flint IDs.
+ * injectFlintIds is idempotent — these IDs should be preserved.
  */
 const FIXTURE_WITH_IDS = `
 import React from 'react'
 export default function Card() {
   return (
-    <div data-bridge-id="root-001">
-      <span data-bridge-id="span-002">Hello</span>
-      <p data-bridge-id="para-003">World</p>
+    <div data-flint-id="root-001">
+      <span data-flint-id="span-002">Hello</span>
+      <p data-flint-id="para-003">World</p>
     </div>
   )
 }
 `.trim()
 
 /**
- * A component WITHOUT bridge IDs — to test that injectBridgeIds stamps them.
+ * A component WITHOUT flint IDs — to test that injectFlintIds stamps them.
  */
 const FIXTURE_NO_IDS = `
 import React from 'react'
@@ -76,7 +76,7 @@ function resetStores(code = FIXTURE_WITH_IDS) {
         overridesExist: false,
         workspaceFiles: null,
     })
-    ;(window as unknown as Record<string, unknown>).bridgeAPI = {
+    ;(window as unknown as Record<string, unknown>).flintAPI = {
         saveFile: vi.fn().mockResolvedValue(undefined),
         saveFileBatch: vi.fn().mockResolvedValue(undefined),
         tokens: { clearOverride: vi.fn().mockResolvedValue(undefined) },
@@ -95,7 +95,7 @@ function resetStores(code = FIXTURE_WITH_IDS) {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-describe('editorStore.applyBatch — Commandment 7: injectBridgeIds after structural mutations', () => {
+describe('editorStore.applyBatch — Commandment 7: injectFlintIds after structural mutations', () => {
     beforeEach(() => {
         resetStores()
     })
@@ -106,8 +106,8 @@ describe('editorStore.applyBatch — Commandment 7: injectBridgeIds after struct
         expect(useEditorStore.getState().rawCode).toBe(before)
     })
 
-    it('injectComponent batch: resulting code has data-bridge-id on injected element', () => {
-        // The injected element starts without a bridge ID; injectBridgeIds should stamp it.
+    it('injectComponent batch: resulting code has data-flint-id on injected element', () => {
+        // The injected element starts without a flint ID; injectFlintIds should stamp it.
         useEditorStore.getState().applyBatch([
             {
                 op: 'injectComponent',
@@ -117,13 +117,13 @@ describe('editorStore.applyBatch — Commandment 7: injectBridgeIds after struct
         ])
 
         const { rawCode } = useEditorStore.getState()
-        // The injected button should now carry a data-bridge-id
-        expect(rawCode).toContain('data-bridge-id')
+        // The injected button should now carry a data-flint-id
+        expect(rawCode).toContain('data-flint-id')
         // The injected element should be present
         expect(rawCode).toContain('<button')
     })
 
-    it('moveNode batch: resulting code still contains data-bridge-id on moved element', () => {
+    it('moveNode batch: resulting code still contains data-flint-id on moved element', () => {
         // Move span-002 to inside para-003 (position: inside)
         useEditorStore.getState().applyBatch([
             {
@@ -135,13 +135,13 @@ describe('editorStore.applyBatch — Commandment 7: injectBridgeIds after struct
         ])
 
         const { rawCode } = useEditorStore.getState()
-        // After the move, bridge IDs must still be present (7D hardening)
-        expect(rawCode).toContain('data-bridge-id')
+        // After the move, flint IDs must still be present (7D hardening)
+        expect(rawCode).toContain('data-flint-id')
         // The root node must still carry its original ID
         expect(rawCode).toContain('root-001')
     })
 
-    it('updateClassName batch (non-structural): does NOT lose existing bridge IDs', () => {
+    it('updateClassName batch (non-structural): does NOT lose existing flint IDs', () => {
         useEditorStore.getState().applyBatch([
             {
                 op: 'updateClassName',
@@ -152,13 +152,13 @@ describe('editorStore.applyBatch — Commandment 7: injectBridgeIds after struct
 
         const { rawCode } = useEditorStore.getState()
         // Existing IDs must be preserved
-        expect(rawCode).toContain('data-bridge-id="root-001"')
-        expect(rawCode).toContain('data-bridge-id="span-002"')
+        expect(rawCode).toContain('data-flint-id="root-001"')
+        expect(rawCode).toContain('data-flint-id="span-002"')
         // The className update must be applied
         expect(rawCode).toContain('text-blue-500')
     })
 
-    it('fixture without IDs: injectComponent stamps data-bridge-id on all nodes', () => {
+    it('fixture without IDs: injectComponent stamps data-flint-id on all nodes', () => {
         resetStores(FIXTURE_NO_IDS)
 
         useEditorStore.getState().applyBatch([
@@ -170,8 +170,8 @@ describe('editorStore.applyBatch — Commandment 7: injectBridgeIds after struct
         ])
 
         const { rawCode } = useEditorStore.getState()
-        // injectBridgeIds must have been called — all nodes should now have IDs
-        expect(rawCode).toContain('data-bridge-id')
+        // injectFlintIds must have been called — all nodes should now have IDs
+        expect(rawCode).toContain('data-flint-id')
     })
 
     it('historyStore receives inversions after a structural batch', () => {

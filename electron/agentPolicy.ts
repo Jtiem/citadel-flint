@@ -13,7 +13,7 @@
  *
  * Storage:
  *   - Runtime: in-memory Map<string, AgentPermission>
- *   - Persistent: .bridge/agent-policy.json (optional, per-project)
+ *   - Persistent: .flint/agent-policy.json (optional, per-project)
  *
  * Usage from main.ts:
  *   import { isToolAllowed, loadAgentPolicy } from './agentPolicy.js'
@@ -43,7 +43,7 @@ export interface ToolAccessResult {
 }
 
 /**
- * Shape of the optional .bridge/agent-policy.json file.
+ * Shape of the optional .flint/agent-policy.json file.
  * All fields are optional — missing fields fall back to tier defaults.
  */
 export interface AgentPolicyFile {
@@ -64,32 +64,32 @@ export interface AgentPolicyFile {
 // ── Tier Default Tool Lists ──────────────────────────────────────────────────
 
 const UNTRUSTED_TOOLS: readonly string[] = Object.freeze([
-    'bridge_status',
-    'bridge_read_code',
-    'bridge_read_tokens',
-    'bridge_audit',
-    'bridge_query_registry',
-    'bridge_get_context',
+    'flint_status',
+    'flint_read_code',
+    'flint_read_tokens',
+    'flint_audit',
+    'flint_query_registry',
+    'flint_get_context',
 ])
 
 const STANDARD_TOOLS: readonly string[] = Object.freeze([
     ...UNTRUSTED_TOOLS,
-    'bridge_fix',
-    'bridge_debt_report',
-    'bridge_plan',
+    'flint_fix',
+    'flint_debt_report',
+    'flint_plan',
 ])
 
 const ELEVATED_TOOLS: readonly string[] = Object.freeze([
     ...STANDARD_TOOLS,
-    'bridge_ast_mutate',
-    'bridge_ingest_figma',
-    'bridge_sync_tokens',
-    'bridge_annotate',
-    'bridge_generate_dbom',
-    'bridge_accessibility_report',
-    'bridge_audit_report',
-    'bridge_add_remote_library',
-    'bridge_swarm_audit_fix',
+    'flint_ast_mutate',
+    'flint_ingest_figma',
+    'flint_sync_tokens',
+    'flint_annotate',
+    'flint_generate_dbom',
+    'flint_accessibility_report',
+    'flint_audit_report',
+    'flint_add_remote_library',
+    'flint_swarm_audit_fix',
 ])
 
 // Elevated denies destructive delete operations on ast_mutate
@@ -270,13 +270,13 @@ export function resetMutationCounters(): void {
 }
 
 /**
- * Loads per-project agent policy from `.bridge/agent-policy.json`.
+ * Loads per-project agent policy from `.flint/agent-policy.json`.
  * If the file does not exist, the system operates with tier defaults only.
  *
  * Sets up a file watcher so changes are reloaded automatically.
  */
 export async function loadAgentPolicy(projectRoot: string): Promise<void> {
-    const policyPath = path.join(projectRoot, '.bridge', 'agent-policy.json')
+    const policyPath = path.join(projectRoot, '.flint', 'agent-policy.json')
 
     // Stop watching previous policy file
     if (watchedPolicyPath !== null) {
@@ -321,10 +321,10 @@ export function resetAgentRegistry(): void {
 
 /** Tools considered "mutations" for rate-limiting purposes. */
 const MUTATION_TOOLS = new Set([
-    'bridge_ast_mutate',
-    'bridge_fix',
-    'bridge_sync_tokens',
-    'bridge_ingest_figma',
+    'flint_ast_mutate',
+    'flint_fix',
+    'flint_sync_tokens',
+    'flint_ingest_figma',
 ])
 
 function isMutationTool(toolName: string): boolean {
@@ -367,9 +367,9 @@ async function _loadPolicyFromDisk(policyPath: string): Promise<void> {
             }
         }
 
-        console.log('[Bridge] agentPolicy: loaded %d agents from %s', data.agents?.length ?? 0, policyPath)
+        console.log('[Flint] agentPolicy: loaded %d agents from %s', data.agents?.length ?? 0, policyPath)
     } catch (err) {
-        console.warn('[Bridge] agentPolicy: failed to load %s:', policyPath, err)
+        console.warn('[Flint] agentPolicy: failed to load %s:', policyPath, err)
     }
 }
 

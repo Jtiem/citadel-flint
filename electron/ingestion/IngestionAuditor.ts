@@ -3,7 +3,7 @@
  *
  * Phase ING.1 — Ingestion-Time Audit & Auto-Heal
  *
- * Core heal logic for the Bridge ingestion pipeline. Runs entirely in the
+ * Core heal logic for the Flint ingestion pipeline. Runs entirely in the
  * main process (electron/). Must NOT import from src/.
  *
  * Responsibilities:
@@ -43,7 +43,7 @@ export interface AuditorToken {
     collection_name?: string
 }
 
-// ── ING Type contracts (mirrors src/types/bridge-api.d.ts exactly) ────────────
+// ── ING Type contracts (mirrors src/types/flint-api.d.ts exactly) ────────────
 
 export type IngestionTier = 'tier1' | 'tier2' | 'tier3'
 
@@ -80,7 +80,7 @@ export interface IngestionFlag {
 }
 
 // ── CIEDE2000 math (inlined — no cross-package imports) ───────────────────────
-// Kept in sync with electron/mithrilPreCommit.ts and bridge-mcp/src/core/MithrilLinter.ts
+// Kept in sync with electron/mithrilPreCommit.ts and flint-mcp/src/core/MithrilLinter.ts
 
 const RAD = Math.PI / 180
 
@@ -229,27 +229,34 @@ export const TIER2_TYPO_PX = 2
 export const VIOLATION_CAP = 100
 
 // ── Regex patterns (detect arbitrary Tailwind values) ─────────────────────────
-// These match the patterns used in bridge-mcp/src/core/MithrilLinter.ts
+// These match the patterns used in flint-mcp/src/core/MithrilLinter.ts
 
 /** Arbitrary color: bg-[#hex], text-[#hex], border-[#hex], etc. */
-const ARBITRARY_COLOR_RE =
+const _ARBITRARY_COLOR_RE =
     /(?:^|(?<=\s))(?:[\w-]+:)*(?:bg|text|border|fill|stroke|from|via|to|ring|outline|caret|accent|decoration)-\[#([0-9a-fA-F]{3,8})\](?=\s|$)/g
 
 /** Arbitrary spacing/dimension: gap-[Npx], p-[Npx], m-[Npx], w-[Npx], h-[Npx], etc. */
-const ARBITRARY_SPACING_RE =
+const _ARBITRARY_SPACING_RE =
     /(?:^|(?<=\s))(?:[\w-]+:)*(?:gap|p|px|py|pt|pr|pb|pl|m|mx|my|mt|mr|mb|ml|w|h|min-w|min-h|max-w|max-h|space-x|space-y|rounded|top|right|bottom|left|inset|translate-x|translate-y)-\[(\d+(?:\.\d+)?)(px|rem|em)\](?=\s|$)/g
 
 /** Arbitrary font size: text-[Npx] */
-const ARBITRARY_FONT_SIZE_RE =
+const _ARBITRARY_FONT_SIZE_RE =
     /(?:^|(?<=\s))(?:[\w-]+:)*text-\[(\d+(?:\.\d+)?)(px|rem|em)\](?=\s|$)/g
 
 /** Arbitrary opacity: opacity-[N] */
-const ARBITRARY_OPACITY_RE =
+const _ARBITRARY_OPACITY_RE =
     /(?:^|(?<=\s))(?:[\w-]+:)*opacity-\[(\d+(?:\.\d+)?%?)\](?=\s|$)/g
 
 /** Arbitrary shadow: shadow-[...] */
-const ARBITRARY_SHADOW_RE =
+const _ARBITRARY_SHADOW_RE =
     /(?:^|(?<=\s))(?:[\w-]+:)*shadow-\[([^\]]+)\](?=\s|$)/g
+
+// Suppress unused warnings — reserved for future tier classification expansion
+void _ARBITRARY_COLOR_RE
+void _ARBITRARY_SPACING_RE
+void _ARBITRARY_FONT_SIZE_RE
+void _ARBITRARY_OPACITY_RE
+void _ARBITRARY_SHADOW_RE
 
 // ── Token path → Tailwind class reverse mapping ───────────────────────────────
 
@@ -574,9 +581,9 @@ function findArbitraryValues(className: string): ArbitraryValueHit[] {
  *   - Empty token list → no-op (returns code unchanged, empty summary)
  *   - > VIOLATION_CAP violations → classify only (no AST mutations)
  *   - No structural mutations — className value surgery only (Commandment 7)
- *   - data-bridge-id attributes are never touched
+ *   - data-flint-id attributes are never touched
  *
- * @param code   The hydrated JSX source code (with bridge IDs already injected)
+ * @param code   The hydrated JSX source code (with flint IDs already injected)
  * @param tokens Design tokens read from SQLite at call time
  */
 export function heal(code: string, tokens: AuditorToken[]): IngestionHealResult {
@@ -637,18 +644,18 @@ export function heal(code: string, tokens: AuditorToken[]): IngestionHealResult 
     let tier3Count = 0
     let totalValues = 0
 
-    // Map nodeId → JSXElement path for data-bridge-id lookup
+    // Map nodeId → JSXElement path for data-flint-id lookup
     // We collect pending fixes keyed by the exact StringLiteral node reference
     // so we can mutate in-place during Phase 3.
 
     traverse(ast, {
         JSXOpeningElement(elementPath) {
-            // Extract data-bridge-id from this element
+            // Extract data-flint-id from this element
             let nodeId = ''
             for (const attr of elementPath.node.attributes) {
                 if (
                     t.isJSXAttribute(attr) &&
-                    t.isJSXIdentifier(attr.name, { name: 'data-bridge-id' }) &&
+                    t.isJSXIdentifier(attr.name, { name: 'data-flint-id' }) &&
                     t.isStringLiteral(attr.value)
                 ) {
                     nodeId = attr.value.value
@@ -782,17 +789,17 @@ export function heal(code: string, tokens: AuditorToken[]): IngestionHealResult 
  *
  * Algorithm:
  *   1. Parse `code` to a Babel AST (JSX + TypeScript).
- *   2. Find the JSXOpeningElement whose `data-bridge-id` matches `nodeId`.
+ *   2. Find the JSXOpeningElement whose `data-flint-id` matches `nodeId`.
  *   3. In that element's `className` StringLiteral, replace every occurrence of
  *      `originalClass` with `replacementClass`.
  *   4. Generate code from the (possibly mutated) AST and return it.
  *
  * Commandment compliance:
- *   C7  — data-bridge-id is read only (never mutated).
+ *   C7  — data-flint-id is read only (never mutated).
  *   C13 — Babel AST traversal for className surgery; no regex on source code.
  *
  * @param code            The current TSX source code of the file.
- * @param nodeId          The data-bridge-id value of the target element.
+ * @param nodeId          The data-flint-id value of the target element.
  * @param originalClass   The arbitrary-value Tailwind class to replace.
  * @param replacementClass  The token-based class to insert.
  * @returns  `{ ok: true, code: string }` on success,
@@ -819,12 +826,12 @@ export function snapToToken(
 
     traverse(ast, {
         JSXOpeningElement(elementPath) {
-            // Find the element with the matching data-bridge-id
+            // Find the element with the matching data-flint-id
             let matchesNodeId = false
             for (const attr of elementPath.node.attributes) {
                 if (
                     t.isJSXAttribute(attr) &&
-                    t.isJSXIdentifier(attr.name, { name: 'data-bridge-id' }) &&
+                    t.isJSXIdentifier(attr.name, { name: 'data-flint-id' }) &&
                     t.isStringLiteral(attr.value) &&
                     attr.value.value === nodeId
                 ) {

@@ -10,7 +10,7 @@
  *   - Conformance dropdown renders 3 options (A / AA / AAA)
  *   - Per-rule mode selects render for all 9 Mithril rules
  *   - Per-rule mode selects render for all 10 A11y rules
- *   - Save button calls bridgeAPI.policy.set with the current draft
+ *   - Save button calls flintAPI.policy.set with the current draft
  *   - Reset button restores DEFAULT_POLICY_V2 values
  *   - Domain preset selection fills recommended fields
  *   - Cancel button calls onClose without saving
@@ -22,7 +22,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { PolicySettings } from '../PolicySettings'
 import { useCanvasStore } from '../../../store/canvasStore'
 
@@ -57,8 +57,8 @@ beforeEach(() => {
     useCanvasStore.setState({ cachedPolicy: null })
 
     // Wire up policy mock (policy.set is new in Group 1B; may not exist in setup.ts yet)
-    const existing = (window as unknown as { bridgeAPI: Record<string, unknown> }).bridgeAPI ?? {}
-    ;(window as unknown as { bridgeAPI: Record<string, unknown> }).bridgeAPI = {
+    const existing = (window as unknown as { flintAPI: Record<string, unknown> }).flintAPI ?? {}
+    ;(window as unknown as { flintAPI: Record<string, unknown> }).flintAPI = {
         ...existing,
         policy: {
             get: vi.fn().mockResolvedValue(DEFAULT_POLICY),
@@ -104,7 +104,7 @@ describe('PolicySettings', () => {
                 get: vi.fn().mockReturnValue(never),
                 set: vi.fn(),
             }
-            ;(window as unknown as { bridgeAPI: { policy: typeof policyMock } }).bridgeAPI.policy = policyMock
+            ;(window as unknown as { flintAPI: { policy: typeof policyMock } }).flintAPI.policy = policyMock
 
             renderComponent()
             expect(screen.getByText('Loading policy…')).toBeDefined()
@@ -143,7 +143,7 @@ describe('PolicySettings', () => {
             })
 
             // IPC must NOT have been called yet (Save not clicked)
-            const policyApi = (window as unknown as { bridgeAPI: { policy: { set: ReturnType<typeof vi.fn> } } }).bridgeAPI.policy
+            const policyApi = (window as unknown as { flintAPI: { policy: { set: ReturnType<typeof vi.fn> } } }).flintAPI.policy
             expect(policyApi.set).not.toHaveBeenCalled()
         })
 
@@ -391,7 +391,7 @@ describe('PolicySettings', () => {
     })
 
     describe('Save button', () => {
-        it('calls bridgeAPI.policy.set with the current draft on click', async () => {
+        it('calls flintAPI.policy.set with the current draft on click', async () => {
             renderComponent()
             await waitForLoaded()
 
@@ -400,8 +400,8 @@ describe('PolicySettings', () => {
 
             await waitFor(() => {
                 const policyApi = (window as unknown as {
-                    bridgeAPI: { policy: { set: ReturnType<typeof vi.fn> } }
-                }).bridgeAPI.policy
+                    flintAPI: { policy: { set: ReturnType<typeof vi.fn> } }
+                }).flintAPI.policy
                 expect(policyApi.set).toHaveBeenCalledTimes(1)
             })
         })
@@ -418,8 +418,8 @@ describe('PolicySettings', () => {
 
             await waitFor(() => {
                 const policyApi = (window as unknown as {
-                    bridgeAPI: { policy: { set: ReturnType<typeof vi.fn> } }
-                }).bridgeAPI.policy
+                    flintAPI: { policy: { set: ReturnType<typeof vi.fn> } }
+                }).flintAPI.policy
                 const calledWith = policyApi.set.mock.calls[0][0]
                 expect(calledWith.mithril.deltaE_threshold).toBe(3.5)
             })
@@ -470,8 +470,8 @@ describe('PolicySettings', () => {
             fireEvent.click(screen.getByRole('button', { name: /Reset to default policy/i }))
 
             const policyApi = (window as unknown as {
-                bridgeAPI: { policy: { set: ReturnType<typeof vi.fn> } }
-            }).bridgeAPI.policy
+                flintAPI: { policy: { set: ReturnType<typeof vi.fn> } }
+            }).flintAPI.policy
             expect(policyApi.set).not.toHaveBeenCalled()
         })
     })
@@ -486,8 +486,8 @@ describe('PolicySettings', () => {
 
             expect(onClose).toHaveBeenCalledTimes(1)
             const policyApi = (window as unknown as {
-                bridgeAPI: { policy: { set: ReturnType<typeof vi.fn> } }
-            }).bridgeAPI.policy
+                flintAPI: { policy: { set: ReturnType<typeof vi.fn> } }
+            }).flintAPI.policy
             expect(policyApi.set).not.toHaveBeenCalled()
         })
     })
@@ -571,7 +571,8 @@ describe('PolicySettings', () => {
                 },
             }
             // Set cachedPolicy in canvasStore before render
-            useCanvasStore.setState({ cachedPolicy: customPolicy as unknown as Parameters<typeof useCanvasStore.setState>[0]['cachedPolicy'] })
+            // @ts-expect-error — test-only setState with partial store shape
+            useCanvasStore.setState({ cachedPolicy: customPolicy })
 
             renderComponent()
             await waitForLoaded()
@@ -581,8 +582,8 @@ describe('PolicySettings', () => {
 
             // policy.get should not have been called since cachedPolicy was set
             const policyApi = (window as unknown as {
-                bridgeAPI: { policy: { get: ReturnType<typeof vi.fn> } }
-            }).bridgeAPI.policy
+                flintAPI: { policy: { get: ReturnType<typeof vi.fn> } }
+            }).flintAPI.policy
             expect(policyApi.get).not.toHaveBeenCalled()
         })
     })

@@ -1,24 +1,24 @@
 /**
  * Annotation Store — src/store/annotationStore.ts
  *
- * Zustand v5 store for Bridge annotation state (Phase COLLAB.4).
+ * Zustand v5 store for Flint annotation state (Phase COLLAB.4).
  *
- * Annotations originate in the MCP tool (bridge_annotate) which writes them to
- * .bridge/annotations.json on the local filesystem. The main process watches
- * that file via fs.watch and pushes a 'bridge:annotations-changed' IPC event to
+ * Annotations originate in the MCP tool (flint_annotate) which writes them to
+ * .flint/annotations.json on the local filesystem. The main process watches
+ * that file via fs.watch and pushes a 'flint:annotations-changed' IPC event to
  * the renderer whenever the file changes. This store reacts to that event by
  * re-fetching via 'annotations:read-all'.
  *
  * State:
- *   annotations       — All BridgeAnnotation records read from the file. The
+ *   annotations       — All FlintAnnotation records read from the file. The
  *                        list is unfiltered; derived views (annotationsForNode)
  *                        are implemented as store actions, not stored state.
  *
  * Actions:
- *   fetchAnnotations   — Calls window.bridgeAPI.annotations.readAll() and
+ *   fetchAnnotations   — Calls window.flintAPI.annotations.readAll() and
  *                        replaces the in-memory list. Safe to call on every
- *                        'bridge:annotations-changed' IPC event.
- *   resolveAnnotation  — Calls window.bridgeAPI.annotations.resolve(id), then
+ *                        'flint:annotations-changed' IPC event.
+ *   resolveAnnotation  — Calls window.flintAPI.annotations.resolve(id), then
  *                        immediately re-fetches so the UI is consistent without
  *                        waiting for the fs.watch round-trip.
  *   annotationsForNode — Derived selector: returns unresolved annotations for
@@ -34,22 +34,22 @@
  */
 
 import { create } from 'zustand'
-import type { BridgeAnnotation } from '../types/bridge-api'
+import type { FlintAnnotation } from '../types/flint-api'
 
 // ── Store shape ────────────────────────────────────────────────────────────────
 
 interface AnnotationState {
-    /** Full annotation list as read from .bridge/annotations.json via IPC. */
-    annotations: BridgeAnnotation[]
+    /** Full annotation list as read from .flint/annotations.json via IPC. */
+    annotations: FlintAnnotation[]
 }
 
 interface AnnotationActions {
     /**
      * Re-fetches all annotations from the main process and replaces the
-     * in-memory list. Called on mount and on every 'bridge:annotations-changed'
+     * in-memory list. Called on mount and on every 'flint:annotations-changed'
      * push event.
      *
-     * No-ops gracefully when window.bridgeAPI is unavailable (test / headless).
+     * No-ops gracefully when window.flintAPI is unavailable (test / headless).
      */
     fetchAnnotations: () => Promise<void>
 
@@ -58,7 +58,7 @@ interface AnnotationActions {
      * the UI reflects the change immediately without waiting for the fs.watch
      * round-trip.
      *
-     * No-ops when window.bridgeAPI is unavailable.
+     * No-ops when window.flintAPI is unavailable.
      */
     resolveAnnotation: (id: string) => Promise<void>
 
@@ -69,7 +69,7 @@ interface AnnotationActions {
      * a new array on every call. Callers should memoize if needed.
      * Private annotations from other authors are excluded (single-user v1 scope).
      */
-    annotationsForNode: (nodeId: string) => BridgeAnnotation[]
+    annotationsForNode: (nodeId: string) => FlintAnnotation[]
 }
 
 // ── Store ─────────────────────────────────────────────────────────────────────
@@ -79,26 +79,26 @@ export const useAnnotationStore = create<AnnotationState & AnnotationActions>(
         annotations: [],
 
         fetchAnnotations: async () => {
-            if (typeof window === 'undefined' || !window.bridgeAPI?.annotations) return
+            if (typeof window === 'undefined' || !window.flintAPI?.annotations) return
             try {
-                const data = await window.bridgeAPI.annotations.readAll()
-                // The IPC layer returns BridgeAnnotation[] passed through preload as
+                const data = await window.flintAPI.annotations.readAll()
+                // The IPC layer returns FlintAnnotation[] passed through preload as
                 // unknown[] (contextBridge serialisation). Re-cast here — the main
                 // process handler guarantees the shape (reads from the typed JSON file).
-                set({ annotations: data as BridgeAnnotation[] })
+                set({ annotations: data as FlintAnnotation[] })
             } catch (err) {
-                console.error('[Bridge] annotationStore.fetchAnnotations failed:', err)
+                console.error('[Flint] annotationStore.fetchAnnotations failed:', err)
             }
         },
 
         resolveAnnotation: async (id: string) => {
-            if (typeof window === 'undefined' || !window.bridgeAPI?.annotations) return
+            if (typeof window === 'undefined' || !window.flintAPI?.annotations) return
             try {
-                await window.bridgeAPI.annotations.resolve(id)
+                await window.flintAPI.annotations.resolve(id)
                 // Optimistic: re-fetch immediately rather than waiting for fs.watch
                 await get().fetchAnnotations()
             } catch (err) {
-                console.error('[Bridge] annotationStore.resolveAnnotation failed:', err)
+                console.error('[Flint] annotationStore.resolveAnnotation failed:', err)
             }
         },
 

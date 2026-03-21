@@ -1,5 +1,5 @@
 /**
- * Mithril Linter (CI) -- bridge-ci/src/mithril-linter.ts
+ * Mithril Linter (CI) -- flint-ci/src/mithril-linter.ts
  *
  * Standalone CI version of src/core/MithrilLinter.ts.
  * Runs all five Mithril visitors (color, typography, spacing, shadow, opacity)
@@ -29,11 +29,11 @@ export { SYSTEMIZABLE_THRESHOLD as MITHRIL_THRESHOLD }
 
 // -- Shared AST Helpers --------------------------------------------------------
 
-function getBridgeId(openEl: t.JSXOpeningElement): string | null {
+function getFlintId(openEl: t.JSXOpeningElement): string | null {
     const attr = openEl.attributes.find(
         (a): a is t.JSXAttribute =>
             t.isJSXAttribute(a) &&
-            t.isJSXIdentifier(a.name, { name: 'data-bridge-id' })
+            t.isJSXIdentifier(a.name, { name: 'data-flint-id' })
     )
     if (attr === undefined || !t.isStringLiteral(attr.value)) return null
     return attr.value.value
@@ -74,7 +74,7 @@ export function visitClassNames(ast: File, tokens: DesignToken[]): Map<string, L
             if (!t.isJSXIdentifier(path.node.name, { name: 'className' })) return
             const openEl = path.parentPath?.node
             if (!t.isJSXOpeningElement(openEl)) return
-            const nodeId = getBridgeId(openEl)
+            const nodeId = getFlintId(openEl)
             if (nodeId === null) return
 
             const classStr = getClassString(path.node)
@@ -135,7 +135,7 @@ export function visitTypography(ast: File, tokens: DesignToken[]): Map<string, L
             if (!t.isJSXIdentifier(path.node.name, { name: 'className' })) return
             const openEl = path.parentPath?.node
             if (!t.isJSXOpeningElement(openEl)) return
-            const nodeId = getBridgeId(openEl)
+            const nodeId = getFlintId(openEl)
             if (nodeId === null) return
             const classStr = getClassString(path.node)
             if (classStr === null) return
@@ -191,7 +191,7 @@ export function visitSpacing(ast: File, tokens: DesignToken[]): Map<string, Lint
             if (!t.isJSXIdentifier(path.node.name, { name: 'className' })) return
             const openEl = path.parentPath?.node
             if (!t.isJSXOpeningElement(openEl)) return
-            const nodeId = getBridgeId(openEl)
+            const nodeId = getFlintId(openEl)
             if (nodeId === null) return
             const classStr = getClassString(path.node)
             if (classStr === null) return
@@ -245,7 +245,7 @@ export function visitShadows(ast: File, tokens: DesignToken[]): Map<string, Lint
             if (!t.isJSXIdentifier(path.node.name, { name: 'className' })) return
             const openEl = path.parentPath?.node
             if (!t.isJSXOpeningElement(openEl)) return
-            const nodeId = getBridgeId(openEl)
+            const nodeId = getFlintId(openEl)
             if (nodeId === null) return
             const classStr = getClassString(path.node)
             if (classStr === null) return
@@ -295,7 +295,7 @@ export function visitOpacity(ast: File, tokens: DesignToken[]): Map<string, Lint
             if (!t.isJSXIdentifier(path.node.name, { name: 'className' })) return
             const openEl = path.parentPath?.node
             if (!t.isJSXOpeningElement(openEl)) return
-            const nodeId = getBridgeId(openEl)
+            const nodeId = getFlintId(openEl)
             if (nodeId === null) return
             const classStr = getClassString(path.node)
             if (classStr === null) return
@@ -335,7 +335,7 @@ export function visitOpacity(ast: File, tokens: DesignToken[]): Map<string, Lint
 
 /**
  * Runs all five Mithril visitors over ast and merges results into a single
- * Map<bridgeId, LinterWarning>.
+ * Map<flintId, LinterWarning>.
  *
  * Priority order: color > typography > spacing > shadow > opacity.
  * Each visitor only sets a warning on a node if not already set by a

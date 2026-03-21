@@ -1,8 +1,8 @@
 /**
  * useMCPEventListener.ts — Phase W.1: MCP-to-Glass Push Channel
  *
- * Subscribes to `bridge:mcp-event` IPC events pushed by the Electron main
- * process from the `.bridge/mcp-events.jsonl` tail-follow watcher.
+ * Subscribes to `flint:mcp-event` IPC events pushed by the Electron main
+ * process from the `.flint/mcp-events.jsonl` tail-follow watcher.
  *
  * Each call delivers a batch of MCPEvent objects (debounced at 500ms in the
  * main process). This hook dispatches them to the appropriate stores:
@@ -17,7 +17,7 @@
  * silently dropped. This prevents a storm of stale notifications on startup
  * when the Electron main process reads catch-up lines from the JSONL file.
  *
- * Cleanup: call `window.bridgeAPI.mcp?.removeEventListener()` in the useEffect
+ * Cleanup: call `window.flintAPI.mcp?.removeEventListener()` in the useEffect
  * return — this hook handles that automatically. Never call this hook more
  * than once per React tree (use it at the App root level only).
  *
@@ -27,7 +27,7 @@
 import { useEffect } from 'react'
 import { useNotificationStore } from '../store/notificationStore'
 import { useAnnotationStore } from '../store/annotationStore'
-import type { MCPEvent } from '../types/bridge-api'
+import type { MCPEvent } from '../types/flint-api'
 
 /** Events older than this threshold (in ms) are ignored on startup catch-up. */
 const CATCH_UP_THRESHOLD_MS = 60_000
@@ -40,7 +40,7 @@ const CATCH_UP_THRESHOLD_MS = 60_000
  */
 export function useMCPEventListener(): void {
     useEffect(() => {
-        if (typeof window === 'undefined' || !window.bridgeAPI?.mcp) return
+        if (typeof window === 'undefined' || !window.flintAPI?.mcp) return
 
         const { push: pushNotification } = useNotificationStore.getState()
         const { fetchAnnotations } = useAnnotationStore.getState()
@@ -126,10 +126,10 @@ export function useMCPEventListener(): void {
 
         // The preload casts the callback argument — we cast on the receiver side.
         // The MCPEvent[] shape is guaranteed by the main process JSON parse.
-        window.bridgeAPI.mcp.onEvent(handleEvents as (events: unknown[]) => void)
+        window.flintAPI.mcp.onEvent(handleEvents as (events: unknown[]) => void)
 
         return () => {
-            window.bridgeAPI.mcp?.removeEventListener()
+            window.flintAPI.mcp?.removeEventListener()
         }
     }, [])
 }

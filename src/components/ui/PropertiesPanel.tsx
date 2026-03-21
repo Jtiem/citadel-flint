@@ -19,7 +19,7 @@
  *   - After each commit, `MithrilLinter.calculateDrift` compares each color-related
  *     class in the new className against the closest design token. If _any_ class
  *     produces a ΔE > 2.0 (a "Mithril Violation"), the ClassBuilder wrapper glows
- *     Amber and the violation bridge ID is registered in canvasStore.
+ *     Amber and the violation flint ID is registered in canvasStore.
  *   - textContent and style props are also now writable via `applyBatch`, replacing
  *     the old read-only PropRow display for those two fields.
  *
@@ -32,14 +32,14 @@ import { useEditorStore } from '../../store/editorStore'
 import { useCanvasStore } from '../../store/canvasStore'
 import { useTokenStore } from '../../store/tokenStore'
 import { useIsNodeLocked } from '../../hooks/useRemotePresence'
-import type { LinterWarning } from '../../types/bridge-api'
+import type { LinterWarning } from '../../types/flint-api'
 import { ClassBuilder } from '../inspector/ClassBuilder'
 import { LayoutPanel } from '../inspector/LayoutPanel'
 import { DriftDetector } from '../inspector/DriftDetector'
 import { Accordion } from '../inspector/primitives'
 import { MITHRIL_THRESHOLD } from '../../core/MithrilLinter'
 import { tokenToClass } from '../../utils/classMapper'
-import type { TokenType } from '../../types/bridge-api'
+import type { TokenType } from '../../types/flint-api'
 import type { VisualLayer } from '../../core/ast-parser'
 import { AnnotationList } from './AnnotationList'
 
@@ -528,7 +528,7 @@ export function PropertiesPanel() {
         })
         setOverridesExist(true)
         if (typeof window !== 'undefined') {
-            void window.bridgeAPI.tokens.upsertOverride?.(effectiveId, 'style', value)
+            void window.flintAPI.tokens.upsertOverride?.(effectiveId, 'style', value)
         }
     }
 
@@ -541,7 +541,7 @@ export function PropertiesPanel() {
         })
         setOverridesExist(true)
         if (typeof window !== 'undefined') {
-            void window.bridgeAPI.tokens.upsertOverride?.(effectiveId, 'textContent', value)
+            void window.flintAPI.tokens.upsertOverride?.(effectiveId, 'textContent', value)
         }
     }
 
@@ -561,7 +561,7 @@ export function PropertiesPanel() {
         })
         setOverridesExist(true)
         if (typeof window !== 'undefined') {
-            void window.bridgeAPI.tokens.upsertOverride?.(effectiveId, propName, value ?? '')
+            void window.flintAPI.tokens.upsertOverride?.(effectiveId, propName, value ?? '')
         }
     }
 

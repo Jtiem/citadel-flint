@@ -19,7 +19,7 @@
  *   AGV1-15 — resetAgentRegistry clears all state
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import {
     getDefaultTierTools,
     registerAgent,
@@ -47,21 +47,21 @@ beforeEach(() => {
 
 describe('AGV1-01 — untrusted tier (default for unknown agents)', () => {
     const READ_ONLY_TOOLS = [
-        'bridge_status',
-        'bridge_read_code',
-        'bridge_read_tokens',
-        'bridge_audit',
-        'bridge_query_registry',
-        'bridge_get_context',
+        'flint_status',
+        'flint_read_code',
+        'flint_read_tokens',
+        'flint_audit',
+        'flint_query_registry',
+        'flint_get_context',
     ]
 
     const MUTATION_TOOLS = [
-        'bridge_ast_mutate',
-        'bridge_fix',
-        'bridge_ingest_figma',
-        'bridge_sync_tokens',
-        'bridge_swarm_audit_fix',
-        'bridge_annotate',
+        'flint_ast_mutate',
+        'flint_fix',
+        'flint_ingest_figma',
+        'flint_sync_tokens',
+        'flint_swarm_audit_fix',
+        'flint_annotate',
     ]
 
     for (const tool of READ_ONLY_TOOLS) {
@@ -88,38 +88,38 @@ describe('AGV1-02 — standard tier', () => {
         registerAgent('test-standard', 'standard')
     })
 
-    it('allows bridge_fix for standard agent', () => {
-        const result = isToolAllowed('test-standard', 'bridge_fix')
+    it('allows flint_fix for standard agent', () => {
+        const result = isToolAllowed('test-standard', 'flint_fix')
         expect(result.allowed).toBe(true)
     })
 
-    it('allows bridge_debt_report for standard agent', () => {
-        const result = isToolAllowed('test-standard', 'bridge_debt_report')
+    it('allows flint_debt_report for standard agent', () => {
+        const result = isToolAllowed('test-standard', 'flint_debt_report')
         expect(result.allowed).toBe(true)
     })
 
-    it('allows bridge_plan for standard agent', () => {
-        const result = isToolAllowed('test-standard', 'bridge_plan')
+    it('allows flint_plan for standard agent', () => {
+        const result = isToolAllowed('test-standard', 'flint_plan')
         expect(result.allowed).toBe(true)
     })
 
-    it('allows bridge_audit for standard agent', () => {
-        const result = isToolAllowed('test-standard', 'bridge_audit')
+    it('allows flint_audit for standard agent', () => {
+        const result = isToolAllowed('test-standard', 'flint_audit')
         expect(result.allowed).toBe(true)
     })
 
-    it('denies bridge_ast_mutate for standard agent', () => {
-        const result = isToolAllowed('test-standard', 'bridge_ast_mutate')
+    it('denies flint_ast_mutate for standard agent', () => {
+        const result = isToolAllowed('test-standard', 'flint_ast_mutate')
         expect(result.allowed).toBe(false)
     })
 
-    it('denies bridge_ingest_figma for standard agent', () => {
-        const result = isToolAllowed('test-standard', 'bridge_ingest_figma')
+    it('denies flint_ingest_figma for standard agent', () => {
+        const result = isToolAllowed('test-standard', 'flint_ingest_figma')
         expect(result.allowed).toBe(false)
     })
 
-    it('denies bridge_sync_tokens for standard agent', () => {
-        const result = isToolAllowed('test-standard', 'bridge_sync_tokens')
+    it('denies flint_sync_tokens for standard agent', () => {
+        const result = isToolAllowed('test-standard', 'flint_sync_tokens')
         expect(result.allowed).toBe(false)
     })
 })
@@ -131,28 +131,28 @@ describe('AGV1-03 — elevated tier', () => {
         registerAgent('test-elevated', 'elevated')
     })
 
-    it('allows bridge_ast_mutate for elevated agent', () => {
-        const result = isToolAllowed('test-elevated', 'bridge_ast_mutate')
+    it('allows flint_ast_mutate for elevated agent', () => {
+        const result = isToolAllowed('test-elevated', 'flint_ast_mutate')
         expect(result.allowed).toBe(true)
     })
 
-    it('allows bridge_ingest_figma for elevated agent', () => {
-        const result = isToolAllowed('test-elevated', 'bridge_ingest_figma')
+    it('allows flint_ingest_figma for elevated agent', () => {
+        const result = isToolAllowed('test-elevated', 'flint_ingest_figma')
         expect(result.allowed).toBe(true)
     })
 
-    it('allows bridge_sync_tokens for elevated agent', () => {
-        const result = isToolAllowed('test-elevated', 'bridge_sync_tokens')
+    it('allows flint_sync_tokens for elevated agent', () => {
+        const result = isToolAllowed('test-elevated', 'flint_sync_tokens')
         expect(result.allowed).toBe(true)
     })
 
-    it('allows bridge_fix for elevated agent', () => {
-        const result = isToolAllowed('test-elevated', 'bridge_fix')
+    it('allows flint_fix for elevated agent', () => {
+        const result = isToolAllowed('test-elevated', 'flint_fix')
         expect(result.allowed).toBe(true)
     })
 
     it('allows all untrusted-tier tools for elevated agent', () => {
-        const readTools = ['bridge_status', 'bridge_read_code', 'bridge_audit', 'bridge_query_registry']
+        const readTools = ['flint_status', 'flint_read_code', 'flint_audit', 'flint_query_registry']
         for (const tool of readTools) {
             const result = isToolAllowed('test-elevated', tool)
             expect(result.allowed).toBe(true)
@@ -167,8 +167,8 @@ describe('AGV1-04 — admin tier', () => {
         registerAgent('test-admin', 'admin')
     })
 
-    it('allows bridge_ast_mutate for admin agent', () => {
-        const result = isToolAllowed('test-admin', 'bridge_ast_mutate')
+    it('allows flint_ast_mutate for admin agent', () => {
+        const result = isToolAllowed('test-admin', 'flint_ast_mutate')
         expect(result.allowed).toBe(true)
     })
 
@@ -178,14 +178,14 @@ describe('AGV1-04 — admin tier', () => {
     })
 
     it('allows all read-only tools for admin agent', () => {
-        for (const tool of ['bridge_status', 'bridge_audit', 'bridge_query_registry']) {
+        for (const tool of ['flint_status', 'flint_audit', 'flint_query_registry']) {
             const result = isToolAllowed('test-admin', tool)
             expect(result.allowed).toBe(true)
         }
     })
 
     it('allows all mutation tools for admin agent', () => {
-        for (const tool of ['bridge_fix', 'bridge_ingest_figma', 'bridge_sync_tokens']) {
+        for (const tool of ['flint_fix', 'flint_ingest_figma', 'flint_sync_tokens']) {
             const result = isToolAllowed('test-admin', tool)
             expect(result.allowed).toBe(true)
         }
@@ -197,27 +197,27 @@ describe('AGV1-04 — admin tier', () => {
 describe('AGV1-05 — explicit deny overrides allow', () => {
     it('denies a tool that is in both allowedTools and deniedTools', () => {
         registerAgent('test-deny-override', 'admin', {
-            deniedTools: ['bridge_ast_mutate'],
+            deniedTools: ['flint_ast_mutate'],
         })
-        const result = isToolAllowed('test-deny-override', 'bridge_ast_mutate')
+        const result = isToolAllowed('test-deny-override', 'flint_ast_mutate')
         expect(result.allowed).toBe(false)
         expect(result.reason).toContain('explicitly denied')
     })
 
     it('allows other tools not in the denied list', () => {
         registerAgent('test-deny-override', 'admin', {
-            deniedTools: ['bridge_ast_mutate'],
+            deniedTools: ['flint_ast_mutate'],
         })
-        const result = isToolAllowed('test-deny-override', 'bridge_status')
+        const result = isToolAllowed('test-deny-override', 'flint_status')
         expect(result.allowed).toBe(true)
     })
 
     it('deny overrides wildcard allow', () => {
         registerAgent('test-deny-wildcard', 'admin', {
-            deniedTools: ['bridge_fix'],
+            deniedTools: ['flint_fix'],
         })
-        // Admin has wildcard '*' but bridge_fix is explicitly denied
-        const result = isToolAllowed('test-deny-wildcard', 'bridge_fix')
+        // Admin has wildcard '*' but flint_fix is explicitly denied
+        const result = isToolAllowed('test-deny-wildcard', 'flint_fix')
         expect(result.allowed).toBe(false)
         expect(result.reason).toContain('explicitly denied')
     })
@@ -227,12 +227,12 @@ describe('AGV1-05 — explicit deny overrides allow', () => {
 
 describe('AGV1-06 — unknown agent defaults to untrusted', () => {
     it('allows read-only tools for a never-registered agent', () => {
-        const result = isToolAllowed('completely-unknown-agent', 'bridge_status')
+        const result = isToolAllowed('completely-unknown-agent', 'flint_status')
         expect(result.allowed).toBe(true)
     })
 
     it('denies mutation tools for a never-registered agent', () => {
-        const result = isToolAllowed('completely-unknown-agent', 'bridge_ast_mutate')
+        const result = isToolAllowed('completely-unknown-agent', 'flint_ast_mutate')
         expect(result.allowed).toBe(false)
     })
 
@@ -275,9 +275,9 @@ describe('AGV1-07 — registerAgent updates permissions', () => {
 
     it('allows custom allowedTools to override tier defaults', () => {
         registerAgent('custom-tools-agent', 'untrusted', {
-            allowedTools: ['bridge_status', 'bridge_ast_mutate'],
+            allowedTools: ['flint_status', 'flint_ast_mutate'],
         })
-        const result = isToolAllowed('custom-tools-agent', 'bridge_ast_mutate')
+        const result = isToolAllowed('custom-tools-agent', 'flint_ast_mutate')
         expect(result.allowed).toBe(true)
     })
 })
@@ -285,12 +285,12 @@ describe('AGV1-07 — registerAgent updates permissions', () => {
 // ── AGV1-08: loadAgentPolicy reads from JSON file ───────────────────────────
 
 describe('AGV1-08 — loadAgentPolicy reads from JSON file', () => {
-    const tmpDir = path.join(os.tmpdir(), `bridge-agv1-test-${Date.now()}`)
-    const bridgeDir = path.join(tmpDir, '.bridge')
-    const policyPath = path.join(bridgeDir, 'agent-policy.json')
+    const tmpDir = path.join(os.tmpdir(), `flint-agv1-test-${Date.now()}`)
+    const flintDir = path.join(tmpDir, '.flint')
+    const policyPath = path.join(flintDir, 'agent-policy.json')
 
     beforeEach(async () => {
-        await mkdir(bridgeDir, { recursive: true })
+        await mkdir(flintDir, { recursive: true })
     })
 
     afterEach(async () => {
@@ -346,14 +346,14 @@ describe('AGV1-08 — loadAgentPolicy reads from JSON file', () => {
                 {
                     agentId: 'restricted-claude',
                     tier: 'elevated',
-                    deniedTools: ['bridge_ast_mutate', 'bridge_sync_tokens'],
+                    deniedTools: ['flint_ast_mutate', 'flint_sync_tokens'],
                 },
             ],
         }
         await writeFile(policyPath, JSON.stringify(policy))
         await loadAgentPolicy(tmpDir)
 
-        const result = isToolAllowed('restricted-claude', 'bridge_ast_mutate')
+        const result = isToolAllowed('restricted-claude', 'flint_ast_mutate')
         expect(result.allowed).toBe(false)
         expect(result.reason).toContain('explicitly denied')
     })
@@ -404,31 +404,31 @@ describe('AGV1-08 — loadAgentPolicy reads from JSON file', () => {
 
 describe('AGV1-09 — isToolAllowed returns reason on denial', () => {
     it('includes agent ID in denial reason', () => {
-        const result = isToolAllowed('my-agent', 'bridge_ast_mutate')
+        const result = isToolAllowed('my-agent', 'flint_ast_mutate')
         expect(result.allowed).toBe(false)
         expect(result.reason).toContain('my-agent')
     })
 
     it('includes tool name in denial reason', () => {
-        const result = isToolAllowed('my-agent', 'bridge_ast_mutate')
+        const result = isToolAllowed('my-agent', 'flint_ast_mutate')
         expect(result.allowed).toBe(false)
-        expect(result.reason).toContain('bridge_ast_mutate')
+        expect(result.reason).toContain('flint_ast_mutate')
     })
 
     it('includes tier in denial reason', () => {
-        const result = isToolAllowed('my-agent', 'bridge_ast_mutate')
+        const result = isToolAllowed('my-agent', 'flint_ast_mutate')
         expect(result.allowed).toBe(false)
         expect(result.reason).toContain('untrusted')
     })
 
     it('includes allowed tools list in denial reason for non-allowed tool', () => {
-        const result = isToolAllowed('my-agent', 'bridge_ast_mutate')
+        const result = isToolAllowed('my-agent', 'flint_ast_mutate')
         expect(result.allowed).toBe(false)
         expect(result.reason).toContain('Allowed tools:')
     })
 
     it('returns no reason when access is allowed', () => {
-        const result = isToolAllowed('my-agent', 'bridge_status')
+        const result = isToolAllowed('my-agent', 'flint_status')
         expect(result.allowed).toBe(true)
         expect(result.reason).toBeUndefined()
     })
@@ -444,7 +444,7 @@ describe('AGV1-10 — maxMutationsPerSession enforcement', () => {
     })
 
     it('allows mutations below the limit', () => {
-        const result = isToolAllowed('rate-limited-agent', 'bridge_ast_mutate')
+        const result = isToolAllowed('rate-limited-agent', 'flint_ast_mutate')
         expect(result.allowed).toBe(true)
     })
 
@@ -454,7 +454,7 @@ describe('AGV1-10 — maxMutationsPerSession enforcement', () => {
         recordMutation('rate-limited-agent')
         recordMutation('rate-limited-agent')
 
-        const result = isToolAllowed('rate-limited-agent', 'bridge_ast_mutate')
+        const result = isToolAllowed('rate-limited-agent', 'flint_ast_mutate')
         expect(result.allowed).toBe(false)
         expect(result.reason).toContain('maximum mutations per session')
         expect(result.reason).toContain('3')
@@ -465,7 +465,7 @@ describe('AGV1-10 — maxMutationsPerSession enforcement', () => {
         recordMutation('rate-limited-agent')
         recordMutation('rate-limited-agent')
 
-        const result = isToolAllowed('rate-limited-agent', 'bridge_status')
+        const result = isToolAllowed('rate-limited-agent', 'flint_status')
         expect(result.allowed).toBe(true)
     })
 
@@ -492,7 +492,7 @@ describe('AGV1-10 — maxMutationsPerSession enforcement', () => {
         for (let i = 0; i < 100; i++) {
             recordMutation('unlimited-agent')
         }
-        const result = isToolAllowed('unlimited-agent', 'bridge_ast_mutate')
+        const result = isToolAllowed('unlimited-agent', 'flint_ast_mutate')
         expect(result.allowed).toBe(true)
     })
 
@@ -501,8 +501,8 @@ describe('AGV1-10 — maxMutationsPerSession enforcement', () => {
         recordMutation('rate-limited-agent')
         recordMutation('rate-limited-agent')
 
-        // bridge_audit is read-only, not a mutation tool — not rate-limited
-        const result = isToolAllowed('rate-limited-agent', 'bridge_audit')
+        // flint_audit is read-only, not a mutation tool — not rate-limited
+        const result = isToolAllowed('rate-limited-agent', 'flint_audit')
         expect(result.allowed).toBe(true)
     })
 })
@@ -518,7 +518,7 @@ describe('AGV1-11 — backward compatibility with renderer allowlist', () => {
     })
 
     it('renderer is blocked from calling mutation tools', () => {
-        const result = checkToolAccess('renderer', 'bridge_ast_mutate')
+        const result = checkToolAccess('renderer', 'flint_ast_mutate')
         expect(result.allowed).toBe(false)
         expect(result.reason).toContain('renderer allowlist')
     })
@@ -531,8 +531,8 @@ describe('AGV1-11 — backward compatibility with renderer allowlist', () => {
 
     it('non-renderer agents use per-agent ACL, not renderer allowlist', () => {
         registerAgent('my-agent', 'standard')
-        // bridge_fix is not in RENDERER_ALLOWED_MCP_TOOLS but is in standard tier
-        const result = checkToolAccess('my-agent', 'bridge_fix')
+        // flint_fix is not in RENDERER_ALLOWED_MCP_TOOLS but is in standard tier
+        const result = checkToolAccess('my-agent', 'flint_fix')
         expect(result.allowed).toBe(true)
     })
 
@@ -547,29 +547,29 @@ describe('AGV1-11 — backward compatibility with renderer allowlist', () => {
 describe('AGV1-12 — getDefaultTierTools returns correct lists', () => {
     it('untrusted tier has read-only tools', () => {
         const tools = getDefaultTierTools('untrusted')
-        expect(tools).toContain('bridge_status')
-        expect(tools).toContain('bridge_audit')
-        expect(tools).toContain('bridge_query_registry')
-        expect(tools).not.toContain('bridge_fix')
-        expect(tools).not.toContain('bridge_ast_mutate')
+        expect(tools).toContain('flint_status')
+        expect(tools).toContain('flint_audit')
+        expect(tools).toContain('flint_query_registry')
+        expect(tools).not.toContain('flint_fix')
+        expect(tools).not.toContain('flint_ast_mutate')
     })
 
     it('standard tier includes untrusted tools plus fix/debt/plan', () => {
         const tools = getDefaultTierTools('standard')
-        expect(tools).toContain('bridge_status')  // from untrusted
-        expect(tools).toContain('bridge_fix')
-        expect(tools).toContain('bridge_debt_report')
-        expect(tools).toContain('bridge_plan')
-        expect(tools).not.toContain('bridge_ast_mutate')
+        expect(tools).toContain('flint_status')  // from untrusted
+        expect(tools).toContain('flint_fix')
+        expect(tools).toContain('flint_debt_report')
+        expect(tools).toContain('flint_plan')
+        expect(tools).not.toContain('flint_ast_mutate')
     })
 
     it('elevated tier includes standard tools plus mutation tools', () => {
         const tools = getDefaultTierTools('elevated')
-        expect(tools).toContain('bridge_status')       // from untrusted
-        expect(tools).toContain('bridge_fix')           // from standard
-        expect(tools).toContain('bridge_ast_mutate')    // elevated addition
-        expect(tools).toContain('bridge_ingest_figma')  // elevated addition
-        expect(tools).toContain('bridge_sync_tokens')   // elevated addition
+        expect(tools).toContain('flint_status')       // from untrusted
+        expect(tools).toContain('flint_fix')           // from standard
+        expect(tools).toContain('flint_ast_mutate')    // elevated addition
+        expect(tools).toContain('flint_ingest_figma')  // elevated addition
+        expect(tools).toContain('flint_sync_tokens')   // elevated addition
     })
 
     it('admin tier returns wildcard', () => {
@@ -604,8 +604,8 @@ describe('AGV1-13 — getAgentPermission', () => {
 
     it('fallback permission has untrusted tool list', () => {
         const perm = getAgentPermission('unknown-agent')
-        expect(perm.allowedTools).toContain('bridge_status')
-        expect(perm.allowedTools).not.toContain('bridge_ast_mutate')
+        expect(perm.allowedTools).toContain('flint_status')
+        expect(perm.allowedTools).not.toContain('flint_ast_mutate')
     })
 })
 

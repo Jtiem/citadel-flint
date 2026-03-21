@@ -1,6 +1,6 @@
 # Project Governance Template
 
-> Extracted from the Bridge project's governance system.
+> Extracted from the Flint project's governance system.
 > Copy this entire directory into a new project to bootstrap governance in ~4 hours.
 
 ---
@@ -13,6 +13,8 @@
   MOAT.md                      ← Strategic filter: what to build (and not build)
   ARCHITECTURE.md              ← Canonical architecture spec (versioned)
   HEALTH-PULSE.md              ← Living health report, updated every session
+  ACTIVE-TERRITORY.md          ← Live map of which files are claimed by which agent
+  contracts/                   ← Contract artifacts for in-progress features
   enforcement/
     gates.md                   ← What blocks shipping/export/merge
     graduation-protocol.md     ← How rules move from docs → tooling
@@ -22,12 +24,16 @@
     architect.md               ← Plans work, checks commandments
     reviewer.md                ← Quality gate with commandment checklist
     implementor.md             ← Core builder with file ownership
-    test-writer.md             ← Test patterns and coverage standards
+    test-writer.md             ← Test patterns, coverage standards, required report format
     debugger.md                ← Failure diagnosis + mode catalog
     product-planner.md         ← Idea → spec with scope boundaries
   workflows/
+    session-start.md           ← Mandatory pre-work: territory + HANDOFF + context read
+    session-end.md             ← Health report + HANDOFF update + territory clear
+    feature-build.md           ← Contract-First workflow for 2+ file features
     audit.md                   ← Pre-commit compliance check
-    session-end.md             ← Health report update
+
+HANDOFF.md                     ← Session continuity record (project root)
 ```
 
 ---
@@ -75,7 +81,7 @@ Open `.claude/workflows/audit.md`. Run through it once manually to verify it mak
 
 ## The 7-Layer Governance Model
 
-This template implements a 7-layer model extracted from Bridge:
+This template implements a 7-layer model extracted from Flint:
 
 | Layer | What | Impact | Where |
 |-------|------|--------|-------|
@@ -99,8 +105,10 @@ Rules enforced by architecture > rules enforced by gates > rules in AI prompts >
 
 ## Ongoing Maintenance
 
-- **Every session:** Run the `session-end` workflow to update `HEALTH-PULSE.md`
+- **Every session start:** Run the `session-start` workflow — declare territory + update HANDOFF.md
+- **Every session end:** Run the `session-end` workflow — update Health Pulse + HANDOFF + clear territory
 - **Every commit:** Run the `audit` workflow
+- **Every 2+ file feature:** Follow the `feature-build` Contract-First workflow
 - **Every sprint:** Review governance debt in `HEALTH-PULSE.md`
 - **Every pivot:** Review commandments for relevance, retire obsolete ones
 - **Every new agent prompt:** Verify it includes the current commandment list
@@ -109,4 +117,4 @@ Rules enforced by architecture > rules enforced by gates > rules in AI prompts >
 
 ## Origin
 
-This governance framework was extracted from the Bridge project (bridge-mcp), which grew from 0 to 400+ tests, 16 commandments, 15 specialized agents, and a full MCP server while maintaining architectural coherence across multiple major pivots (IDE → headless MCP engine). The framework works because it treats governance as infrastructure, not documentation.
+This governance framework was extracted from the Flint project (flint-mcp), which grew from 0 to 400+ tests, 16 commandments, 15 specialized agents, and a full MCP server while maintaining architectural coherence across multiple major pivots (IDE → headless MCP engine). The framework works because it treats governance as infrastructure, not documentation.

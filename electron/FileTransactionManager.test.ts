@@ -53,7 +53,7 @@ describe('FileTransactionManager', () => {
 
     beforeEach(async () => {
         // Fresh isolated temp directory and fresh manager per test.
-        dir = join(tmpdir(), `bridge-test-${randomUUID()}`)
+        dir = join(tmpdir(), `flint-test-${randomUUID()}`)
         await mkdir(dir, { recursive: true })
         mgr = new FileTransactionManager()
     })
@@ -186,7 +186,7 @@ describe('FileTransactionManager', () => {
 //   Layer 1 (FileTransactionManager): rename failure leaves the original file
 //            byte-for-byte intact and no .tmp artefact on disk.
 //   Layer 2 (Coordinator / editorStore): a thrown write error propagates to the
-//            caller so window.bridgeAPI.tokens.upsertOverride is never reached —
+//            caller so window.flintAPI.tokens.upsertOverride is never reached —
 //            "Atomic Queuing" prevents a SQLite row from landing without a
 //            corresponding file change.
 //
@@ -199,7 +199,7 @@ describe('Phase E.3 — Atomic Write Failure Recovery', () => {
     let mgr: FileTransactionManager
 
     beforeEach(async () => {
-        dir = join(tmpdir(), `bridge-e3-test-${randomUUID()}`)
+        dir = join(tmpdir(), `flint-e3-test-${randomUUID()}`)
         await mkdir(dir, { recursive: true })
         mgr = new FileTransactionManager()
     })
@@ -249,7 +249,7 @@ describe('Phase E.3 — Atomic Write Failure Recovery', () => {
     //   await fileTransactionManager.write(...)   // throws → error propagates
     //   await upsertOverride(...)                 // unreachable — SQLite stays clean
     //
-    // The mock upsert stands in for window.bridgeAPI.tokens.upsertOverride.
+    // The mock upsert stands in for window.flintAPI.tokens.upsertOverride.
 
     it('does not call upsertOverride when the file write throws (Atomic Queuing)', async () => {
         const mockUpsert = vi.fn()
@@ -258,7 +258,7 @@ describe('Phase E.3 — Atomic Write Failure Recovery', () => {
         let caughtError: Error | null = null
         try {
             await mgr.write(badFile, 'new code')         // throws — parent dir absent
-            await mockUpsert('bridge-id', 'style', '#ff0000')  // must never execute
+            await mockUpsert('flint-id', 'style', '#ff0000')  // must never execute
         } catch (err) {
             caughtError = err as Error
         }
@@ -276,10 +276,10 @@ describe('Phase E.3 — Atomic Write Failure Recovery', () => {
         const file = join(dir, 'App.tsx')
 
         await mgr.write(file, 'valid content')
-        await mockUpsert('bridge-id', 'className', 'text-blue-500')
+        await mockUpsert('flint-id', 'className', 'text-blue-500')
 
         expect(mockUpsert).toHaveBeenCalledOnce()
-        expect(mockUpsert).toHaveBeenCalledWith('bridge-id', 'className', 'text-blue-500')
+        expect(mockUpsert).toHaveBeenCalledWith('flint-id', 'className', 'text-blue-500')
     })
 })
 
@@ -294,7 +294,7 @@ describe('writeBatch', () => {
     let mgr: FileTransactionManager
 
     beforeEach(async () => {
-        dir = join(tmpdir(), `bridge-batch-test-${randomUUID()}`)
+        dir = join(tmpdir(), `flint-batch-test-${randomUUID()}`)
         await mkdir(dir, { recursive: true })
         mgr = new FileTransactionManager()
     })

@@ -1,15 +1,3 @@
-/**
- * BrokenLayout — demos/01-rag-ui-builder/broken-layout.tsx
- *
- * BEFORE state: a product notification panel written without any awareness
- * of the design system. Every color, size, and spacing value is hardcoded
- * into Tailwind utility classes. No semantic token is referenced.
- *
- * Bridge RAG demo target: the AI reads design-tokens.json via
- * bridge_query_registry, then rewrites this component to use the token
- * primitives (Box, Text, Stack, Button) from the component registry.
- */
-
 import React, { useState } from 'react';
 
 interface Notification {
@@ -40,7 +28,6 @@ export default function NotificationPanel({
 
   return (
     <div className="bg-white w-96 rounded-lg border border-gray-200 shadow-lg overflow-hidden">
-      {/* Header — hardcoded blue that is NOT the primary token */}
       <div className="bg-blue-500 text-white px-5 py-4 flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold">Notifications</h2>
@@ -56,7 +43,6 @@ export default function NotificationPanel({
         </button>
       </div>
 
-      {/* Filter bar — raw gray values, not surface tokens */}
       <div className="flex border-b border-gray-200 bg-gray-50">
         <button
           onClick={() => setFilter('all')}
@@ -80,7 +66,6 @@ export default function NotificationPanel({
         </button>
       </div>
 
-      {/* Notification list */}
       <div className="divide-y divide-gray-100 max-h-80 overflow-y-auto">
         {visible.length === 0 && (
           <div className="py-12 text-center text-gray-400 text-sm">
@@ -95,7 +80,6 @@ export default function NotificationPanel({
               !notification.read ? 'bg-blue-50' : 'bg-white'
             }`}
           >
-            {/* Type indicator dot — hardcoded color values */}
             <div className="mt-1 shrink-0">
               <div
                 className={`w-2.5 h-2.5 rounded-full ${
@@ -126,7 +110,6 @@ export default function NotificationPanel({
               </p>
             </div>
 
-            {/* Dismiss — no accessible name, hardcoded sizing */}
             <button
               onClick={() => onDismiss(notification.id)}
               className="shrink-0 w-6 h-6 rounded flex items-center justify-center text-gray-300 hover:text-gray-500 hover:bg-gray-100 transition-colors"
@@ -143,7 +126,6 @@ export default function NotificationPanel({
         ))}
       </div>
 
-      {/* Footer — hardcoded font size (15px) not in token set */}
       <div className="px-5 py-3 border-t border-gray-100 bg-gray-50">
         <a
           href="/notifications"

@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 /**
- * Auto Memory Bridge Hook (ADR-048/049)
+ * Auto Memory Flint Hook (ADR-048/049)
  *
- * Wires AutoMemoryBridge + LearningBridge + MemoryGraph into Claude Code
+ * Wires AutoMemoryFlint + LearningFlint + MemoryGraph into Claude Code
  * session lifecycle. Called by settings.json SessionStart/SessionEnd hooks.
  *
  * Usage:
  *   node auto-memory-hook.mjs import   # SessionStart: import auto memory files into backend
  *   node auto-memory-hook.mjs sync     # SessionEnd: sync insights back to MEMORY.md
- *   node auto-memory-hook.mjs status   # Show bridge status
+ *   node auto-memory-hook.mjs status   # Show flint status
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
@@ -175,7 +175,7 @@ async function loadMemoryPackage() {
 function readConfig() {
   const configPath = join(PROJECT_ROOT, '.claude-flow', 'config.yaml');
   const defaults = {
-    learningBridge: { enabled: true, sonaMode: 'balanced', confidenceDecayRate: 0.005, accessBoostAmount: 0.03, consolidationThreshold: 10 },
+    learningFlint: { enabled: true, sonaMode: 'balanced', confidenceDecayRate: 0.005, accessBoostAmount: 0.03, consolidationThreshold: 10 },
     memoryGraph: { enabled: true, pageRankDamping: 0.85, maxNodes: 5000, similarityThreshold: 0.8 },
     agentScopes: { enabled: true, defaultScope: 'project' },
   };
@@ -190,8 +190,8 @@ function readConfig() {
       return match ? match[1] === 'true' : undefined;
     };
 
-    const lbEnabled = getBool('learningBridge[\\s\\S]*?enabled');
-    if (lbEnabled !== undefined) defaults.learningBridge.enabled = lbEnabled;
+    const lbEnabled = getBool('learningFlint[\\s\\S]*?enabled');
+    if (lbEnabled !== undefined) defaults.learningFlint.enabled = lbEnabled;
 
     const mgEnabled = getBool('memoryGraph[\\s\\S]*?enabled');
     if (mgEnabled !== undefined) defaults.memoryGraph.enabled = mgEnabled;
@@ -210,10 +210,10 @@ function readConfig() {
 // ============================================================================
 
 async function doImport() {
-  log('Importing auto memory files into bridge...');
+  log('Importing auto memory files into flint...');
 
   const memPkg = await loadMemoryPackage();
-  if (!memPkg || !memPkg.AutoMemoryBridge) {
+  if (!memPkg || !memPkg.AutoMemoryFlint) {
     dim('Memory package not available — skipping auto memory import');
     return;
   }
@@ -222,37 +222,37 @@ async function doImport() {
   const backend = new JsonFileBackend(STORE_PATH);
   await backend.initialize();
 
-  const bridgeConfig = {
+  const flintConfig = {
     workingDir: PROJECT_ROOT,
     syncMode: 'on-session-end',
   };
 
   // Wire learning if enabled and available
-  if (config.learningBridge.enabled && memPkg.LearningBridge) {
-    bridgeConfig.learning = {
-      sonaMode: config.learningBridge.sonaMode,
-      confidenceDecayRate: config.learningBridge.confidenceDecayRate,
-      accessBoostAmount: config.learningBridge.accessBoostAmount,
-      consolidationThreshold: config.learningBridge.consolidationThreshold,
+  if (config.learningFlint.enabled && memPkg.LearningFlint) {
+    flintConfig.learning = {
+      sonaMode: config.learningFlint.sonaMode,
+      confidenceDecayRate: config.learningFlint.confidenceDecayRate,
+      accessBoostAmount: config.learningFlint.accessBoostAmount,
+      consolidationThreshold: config.learningFlint.consolidationThreshold,
     };
   }
 
   // Wire graph if enabled and available
   if (config.memoryGraph.enabled && memPkg.MemoryGraph) {
-    bridgeConfig.graph = {
+    flintConfig.graph = {
       pageRankDamping: config.memoryGraph.pageRankDamping,
       maxNodes: config.memoryGraph.maxNodes,
       similarityThreshold: config.memoryGraph.similarityThreshold,
     };
   }
 
-  const bridge = new memPkg.AutoMemoryBridge(backend, bridgeConfig);
+  const flint = new memPkg.AutoMemoryFlint(backend, flintConfig);
 
   try {
-    const result = await bridge.importFromAutoMemory();
+    const result = await flint.importFromAutoMemory();
     success(`Imported ${result.imported} entries (${result.skipped} skipped)`);
     dim(`├─ Backend entries: ${await backend.count()}`);
-    dim(`├─ Learning: ${config.learningBridge.enabled ? 'active' : 'disabled'}`);
+    dim(`├─ Learning: ${config.learningFlint.enabled ? 'active' : 'disabled'}`);
     dim(`├─ Graph: ${config.memoryGraph.enabled ? 'active' : 'disabled'}`);
     dim(`└─ Agent scopes: ${config.agentScopes.enabled ? 'active' : 'disabled'}`);
   } catch (err) {
@@ -266,7 +266,7 @@ async function doSync() {
   log('Syncing insights to auto memory files...');
 
   const memPkg = await loadMemoryPackage();
-  if (!memPkg || !memPkg.AutoMemoryBridge) {
+  if (!memPkg || !memPkg.AutoMemoryFlint) {
     dim('Memory package not available — skipping sync');
     return;
   }
@@ -282,42 +282,42 @@ async function doSync() {
     return;
   }
 
-  const bridgeConfig = {
+  const flintConfig = {
     workingDir: PROJECT_ROOT,
     syncMode: 'on-session-end',
   };
 
-  if (config.learningBridge.enabled && memPkg.LearningBridge) {
-    bridgeConfig.learning = {
-      sonaMode: config.learningBridge.sonaMode,
-      confidenceDecayRate: config.learningBridge.confidenceDecayRate,
-      consolidationThreshold: config.learningBridge.consolidationThreshold,
+  if (config.learningFlint.enabled && memPkg.LearningFlint) {
+    flintConfig.learning = {
+      sonaMode: config.learningFlint.sonaMode,
+      confidenceDecayRate: config.learningFlint.confidenceDecayRate,
+      consolidationThreshold: config.learningFlint.consolidationThreshold,
     };
   }
 
   if (config.memoryGraph.enabled && memPkg.MemoryGraph) {
-    bridgeConfig.graph = {
+    flintConfig.graph = {
       pageRankDamping: config.memoryGraph.pageRankDamping,
       maxNodes: config.memoryGraph.maxNodes,
     };
   }
 
-  const bridge = new memPkg.AutoMemoryBridge(backend, bridgeConfig);
+  const flint = new memPkg.AutoMemoryFlint(backend, flintConfig);
 
   try {
-    const syncResult = await bridge.syncToAutoMemory();
+    const syncResult = await flint.syncToAutoMemory();
     success(`Synced ${syncResult.synced} entries to auto memory`);
     dim(`├─ Categories updated: ${syncResult.categories?.join(', ') || 'none'}`);
     dim(`└─ Backend entries: ${entryCount}`);
 
     // Curate MEMORY.md index with graph-aware ordering
-    await bridge.curateIndex();
+    await flint.curateIndex();
     success('Curated MEMORY.md index');
   } catch (err) {
     dim(`Sync failed (non-critical): ${err.message}`);
   }
 
-  if (bridge.destroy) bridge.destroy();
+  if (flint.destroy) flint.destroy();
   await backend.shutdown();
 }
 
@@ -325,10 +325,10 @@ async function doStatus() {
   const memPkg = await loadMemoryPackage();
   const config = readConfig();
 
-  console.log('\n=== Auto Memory Bridge Status ===\n');
+  console.log('\n=== Auto Memory Flint Status ===\n');
   console.log(`  Package:        ${memPkg ? '✅ Available' : '❌ Not found'}`);
   console.log(`  Store:          ${existsSync(STORE_PATH) ? '✅ ' + STORE_PATH : '⏸ Not initialized'}`);
-  console.log(`  LearningBridge: ${config.learningBridge.enabled ? '✅ Enabled' : '⏸ Disabled'}`);
+  console.log(`  LearningFlint: ${config.learningFlint.enabled ? '✅ Enabled' : '⏸ Disabled'}`);
   console.log(`  MemoryGraph:    ${config.memoryGraph.enabled ? '✅ Enabled' : '⏸ Disabled'}`);
   console.log(`  AgentScopes:    ${config.agentScopes.enabled ? '✅ Enabled' : '⏸ Disabled'}`);
 

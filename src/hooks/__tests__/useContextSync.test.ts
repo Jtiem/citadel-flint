@@ -3,8 +3,8 @@
  *
  * Tests for the useContextSync hook.
  *
- * The hook debounces at 200 ms then calls window.bridgeAPI.syncContext with
- * a BridgeContext snapshot assembled from canvasStore and editorStore.
+ * The hook debounces at 200 ms then calls window.flintAPI.syncContext with
+ * a FlintContext snapshot assembled from canvasStore and editorStore.
  *
  * Covers:
  *   - 200 ms debounce: fires after delay, not before
@@ -21,7 +21,7 @@ import { useCanvasStore } from '../../store/canvasStore'
 import { useEditorStore } from '../../store/editorStore'
 import { useGovernanceStore } from '../../store/governanceStore'
 import { useImportSummaryStore } from '../../store/importSummaryStore'
-import type { LinterWarning, IngestionSummary } from '../../types/bridge-api'
+import type { LinterWarning, IngestionSummary } from '../../types/flint-api'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -69,7 +69,7 @@ describe('useContextSync', () => {
             vi.advanceTimersByTime(199)
         })
 
-        expect(window.bridgeAPI.syncContext).not.toHaveBeenCalled()
+        expect(window.flintAPI.syncContext).not.toHaveBeenCalled()
     })
 
     it('calls syncContext after the 200 ms debounce fires', () => {
@@ -79,7 +79,7 @@ describe('useContextSync', () => {
             vi.advanceTimersByTime(200)
         })
 
-        expect(window.bridgeAPI.syncContext).toHaveBeenCalledOnce()
+        expect(window.flintAPI.syncContext).toHaveBeenCalledOnce()
     })
 
     it('debounces rapid state changes — only the last write fires', () => {
@@ -96,7 +96,7 @@ describe('useContextSync', () => {
         })
 
         // Only a single syncContext call should have fired (the debounced one)
-        expect(window.bridgeAPI.syncContext).toHaveBeenCalledOnce()
+        expect(window.flintAPI.syncContext).toHaveBeenCalledOnce()
     })
 
     it('includes activeFile from canvasStore in the context payload', () => {
@@ -105,18 +105,18 @@ describe('useContextSync', () => {
         renderHook(() => useContextSync())
         act(() => { vi.advanceTimersByTime(200) })
 
-        const ctx = (window.bridgeAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls[0][0]
+        const ctx = (window.flintAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls[0][0]
         expect(ctx.activeFile).toBe('/src/components/Button.tsx')
     })
 
     it('includes selectedNodeId from editorStore in the context payload', () => {
-        useEditorStore.setState({ selectedNodeId: 'bridge-node-xyz' })
+        useEditorStore.setState({ selectedNodeId: 'flint-node-xyz' })
 
         renderHook(() => useContextSync())
         act(() => { vi.advanceTimersByTime(200) })
 
-        const ctx = (window.bridgeAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls[0][0]
-        expect(ctx.selectedNodeId).toBe('bridge-node-xyz')
+        const ctx = (window.flintAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls[0][0]
+        expect(ctx.selectedNodeId).toBe('flint-node-xyz')
     })
 
     it('includes correct mithrilCount in violations', () => {
@@ -130,7 +130,7 @@ describe('useContextSync', () => {
         renderHook(() => useContextSync())
         act(() => { vi.advanceTimersByTime(200) })
 
-        const ctx = (window.bridgeAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls[0][0]
+        const ctx = (window.flintAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls[0][0]
         expect(ctx.violations.mithrilCount).toBe(2)
     })
 
@@ -146,7 +146,7 @@ describe('useContextSync', () => {
         renderHook(() => useContextSync())
         act(() => { vi.advanceTimersByTime(200) })
 
-        const ctx = (window.bridgeAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls[0][0]
+        const ctx = (window.flintAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls[0][0]
         expect(ctx.violations.a11yCount).toBe(3)
     })
 
@@ -162,7 +162,7 @@ describe('useContextSync', () => {
         renderHook(() => useContextSync())
         act(() => { vi.advanceTimersByTime(200) })
 
-        const ctx = (window.bridgeAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls[0][0]
+        const ctx = (window.flintAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls[0][0]
         expect(ctx.violations.criticalCount).toBe(2)
     })
 
@@ -172,7 +172,7 @@ describe('useContextSync', () => {
         renderHook(() => useContextSync())
         act(() => { vi.advanceTimersByTime(200) })
 
-        const ctx = (window.bridgeAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls[0][0]
+        const ctx = (window.flintAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls[0][0]
         expect(ctx.saveState).toBe('saved')
     })
 
@@ -182,7 +182,7 @@ describe('useContextSync', () => {
         renderHook(() => useContextSync())
         act(() => { vi.advanceTimersByTime(200) })
 
-        const ctx = (window.bridgeAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls[0][0]
+        const ctx = (window.flintAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls[0][0]
         expect(ctx.canvasMode).toBe('interact')
     })
 
@@ -195,13 +195,13 @@ describe('useContextSync', () => {
             vi.advanceTimersByTime(200) // would have fired if not cleaned up
         })
 
-        expect(window.bridgeAPI.syncContext).not.toHaveBeenCalled()
+        expect(window.flintAPI.syncContext).not.toHaveBeenCalled()
     })
 
-    it('is a no-op when bridgeAPI.syncContext is undefined', () => {
+    it('is a no-op when flintAPI.syncContext is undefined', () => {
         // Temporarily remove syncContext from the API
-        const original = window.bridgeAPI.syncContext
-        ;(window.bridgeAPI as Record<string, unknown>).syncContext = undefined
+        const original = window.flintAPI.syncContext
+        ;(window.flintAPI as unknown as Record<string, unknown>).syncContext = undefined
 
         expect(() => {
             renderHook(() => useContextSync())
@@ -209,7 +209,7 @@ describe('useContextSync', () => {
         }).not.toThrow()
 
         // Restore
-        window.bridgeAPI.syncContext = original
+        window.flintAPI.syncContext = original
     })
 
     // ── ACX.5 extension field tests ──────────────────────────────────────────
@@ -220,7 +220,7 @@ describe('useContextSync', () => {
         renderHook(() => useContextSync())
         act(() => { vi.advanceTimersByTime(200) })
 
-        const ctx = (window.bridgeAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls[0][0]
+        const ctx = (window.flintAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls[0][0]
         expect(ctx.overrideCount).toBe(0)
     })
 
@@ -228,7 +228,7 @@ describe('useContextSync', () => {
         useGovernanceStore.setState({
             overrides: {
                 'A11Y-001': { enabled: false },
-                'MITHRIL-COL': { severity: 'amber' },
+                'MITHRIL-COL': { severity: 'warning' },
                 'A11Y-003': { enabled: false },
             },
         })
@@ -236,7 +236,7 @@ describe('useContextSync', () => {
         renderHook(() => useContextSync())
         act(() => { vi.advanceTimersByTime(200) })
 
-        const ctx = (window.bridgeAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls[0][0]
+        const ctx = (window.flintAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls[0][0]
         expect(ctx.overrideCount).toBe(3)
     })
 
@@ -246,7 +246,7 @@ describe('useContextSync', () => {
         renderHook(() => useContextSync())
         act(() => { vi.advanceTimersByTime(200) })
 
-        const ctx = (window.bridgeAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls[0][0]
+        const ctx = (window.flintAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls[0][0]
         expect(ctx.importSummary).toBeNull()
     })
 
@@ -269,7 +269,7 @@ describe('useContextSync', () => {
         renderHook(() => useContextSync())
         act(() => { vi.advanceTimersByTime(200) })
 
-        const ctx = (window.bridgeAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls[0][0]
+        const ctx = (window.flintAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls[0][0]
         expect(ctx.importSummary).toEqual({ tier1Fixed: 2, tier2Flagged: 1, tier3Unknown: 4 })
     })
 
@@ -277,7 +277,7 @@ describe('useContextSync', () => {
         renderHook(() => useContextSync())
         act(() => { vi.advanceTimersByTime(200) })
 
-        const ctx = (window.bridgeAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls[0][0]
+        const ctx = (window.flintAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls[0][0]
         expect(ctx.healthScore).toBeNull()
         expect(ctx.healthGrade).toBeNull()
     })
@@ -287,14 +287,14 @@ describe('useContextSync', () => {
         useGovernanceStore.setState({
             overrides: {
                 'A11Y-001': { enabled: false },
-                'MITHRIL-COL': { severity: 'amber' },
+                'MITHRIL-COL': { severity: 'warning' },
             },
         })
 
         renderHook(() => useContextSync())
         act(() => { vi.advanceTimersByTime(200) })
 
-        const ctx = (window.bridgeAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls[0][0]
+        const ctx = (window.flintAPI.syncContext as ReturnType<typeof vi.fn>).mock.calls[0][0]
         expect(ctx.overrideCount).toBe(2)
     })
 })

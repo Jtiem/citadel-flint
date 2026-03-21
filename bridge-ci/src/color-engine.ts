@@ -1,5 +1,5 @@
 /**
- * Color Engine -- bridge-ci/src/color-engine.ts
+ * Color Engine -- flint-ci/src/color-engine.ts
  *
  * Standalone CIEDE2000 perceptual color distance engine for the CI gate.
  * Inlined from src/utils/tokenMatcher.ts and src/utils/color/colorMath.ts

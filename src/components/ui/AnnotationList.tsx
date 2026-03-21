@@ -1,7 +1,7 @@
 /**
  * AnnotationList — src/components/ui/AnnotationList.tsx
  *
- * Renders unresolved Bridge annotations for the node currently selected in
+ * Renders unresolved Flint annotations for the node currently selected in
  * PropertiesPanel. Embedded as a collapsible accordion section at the bottom
  * of the inspector (Phase COLLAB.4).
  *
@@ -25,7 +25,7 @@
 import { useState } from 'react'
 import { MessageSquare, ChevronRight, ChevronDown, CheckCheck } from 'lucide-react'
 import { useAnnotationStore } from '../../store/annotationStore'
-import type { BridgeAnnotation, AnnotationType } from '../../types/bridge-api'
+import type { FlintAnnotation, AnnotationType } from '../../types/flint-api'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -57,7 +57,7 @@ const TYPE_CONFIG: Record<AnnotationType, { label: string; className: string }> 
 // ── AnnotationCard ─────────────────────────────────────────────────────────────
 
 interface AnnotationCardProps {
-    annotation: BridgeAnnotation
+    annotation: FlintAnnotation
     onResolve: (id: string) => void
 }
 
@@ -115,7 +115,7 @@ function AnnotationCard({ annotation, onResolve }: AnnotationCardProps) {
 // ── AnnotationList ─────────────────────────────────────────────────────────────
 
 interface AnnotationListProps {
-    /** The data-bridge-id of the currently selected node. */
+    /** The data-flint-id of the currently selected node. */
     nodeId: string
 }
 

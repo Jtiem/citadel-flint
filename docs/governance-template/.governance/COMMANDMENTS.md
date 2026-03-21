@@ -67,7 +67,7 @@ No code change is "done" until its architectural impact is documented. The archi
 
 Add 4-8 more commandments specific to your project's domain. Examples:
 
-- **Accessibility is a Compiler Error** — a11y violations block export (from Bridge)
+- **Accessibility is a Compiler Error** — a11y violations block export (from Flint)
 - **No Raw SQL** — all queries through the ORM/query builder
 - **Type Coverage Floor** — no PR merges below 95% type coverage
 - **API Contract First** — no endpoint implementation without an OpenAPI spec

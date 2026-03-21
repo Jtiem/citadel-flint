@@ -11,16 +11,14 @@
 import Database from 'better-sqlite3'
 import path from 'node:path'
 import { app } from 'electron'
-import { Worker } from 'node:worker_threads'
-import { PowerSyncDatabase } from '@powersync/node'
-import { SYNC_SCHEMA } from './sync-schema.js'
 import * as sqliteVec from 'sqlite-vec'
+import { BRAND } from '../shared/brand.ts'
 
 // Resolve to the OS-appropriate user data directory:
-//   macOS: ~/Library/Application Support/bridge-ide/bridge.db
-//   Windows: %APPDATA%\bridge-ide\bridge.db
-//   Linux: ~/.config/bridge-ide/bridge.db
-const DB_PATH = path.join(app.getPath('userData'), 'bridge.db')
+//   macOS: ~/Library/Application Support/flint-ide/flint.db
+//   Windows: %APPDATA%\flint-ide\flint.db
+//   Linux: ~/.config/flint-ide/flint.db
+const DB_PATH = path.join(app.getPath('userData'), 'flint.db')
 
 const db = new Database(DB_PATH)
 
@@ -30,7 +28,7 @@ db.pragma('journal_mode = WAL')
 // ── Phase M: Load sqlite-vec extension for vector search ──────────────────────
 // Load extension manually to avoid ESM/Vite path resolution bugs
 db.loadExtension(sqliteVec.getLoadablePath())
-console.log('[Bridge] sqlite-vec extension loaded')
+console.log(`${BRAND.logPrefix} sqlite-vec extension loaded`)
 
 // ── Static tables (schema is stable, CREATE IF NOT EXISTS is safe) ─────────────
 
@@ -87,13 +85,13 @@ if (tokenColumns.length === 0) {
             UNIQUE(token_path, mode, collection_name)
         )
     `)
-    console.log('[Bridge] design_tokens table created (v2 schema)')
+    console.log(`${BRAND.logPrefix} design_tokens table created (v2 schema)`)
 
 } else if (!tokenColumns.some((col) => col.name === 'mode')) {
     // ── v1 table detected: migrate to v2, preserving existing rows ───────────
     // Existing rows receive mode='default' and collection_name='default'.
     // DROP TABLE IF EXISTS design_tokens_v2 cleans up any previous partial run.
-    console.log('[Bridge] Migrating design_tokens v1 → v2…')
+    console.log(`${BRAND.logPrefix} Migrating design_tokens v1 → v2…`)
     db.exec(`
         DROP TABLE IF EXISTS design_tokens_v2;
 
@@ -119,11 +117,11 @@ if (tokenColumns.length === 0) {
 
         ALTER TABLE design_tokens_v2 RENAME TO design_tokens;
     `)
-    console.log('[Bridge] design_tokens migrated to v2 schema')
+    console.log(`${BRAND.logPrefix} design_tokens migrated to v2 schema`)
 
 } else {
     // ── v2 schema already present: nothing to do ─────────────────────────────
-    console.log('[Bridge] design_tokens schema current (v2)')
+    console.log(`${BRAND.logPrefix} design_tokens schema current (v2)`)
 }
 
 // ── design_tokens v3 migration: add version + last_modified ───────────────────
@@ -140,11 +138,11 @@ const tokenColumnsV3 = db
 
 if (!tokenColumnsV3.some((col) => col.name === 'version')) {
     db.exec('ALTER TABLE design_tokens ADD COLUMN version TEXT')
-    console.log('[Bridge] design_tokens: added column version (v3 migration)')
+    console.log(`${BRAND.logPrefix} design_tokens: added column version (v3 migration)`)
 }
 if (!tokenColumnsV3.some((col) => col.name === 'last_modified')) {
     db.exec('ALTER TABLE design_tokens ADD COLUMN last_modified INTEGER')
-    console.log('[Bridge] design_tokens: added column last_modified (v3 migration)')
+    console.log(`${BRAND.logPrefix} design_tokens: added column last_modified (v3 migration)`)
 }
 
 // ── presence table ────────────────────────────────────────────────────────────
@@ -162,15 +160,15 @@ db.exec(`
         updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
     )
 `)
-console.log('[Bridge] presence table ready')
+console.log(`${BRAND.logPrefix} presence table ready`)
 
 // ── component_overrides table ─────────────────────────────────────────────────
 //
 // Tracks export locks for individual JSX element properties. Each row records
 // a single overridden property (e.g. style, textContent) on an element.
 //
-// v1 schema: PRIMARY KEY (bridge_id)                — one row per element
-// v2 schema: PRIMARY KEY (bridge_id, property_key)  — one row per property
+// v1 schema: PRIMARY KEY (flint_id)                — one row per element
+// v2 schema: PRIMARY KEY (flint_id, property_key)  — one row per property
 //
 // v1 → v2 migration: the table is ephemeral (rows are re-created on the next
 // edit), so it is safe to DROP and recreate without data migration.
@@ -181,24 +179,24 @@ const overrideColumns = db
 
 const OVERRIDE_DDL = `
     CREATE TABLE component_overrides (
-        bridge_id      TEXT    NOT NULL,
+        flint_id      TEXT    NOT NULL,
         property_key   TEXT    NOT NULL,
         property_value TEXT    NOT NULL,
         updated_at     INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-        PRIMARY KEY (bridge_id, property_key)
+        PRIMARY KEY (flint_id, property_key)
     )
 `
 
 if (overrideColumns.length === 0) {
     // Fresh database — create v2 directly.
     db.exec(OVERRIDE_DDL)
-    console.log('[Bridge] component_overrides table created (v2 schema)')
+    console.log(`${BRAND.logPrefix} component_overrides table created (v2 schema)`)
 } else if (!overrideColumns.some((col) => col.name === 'property_key')) {
     // v1 detected — drop and recreate (data is ephemeral, no migration needed).
     db.exec('DROP TABLE component_overrides;' + OVERRIDE_DDL)
-    console.log('[Bridge] component_overrides migrated to v2 schema')
+    console.log(`${BRAND.logPrefix} component_overrides migrated to v2 schema`)
 } else {
-    console.log('[Bridge] component_overrides schema current (v2)')
+    console.log(`${BRAND.logPrefix} component_overrides schema current (v2)`)
 }
 
 // ── Phase M: Design System RAG vector table ──────────────────────────────────
@@ -229,13 +227,13 @@ db.exec(`
 //     )
 // `)
 
-console.log('[Bridge] RAG vector tables ready')
+console.log(`${BRAND.logPrefix} RAG vector tables ready`)
 
 // ── Delta Mode: violation_baselines table ─────────────────────────────────────
 //
 // Stores the set of violations that were present when the user clicked
-// "Set Baseline". Bridge uses this to compute a delta — only violations
-// that did NOT exist at baseline time are surfaced. Teams adopting Bridge
+// "Set Baseline". Flint uses this to compute a delta — only violations
+// that did NOT exist at baseline time are surfaced. Teams adopting Flint
 // on existing codebases can suppress known pre-existing issues and focus
 // exclusively on new regressions.
 //
@@ -253,9 +251,9 @@ db.exec(`
         UNIQUE(file_path, node_id, rule_id)
     )
 `)
-console.log('[Bridge] violation_baselines table ready')
+console.log(`${BRAND.logPrefix} violation_baselines table ready`)
 
-console.log(`[Bridge] Database ready at: ${DB_PATH}`)
+console.log(`${BRAND.logPrefix} Database ready at: ${DB_PATH}`)
 
 // ── PowerSync Integration ──────────────────────────────────────────────────────
 // We instantiate the PowerSync abstraction pointing to the exact same database
@@ -274,7 +272,7 @@ console.log(`[Bridge] Database ready at: ${DB_PATH}`)
 
 // Background initialization
 // powerSyncDb.init().catch(err => {
-//     console.error('[Bridge] PowerSync init failed:', err)
+//     console.error('[Flint] PowerSync init failed:', err)
 // })
 
 export default db

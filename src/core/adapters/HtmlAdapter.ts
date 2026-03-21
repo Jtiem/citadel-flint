@@ -3,7 +3,7 @@
  *
  * Abstract Syntax Protocol (ASP) — Phase N.2
  *
- * Implements IBridgeAdapter for raw HTML files (.html).
+ * Implements IFlintAdapter for raw HTML files (.html).
  * Uses the `rehype` ecosystem (HAST — Hypertext Abstract Syntax Tree)
  * as the underlying AST representation.
  *
@@ -13,15 +13,15 @@
  *   element.properties: Record<string, string | string[] | boolean | number>
  *   element.children: Array<HastNode>
  *
- * ID injection: `data-bridge-id` attributes are injected as HAST properties
- * (element.properties['dataBridgeId']). HAST uses camelCase property keys
- * for data attributes. rehype-stringify outputs them as `data-bridge-id`
+ * ID injection: `data-flint-id` attributes are injected as HAST properties
+ * (element.properties['dataFlintId']). HAST uses camelCase property keys
+ * for data attributes. rehype-stringify outputs them as `data-flint-id`
  * (kebab-case) automatically.
  *
  * Renderer Process only — no Node.js imports.
  */
 
-import type { IBridgeAdapter } from './types'
+import type { IFlintAdapter } from './types'
 import type { ASTMutation, InverseMutation } from '../ASTService'
 import type { VisualLayer } from '../ast-parser'
 
@@ -34,9 +34,9 @@ import type { Root, Element, ElementContent, Node } from 'hast'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/** Reads the `data-bridge-id` from a HAST element's properties */
-function getBridgeId(el: Element): string | undefined {
-    const v = el.properties?.['dataBridgeId']
+/** Reads the `data-flint-id` from a HAST element's properties */
+function getFlintId(el: Element): string | undefined {
+    const v = el.properties?.['dataFlintId']
     if (typeof v === 'string') return v
     if (Array.isArray(v)) return String(v[0])
     return undefined
@@ -54,17 +54,17 @@ function getClassName(el: Element): string | undefined {
 }
 
 /**
- * Finds an element by its `data-bridge-id` in the HAST tree.
+ * Finds an element by its `data-flint-id` in the HAST tree.
  * Returns the node and its parent + index for surgical mutations.
  */
 function findById(
     root: Root,
-    bridgeId: string,
+    flintId: string,
 ): { node: Element; parent: Root | Element; idx: number } | null {
     let result: { node: Element; parent: Root | Element; idx: number } | null = null
     visit(root, 'element', (node: Element, idx: number | undefined, parent: Node | undefined) => {
         if (result !== null) return
-        if (getBridgeId(node) === bridgeId && parent && idx !== undefined) {
+        if (getFlintId(node) === flintId && parent && idx !== undefined) {
             result = { node, parent: parent as Root | Element, idx }
         }
     })
@@ -91,7 +91,7 @@ function deepClone<T>(node: T): T {
 }
 
 /**
- * Generates an 8-char hex ID for bridge ID injection.
+ * Generates an 8-char hex ID for flint ID injection.
  * Falls back to Math.random in environments without crypto.
  */
 let _idCounter = 1
@@ -105,13 +105,13 @@ function makeId(): string {
 // ── HtmlAdapter ───────────────────────────────────────────────────────────────
 
 /**
- * Bridge language adapter for raw HTML files.
+ * Flint language adapter for raw HTML files.
  *
  * Internally uses the rehype/HAST ecosystem. The `ast` type for all methods
  * is `Root` (HAST document root), but callers receive it as `unknown` per
- * the IBridgeAdapter contract.
+ * the IFlintAdapter contract.
  */
-export class HtmlAdapter implements IBridgeAdapter {
+export class HtmlAdapter implements IFlintAdapter {
 
     // ── Private rehype pipeline ───────────────────────────────────────────────
 
@@ -121,7 +121,7 @@ export class HtmlAdapter implements IBridgeAdapter {
     private readonly _stringifier = unified()
         .use(rehypeStringify, { allowDangerousHtml: true })
 
-    // ── IBridgeAdapter ────────────────────────────────────────────────────────
+    // ── IFlintAdapter ────────────────────────────────────────────────────────
 
     parse(code: string): Root | null {
         if (!code.trim()) return null
@@ -144,7 +144,7 @@ export class HtmlAdapter implements IBridgeAdapter {
 
     /**
      * Build the VisualLayer tree from the HAST by walking all Element nodes.
-     * Uses the `data-bridge-id` as the layer ID for stable identity.
+     * Uses the `data-flint-id` as the layer ID for stable identity.
      */
     buildVisualTree(ast: unknown): VisualLayer[] {
         const root = ast as Root
@@ -155,7 +155,7 @@ export class HtmlAdapter implements IBridgeAdapter {
             for (const node of nodes) {
                 if (node.type !== 'element') continue
                 const el = node as Element
-                const id = getBridgeId(el)
+                const id = getFlintId(el)
                 if (!id) continue
 
                 const layer: VisualLayer = {
@@ -177,15 +177,15 @@ export class HtmlAdapter implements IBridgeAdapter {
     }
 
     /**
-     * Inject `data-bridge-id` attributes onto all elements that don't already
+     * Inject `data-flint-id` attributes onto all elements that don't already
      * have one. Mutates the HAST in-place and returns it. Idempotent.
      */
-    injectBridgeIds(ast: unknown): unknown {
+    injectFlintIds(ast: unknown): unknown {
         const root = ast as Root
         visit(root, 'element', (node: Element) => {
             if (!node.properties) node.properties = {}
-            if (getBridgeId(node) === undefined) {
-                node.properties['dataBridgeId'] = `html-${node.tagName}-${makeId()}`
+            if (getFlintId(node) === undefined) {
+                node.properties['dataFlintId'] = `html-${node.tagName}-${makeId()}`
             }
         })
         return root
@@ -233,7 +233,7 @@ export class HtmlAdapter implements IBridgeAdapter {
                 }
 
                 case 'updateProp': {
-                    // Map Bridge prop names to HAST property keys.
+                    // Map Flint prop names to HAST property keys.
                     // Most HTML attributes map 1:1 in camelCase (e.g. 'href' → 'href').
                     const found = findById(ast, mutation.nodeId)
                     if (!found) { inversions.push({ op: 'restoreCode', code }); break }
@@ -304,15 +304,15 @@ export class HtmlAdapter implements IBridgeAdapter {
     }
 
     /**
-     * Returns `true` when the element with the given `bridgeId` exists in `code`.
+     * Returns `true` when the element with the given `flintId` exists in `code`.
      * Used for zombie-node pre-flight checks before undo.
      */
-    nodeExists(code: string, bridgeId: string): boolean {
+    nodeExists(code: string, flintId: string): boolean {
         const ast = this.parse(code)
         if (ast === null) return false
         let found = false
         visit(ast, 'element', (node: Element) => {
-            if (!found && getBridgeId(node) === bridgeId) found = true
+            if (!found && getFlintId(node) === flintId) found = true
         })
         return found
     }

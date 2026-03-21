@@ -65,7 +65,7 @@ export interface VisualLayer {
     idAttr?: string
     /** First non-whitespace direct text content (JSXText child), if any */
     textContent?: string
-    /** Arbitrary read-only props (excluding className, style, id, and data-bridge-id) */
+    /** Arbitrary read-only props (excluding className, style, id, and data-flint-id) */
     props?: Record<string, string | boolean>
     /** Nested child layers (mirrors JSX nesting) */
     children: VisualLayer[]
@@ -170,14 +170,14 @@ export function buildVisualTree(ast: File): VisualLayer[] {
                 const line = loc?.start.line ?? 0
                 const col = loc?.start.column ?? 0
 
-                // Extract className, id, and data-bridge-id FIRST — bridgeId must
+                // Extract className, id, and data-flint-id FIRST — flintId must
                 // be resolved before computing the stable layer id below.
-                // Handles both StringLiteral (data-bridge-id="x") and
-                // JSXExpressionContainer (data-bridge-id={"x"}) forms.
+                // Handles both StringLiteral (data-flint-id="x") and
+                // JSXExpressionContainer (data-flint-id={"x"}) forms.
                 let className: string | undefined
                 let style: string | undefined
                 let idAttr: string | undefined
-                let bridgeId: string | undefined
+                let flintId: string | undefined
                 const props: Record<string, string | boolean> = {}
                 for (const attr of opening.attributes) {
                     if (!isJSXAttribute(attr)) continue
@@ -192,14 +192,14 @@ export function buildVisualTree(ast: File): VisualLayer[] {
                             style = attr.value.value
                         } else if (attrName === 'id') {
                             idAttr = attr.value.value
-                        } else if (attrName === 'data-bridge-id') {
-                            bridgeId = attr.value.value
+                        } else if (attrName === 'data-flint-id') {
+                            flintId = attr.value.value
                         } else if (attrName) {
                             props[attrName] = attr.value.value
                         }
                     } else if (attr.value?.type === 'JSXExpressionContainer') {
-                        if (attrName === 'data-bridge-id' && attr.value.expression.type === 'StringLiteral') {
-                            bridgeId = attr.value.expression.value
+                        if (attrName === 'data-flint-id' && attr.value.expression.type === 'StringLiteral') {
+                            flintId = attr.value.expression.value
                         } else if (attrName === 'style' && attr.value.expression.type !== 'JSXEmptyExpression') {
                             // Generate a compact code representation for object-style props,
                             // e.g. style={{ color: 'red' }} → "{ color: 'red' }"
@@ -211,11 +211,11 @@ export function buildVisualTree(ast: File): VisualLayer[] {
                     }
                 }
 
-                // Use the stable data-bridge-id when present so the layer id
+                // Use the stable data-flint-id when present so the layer id
                 // survives AST round-trips and drag-and-drop reorderings.
                 // Fall back to the source-location-based synthetic id for
-                // elements that were not injected through the component bridge.
-                const id = bridgeId ?? `${tagName}:${line}:${col}`
+                // elements that were not injected through the component flint.
+                const id = flintId ?? `${tagName}:${line}:${col}`
 
                 // Extract the first meaningful text (literal or identifier expression),
                 // searching recursively through nested elements when needed.
@@ -270,7 +270,7 @@ export function updateJSXClassName(
     const col = parseInt(parts[parts.length - 1], 10)
     const line = parseInt(parts[parts.length - 2], 10)
     // Structural IDs end with two numeric segments (line:col).
-    // Bridge IDs are short alphanumeric strings without that pattern.
+    // Flint IDs are short alphanumeric strings without that pattern.
     const isStructuralId = parts.length >= 2 && !isNaN(col) && !isNaN(line)
 
     traverse(ast, {
@@ -280,12 +280,12 @@ export function updateJSXClassName(
             if (isStructuralId) {
                 matched = loc?.start.line === line && loc.start.column === col
             } else {
-                // Bridge-id lookup: scan attributes for data-bridge-id === nodeId.
+                // Flint-id lookup: scan attributes for data-flint-id === nodeId.
                 for (const attr of path.node.openingElement.attributes) {
                     if (
                         isJSXAttribute(attr) &&
                         attr.name.type === 'JSXIdentifier' &&
-                        attr.name.name === 'data-bridge-id' &&
+                        attr.name.name === 'data-flint-id' &&
                         attr.value?.type === 'StringLiteral' &&
                         attr.value.value === nodeId
                     ) {
@@ -339,7 +339,7 @@ export function updateJSXClassName(
  * even when multiple elements share a tag name.
  *
  * The function:
- *   1. Finds the element by line:col (or bridge-id)
+ *   1. Finds the element by line:col (or flint-id)
  *   2. Iterates through the element's children
  *   3. Finds the first JSXText child with non-empty `value.trim()`
  *   4. Replaces its `value` with `newText`
@@ -357,7 +357,7 @@ export function updateJSXTextContent(
     const col = parseInt(parts[parts.length - 1], 10)
     const line = parseInt(parts[parts.length - 2], 10)
     // Structural IDs end with two numeric segments (line:col).
-    // Bridge IDs are short alphanumeric strings without that pattern.
+    // Flint IDs are short alphanumeric strings without that pattern.
     const isStructuralId = parts.length >= 2 && !isNaN(col) && !isNaN(line)
 
     traverse(ast, {
@@ -367,12 +367,12 @@ export function updateJSXTextContent(
             if (isStructuralId) {
                 matched = loc?.start.line === line && loc.start.column === col
             } else {
-                // Bridge-id lookup: scan attributes for data-bridge-id === nodeId.
+                // Flint-id lookup: scan attributes for data-flint-id === nodeId.
                 for (const attr of path.node.openingElement.attributes) {
                     if (
                         isJSXAttribute(attr) &&
                         attr.name.type === 'JSXIdentifier' &&
-                        attr.name.name === 'data-bridge-id' &&
+                        attr.name.name === 'data-flint-id' &&
                         attr.value?.type === 'StringLiteral' &&
                         attr.value.value === nodeId
                     ) {
@@ -451,7 +451,7 @@ export function transplantNode(
                     if (
                         isJSXAttribute(attr) &&
                         attr.name.type === 'JSXIdentifier' &&
-                        attr.name.name === 'data-bridge-id' &&
+                        attr.name.name === 'data-flint-id' &&
                         attr.value?.type === 'StringLiteral' &&
                         attr.value.value === nodeId
                     ) {
@@ -483,7 +483,7 @@ export function transplantNode(
                     if (
                         isJSXAttribute(attr) &&
                         attr.name.type === 'JSXIdentifier' &&
-                        attr.name.name === 'data-bridge-id' &&
+                        attr.name.name === 'data-flint-id' &&
                         attr.value?.type === 'StringLiteral' &&
                         attr.value.value === nodeId
                     ) {
@@ -500,21 +500,21 @@ export function transplantNode(
 }
 
 /**
- * Traverses all JSXElement nodes in `ast` and injects a `data-bridge-id`
+ * Traverses all JSXElement nodes in `ast` and injects a `data-flint-id`
  * attribute onto each element that does not already carry one.
  *
  * This makes the renderer self-sufficient for ID injection (Phase E.1 /
  * HANDOFF 7D). Calling this before `generateCodeFromAST` and passing the
- * result to the main-process `transformCode` IPC ensures bridge IDs survive
+ * result to the main-process `transformCode` IPC ensures flint IDs survive
  * even if the main-process Babel plugin fails or is bypassed.
  *
  * ID format: `"<tagName>:<1-based-line>:<0-based-col>"` — identical to the
  * format produced by `buildVisualTree` and the main-process plugin.
  *
  * Mutates `ast` in-place. Idempotent: elements that already carry a
- * `data-bridge-id` attribute are skipped.
+ * `data-flint-id` attribute are skipped.
  */
-export function injectBridgeIds(ast: File): void {
+export function injectFlintIds(ast: File): void {
     traverse(ast, {
         JSXElement(path: NodePath<JSXElement>) {
             const opening = path.node.openingElement
@@ -536,19 +536,19 @@ export function injectBridgeIds(ast: File): void {
                 tagName = 'unknown'
             }
 
-            const bridgeId = `${tagName}:${loc.start.line}:${loc.start.column}`
+            const flintId = `${tagName}:${loc.start.line}:${loc.start.column}`
 
             // Idempotency guard — skip if already injected
             const alreadySet = opening.attributes.some(
                 (attr) =>
                     isJSXAttribute(attr) &&
                     isJSXIdentifier(attr.name) &&
-                    attr.name.name === 'data-bridge-id'
+                    attr.name.name === 'data-flint-id'
             )
             if (alreadySet) return
 
             opening.attributes.push(
-                jsxAttribute(jsxIdentifier('data-bridge-id'), stringLiteral(bridgeId))
+                jsxAttribute(jsxIdentifier('data-flint-id'), stringLiteral(flintId))
             )
         },
     })
@@ -561,7 +561,7 @@ export function injectBridgeIds(ast: File): void {
  * This generalises `updateJSXClassName` to cover any HTML/JSX attribute:
  * `href`, `src`, `disabled`, `variant`, `onClick`, etc. (Phase E.2 / HANDOFF 7B).
  *
- * `nodeId` format: "<tagName>:<line>:<col>" — or a stable data-bridge-id.
+ * `nodeId` format: "<tagName>:<line>:<col>" — or a stable data-flint-id.
  *
  * Value semantics:
  *   string       → `propName="value"` (StringLiteral attribute)
@@ -592,7 +592,7 @@ export function updateJSXProp(
                     if (
                         isJSXAttribute(attr) &&
                         attr.name.type === 'JSXIdentifier' &&
-                        attr.name.name === 'data-bridge-id' &&
+                        attr.name.name === 'data-flint-id' &&
                         attr.value?.type === 'StringLiteral' &&
                         attr.value.value === nodeId
                     ) {

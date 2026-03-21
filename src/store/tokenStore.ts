@@ -1,7 +1,7 @@
 /**
  * tokenStore — src/store/tokenStore.ts
  *
- * Zustand store for design tokens. All mutations go through window.bridgeAPI
+ * Zustand store for design tokens. All mutations go through window.flintAPI
  * (the contextBridge IPC surface) so this module has zero direct SQLite
  * contact — safe to import anywhere in the Renderer Process.
  *
@@ -11,7 +11,7 @@
  */
 
 import { create } from 'zustand'
-import type { DesignToken, NewDesignToken, TokenType } from '../types/bridge-api'
+import type { DesignToken, NewDesignToken, TokenType } from '../types/flint-api'
 import { findClosestToken } from '../utils/tokenMatcher'
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -28,7 +28,7 @@ interface TokenActions {
     fetchTokens: () => Promise<void>
     /**
      * Initialises a live subscription to the design_tokens table via
-     * `window.bridgeAPI.watchTokens`. Calls the callback immediately with the
+     * `window.flintAPI.watchTokens`. Calls the callback immediately with the
      * current token list, then re-syncs on every subsequent DB write
      * (create / update / delete / clearAll / Figma ingest) without requiring
      * a manual `fetchTokens()` call after each mutation.
@@ -124,7 +124,7 @@ export const useTokenStore = create<TokenStore>((set, get) => ({
     fetchTokens: async () => {
         set({ isLoading: true, error: null })
         try {
-            const tokens = await window.bridgeAPI.tokens.readAll()
+            const tokens = await window.flintAPI.tokens.readAll()
             set({ tokens, isLoading: false })
         } catch (err) {
             set({ error: String(err), isLoading: false })
@@ -133,7 +133,7 @@ export const useTokenStore = create<TokenStore>((set, get) => ({
 
     initSync: () => {
         if (typeof window === 'undefined') return () => { }
-        return window.bridgeAPI.watchTokens((tokens) => {
+        return window.flintAPI.watchTokens((tokens) => {
             set({ tokens, isLoading: false })
         })
     },
@@ -141,7 +141,7 @@ export const useTokenStore = create<TokenStore>((set, get) => ({
     addToken: async (token: NewDesignToken) => {
         set({ error: null })
         try {
-            await window.bridgeAPI.tokens.create(token)
+            await window.flintAPI.tokens.create(token)
             // No manual fetchTokens() — watchTokens subscription delivers the update.
         } catch (err) {
             set({ error: String(err) })
@@ -151,7 +151,7 @@ export const useTokenStore = create<TokenStore>((set, get) => ({
     updateToken: async (tokenPath: string, value: string) => {
         set({ error: null })
         try {
-            await window.bridgeAPI.tokens.update(tokenPath, { token_value: value })
+            await window.flintAPI.tokens.update(tokenPath, { token_value: value })
             // No manual fetchTokens() — watchTokens subscription delivers the update.
         } catch (err) {
             set({ error: String(err) })
@@ -161,7 +161,7 @@ export const useTokenStore = create<TokenStore>((set, get) => ({
     deleteToken: async (id: number) => {
         set({ error: null })
         try {
-            await window.bridgeAPI.tokens.delete(id)
+            await window.flintAPI.tokens.delete(id)
             // Optimistic removal — avoids a round-trip on delete
             set((state) => ({ tokens: state.tokens.filter((t) => t.id !== id) }))
         } catch (err) {
@@ -172,7 +172,7 @@ export const useTokenStore = create<TokenStore>((set, get) => ({
     clearAllTokens: async () => {
         set({ error: null })
         try {
-            await window.bridgeAPI.tokens.clearAll()
+            await window.flintAPI.tokens.clearAll()
             set({ tokens: [] })
         } catch (err) {
             set({ error: String(err) })
@@ -224,7 +224,7 @@ export const useTokenStore = create<TokenStore>((set, get) => ({
                 { token_path: 'opacity.full', token_type: 'opacity', token_value: '100', description: 'Fully opaque', collection_name: 'Demo Tokens', mode: 'default' },
             ]
 
-            await Promise.all(defaults.map((t) => window.bridgeAPI.tokens.create(t)))
+            await Promise.all(defaults.map((t) => window.flintAPI.tokens.create(t)))
             // No manual fetchTokens() — watchTokens subscription delivers the update.
         } catch (err) {
             set({ error: String(err), isLoading: false })
@@ -257,7 +257,7 @@ export const useTokenStore = create<TokenStore>((set, get) => ({
                 return
             }
 
-            await Promise.all(newTokens.map((t) => window.bridgeAPI.tokens.create(t)))
+            await Promise.all(newTokens.map((t) => window.flintAPI.tokens.create(t)))
             // No manual fetchTokens() — watchTokens subscription delivers the update.
         } catch (err) {
             set({ error: String(err), isLoading: false })

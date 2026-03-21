@@ -1,7 +1,7 @@
 /**
  * FileTransactionManager — electron/FileTransactionManager.ts
  *
- * Atomic, race-condition-safe write queue for the Bridge "Code is Truth" engine.
+ * Atomic, race-condition-safe write queue for the Flint "Code is Truth" engine.
  *
  * Design guarantees:
  *   1. ATOMIC — every write goes to `<filePath>.tmp` first, then `fs.rename()`
@@ -97,6 +97,32 @@ export class FileTransactionManager {
     }
 
     /**
+     * Enqueues an atomic binary write for `filePath`.
+     *
+     * Behaves identically to `write()` but accepts a Buffer instead of a string.
+     * Used by ThumbnailGenerator to write PNG files atomically (Commandments 12/14).
+     * Binary content is written without any encoding conversion.
+     *
+     * @param filePath  Absolute path of the target file (must be pre-validated).
+     * @param content   Binary Buffer to commit to disk.
+     */
+    writeBuffer(filePath: string, content: Buffer): Promise<void> {
+        const tail = this._queues.get(filePath) ?? Promise.resolve()
+        const next = tail.then(() => this._atomicWriteBuffer(filePath, content))
+
+        let queued: Promise<void>
+        const evict = (): void => {
+            if (this._queues.get(filePath) === queued) {
+                this._queues.delete(filePath)
+            }
+        }
+        queued = next.then(evict, evict)
+        this._queues.set(filePath, queued)
+
+        return next
+    }
+
+    /**
      * Performs the two-phase atomic write:
      *   1. `writeFile(tmpPath, content)` — full content lands on disk before
      *      any rename; a crash here leaves the original untouched.
@@ -113,6 +139,21 @@ export class FileTransactionManager {
             await rename(tmpPath, filePath)
         } catch (err) {
             // Best-effort cleanup — suppress secondary unlink errors.
+            await unlink(tmpPath).catch(() => { /* intentionally suppressed */ })
+            throw err
+        }
+    }
+
+    /**
+     * Two-phase atomic binary write (mirrors _atomicWrite for Buffer payloads).
+     * Used exclusively by writeBuffer() — not for text content.
+     */
+    private async _atomicWriteBuffer(filePath: string, content: Buffer): Promise<void> {
+        const tmpPath = `${filePath}.tmp`
+        try {
+            await writeFile(tmpPath, content)
+            await rename(tmpPath, filePath)
+        } catch (err) {
             await unlink(tmpPath).catch(() => { /* intentionally suppressed */ })
             throw err
         }

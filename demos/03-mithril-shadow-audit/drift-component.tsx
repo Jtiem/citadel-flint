@@ -1,39 +1,3 @@
-/**
- * DriftComponent — demos/03-mithril-shadow-audit/drift-component.tsx
- *
- * A pricing card component that was hand-coded by a designer who eyeballed
- * the brand colors from a Figma screenshot instead of copying the token values.
- * The result looks close but is measurably wrong — each inline `style` value
- * below deviates from the nearest design token by a CIEDE2000 ΔE greater than
- * the Mithril threshold of 2.0.
- *
- * VIOLATIONS (all caught by MithrilLinter.visitClassNames / auditAll):
- *
- *   1. Header background `#0055EE`
- *      Nearest token: color.primary (#0066FF)
- *      ΔE ≈ 8.4  → severity: amber  [MITHRIL-COL]
- *
- *   2. "Most popular" badge `#FF3333`
- *      Nearest token: color.primary (#0066FF)
- *      ΔE ≈ 58.2 → severity: critical  [MITHRIL-COL]
- *      (bright red vs brand blue — perceptually far apart)
- *
- *   3. Card background `#1a1a2e` (dark navy)
- *      Nearest token: color.on-surface (#111827)
- *      ΔE ≈ 11.6 → severity: critical  [MITHRIL-COL]
- *
- *   4. Feature icon color `#00AAFF` (sky blue)
- *      Nearest token: color.primary (#0066FF)
- *      ΔE ≈ 18.7 → severity: critical  [MITHRIL-COL]
- *
- *   5. Font size `fontSize: '15px'`
- *      Nearest token: fontSize.sm (14px)
- *      Off by 1px — not in token set  [MITHRIL-TYP-002]
- *
- * The linter emits a LinterWarning for each node's data-bridge-id so Bridge
- * Glass can overlay amber/red badges directly over the offending elements.
- */
-
 import React from 'react';
 
 interface PricingFeature {
@@ -50,7 +14,6 @@ interface PricingCardProps {
   onSelectPlan: (planName: string) => void;
 }
 
-// Violation 3: card background #1a1a2e — ΔE ≈ 11.6 from color.on-surface (#111827)
 const HIGHLIGHTED_BG = '#1a1a2e';
 
 export default function PricingCard({
@@ -63,7 +26,7 @@ export default function PricingCard({
 }: PricingCardProps) {
   return (
     <article
-      data-bridge-id="pricing-card-root"
+      data-flint-id="pricing-card-root"
       style={{
         backgroundColor: highlighted ? HIGHLIGHTED_BG : '#FFFFFF',
         borderRadius: '12px',
@@ -77,10 +40,9 @@ export default function PricingCard({
         flexDirection: 'column',
       }}
     >
-      {/* Violation 2: badge uses #FF3333 — ΔE ≈ 58.2 from any color token */}
       {highlighted && (
         <div
-          data-bridge-id="pricing-card-badge"
+          data-flint-id="pricing-card-badge"
           style={{
             position: 'absolute',
             top: '16px',
@@ -99,9 +61,8 @@ export default function PricingCard({
         </div>
       )}
 
-      {/* Violation 1: header background #0055EE — ΔE ≈ 8.4 from color.primary (#0066FF) */}
       <div
-        data-bridge-id="pricing-card-header"
+        data-flint-id="pricing-card-header"
         style={{
           backgroundColor: highlighted ? '#0055EE' : '#F8F9FA',
           padding: '28px 24px',
@@ -139,9 +100,8 @@ export default function PricingCard({
         </div>
       </div>
 
-      {/* Feature list */}
       <div
-        data-bridge-id="pricing-card-features"
+        data-flint-id="pricing-card-features"
         style={{ padding: '24px', flex: 1 }}
       >
         <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -152,7 +112,6 @@ export default function PricingCard({
                 display: 'flex',
                 alignItems: 'flex-start',
                 gap: '10px',
-                // Violation 5: fontSize '15px' — nearest token is fontSize.sm (14px)
                 fontSize: '15px',
                 color: feature.included
                   ? (highlighted ? '#FFFFFF' : '#374151')
@@ -160,7 +119,6 @@ export default function PricingCard({
                 textDecoration: feature.included ? 'none' : 'line-through',
               }}
             >
-              {/* Violation 4: icon color #00AAFF — ΔE ≈ 18.7 from color.primary (#0066FF) */}
               <svg
                 width="18"
                 height="18"
@@ -190,7 +148,6 @@ export default function PricingCard({
         </ul>
       </div>
 
-      {/* CTA */}
       <div style={{ padding: '0 24px 28px' }}>
         <button
           onClick={() => onSelectPlan(planName)}

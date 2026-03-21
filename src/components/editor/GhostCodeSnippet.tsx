@@ -15,12 +15,11 @@
  *   - Shows CONTEXT_LINES lines around the node's opening tag.
  *   - Header shows the active file path and line number.
  *
- * Mithril Safety: all colour classes use Bridge design token palette.
+ * Mithril Safety: all colour classes use Flint design token palette.
  * No hardcoded hex values. No arbitrary spacing.
  */
 
-import { useEffect, useState, useCallback } from 'react'
-import { createPortal } from 'react-dom'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { Code2, X } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
 import { useCanvasStore } from '../../store/canvasStore'
@@ -100,7 +99,7 @@ function tokeniseLine(line: string): Token[] {
     return tokens
 }
 
-/** Maps a token kind to a Tailwind text colour class from the Bridge palette. */
+/** Maps a token kind to a Tailwind text colour class from the Flint palette. */
 function tokenClass(kind: Token['kind']): string {
     switch (kind) {
         case 'keyword':   return 'text-indigo-400'
@@ -156,7 +155,7 @@ function HighlightedLine({ line, isTarget, lineNumber }: HighlightedLineProps) {
 // ── Source extraction ──────────────────────────────────────────────────────────
 
 /**
- * Parses the 1-based target line number out of a Bridge selectedNodeId.
+ * Parses the 1-based target line number out of a Flint selectedNodeId.
  * Format: "tagName:line:col", e.g. "div:12:4".
  * Returns null when the id does not match the expected format.
  */
@@ -210,12 +209,44 @@ export function GhostCodeSnippet() {
 
     const [dismissed, setDismissed] = useState(false)
 
+    // Drag-to-resize state. 240px ≈ max-h-52 (208px) with a bit of headroom.
+    const MIN_HEIGHT = 160
+    const MAX_HEIGHT = 520
+    const [codeHeight, setCodeHeight] = useState(240)
+    const dragStartY = useRef<number | null>(null)
+    const dragStartHeight = useRef<number>(240)
+
     // Track the last-seen node id to reset dismissal on selection change.
     const [lastSeenId, setLastSeenId] = useState<string | null>(null)
     if (selectedNodeId !== lastSeenId) {
         setLastSeenId(selectedNodeId)
         if (dismissed) setDismissed(false)
     }
+
+    // ── Drag-to-resize handlers ────────────────────────────────────────────────
+
+    const handleDragMouseDown = useCallback((e: React.MouseEvent) => {
+        e.preventDefault()
+        dragStartY.current = e.clientY
+        dragStartHeight.current = codeHeight
+
+        const onMouseMove = (ev: MouseEvent) => {
+            if (dragStartY.current === null) return
+            // Card is anchored at the bottom; dragging up (negative delta) = taller.
+            const delta = dragStartY.current - ev.clientY
+            const next = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, dragStartHeight.current + delta))
+            setCodeHeight(next)
+        }
+
+        const onMouseUp = () => {
+            dragStartY.current = null
+            window.removeEventListener('mousemove', onMouseMove)
+            window.removeEventListener('mouseup', onMouseUp)
+        }
+
+        window.addEventListener('mousemove', onMouseMove)
+        window.addEventListener('mouseup', onMouseUp)
+    }, [codeHeight])
 
     // Dismiss on Escape key.
     const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -243,71 +274,78 @@ export function GhostCodeSnippet() {
     // The tag name is the first segment of the node id.
     const tagLabel = selectedNodeId.split(':')[0] ?? 'element'
 
-    return createPortal(
+    return (
         <div
-            className="pointer-events-none fixed inset-0 z-[9000]"
-            aria-hidden="true"
+            className="pointer-events-auto absolute bottom-6 left-1/2 z-50 -translate-x-1/2 w-[480px] rounded-lg border border-zinc-700/50 bg-zinc-900/90 shadow-2xl backdrop-blur-sm"
+            role="complementary"
+            aria-label={`Source snippet for ${tagLabel}`}
+            data-testid="ghost-code-snippet"
         >
+            {/* ── Drag handle ───────────────────────────────────────── */}
             <div
-                className="pointer-events-auto absolute bottom-6 left-1/2 -translate-x-1/2 w-[480px] rounded-lg border border-zinc-700/50 bg-zinc-900/90 shadow-2xl backdrop-blur-sm"
-                role="complementary"
-                aria-label={`Source snippet for ${tagLabel}`}
-                data-testid="ghost-code-snippet"
+                className="flex items-center justify-center py-1 cursor-ns-resize"
+                onMouseDown={handleDragMouseDown}
+                aria-label="Drag to resize"
+                role="separator"
+                aria-orientation="horizontal"
+                data-testid="ghost-code-snippet-drag-handle"
             >
-                {/* ── Header ────────────────────────────────────────────── */}
-                <div className="flex items-center justify-between border-b border-zinc-800 px-3 py-2">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                        <Code2 size={12} className="text-indigo-400 shrink-0" />
-                        <span className="font-mono text-[10px] text-zinc-400 truncate">
-                            {fileLabel}
-                        </span>
-                        <span className="text-[10px] text-zinc-600">·</span>
-                        <span className="text-[10px] text-indigo-400 shrink-0">
-                            line {targetLine}
-                        </span>
-                        <span className="text-[10px] text-zinc-600">·</span>
-                        <span className="font-mono text-[10px] text-zinc-500 shrink-0">
-                            &lt;{tagLabel}&gt;
-                        </span>
-                    </div>
-
-                    <button
-                        type="button"
-                        onClick={() => setDismissed(true)}
-                        className="shrink-0 rounded p-0.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-100 ml-2"
-                        title="Dismiss snippet (Esc)"
-                        aria-label="Dismiss code snippet"
-                    >
-                        <X size={12} />
-                    </button>
-                </div>
-
-                {/* ── Code block ────────────────────────────────────────── */}
-                <div
-                    className="max-h-52 overflow-y-auto overflow-x-auto px-0 py-1.5"
-                    data-testid="ghost-code-snippet-body"
-                >
-                    <pre className="m-0 p-0" aria-label="Source code context">
-                        {lines.map((line, i) => (
-                            <HighlightedLine
-                                key={startLine + i}
-                                line={line}
-                                lineNumber={startLine + i}
-                                isTarget={i === targetOffset}
-                            />
-                        ))}
-                    </pre>
-                </div>
-
-                {/* ── Footer hint ───────────────────────────────────────── */}
-                <div className="border-t border-zinc-800 px-3 py-1.5">
-                    <p className="text-[10px] text-zinc-500 leading-tight">
-                        Press <kbd className="rounded bg-zinc-800 px-1 py-0.5 text-zinc-400">Esc</kbd> to dismiss.
-                        Deselecting the node also closes this panel.
-                    </p>
-                </div>
+                <div className="h-1.5 w-12 rounded-full bg-zinc-600" />
             </div>
-        </div>,
-        document.body
+
+            {/* ── Header ────────────────────────────────────────────── */}
+            <div className="flex items-center justify-between border-b border-zinc-800 px-3 py-2">
+                <div className="flex items-center gap-1.5 min-w-0">
+                    <Code2 size={12} className="text-indigo-400 shrink-0" />
+                    <span className="font-mono text-[10px] text-zinc-400 truncate">
+                        {fileLabel}
+                    </span>
+                    <span className="text-[10px] text-zinc-600">·</span>
+                    <span className="text-[10px] text-indigo-400 shrink-0">
+                        line {targetLine}
+                    </span>
+                    <span className="text-[10px] text-zinc-600">·</span>
+                    <span className="font-mono text-[10px] text-zinc-500 shrink-0">
+                        &lt;{tagLabel}&gt;
+                    </span>
+                </div>
+
+                <button
+                    type="button"
+                    onClick={() => setDismissed(true)}
+                    className="shrink-0 rounded p-0.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-100 ml-2"
+                    title="Dismiss snippet (Esc)"
+                    aria-label="Dismiss code snippet"
+                >
+                    <X size={12} />
+                </button>
+            </div>
+
+            {/* ── Code block ────────────────────────────────────────── */}
+            <div
+                className="overflow-y-auto overflow-x-auto px-0 py-1.5"
+                style={{ height: `${codeHeight}px` }}
+                data-testid="ghost-code-snippet-body"
+            >
+                <pre className="m-0 p-0" aria-label="Source code context">
+                    {lines.map((line, i) => (
+                        <HighlightedLine
+                            key={startLine + i}
+                            line={line}
+                            lineNumber={startLine + i}
+                            isTarget={i === targetOffset}
+                        />
+                    ))}
+                </pre>
+            </div>
+
+            {/* ── Footer hint ───────────────────────────────────────── */}
+            <div className="border-t border-zinc-800 px-3 py-1.5">
+                <p className="text-[10px] text-zinc-500 leading-tight">
+                    Press <kbd className="rounded bg-zinc-800 px-1 py-0.5 text-zinc-400">Esc</kbd> to dismiss.
+                    Deselecting the node also closes this panel.
+                </p>
+            </div>
+        </div>
     )
 }

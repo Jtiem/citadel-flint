@@ -1,9 +1,9 @@
 /**
  * AgentSettingsModal.tsx — src/components/ui/AgentSettingsModal.tsx
  *
- * Settings panel for the Bridge Auditor AI engine.
+ * Settings panel for the Flint Auditor AI engine.
  * Manages:
- *   • API keys for multiple providers (stored in ~/.bridge/config.json in the main process)
+ *   • API keys for multiple providers (stored in ~/.flint/config.json in the main process)
  *   • Provider selection (Anthropic, OpenAI, Gemini)
  *   • Model selection based on active provider
  *
@@ -12,9 +12,10 @@
  */
 
 import { useState, useEffect } from 'react'
+import { BRAND } from '../../../shared/brand'
 import { X, Key, Eye, EyeOff, Check, Loader2, ChevronDown, CheckCircle2, Globe } from 'lucide-react'
 import { useOrchestratorStore } from '../../store/orchestratorStore'
-import type { AIProvider } from '../../types/bridge-api'
+import type { AIProvider } from '../../types/flint-api'
 
 const PROVIDERS: { id: AIProvider; label: string; tag: string }[] = [
     { id: 'anthropic', label: 'Anthropic', tag: '(Full Support)' },
@@ -188,7 +189,7 @@ export function AgentSettingsModal({ onClose }: AgentSettingsModalProps) {
                 <div className="flex shrink-0 items-center justify-between border-b border-gray-800 px-5 py-4">
                     <div>
                         <h2 className="text-sm font-semibold text-gray-100">AI Settings</h2>
-                        <p className="mt-0.5 text-[11px] text-gray-500">Bridge Auditor Configuration</p>
+                        <p className="mt-0.5 text-[11px] text-gray-500">{BRAND.product} Auditor Configuration</p>
                     </div>
                     <button
                         type="button"
@@ -254,7 +255,7 @@ export function AgentSettingsModal({ onClose }: AgentSettingsModalProps) {
                             </button>
                         </div>
                         <p className="mt-1 text-[10px] text-zinc-500">
-                            Stored locally in <code className="text-zinc-400">~/.bridge/config.json</code>
+                            Stored locally in <code className="text-zinc-400">~/.flint/config.json</code>
                         </p>
                     </div>
 

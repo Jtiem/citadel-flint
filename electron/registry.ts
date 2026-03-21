@@ -1,11 +1,11 @@
 /**
- * Bridge Project Registry — electron/registry.ts
+ * Flint Project Registry — electron/registry.ts
  *
- * Manages `bridge-registry.db` at `app.getPath('userData')` — a global,
+ * Manages `flint-registry.db` at `app.getPath('userData')` — a global,
  * workspace-independent SQLite database that tracks recently opened or
- * created Bridge projects for the Launch Screen.
+ * created Flint projects for the Launch Screen.
  *
- * Kept separate from the per-workspace `bridge.db` (electron/store.ts) so
+ * Kept separate from the per-workspace `flint.db` (electron/store.ts) so
  * the registry survives workspace deletions and persists across sessions.
  *
  * Schema:
@@ -19,7 +19,7 @@ import Database from 'better-sqlite3'
 import path from 'node:path'
 import { app } from 'electron'
 
-const REGISTRY_PATH = path.join(app.getPath('userData'), 'bridge-registry.db')
+const REGISTRY_PATH = path.join(app.getPath('userData'), 'flint-registry.db')
 
 const registryDb = new Database(REGISTRY_PATH)
 registryDb.pragma('journal_mode = WAL')
@@ -33,7 +33,7 @@ registryDb.exec(`
     )
 `)
 
-console.log(`[Bridge] Registry ready at: ${REGISTRY_PATH}`)
+console.log(`[Flint] Registry ready at: ${REGISTRY_PATH}`)
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 

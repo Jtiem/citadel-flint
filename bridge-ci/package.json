@@ -1,12 +1,12 @@
 {
-  "name": "bridge-ci",
+  "name": "flint-ci",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Bridge Governance Gate -- Mithril + A11y CI checks for GitHub Actions",
+  "description": "Flint Governance Gate -- Mithril + A11y CI checks for GitHub Actions",
   "main": "dist/index.js",
   "bin": {
-    "bridge-gate": "dist/cli-gate.js"
+    "flint-gate": "dist/cli-gate.js"
   },
   "scripts": {
     "build": "tsc",

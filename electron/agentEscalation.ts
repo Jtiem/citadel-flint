@@ -8,7 +8,7 @@
  * Architecture:
  *   - In-memory tracking only (session-scoped, no SQLite).
  *   - Default rules are sensible and active out of the box.
- *   - Custom rules loaded from `.bridge/escalation-rules.json` merge with defaults.
+ *   - Custom rules loaded from `.flint/escalation-rules.json` merge with defaults.
  *   - Escalation engine is testable without mocking the full orchestrator.
  *
  * Integration points:
@@ -16,7 +16,7 @@
  *   - orchestrator.ts calls checkEscalation() and applies the result.
  *   - agentPolicy.ts exposes isEscalated() for external queries.
  *
- * Territory: electron/ only — does NOT touch bridge-mcp/src/.
+ * Territory: electron/ only — does NOT touch flint-mcp/src/.
  */
 
 import { readFile } from 'node:fs/promises'
@@ -68,7 +68,7 @@ export interface RiskDataPoint {
     score: number
 }
 
-/** Shape of the optional `.bridge/escalation-rules.json` file. */
+/** Shape of the optional `.flint/escalation-rules.json` file. */
 export interface EscalationRulesFile {
     version?: number
     rules?: EscalationRule[]
@@ -176,7 +176,7 @@ export class EscalationEngine {
 
                 if (!alreadyActive) {
                     fired.push(result)
-                    console.warn(`[Bridge AGV] Escalation fired: ${rule.ruleId} for agent "${agentId}" — ${result.reason}`)
+                    console.warn(`[Flint AGV] Escalation fired: ${rule.ruleId} for agent "${agentId}" — ${result.reason}`)
 
                     // Record as active
                     if (existing) {
@@ -348,14 +348,14 @@ function mergeRules(customRules?: EscalationRule[]): EscalationRule[] {
 // ── File Loading ──────────────────────────────────────────────────────────────
 
 /**
- * Loads custom escalation rules from `.bridge/escalation-rules.json`.
+ * Loads custom escalation rules from `.flint/escalation-rules.json`.
  * Returns the parsed rules array, or undefined if the file does not exist
  * or is invalid.
  */
 export async function loadEscalationRules(
     projectRoot: string,
 ): Promise<EscalationRule[] | undefined> {
-    const rulesPath = path.join(projectRoot, '.bridge', 'escalation-rules.json')
+    const rulesPath = path.join(projectRoot, '.flint', 'escalation-rules.json')
 
     if (!existsSync(rulesPath)) {
         return undefined
@@ -366,23 +366,23 @@ export async function loadEscalationRules(
         const data = JSON.parse(raw) as EscalationRulesFile
 
         if (!Array.isArray(data.rules)) {
-            console.warn('[Bridge AGV] escalation-rules.json: "rules" is not an array, using defaults')
+            console.warn('[Flint AGV] escalation-rules.json: "rules" is not an array, using defaults')
             return undefined
         }
 
         // Basic validation: each rule must have ruleId, trigger, and action
         const valid = data.rules.filter(rule => {
             if (!rule.ruleId || !rule.trigger || !rule.action) {
-                console.warn(`[Bridge AGV] Skipping invalid rule (missing ruleId, trigger, or action): ${JSON.stringify(rule)}`)
+                console.warn(`[Flint AGV] Skipping invalid rule (missing ruleId, trigger, or action): ${JSON.stringify(rule)}`)
                 return false
             }
             return true
         })
 
-        console.log(`[Bridge AGV] Loaded ${valid.length} custom escalation rules from ${rulesPath}`)
+        console.log(`[Flint AGV] Loaded ${valid.length} custom escalation rules from ${rulesPath}`)
         return valid
     } catch (err) {
-        console.warn('[Bridge AGV] Failed to load escalation-rules.json:', err)
+        console.warn('[Flint AGV] Failed to load escalation-rules.json:', err)
         return undefined
     }
 }

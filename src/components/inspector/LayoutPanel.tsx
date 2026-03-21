@@ -25,7 +25,7 @@
  */
 
 import { WrapText, ArrowDown, ArrowRight, Grid, Maximize } from 'lucide-react'
-import type { TokenType } from '../../types/bridge-api'
+import type { TokenType } from '../../types/flint-api'
 import { useTokenStore } from '../../store/tokenStore'
 import { normalizePath, tokenToClass } from '../../utils/classMapper'
 import { updateLayoutClass, getActiveLayoutClass } from '../../utils/layoutMapper'

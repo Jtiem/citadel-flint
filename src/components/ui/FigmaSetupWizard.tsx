@@ -1,7 +1,7 @@
 /**
  * FigmaSetupWizard — src/components/ui/FigmaSetupWizard.tsx
  *
- * 3-step guided wizard for connecting the Figma plugin to Bridge's loopback
+ * 3-step guided wizard for connecting the Figma plugin to Flint's loopback
  * ingestion server. Mounts inline below the "Connect Figma" button on the
  * LaunchScreen.
  *
@@ -18,7 +18,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Check, Copy, Loader2, AlertTriangle, ChevronDown, ChevronRight, CheckCircle2 } from 'lucide-react'
 import { useNotificationStore } from '../../store/notificationStore'
-import type { FigmaStatus } from '../../types/bridge-api'
+import type { FigmaStatus } from '../../types/flint-api'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -141,13 +141,13 @@ function TroubleshootingSection() {
                     <div>
                         <p className="font-medium text-zinc-300">Server won't start</p>
                         <p className="mt-0.5">
-                            Restart Bridge. The ingestion server starts automatically on app launch.
+                            Restart Flint. The ingestion server starts automatically on app launch.
                         </p>
                     </div>
                     <div>
                         <p className="font-medium text-zinc-300">Port fallback</p>
                         <p className="mt-0.5">
-                            If port 4545 was busy, Bridge picks the next available port. Use the
+                            If port 4545 was busy, Flint picks the next available port. Use the
                             endpoint shown above — do not hardcode 4545.
                         </p>
                     </div>
@@ -155,7 +155,7 @@ function TroubleshootingSection() {
                         <p className="font-medium text-zinc-300">Secret mismatch (401 error)</p>
                         <p className="mt-0.5">
                             Re-copy the secret from above. The Figma plugin must send this value
-                            in the <code className="rounded bg-zinc-800 px-1 font-mono text-zinc-300">x-bridge-secret</code> header.
+                            in the <code className="rounded bg-zinc-800 px-1 font-mono text-zinc-300">x-flint-secret</code> header.
                         </p>
                     </div>
                     <div>
@@ -197,7 +197,7 @@ export function FigmaSetupWizard({ visible, onClose }: FigmaSetupWizardProps) {
 
         let cancelled = false
 
-        window.bridgeAPI.figma
+        window.flintAPI.figma
             .status()
             .then((status) => {
                 if (cancelled) return
@@ -227,7 +227,7 @@ export function FigmaSetupWizard({ visible, onClose }: FigmaSetupWizardProps) {
     useEffect(() => {
         if (step !== 'waiting') return
 
-        const unsubscribe = window.bridgeAPI.figma.onConnected((event) => {
+        const unsubscribe = window.flintAPI.figma.onConnected((event) => {
             setStep('success')
             push({
                 type: 'sync',
@@ -322,7 +322,7 @@ export function FigmaSetupWizard({ visible, onClose }: FigmaSetupWizardProps) {
                     <div className="flex items-start gap-2 rounded border border-red-700/40 bg-red-900/10 px-3 py-2">
                         <AlertTriangle size={13} className="mt-0.5 shrink-0 text-red-400" />
                         <p className="text-xs text-red-400">
-                            The ingestion server is not running. Restart Bridge to start it
+                            The ingestion server is not running. Restart Flint to start it
                             automatically.
                         </p>
                     </div>
@@ -332,7 +332,7 @@ export function FigmaSetupWizard({ visible, onClose }: FigmaSetupWizardProps) {
             {step === 'configure' && figmaStatus && (
                 <div className="space-y-3">
                     <p className="text-xs text-zinc-400">
-                        Copy the endpoint below into the Bridge Figma plugin settings.
+                        Copy the endpoint below into the Flint Figma plugin settings.
                         The authentication secret is configured separately in the Figma Plugin Settings UI,
                         then click <strong className="text-zinc-200">Sync Variables</strong>.
                     </p>
@@ -361,7 +361,7 @@ export function FigmaSetupWizard({ visible, onClose }: FigmaSetupWizardProps) {
                         Waiting for first sync from Figma…
                     </div>
                     <p className="text-[11px] text-zinc-500">
-                        Open the Bridge plugin in Figma and click{' '}
+                        Open the Flint plugin in Figma and click{' '}
                         <strong className="text-zinc-400">Sync Variables</strong>.
                     </p>
                 </div>

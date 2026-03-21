@@ -1,7 +1,7 @@
 /**
  * Template Service — electron/templateService.ts
  *
- * Scaffolds new Bridge workspaces by copying a bundled template into a
+ * Scaffolds new Flint workspaces by copying a bundled template into a
  * user-selected, empty directory (Commandment 4 — Local-First Only).
  *
  * Templates are stored under `electron/templates/{templateId}/` in the
@@ -25,7 +25,7 @@ import path from 'node:path'
 import { app } from 'electron'
 
 /** Allowlist of valid template identifiers. */
-const KNOWN_TEMPLATES = new Set(['base-vite-tailwind', 'bridge-demo'])
+const KNOWN_TEMPLATES = new Set(['base-vite-tailwind', 'flint-demo'])
 
 /** Absolute path to the bundled templates root directory. */
 const TEMPLATES_DIR = path.join(app.getAppPath(), 'electron', 'templates')
@@ -60,7 +60,7 @@ export function initializeProject(targetPath: string, templateId: string): void 
 
     // If this is the demo template, scaffold the base project first so we get
     // package.json, index.html, and vite config, then overlay the demo source.
-    if (templateId === 'bridge-demo') {
+    if (templateId === 'flint-demo') {
         const baseSrc = path.join(TEMPLATES_DIR, 'base-vite-tailwind')
         cpSync(baseSrc, targetPath, { recursive: true, force: true })
     }
@@ -72,7 +72,7 @@ export function initializeProject(targetPath: string, templateId: string): void 
 }
 
 /**
- * Resets an existing directory to the known-good 'bridge-demo' state.
+ * Resets an existing directory to the known-good 'flint-demo' state.
  * Unlike `initializeProject`, this purposefully overwrites existing files.
  *
  * @param targetPath — Absolute path to the destination directory.
@@ -81,11 +81,11 @@ export function initializeProject(targetPath: string, templateId: string): void 
 export function injectDemoState(targetPath: string): void {
     const templatesDir = path.join(app.getAppPath(), 'electron', 'templates')
     const baseSrc = path.join(templatesDir, 'base-vite-tailwind')
-    const demoSrc = path.join(templatesDir, 'bridge-demo')
+    const demoSrc = path.join(templatesDir, 'flint-demo')
 
     // 1. Reset base files (restores package.json, index.html, etc., to known-good state)
     cpSync(baseSrc, targetPath, { recursive: true, force: true })
 
-    // 2. Overlay the demo files (App.tsx, index.css, bridge-init.sql)
+    // 2. Overlay the demo files (App.tsx, index.css, flint-init.sql)
     cpSync(demoSrc, targetPath, { recursive: true, force: true })
 }

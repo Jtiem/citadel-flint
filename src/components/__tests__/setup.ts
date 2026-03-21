@@ -2,7 +2,7 @@
  * Test Setup — src/components/__tests__/setup.ts
  *
  * Global setup for React component tests (jsdom environment).
- * - Mocks window.bridgeAPI with typed vi.fn() stubs
+ * - Mocks window.flintAPI with typed vi.fn() stubs
  * - Resets Zustand stores between tests
  * - Polyfills browser APIs not available in jsdom
  */
@@ -48,9 +48,9 @@ const localStorageMock = (() => {
 })()
 Object.defineProperty(window, 'localStorage', { value: localStorageMock })
 
-// ── Mock window.bridgeAPI ────────────────────────────────────────────────────
+// ── Mock window.flintAPI ────────────────────────────────────────────────────
 
-export function createMockBridgeAPI() {
+export function createMockFlintAPI() {
     return {
         ping: vi.fn().mockResolvedValue('pong'),
         openFolder: vi.fn().mockResolvedValue(null),
@@ -90,6 +90,7 @@ export function createMockBridgeAPI() {
             getRecent: vi.fn().mockResolvedValue([]),
             upsertProject: vi.fn().mockResolvedValue(undefined),
             removeProject: vi.fn().mockResolvedValue(undefined),
+            reindex: vi.fn().mockResolvedValue(undefined),
         },
         project: {
             initialize: vi.fn().mockResolvedValue({ name: 'test', path: '/tmp/test', type: 'directory', children: [] }),
@@ -152,9 +153,28 @@ export function createMockBridgeAPI() {
             status: vi.fn().mockResolvedValue({ connected: false }),
             onEvent: vi.fn().mockReturnValue(() => {}),
         },
+        setup: {
+            detectIDEs: vi.fn().mockResolvedValue({
+                ides: [],
+                mcpServerPath: '/mock/flint-mcp/dist/server.js',
+            }),
+            checkFirstLaunch: vi.fn().mockResolvedValue({ isFirstLaunch: false }),
+            completeFirstLaunch: vi.fn().mockResolvedValue(undefined),
+            writeMCPConfig: vi.fn().mockResolvedValue({ written: true }),
+        },
         annotations: {
             readAll: vi.fn().mockResolvedValue([]),
             onChanged: vi.fn().mockReturnValue(() => {}),
+        },
+        autopilot: {
+            enable: vi.fn().mockResolvedValue(undefined),
+            disable: vi.fn().mockResolvedValue(undefined),
+            onResult: vi.fn().mockReturnValue(() => {}),
+        },
+        components: {
+            list: vi.fn().mockResolvedValue([]),
+            savePositions: vi.fn().mockResolvedValue(undefined),
+            loadPositions: vi.fn().mockResolvedValue({}),
         },
         context: {
             getEnriched: vi.fn().mockResolvedValue({
@@ -164,6 +184,26 @@ export function createMockBridgeAPI() {
                 activeOverrideCount: 0,
                 enrichedAt: new Date().toISOString(),
             }),
+        },
+        scope: {
+            getRegistryAndScope: vi.fn().mockResolvedValue({
+                registry: {},
+                scope: null,
+                registryAvailable: false,
+            }),
+            setScope: vi.fn().mockResolvedValue({ ok: true }),
+        },
+        enrichment: {
+            getDrafts: vi.fn().mockResolvedValue({ drafts: {}, enrichmentStats: { bare: 0, draft: 0, enriched: 0, total: 0 } }),
+            approve: vi.fn().mockResolvedValue({ ok: true, remainingDrafts: 0 }),
+        },
+        beta: {
+            getInfo: vi.fn().mockResolvedValue({ buildId: 'dev-local', expiryDate: null, daysRemaining: null, isBeta: false }),
+            submitFeedback: vi.fn().mockResolvedValue({ saved: true }),
+            loadDemoProject: vi.fn().mockResolvedValue({ error: 'not available in test' }),
+            onUpdateAvailable: vi.fn().mockReturnValue(() => {}),
+            onExpiredRemote: vi.fn().mockReturnValue(() => {}),
+            removeListeners: vi.fn(),
         },
     }
 }
@@ -176,20 +216,18 @@ import { useEditorStore } from '../../store/editorStore'
 import { useCanvasStore } from '../../store/canvasStore'
 import { useGovernanceStore } from '../../store/governanceStore'
 import { useImportSummaryStore } from '../../store/importSummaryStore'
+import { useComponentCardStore } from '../../store/componentCardStore'
 
 export function resetAllStores() {
     useNotificationStore.setState({ notifications: [], history: [] })
 
     useEditorStore.setState({
         rawCode: '',
-        parseError: null,
         selectedNodeId: null,
         hoveredId: null,
         visualTree: [],
         jumpToLine: null,
         linterWarnings: new Map(),
-        cursorPosition: null,
-        selection: null,
     })
 
     useCanvasStore.setState({
@@ -203,11 +241,26 @@ export function resetAllStores() {
         saveState: 'idle' as const,
         activeFilePath: null,
         workspaceFiles: null,
+        autopilotEnabled: false,
+        governedCode: null,
+        governedFixCount: 0,
+        governedTimestamp: null,
+        commandPaletteOpen: false,
     })
 
     // ACX.5: reset governance and import summary stores
     useGovernanceStore.setState({ overrides: {} })
     useImportSummaryStore.setState({ summary: null, isVisible: false, isPanelMode: false })
+
+    // CV2.3: reset component card store
+    useComponentCardStore.setState({
+        cards: [],
+        selectedCardId: null,
+        cardPositions: {},
+        isLoaded: false,
+        isLoading: false,
+        error: null,
+    })
 }
 
 // ── Global Hooks ─────────────────────────────────────────────────────────────
@@ -215,6 +268,6 @@ export function resetAllStores() {
 beforeEach(() => {
     vi.clearAllMocks()
     resetAllStores()
-    ;(window as any).bridgeAPI = createMockBridgeAPI()
+    ;(window as any).flintAPI = createMockFlintAPI()
     localStorageMock.clear()
 })

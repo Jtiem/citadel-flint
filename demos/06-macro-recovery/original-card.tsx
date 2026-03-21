@@ -1,19 +1,3 @@
-/**
- * OriginalCard — demos/06-macro-recovery/original-card.tsx
- *
- * BEFORE state (Git commit SHA: a3f8b12): a complete, well-structured
- * repository card component. This is the version that was in production
- * before an AI-assisted refactor accidentally deleted the metrics section
- * (lines 90-130 in the corrupted version) and broke the footer action bar.
- *
- * Bridge macro-recovery demo: the RecoveryPanel reads git history via
- * `ast:git-log`, diffs the AST at HEAD vs. a3f8b12 using `ast:git-show`,
- * identifies the missing JSX subtree (the <RepoMetrics> block and the
- * <CardFooter> actions), and performs a surgical node transplant —
- * grafting only those nodes back into the corrupted file without
- * touching any of the surrounding refactored code.
- */
-
 import React, { useState } from 'react';
 
 interface Language {
@@ -87,12 +71,12 @@ export default function RepoCard({
 
   return (
     <article
-      data-bridge-id="repo-card-root"
+      data-flint-id="repo-card-root"
       className="bg-white border border-gray-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow"
     >
       {/* Card header */}
       <div
-        data-bridge-id="repo-card-header"
+        data-flint-id="repo-card-header"
         className="px-5 pt-5 pb-4"
       >
         <div className="flex items-start justify-between gap-3">
@@ -131,7 +115,7 @@ export default function RepoCard({
 
         {description && (
           <p
-            data-bridge-id="repo-card-description"
+            data-flint-id="repo-card-description"
             className="mt-2.5 text-sm text-gray-600 line-clamp-2 leading-relaxed"
           >
             {description}
@@ -141,7 +125,7 @@ export default function RepoCard({
         {/* Topics */}
         {topics.length > 0 && (
           <div
-            data-bridge-id="repo-card-topics"
+            data-flint-id="repo-card-topics"
             className="mt-3 flex flex-wrap gap-1.5"
           >
             {topics.slice(0, 5).map((topic) => (
@@ -161,9 +145,9 @@ export default function RepoCard({
         )}
       </div>
 
-      {/* Repo metrics — THIS SECTION IS DELETED IN corrupted-card.tsx */}
+      {/* Repo metrics */}
       <div
-        data-bridge-id="repo-card-metrics"
+        data-flint-id="repo-card-metrics"
         className="px-5 py-3 border-t border-gray-100 flex items-center gap-5 text-xs text-gray-500"
       >
         {/* Language */}
@@ -211,7 +195,7 @@ export default function RepoCard({
       {/* Language bar */}
       {languages.length > 0 && (
         <div
-          data-bridge-id="repo-card-lang-bar"
+          data-flint-id="repo-card-lang-bar"
           className="px-5 pb-4"
         >
           <div className="flex rounded-full overflow-hidden h-1.5 mt-2" role="img" aria-label="Language breakdown">
@@ -226,9 +210,9 @@ export default function RepoCard({
         </div>
       )}
 
-      {/* Card footer actions — THIS SECTION IS CORRUPTED IN corrupted-card.tsx */}
+      {/* Card footer actions */}
       <div
-        data-bridge-id="repo-card-footer"
+        data-flint-id="repo-card-footer"
         className="px-4 py-3 border-t border-gray-100 bg-gray-50 flex items-center gap-2"
       >
         <button

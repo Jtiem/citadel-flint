@@ -1,6 +1,6 @@
 "use strict";
 /**
- * Bridge Link — code.ts  (Figma plugin main thread)
+ * Flint Link — code.ts  (Figma plugin main thread)
  *
  * Runs in Figma's sandboxed JS environment (no DOM, no fetch).
  * Its only job: collect local variable data and pass it to ui.html via postMessage,
@@ -12,9 +12,9 @@
  *
  * Or load code.js directly — it is the pre-compiled equivalent of this file.
  */
-figma.showUI(__html__, { width: 320, height: 340, title: 'Bridge Link' });
+figma.showUI(__html__, { width: 320, height: 340, title: 'Flint Link' });
 // ── Settings persistence via figma.clientStorage ─────────────────────────────
-const SETTINGS_KEY = 'bridge-link-settings';
+const SETTINGS_KEY = 'flint-link-settings';
 // ── Message handler ──────────────────────────────────────────────────────────
 figma.ui.onmessage = async (msg) => {
     var _a, _b, _c, _d;
@@ -37,7 +37,7 @@ figma.ui.onmessage = async (msg) => {
         try {
             const settings = {
                 endpoint: (_b = (_a = msg.data) === null || _a === void 0 ? void 0 : _a.endpoint) !== null && _b !== void 0 ? _b : 'http://127.0.0.1:4545',
-                secret: (_d = (_c = msg.data) === null || _c === void 0 ? void 0 : _c.secret) !== null && _d !== void 0 ? _d : 'bridge-dev-secret-phase2',
+                secret: (_d = (_c = msg.data) === null || _c === void 0 ? void 0 : _c.secret) !== null && _d !== void 0 ? _d : 'flint-dev-secret-phase2',
             };
             await figma.clientStorage.setAsync(SETTINGS_KEY, settings);
         }
@@ -109,7 +109,7 @@ figma.ui.onmessage = async (msg) => {
 };
 // ── Visual style extraction ────────────────────────────────────────────────
 // Reads Figma node properties and returns a flat object of visual styles
-// that the Bridge hydration pipeline can convert to Tailwind classes.
+// that the Flint hydration pipeline can convert to Tailwind classes.
 function rgbToHex(r, g, b) {
     const to256 = (v) => Math.round(v * 255);
     return '#' + [to256(r), to256(g), to256(b)].map(c => c.toString(16).padStart(2, '0')).join('');
@@ -218,7 +218,7 @@ function extractStyles(node, isRoot = false) {
     return hasAny ? styles : null;
 }
 function extractComponentTree(node) {
-    var _a;
+    var _a, _b;
     const childrenPayload = [];
     if ('children' in node) {
         for (const child of node.children) {
@@ -243,7 +243,7 @@ function extractComponentTree(node) {
                     const nestedChildren = extractComponentTree(child);
                     // Extract visual styles from the instance node
                     const styles = extractStyles(child);
-                    childrenPayload.push(Object.assign(Object.assign({ figmaComponent: ((_a = mainComponent.parent) === null || _a === void 0 ? void 0 : _a.name) === 'Button' ? 'Button' : mainComponent.name, props }, (styles ? { styles } : {})), (nestedChildren.length > 0 ? { children: nestedChildren } : {})));
+                    childrenPayload.push(Object.assign(Object.assign({ figmaComponent: ((_a = mainComponent.parent) === null || _a === void 0 ? void 0 : _a.name) === 'Button' ? 'Button' : mainComponent.name, figmaComponentId: mainComponent.id, figmaFileKey: (_b = figma.fileKey) !== null && _b !== void 0 ? _b : undefined, props }, (styles ? { styles } : {})), (nestedChildren.length > 0 ? { children: nestedChildren } : {})));
                 }
             }
             else if (child.type === 'TEXT') {

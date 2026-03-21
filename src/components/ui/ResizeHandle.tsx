@@ -6,7 +6,7 @@
  * using a ref to accumulate raw delta before committing to the parent via
  * requestAnimationFrame to keep the hot path off the React scheduler.
  *
- * Mithril Safety: all classes from Bridge design token palette only.
+ * Mithril Safety: all classes from Flint design token palette only.
  */
 
 import { useRef, useCallback } from 'react'

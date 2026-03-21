@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Flint — Compliance Map Canvas (Option C Concept)</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #09090b; color: #fafafa; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; overflow: hidden; height: 100vh; }
+
+  .shell { display: grid; grid-template-columns: 240px 1fr 280px; grid-template-rows: 1fr 32px; height: 100vh; }
+
+  /* Left sidebar */
+  .left { background: #18181b; border-right: 1px solid #27272a; padding: 12px 0; overflow-y: auto; }
+  .left h3 { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #71717a; padding: 8px 12px 4px; }
+  .left .component-list { padding: 0 8px; }
+  .left .component-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 13px; color: #a1a1aa; }
+  .left .component-item:hover { background: #27272a; color: #fafafa; }
+  .left .component-item.selected { background: #1e1b4b; color: #a5b4fc; }
+  .left .grade-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .left .grade-a { background: #10b981; }
+  .left .grade-b { background: #eab308; }
+  .left .grade-c { background: #f97316; }
+  .left .grade-f { background: #ef4444; }
+
+  /* Canvas */
+  .canvas-area { background: #0a0a0a; position: relative; overflow: hidden; }
+  .canvas-bg { position: absolute; inset: 0; background-image: radial-gradient(circle, #27272a 1px, transparent 1px); background-size: 24px 24px; opacity: 0.3; }
+  .canvas-content { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+
+  /* Component cards on canvas */
+  .card-grid { display: flex; gap: 48px; align-items: flex-start; }
+  .card-column { display: flex; flex-direction: column; gap: 20px; align-items: center; }
+  .column-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; color: #52525b; margin-bottom: 4px; }
+
+  .comp-card { width: 180px; border-radius: 10px; padding: 14px; cursor: pointer; transition: all 0.2s; position: relative; }
+  .comp-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+  .comp-card.selected { ring: 2px solid white; box-shadow: 0 0 0 2px #818cf8, 0 8px 24px rgba(0,0,0,0.4); }
+
+  .comp-card.grade-a { background: #052e16; border: 1px solid #16a34a; }
+  .comp-card.grade-b { background: #422006; border: 1px solid #ca8a04; }
+  .comp-card.grade-c { background: #431407; border: 1px solid #ea580c; }
+  .comp-card.grade-f { background: #450a0a; border: 1px solid #dc2626; }
+
+  .comp-card .card-name { font-size: 13px; font-weight: 600; color: #fafafa; margin-bottom: 8px; }
+  .comp-card .card-grade { position: absolute; top: 10px; right: 12px; font-size: 18px; font-weight: 800; }
+  .comp-card.grade-a .card-grade { color: #4ade80; }
+  .comp-card.grade-b .card-grade { color: #facc15; }
+  .comp-card.grade-c .card-grade { color: #fb923c; }
+  .comp-card.grade-f .card-grade { color: #f87171; }
+
+  .comp-card .card-stats { display: flex; flex-direction: column; gap: 3px; }
+  .comp-card .stat { font-size: 11px; color: #a1a1aa; display: flex; justify-content: space-between; }
+  .comp-card .stat-val { color: #d4d4d8; font-weight: 500; }
+  .stat-bad { color: #f87171 !important; }
+  .stat-warn { color: #fbbf24 !important; }
+  .stat-good { color: #34d399 !important; }
+
+  /* Dependency lines (SVG) */
+  .edge-layer { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
+  .edge-layer line { stroke: #3f3f46; stroke-width: 1.5; stroke-dasharray: 4 4; opacity: 0.5; }
+
+  /* Right sidebar — inspection panel */
+  .right { background: #18181b; border-left: 1px solid #27272a; padding: 0; overflow-y: auto; }
+  .right-header { padding: 12px 14px; border-bottom: 1px solid #27272a; }
+  .right-header h2 { font-size: 14px; font-weight: 600; color: #fafafa; }
+  .right-header .file-path { font-size: 11px; color: #71717a; margin-top: 2px; }
+
+  .preview-box { margin: 12px; border-radius: 8px; overflow: hidden; border: 1px solid #27272a; background: #fff; height: 140px; display: flex; align-items: center; justify-content: center; }
+  .preview-box .mock-component { font-family: -apple-system, sans-serif; color: #18181b; }
+  .preview-box .mock-btn { background: #4f46e5; color: white; border: none; padding: 8px 20px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; }
+  .preview-box .mock-header { background: #f1f5f9; width: 100%; height: 100%; display: flex; flex-direction: column; padding: 12px; gap: 6px; }
+  .preview-box .mock-header .mock-nav { display: flex; gap: 12px; align-items: center; }
+  .preview-box .mock-header .mock-logo { width: 24px; height: 24px; background: #ef4444; border-radius: 4px; }
+  .preview-box .mock-header .mock-link { font-size: 11px; color: #64748b; }
+  .preview-box .mock-header .mock-search { background: #e2e8f0; border-radius: 4px; height: 28px; flex: 1; margin-top: 8px; }
+
+  .section { padding: 12px 14px; border-bottom: 1px solid #27272a; }
+  .section h4 { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #71717a; margin-bottom: 8px; }
+
+  .health-ring-container { display: flex; align-items: center; gap: 14px; }
+  .health-ring { width: 48px; height: 48px; position: relative; }
+  .health-ring svg { transform: rotate(-90deg); }
+  .health-ring .ring-label { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 800; }
+  .health-detail { font-size: 12px; color: #a1a1aa; line-height: 1.6; }
+  .health-detail strong { color: #fafafa; }
+
+  .violation-row { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; }
+  .violation-badge { font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 4px; flex-shrink: 0; }
+  .violation-badge.critical { background: #450a0a; color: #fca5a5; border: 1px solid #7f1d1d; }
+  .violation-badge.warning { background: #422006; color: #fde68a; border: 1px solid #854d0e; }
+  .violation-detail { font-size: 12px; color: #a1a1aa; line-height: 1.4; }
+  .violation-detail strong { color: #d4d4d8; font-weight: 500; }
+
+  .token-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; font-size: 12px; }
+  .token-name { color: #a1a1aa; }
+  .token-val { display: flex; align-items: center; gap: 6px; color: #d4d4d8; }
+  .token-swatch { width: 12px; height: 12px; border-radius: 3px; border: 1px solid #3f3f46; }
+
+  /* Status bar */
+  .status-bar { grid-column: 1 / -1; background: #18181b; border-top: 1px solid #27272a; display: flex; align-items: center; padding: 0 12px; font-size: 11px; color: #71717a; gap: 16px; }
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; }
+  .status-dot.green { background: #10b981; }
+  .status-dot.red { background: #ef4444; }
+
+  /* Zoom indicator */
+  .zoom-indicator { position: absolute; bottom: 12px; right: 12px; background: #27272a; border-radius: 6px; padding: 4px 10px; font-size: 11px; color: #71717a; z-index: 10; }
+
+  /* Tooltip */
+  .canvas-hint { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); background: #27272a; border: 1px solid #3f3f46; border-radius: 8px; padding: 8px 16px; font-size: 12px; color: #a1a1aa; z-index: 10; white-space: nowrap; }
+  .canvas-hint strong { color: #fafafa; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- LEFT SIDEBAR -->
+  <div class="left">
+    <h3>Components (9)</h3>
+    <div class="component-list">
+      <div class="component-item"><span class="grade-dot grade-a"></span> Button.tsx</div>
+      <div class="component-item"><span class="grade-dot grade-a"></span> Icon.tsx</div>
+      <div class="component-item"><span class="grade-dot grade-b"></span> Badge.tsx</div>
+      <div class="component-item"><span class="grade-dot grade-b"></span> NavItem.tsx</div>
+      <div class="component-item"><span class="grade-dot grade-a"></span> SearchBar.tsx</div>
+      <div class="component-item"><span class="grade-dot grade-c"></span> Card.tsx</div>
+      <div class="component-item"><span class="grade-dot grade-b"></span> Modal.tsx</div>
+      <div class="component-item selected"><span class="grade-dot grade-f"></span> Header.tsx</div>
+      <div class="component-item"><span class="grade-dot grade-a"></span> Sidebar.tsx</div>
+    </div>
+    <h3 style="margin-top: 20px;">System Health</h3>
+    <div style="padding: 8px 12px;">
+      <div style="font-size: 32px; font-weight: 800; color: #fbbf24;">C</div>
+      <div style="font-size: 11px; color: #71717a; margin-top: 2px;">5 clean / 3 warning / 1 blocked</div>
+      <div style="margin-top: 8px; height: 6px; background: #27272a; border-radius: 3px; overflow: hidden; display: flex;">
+        <div style="width: 55%; background: #10b981;"></div>
+        <div style="width: 33%; background: #eab308;"></div>
+        <div style="width: 12%; background: #ef4444;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CANVAS -->
+  <div class="canvas-area">
+    <div class="canvas-bg"></div>
+    <div class="canvas-hint">Click any card to inspect &mdash; <strong>Header.tsx</strong> selected</div>
+    <div class="zoom-indicator">100%</div>
+
+    <div class="canvas-content">
+      <div class="card-grid">
+
+        <!-- Primitives column -->
+        <div class="card-column">
+          <div class="column-label">Primitives</div>
+          <div class="comp-card grade-a">
+            <div class="card-name">Button.tsx</div>
+            <div class="card-grade">A</div>
+            <div class="card-stats">
+              <div class="stat"><span>Delta-E</span><span class="stat-val stat-good">0.3</span></div>
+              <div class="stat"><span>A11y</span><span class="stat-val stat-good">Pass</span></div>
+              <div class="stat"><span>Tokens</span><span class="stat-val">4 bound</span></div>
+            </div>
+          </div>
+          <div class="comp-card grade-a">
+            <div class="card-name">Icon.tsx</div>
+            <div class="card-grade">A</div>
+            <div class="card-stats">
+              <div class="stat"><span>Delta-E</span><span class="stat-val stat-good">0.0</span></div>
+              <div class="stat"><span>A11y</span><span class="stat-val stat-good">Pass</span></div>
+              <div class="stat"><span>Tokens</span><span class="stat-val">1 bound</span></div>
+            </div>
+          </div>
+          <div class="comp-card grade-b">
+            <div class="card-name">Badge.tsx</div>
+            <div class="card-grade">B</div>
+            <div class="card-stats">
+              <div class="stat"><span>Delta-E</span><span class="stat-val stat-warn">1.8</span></div>
+              <div class="stat"><span>A11y</span><span class="stat-val stat-good">Pass</span></div>
+              <div class="stat"><span>Tokens</span><span class="stat-val">3 bound</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Molecules column -->
+        <div class="card-column">
+          <div class="column-label">Molecules</div>
+          <div class="comp-card grade-c" style="box-shadow: 0 0 0 2px #ea580c44;">
+            <div class="card-name">Card.tsx</div>
+            <div class="card-grade">C</div>
+            <div class="card-stats">
+              <div class="stat"><span>Delta-E</span><span class="stat-val stat-bad">4.1</span></div>
+              <div class="stat"><span>A11y</span><span class="stat-val stat-bad">3 violations</span></div>
+              <div class="stat"><span>Tokens</span><span class="stat-val">6 bound</span></div>
+            </div>
+          </div>
+          <div class="comp-card grade-a">
+            <div class="card-name">SearchBar.tsx</div>
+            <div class="card-grade">A</div>
+            <div class="card-stats">
+              <div class="stat"><span>Delta-E</span><span class="stat-val stat-good">0.1</span></div>
+              <div class="stat"><span>A11y</span><span class="stat-val stat-good">Pass</span></div>
+              <div class="stat"><span>Tokens</span><span class="stat-val">5 bound</span></div>
+            </div>
+          </div>
+          <div class="comp-card grade-b">
+            <div class="card-name">NavItem.tsx</div>
+            <div class="card-grade">B</div>
+            <div class="card-stats">
+              <div class="stat"><span>Delta-E</span><span class="stat-val stat-warn">1.5</span></div>
+              <div class="stat"><span>A11y</span><span class="stat-val stat-warn">1 warning</span></div>
+              <div class="stat"><span>Tokens</span><span class="stat-val">4 bound</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Organisms column -->
+        <div class="card-column">
+          <div class="column-label">Organisms</div>
+          <div class="comp-card grade-b">
+            <div class="card-name">Modal.tsx</div>
+            <div class="card-grade">B</div>
+            <div class="card-stats">
+              <div class="stat"><span>Delta-E</span><span class="stat-val stat-warn">1.2</span></div>
+              <div class="stat"><span>A11y</span><span class="stat-val stat-good">Pass</span></div>
+              <div class="stat"><span>Tokens</span><span class="stat-val">8 bound</span></div>
+            </div>
+          </div>
+          <div class="comp-card grade-f selected" style="box-shadow: 0 0 0 2px #818cf8, 0 8px 24px rgba(0,0,0,0.4);">
+            <div class="card-name">Header.tsx</div>
+            <div class="card-grade">F</div>
+            <div class="card-stats">
+              <div class="stat"><span>Delta-E</span><span class="stat-val stat-bad">6.3</span></div>
+              <div class="stat"><span>A11y</span><span class="stat-val stat-bad">5 violations</span></div>
+              <div class="stat"><span>Tokens</span><span class="stat-val stat-bad">2 / 8 bound</span></div>
+              <div class="stat" style="margin-top: 4px; padding-top: 4px; border-top: 1px solid #7f1d1d;"><span style="color: #fca5a5; font-weight: 600;">EXPORT BLOCKED</span></div>
+            </div>
+          </div>
+          <div class="comp-card grade-a">
+            <div class="card-name">Sidebar.tsx</div>
+            <div class="card-grade">A</div>
+            <div class="card-stats">
+              <div class="stat"><span>Delta-E</span><span class="stat-val stat-good">0.4</span></div>
+              <div class="stat"><span>A11y</span><span class="stat-val stat-good">Pass</span></div>
+              <div class="stat"><span>Tokens</span><span class="stat-val">7 bound</span></div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT SIDEBAR — Inspection panel for selected Header.tsx -->
+  <div class="right">
+    <div class="right-header">
+      <h2>Header.tsx</h2>
+      <div class="file-path">src/components/organisms/Header.tsx</div>
+    </div>
+
+    <!-- Live Preview -->
+    <div class="preview-box">
+      <div class="mock-header">
+        <div class="mock-nav">
+          <div class="mock-logo"></div>
+          <span class="mock-link">Home</span>
+          <span class="mock-link">Products</span>
+          <span class="mock-link">About</span>
+        </div>
+        <div class="mock-search"></div>
+      </div>
+    </div>
+
+    <!-- Health -->
+    <div class="section">
+      <h4>Health</h4>
+      <div class="health-ring-container">
+        <div class="health-ring">
+          <svg width="48" height="48" viewBox="0 0 48 48">
+            <circle cx="24" cy="24" r="20" fill="none" stroke="#27272a" stroke-width="4"/>
+            <circle cx="24" cy="24" r="20" fill="none" stroke="#ef4444" stroke-width="4" stroke-dasharray="125.6" stroke-dashoffset="100" stroke-linecap="round"/>
+          </svg>
+          <div class="ring-label" style="color: #f87171;">F</div>
+        </div>
+        <div class="health-detail">
+          <strong>Score: 18 / 100</strong><br>
+          5 a11y violations<br>
+          Delta-E 6.3 (drift)<br>
+          6 unbound tokens
+        </div>
+      </div>
+    </div>
+
+    <!-- Violations -->
+    <div class="section">
+      <h4>Violations (5)</h4>
+      <div class="violation-row">
+        <span class="violation-badge critical">A11Y-001</span>
+        <div class="violation-detail"><strong>Logo img</strong> missing alt attribute</div>
+      </div>
+      <div class="violation-row">
+        <span class="violation-badge critical">A11Y-002</span>
+        <div class="violation-detail"><strong>Menu button</strong> no accessible name</div>
+      </div>
+      <div class="violation-row">
+        <span class="violation-badge critical">A11Y-004</span>
+        <div class="violation-detail"><strong>Search input</strong> missing label</div>
+      </div>
+      <div class="violation-row">
+        <span class="violation-badge warning">MITHRIL-01</span>
+        <div class="violation-detail"><strong>bg-[#1e293b]</strong> hardcoded color, Delta-E 6.3 from bg-zinc-900</div>
+      </div>
+      <div class="violation-row">
+        <span class="violation-badge warning">MITHRIL-02</span>
+        <div class="violation-detail"><strong>text-[#94a3b8]</strong> hardcoded color, Delta-E 3.1 from text-zinc-400</div>
+      </div>
+    </div>
+
+    <!-- Tokens -->
+    <div class="section">
+      <h4>Design Tokens (2 / 8 bound)</h4>
+      <div class="token-row">
+        <span class="token-name">bg-zinc-950</span>
+        <span class="token-val"><span class="token-swatch" style="background: #09090b;"></span> bound</span>
+      </div>
+      <div class="token-row">
+        <span class="token-name">border-zinc-800</span>
+        <span class="token-val"><span class="token-swatch" style="background: #27272a;"></span> bound</span>
+      </div>
+      <div class="token-row" style="color: #f87171;">
+        <span class="token-name">bg-[#1e293b]</span>
+        <span class="token-val" style="color: #f87171;"><span class="token-swatch" style="background: #1e293b; border-color: #ef4444;"></span> unbound</span>
+      </div>
+      <div class="token-row" style="color: #f87171;">
+        <span class="token-name">text-[#94a3b8]</span>
+        <span class="token-val" style="color: #f87171;"><span class="token-swatch" style="background: #94a3b8; border-color: #ef4444;"></span> unbound</span>
+      </div>
+    </div>
+
+    <!-- Dependencies -->
+    <div class="section">
+      <h4>Uses</h4>
+      <div style="font-size: 12px; color: #a1a1aa; display: flex; flex-direction: column; gap: 4px;">
+        <div><span class="grade-dot grade-a" style="display: inline-block; margin-right: 6px;"></span>SearchBar.tsx <span style="color: #52525b;">(Grade A)</span></div>
+        <div><span class="grade-dot grade-a" style="display: inline-block; margin-right: 6px;"></span>Icon.tsx <span style="color: #52525b;">(Grade A)</span></div>
+      </div>
+      <div style="font-size: 11px; color: #52525b; margin-top: 8px;">All dependencies are clean. Problems are in Header's own code.</div>
+    </div>
+
+    <div style="padding: 12px 14px;">
+      <button style="width: 100%; padding: 8px; background: #4f46e5; color: white; border: none; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer;">Fix All Violations</button>
+    </div>
+  </div>
+
+  <!-- STATUS BAR -->
+  <div class="status-bar">
+    <span><span class="status-dot red" style="display: inline-block; margin-right: 4px;"></span> Export Blocked</span>
+    <span>|</span>
+    <span>9 components indexed</span>
+    <span>|</span>
+    <span>MCP: connected</span>
+    <span style="margin-left: auto;">Flint Glass v0.1.0-beta</span>
+  </div>
+
+</div>
+</body>
+</html>

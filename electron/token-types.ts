@@ -5,10 +5,10 @@
  * Consumed by main.ts (CRUD handlers) and normalizer.ts (Figma mapping).
  *
  * Main Process only — MUST NOT be imported from src/.
- * The renderer gets its own mirror declarations in src/types/bridge-api.d.ts.
+ * The renderer gets its own mirror declarations in src/types/flint-api.d.ts.
  */
 
-/** The four W3C DTCG $type values that Bridge supports. */
+/** The four W3C DTCG $type values that Flint supports. */
 export type TokenType = 'color' | 'dimension' | 'string' | 'boolean'
 
 /**

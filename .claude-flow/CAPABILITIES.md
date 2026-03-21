@@ -34,7 +34,7 @@ RuFlo V3 is a domain-driven design architecture for multi-agent AI coordination 
 | Memory Backend | hybrid |
 | HNSW Indexing | Enabled |
 | Neural Learning | Enabled |
-| LearningBridge | Enabled (SONA + ReasoningBank) |
+| LearningFlint | Enabled (SONA + ReasoningBank) |
 | Knowledge Graph | Enabled (PageRank + Communities) |
 | Agent Scopes | Enabled (project/local/user) |
 
@@ -241,11 +241,11 @@ npx @claude-flow/cli@latest doctor --fix
 
 | Component | Status | Description |
 |-----------|--------|-------------|
-| **LearningBridge** | ✅ Enabled | Connects insights to SONA/ReasoningBank neural pipeline |
+| **LearningFlint** | ✅ Enabled | Connects insights to SONA/ReasoningBank neural pipeline |
 | **MemoryGraph** | ✅ Enabled | PageRank knowledge graph + community detection |
 | **AgentMemoryScope** | ✅ Enabled | 3-scope agent memory (project/local/user) |
 
-**LearningBridge** - Insights trigger learning trajectories. Confidence evolves: +0.03 on access, -0.005/hour decay. Consolidation runs the JUDGE/DISTILL/CONSOLIDATE pipeline.
+**LearningFlint** - Insights trigger learning trajectories. Confidence evolves: +0.03 on access, -0.005/hour decay. Consolidation runs the JUDGE/DISTILL/CONSOLIDATE pipeline.
 
 **MemoryGraph** - Builds a knowledge graph from entry references. PageRank identifies influential insights. Communities group related knowledge. Graph-aware ranking blends vector + structural scores.
 

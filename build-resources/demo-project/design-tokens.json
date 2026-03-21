@@ -1,0 +1,150 @@
+{
+  "$schema": "https://tr.designtokens.org/format/",
+  "color": {
+    "primary": {
+      "$type": "color",
+      "$value": "#0066FF",
+      "$description": "Primary brand blue — interactive elements, CTAs, focus rings"
+    },
+    "primary-hover": {
+      "$type": "color",
+      "$value": "#0052CC",
+      "$description": "Primary blue darkened 20% for hover states"
+    },
+    "surface": {
+      "$type": "color",
+      "$value": "#FFFFFF",
+      "$description": "Default page and card surface"
+    },
+    "surface-raised": {
+      "$type": "color",
+      "$value": "#F8F9FA",
+      "$description": "Slightly elevated surface — sidebars, panels"
+    },
+    "on-surface": {
+      "$type": "color",
+      "$value": "#111827",
+      "$description": "Primary text on light surface"
+    },
+    "on-surface-muted": {
+      "$type": "color",
+      "$value": "#6B7280",
+      "$description": "Secondary / helper text"
+    },
+    "on-primary": {
+      "$type": "color",
+      "$value": "#FFFFFF",
+      "$description": "Text/icons on primary-color backgrounds"
+    },
+    "danger": {
+      "$type": "color",
+      "$value": "#DC2626",
+      "$description": "Destructive actions and error states"
+    },
+    "success": {
+      "$type": "color",
+      "$value": "#16A34A",
+      "$description": "Success states and positive indicators"
+    },
+    "border": {
+      "$type": "color",
+      "$value": "#E5E7EB",
+      "$description": "Default border color for cards and dividers"
+    }
+  },
+  "spacing": {
+    "xs": {
+      "$type": "dimension",
+      "$value": "4px",
+      "$description": "Extra small spacing — tight gaps"
+    },
+    "sm": {
+      "$type": "dimension",
+      "$value": "8px",
+      "$description": "Small spacing — inline element gaps"
+    },
+    "md": {
+      "$type": "dimension",
+      "$value": "16px",
+      "$description": "Medium spacing — standard padding"
+    },
+    "lg": {
+      "$type": "dimension",
+      "$value": "24px",
+      "$description": "Large spacing — section padding"
+    },
+    "xl": {
+      "$type": "dimension",
+      "$value": "32px",
+      "$description": "Extra large spacing — page margins"
+    },
+    "2xl": {
+      "$type": "dimension",
+      "$value": "48px",
+      "$description": "2× extra large spacing — hero sections"
+    }
+  },
+  "fontFamily": {
+    "sans": {
+      "$type": "fontFamily",
+      "$value": "Inter, system-ui, sans-serif",
+      "$description": "Primary sans-serif typeface"
+    },
+    "mono": {
+      "$type": "fontFamily",
+      "$value": "JetBrains Mono, monospace",
+      "$description": "Monospace typeface for code"
+    }
+  },
+  "fontSize": {
+    "sm": {
+      "$type": "dimension",
+      "$value": "14px",
+      "$description": "Small body text"
+    },
+    "base": {
+      "$type": "dimension",
+      "$value": "16px",
+      "$description": "Default body text"
+    },
+    "lg": {
+      "$type": "dimension",
+      "$value": "20px",
+      "$description": "Subheadings"
+    },
+    "xl": {
+      "$type": "dimension",
+      "$value": "24px",
+      "$description": "Section headings"
+    }
+  },
+  "shadow": {
+    "sm": {
+      "$type": "shadow",
+      "$value": "0 1px 3px rgba(0,0,0,0.1)",
+      "$description": "Subtle card shadow"
+    },
+    "md": {
+      "$type": "shadow",
+      "$value": "0 4px 12px rgba(0,0,0,0.08)",
+      "$description": "Elevated card shadow"
+    }
+  },
+  "borderRadius": {
+    "sm": {
+      "$type": "dimension",
+      "$value": "4px",
+      "$description": "Subtle rounding — badges, chips"
+    },
+    "md": {
+      "$type": "dimension",
+      "$value": "8px",
+      "$description": "Default rounding — buttons, inputs"
+    },
+    "lg": {
+      "$type": "dimension",
+      "$value": "12px",
+      "$description": "Prominent rounding — cards, modals"
+    }
+  }
+}

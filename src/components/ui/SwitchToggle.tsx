@@ -1,4 +1,4 @@
-import React from "react";
+/* React is implicitly available via the JSX transform */
 
 export interface SwitchToggleProps {
     label?: string;

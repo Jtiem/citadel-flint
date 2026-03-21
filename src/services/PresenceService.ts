@@ -3,7 +3,7 @@
  *
  * Module-level singleton for broadcasting the local user's presence
  * (cursor position + active drag element) to the main-process SQLite DB
- * via the Electron IPC bridge.
+ * via the Electron IPC flint.
  *
  * Two write modes:
  *   publishPresence()          — throttled at 100ms (max 10 writes/sec).
@@ -41,7 +41,7 @@ function _flush(): void {
     _pending = null
     _timer = null
     if (p === null) return
-    window.bridgeAPI
+    window.flintAPI
         .syncPresence({
             id: presenceSessionId,
             userId: presenceUserId,
@@ -81,7 +81,7 @@ export function publishPresenceImmediate(x: number, y: number, nodeId: string): 
         _timer = null
     }
     _pending = null
-    window.bridgeAPI
+    window.flintAPI
         .syncPresence({
             id: presenceSessionId,
             userId: presenceUserId,

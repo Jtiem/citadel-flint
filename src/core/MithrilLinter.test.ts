@@ -1,7 +1,7 @@
 /**
  * MithrilLinter — Unit Tests
  *
- * Scope: pure, headless logic. No React, no Electron IPC, no window.bridgeAPI.
+ * Scope: pure, headless logic. No React, no Electron IPC, no window.flintAPI.
  *
  * What we verify:
  *   1. cssColorToHex — normalises all supported CSS color formats to hex.
@@ -161,7 +161,7 @@ describe('MITHRIL_THRESHOLD', () => {
 //
 // PropertiesPanel.tsx is React and outside the headless test scope, so the
 // pure coordinator logic is extracted into `runDriftPipeline` here and verified
-// with a vi.fn() mock standing in for window.bridgeAPI.tokens.upsertOverride.
+// with a vi.fn() mock standing in for window.flintAPI.tokens.upsertOverride.
 
 describe('Phase E.3 — Perceptual Drift Detection Pipeline', () => {
 
@@ -174,13 +174,13 @@ describe('Phase E.3 — Perceptual Drift Detection Pipeline', () => {
     function runDriftPipeline(
         hexInput: string,
         nearestTokenHex: string,
-        bridgeId: string,
-        mockUpsert: (bridgeId: string, key: string, value: string) => void,
+        flintId: string,
+        mockUpsert: (flintId: string, key: string, value: string) => void,
     ): { dE: number | null; amberWarning: boolean } {
         const dE = calculateDrift(hexInput, nearestTokenHex)
         const amberWarning = dE !== null && dE > MITHRIL_THRESHOLD
         // Mirrors PropertiesPanel: always upsert the raw input, even on clean drift.
-        mockUpsert(bridgeId, 'style', hexInput)
+        mockUpsert(flintId, 'style', hexInput)
         return { dE, amberWarning }
     }
 
@@ -221,12 +221,12 @@ describe('Phase E.3 — Perceptual Drift Detection Pipeline', () => {
         expect(upsert).toHaveBeenCalledOnce()
     })
 
-    it('calls upsertOverride with (bridgeId, "style", rawHexInput) on a violation', () => {
+    it('calls upsertOverride with (flintId, "style", rawHexInput) on a violation', () => {
         const upsert = vi.fn()
-        const bridgeId = 'text:12:4'
+        const flintId = 'text:12:4'
         const hexInput = '#e11d48'   // rose-600 — large drift from white
-        runDriftPipeline(hexInput, '#ffffff', bridgeId, upsert)
-        expect(upsert).toHaveBeenCalledWith(bridgeId, 'style', hexInput)
+        runDriftPipeline(hexInput, '#ffffff', flintId, upsert)
+        expect(upsert).toHaveBeenCalledWith(flintId, 'style', hexInput)
     })
 
     // ── 5. Raw input is persisted, not the auto-corrected token value ─────────

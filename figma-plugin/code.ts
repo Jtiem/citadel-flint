@@ -1,5 +1,5 @@
 /**
- * Bridge Link — code.ts  (Figma plugin main thread)
+ * Flint Link — code.ts  (Figma plugin main thread)
  *
  * Runs in Figma's sandboxed JS environment (no DOM, no fetch).
  * Its only job: collect local variable data and pass it to ui.html via postMessage,
@@ -12,13 +12,13 @@
  * Or load code.js directly — it is the pre-compiled equivalent of this file.
  */
 
-figma.showUI(__html__, { width: 320, height: 340, title: 'Bridge Link' })
+figma.showUI(__html__, { width: 320, height: 340, title: 'Flint Link' })
 
 // ── Settings persistence via figma.clientStorage ─────────────────────────────
 
-const SETTINGS_KEY = 'bridge-link-settings'
+const SETTINGS_KEY = 'flint-link-settings'
 
-interface BridgeLinkSettings {
+interface FlintLinkSettings {
     endpoint: string
     secret: string
 }
@@ -46,9 +46,9 @@ figma.ui.onmessage = async (msg: {
     // ── Save settings to clientStorage ────────────────────────────────
     if (msg.type === 'save-settings') {
         try {
-            const settings: BridgeLinkSettings = {
+            const settings: FlintLinkSettings = {
                 endpoint: msg.data?.endpoint ?? 'http://127.0.0.1:4545',
-                secret: msg.data?.secret ?? 'bridge-dev-secret-phase2',
+                secret: msg.data?.secret ?? 'flint-dev-secret-phase2',
             }
             await figma.clientStorage.setAsync(SETTINGS_KEY, settings)
         } catch {
@@ -125,7 +125,7 @@ figma.ui.onmessage = async (msg: {
 
 // ── Visual style extraction ────────────────────────────────────────────────
 // Reads Figma node properties and returns a flat object of visual styles
-// that the Bridge hydration pipeline can convert to Tailwind classes.
+// that the Flint hydration pipeline can convert to Tailwind classes.
 
 function rgbToHex(r: number, g: number, b: number): string {
     const to256 = (v: number) => Math.round(v * 255)
@@ -274,6 +274,8 @@ function extractComponentTree(node: SceneNode): any[] {
 
                     childrenPayload.push({
                         figmaComponent: mainComponent.parent?.name === 'Button' ? 'Button' : mainComponent.name,
+                        figmaComponentId: mainComponent.id,
+                        figmaFileKey: figma.fileKey ?? undefined,
                         props,
                         ...(styles ? { styles } : {}),
                         ...(nestedChildren.length > 0 ? { children: nestedChildren } : {})

@@ -25,7 +25,7 @@ LanguageRegistry.register(['tsx', 'ts', 'jsx', 'js'], new ReactAdapter())
 
 // ── IPC mocks ────────────────────────────────────────────────────────────────
 
-Object.defineProperty(window, 'bridgeAPI', {
+Object.defineProperty(window, 'flintAPI', {
     value: {
         readFile: vi.fn(async () => ''),
         saveFile: vi.fn(async () => undefined),
@@ -36,11 +36,11 @@ Object.defineProperty(window, 'bridgeAPI', {
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
 const CLEAN_CODE = `export default function App() {
-  return <div data-bridge-id="div:1:0" className="p-4 bg-zinc-900">Hello</div>
+  return <div data-flint-id="div:1:0" className="p-4 bg-zinc-900">Hello</div>
 }`
 
 const VIOLATION_CODE = `export default function App() {
-  return <img data-bridge-id="img:1:0" src="/photo.jpg" />
+  return <img data-flint-id="img:1:0" src="/photo.jpg" />
 }`
 
 // img without alt → A11Y violation

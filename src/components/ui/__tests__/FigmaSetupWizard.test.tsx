@@ -57,7 +57,7 @@ function defaultProps(overrides: Partial<{ visible: boolean; onClose: () => void
 describe('FigmaSetupWizard', () => {
     // 1. Renders 3 step indicators
     it('renders 3 step indicators (Step 1, Step 2, Step 3)', async () => {
-        ;(window.bridgeAPI.figma.status as Mock).mockResolvedValue(runningStatus())
+        ;(window.flintAPI.figma.status as Mock).mockResolvedValue(runningStatus())
         render(<FigmaSetupWizard {...defaultProps()} />)
         await waitFor(() => {
             // The wizard must show three step labels — exact text is flexible
@@ -71,7 +71,7 @@ describe('FigmaSetupWizard', () => {
 
     // 2. Step 1 auto-completes when server is running
     it('advances past the checking step to configure when server is running', async () => {
-        ;(window.bridgeAPI.figma.status as Mock).mockResolvedValue(
+        ;(window.flintAPI.figma.status as Mock).mockResolvedValue(
             runningStatus({ port: 4545 }),
         )
         render(<FigmaSetupWizard {...defaultProps()} />)
@@ -85,7 +85,7 @@ describe('FigmaSetupWizard', () => {
 
     // 3. Step 1 shows error when server is not running
     it('shows an error state when figma.status() returns running: false', async () => {
-        ;(window.bridgeAPI.figma.status as Mock).mockResolvedValue(stoppedStatus())
+        ;(window.flintAPI.figma.status as Mock).mockResolvedValue(stoppedStatus())
         render(<FigmaSetupWizard {...defaultProps()} />)
         await waitFor(() => {
             // Must show some kind of error / not-running indicator
@@ -98,7 +98,7 @@ describe('FigmaSetupWizard', () => {
 
     // 4. Step 2 shows endpoint with the correct port
     it('shows the correct port in the endpoint when status returns port: 4546', async () => {
-        ;(window.bridgeAPI.figma.status as Mock).mockResolvedValue(
+        ;(window.flintAPI.figma.status as Mock).mockResolvedValue(
             runningStatus({ port: 4546 }),
         )
         render(<FigmaSetupWizard {...defaultProps()} />)
@@ -109,17 +109,17 @@ describe('FigmaSetupWizard', () => {
 
     // 5. Step 2 does NOT render a secret field (SEC.2 — secret is server-side only)
     it('does not render a secret copy field in the configure step', async () => {
-        ;(window.bridgeAPI.figma.status as Mock).mockResolvedValue(runningStatus())
+        ;(window.flintAPI.figma.status as Mock).mockResolvedValue(runningStatus())
         render(<FigmaSetupWizard {...defaultProps()} />)
         await waitFor(() => {
             const text = document.body.textContent ?? ''
             expect(text).toContain('127.0.0.1')
         })
         // The configure step should have only one copy button (for the endpoint)
-        // and no "Secret (x-bridge-secret)" label visible as a copy field label.
+        // and no "Secret (x-flint-secret)" label visible as a copy field label.
         const text = document.body.textContent ?? ''
         // There should be no "Secret" copy-field heading rendered
-        expect(text).not.toMatch(/^Secret \(x-bridge-secret\)/m)
+        expect(text).not.toMatch(/^Secret \(x-flint-secret\)/m)
         // Only one CopyField should be in the DOM (the endpoint one)
         const labels = document.querySelectorAll('[aria-label^="Copy"]')
         // At most 1 copy button: the endpoint one. The secret copy button is gone.
@@ -131,7 +131,7 @@ describe('FigmaSetupWizard', () => {
 
     // 6. Copy endpoint button copies to clipboard
     it('calls navigator.clipboard.writeText with the endpoint URL when copy endpoint is clicked', async () => {
-        ;(window.bridgeAPI.figma.status as Mock).mockResolvedValue(
+        ;(window.flintAPI.figma.status as Mock).mockResolvedValue(
             runningStatus({ port: 4545 }),
         )
         render(<FigmaSetupWizard {...defaultProps()} />)
@@ -170,7 +170,7 @@ describe('FigmaSetupWizard', () => {
 
     // 7. Step 3 "I've configured the plugin" button advances the wizard
     it('advances to the waiting step when the configure button is clicked', async () => {
-        ;(window.bridgeAPI.figma.status as Mock).mockResolvedValue(
+        ;(window.flintAPI.figma.status as Mock).mockResolvedValue(
             runningStatus({ port: 4545 }),
         )
         render(<FigmaSetupWizard {...defaultProps()} />)
@@ -195,7 +195,7 @@ describe('FigmaSetupWizard', () => {
 
     // 8. Step 3 transitions to success on figma-connected event
     it('transitions to success state when the onConnected callback fires', async () => {
-        ;(window.bridgeAPI.figma.status as Mock).mockResolvedValue(
+        ;(window.flintAPI.figma.status as Mock).mockResolvedValue(
             runningStatus({ port: 4545 }),
         )
         render(<FigmaSetupWizard {...defaultProps()} />)
@@ -212,11 +212,11 @@ describe('FigmaSetupWizard', () => {
             fireEvent.click(advanceBtn)
             // Now in 'waiting' step — simulate onConnected firing
             await waitFor(() => {
-                expect(window.bridgeAPI.figma.onConnected).toHaveBeenCalled()
+                expect(window.flintAPI.figma.onConnected).toHaveBeenCalled()
             })
         }
         // Capture the callback registered with onConnected and invoke it manually
-        const calls = (window.bridgeAPI.figma.onConnected as Mock).mock.calls
+        const calls = (window.flintAPI.figma.onConnected as Mock).mock.calls
         expect(calls.length).toBeGreaterThan(0)
         const registeredCallback = calls[0][0] as (event: { tokenCount: number; timestamp: number }) => void
         registeredCallback({ tokenCount: 50, timestamp: Date.now() })

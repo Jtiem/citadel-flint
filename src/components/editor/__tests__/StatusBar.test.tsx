@@ -11,8 +11,8 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { StatusBar } from '../../editor/StatusBar'
 import { useEditorStore } from '../../../store/editorStore'
 import { useCanvasStore } from '../../../store/canvasStore'
-import { useNotificationStore } from '../../../store/notificationStore'
-import type { LinterWarning } from '../../../types/bridge-api'
+// useNotificationStore is available via the test setup but not directly called in this file
+import type { LinterWarning } from '../../../types/flint-api'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -33,8 +33,8 @@ function makeWarning(severity: 'amber' | 'critical'): LinterWarning {
 describe('StatusBar', () => {
     // 1. Renders Figma indicator text (when tokens are synced, label is "Figma")
     it('renders the Figma label in the status bar', async () => {
-        ;(window.bridgeAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        ;(window.bridgeAPI.figma.status as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        ;(window.flintAPI.figma.status as ReturnType<typeof vi.fn>).mockResolvedValue({
             running: true, lastWebhookAt: null, tokenCount: 5, port: 4545,
         })
         render(<StatusBar />)
@@ -45,7 +45,7 @@ describe('StatusBar', () => {
 
     // 2. Green dot when tokens exist
     it('shows emerald dot when tokens are present', async () => {
-        ;(window.bridgeAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue([
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue([
             { id: 1, token_path: 'color.primary', token_type: 'color', token_value: '#000', description: null, mode: 'default', collection_name: 'Colors' },
         ])
         render(<StatusBar />)
@@ -59,7 +59,7 @@ describe('StatusBar', () => {
     it('shows zinc dot when server is not running', async () => {
         // running: false + tokenCount > 0 → figmaDotColor → bg-zinc-500
         // (tokenCount > 0 avoids the amber "No design system" override)
-        ;(window.bridgeAPI.figma.status as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ;(window.flintAPI.figma.status as ReturnType<typeof vi.fn>).mockResolvedValue({
             running: false, lastWebhookAt: null, tokenCount: 3, port: 4545,
         })
         render(<StatusBar />)
@@ -95,7 +95,7 @@ describe('StatusBar', () => {
 
     // 6. Amber dot when non-critical violations exist
     it('shows amber dot when violations exist but none are critical', async () => {
-        ;(window.bridgeAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue([])
         useEditorStore.setState({
             linterWarnings: new Map([['n1', makeWarning('amber')]]),
         })
@@ -121,7 +121,7 @@ describe('StatusBar', () => {
     it('renders a badge with the notification count when notifications are present', async () => {
         // StatusBar has no notification bell. The closest badge surface is the
         // Overrides chip rendered when overrideCount > 0 (GOV.2 feature).
-        ;(window.bridgeAPI.governance.getOverrideCount as ReturnType<typeof vi.fn>).mockResolvedValue(2)
+        ;(window.flintAPI.governance.getOverrideCount as ReturnType<typeof vi.fn>).mockResolvedValue(2)
         render(<StatusBar />)
         await waitFor(() => {
             expect(screen.getByText('Overrides (2)')).toBeDefined()
@@ -132,7 +132,7 @@ describe('StatusBar', () => {
     it('renders "9+" in the badge when there are more than 9 notifications', async () => {
         // StatusBar has no notification bell or bg-indigo-600 badge.
         // Map to the Overrides chip: when overrideCount > 9 the chip shows "Overrides (10)".
-        ;(window.bridgeAPI.governance.getOverrideCount as ReturnType<typeof vi.fn>).mockResolvedValue(10)
+        ;(window.flintAPI.governance.getOverrideCount as ReturnType<typeof vi.fn>).mockResolvedValue(10)
         render(<StatusBar />)
         await waitFor(() => {
             expect(screen.getByText('Overrides (10)')).toBeDefined()
@@ -141,8 +141,8 @@ describe('StatusBar', () => {
 
     // 10. Copy endpoint button copies the correct value
     it('calls navigator.clipboard.writeText with the endpoint URL when copy endpoint is clicked', async () => {
-        ;(window.bridgeAPI.tokens.readAll as Mock).mockResolvedValue([])
-        ;(window.bridgeAPI.figma.status as Mock).mockResolvedValue({
+        ;(window.flintAPI.tokens.readAll as Mock).mockResolvedValue([])
+        ;(window.flintAPI.figma.status as Mock).mockResolvedValue({
             running: true,
             lastWebhookAt: null,
             tokenCount: 5,
@@ -175,12 +175,12 @@ describe('StatusBar', () => {
     })
 
     // 11. Disconnect button calls figma.disconnect()
-    it('calls window.bridgeAPI.figma.disconnect when the disconnect button is clicked', async () => {
-        ;(window.bridgeAPI.tokens.readAll as Mock).mockResolvedValue([])
-        ;(window.bridgeAPI.figma.status as Mock).mockResolvedValue({
+    it('calls window.flintAPI.figma.disconnect when the disconnect button is clicked', async () => {
+        ;(window.flintAPI.tokens.readAll as Mock).mockResolvedValue([])
+        ;(window.flintAPI.figma.status as Mock).mockResolvedValue({
             running: true, lastWebhookAt: null, tokenCount: 5, port: 4545,
         })
-        ;(window.bridgeAPI.figma.disconnect as Mock).mockResolvedValue(undefined)
+        ;(window.flintAPI.figma.disconnect as Mock).mockResolvedValue(undefined)
         render(<StatusBar />)
         await waitFor(() => screen.getByText('Figma'))
         fireEvent.click(screen.getByText('Figma'))
@@ -188,7 +188,7 @@ describe('StatusBar', () => {
         const disconnectBtn = screen.getByTitle('Stop the ingestion server')
         fireEvent.click(disconnectBtn)
         await waitFor(() => {
-            expect(window.bridgeAPI.figma.disconnect).toHaveBeenCalled()
+            expect(window.flintAPI.figma.disconnect).toHaveBeenCalled()
         })
     })
 })

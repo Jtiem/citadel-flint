@@ -16,7 +16,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest'
 import { useImportSummaryStore } from '../importSummaryStore'
-import type { IngestionSummary, IngestionFix, IngestionFlag } from '../../types/bridge-api'
+import type { IngestionSummary, IngestionFix, IngestionFlag } from '../../types/flint-api'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

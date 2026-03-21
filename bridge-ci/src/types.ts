@@ -1,15 +1,15 @@
 /**
- * Bridge CI Types -- bridge-ci/src/types.ts
+ * Flint CI Types -- flint-ci/src/types.ts
  *
  * Standalone type definitions for the CI governance gate.
- * These are intentionally decoupled from src/types/bridge-api.d.ts and
+ * These are intentionally decoupled from src/types/flint-api.d.ts and
  * electron/token-types.ts to avoid cross-boundary imports (Process Boundary Law).
  *
- * Kept structurally compatible so that JSON files produced by Bridge can be
+ * Kept structurally compatible so that JSON files produced by Flint can be
  * consumed directly by the CI gate without transformation.
  */
 
-// -- Design Token Types (mirror of bridge-api.d.ts DesignToken) ----------------
+// -- Design Token Types (mirror of flint-api.d.ts DesignToken) ----------------
 
 export type TokenType =
     | 'color'
@@ -33,7 +33,7 @@ export interface DesignToken {
     collection_name: string
 }
 
-// -- Linter Warning (mirror of bridge-api.d.ts LinterWarning) ------------------
+// -- Linter Warning (mirror of flint-api.d.ts LinterWarning) ------------------
 
 export interface LinterWarning {
     id: string
@@ -49,11 +49,11 @@ export interface LinterWarning {
 
 export type A11yViolations = Record<string, string[]>
 
-// -- Policy Configuration (mirror of bridge-api.d.ts BridgePolicy) -------------
+// -- Policy Configuration (mirror of flint-api.d.ts FlintPolicy) -------------
 
 export type PolicyMode = 'blocking' | 'advisory' | 'off'
 
-export interface BridgePolicy {
+export interface FlintPolicy {
     version: number
     mithril: {
         deltaE_threshold: number
@@ -146,7 +146,7 @@ export interface AuditSummary {
 
 // -- Default Policy ------------------------------------------------------------
 
-export const DEFAULT_POLICY: BridgePolicy = {
+export const DEFAULT_POLICY: FlintPolicy = {
     version: 1,
     mithril: {
         deltaE_threshold: 2.0,

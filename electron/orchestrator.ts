@@ -1,12 +1,12 @@
 /**
  * orchestrator.ts — electron/orchestrator.ts
  *
- * The Bridge Auditor: LLM adapter for the Orchestration Engine (Phase M).
+ * The Flint Auditor: LLM adapter for the Orchestration Engine (Phase M).
  *
  * Responsibilities:
- *   1. Reads ~/.bridge/config.json for the API key + provider setting.
+ *   1. Reads ~/.flint/config.json for the API key + provider setting.
  *   2. Exposes sendChatMessage() — streams Anthropic responses with tool use.
- *   3. Defines the Bridge Tool Catalog (Phase M — Commandment 15): the exact
+ *   3. Defines the Flint Tool Catalog (Phase M — Commandment 15): the exact
  *      7 granular AST operations an AI agent may request. Raw code strings
  *      and full-file replacements are structurally prohibited.
  *   4. Validates proposed mutations in-memory using Babel before surfacing
@@ -26,9 +26,10 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { safeStorage } from 'electron'
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { homedir } from 'node:os'
+import { BRAND, logTag } from '../shared/brand.ts'
 import { tsLspClient } from './lsp/TypeScriptLspClient'
 import { vueLspClient } from './lsp/VueLspClient'
 import type { ILspClient } from './lsp/types'
@@ -215,8 +216,8 @@ export function classifyComplexity(input: RouterInput): ComplexityTier {
     // Phase 3: Prior turn evidence raises
     if (floor === 'atomic' && (
         input.priorToolCallCount >= 5 ||
-        input.priorToolNames.includes('bridge_insert_node') ||
-        input.priorToolNames.includes('bridge_wrap_node') ||
+        input.priorToolNames.includes('flint_insert_node') ||
+        input.priorToolNames.includes('flint_wrap_node') ||
         input.priorUniqueTargetIds >= 2
     )) {
         floor = 'compound'
@@ -304,7 +305,7 @@ export function buildAssessment(input: RouterInput): ComplexityAssessment {
         })
     }
 
-    if (input.priorToolNames.includes('bridge_insert_node') || input.priorToolNames.includes('bridge_wrap_node')) {
+    if (input.priorToolNames.includes('flint_insert_node') || input.priorToolNames.includes('flint_wrap_node')) {
         signals.push({
             source: 'prior_structural_tool',
             reason: 'Prior turn used structural insert/wrap operation',
@@ -347,7 +348,7 @@ function loadCurrentViolationCount(): number {
                 `SELECT COUNT(*) as count FROM governance_events WHERE event_type = 'violation'`,
             )
         }
-        const row = _violationCountStmt.get() as { count: number } | undefined
+        const row = _violationCountStmt.get({}) as { count: number } | undefined
         return row?.count ?? 0
     } catch {
         return 0  // safe default — never block routing on a DB error
@@ -423,7 +424,7 @@ function buildRouterInput(messages: ChatMessage[], activeFilePath?: string | nul
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
-export interface BridgeAIConfig {
+export interface FlintAIConfig {
     /**
      * Plaintext API key — legacy field kept for backward compatibility.
      * Present only in configs that predate SEC.4. Migrated to `apiKeyEncrypted`
@@ -451,8 +452,7 @@ export const ANTHROPIC_MODELS: { id: string; label: string; tier: 'fast' | 'bala
     { id: 'claude-opus-4-5', label: 'Claude Opus 4.5', tier: 'powerful' },
 ]
 
-const CONFIG_PATH = path.join(homedir(), '.bridge', 'config.json')
-const DEFAULT_MODEL = 'claude-3-7-sonnet-20250219'
+const CONFIG_PATH = path.join(homedir(), BRAND.configDir, 'config.json')
 
 // ── safeStorage helpers (SEC.4) ───────────────────────────────────────────────
 //
@@ -485,7 +485,7 @@ export function decryptApiKey(encrypted: string): string | null {
 }
 
 /**
- * Reads `~/.bridge/config.json` and resolves the API key securely.
+ * Reads `~/.flint/config.json` and resolves the API key securely.
  *
  * Resolution order:
  *   1. `apiKeyEncrypted` present → decrypt with safeStorage and return as
@@ -502,11 +502,11 @@ export function decryptApiKey(encrypted: string): string | null {
  * Fallback: if `safeStorage` is not available (CI, headless Linux without
  * libsecret), the legacy plaintext `apiKey` field is used with a warning.
  */
-export async function readConfig(): Promise<Partial<BridgeAIConfig>> {
+export async function readConfig(): Promise<Partial<FlintAIConfig>> {
     try {
         if (!existsSync(CONFIG_PATH)) return {}
         const raw = await readFile(CONFIG_PATH, 'utf-8')
-        const cfg = JSON.parse(raw) as Partial<BridgeAIConfig>
+        const cfg = JSON.parse(raw) as Partial<FlintAIConfig>
 
         // Preferred path: encrypted key present.
         if (typeof cfg.apiKeyEncrypted === 'string' && cfg.apiKeyEncrypted.length > 0) {
@@ -517,11 +517,11 @@ export async function readConfig(): Promise<Partial<BridgeAIConfig>> {
                     return { ...cfg, apiKey: decrypted }
                 }
                 // Decryption failed — fall through to legacy path (may be undefined).
-                console.warn('[Bridge] safeStorage: failed to decrypt apiKeyEncrypted; key unavailable')
+                console.warn(`${BRAND.logPrefix} safeStorage: failed to decrypt apiKeyEncrypted; key unavailable`)
                 return { ...cfg, apiKey: undefined }
             }
             // safeStorage unavailable (CI/headless) — key is not accessible.
-            console.warn('[Bridge] safeStorage: encryption unavailable; apiKeyEncrypted cannot be decrypted')
+            console.warn(`${BRAND.logPrefix} safeStorage: encryption unavailable; apiKeyEncrypted cannot be decrypted`)
             return { ...cfg, apiKey: undefined }
         }
 
@@ -529,7 +529,7 @@ export async function readConfig(): Promise<Partial<BridgeAIConfig>> {
         if (typeof cfg.apiKey === 'string' && cfg.apiKey.length > 0) {
             if (!safeStorage.isEncryptionAvailable()) {
                 // Headless / CI fallback — use plaintext with a warning.
-                console.warn('[Bridge] safeStorage: encryption unavailable; using plaintext API key fallback')
+                console.warn(`${BRAND.logPrefix} safeStorage: encryption unavailable; using plaintext API key fallback`)
             }
             // Migration will fire on next writeConfig call (SEC.4 idempotent migration).
             return cfg
@@ -542,7 +542,7 @@ export async function readConfig(): Promise<Partial<BridgeAIConfig>> {
 }
 
 /**
- * Persists a config patch to `~/.bridge/config.json`.
+ * Persists a config patch to `~/.flint/config.json`.
  *
  * When `config.apiKey` is provided and `safeStorage.isEncryptionAvailable()`:
  *   - Encrypts the key and stores it in `apiKeyEncrypted`.
@@ -554,31 +554,34 @@ export async function readConfig(): Promise<Partial<BridgeAIConfig>> {
  * The function is idempotent: writing the same config twice does not
  * double-encrypt or produce a different file hash.
  */
-export async function writeConfig(config: Partial<BridgeAIConfig>): Promise<void> {
+export async function writeConfig(config: Partial<FlintAIConfig>): Promise<void> {
     const dir = path.dirname(CONFIG_PATH)
     if (!existsSync(dir)) await mkdir(dir, { recursive: true })
 
     // Read the raw disk bytes to preserve fields we are not explicitly patching.
     // We read raw JSON (not via readConfig) to avoid inadvertently decrypting
     // and re-encrypting the key on every write, which would change the ciphertext.
-    let existing: Partial<BridgeAIConfig> = {}
+    let existing: Partial<FlintAIConfig> = {}
     try {
         if (existsSync(CONFIG_PATH)) {
-            existing = JSON.parse(await readFile(CONFIG_PATH, 'utf-8')) as Partial<BridgeAIConfig>
+            existing = JSON.parse(await readFile(CONFIG_PATH, 'utf-8')) as Partial<FlintAIConfig>
         }
     } catch { /* ignore */ }
 
-    const merged: Partial<BridgeAIConfig> = { ...existing, ...config }
+    const merged: Partial<FlintAIConfig> = { ...existing, ...config }
 
     // SEC.4: If a live apiKey is being written and safeStorage is available,
     // encrypt it and strip the plaintext field from disk.
+    // Note: the first call to safeStorage triggers a macOS Keychain permission
+    // dialog. This only happens when the user explicitly saves an API key, so
+    // the context is clear ("I entered a key → the app wants to store it safely").
     if (typeof merged.apiKey === 'string' && merged.apiKey.length > 0) {
         if (safeStorage.isEncryptionAvailable()) {
             merged.apiKeyEncrypted = encryptApiKey(merged.apiKey)
             delete merged.apiKey   // no plaintext at rest
         } else {
             // Headless / CI fallback — keep plaintext with a warning.
-            console.warn('[Bridge] safeStorage: encryption unavailable; API key stored in plaintext')
+            console.warn(`${BRAND.logPrefix} safeStorage: encryption unavailable; API key stored in plaintext`)
         }
     }
 
@@ -594,53 +597,53 @@ export async function hasApiKey(): Promise<boolean> {
     return typeof cfg.apiKey === 'string' && cfg.apiKey.length > 0
 }
 
-// ── Bridge Tool Catalog (Phase M — Commandment 15) ───────────────────────────
+// ── Flint Tool Catalog (Phase M — Commandment 15) ───────────────────────────
 //
-// These are the ONLY 7 operations the AI is allowed to request.
+// These are the ONLY operations the AI is allowed to request (Commandment 15).
 // Raw code strings, full-file replacements, and regex patches are
 // structurally prohibited — the LLM cannot emit them because no tool
 // in this catalog accepts them.
 
-export const BRIDGE_TOOLS: Anthropic.Tool[] = [
+export const FLINT_TOOLS: Anthropic.Tool[] = [
     {
-        name: 'bridge_read_code',
+        name: 'flint_read_code',
         description:
             'Read the current source code of the active file. Use this FIRST to understand component structure before proposing any changes.',
         input_schema: { type: 'object' as const, properties: {}, required: [] },
     },
     {
-        name: 'bridge_read_tokens',
+        name: 'flint_read_tokens',
         description:
-            'Read all design tokens from the Bridge token store. You MUST call this before proposing any className or style change. Only use token values that appear in this list. Never invent hex colours or pixel values.',
+            'Read all design tokens from the Flint token store. You MUST call this before proposing any className or style change. Only use token values that appear in this list. Never invent hex colours or pixel values.',
         input_schema: { type: 'object' as const, properties: {}, required: [] },
     },
     {
-        name: 'bridge_audit_mithril',
+        name: 'flint_audit_mithril',
         description:
             'Read all current Mithril Safety violations (color drift ΔE, typography, spacing, shadow, opacity). Use this to understand design system debt before proposing changes.',
         input_schema: { type: 'object' as const, properties: {}, required: [] },
     },
     {
-        name: 'bridge_audit_a11y',
+        name: 'flint_audit_a11y',
         description:
             'Read all current WCAG 2.1 AA accessibility violations. Verify your proposed changes do not introduce new violations.',
         input_schema: { type: 'object' as const, properties: {}, required: [] },
     },
     // ── Mutation tools (Phase M — strictly granular, node-targeted) ─────────────
     {
-        name: 'bridge_update_props',
+        name: 'flint_update_props',
         description:
             `Modify one or more JSX attributes on a single target node.
 
 Commandment 15 rules (mandatory):
-- targetId MUST be a data-bridge-id value read from bridge_read_code. Never invent IDs.
-- Never remove or change a data-bridge-id attribute.
-- className values MUST use Tailwind classes mapped to tokens from bridge_read_tokens.
-- Only call bridge_read_tokens first if you haven't already in this turn.`,
+- targetId MUST be a data-flint-id value read from flint_read_code. Never invent IDs.
+- Never remove or change a data-flint-id attribute.
+- className values MUST use Tailwind classes mapped to tokens from flint_read_tokens.
+- Only call flint_read_tokens first if you haven't already in this turn.`,
         input_schema: {
             type: 'object' as const,
             properties: {
-                targetId: { type: 'string', description: 'data-bridge-id of the target JSX element.' },
+                targetId: { type: 'string', description: 'data-flint-id of the target JSX element.' },
                 props: {
                     type: 'object',
                     description: 'Key-value pairs of JSX attribute names to new string values. E.g. { "className": "bg-brand-primary", "aria-label": "Submit" }',
@@ -652,12 +655,12 @@ Commandment 15 rules (mandatory):
         },
     },
     {
-        name: 'bridge_update_text',
+        name: 'flint_update_text',
         description: 'Modify the visible text content of a single JSX element. Use this for copy changes, label updates, and heading edits.',
         input_schema: {
             type: 'object' as const,
             properties: {
-                targetId: { type: 'string', description: 'data-bridge-id of the target JSX element.' },
+                targetId: { type: 'string', description: 'data-flint-id of the target JSX element.' },
                 text: { type: 'string', description: 'New text content to set.' },
                 reasoning: { type: 'string', description: 'One-sentence explanation shown in the UI diff card.' },
             },
@@ -665,15 +668,15 @@ Commandment 15 rules (mandatory):
         },
     },
     {
-        name: 'bridge_insert_node',
+        name: 'flint_insert_node',
         description:
             `Insert a new JSX element relative to an existing target node.
 position: 'before' | 'after' | 'firstChild' | 'lastChild'
-Only use element types that exist in the design system read from bridge_read_tokens or the source file imports.`,
+Only use element types that exist in the design system read from flint_read_tokens or the source file imports.`,
         input_schema: {
             type: 'object' as const,
             properties: {
-                targetId: { type: 'string', description: 'data-bridge-id of the reference node.' },
+                targetId: { type: 'string', description: 'data-flint-id of the reference node.' },
                 position: { type: 'string', enum: ['before', 'after', 'firstChild', 'lastChild'] },
                 nodeType: { type: 'string', description: 'JSX element tag name, e.g. "div", "Button", "p".' },
                 props: {
@@ -688,12 +691,12 @@ Only use element types that exist in the design system read from bridge_read_tok
         },
     },
     {
-        name: 'bridge_wrap_node',
+        name: 'flint_wrap_node',
         description: 'Wrap an existing JSX element in a new parent element. Use for layout restructuring only.',
         input_schema: {
             type: 'object' as const,
             properties: {
-                targetId: { type: 'string', description: 'data-bridge-id of the node to wrap.' },
+                targetId: { type: 'string', description: 'data-flint-id of the node to wrap.' },
                 wrapperType: { type: 'string', description: 'JSX tag for the new wrapper, e.g. "div", "section".' },
                 props: {
                     type: 'object',
@@ -706,24 +709,24 @@ Only use element types that exist in the design system read from bridge_read_tok
         },
     },
     {
-        name: 'bridge_delete_node',
+        name: 'flint_delete_node',
         description: 'Remove a JSX element and all its children from the tree. This also clears any component_overrides rows for the deleted node.',
         input_schema: {
             type: 'object' as const,
             properties: {
-                targetId: { type: 'string', description: 'data-bridge-id of the element to remove.' },
+                targetId: { type: 'string', description: 'data-flint-id of the element to remove.' },
                 reasoning: { type: 'string', description: 'One-sentence explanation shown in the UI diff card.' },
             },
             required: ['targetId', 'reasoning'],
         },
     },
     {
-        name: 'bridge_add_class',
-        description: 'Append one design-token Tailwind class to a node\'s className. Call bridge_read_tokens first to find valid class names.',
+        name: 'flint_add_class',
+        description: 'Append one design-token Tailwind class to a node\'s className. Call flint_read_tokens first to find valid class names.',
         input_schema: {
             type: 'object' as const,
             properties: {
-                targetId: { type: 'string', description: 'data-bridge-id of the target node.' },
+                targetId: { type: 'string', description: 'data-flint-id of the target node.' },
                 className: { type: 'string', description: 'Single Tailwind class to add, e.g. "mt-4" or "bg-brand-primary".' },
                 reasoning: { type: 'string', description: 'One-sentence explanation shown in the UI diff card.' },
             },
@@ -731,21 +734,125 @@ Only use element types that exist in the design system read from bridge_read_tok
         },
     },
     {
-        name: 'bridge_remove_class',
+        name: 'flint_remove_class',
         description: 'Remove one specific Tailwind class from a node\'s className.',
         input_schema: {
             type: 'object' as const,
             properties: {
-                targetId: { type: 'string', description: 'data-bridge-id of the target node.' },
+                targetId: { type: 'string', description: 'data-flint-id of the target node.' },
                 className: { type: 'string', description: 'Exact class string to remove.' },
                 reasoning: { type: 'string', description: 'One-sentence explanation shown in the UI diff card.' },
             },
             required: ['targetId', 'className', 'reasoning'],
         },
     },
+    // ── CATALOG.1: Hook + Handler + Callback + Import emission ─────────────────
+    {
+        name: 'flint_emit_hook',
+        description: 'Inject a React hook call (useState, useEffect, useRef, etc.) at the top of a component function body. Respects Rules of Hooks.',
+        input_schema: {
+            type: 'object' as const,
+            properties: {
+                componentName: { type: 'string', description: 'Name of the target component function.' },
+                hookStatement: { type: 'string', description: 'Full hook call, e.g. "const [count, setCount] = useState(0)"' },
+                importSnippet: { type: 'string', description: 'Import to add if needed.' },
+                reasoning: { type: 'string', description: 'One-sentence explanation.' },
+            },
+            required: ['componentName', 'hookStatement', 'reasoning'],
+        },
+    },
+    {
+        name: 'flint_emit_handler',
+        description: 'Inject a named handler function inside a component body (below hooks, above return).',
+        input_schema: {
+            type: 'object' as const,
+            properties: {
+                componentName: { type: 'string', description: 'Name of the target component function.' },
+                handlerCode: { type: 'string', description: 'Full handler declaration.' },
+                reasoning: { type: 'string', description: 'One-sentence explanation.' },
+            },
+            required: ['componentName', 'handlerCode', 'reasoning'],
+        },
+    },
+    {
+        name: 'flint_emit_callback',
+        description: 'Wire a handler reference to an event prop on a JSX element. Creates onClick={expression}.',
+        input_schema: {
+            type: 'object' as const,
+            properties: {
+                targetId: { type: 'string', description: 'data-flint-id of the target element.' },
+                propName: { type: 'string', description: 'Event prop name, e.g. "onClick".' },
+                expression: { type: 'string', description: 'JS expression, e.g. "handleClick".' },
+                reasoning: { type: 'string', description: 'One-sentence explanation.' },
+            },
+            required: ['targetId', 'propName', 'expression', 'reasoning'],
+        },
+    },
+    {
+        name: 'flint_emit_import',
+        description: 'Add an import declaration to the file. Deduplicates at the specifier level.',
+        input_schema: {
+            type: 'object' as const,
+            properties: {
+                importSnippet: { type: 'string', description: 'Full import statement.' },
+                reasoning: { type: 'string', description: 'One-sentence explanation.' },
+            },
+            required: ['importSnippet', 'reasoning'],
+        },
+    },
+    // ── CATALOG.2: Conditional rendering + array mapping ───────────────────────
+    {
+        name: 'flint_emit_conditional',
+        description:
+            'Wrap a JSX element in a conditional guard. Mode "and" produces {condition && <Element/>}. Mode "ternary" produces {condition ? <Element/> : <Fallback/>}.',
+        input_schema: {
+            type: 'object' as const,
+            properties: {
+                targetId: { type: 'string', description: 'data-flint-id of the element to conditionally render.' },
+                condition: { type: 'string', description: 'JS boolean expression, e.g. "isOpen" or "items.length > 0".' },
+                mode: { type: 'string', enum: ['and', 'ternary'], description: '"and" for && guard, "ternary" for ternary with fallback.' },
+                fallback: { type: 'string', description: 'For ternary mode: fallback JSX or "null". Ignored in "and" mode.' },
+                reasoning: { type: 'string', description: 'One-sentence explanation.' },
+            },
+            required: ['targetId', 'condition', 'mode', 'reasoning'],
+        },
+    },
+    {
+        name: 'flint_emit_map',
+        description:
+            'Wrap a JSX element in an array.map() to render it for each item. Automatically injects a key prop (Commandment 3). The keyExpression must reference a stable identifier, not the array index.',
+        input_schema: {
+            type: 'object' as const,
+            properties: {
+                targetId: { type: 'string', description: 'data-flint-id of the template element to repeat.' },
+                arrayExpression: { type: 'string', description: 'Array to iterate, e.g. "items" or "users.filter(u => u.active)".' },
+                iteratorName: { type: 'string', description: 'Iterator parameter name, e.g. "item".' },
+                keyExpression: { type: 'string', description: 'Stable key expression, e.g. "item.id". Must not be "index".' },
+                reasoning: { type: 'string', description: 'One-sentence explanation.' },
+            },
+            required: ['targetId', 'arrayExpression', 'iteratorName', 'keyExpression', 'reasoning'],
+        },
+    },
+    // ── CATALOG.3: Compound component support ─────────────────────────────────
+    {
+        name: 'flint_compose_slot',
+        description:
+            'Insert content into a compound component slot (e.g., Dialog.Header, Tabs.Panel). If the slot does not exist, it is created.',
+        input_schema: {
+            type: 'object' as const,
+            properties: {
+                parentId: { type: 'string', description: 'data-flint-id of the compound component root.' },
+                slotName: { type: 'string', description: 'Dotted slot name, e.g. "Dialog.Header".' },
+                jsxSnippet: { type: 'string', description: 'JSX content to inject into the slot.' },
+                importSnippet: { type: 'string', description: 'Optional import to add.' },
+                reasoning: { type: 'string', description: 'One-sentence explanation.' },
+            },
+            required: ['parentId', 'slotName', 'jsxSnippet', 'reasoning'],
+        },
+    },
     // ── Phase M: Design System RAG Search ─────────────────────────────────────
     {
-        name: 'bridge_search_design_system',
+        name: 'flint_search_design_system',
         description:
             'Search the design system knowledge base for component patterns, usage guidelines, and documentation. Use this when you need context about how components should be structured, which patterns to follow, or to find existing design system conventions before proposing changes.',
         input_schema: {
@@ -756,33 +863,59 @@ Only use element types that exist in the design system read from bridge_read_tok
             required: ['query'],
         },
     },
+    // ── CATALOG.4: Prop validation (advisory, read-only) ─────────────────────
+    {
+        name: 'flint_validate_props',
+        description: 'Type-check props against a component interface from the registry. Advisory: use before proposing prop changes. Returns validation errors or confirms compatibility.',
+        input_schema: {
+            type: 'object' as const,
+            properties: {
+                componentName: { type: 'string', description: 'Component name to validate against.' },
+                props: { type: 'object', description: 'Props to validate.' },
+                reasoning: { type: 'string', description: 'Why this validation is needed.' },
+            },
+            required: ['componentName', 'props', 'reasoning'],
+        },
+    },
 ]
 
 // ── System Prompt (Phase M) ───────────────────────────────────────────────────
 
-export const SYSTEM_PROMPT = `You are the Bridge Auditor, an AI assistant integrated into Bridge IDE — the world's first Agentic UI Operating System. Your role is to make precise, design-system-compliant, accessible component edits using the Bridge tool catalog.
+export const SYSTEM_PROMPT = `You are the Flint Auditor, an AI assistant integrated into Flint IDE — the world's first Agentic UI Operating System. Your role is to make precise, design-system-compliant, accessible component edits using the Flint tool catalog.
 
 ## Non-Negotiable Rules (Commandments 15 & 16)
 
-1. **Granular Tools Only**: You MUST only use the tools provided. You may NEVER generate raw source code strings or full-file replacements. Every edit must target a specific data-bridge-id.
+1. **Granular Tools Only**: You MUST only use the tools provided. You may NEVER generate raw source code strings or full-file replacements. Every edit must target a specific data-flint-id.
 
-2. **No Hallucinated IDs**: Every targetId you use MUST come from the source code returned by bridge_read_code. Never invent or guess a bridge ID.
+2. **No Hallucinated IDs**: Every targetId you use MUST come from the source code returned by flint_read_code. Never invent or guess a flint ID.
 
-3. **No Hallucinated Styling**: Before proposing any className, call bridge_read_tokens. Only use token classes in the result.
+3. **No Hallucinated Styling**: Before proposing any className, call flint_read_tokens. Only use token classes in the result.
 
-4. **Preserve data-bridge-id**: Never remove or change a data-bridge-id attribute in any mutation.
+4. **Preserve data-flint-id**: Never remove or change a data-flint-id attribute in any mutation.
 
-5. **Accessibility First**: If your task touches interactive elements (button, a, input, img), call bridge_audit_a11y first. Fix violations as part of your response.
+5. **Accessibility First**: If your task touches interactive elements (button, a, input, img), call flint_audit_a11y first. Fix violations as part of your response.
 
 ## Workflow
 
 For every task:
-1. bridge_read_code → understand the structure and collect real bridge IDs
-2. bridge_read_tokens → get valid token classes (skip only for non-style tasks)
+1. flint_read_code → understand the structure and collect real flint IDs
+2. flint_read_tokens → get valid token classes (skip only for non-style tasks)
 3. Propose the minimum set of granular tool calls needed
 4. Always include concise reasoning in every tool call
 
-Always be concise. The user is an engineer; skip preamble.`
+Always be concise. The user is an engineer; skip preamble.
+
+## Interactive UI Workflow
+
+When adding interactivity to a component:
+1. flint_emit_hook — add state (useState, useRef, etc.)
+2. flint_emit_handler — add event handler functions that reference the state
+3. flint_emit_callback — wire the handlers to JSX event props (onClick, onChange)
+4. flint_emit_conditional — add conditional rendering guards for state-dependent UI
+5. flint_emit_map — render lists with automatic key prop injection
+
+Always declare hooks before handlers, and handlers before wiring them to elements.
+Do not inline complex logic in flint_emit_callback — use flint_emit_handler first.`
 
 // ── Chat Message Types ────────────────────────────────────────────────────────
 
@@ -856,21 +989,31 @@ function lspForFile(filePath?: string | null): ILspClient {
 // a VueAdapter or AngularAdapter can supply a Volar or Angular LS client.
 
 const MUTATION_TOOL_NAMES = new Set([
-    'bridge_update_props',
-    'bridge_update_text',
-    'bridge_insert_node',
-    'bridge_wrap_node',
-    'bridge_delete_node',
-    'bridge_add_class',
-    'bridge_remove_class',
+    'flint_update_props',
+    'flint_update_text',
+    'flint_insert_node',
+    'flint_wrap_node',
+    'flint_delete_node',
+    'flint_add_class',
+    'flint_remove_class',
+    // CATALOG.1
+    'flint_emit_hook',
+    'flint_emit_handler',
+    'flint_emit_callback',
+    'flint_emit_import',
+    // CATALOG.2
+    'flint_emit_conditional',
+    'flint_emit_map',
+    // CATALOG.3
+    'flint_compose_slot',
 ])
 
 // ── V.1: Stateless Mutation Risk Scorer (inline, no SQLite) ──────────────────
 //
 // A lightweight, purely functional MRS scorer. It mirrors the four-factor
-// formula in bridge-mcp/src/core/governance/riskScoringService.ts (the
+// formula in flint-mcp/src/core/governance/riskScoringService.ts (the
 // stateless V.1-rs API section) but lives here so the main process does not
-// need to import across the bridge-mcp package boundary.
+// need to import across the flint-mcp package boundary.
 //
 // Formula:
 //   mrs = clamp(opWeight×0.40 + blastRadius×0.35 + severity×0.15 + familiarity×0.10)
@@ -880,13 +1023,23 @@ const MUTATION_TOOL_NAMES = new Set([
 
 /** Op risk weights (0.0–1.0) for each tool name. */
 const MRS_OP_WEIGHTS: Record<string, number> = {
-    bridge_update_text:    0.15,
-    bridge_update_props:   0.20,
-    bridge_add_class:      0.10,
-    bridge_remove_class:   0.10,
-    bridge_insert_node:    0.55,   // structural — above the 0.50 threshold
-    bridge_wrap_node:      0.60,   // structural
-    bridge_delete_node:    0.90,   // destructive — structural, highest weight
+    flint_update_text:    0.15,
+    flint_update_props:   0.20,
+    flint_add_class:      0.10,
+    flint_remove_class:   0.10,
+    flint_insert_node:    0.55,   // structural — above the 0.50 threshold
+    flint_wrap_node:      0.60,   // structural
+    flint_delete_node:    0.90,   // destructive — structural, highest weight
+    // CATALOG.1
+    flint_emit_hook:      0.35,
+    flint_emit_handler:   0.30,
+    flint_emit_callback:  0.25,
+    flint_emit_import:    0.10,
+    // CATALOG.2
+    flint_emit_conditional: 0.40,
+    flint_emit_map:         0.50,
+    // CATALOG.3
+    flint_compose_slot:     0.45,
 }
 
 const MRS_UNKNOWN_OP_WEIGHT = 0.50
@@ -897,14 +1050,22 @@ const MRS_UNKNOWN_OP_WEIGHT = 0.50
  * of blast radius or violation context. The formula alone cannot guarantee the
  * correct tier with small affectedNodeCount, so policy floors enforce intent.
  *
- *   bridge_insert_node  → at least amber (structural insertion)
- *   bridge_wrap_node    → at least amber (structural wrapping)
- *   bridge_delete_node  → red (destructive — always requires sign-off)
+ *   flint_insert_node  → at least amber (structural insertion)
+ *   flint_wrap_node    → at least amber (structural wrapping)
+ *   flint_delete_node  → red (destructive — always requires sign-off)
  */
 const MRS_TIER_FLOORS: Record<string, MRSTier> = {
-    bridge_insert_node: 'amber',
-    bridge_wrap_node:   'amber',
-    bridge_delete_node: 'red',
+    flint_insert_node: 'amber',
+    flint_wrap_node:   'amber',
+    flint_delete_node: 'red',
+    // CATALOG.1
+    flint_emit_hook:    'amber',
+    flint_emit_handler: 'amber',
+    // CATALOG.2
+    flint_emit_conditional: 'amber',
+    flint_emit_map:         'amber',
+    // CATALOG.3
+    flint_compose_slot:     'amber',
 }
 
 function mrsClamped(n: number): number {
@@ -936,7 +1097,7 @@ function applyTierFloor(computed: MRSTier, floor: MRSTier | undefined): MRSTier 
  *
  * Never throws — returns a green/0.0 assessment on any internal error.
  *
- * @param toolName         The Bridge tool name (e.g. 'bridge_delete_node').
+ * @param toolName         The Flint tool name (e.g. 'flint_delete_node').
  * @param affectedNodes    Number of nodes the op will touch (default 1).
  * @param hasViolations    True if the current file has active violations.
  */
@@ -1053,14 +1214,14 @@ function mithrilClassCheck(classNameString: string): string | null {
  * Validates a single mutation tool call.
  *
  * Synchronous guards (fast, zero I/O) fire first:
- *   • data-bridge-id tampering check
+ *   • data-flint-id tampering check
  *   • compound className guard
  *   • prop value type check
  *   • Commandment 17: Mithril color-drift pre-commit check
  *
  * Then async LSP validation fires for structural ops that produce JSX snippets:
- *   • bridge_insert_node  — checks the new element's JSX is valid TypeScript
- *   • bridge_wrap_node    — checks the wrapper element's JSX is valid TypeScript
+ *   • flint_insert_node  — checks the new element's JSX is valid TypeScript
+ *   • flint_wrap_node    — checks the wrapper element's JSX is valid TypeScript
  *
  * @param lsp  The ILspClient to use. Defaults to the shared tsLspClient singleton.
  */
@@ -1071,41 +1232,57 @@ async function validateToolInput(
 ): Promise<string | null> {
     if (!MUTATION_TOOL_NAMES.has(toolName)) return null  // read-only tools always pass
 
+    // ── CR.2: Registry membership check ──────────────────────────────────────────
+    // Uses activeRegistry (scope-filtered) set at the beginning of sendChatMessage.
+    const membershipError = validateRegistryMembership(toolName, input, activeRegistry)
+    if (membershipError !== null) return membershipError
+
     // ── Synchronous guards (no I/O) ─────────────────────────────────────────────
-    if (toolName === 'bridge_update_props') {
+    if (toolName === 'flint_update_props') {
         const props = (input.props as Record<string, string>) ?? {}
         for (const [k, v] of Object.entries(props)) {
-            if (k === 'data-bridge-id') {
-                return 'Commandment 7 violation: data-bridge-id must never be modified.'
+            if (k === 'data-flint-id') {
+                return 'Commandment 7 violation: data-flint-id must never be modified.'
             }
             if (typeof v !== 'string') {
                 return `Prop "${k}" value must be a plain string, not a JS expression.`
             }
         }
         // ── Commandment 17: Mithril pre-commit check on className prop ────────
-        // Only fires when the AI is setting className directly via bridge_update_props.
+        // Only fires when the AI is setting className directly via flint_update_props.
         const proposedClassName = typeof props['className'] === 'string' ? props['className'] : null
         if (proposedClassName !== null) {
             const mithrilError = mithrilClassCheck(proposedClassName)
             if (mithrilError !== null) {
-                console.warn(`[Bridge] Commandment 17 blocked bridge_update_props: ${mithrilError}`)
+                console.warn(`${BRAND.logPrefix} Commandment 17 blocked flint_update_props: ${mithrilError}`)
                 return mithrilError
             }
         }
-        return null  // prop-only changes don't need LSP
+        // CATALOG.4: If the target component is in the registry, validate prop types via LSP
+        const targetComponent = typeof input.targetId === 'string' ? extractComponentNameFromId(input.targetId) : null
+        if (targetComponent) {
+            const typeStub = buildPropTypeStub(targetComponent)
+            if (typeStub) {
+                const propEntries = Object.entries(props).map(([k, v]) => `${k}="${v}"`).join(' ')
+                const augmentedSnippet = `${typeStub}\nconst __v = <${targetComponent} ${propEntries} />;`
+                const lspError = await lsp.validateSnippet(augmentedSnippet)
+                if (lspError !== null) return `Prop type mismatch: ${lspError}`
+            }
+        }
+        return null
     }
 
-    if (toolName === 'bridge_add_class' || toolName === 'bridge_remove_class') {
+    if (toolName === 'flint_add_class' || toolName === 'flint_remove_class') {
         const className = typeof input.className === 'string' ? input.className : ''
         if (className.trim().includes(' ')) {
             return `className must be a single class token, not a compound string. Got: "${className}". Call this tool once per class.`
         }
         // ── Commandment 17: Mithril pre-commit check on the single class ──────
-        // Only fires for bridge_add_class — removing a class can never introduce drift.
-        if (toolName === 'bridge_add_class' && className.length > 0) {
+        // Only fires for flint_add_class — removing a class can never introduce drift.
+        if (toolName === 'flint_add_class' && className.length > 0) {
             const mithrilError = mithrilClassCheck(className)
             if (mithrilError !== null) {
-                console.warn(`[Bridge] Commandment 17 blocked bridge_add_class: ${mithrilError}`)
+                console.warn(`${BRAND.logPrefix} Commandment 17 blocked flint_add_class: ${mithrilError}`)
                 return mithrilError
             }
         }
@@ -1115,11 +1292,11 @@ async function validateToolInput(
     // ── Async LSP validation (structural JSX ops) ──────────────────────────────
     let snippet: string | null = null
 
-    if (toolName === 'bridge_insert_node') {
+    if (toolName === 'flint_insert_node') {
         const nodeType = typeof input.nodeType === 'string' ? input.nodeType : 'div'
         const children = typeof input.children === 'string' ? input.children : ''
         snippet = `const __v = <${nodeType}>${children}</${nodeType}>;`
-    } else if (toolName === 'bridge_wrap_node') {
+    } else if (toolName === 'flint_wrap_node') {
         const wrapperType = typeof input.wrapperType === 'string' ? input.wrapperType : 'div'
         snippet = `const __v = <${wrapperType}><div /></${wrapperType}>;`
     }
@@ -1129,14 +1306,14 @@ async function validateToolInput(
         if (lspError !== null) return lspError
 
         // ── Commandment 17: Mithril pre-commit check on insert/wrap props ─────
-        // Check className in the props object for bridge_insert_node.
-        if (toolName === 'bridge_insert_node') {
+        // Check className in the props object for flint_insert_node.
+        if (toolName === 'flint_insert_node') {
             const insertProps = (input.props as Record<string, string> | undefined) ?? {}
             const insertClassName = typeof insertProps['className'] === 'string' ? insertProps['className'] : null
             if (insertClassName !== null) {
                 const mithrilError = mithrilClassCheck(insertClassName)
                 if (mithrilError !== null) {
-                    console.warn(`[Bridge] Commandment 17 blocked bridge_insert_node: ${mithrilError}`)
+                    console.warn(`${BRAND.logPrefix} Commandment 17 blocked flint_insert_node: ${mithrilError}`)
                     return mithrilError
                 }
             }
@@ -1145,7 +1322,322 @@ async function validateToolInput(
         return null
     }
 
+    // ── CATALOG.1: hook / handler / callback / import validation ──────────────
+    if (toolName === 'flint_emit_hook') {
+        const hookStatement = typeof input.hookStatement === 'string' ? input.hookStatement : ''
+        const syntheticFn = `function __FlintValidate() {\n  ${hookStatement}\n  return null;\n}`
+        const lspError = await lsp.validateSnippet(syntheticFn)
+        if (lspError !== null) return `flint_emit_hook: invalid hookStatement — ${lspError}`
+        return null
+    }
+
+    if (toolName === 'flint_emit_handler') {
+        const handlerCode = typeof input.handlerCode === 'string' ? input.handlerCode : ''
+        const syntheticFn = `function __FlintValidate() {\n  ${handlerCode}\n  return null;\n}`
+        const lspError = await lsp.validateSnippet(syntheticFn)
+        if (lspError !== null) return `flint_emit_handler: invalid handlerCode — ${lspError}`
+        return null
+    }
+
+    if (toolName === 'flint_emit_callback') {
+        const propName = typeof input.propName === 'string' ? input.propName : 'onClick'
+        const expression = typeof input.expression === 'string' ? input.expression : ''
+        const syntheticJSX = `const __v = <div ${propName}={${expression}} />;`
+        const lspError = await lsp.validateSnippet(syntheticJSX)
+        if (lspError !== null) return `flint_emit_callback: invalid expression — ${lspError}`
+        return null
+    }
+
+    // ── CATALOG.2: conditional / map validation ────────────────────────────────
+    if (toolName === 'flint_emit_conditional') {
+        const condition = typeof input.condition === 'string' ? input.condition : ''
+        const mode = typeof input.mode === 'string' ? input.mode : 'and'
+        const fallback = typeof input.fallback === 'string' ? input.fallback : 'null'
+        const syntheticJSX = mode === 'ternary'
+            ? `const __v = <>{${condition} ? <div /> : ${fallback}}</>;`
+            : `const __v = <>{${condition} && <div />}</>;`
+        const lspError = await lsp.validateSnippet(syntheticJSX)
+        if (lspError !== null) return `flint_emit_conditional: invalid condition — ${lspError}`
+        return null
+    }
+
+    if (toolName === 'flint_emit_map') {
+        const keyExpression = typeof input.keyExpression === 'string' ? input.keyExpression : ''
+        if (keyExpression === 'index' || keyExpression.endsWith('.index')) {
+            return 'Commandment 3 violation: keyExpression must not be "index". Use a stable identifier like "item.id".'
+        }
+        const arrayExpression = typeof input.arrayExpression === 'string' ? input.arrayExpression : 'items'
+        const iteratorName = typeof input.iteratorName === 'string' ? input.iteratorName : 'item'
+        const syntheticJSX = `const __v = <>{${arrayExpression}.map((${iteratorName}) => <div key={${keyExpression}} />)}</>;`
+        const lspError = await lsp.validateSnippet(syntheticJSX)
+        if (lspError !== null) return `flint_emit_map: invalid expression — ${lspError}`
+        return null
+    }
+
     return null  // all other ops pass by default
+}
+
+// ── CATALOG.4: LSP-backed prop validation ─────────────────────────────────────
+
+interface PropDef { type: string; required: boolean; default?: string }
+interface RegistryEntry {
+    name: string
+    props?: Record<string, PropDef>
+    /** Allowed variant string values (e.g. ["primary", "secondary", "ghost"]) */
+    variants?: string[]
+    /** Design token names consumed by this component (e.g. ["color.primary"]) */
+    tokens?: string[]
+    /** Optional import path for reference */
+    importPath?: string
+    /** Optional description */
+    description?: string
+}
+
+/** Cached registry — reloaded at the start of each sendChatMessage call. */
+let cachedRegistry: Record<string, RegistryEntry> = {}
+
+/**
+ * Active (scope-filtered) registry for the current sendChatMessage invocation.
+ * Updated at the start of each call. Equals cachedRegistry when no scope is set.
+ */
+let activeRegistry: Record<string, RegistryEntry> = {}
+
+// ── HTML intrinsic tag set — never require registry membership ─────────────────
+const HTML_INTRINSICS = new Set([
+    'div', 'span', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+    'section', 'article', 'nav', 'main', 'header', 'footer', 'aside',
+    'ul', 'ol', 'li', 'a', 'img', 'button', 'input', 'textarea', 'select',
+    'form', 'label', 'table', 'tr', 'td', 'th', 'thead', 'tbody', 'tfoot',
+    'details', 'summary', 'dialog', 'figure', 'figcaption', 'blockquote',
+    'pre', 'code', 'hr', 'br', 'svg', 'path',
+])
+
+/**
+ * CR.1 — Serialize the component registry into a BINDING markdown constraint block.
+ *
+ * The block instructs the model to use only registered components. Empty registry
+ * returns an empty string (backward compatible — no constraint on token-less projects).
+ *
+ * @param registry  The (optionally scope-filtered) registry map.
+ * @param scope     Optional allow-list of component names. When non-empty, only
+ *                  entries whose key appears in scope are included.
+ */
+export function serializeRegistryConstraints(
+    registry: Record<string, RegistryEntry>,
+    scope?: string[],
+): string {
+    if (!registry || Object.keys(registry).length === 0) return ''
+
+    // Apply scope filter when provided and non-empty
+    let entries = Object.entries(registry)
+    if (scope && scope.length > 0) {
+        const scopeSet = new Set(scope)
+        entries = entries.filter(([key]) => scopeSet.has(key))
+    }
+
+    if (entries.length === 0) return ''
+
+    const MAX_COMPONENTS = 40
+    const total = entries.length
+    const truncated = entries.length > MAX_COMPONENTS
+    const slice = truncated ? entries.slice(0, MAX_COMPONENTS) : entries
+
+    const lines: string[] = [
+        '## Project Component Registry (BINDING)',
+        '',
+        'You MUST only compose UI from components in this registry. Do NOT reference, create, or import components not listed here. If the user\'s request cannot be fulfilled with these components, explain what\'s missing.',
+        '',
+        'Available components:',
+    ]
+
+    for (const [key, entry] of slice) {
+        const name = entry.name ?? key
+        const parts: string[] = []
+
+        // Props — mark required ones with [required]
+        if (entry.props && Object.keys(entry.props).length > 0) {
+            const propList = Object.entries(entry.props)
+                .map(([pName, pDef]) => pDef.required ? `${pName}[required]` : pName)
+                .join(', ')
+            parts.push(`props: ${propList}`)
+        }
+
+        // Variants
+        if (entry.variants && entry.variants.length > 0) {
+            parts.push(`variants: ${entry.variants.join(', ')}`)
+        }
+
+        // Consumed tokens
+        if (entry.tokens && entry.tokens.length > 0) {
+            parts.push(`tokens: ${entry.tokens.join(', ')}`)
+        }
+
+        const detail = parts.length > 0 ? ` (${parts.join(') (')})` : ''
+        lines.push(`- ${name}${detail}`)
+    }
+
+    if (truncated) {
+        lines.push(`\n${MAX_COMPONENTS} of ${total} components shown. Use flint_search_design_system for the full catalog.`)
+    }
+
+    return lines.join('\n')
+}
+
+/**
+ * CR.1 — Serialize the design token palette into a BINDING markdown constraint block.
+ *
+ * Tokens are grouped by token_type. Empty token array returns an empty string.
+ *
+ * @param tokens  All MithrilToken rows from the SQLite design_tokens table.
+ */
+export function serializeTokenConstraints(tokens: MithrilToken[]): string {
+    if (!tokens || tokens.length === 0) return ''
+
+    // Group by token_type
+    const groups: Record<string, MithrilToken[]> = {}
+    for (const token of tokens) {
+        const type = token.token_type ?? 'other'
+        if (!groups[type]) groups[type] = []
+        groups[type].push(token)
+    }
+
+    const lines: string[] = [
+        '## Design Token Palette (BINDING)',
+        '',
+        'All visual properties MUST use these tokens. Do NOT use arbitrary hex colors, pixel values, or spacing values not in this list.',
+        '',
+    ]
+
+    // Irregular/uncountable token type labels
+    const TOKEN_TYPE_LABELS: Record<string, string> = {
+        color: 'Colors',
+        typography: 'Typography',
+        spacing: 'Spacing',
+        shadow: 'Shadows',
+        opacity: 'Opacity',
+        radius: 'Radius',
+        other: 'Other',
+    }
+
+    for (const [type, group] of Object.entries(groups)) {
+        // Capitalize type name; use lookup table for irregular forms
+        const label = TOKEN_TYPE_LABELS[type] ?? (type.charAt(0).toUpperCase() + type.slice(1) + 's')
+        // Format: "Type: token-path (value), token-path (value)"
+        const entries = group
+            .map(t => `${t.token_path} (${t.token_value})`)
+            .join(', ')
+        lines.push(`${label}: ${entries}`)
+    }
+
+    return lines.join('\n')
+}
+
+/**
+ * CR.2 — Validate that a component-creating tool call targets a registered component.
+ *
+ * Only checks tools that create or reference component types:
+ *   - flint_insert_node  → checks input.nodeType
+ *   - flint_wrap_node    → checks input.wrapperType
+ *   - flint_compose_slot → checks root component of input.slotName (e.g. "Dialog" from "Dialog.Header")
+ *
+ * HTML intrinsics are always allowed.
+ * When the registry is empty, all components pass (no constraint imposed).
+ *
+ * @returns Error string if the component is not in the registry; null if it passes.
+ */
+export function validateRegistryMembership(
+    toolName: string,
+    input: Record<string, unknown>,
+    registry: Record<string, RegistryEntry>,
+): string | null {
+    // Only check component-creating tools
+    if (
+        toolName !== 'flint_insert_node' &&
+        toolName !== 'flint_wrap_node' &&
+        toolName !== 'flint_compose_slot'
+    ) {
+        return null
+    }
+
+    // Empty registry — no constraint
+    if (!registry || Object.keys(registry).length === 0) return null
+
+    // Extract the component name from the correct field per tool
+    let componentName: string | null = null
+
+    if (toolName === 'flint_insert_node') {
+        componentName = typeof input.nodeType === 'string' ? input.nodeType : null
+    } else if (toolName === 'flint_wrap_node') {
+        componentName = typeof input.wrapperType === 'string' ? input.wrapperType : null
+    } else if (toolName === 'flint_compose_slot') {
+        const slotName = typeof input.slotName === 'string' ? input.slotName : ''
+        // Extract root: "Dialog.Header" → "Dialog"
+        componentName = slotName.split('.')[0] ?? null
+    }
+
+    if (!componentName || componentName.trim() === '') return null
+
+    // Allow HTML intrinsics (case-sensitive — JSX elements are always lowercase for intrinsics)
+    if (HTML_INTRINSICS.has(componentName.toLowerCase()) && componentName[0] === componentName[0]?.toLowerCase()) {
+        return null
+    }
+
+    // Only validate PascalCase names (component conventions)
+    const firstChar = componentName[0]
+    if (!firstChar || firstChar === firstChar.toLowerCase()) {
+        // Lowercase first char → HTML intrinsic or custom element; skip registry check
+        return null
+    }
+
+    // Check registry membership
+    if (registry[componentName]) return null
+
+    const available = Object.keys(registry).join(', ')
+    return `Component '${componentName}' is not in the project registry. Available components: ${available}. Use only registered components or HTML intrinsics.`
+}
+
+function loadComponentRegistry(workspaceRoot: string): void {
+    try {
+        const manifestPath = path.join(workspaceRoot, BRAND.manifestFile)
+        if (!existsSync(manifestPath)) { cachedRegistry = {}; return }
+        const raw = JSON.parse(readFileSync(manifestPath, 'utf-8'))
+        cachedRegistry = raw.components ?? raw ?? {}
+    } catch { cachedRegistry = {} }
+}
+
+/**
+ * Build a minimal TypeScript interface stub from the component registry.
+ * Returns null if the component is not in the registry or has no props.
+ */
+function buildPropTypeStub(componentName: string): string | null {
+    const entry = cachedRegistry[componentName]
+    if (!entry?.props || Object.keys(entry.props).length === 0) return null
+
+    const propLines = Object.entries(entry.props).map(([name, def]) => {
+        const opt = def.required ? '' : '?'
+        return `  ${name}${opt}: ${def.type};`
+    })
+
+    return [
+        `interface ${componentName}Props {`,
+        ...propLines,
+        `}`,
+        `declare function ${componentName}(props: ${componentName}Props): JSX.Element;`,
+    ].join('\n')
+}
+
+/**
+ * Best-effort extraction of a component name from a flint ID.
+ * Flint IDs often follow "ComponentName-variant" or "component-name" patterns.
+ * Returns null if no PascalCase component name can be inferred.
+ */
+function extractComponentNameFromId(flintId: string): string | null {
+    // Check if the first segment is PascalCase (starts with uppercase)
+    const firstPart = flintId.split('-')[0]
+    if (firstPart && firstPart[0] === firstPart[0].toUpperCase() && firstPart[0] !== firstPart[0].toLowerCase()) {
+        return firstPart
+    }
+    return null
 }
 
 // ── Core: sendChatMessage ─────────────────────────────────────────────────────
@@ -1165,12 +1657,19 @@ export async function sendChatMessage(
     const lsp = lspForFile(activeFilePath)
     const config = await readConfig()
 
+    // CATALOG.4 + CR.3: Load component registry for prop-aware validation.
+    // activeRegistry is initialized to the full cachedRegistry here; the policy
+    // read block below will apply any componentScope filter (CR.3).
+    const workspaceRoot = activeFilePath ? path.dirname(activeFilePath) : process.cwd()
+    loadComponentRegistry(workspaceRoot)
+    activeRegistry = cachedRegistry
+
     if (!config.apiKey) {
         onChunk({ type: 'error', error: 'No API key configured. Open AI Settings to set a key.' })
         return
     }
 
-    // SEC P0-4: Only the Anthropic provider supports the constrained Bridge Tool
+    // SEC P0-4: Only the Anthropic provider supports the constrained Flint Tool
     // Catalog (Commandment 15) and in-memory validation loop (Commandment 16).
     // Non-Anthropic providers send plain chat completions with no tool-use,
     // which means governance enforcement is completely absent.
@@ -1178,8 +1677,8 @@ export async function sendChatMessage(
         onChunk({
             type: 'error',
             error:
-                'Bridge requires an Anthropic API key for AI-assisted editing. ' +
-                'The Bridge Tool Catalog (Commandment 15) and in-memory validation ' +
+                'Flint requires an Anthropic API key for AI-assisted editing. ' +
+                'The Flint Tool Catalog (Commandment 15) and in-memory validation ' +
                 '(Commandment 16) are only enforced via Anthropic tool-use. ' +
                 'Non-Anthropic providers bypass all governance checks. ' +
                 'Please configure an Anthropic API key in AI Settings.',
@@ -1195,13 +1694,11 @@ export async function sendChatMessage(
         // When demand exists, implement provider-specific tool-use adapters in
         // electron/providers/openai-adapter.ts and electron/providers/gemini-adapter.ts.
         {
-            // Anthropic branch — fully supports the Bridge Tool Catalog
+            // Anthropic branch — fully supports the Flint Tool Catalog
             const client = new Anthropic({
                 apiKey: config.apiKey,
                 ...(config.baseURL ? { baseURL: config.baseURL } : {}),
             })
-            const model = (config.model && config.model.length > 0 ? config.model : DEFAULT_MODEL) as Parameters<typeof client.messages.stream>[0]['model']
-
             const anthropicMessages: Anthropic.MessageParam[] = []
 
             for (const m of messages) {
@@ -1264,27 +1761,65 @@ export async function sendChatMessage(
             const routerInput = buildRouterInput(messages, activeFilePath)
             const assessment = buildAssessment(routerInput)
             const resolvedModel = assessment.selectedModel
-            console.log(`[Bridge ACX] tier=${assessment.tier} model=${resolvedModel} reason="${assessment.reasoning}"`)
+            console.log(`${logTag('ACX')} tier=${assessment.tier} model=${resolvedModel} reason="${assessment.reasoning}"`)
 
-            // ── ACX.4: Sentinel domain prepend ────────────────────────────────
-            // Read .bridge/policy.json for the optional domain field. If domain
-            // is set and non-general, prepend a domain governance notice to the
-            // system prompt so the model is context-aware during the call.
+            // ── ACX.4 + CR.3: Sentinel domain prepend + component scope ──────────
+            // Read .flint/policy.json for:
+            //   - domain: optional domain governance prefix for the system prompt
+            //   - componentScope: optional allow-list of component names (CR.3)
+            // Policy read failures are non-fatal — use base system prompt and full registry.
             let systemPromptForCall = SYSTEM_PROMPT
             try {
                 const policyPath = path.join(
-                    activeFilePath ? path.dirname(activeFilePath) : path.join(homedir(), '.bridge'),
-                    '.bridge', 'policy.json',
+                    activeFilePath ? path.dirname(activeFilePath) : path.join(homedir(), BRAND.configDir),
+                    BRAND.configDir, 'policy.json',
                 )
                 if (existsSync(policyPath)) {
                     const policyRaw = await readFile(policyPath, 'utf-8')
-                    const policy = JSON.parse(policyRaw) as { domain?: string }
+                    const policy = JSON.parse(policyRaw) as { domain?: string; componentScope?: string[] }
+
+                    // CR.3: Apply component scope filter to build activeRegistry
+                    const scope = Array.isArray(policy.componentScope) && policy.componentScope.length > 0
+                        ? policy.componentScope
+                        : undefined
+                    if (scope) {
+                        const scopeSet = new Set(scope)
+                        activeRegistry = Object.fromEntries(
+                            Object.entries(cachedRegistry).filter(([key]) => scopeSet.has(key)),
+                        )
+                    } else {
+                        activeRegistry = cachedRegistry
+                    }
+
                     if (policy.domain && policy.domain !== 'general') {
-                        systemPromptForCall = `[Bridge Sentinel: domain=${policy.domain}]\n\n${SYSTEM_PROMPT}`
+                        systemPromptForCall = `[${BRAND.product} Sentinel: domain=${policy.domain}]\n\n${SYSTEM_PROMPT}`
+                    }
+
+                    // CR.1: Build and prepend constraint blocks
+                    // activeRegistry is already scope-filtered above — no second filter needed.
+                    const tokens = loadMithrilTokens()
+                    const registryBlock = serializeRegistryConstraints(activeRegistry)
+                    const tokenBlock = serializeTokenConstraints(tokens)
+                    const constraintPrefix = [registryBlock, tokenBlock].filter(Boolean).join('\n\n')
+                    if (constraintPrefix.length > 0) {
+                        systemPromptForCall = `${constraintPrefix}\n\n${systemPromptForCall}`
+                    }
+                } else {
+                    // No policy file — use full registry
+                    activeRegistry = cachedRegistry
+
+                    // CR.1: Still inject constraints when registry/tokens are available
+                    const tokens = loadMithrilTokens()
+                    const registryBlock = serializeRegistryConstraints(activeRegistry)
+                    const tokenBlock = serializeTokenConstraints(tokens)
+                    const constraintPrefix = [registryBlock, tokenBlock].filter(Boolean).join('\n\n')
+                    if (constraintPrefix.length > 0) {
+                        systemPromptForCall = `${constraintPrefix}\n\n${systemPromptForCall}`
                     }
                 }
             } catch {
-                // Policy read failure is non-fatal — use base system prompt.
+                // Policy read failure is non-fatal — use base system prompt and full registry.
+                activeRegistry = cachedRegistry
             }
 
             // ── ACX.4: Escalation state (local to this invocation) ────────────
@@ -1299,7 +1834,7 @@ export async function sendChatMessage(
                     model: streamModel as Parameters<typeof client.messages.stream>[0]['model'],
                     max_tokens: streamModel === 'claude-opus-4-5' ? 8192 : 4096,
                     system: systemPromptForCall,
-                    tools: BRIDGE_TOOLS,
+                    tools: FLINT_TOOLS,
                     messages: anthropicMessages,
                 })
 
@@ -1328,7 +1863,7 @@ export async function sendChatMessage(
                                 // ── Commandment 16: ILspClient Validation (Phase N.3) ──────
                                 const validationError = await validateToolInput(block.name, toolInput, lsp)
                                 if (validationError) {
-                                    console.warn(`[Bridge] Phase M validation blocked tool ${block.name}: ${validationError}`)
+                                    console.warn(`${BRAND.logPrefix} Phase M validation blocked tool ${block.name}: ${validationError}`)
                                     onChunk({
                                         type: 'validation_error',
                                         toolName: block.name,
@@ -1345,16 +1880,16 @@ export async function sendChatMessage(
 
                                         // ── 1C: Extract real blast radius from tool input ────
                                         let blastRadius = 1
-                                        if (block.name === 'bridge_ast_mutate') {
+                                        if (block.name === 'flint_ast_mutate') {
                                             const mutations = (toolInput as Record<string, unknown>).mutations
                                             if (Array.isArray(mutations)) {
                                                 blastRadius = mutations.length
                                             }
                                         }
-                                        // bridge_insert_node, bridge_wrap_node, bridge_delete_node → 1 (default)
+                                        // flint_insert_node, flint_wrap_node, flint_delete_node → 1 (default)
 
                                         const mrs = computeMRS(block.name, blastRadius, violationsActive)
-                                        console.log(`[Bridge MRS] tool=${block.name} score=${mrs.score} tier=${mrs.tier} blast=${blastRadius}`)
+                                        console.log(`${logTag('MRS')} tool=${block.name} score=${mrs.score} tier=${mrs.tier} blast=${blastRadius}`)
 
                                         // ── 1A: Record risk + check escalation ───────────────
                                         const agentId = 'orchestrator'
@@ -1417,7 +1952,7 @@ export async function sendChatMessage(
                 if (consecutiveValidationFailures >= 2 && currentModelIndex < escalationPath.length - 1) {
                     currentModelIndex++
                     consecutiveValidationFailures = 0
-                    console.log(`[Bridge ACX] escalating to model=${escalationPath[currentModelIndex]}`)
+                    console.log(`${logTag('ACX')} escalating to model=${escalationPath[currentModelIndex]}`)
                     await runStream(escalationPath[currentModelIndex])
                 }
             }

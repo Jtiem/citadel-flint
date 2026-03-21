@@ -4,7 +4,7 @@
  * Verifies the end-to-end pipeline that feeds the Export Gate severity UI:
  *
  *   Source JSX  →  visitClassNames / auditAll
- *               →  Map<bridgeId, LinterWarning>  (severity: 'amber' | 'critical')
+ *               →  Map<flintId, LinterWarning>  (severity: 'amber' | 'critical')
  *               →  hasCriticalMithril computation (ExportModal gate)
  *
  * Coverage:
@@ -19,7 +19,7 @@ import { describe, it, expect } from 'vitest'
 import { parse } from '@babel/parser'
 import type { File } from '@babel/types'
 import { visitClassNames, auditAll, MITHRIL_THRESHOLD } from './MithrilLinter'
-import type { DesignToken, LinterWarning } from '../types/bridge-api'
+import type { DesignToken, LinterWarning } from '../types/flint-api'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -64,15 +64,15 @@ const WHITE_TOKEN: DesignToken = {
  *   clean-node    — no arbitrary color         → no violation
  *   amber-node    — bg-[#ebebeb] vs #ffffff    → ΔE ≈ 4.1  → amber
  *   critical-node — bg-[#000000] vs #ffffff    → ΔE ≈ 100  → critical
- *   (no bridge-id) — arbitrary color but no data-bridge-id → skipped by visitor
+ *   (no flint-id) — arbitrary color but no data-flint-id → skipped by visitor
  */
 const MIXED_SOURCE = `
 export default function Fixture() {
     return (
-        <div data-bridge-id="clean-node" className="bg-blue-500 p-4">
-            <p data-bridge-id="amber-node" className="bg-[#ebebeb]">amber</p>
-            <p data-bridge-id="critical-node" className="bg-[#000000]">critical</p>
-            <p className="bg-[#cc4400]">no bridge id — visitor must skip this</p>
+        <div data-flint-id="clean-node" className="bg-blue-500 p-4">
+            <p data-flint-id="amber-node" className="bg-[#ebebeb]">amber</p>
+            <p data-flint-id="critical-node" className="bg-[#000000]">critical</p>
+            <p className="bg-[#cc4400]">no flint id — visitor must skip this</p>
         </div>
     )
 }`
@@ -84,7 +84,7 @@ describe('visitClassNames — severity bucketing (B.1-d)', () => {
     it('returns an empty map when no arbitrary color classes are present', () => {
         const ast = parseSource(`
             export default function A() {
-                return <div data-bridge-id="n1" className="bg-blue-500 text-white p-4" />
+                return <div data-flint-id="n1" className="bg-blue-500 text-white p-4" />
             }
         `)
         const result = visitClassNames(ast, [WHITE_TOKEN])
@@ -95,7 +95,7 @@ describe('visitClassNames — severity bucketing (B.1-d)', () => {
         // #fefefe is perceptually identical to #ffffff (ΔE ≈ 0.2 — well below 2.0)
         const ast = parseSource(`
             export default function A() {
-                return <div data-bridge-id="n1" className="bg-[#fefefe]" />
+                return <div data-flint-id="n1" className="bg-[#fefefe]" />
             }
         `)
         const result = visitClassNames(ast, [WHITE_TOKEN])
@@ -106,7 +106,7 @@ describe('visitClassNames — severity bucketing (B.1-d)', () => {
         // #ebebeb (very light gray, L*≈93.1) vs #ffffff token → ΔE ≈ 4.1
         const ast = parseSource(`
             export default function A() {
-                return <div data-bridge-id="amber-node" className="bg-[#ebebeb]" />
+                return <div data-flint-id="amber-node" className="bg-[#ebebeb]" />
             }
         `)
         const result = visitClassNames(ast, [WHITE_TOKEN])
@@ -123,7 +123,7 @@ describe('visitClassNames — severity bucketing (B.1-d)', () => {
         // #000000 (black) vs #ffffff token → ΔE ≈ 100 — unambiguously critical
         const ast = parseSource(`
             export default function A() {
-                return <div data-bridge-id="critical-node" className="bg-[#000000]" />
+                return <div data-flint-id="critical-node" className="bg-[#000000]" />
             }
         `)
         const result = visitClassNames(ast, [WHITE_TOKEN])
@@ -133,8 +133,8 @@ describe('visitClassNames — severity bucketing (B.1-d)', () => {
         expect(warning!.severity).toBe('critical')
     })
 
-    it('skips nodes that have no data-bridge-id attribute', () => {
-        // The visitor requires data-bridge-id to key the warning — elements without
+    it('skips nodes that have no data-flint-id attribute', () => {
+        // The visitor requires data-flint-id to key the warning — elements without
         // it must be silently ignored, not cause a crash or a spurious entry.
         const ast = parseSource(`
             export default function A() {
@@ -152,14 +152,14 @@ describe('visitClassNames — severity bucketing (B.1-d)', () => {
         expect(result.has('clean-node')).toBe(false)
         expect(result.get('amber-node')?.severity).toBe('amber')
         expect(result.get('critical-node')?.severity).toBe('critical')
-        // The node without a bridge-id must not appear
+        // The node without a flint-id must not appear
         expect(result.size).toBe(2)
     })
 
     it('populates the message field with MITHRIL-COL prefix and ΔE value', () => {
         const ast = parseSource(`
             export default function A() {
-                return <div data-bridge-id="n1" className="bg-[#000000]" />
+                return <div data-flint-id="n1" className="bg-[#000000]" />
             }
         `)
         const result = visitClassNames(ast, [WHITE_TOKEN])
@@ -172,7 +172,7 @@ describe('visitClassNames — severity bucketing (B.1-d)', () => {
         // No tokens → findClosestToken returns null → no drift → no violations
         const ast = parseSource(`
             export default function A() {
-                return <div data-bridge-id="n1" className="bg-[#000000]" />
+                return <div data-flint-id="n1" className="bg-[#000000]" />
             }
         `)
         const result = visitClassNames(ast, [])
@@ -184,7 +184,7 @@ describe('visitClassNames — severity bucketing (B.1-d)', () => {
         // on the same node — the critical value must win.
         const ast = parseSource(`
             export default function A() {
-                return <div data-bridge-id="n1" className="bg-[#ebebeb] text-[#000000]" />
+                return <div data-flint-id="n1" className="bg-[#ebebeb] text-[#000000]" />
             }
         `)
         const result = visitClassNames(ast, [WHITE_TOKEN])
@@ -306,7 +306,7 @@ describe('hasCriticalMithril — ExportModal gate computation (B.1-d)', () => {
     it('correctly classifies a real auditAll result as false when only amber nodes exist', () => {
         const ast = parseSource(`
             export default function AmberOnly() {
-                return <div data-bridge-id="n1" className="bg-[#ebebeb]" />
+                return <div data-flint-id="n1" className="bg-[#ebebeb]" />
             }
         `)
         const linterWarnings = auditAll(ast, [WHITE_TOKEN])

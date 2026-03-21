@@ -1,25 +1,3 @@
-/**
- * BuggyComponent — demos/02-self-correcting/buggy-component.tsx
- *
- * HALLUCINATION OUTPUT: what an AI might generate when it misreads the
- * prop contract for a data table component. Contains three deliberate
- * type errors that Bridge's in-memory TSC loop catches before the user
- * ever sees a diff:
- *
- *   1. `pageSize` declared as `number` but the call-site passes a string
- *      literal ("25") — caught by: TS2322 (Type 'string' not assignable
- *      to type 'number').
- *
- *   2. `onRowClick` prop signature expects `(row: Row) => void` but the
- *      implementation passes a second `index: string` parameter that is
- *      not in the contract — caught by: TS2345 (Argument of type
- *      '(row: Row, index: string) => void' is not assignable).
- *
- *   3. `sortColumn` is typed `keyof Row` (one of the union of known
- *      column keys) but is initialised with `"created_by"` which is not
- *      a member of the Row interface — caught by: TS2322.
- */
-
 import React, { useState } from 'react';
 
 interface Row {
@@ -54,14 +32,8 @@ const STATUS_CLASSES: Record<Row['status'], string> = {
   pending: 'bg-yellow-100 text-yellow-800',
 };
 
-// ── TYPE ERROR 1 ──────────────────────────────────────────────────────────────
-// pageSize is `number` in the interface but the consumer passes "25" (string).
-// In this file the error manifests here as the default prop initializer.
 const DEFAULT_PAGE_SIZE: number = "25"; // TS2322: string not assignable to number
 
-// ── TYPE ERROR 2 ──────────────────────────────────────────────────────────────
-// onRowClick contract is (row: Row) => void. The handler below has an extra
-// `index: string` parameter that does not appear in the interface.
 function handleRowClick(row: Row, index: string): void {
   console.log(`Clicked row ${index}:`, row.id);
 }
@@ -73,9 +45,6 @@ export default function DataTable({
   loading = false,
   initialSortColumn = 'name',
 }: DataTableProps) {
-  // ── TYPE ERROR 3 ────────────────────────────────────────────────────────────
-  // `keyof Row` is 'id' | 'name' | 'status' | 'lastModified' | 'owner'.
-  // "created_by" is not in that union — should be initialSortColumn ?? 'name'.
   const [sortColumn, setSortColumn] = useState<keyof Row>("created_by");
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [page, setPage] = useState(0);
@@ -130,7 +99,6 @@ export default function DataTable({
           {visible.map((row) => (
             <tr
               key={row.id}
-              // Passes handleRowClick directly — TS catches the extra `index` param
               onClick={() => onRowClick(row)}
               className="hover:bg-gray-50 cursor-pointer transition-colors"
             >
@@ -153,7 +121,6 @@ export default function DataTable({
         </tbody>
       </table>
 
-      {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 bg-gray-50">
           <p className="text-sm text-gray-500">

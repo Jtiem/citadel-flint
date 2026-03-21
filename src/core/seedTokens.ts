@@ -1,9 +1,9 @@
-import type { NewDesignToken } from '../types/bridge-api'
+import type { NewDesignToken } from '../types/flint-api'
 
 /**
  * seedTokens — src/core/seedTokens.ts
  *
- * Baseline semantic tokens defined for the Bridge Design System.
+ * Baseline semantic tokens defined for the Flint Design System.
  * These map logical intents (surface, text, brand) to the raw Tailwind palette.
  */
 export const BASELINE_TOKENS: NewDesignToken[] = [
@@ -18,16 +18,16 @@ export const BASELINE_TOKENS: NewDesignToken[] = [
 ]
 
 /**
- * One-time seeder to populate the Bridge Token Store.
+ * One-time seeder to populate the Flint Token Store.
  */
 export async function seedTokens() {
-    console.log('[Bridge] Seeding baseline tokens...')
+    console.log('[Flint] Seeding baseline tokens...')
     for (const token of BASELINE_TOKENS) {
         try {
-            await window.bridgeAPI.tokens.create(token)
+            await window.flintAPI.tokens.create(token)
         } catch (err) {
-            console.error(`[Bridge] Failed to create token ${token.token_path}:`, err)
+            console.error(`[Flint] Failed to create token ${token.token_path}:`, err)
         }
     }
-    console.log('[Bridge] Token seeding complete.')
+    console.log('[Flint] Token seeding complete.')
 }

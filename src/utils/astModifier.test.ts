@@ -1,7 +1,7 @@
 /**
  * astModifier — Unit Tests
  *
- * Scope: pure, headless AST logic. No React, no Electron, no window.bridgeAPI.
+ * Scope: pure, headless AST logic. No React, no Electron, no window.flintAPI.
  *
  * Coverage:
  *   extractNode — removes a JSXElement from its parent and returns it.
@@ -14,15 +14,15 @@ import { extractNode, insertNode } from './astModifier'
 
 // ── Fixtures ───────────────────────────────────────────────────────────────────
 
-// Source file: three siblings inside a root div, each with a stable bridge ID.
+// Source file: three siblings inside a root div, each with a stable flint ID.
 const SOURCE = `
 import React from 'react'
 export default function App() {
   return (
-    <div data-bridge-id="root">
-      <h1 data-bridge-id="heading">Hello</h1>
-      <p data-bridge-id="para">World</p>
-      <span data-bridge-id="span">!</span>
+    <div data-flint-id="root">
+      <h1 data-flint-id="heading">Hello</h1>
+      <p data-flint-id="para">World</p>
+      <span data-flint-id="span">!</span>
     </div>
   )
 }
@@ -33,8 +33,8 @@ const TARGET = `
 import React from 'react'
 export default function Other() {
   return (
-    <section data-bridge-id="section">
-      <em data-bridge-id="em">Content</em>
+    <section data-flint-id="section">
+      <em data-flint-id="em">Content</em>
     </section>
   )
 }
@@ -50,9 +50,9 @@ describe('extractNode', () => {
         expect(node).not.toBeNull()
         // After extraction the generated code must no longer contain the heading.
         const code = generateCodeFromAST(ast)
-        expect(code).not.toContain('data-bridge-id="heading"')
-        expect(code).toContain('data-bridge-id="para"')
-        expect(code).toContain('data-bridge-id="span"')
+        expect(code).not.toContain('data-flint-id="heading"')
+        expect(code).toContain('data-flint-id="para"')
+        expect(code).toContain('data-flint-id="span"')
     })
 
     it('returns the extracted JSXElement node', () => {
@@ -79,8 +79,8 @@ describe('extractNode', () => {
         extractNode(ast, 'para')
 
         const code = generateCodeFromAST(ast)
-        expect(code).toContain('data-bridge-id="heading"')
-        expect(code).toContain('data-bridge-id="span"')
+        expect(code).toContain('data-flint-id="heading"')
+        expect(code).toContain('data-flint-id="span"')
     })
 })
 
@@ -96,9 +96,9 @@ describe('insertNode', () => {
 
         expect(ok).toBe(true)
         const code = generateCodeFromAST(targetAst)
-        expect(code).toContain('data-bridge-id="heading"')
+        expect(code).toContain('data-flint-id="heading"')
         // Existing child must still be present.
-        expect(code).toContain('data-bridge-id="em"')
+        expect(code).toContain('data-flint-id="em"')
     })
 
     it('inserts as sibling before target with position "before"', () => {
@@ -111,8 +111,8 @@ describe('insertNode', () => {
         expect(ok).toBe(true)
         const code = generateCodeFromAST(targetAst)
         // Both IDs must be present.
-        expect(code).toContain('data-bridge-id="span"')
-        expect(code).toContain('data-bridge-id="em"')
+        expect(code).toContain('data-flint-id="span"')
+        expect(code).toContain('data-flint-id="em"')
         // span must come before em in the output.
         expect(code.indexOf('"span"')).toBeLessThan(code.indexOf('"em"'))
     })
@@ -126,8 +126,8 @@ describe('insertNode', () => {
 
         expect(ok).toBe(true)
         const code = generateCodeFromAST(targetAst)
-        expect(code).toContain('data-bridge-id="para"')
-        expect(code).toContain('data-bridge-id="em"')
+        expect(code).toContain('data-flint-id="para"')
+        expect(code).toContain('data-flint-id="em"')
         // para must come after em in the output.
         expect(code.indexOf('"em"')).toBeLessThan(code.indexOf('"para"'))
     })
@@ -147,8 +147,8 @@ describe('insertNode', () => {
 import React from 'react'
 export default function App() {
   return (
-    <div data-bridge-id="root">
-      <input data-bridge-id="inp" />
+    <div data-flint-id="root">
+      <input data-flint-id="inp" />
     </div>
   )
 }
@@ -174,7 +174,7 @@ export default function App() {
         const freshTarget = parseCodeToAST(`
 import React from 'react'
 export default function X() {
-  return <div data-bridge-id="solo" />
+  return <div data-flint-id="solo" />
 }
 `)!
 
@@ -186,7 +186,7 @@ export default function X() {
         const freshTarget2 = parseCodeToAST(`
 import React from 'react'
 export default function X() {
-  return <div data-bridge-id="solo2" />
+  return <div data-flint-id="solo2" />
 }
 `)!
         const afterOk = insertNode(freshTarget2, node, 'solo2', 'after')

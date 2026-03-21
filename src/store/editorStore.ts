@@ -27,7 +27,7 @@ import type { DropPosition } from '../utils/astModifier'
 import type { ASTMutation } from '../core/ASTService'
 import { useCanvasStore } from './canvasStore'
 import { useHistoryStore } from './historyStore'
-import type { LinterWarning } from '../types/bridge-api'
+import type { LinterWarning } from '../types/flint-api'
 import { A11yLinter } from '../core/A11yLinter'
 
 // ── Seed content ──────────────────────────────────────────────────────────────
@@ -57,7 +57,7 @@ interface EditorState {
     rawCode: string
     /**
      * The last successfully-parsed AST (type is adapter-specific, treated as
-     * unknown by Bridge Core per the IBridgeAdapter contract — Phase N.1).
+     * unknown by Flint Core per the IFlintAdapter contract — Phase N.1).
      */
     ast: unknown | null
     selectedNodeId: string | null
@@ -70,7 +70,7 @@ interface EditorState {
      */
     jumpToLine: number | null
     /**
-     * Rich perceptual-drift warnings indexed by `data-bridge-id`.
+     * Rich perceptual-drift warnings indexed by `data-flint-id`.
      *
      * This is the single source of truth for all Mithril Violation state:
      * - `MithrilProvider` populates it after every full-file AST scan.
@@ -187,7 +187,7 @@ interface EditorActions {
      * `commitHash` using a surgical AST transplant.
      *
      * Flow:
-     *   1. Fetches the file's content at `commitHash` via `window.bridgeAPI.gitShow`.
+     *   1. Fetches the file's content at `commitHash` via `window.flintAPI.gitShow`.
      *   2. Parses historic code to a Babel AST.
      *   3. Calls `transplantNode` to replace the live node with a deep clone
      *      of the corresponding historic node, leaving all other nodes intact.
@@ -323,7 +323,7 @@ export const useEditorStore = create<EditorStore>((set, get) => {
             const newAst = adapter.parse(newCode)
             if (newAst === null) return
 
-            // Commandment 7 — ID Preservation: inject data-bridge-id onto any
+            // Commandment 7 — ID Preservation: inject data-flint-id onto any
             // newly created or moved nodes produced by structural mutations.
             // Non-structural ops (updateClassName, updateProp, updateTextContent,
             // applyTokenFix) do not create new nodes so the call is skipped when
@@ -338,7 +338,7 @@ export const useEditorStore = create<EditorStore>((set, get) => {
             let finalCode = newCode
             let finalAst: unknown = newAst
             if (hasStructural) {
-                adapter.injectBridgeIds(newAst)
+                adapter.injectFlintIds(newAst)
                 finalCode = adapter.generate(newAst)
                 // Re-parse so the stored AST reflects the injected IDs.
                 const reAst = adapter.parse(finalCode)
@@ -424,7 +424,7 @@ export const useEditorStore = create<EditorStore>((set, get) => {
             const activeFilePath = useCanvasStore.getState().activeFilePath
             if (activeFilePath === null) return
 
-            const historicCode = await window.bridgeAPI.gitShow(activeFilePath, commitHash)
+            const historicCode = await window.flintAPI.gitShow(activeFilePath, commitHash)
             if (historicCode === null) return
 
             const adapter = LanguageRegistry.getAdapter(activeFilePath)

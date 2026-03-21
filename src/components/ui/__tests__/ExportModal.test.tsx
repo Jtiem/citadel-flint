@@ -18,7 +18,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { ExportModal } from '../ExportModal'
 import { useEditorStore } from '../../../store/editorStore'
 import { useCanvasStore } from '../../../store/canvasStore'
-import type { LinterWarning, OverrideRow } from '../../../types/bridge-api'
+import type { LinterWarning, OverrideRow } from '../../../types/flint-api'
 
 // ── Factories ─────────────────────────────────────────────────────────────────
 
@@ -37,7 +37,7 @@ function makeWarning(overrides: Partial<LinterWarning> = {}): LinterWarning {
 
 function makeOverride(overrides: Partial<OverrideRow> = {}): OverrideRow {
     return {
-        bridge_id: 'abc123',
+        flint_id: 'abc123',
         property_key: 'color',
         property_value: '#ff0000',
         updated_at: Date.now(),
@@ -49,7 +49,7 @@ function makeOverride(overrides: Partial<OverrideRow> = {}): OverrideRow {
 
 beforeEach(() => {
     // Ensure readOverrides resolves immediately to empty by default
-    ;(window.bridgeAPI.tokens.readOverrides as ReturnType<typeof vi.fn>).mockResolvedValue([])
+    ;(window.flintAPI.tokens.readOverrides as ReturnType<typeof vi.fn>).mockResolvedValue([])
 })
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -115,7 +115,7 @@ describe('ExportModal', () => {
                 mithrilViolations: ['node-abc'],
                 a11yViolations: { 'node-def': ['A11Y-001: Missing alt'] },
             })
-            ;(window.bridgeAPI.tokens.readOverrides as ReturnType<typeof vi.fn>).mockResolvedValue([
+            ;(window.flintAPI.tokens.readOverrides as ReturnType<typeof vi.fn>).mockResolvedValue([
                 makeOverride(),
             ])
 
@@ -143,7 +143,7 @@ describe('ExportModal', () => {
             })
         })
 
-        it('renders an A11y violation row with the bridge ID', async () => {
+        it('renders an A11y violation row with the flint ID', async () => {
             useCanvasStore.setState({
                 a11yViolations: { 'node-def': ['A11Y-001: img must have alt text'] },
             })
@@ -156,8 +156,8 @@ describe('ExportModal', () => {
         })
 
         it('renders property override rows when readOverrides returns data', async () => {
-            ;(window.bridgeAPI.tokens.readOverrides as ReturnType<typeof vi.fn>).mockResolvedValue([
-                makeOverride({ bridge_id: 'override-node', property_key: 'bg-color', property_value: 'red' }),
+            ;(window.flintAPI.tokens.readOverrides as ReturnType<typeof vi.fn>).mockResolvedValue([
+                makeOverride({ flint_id: 'override-node', property_key: 'bg-color', property_value: 'red' }),
             ])
 
             render(<ExportModal onClose={() => undefined} />)
@@ -292,7 +292,7 @@ describe('ExportModal', () => {
     describe('loading state', () => {
         it('shows "Running pre-flight audit" text initially before overrides resolve', () => {
             // Use a promise that never resolves so we stay in loading state
-            ;(window.bridgeAPI.tokens.readOverrides as ReturnType<typeof vi.fn>).mockReturnValue(
+            ;(window.flintAPI.tokens.readOverrides as ReturnType<typeof vi.fn>).mockReturnValue(
                 new Promise(() => undefined)
             )
 

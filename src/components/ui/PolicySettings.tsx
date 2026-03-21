@@ -1,7 +1,7 @@
 /**
  * PolicySettings.tsx — src/components/ui/PolicySettings.tsx
  *
- * POL.1 Group 1c — Glass settings panel for `.bridge/policy.json`.
+ * POL.1 Group 1c — Glass settings panel for `.flint/policy.json`.
  *
  * Architecture:
  *   Full-screen modal (same pattern as GovernancePanel) opened from the
@@ -14,14 +14,14 @@
  *   4. Export Gate — severity floor + block_on_overrides toggle
  *
  * State model:
- *   - Reads policy on mount via `window.bridgeAPI.policy.get()`
+ *   - Reads policy on mount via `window.flintAPI.policy.get()`
  *   - Maintains a local draft until Save is clicked
- *   - Save calls `window.bridgeAPI.policy.set(draft)` (POL.1 IPC, Group 1b)
+ *   - Save calls `window.flintAPI.policy.set(draft)` (POL.1 IPC, Group 1b)
  *   - Reset reverts to DEFAULT_POLICY_V2
  *
  * Commandment compliance:
  *   - No fs / Node.js in src/ (Commandment 14)
- *   - All IPC via window.bridgeAPI (Commandment 14)
+ *   - All IPC via window.flintAPI (Commandment 14)
  *   - No hardcoded hex colours (Mithril Safety)
  *   - No arbitrary spacing (Mithril Safety)
  *   - All form controls have associated labels (Commandment 5)
@@ -35,7 +35,6 @@ import {
     RotateCcw,
     Settings2,
     ShieldAlert,
-    ShieldCheck,
     AlertTriangle,
 } from 'lucide-react'
 import { useCanvasStore } from '../../store/canvasStore'
@@ -43,8 +42,8 @@ import { useNotificationStore } from '../../store/notificationStore'
 
 // ── Local policy type (v2 superset) ──────────────────────────────────────────
 //
-// Group 1A (bridge-state-architect) will update src/types/bridge-api.d.ts with
-// the full v2 BridgePolicy shape. Until that lands we declare the v2 superset
+// Group 1A (flint-state-architect) will update src/types/flint-api.d.ts with
+// the full v2 FlintPolicy shape. Until that lands we declare the v2 superset
 // locally so this component can be developed in parallel without breaking TSC.
 
 type PolicyMode = 'blocking' | 'advisory' | 'off'
@@ -404,7 +403,7 @@ export function PolicySettings({ onClose }: PolicySettingsProps) {
                     return
                 }
                 // Fall back to IPC read
-                const api = window.bridgeAPI?.policy
+                const api = window.flintAPI?.policy
                 if (api?.get) {
                     const policy = await api.get()
                     setDraft(normalizeToV2(policy as unknown as Partial<PolicyV2>))
@@ -510,7 +509,7 @@ export function PolicySettings({ onClose }: PolicySettingsProps) {
     const handleSave = useCallback(async () => {
         setSaving(true)
         try {
-            const policyApi = window.bridgeAPI?.policy as
+            const policyApi = window.flintAPI?.policy as
                 | { get: () => Promise<unknown>; set?: (p: unknown) => Promise<unknown> }
                 | undefined
 
@@ -523,7 +522,7 @@ export function PolicySettings({ onClose }: PolicySettingsProps) {
             push({
                 type: 'sync',
                 title: 'Policy Saved',
-                message: 'Policy settings written to .bridge/policy.json',
+                message: 'Policy settings written to .flint/policy.json',
                 severity: 'success',
                 autoDismissMs: 3000,
             })
@@ -577,7 +576,7 @@ export function PolicySettings({ onClose }: PolicySettingsProps) {
                         </h2>
                         <p className="mt-0.5 text-xs text-zinc-500">
                             Governance policy for{' '}
-                            <code className="font-mono text-zinc-400">.bridge/policy.json</code>
+                            <code className="font-mono text-zinc-400">.flint/policy.json</code>
                         </p>
                     </div>
                     <button

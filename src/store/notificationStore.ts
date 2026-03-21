@@ -50,7 +50,7 @@ const MAX_HISTORY = 200
 
 // ── Store ─────────────────────────────────────────────────────────────────────
 
-export const useNotificationStore = create<NotificationState>((set, get) => ({
+export const useNotificationStore = create<NotificationState>((set) => ({
     notifications: [],
     history: [],
 

@@ -1,6 +1,6 @@
-# Bridge IDE Source & Architecture Context
+# Flint IDE Source & Architecture Context
 
-This document contains the core architectural specifications and source code implementations for Bridge IDE.
+This document contains the core architectural specifications and source code implementations for Flint IDE.
 
 
 
@@ -8,10 +8,10 @@ This document contains the core architectural specifications and source code imp
 FILE: CLAUDE.md
 =======================================================
 
-# Project: Bridge IDE
+# Project: Flint IDE
 
 ## The Identity (v6.8)
-**Bridge** is the first Agentic UI Operating System. It is a strict "containment field" for high-velocity AI agents, ensuring brand, accessibility, and codebase integrity through deterministic AST-level enforcement (Mithril Philosophy).
+**Flint** is the first Agentic UI Operating System. It is a strict "containment field" for high-velocity AI agents, ensuring brand, accessibility, and codebase integrity through deterministic AST-level enforcement (Mithril Philosophy).
 
 ## Tech Stack
 * **Shell:** Electron (v40+)
@@ -23,7 +23,7 @@ FILE: CLAUDE.md
 * **AST Factory:** Babel (TSX ↔ Visual Tree)
 
 ## Core modules (v6.6 Architecture)
-* **Module A (AST Canvas):** ID-Indestructible Select (`data-bridge-id`) + Figma-Grade DnD.
+* **Module A (AST Canvas):** ID-Indestructible Select (`data-flint-id`) + Figma-Grade DnD.
 * **Module B (Mithril Safety):** CIEDE2000 ΔE Perceptual Drift calculations (Amber warnings if ΔE > 2.0).
 * **Module C (Sync Layer):** PowerSync CRDT partitioning (Global Tokens / Project Overrides / Presence).
 * **Module D (Recovery Engine):** Command-pattern AST inversions (Undo/Redo) + Surgical Git Transplants.
@@ -46,37 +46,37 @@ FILE: CLAUDE.md
 | `canvasStore` + Auto-Save (Phase F.1) | **ONLINE** | `triggerAutoSave` debounced IPC save. `saveState: 'idle'｜'editing'｜'saving'｜'saved'`. |
 | Cross-File Move (Phase F.2) | **ONLINE** | `astBufferStore.crossFileMove` 11-step atomic operation. `FileExplorer` cross-file drag. |
 | Global Recovery Engine (Phase G.1) | **ONLINE** | `src/core/recoveryController.ts`. `Cmd+Z`/`Cmd+Shift+Z`. Single-file and cross-file undo. |
-| Scaffolding & Registry (Phase G.2) | **ONLINE** | `bridge-registry.db`, `templateService.ts`, `LaunchScreen.tsx`. Global workspace tracking. |
+| Scaffolding & Registry (Phase G.2) | **ONLINE** | `flint-registry.db`, `templateService.ts`, `LaunchScreen.tsx`. Global workspace tracking. |
 | Cross-File Redo (Phase H) | **ONLINE** | `CrossFileMoveRedoPlan` schema. `isRecovery` flag prevents history duplication on redo. |
 | Interaction Modes (Phase I) | **ONLINE** | `canvasMode: 'design'|'interact'` in `canvasStore`. Shield gated on design mode. |
-| Native OS Menu (Phase J) | **ONLINE** | `menu:new/open/close-project` IPC channels. `MenuAPI` on `window.bridgeAPI`. |
+| Native OS Menu (Phase J) | **ONLINE** | `menu:new/open/close-project` IPC channels. `MenuAPI` on `window.flintAPI`. |
 | Undo Void Fix (Phase K) | **ONLINE** | `applyBatch` no-op guard + `setCode` Commandment-10 fix + all property edits undoable. |
 | Post-Redo Undoability | **ONLINE** | `historyStore.pushPast` + `crossFileMove` inversions return. |
 | Sharma Validation (Module B.1-b) | **ONLINE** | `snippetAuditor.ts` AST-injection robust against Fragment/Shadow scope. |
 
 ## Critical AI Directives
-1.  **Architecture Spec:** Always consult `.bridge-context/architecture.md` and `.antigravityrules`.
+1.  **Architecture Spec:** Always consult `.flint-context/architecture.md` and `.antigravityrules`.
 2.  **Mithril Safety:** If ΔE > 2.0, code must be auto-fixed or Amber-flagged.
 3.  **Persistence Rule:** All mutations MUST be atomic and saved via the `FileTransactionManager` queue.
 4.  **No Hallucinations:** Use Babel AST traversal for all code changes. Never use Regex for source code.
-5.  **Documentation Autopilot:** No session ends without a `[BRIDGE-PULSE-v6.9]` block update.
+5.  **Documentation Autopilot:** No session ends without a `[FLINT-PULSE-v6.9]` block update.
 
 ## Commands
-* `npm run dev`: Launch Bridge IDE (Vite + Electron)
+* `npm run dev`: Launch Flint IDE (Vite + Electron)
 * `npm test`: Run Vitest suite
 * `npx tsc --noEmit`: Strict Type Check
 
 =======================================================
-FILE: .bridge-context/architecture.md
+FILE: .flint-context/architecture.md
 =======================================================
 
-# Bridge IDE: The "Agentic UI Operating System"
+# Flint IDE: The "Agentic UI Operating System"
 
 ### **Architecture Specification (v5.7 — Lunar Elevator + Persistence)**
 
 ## **1. Core Identity & Philosophy**
 
-**Bridge** is the first Agentic UI Operating System. It is the strict "containment field" for high-velocity AI agents (e.g., Claude Code, OpenAI Operator). It ensures that while agents generate code at 10x speed, they are physically incapable of violating brand, accessibility, or codebase integrity standards.
+**Flint** is the first Agentic UI Operating System. It is the strict "containment field" for high-velocity AI agents (e.g., Claude Code, OpenAI Operator). It ensures that while agents generate code at 10x speed, they are physically incapable of violating brand, accessibility, or codebase integrity standards.
 
 * **The "Mithril" Philosophy:** Design integrity is enforced deterministically at the AST level, not via visual approximations.
 * **The "Soft Mithril" UX:** Developers and agents are guided by CIEDE2000 $\Delta E$ perceptual warnings. This allows high-speed drafting but physically blocks "dirty" code from production.
@@ -90,7 +90,7 @@ FILE: .bridge-context/architecture.md
 | **App Shell** | **Electron (v29+)** | Native OS access; strict IPC context isolation; native directory selection. |
 | **Data Engine** | **SQLite + `sqlite-vec**` | Local vector embeddings for design system RAG and privacy-first context. |
 | **Sync Layer** | **PowerSync SDK** | Real-time CRDT sync for team collaboration, Presence, and Tokens. |
-| **Orchestration** | **Bridge Auditor** | Complexity analysis that routes tasks to "Flash" or "Thinking" AI models. |
+| **Orchestration** | **Flint Auditor** | Complexity analysis that routes tasks to "Flash" or "Thinking" AI models. |
 | **Canvas** | **`@xyflow/react` v12** | Infinite whiteboard for visual node manipulation. |
 | **Preview Engine** | **Iframe + Babel IPC** | 100% offline `srcdoc` execution with zero external dependencies. |
 | **Bundling** | **ESBuild WASM** | Client-side bundler injected with React Fast Refresh for stateful hot-swapping. |
@@ -101,7 +101,7 @@ FILE: .bridge-context/architecture.md
 
 ### **Module A: The AST-Driven Canvas & Ghost Proxy**
 
-* **ID-Indestructible Select:** A permanent `data-bridge-id` connects the AST, Layers Panel, and Iframe.
+* **ID-Indestructible Select:** A permanent `data-flint-id` connects the AST, Layers Panel, and Iframe.
 * **Figma-Grade Drag & Drop:** A transparent "Shield" overlay captures `onMouseMove` events, bypassing Iframe event swallowing. IPC coordinates are throttled via `requestAnimationFrame` to render a Ghost Cursor.
 * **AST Surgery:** On drop, Babel performs deterministic traversal to move nodes and intelligently synthesizes required React imports to the new file.
 
@@ -119,24 +119,24 @@ FILE: .bridge-context/architecture.md
 ### **Module C: Multiplayer Sync & AI State**
 
 * **CRDT Bucketing:** PowerSync partitions SQLite into Global (Tokens), Project (Overrides), and Presence (Cursors).
-* **AST Conflict Arbiter:** Interacting with a node updates `active_bridge_id` in PowerSync, visually locking the node to prevent concurrent multiplayer or agent collisions.
+* **AST Conflict Arbiter:** Interacting with a node updates `active_flint_id` in PowerSync, visually locking the node to prevent concurrent multiplayer or agent collisions.
 
 ### **Module D: The Code-First Recovery Engine**
 
-* **Micro-Recovery (AST Command Pattern):** Standard `Ctrl+Z` Undo generates the mathematical *inverse* of a Babel mutation. Pre-flight checks guarantee the target `data-bridge-id` still exists before executing.
-* **Macro-Recovery (Git Transplants):** To revert an AI hallucination, Bridge extracts the specific target node from Git history (`git show HEAD`) and transplants it into the live AST, preserving concurrent teammates' work.
+* **Micro-Recovery (AST Command Pattern):** Standard `Ctrl+Z` Undo generates the mathematical *inverse* of a Babel mutation. Pre-flight checks guarantee the target `data-flint-id` still exists before executing.
+* **Macro-Recovery (Git Transplants):** To revert an AI hallucination, Flint extracts the specific target node from Git history (`git show HEAD`) and transplants it into the live AST, preserving concurrent teammates' work.
 
 ### **Module E: Persistence & Edge-Case Hardening**
 
 * **Continuous Auto-Save:** The IDE operates strictly on local user directories. Every successful AST mutation triggers an immediate, automatic save to the local disk. There is no manual "Save" button.
 * **Atomic Write Queue:** All disk writes route through a `FileTransactionManager` (write to `.tmp` $\rightarrow$ `fs.rename`) to survive OS crashes.
 * **Transaction Batching:** Exposes `applyMutationBatch()` so AI agents can execute hundreds of AST surgeries in a single disk write/Undo entry, preventing IPC DDoS.
-* **Strict Garbage Collection:** Deleting a node immediately triggers `DELETE FROM component_overrides WHERE bridge_id = ?` to prevent "Zombie" export locks.
+* **Strict Garbage Collection:** Deleting a node immediately triggers `DELETE FROM component_overrides WHERE flint_id = ?` to prevent "Zombie" export locks.
 
 
 ### Module G.1: The Scaffolding Engine
 
-• Create a templates/ directory in the Electron main process containing a "Starter" .tsx and a default bridge.db schema.
+• Create a templates/ directory in the Electron main process containing a "Starter" .tsx and a default flint.db schema.
 
 • Implement IPC project:initialize: copies template files to a user-selected directory.
 
@@ -144,18 +144,18 @@ FILE: .bridge-context/architecture.md
 
 • Bundle your "Current Demo" as a static asset.
 
-•  Add a "Reset to Demo" button that wipes the current local .bridge folder and re-injects the demo state.
+•  Add a "Reset to Demo" button that wipes the current local .flint folder and re-injects the demo state.
 ---
 
 ## **4. The 13 Commandments (Non-Negotiable Guardrails)**
 
 1. **Code is Truth (The Persistence Rule):** If it isn't saved to the local `.tsx` file via the AST, it doesn't exist. Ephemeral demo states are prohibited.
 2. **No Hallucinated Styling:** Every visual edit MUST be tied to a `design_token`.
-3. **Composite IDs for Arrays:** Dynamic lists (e.g., `Array.map`) MUST use injected composite template IDs (e.g., `data-bridge-id={`node-${index}`}`).
+3. **Composite IDs for Arrays:** Dynamic lists (e.g., `Array.map`) MUST use injected composite template IDs (e.g., `data-flint-id={`node-${index}`}`).
 4. **Local-First Only:** No external URLs, no Sandpack. Preview must remain 100% offline-capable.
 5. **Accessibility is a Compiler Error:** Missing a11y attributes trigger a "Critical Block" for exports.
 6. **The Gatekeeper Rule:** Exports are permanently blocked if any overrides or design drift remain.
-7. **Indestructible ID Preservation:** All mutations MUST preserve the `data-bridge-id`.
+7. **Indestructible ID Preservation:** All mutations MUST preserve the `data-flint-id`.
 8. **Audit-First Execution:** Every task is audited for complexity before selecting a model (Flash vs. Thinking).
 9. **CIEDE2000 $\Delta E$ Logic:** Use perceptual color distance for all design system drift detection.
 10. **Targeted Micro-Recovery:** Undo operations must run pre-flight AST checks before executing inverse surgery.
@@ -168,7 +168,7 @@ FILE: .bridge-context/architecture.md
 FILE: HANDOFF.md
 =======================================================
 
-# Bridge IDE — Developer Handoff (v5.16)
+# Flint IDE — Developer Handoff (v5.16)
 
 **Date:** 2026-03-04
 **Commit:** Phase D.2 (Macro-Recovery Frontend) applied
@@ -180,7 +180,7 @@ FILE: HANDOFF.md
 
 ## 1. Architecture Overview (v5.7)
 
-Bridge is a performance-hardened, three-process Electron app designed for agentic surgery:
+Flint is a performance-hardened, three-process Electron app designed for agentic surgery:
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -188,13 +188,13 @@ Bridge is a performance-hardened, three-process Electron app designed for agenti
 │  · FileTransactionManager: Atomic .tmp → rename queue    │
 │  · SQLite + PowerSync: CRDT Persistence layer            │
 ## 1. Architecture Overview
-**Bridge** is the first Agentic UI Operating System. It acts as a strict "containment field" around LLM-driven development, ensuring brand alignment, accessibility, and codebase integrity through AST-level determinism. **If it isn't in the AST, it doesn't exist.**
+**Flint** is the first Agentic UI Operating System. It acts as a strict "containment field" around LLM-driven development, ensuring brand alignment, accessibility, and codebase integrity through AST-level determinism. **If it isn't in the AST, it doesn't exist.**
 
 ### Technical Foundation
 | Layer | Tech | Role |
 |-------|------|------|
 | **Core** | Electron | Main/Renderer multi-process architecture |
-| **Persist** | SQLite WAL | `bridge.db` (state) + `bridge-registry.db` (global) |
+| **Persist** | SQLite WAL | `flint.db` (state) + `flint-registry.db` (global) |
 | **Logic** | React 19 + Zustand | Strict separation of state from UI representation |
 | **Engine** | Babel | In-memory AST surgery / Live Preview code injection |
 
@@ -229,7 +229,7 @@ Bridge is a performance-hardened, three-process Electron app designed for agenti
 | File | Purpose |
 |------|---------|
 | `ASTService.ts` | Batch mutations, `InverseMutation` generation, `synthesizeImports`. |
-| `ast-parser.ts` | Foundational Babel utilities: parse, generate, visual-tree, `injectBridgeIds`. |
+| `ast-parser.ts` | Foundational Babel utilities: parse, generate, visual-tree, `injectFlintIds`. |
 | `recoveryController.ts` | `applyUndo` / `applyRedo` / `applyRedoPlan`. Phase G.1 + H. |
 | `MithrilLinter.ts` | CIEDE2000 ΔE perceptual drift guard. |
 | `GitService.ts` | Surgical git-transplant recovery. |
@@ -249,14 +249,14 @@ Bridge is a performance-hardened, three-process Electron app designed for agenti
 | `FileTransactionManager.ts` | Atomic `.tmp` → `rename` write queue. Serialised per path, concurrent across paths. |
 | `GitManager.ts` | `ensureRepo` + `shadowCommit` (called after every atomic save). `getGitNode` for surgical node extraction from git history. |
 | `main.ts` | IPC handlers: `saveFile`, `saveFileBatch`, `readFile`, `transformCode`, `openFolder`, `ast:git-show`, `ast:git-log`. |
-| `preload.ts` | `contextBridge` exposure of `window.bridgeAPI` including `gitShow` and `gitLog`. |
+| `preload.ts` | `contextBridge` exposure of `window.flintAPI` including `gitShow` and `gitLog`. |
 
 ### `src/components/ui/`
 | File | Role |
 |------|------|
 | `FileExplorer.tsx` | Cross-file drag source (triggers `crossFileMove`). |
 | `LayerTree.tsx` | Single-file drag reorder (triggers `editorStore.moveLayerNode`). |
-| `RecoveryPanel.tsx` | **Phase D.2** — Time Machine UI. Queries `bridgeAPI.gitLog`, renders shadow-commit timeline, triggers `editorStore.revertNodeToCommit` for surgical node transplants. |
+| `RecoveryPanel.tsx` | **Phase D.2** — Time Machine UI. Queries `flintAPI.gitLog`, renders shadow-commit timeline, triggers `editorStore.revertNodeToCommit` for surgical node transplants. |
 | `SyncStatus.tsx` | **Module C.1** — PowerSync sync state badge + `useSyncPresence` hook for throttled cursor broadcasting. |
 | `XYCanvas.tsx` | **Module A** — Infinite whiteboard. Mounts `@xyflow/react` v12; `LivePreview` is a `livePreview` custom node type. Drag handle isolated to chrome bar to preserve Shield DnD. |
 | `ExportModal.tsx` | **Phase B.2** — Mithril Safety Export Gate modal. Pre-flight audit of `component_overrides` rows + ΔE violations + accessibility violations (B.3). Clickable node IDs snap-select the offending element in the canvas. Pass state shows source + Copy button. |
@@ -267,7 +267,7 @@ Bridge is a performance-hardened, three-process Electron app designed for agenti
 | File | Role |
 |------|------|
 | `services/PresenceService.ts` | **Module C.1** — Module-level singleton. Throttled (100ms) `publishPresence` + immediate `publishPresenceImmediate` for drag-lock events. Generates stable `presenceSessionId` + `presenceUserId`. |
-| `hooks/useRemotePresence.ts` | **Module C.1/C.2** — Polls `bridgeAPI.readPresence` at 5 Hz. Exports `useRemotePresence`, `useLockedNodeIds`, and `useIsNodeLocked` for multiplayer cursor overlay and AST Conflict Arbiter locking. |
+| `hooks/useRemotePresence.ts` | **Module C.1/C.2** — Polls `flintAPI.readPresence` at 5 Hz. Exports `useRemotePresence`, `useLockedNodeIds`, and `useIsNodeLocked` for multiplayer cursor overlay and AST Conflict Arbiter locking. |
 
 ---
 
@@ -286,7 +286,7 @@ interface HistoryEntry {
 interface CrossFileMoveRedoPlan {
     type: 'crossFileMove'
     sourceFilePath: string
-    sourceNodeId: string     // bridge-id, stable across restores
+    sourceNodeId: string     // flint-id, stable across restores
     targetFilePath: string
     targetNodeId: string     // always resolved (null-fallback done at push time)
     position: DropPosition
@@ -370,10 +370,10 @@ applyRedo()
 
 ## 6. Invariants & Gotchas
 
-1. **7D Hardening:** Every buffer loaded via `loadBuffer` has `injectBridgeIds(ast)` applied immediately. Never mutate a buffer that hasn't been hardened.
+1. **7D Hardening:** Every buffer loaded via `loadBuffer` has `injectFlintIds(ast)` applied immediately. Never mutate a buffer that hasn't been hardened.
 2. **`historyStore.clear()`** must be called on file-open (`canvasStore.setActiveFile`) to prevent stale undo entries from bleeding across files.
 3. **macOS `ENOTEMPTY`:** In tests, use `rm({ maxRetries: 3 })` for temp directory cleanup. `force: true` alone is insufficient on APFS.
-4. **Monaco coexistence:** `App.tsx` keyboard listener uses `!= null` (loose equality) to guard against `document.activeElement` being `null` — optional chaining returns `undefined` in that case, and `undefined !== null` would incorrectly block undo. Bridge undo/redo fires only outside Monaco.
+4. **Monaco coexistence:** `App.tsx` keyboard listener uses `!= null` (loose equality) to guard against `document.activeElement` being `null` — optional chaining returns `undefined` in that case, and `undefined !== null` would incorrectly block undo. Flint undo/redo fires only outside Monaco.
 5. **`isRecovery` semantics:** After a cross-file redo, `past` remains empty (no new entries pushed). The operation is re-executed atomically but is not further undo-able in this release. The architect should extend this in a future phase if post-redo undo is required.
 6. **`effectiveTargetId` non-null guarantee:** The null-guard at step 3 of `crossFileMove` ensures `effectiveTargetId` is always a `string` when the `redoPlan` is built. The `as string` cast at that site is safe.
 7. **`push()` clears `future`:** Every normal `historyStore.push()` call zeroes the future stack. The `pushFuture()` path does not clear `past`. Never mix them in the same flow.
@@ -405,13 +405,13 @@ applyRedo()
 
 
 =======================================================
-FILE: .bridge-context/BRIDGE-PULSE.md
+FILE: .flint-context/FLINT-PULSE.md
 =======================================================
 
-### [BRIDGE-PULSE-v7.2]
+### [FLINT-PULSE-v7.2]
 
 **1. AST Integrity:**
-- Modified Nodes: `data-bridge-id` preserved via reactive token updates.
+- Modified Nodes: `data-flint-id` preserved via reactive token updates.
 - ID Preservation: Verified. Deterministic Surgery: Confirmed (Babel AST).
 
 **2. Mithril Safety Audit (Enterprise v2):**
@@ -473,7 +473,7 @@ import _traverse from '@babel/traverse'
 import * as t from '@babel/types'
 import type { File } from '@babel/types'
 import { findClosestToken, SYSTEMIZABLE_THRESHOLD } from '../utils/tokenMatcher'
-import type { DesignToken, LinterWarning } from '../types/bridge-api'
+import type { DesignToken, LinterWarning } from '../types/flint-api'
 
 // CJS/ESM interop — mirrors the pattern used in astScanner.ts and ASTService.ts.
 const traverse =
@@ -595,12 +595,12 @@ export function calculateDrift(styleValue: string, tokenValue: string): number |
 
 // ── Shared AST helpers ────────────────────────────────────────────────────────
 
-/** Resolves `data-bridge-id` from a JSXOpeningElement's attribute list. */
-function getBridgeId(openEl: t.JSXOpeningElement): string | null {
+/** Resolves `data-flint-id` from a JSXOpeningElement's attribute list. */
+function getFlintId(openEl: t.JSXOpeningElement): string | null {
     const attr = openEl.attributes.find(
         (a): a is t.JSXAttribute =>
             t.isJSXAttribute(a) &&
-            t.isJSXIdentifier(a.name, { name: 'data-bridge-id' })
+            t.isJSXIdentifier(a.name, { name: 'data-flint-id' })
     )
     if (attr === undefined || !t.isStringLiteral(attr.value)) return null
     return attr.value.value
@@ -632,7 +632,7 @@ function severity(delta: number): LinterWarning['severity'] {
 const ARBITRARY_COLOR_RE = /^(?:[\w-]+:)*[\w-]+-\[(?<hex>#[0-9a-fA-F]{3,8})\]$/
 
 /**
- * MITHRIL-COL — Traverses a Babel File AST and returns a `Map<bridgeId, LinterWarning>` for
+ * MITHRIL-COL — Traverses a Babel File AST and returns a `Map<flintId, LinterWarning>` for
  * every JSX element whose `className` contains at least one Tailwind
  * arbitrary-value hex colour whose closest design token exceeds
  * `MITHRIL_THRESHOLD` (2.0 ΔE).
@@ -647,7 +647,7 @@ export function visitClassNames(ast: File, tokens: DesignToken[]): Map<string, L
             if (!t.isJSXIdentifier(path.node.name, { name: 'className' })) return
             const openEl = path.parentPath?.node
             if (!t.isJSXOpeningElement(openEl)) return
-            const nodeId = getBridgeId(openEl)
+            const nodeId = getFlintId(openEl)
             if (nodeId === null) return
 
             const classStr = getClassString(path.node)
@@ -720,7 +720,7 @@ export function visitTypography(ast: File, tokens: DesignToken[]): Map<string, L
             if (!t.isJSXIdentifier(path.node.name, { name: 'className' })) return
             const openEl = path.parentPath?.node
             if (!t.isJSXOpeningElement(openEl)) return
-            const nodeId = getBridgeId(openEl)
+            const nodeId = getFlintId(openEl)
             if (nodeId === null) return
             const classStr = getClassString(path.node)
             if (classStr === null) return
@@ -789,7 +789,7 @@ export function visitSpacing(ast: File, tokens: DesignToken[]): Map<string, Lint
             if (!t.isJSXIdentifier(path.node.name, { name: 'className' })) return
             const openEl = path.parentPath?.node
             if (!t.isJSXOpeningElement(openEl)) return
-            const nodeId = getBridgeId(openEl)
+            const nodeId = getFlintId(openEl)
             if (nodeId === null) return
             const classStr = getClassString(path.node)
             if (classStr === null) return
@@ -847,7 +847,7 @@ export function visitShadows(ast: File, tokens: DesignToken[]): Map<string, Lint
             if (!t.isJSXIdentifier(path.node.name, { name: 'className' })) return
             const openEl = path.parentPath?.node
             if (!t.isJSXOpeningElement(openEl)) return
-            const nodeId = getBridgeId(openEl)
+            const nodeId = getFlintId(openEl)
             if (nodeId === null) return
             const classStr = getClassString(path.node)
             if (classStr === null) return
@@ -902,7 +902,7 @@ export function visitOpacity(ast: File, tokens: DesignToken[]): Map<string, Lint
             if (!t.isJSXIdentifier(path.node.name, { name: 'className' })) return
             const openEl = path.parentPath?.node
             if (!t.isJSXOpeningElement(openEl)) return
-            const nodeId = getBridgeId(openEl)
+            const nodeId = getFlintId(openEl)
             if (nodeId === null) return
             const classStr = getClassString(path.node)
             if (classStr === null) return
@@ -942,7 +942,7 @@ export function visitOpacity(ast: File, tokens: DesignToken[]): Map<string, Lint
 
 /**
  * Runs all five Mithril visitors over `ast` and merges results into a single
- * `Map<bridgeId, LinterWarning>`.
+ * `Map<flintId, LinterWarning>`.
  *
  * When a node has multiple violations, the **color drift** warning takes
  * precedence (ΔE is the most precise signal); other dimensions are recorded
@@ -981,7 +981,7 @@ FILE: src/core/A11yLinter.ts
  *
  * Static AST-level accessibility linter (Phase B.3 — Commandment 5).
  *
- * Bridge Commandment 5 states: "Accessibility is a Compiler Error — Missing
+ * Flint Commandment 5 states: "Accessibility is a Compiler Error — Missing
  * a11y attributes trigger a 'Critical Block' for exports."
  *
  * ## Rules Enforced (v2 — Enterprise WCAG 2.1 AA)
@@ -1011,7 +1011,7 @@ import type { File as BabelFile, JSXOpeningElement } from '@babel/types'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-/** Maps `data-bridge-id` → list of violation messages for that element. */
+/** Maps `data-flint-id` → list of violation messages for that element. */
 export type A11yViolations = Record<string, string[]>
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1070,11 +1070,11 @@ function hasTextChildren(
 }
 
 /**
- * Derives the label key used in violations: the `data-bridge-id` value if
+ * Derives the label key used in violations: the `data-flint-id` value if
  * present, otherwise a positional fallback like `"img-3"`.
  */
-function getBridgeId(opening: JSXOpeningElement, fallback: string): string {
-    const attr = getJsxAttr(opening, 'data-bridge-id')
+function getFlintId(opening: JSXOpeningElement, fallback: string): string {
+    const attr = getJsxAttr(opening, 'data-flint-id')
     if (!attr || attr.type !== 'JSXAttribute') return fallback
     const val = attr.value
     if (val?.type === 'StringLiteral') return val.value
@@ -1108,7 +1108,7 @@ function getNonEmptyAttr(opening: JSXOpeningElement, name: string): boolean {
 export const A11yLinter = {
     /**
      * Traverses the provided Babel AST and returns every accessibility violation
-     * found, grouped by `data-bridge-id` (or a positional fallback key).
+     * found, grouped by `data-flint-id` (or a positional fallback key).
      *
      * @param ast - A Babel `File` node produced by `parseCodeToAST`.
      * @returns    An object mapping element keys to arrays of violation messages.
@@ -1144,9 +1144,9 @@ export const A11yLinter = {
                     headingsSeen.push(level)
                     if (level > last + 1) {
                         elementIndex += 1
-                        const bridgeId = getBridgeId(opening, `heading-${elementIndex}`)
+                        const flintId = getFlintId(opening, `heading-${elementIndex}`)
                         addViolation(
-                            bridgeId,
+                            flintId,
                             `A11Y-010: Heading <${tag}> skips level. Previous heading was <h${last}>. ` +
                             'Heading levels must not be skipped — use sequential levels for screen readers.',
                         )
@@ -1157,14 +1157,14 @@ export const A11yLinter = {
                 if (!AUDITED_TAGS.includes(tag)) return
 
                 elementIndex += 1
-                const bridgeId = getBridgeId(opening, `${tag}-${elementIndex}`)
+                const flintId = getFlintId(opening, `${tag}-${elementIndex}`)
 
                 // ── A11Y-001: <img> must have alt ─────────────────────────────
                 if (tag === 'img') {
                     const altAttr = getJsxAttr(opening, 'alt')
                     if (altAttr === undefined) {
                         addViolation(
-                            bridgeId,
+                            flintId,
                             'A11Y-001: <img> is missing an `alt` attribute. ' +
                             'Add alt="" for decorative images or a descriptive string for informational ones.',
                         )
@@ -1183,7 +1183,7 @@ export const A11yLinter = {
                     if (!hasAriaLabel && !hasTitle && !hasText) {
                         const ruleId = tag === 'button' ? 'A11Y-002' : 'A11Y-003'
                         addViolation(
-                            bridgeId,
+                            flintId,
                             `${ruleId}: <${tag}> has no accessible name. ` +
                             'Add text content, aria-label="…", or title="…".',
                         )
@@ -1201,7 +1201,7 @@ export const A11yLinter = {
 
                     if (!hasId && !hasAriaLabel && !hasTitle && !hasAriaLabelledBy) {
                         addViolation(
-                            bridgeId,
+                            flintId,
                             'A11Y-004: <input> has no programmatic label. ' +
                             'Add id="…" (+ a matching <label htmlFor>), aria-label="…", or aria-labelledby="…".',
                         )
@@ -1217,7 +1217,7 @@ export const A11yLinter = {
                     const hasTitle = getNonEmptyAttr(opening, 'title')
                     if (!hasAriaLabel && !hasAriaLabelledBy && !hasTitle) {
                         addViolation(
-                            bridgeId,
+                            flintId,
                             'A11Y-005: <select> has no accessible label. ' +
                             'Add aria-label="…", aria-labelledby="…", or pair with a <label htmlFor>.',
                         )
@@ -1233,7 +1233,7 @@ export const A11yLinter = {
                     const hasTitle = getNonEmptyAttr(opening, 'title')
                     if (!hasAriaLabel && !hasAriaLabelledBy && !hasTitle) {
                         addViolation(
-                            bridgeId,
+                            flintId,
                             'A11Y-006: <textarea> has no accessible label. ' +
                             'Add aria-label="…", aria-labelledby="…", or pair with a <label htmlFor>.',
                         )
@@ -1255,7 +1255,7 @@ export const A11yLinter = {
                     )
                     if (!hasAriaLabel && !hasAriaLabelledBy && !hasCaption) {
                         addViolation(
-                            bridgeId,
+                            flintId,
                             'A11Y-008: <table> has no accessible summary. ' +
                             'Add a <caption> child, aria-label="…", or aria-labelledby="…".',
                         )
@@ -1268,7 +1268,7 @@ export const A11yLinter = {
                     const hasLang = getNonEmptyAttr(opening, 'lang')
                     if (!hasLang) {
                         addViolation(
-                            bridgeId,
+                            flintId,
                             'A11Y-009: <html> is missing a `lang` attribute. ' +
                             'Add lang="en" (or appropriate BCP 47 language tag) for screen reader language detection.',
                         )
@@ -1307,9 +1307,9 @@ export const A11yLinter = {
                 if (!openEl || openEl.type !== 'JSXOpeningElement') return
 
                 elementIndex += 1
-                const bridgeId = getBridgeId(openEl, `tabindex-${elementIndex}`)
+                const flintId = getFlintId(openEl, `tabindex-${elementIndex}`)
                 addViolation(
-                    bridgeId,
+                    flintId,
                     `A11Y-007: tabIndex="${numericVal}" disrupts natural tab order. ` +
                     'Use tabIndex={0} to include in natural order, or tabIndex={-1} to remove from flow.',
                 )
@@ -1373,7 +1373,7 @@ const _tv =
 /** Updates the `className` JSX attribute on a target element. */
 interface UpdateClassNameMutation {
     op: 'updateClassName'
-    /** The `data-bridge-id` or structural `"tag:line:col"` ID of the element. */
+    /** The `data-flint-id` or structural `"tag:line:col"` ID of the element. */
     nodeId: string
     /** Full Tailwind class string to set. */
     className: string
@@ -1382,9 +1382,9 @@ interface UpdateClassNameMutation {
 /** Moves a JSX element relative to another element in the tree. */
 interface MoveNodeMutation {
     op: 'moveNode'
-    /** `data-bridge-id` of the element to move. */
+    /** `data-flint-id` of the element to move. */
     sourceId: string
-    /** `data-bridge-id` of the reference element. */
+    /** `data-flint-id` of the reference element. */
     targetId: string
     /** Insertion relationship relative to `targetId`. */
     position: 'before' | 'after' | 'inside'
@@ -1393,14 +1393,14 @@ interface MoveNodeMutation {
 /** Removes a JSX element (and all its children) from the tree. */
 interface DeleteNodeMutation {
     op: 'deleteNode'
-    /** `data-bridge-id` of the element to remove. */
+    /** `data-flint-id` of the element to remove. */
     nodeId: string
 }
 
 /** Sets an arbitrary JSX prop to a new serialised string value. */
 interface UpdatePropMutation {
     op: 'updateProp'
-    /** `data-bridge-id` of the target element. */
+    /** `data-flint-id` of the target element. */
     nodeId: string
     /** Prop name, e.g. `"aria-label"`, `"href"`, `"data-testid"`. */
     propName: string
@@ -1411,7 +1411,7 @@ interface UpdatePropMutation {
 /** Updates the first direct JSXText child of a target element. */
 interface UpdateTextContentMutation {
     op: 'updateTextContent'
-    /** `data-bridge-id` or structural `"tag:line:col"` ID of the element. */
+    /** `data-flint-id` or structural `"tag:line:col"` ID of the element. */
     nodeId: string
     /** New text value to set. */
     text: string
@@ -1420,7 +1420,7 @@ interface UpdateTextContentMutation {
 /** Appends a new JSX element as the last child of a target node. */
 interface InjectComponentMutation {
     op: 'injectComponent'
-    /** `data-bridge-id` of the target element to append into. */
+    /** `data-flint-id` of the target element to append into. */
     targetNodeId: string
     /** Raw JSX snippet, e.g. `'<Button>OK</Button>'`. */
     jsxSnippet: string
@@ -1431,7 +1431,7 @@ interface InjectComponentMutation {
 /** Replaces a hardcoded Tailwind arbitrary-value class with a design-token class. */
 interface ApplyTokenFixMutation {
     op: 'applyTokenFix'
-    /** `data-bridge-id` of the target element. */
+    /** `data-flint-id` of the target element. */
     nodeId: string
     /** The exact hardcoded class to replace, e.g. `"bg-[#f3f3f3]"`. */
     hardcodedClass: string
@@ -1483,7 +1483,7 @@ export type InverseMutation =
 
 /**
  * Returns true when the JSX element at `path` matches `nodeId`.
- * Supports both bridge IDs (data-bridge-id attribute) and structural IDs
+ * Supports both flint IDs (data-flint-id attribute) and structural IDs
  * ("tagName:line:col" — matched by source location).
  */
 function jsxMatchesId(
@@ -1504,7 +1504,7 @@ function jsxMatchesId(
         if (
             attr.type === 'JSXAttribute' &&
             attr.name.type === 'JSXIdentifier' &&
-            attr.name.name === 'data-bridge-id' &&
+            attr.name.name === 'data-flint-id' &&
             attr.value?.type === 'StringLiteral' &&
             attr.value.value === nodeId
         ) {
@@ -1710,11 +1710,11 @@ export function applyMutationBatch(
                 // Garbage Collection (Phase E — Commandment 12):
                 // After a successful AST deletion, fire the IPC cleanup so the
                 // main process can remove any dangling component_overrides row for
-                // this bridge ID, preventing a "Zombie" export lock.
+                // this flint ID, preventing a "Zombie" export lock.
                 // Optional-chained: degrades gracefully until the main-process
                 // handler is registered. Guarded against headless test environments.
                 if (typeof window !== 'undefined') {
-                    void window.bridgeAPI.tokens.clearOverride?.(mutation.nodeId)
+                    void window.flintAPI.tokens.clearOverride?.(mutation.nodeId)
                 }
                 break
             }
@@ -1745,7 +1745,7 @@ export function applyMutationBatch(
 // ── Pre-flight Zombie Check (Phase D) ─────────────────────────────────────────
 
 /**
- * Returns `true` when the JSX element identified by `bridgeId` (data-bridge-id
+ * Returns `true` when the JSX element identified by `flintId` (data-flint-id
  * attribute) still exists in `code`.
  *
  * Used before applying an undo to detect "zombie" nodes — elements that were
@@ -1754,7 +1754,7 @@ export function applyMutationBatch(
  *
  * Always returns `false` when `code` cannot be parsed.
  */
-export function nodeExists(code: string, bridgeId: string): boolean {
+export function nodeExists(code: string, flintId: string): boolean {
     const ast = parseCodeToAST(code)
     if (ast === null) return false
 
@@ -1765,9 +1765,9 @@ export function nodeExists(code: string, bridgeId: string): boolean {
                 if (
                     attr.type === 'JSXAttribute' &&
                     attr.name.type === 'JSXIdentifier' &&
-                    attr.name.name === 'data-bridge-id' &&
+                    attr.name.name === 'data-flint-id' &&
                     attr.value?.type === 'StringLiteral' &&
-                    attr.value.value === bridgeId
+                    attr.value.value === flintId
                 ) {
                     found = true
                     path.stop()
@@ -1789,7 +1789,7 @@ export function nodeExists(code: string, bridgeId: string): boolean {
  * restored). Otherwise the property-level inverses are applied via
  * `applyMutationBatch` in a single parse→generate cycle.
  *
- * Callers should run `nodeExists()` on each bridge ID before calling this
+ * Callers should run `nodeExists()` on each flint ID before calling this
  * to detect and block zombie-node undos.
  */
 export function applyInversions(
@@ -2035,7 +2035,7 @@ FILE: electron/FileTransactionManager.ts
 /**
  * FileTransactionManager — electron/FileTransactionManager.ts
  *
- * Atomic, race-condition-safe write queue for the Bridge "Code is Truth" engine.
+ * Atomic, race-condition-safe write queue for the Flint "Code is Truth" engine.
  *
  * Design guarantees:
  *   1. ATOMIC — every write goes to `<filePath>.tmp` first, then `fs.rename()`
@@ -2166,7 +2166,7 @@ FILE: src/components/editor/XYCanvas.tsx
  *
  * Module A: The Infinite Whiteboard Canvas.
  *
- * Mounts an @xyflow/react (React Flow v12) instance that hosts the Bridge IDE
+ * Mounts an @xyflow/react (React Flow v12) instance that hosts the Flint IDE
  * Live Preview as a draggable, resizable node on an infinite whiteboard.
  *
  * Design decisions:
@@ -2202,7 +2202,7 @@ import { LivePreview } from './LivePreview'
 type LivePreviewData = Record<string, never>
 
 /**
- * XYFlow custom node that renders the Bridge LivePreview iframe.
+ * XYFlow custom node that renders the Flint LivePreview iframe.
  *
  * `nodrag` class on the wrapping div prevents XYFlow's built-in drag from
  * interfering with the inner Shield overlay's drag logic. The node *header*

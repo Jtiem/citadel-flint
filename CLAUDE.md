@@ -1,17 +1,17 @@
-# Project: Bridge (v7.2)
+# Project: Flint (v7.2)
 
 ## Identity
 
-Bridge is the governance infrastructure layer that makes AI-generated UI code safe to ship. It enforces design systems, accessibility standards, and brand compliance deterministically at the AST level -- before code reaches production.
+Flint is the governance infrastructure layer that makes AI-generated UI code safe to ship. It enforces design systems, accessibility standards, and brand compliance deterministically at the AST level -- before code reaches production.
 
 Two components:
 
 | Component | What it is | Where it runs |
 |-----------|-----------|---------------|
-| **Bridge MCP** | Headless governance engine exposed via Model Context Protocol | Anywhere -- CI, IDE plugin, cloud |
-| **Bridge Glass** | Visual observability layer (read-only) | Electron 35.7.5 desktop app |
+| **Flint MCP** | Headless governance engine exposed via Model Context Protocol | Anywhere -- CI, IDE plugin, cloud |
+| **Flint Glass** | Visual observability layer (read-only) | Electron 35.7.5 desktop app |
 
-Bridge MCP does all the work. Bridge Glass reads MCP Resources to display state and calls MCP Tools to trigger actions. Glass owns zero business logic. Chat lives in the host IDE (Claude Code, Cursor, VS Code). Bridge Glass is the observability layer, not a chat host.
+Flint MCP does all the work. Flint Glass reads MCP Resources to display state and calls MCP Tools to trigger actions. Glass owns zero business logic. Chat lives in the host IDE (Claude Code, Cursor, VS Code). Flint Glass is the observability layer, not a chat host.
 
 ## Tech Stack
 
@@ -49,77 +49,95 @@ Glass does NOT contain: Monaco editor panel, terminal panel, file explorer panel
 
 ```
 electron/    <->  preload.ts  <->  src/
-[Node.js]        [IPC Bridge]     [Sandboxed React]
+[Node.js]        [IPC Flint]     [Sandboxed React]
   fs, sqlite                       no Node.js
-  AI SDK                           window.bridgeAPI only
+  AI SDK                           window.flintAPI only
   MCP server
 ```
 
 Any feature crossing this boundary needs an IPC channel via `contextBridge`.
 
-### Context Bridge
+### Context Flint
 
-`useContextSync` hook (mounted at App root) writes live Glass state to `.bridge/context.json` every 200ms (debounced). The MCP server reads this file via `bridge_get_context` / `bridge://context` to stay synchronized with the visual layer without direct IPC coupling.
+`useContextSync` hook (mounted at App root) writes live Glass state to `.flint/context.json` every 200ms (debounced). The MCP server reads this file via `flint_get_context` / `flint://context` to stay synchronized with the visual layer without direct IPC coupling.
 
 ## MCP Surface
 
-### Tools (17 registered)
+### Tools (33 registered)
 
-Primary tools (see `bridge-mcp/src/server.ts` for the full catalog):
+Primary tools (see `flint-mcp/src/server.ts` for the full catalog):
 
 | Tool | Purpose |
 |------|---------|
-| `bridge_status` | Server health check |
+| `flint_status` | Server health check |
 | `audit_ui_component` | Run Mithril + A11y audit on a component file |
 | `hydrate_figma_data` | Convert Figma AST payload into React component snippets |
-| `read_design_intent` | Read `.bridge/current-intent.json` and return typed Execution Plan |
-| `bridge_ast_mutate` | Apply batched structural mutations with MRS risk scoring + dry_run support |
-| `bridge_query_registry` | Semantic + keyword search over component registry; returns Shadow Storybook artifact |
-| `bridge_audit` | Full governance audit with SARIF output; optional `healOnAudit` for tier-1 auto-fix |
-| `bridge_fix` | Deterministic auto-fix for token violations; supports `dry_run` |
-| `bridge_ingest_figma` | Figma ingestion pipeline |
-| `bridge_sync_tokens` | Token synchronization |
-| `bridge_debt_report` | Design debt health score (0-100), grade (A-F), trend tracking |
-| `bridge_plan` | Structured execution plan for multi-step agent tasks |
-| `bridge_mutation_provenance` | Query provenance ledger (summary, audit_trail, by_source) |
-| `bridge_override_telemetry` | Query override events (summary, by_session, by_rule) |
-| `bridge_audit_report` | Compliance audit report with rule provenance + sourceAuthority filter |
+| `read_design_intent` | Read `.flint/current-intent.json` and return typed Execution Plan |
+| `flint_ast_mutate` | Apply batched structural mutations with MRS risk scoring + dry_run support |
+| `flint_query_registry` | Semantic + keyword search over component registry; returns Shadow Storybook artifact |
+| `flint_audit` | Full governance audit with SARIF output; optional `healOnAudit` for tier-1 auto-fix |
+| `flint_fix` | Deterministic auto-fix for token violations; supports `dry_run` |
+| `flint_ingest_figma` | Figma ingestion pipeline |
+| `flint_sync_tokens` | Token synchronization |
+| `flint_debt_report` | Design debt health score (0-100), grade (A-F), trend tracking |
+| `flint_plan` | Structured execution plan for multi-step agent tasks |
+| `flint_mutation_provenance` | Query provenance ledger (summary, audit_trail, by_source) |
+| `flint_override_telemetry` | Query override events (summary, by_session, by_rule) |
+| `flint_audit_report` | Compliance audit report with rule provenance + sourceAuthority filter |
+| `flint_risk_score` | Mutation risk scoring (score_mutation, file_profile, project_summary) |
+| `flint_anomaly_report` | Statistical anomaly detection (detect, baseline, history) |
+| `flint_generate_dbom` | Design Bill of Materials export (json, markdown, cyclonedx) |
+| `flint_agent_risk` / `flint_agent_dashboard` | Per-agent risk posture and dashboard |
+| `flint_agent_trust` | Dynamic agent trust tiers (profile, promote, demote, reset, list) |
+| `flint_migrate_tw` | Tailwind v3→v4 AST-level class migration with post-migration audit |
+| `flint_figma_connect` | Figma connection management (connect, disconnect, status) |
+| `flint_sync_pull` | Pull remote Figma token changes to local |
+| `flint_sync_push` | Push local token changes to Figma |
+| `flint_resolve_conflict` | Resolve a single sync conflict |
+| `flint_resolve_all` | Bulk resolve all sync conflicts |
+| `flint_sync_check` | CI/CD sync health check |
+| `flint_sync_history` | Sync history export (JSON/CSV) |
+| `flint_validate_themes` | Multi-brand theme validation (cross-theme matrix) |
+| `flint_migrate_ds` | Design system version migration (token diff + AST rename) |
+| `flint_universal_audit` | Universal audit using domain-agnostic AST engine |
 
-Additional tools registered via `bridge-mcp/src/tools/` modules cover governance events, mutation ledger, annotations, and CI/CD gate operations.
+Additional tools registered via `flint-mcp/src/tools/` modules cover governance events, mutation ledger, annotations, and CI/CD gate operations.
 
-### Resources (7 registered)
+### Resources (9 registered)
 
 | URI | What it exposes |
 |-----|----------------|
-| `bridge://tokens` | Current design tokens from `.bridge/design-tokens.json` |
-| `bridge://manifest` | Project architecture manifest (`bridge-manifest.json`) |
-| `bridge://rules` | All loaded governance rules, grouped by domain |
-| `bridge://violations/{filePath}` | Live governance audit for a specific file (with rule provenance) |
-| `bridge://capabilities` | Full MCP surface inventory (tools, resources, prompts) for agent self-discovery |
-| `bridge://dashboard` | Design debt health score, grade, top violated files/rules, override telemetry |
-| `bridge://overrides` | Current override count and summary by rule/session |
+| `flint://tokens` | Current design tokens from `.flint/design-tokens.json` |
+| `flint://manifest` | Project architecture manifest (`flint-manifest.json`) |
+| `flint://rules` | All loaded governance rules, grouped by domain |
+| `flint://violations/{filePath}` | Live governance audit for a specific file (with rule provenance) |
+| `flint://capabilities` | Full MCP surface inventory (tools, resources, prompts) for agent self-discovery |
+| `flint://dashboard` | Design debt health score, grade, top violated files/rules, override telemetry |
+| `flint://overrides` | Current override count and summary by rule/session |
+| `flint://figma-connection` | Active Figma connection status for the project |
+| `flint://agent-dashboard` | Per-agent risk posture and escalation status |
 
 ### Prompts (3 registered)
 
 | Prompt | Purpose |
 |--------|---------|
-| `bridge-intent-composer` | UX/UI Architecture Sentinel persona for design-to-code translation |
-| `bridge-sentinel` | Domain-configurable governance engine persona |
-| `bridge-workflow-guide` | Step-by-step workflow guidance for new MCP clients discovering Bridge |
+| `flint-intent-composer` | UX/UI Architecture Sentinel persona for design-to-code translation |
+| `flint-sentinel` | Domain-configurable governance engine persona |
+| `flint-workflow-guide` | Step-by-step workflow guidance for new MCP clients discovering Flint |
 
 ## Module Status
 
-### Governance Engine (Bridge MCP)
+### Governance Engine (Flint MCP)
 
 | Module | Phase | Status |
 |--------|-------|--------|
 | Mithril Enterprise Linter | B-v2 | **ONLINE** |
 | Export Gate | B.2 | **ONLINE** |
 | Export Gate Severity Escalation | B.1-d | **ONLINE** |
-| Accessibility Gate (10 WCAG 2.1 AA rules) | B.3 | **ONLINE** |
+| Accessibility Gate (50 WCAG 2.1 AA rules) | B.3 | **ONLINE** |
 | Sharma Validation (snippetAuditor) | B.1-b | **ONLINE** |
 | AI Orchestrator Hardening | M | **ONLINE** |
-| CI/CD Governance Gate (`bridge audit`) | EXP.1 | **ONLINE** |
+| CI/CD Governance Gate (`flint audit`) | EXP.1 | **ONLINE** |
 
 ### AST Surgery Engine
 
@@ -154,7 +172,7 @@ Additional tools registered via `bridge-mcp/src/tools/` modules cover governance
 | Asset Management Hub | Q | **ONLINE** |
 | Interaction Modes (design/interact) | I | **ONLINE** |
 | Native OS Menu | J | **ONLINE** |
-| Context Bridge (useContextSync) | 1A | **ONLINE** |
+| Context Flint (useContextSync) | 1A | **ONLINE** |
 | Auto-Save | F.1 | **ONLINE** |
 | Activity Feed Upgrade (filter bar, search, error view) | V.2-af | **ONLINE** |
 | Figma Connection Status (IPC, StatusBar popover, staleness) | W.2 | **ONLINE** |
@@ -162,7 +180,8 @@ Additional tools registered via `bridge-mcp/src/tools/` modules cover governance
 | Annotation Rendering (annotationStore, AnnotationList, LayerTree dots) | COLLAB.4 | **ONLINE** |
 | Governance Dashboard (health score ring, grade, top-5 rules, "health" tab) | V.1-gd | **ONLINE** |
 | MCP Push Channel (mcp-events.jsonl, useMCPEventListener, fs.watch tail) | W.1 | **ONLINE** |
-| Bidirectional Action Bridge (mcpClient.ts, Glass-initiated MCP tool calls) | W.3 | **ONLINE** |
+| Bidirectional Action Flint (mcpClient.ts, Glass-initiated MCP tool calls) | W.3 | **ONLINE** |
+| Agent Risk Dashboard (per-agent risk badges, escalation indicators) | AGV.2 | **ONLINE** |
 
 ### Collaboration + Sync
 
@@ -192,12 +211,12 @@ Additional tools registered via `bridge-mcp/src/tools/` modules cover governance
 |--------|-------|--------|
 | Governance Events Table | INFRA.1 | **ONLINE** |
 | Mutations Ledger Table | INFRA.2 | **ONLINE** |
-| Design Debt Report (`bridge_debt_report`) | EXP.2 | **ONLINE** |
-| Rule Provenance (`bridge_audit_report`) | GOV.1 | **ONLINE** |
+| Design Debt Report (`flint_debt_report`) | EXP.2 | **ONLINE** |
+| Rule Provenance (`flint_audit_report`) | GOV.1 | **ONLINE** |
 | Override Telemetry (IPC + StatusBar badge) | GOV.2 | **ONLINE** |
 | Accessibility Expansion (30 rules, auto-fix) | EXP.6a | **ONLINE** |
 | Figma Plugin Settings UI (endpoint + secret + clientStorage) | FP.1 | **ONLINE** |
-| Proactive Session Context (`bridge://session-context`) | ACX.1 | **ONLINE** |
+| Proactive Session Context (`flint://session-context`) | ACX.1 | **ONLINE** |
 | Event-Driven Context Push (ContextPushManager) | ACX.2 | **ONLINE** |
 | Complexity Router (Commandment 8 model routing) | ACX.4 | **ONLINE** |
 | Sentinel Prompt (6 domain presets) | ACX.1 | **ONLINE** |
@@ -213,11 +232,46 @@ Additional tools registered via `bridge-mcp/src/tools/` modules cover governance
 | Session-Level Mutation Validation | GOV.3 | **ONLINE** |
 | Error Taxonomy + Rule Explanations (50 entries) | CX.3 | **ONLINE** |
 | Immersive Canvas (dead IDE panels removed) | U.3 | **ONLINE** |
-| Per-Agent Tool ACL (4 trust tiers, `.bridge/agent-policy.json`) | AGV.1 | **ONLINE** |
+| Per-Agent Tool ACL (4 trust tiers, `.flint/agent-policy.json`) | AGV.1 | **ONLINE** |
 | MRS Approval Flow (Green/Amber/Red risk tiers on tool_call chunks) | V.1 | **ONLINE** |
 | Auto-Escalation Rules (4 default rules, session-scoped) | AGV.3 | **ONLINE** |
 | Mithril Delta Mode (baseline snapshots, delta-only audit) | MDA.1 | **ONLINE** |
 | Configurable Policy Engine (ΔE threshold, per-rule modes, team overlays, Glass UI) | POL.1 | **ONLINE** |
+| Response Quality Baseline (`ResponseMeta` helper, 3 tools enriched) | CX.1 | **ONLINE** |
+| Statistical Anomaly Detection (3σ threshold, baseline/detect/history) | GOV.4 | **ONLINE** |
+| Design Bill of Materials (token/component/violation inventory, CycloneDX) | DBOM.1 | **ONLINE** |
+| Agent Risk Dashboard (MCP resource + Glass UI, per-agent risk posture) | AGV.2 | **ONLINE** |
+| Dynamic Agent Trust Tiers (behavioral promotion/demotion, SQLite-backed) | AGV.4 | **ONLINE** |
+| Accessibility Expansion (50 WCAG 2.1 AA rules, live regions, motion, forms) | EXP.6a-ext | **ONLINE** |
+| Tailwind v3→v4 Migration (`flint_migrate_tw`, AST class transform) | EXP.3 | **ONLINE** |
+| Figma Connection + OAuth + API Service (4 SQLite tables, injectable crypto) | SYNC.1 | **ONLINE** |
+| Three-Way Diff Sync Engine (7 diff categories, pull/push/conflict resolution) | SYNC.2 | **ONLINE** |
+| SYNC Violation Types (SYNC-001 token drift, SYNC-002 orphaned token) | SYNC.3 | **ONLINE** |
+| CI Sync Gate + Offline Queue + History Export + Dashboard Integration | SYNC.4 | **ONLINE** |
+| Multi-Brand Theme Validation (cross-theme matrix, delta report) | EXP.4 | **ONLINE** |
+| Design System Version Migration (token diff, AST rename, ΔE scoring) | EXP.5 | **ONLINE** |
+| VS Code / Cursor Extension (diagnostics, quick fixes, status bar, MCP client) | IDE.1 | **ONLINE** |
+| Universal AST Abstraction (FlintNode, JSX + JSON Schema adapters, PluginRegistry) | V.3 | **ONLINE** |
+| Constrained Registry (proactive system prompt injection, registry membership gate, per-project scope) | CR.1-3 | **ONLINE** |
+| Component Scope Editor (Glass right sidebar, visual allowlist, IPC scope management) | CR.4 | **ONLINE** |
+| RAG Auto-Seeding (manifest + tokens + docs seeded to sqlite-vec on project open) | CK.1 | **ONLINE** |
+| Constrained Plan Intent (component-composition, 6th intent type, registry-aware) | CK.2 | **ONLINE** |
+| On-Demand Re-Indexing (project:reindex IPC, manifest + RAG refresh) | CK.3 | **ONLINE** |
+| Extended ComponentEntry (usageExample, compositionNotes, a11yNotes, relatedComponents) | CK.4 | **ONLINE** |
+| Registry Enrichment (MCP tools, draft staging, Scope panel review UI, JSDoc extraction) | EN.1-4 | **ONLINE** |
+| Component Cards on Canvas (Build mode grid + Govern mode health + dependency edges) | CV2.3 | **ONLINE** |
+| Component Health Enrichment (per-component Mithril + A11y audit, A-F grades) | CV2.4 | **ONLINE** |
+| Component Thumbnail Generator (offscreen BrowserWindow → PNG cache, useThumbnail hook) | CV2.2 | **ONLINE** |
+| Drag-to-Insert (card drag from Build canvas → LivePreview drop → AST injection) | CV2.5 | **ONLINE** |
+| Category Management (badge dropdown reclassification, override persistence) | CV2.6 | **ONLINE** |
+| Search/Filter Bar (text search + category filter for component card grid) | CV2.7 | **ONLINE** |
+| Variant Preview Strip (fan out variant chips below selected card in Build mode) | VIS.1 | **ONLINE** |
+| Responsive Preview Snapping (Shift+scroll cycles mobile/tablet/desktop breakpoints) | VIS.2 | **ONLINE** |
+| Live Diff for AI Edits (before/after code diff with LCS highlighting on tool_call) | VIS.3 | **ONLINE** |
+| Design System Coverage Map (radial heat halos + coverage summary bar in Govern mode) | VIS.4 | **ONLINE** |
+| Component Recipes (6 builtin patterns, horizontal strip in Build mode, registry validation) | VIS.5 | **ONLINE** |
+| Governance Stickers (5 sticker types, spatial badges on cards in Govern mode) | VIS.6 | **ONLINE** |
+| Smart Insert Context (position-aware drop targets, visual tree sidebar panel) | VIS.7 | **ONLINE** |
 
 ### Stores
 
@@ -243,7 +297,7 @@ Additional tools registered via `bridge-mcp/src/tools/` modules cover governance
 4. **Local-First Only** -- no external URLs in preview. 100% offline.
 5. **Accessibility is a Compiler Error** -- a11y violations block export.
 6. **The Gatekeeper Rule** -- exports blocked while overrides or drift remain.
-7. **ID Preservation** -- `injectBridgeIds` after every structural op.
+7. **ID Preservation** -- `injectFlintIds` after every structural op.
 8. **Audit-First Execution** -- complexity routed to Flash vs. Thinking model.
 9. **CIEDE2000 Delta-E Logic** -- perceptual color distance for drift detection.
 10. **Targeted Micro-Recovery** -- undo pre-flight checks node existence before executing.
@@ -251,20 +305,20 @@ Additional tools registered via `bridge-mcp/src/tools/` modules cover governance
 12. **Atomic Queuing** -- all file saves via `FileTransactionManager`. AI edits batched.
 13. **Deterministic Surgery** -- Babel AST traversal only. Never regex on source code.
 14. **Bypass Prohibition** -- never use `fs` or `git` directly; route through `FileTransactionManager` / `GitManager`.
-15. **Granular AST Tools Only** -- AI Orchestrator emits only versioned catalog ops.
+15. **Granular AST Tools Only** -- The catalog provides targeted, single-purpose mutation tools for structural changes, property changes, component logic (emit hook, emit handler, emit callback), rendering control flow (emit conditional, emit map), compound component assembly (compose slot), and imports (emit import).
 16. **In-Memory Validation** -- type-check AI output before surfacing confirmation UI.
 
 ## Testing Standard
 
-Bridge is a governance product — it enforces quality on other people's code. Our own testing bar must be unimpeachable. Every agent and every implementation task follows this protocol.
+Flint is a governance product — it enforces quality on other people's code. Our own testing bar must be unimpeachable. Every agent and every implementation task follows this protocol.
 
 ### Required Test Coverage
 
 | Domain | What must be tested | Test location |
 |--------|-------------------|---------------|
-| **MCP tools** | Happy path + missing params + malformed input | `bridge-mcp/src/**/__tests__/` |
-| **MCP resources** | Returns correct shape + handles missing data | `bridge-mcp/src/**/__tests__/` |
-| **SQLite services** | CRUD round-trip + each filter + aggregations + pruning + concurrent writes | `bridge-mcp/src/**/__tests__/` |
+| **MCP tools** | Happy path + missing params + malformed input | `flint-mcp/src/**/__tests__/` |
+| **MCP resources** | Returns correct shape + handles missing data | `flint-mcp/src/**/__tests__/` |
+| **SQLite services** | CRUD round-trip + each filter + aggregations + pruning + concurrent writes | `flint-mcp/src/**/__tests__/` |
 | **Linter rules** | Each rule triggers on known-bad input + passes on known-good input | `src/core/*.test.ts` |
 | **Zustand stores** | State transitions + selectors + edge cases (empty state, overflow) | `src/store/__tests__/` |
 | **React components** | Renders without crash + user interactions + conditional UI states | `src/components/**/__tests__/` |
@@ -277,7 +331,7 @@ Every implementation task — whether done by a human or an agent — must compl
 
 1. **Write tests** for all new code (unit tests minimum, integration where IPC/DB involved)
 2. **Run the full suite** for the affected package:
-   - `cd bridge-mcp && npm test` — MCP engine (must report exact count)
+   - `cd flint-mcp && npm test` — MCP engine (must report exact count)
    - `npm run test:react` — Glass components (must report exact count)
    - `npm test` — Core/Electron tests (must report exact count)
 3. **Run TSC** — `npx tsc --noEmit` must produce 0 errors
@@ -302,24 +356,24 @@ If an agent completes work without reporting test results in this format, the wo
 
 ## Commands
 
-* `unset ELECTRON_RUN_AS_NODE && npm run dev` -- Launch Bridge Glass (Vite + Electron)
+* `unset ELECTRON_RUN_AS_NODE && npm run dev` -- Launch Flint Glass (Vite + Electron)
 * `npm run test:react` -- Run React component tests (vitest.config.react.ts)
 * `npm test` -- Run core tests (vitest.config.ts)
-* `cd bridge-mcp && npm test` -- Run MCP engine tests
+* `cd flint-mcp && npm test` -- Run MCP engine tests
 * `npx tsc --noEmit` -- Strict type check
 
 ## Session Start Protocol (Every Development Session)
 
 Before writing any code, every agent MUST complete these steps in order:
 
-1. **Declare territory** — Update `.bridge-context/ACTIVE-SWARM-TERRITORY.md` with the files and modules you intend to touch. If another agent has already claimed a file, stop and coordinate first.
+1. **Declare territory** — Update `.flint-context/ACTIVE-SWARM-TERRITORY.md` with the files and modules you intend to touch. If another agent has already claimed a file, stop and coordinate first.
 2. **Update HANDOFF.md** — Add a session entry: phase/feature name, files in scope, and goal. This is how the next agent (or session) knows what was in progress.
-3. **Read context** — Consult `HANDOFF.md`, `CLAUDE.md`, and `docs/BRIDGE-MASTER-PLAN.md` before reading the codebase.
+3. **Read context** — Consult `HANDOFF.md`, `CLAUDE.md`, and `docs/FLINT-MASTER-PLAN.md` before reading the codebase.
 4. **Begin work.**
 
 After completing work:
 - Update `HANDOFF.md` with what was done, what changed, and what remains.
-- Clear your entries from `.bridge-context/ACTIVE-SWARM-TERRITORY.md`.
+- Clear your entries from `.flint-context/ACTIVE-SWARM-TERRITORY.md`.
 
 This protocol is mandatory for any session involving implementation, refactoring, or file changes. Read-only research sessions are exempt.
 
@@ -329,58 +383,68 @@ This protocol is mandatory for any session involving implementation, refactoring
 
 ```
 SESSION START: Declare territory in ACTIVE-SWARM-TERRITORY.md + update HANDOFF.md
-GIT:    bridge-git-guru → create feature branch
-Phase 1: bridge-architect → Contract Artifact (.bridge-context/contracts/)
-GIT:    bridge-git-guru → commit contract
+GIT:    flint-git-guru → create feature branch
+Phase 1: flint-architect → Contract Artifact (.flint-context/contracts/)
+GIT:    flint-git-guru → commit contract
 Phase 2: Parallel specialist agents implement against contract
-GIT:    bridge-git-guru → commit per agent + pre-commit gate (TSC + tests)
-Phase 3: bridge-integration-validator → Integration Report (SHIP/FIX/REDESIGN)
-GIT:    bridge-git-guru → create PR (on SHIP)
+GIT:    flint-git-guru → commit per agent + pre-commit gate (TSC + tests)
+Phase 3: flint-integration-validator → Integration Report (SHIP/FIX/REDESIGN)
+GIT:    flint-git-guru → create PR (on SHIP)
 SESSION END: Update HANDOFF.md + clear territory claim
 ```
 
 Single-file bug fixes and cosmetic changes are exempt from the Contract-First flow but NOT from the Session Start Protocol. All other work follows this flow. Contract artifacts are the binding specification — Phase 2 agents implement exactly what the contract defines. If the contract is wrong, return to Phase 1.
 
-**Git ceremonies** are handled by `bridge-git-guru` at every phase boundary. It manages branch naming (`feat/<phase>-<desc>`), conventional commit messages, pre-commit validation, and PR creation. Never commit without running the pre-commit gate (TSC + relevant test suites).
+**Git ceremonies** are handled by `flint-git-guru` at every phase boundary. It manages branch naming (`feat/<phase>-<desc>`), conventional commit messages, pre-commit validation, and PR creation. Never commit without running the pre-commit gate (TSC + relevant test suites).
 
 ## Critical AI Directives
 
-1. **Session Start Protocol:** Before any implementation work, declare territory in `.bridge-context/ACTIVE-SWARM-TERRITORY.md` and update `HANDOFF.md`. See the Session Start Protocol section above. Always consult `HANDOFF.md`, `CLAUDE.md`, and `docs/BRIDGE-MASTER-PLAN.md` before reading the codebase.
-2. **Glass is Observability Only:** Chat lives in the host IDE. Bridge Glass is the visual observability layer, not a code editor, terminal, file browser, or chat host. Do not add IDE-native panels to Glass.
+1. **Session Start Protocol:** Before any implementation work, declare territory in `.flint-context/ACTIVE-SWARM-TERRITORY.md` and update `HANDOFF.md`. See the Session Start Protocol section above. Always consult `HANDOFF.md`, `CLAUDE.md`, and `docs/FLINT-MASTER-PLAN.md` before reading the codebase.
+2. **Glass is Observability Only:** Chat lives in the host IDE. Flint Glass is the visual observability layer, not a code editor, terminal, file browser, or chat host. Do not add IDE-native panels to Glass.
 3. **Mithril Safety:** If Delta-E > 2.0, code must be auto-fixed or Amber-flagged.
 4. **Persistence Rule:** All mutations MUST be atomic and saved via the `FileTransactionManager` queue.
 5. **No Hallucinations:** Use Babel AST traversal for all code changes. Never use Regex for source code.
 6. **Granular AST Tools Only (Commandment 15):** The AI Orchestrator MUST only emit ops from the versioned AST Tool Catalog. Raw code string generation is prohibited.
 7. **In-Memory Validation Loop (Commandment 16):** `orchestrator.ts` MUST run an in-memory TSC type-check on all AI output before surfacing a confirmation UI.
-8. **Context Bridge Awareness:** Glass writes live state to `.bridge/context.json` via `useContextSync`. The MCP server reads `bridge_get_context` / `bridge://context` to stay synchronized. Any new Glass state that should be visible to MCP must be added to the `BridgeContext` type.
-9. **Process Boundary Law:** No `fs`, `sqlite`, or Node.js APIs in `src/`. All cross-boundary calls go through `window.bridgeAPI` (defined in `preload.ts`).
+8. **Context Flint Awareness:** Glass writes live state to `.flint/context.json` via `useContextSync`. The MCP server reads `flint_get_context` / `flint://context` to stay synchronized. Any new Glass state that should be visible to MCP must be added to the `FlintContext` type.
+9. **Process Boundary Law:** No `fs`, `sqlite`, or Node.js APIs in `src/`. All cross-boundary calls go through `window.flintAPI` (defined in `preload.ts`).
+10. **Audit Result Presentation:** When `audit_ui_component` or `flint_audit` returns results, ALWAYS present the key findings as formatted markdown in your chat response — do not rely on the tool output block alone (VS Code collapses it to one line). Present: the verdict (BLOCKED/APPROVED), the violation summary, the "Why it matters" explanations, and the natural-language next step ("Say 'fix it' to auto-remediate"). Keep your presentation concise — the report has the detail, your response has the narrative.
 
 ## Key Files
 
-### Bridge MCP Engine
+### Flint MCP Engine
 | File | Role |
 |------|------|
-| `bridge-mcp/src/server.ts` | MCP tool and resource registrations |
-| `bridge-mcp/src/core/ast-modifier.ts` | `assembleLayout`, mutation ops |
-| `bridge-mcp/src/core/registryService.ts` | `bridge_query_registry` search |
-| `bridge-mcp/src/core/MithrilLinter.ts` | CIEDE2000 + typography/spacing/shadow/opacity |
-| `bridge-mcp/src/core/A11yLinter.ts` | 10 WCAG 2.1 AA rules |
-| `bridge-mcp/src/tools/` | audit, fix, ingest, sync tool handlers |
-| `bridge-mcp/src/prompts/sentinel.ts` | Domain-configurable governance persona |
-| `bridge-mcp/src/core/governance/mutationProvenanceService.ts` | V.2-mp — provenance tracking; `recordProvenance`, `getAuditTrail`, `getProvenanceSummary` |
+| `flint-mcp/src/server.ts` | MCP tool and resource registrations |
+| `flint-mcp/src/core/ast-modifier.ts` | `assembleLayout`, mutation ops |
+| `flint-mcp/src/core/registryService.ts` | `flint_query_registry` search |
+| `flint-mcp/src/core/MithrilLinter.ts` | CIEDE2000 + typography/spacing/shadow/opacity |
+| `flint-mcp/src/core/A11yLinter.ts` | 50 WCAG 2.1 AA rules (9 rule modules) |
+| `flint-mcp/src/tools/` | audit, fix, ingest, sync tool handlers |
+| `flint-mcp/src/prompts/sentinel.ts` | Domain-configurable governance persona |
+| `flint-mcp/src/core/governance/mutationProvenanceService.ts` | V.2-mp — provenance tracking; `recordProvenance`, `getAuditTrail`, `getProvenanceSummary` |
+| `flint-mcp/src/core/governance/riskScoringService.ts` | V.1-rs — 5-factor weighted risk scoring (0-100), tier classification |
+| `flint-mcp/src/core/governance/anomalyDetectionService.ts` | GOV.4 — 3σ anomaly detection on mutation/override/violation baselines |
+| `flint-mcp/src/core/governance/dbomService.ts` | DBOM.1 — Design Bill of Materials generation (JSON/CycloneDX) |
+| `flint-mcp/src/core/responseMeta.ts` | CX.1 — ResponseMeta helper for tool response quality measurement |
+| `flint-mcp/src/core/governance/trustTierService.ts` | AGV.4 — Dynamic trust tier promotion/demotion |
+| `flint-mcp/src/core/tailwindMigrator.ts` | EXP.3 — Tailwind v3→v4 AST class migration engine |
+| `flint-mcp/src/core/a11y/rules/` | 50 WCAG 2.1 AA rules (7 modules: names-labels, keyboard, structure, aria, landmarks, contrast, forms, live-regions, motion) |
 
 ### Electron Main Process
 | File | Role |
 |------|------|
 | `electron/main.ts` | IPC handlers: saveFile, readFile, ast:git-show, ast:git-log, syncContext |
-| `electron/orchestrator.ts` | Constrained AI orchestration with TSC validation loop |
+| `electron/orchestrator.ts` | Constrained AI orchestration with TSC validation loop + CR.1-3 registry/token constraint injection |
 | `electron/FileTransactionManager.ts` | Atomic `.tmp` -> `rename` write queue |
 | `electron/GitManager.ts` | ensureRepo, shadowCommit, getGitNode |
 | `electron/ingestion-server.ts` | Figma ingestion + SDI webhook (port 4545) + heal pass |
 | `electron/ingestion/IngestionAuditor.ts` | CIEDE2000 tier classification + Babel AST auto-heal (Phase ING) |
 | `electron/normalizer.ts` | Figma Variables → W3C DTCG token normalization |
-| `electron/store.ts` | SQLite database (`bridge.db`) |
-| `electron/preload.ts` | IPC bridge -- defines `window.bridgeAPI` surface |
+| `electron/store.ts` | SQLite database (`flint.db`) |
+| `electron/preload.ts` | IPC flint -- defines `window.flintAPI` surface |
+| `electron/agentPolicy.ts` | AGV.1 — Per-agent ACL, 4 trust tiers, `.flint/agent-policy.json` |
+| `electron/agentEscalation.ts` | AGV.3 — Auto-escalation rules engine (session-scoped) |
 
 ### Glass UI
 | File | Role |
@@ -402,9 +466,10 @@ Single-file bug fixes and cosmetic changes are exempt from the Contract-First fl
 | `src/components/ui/AnnotationList.tsx` | Annotation rendering in right sidebar |
 | `src/components/editor/ViolationTooltip.tsx` | Ghost Canvas severity tooltip on hover |
 | `src/components/ui/ImportSummary.tsx` | Ingestion heal summary toast + review panel (Phase ING) |
+| `src/components/ui/AgentDashboard.tsx` | AGV.2 — Per-agent risk posture, escalation indicators, right sidebar "agents" tab |
 | `src/store/importSummaryStore.ts` | Ingestion summary state, tier-2 snap, undo-all-heals |
 | `src/store/annotationStore.ts` | Annotation CRUD + fs.watch push sync |
-| `src/hooks/useContextSync.ts` | Writes live state to `.bridge/context.json` |
+| `src/hooks/useContextSync.ts` | Writes live state to `.flint/context.json` |
 
 ### Core Services
 | File | Role |
@@ -416,9 +481,9 @@ Single-file bug fixes and cosmetic changes are exempt from the Contract-First fl
 ## Architectural Anti-Patterns (Reject These)
 
 - Importing a Zustand store inside another store (cross-store contamination)
-- Calling `window.bridgeAPI` inside a Zustand store action (IPC belongs in components/hooks/services)
+- Calling `window.flintAPI` inside a Zustand store action (IPC belongs in components/hooks/services)
 - Writing to disk with `fs.writeFile` instead of routing through `FileTransactionManager`
 - Adding `import { readFileSync } from 'fs'` anywhere in `src/` (process boundary violation)
 - Using `ipcRenderer.send` directly in React (must go through `contextBridge` surface)
 - Regex-based source code modification (always Babel AST traversal)
-- Adding IDE panels (editor, terminal, file explorer, chat) to Bridge Glass
+- Adding IDE panels (editor, terminal, file explorer, chat) to Flint Glass

@@ -1,9 +1,10 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, safeStorage, session } from 'electron'
 import type { MenuItemConstructorOptions } from 'electron'
 import path from 'node:path'
+import { BRAND, ipcChannel, logTag } from '../shared/brand.ts'
 import { fileURLToPath } from 'node:url'
-import { readdir, readFile, writeFile, mkdir, rename, stat as fsStat, open as fsOpen } from 'node:fs/promises'
-import { existsSync, mkdirSync, watch as fsWatch } from 'node:fs'
+import { readdir, readFile, writeFile, mkdir, stat as fsStat, open as fsOpen, cp } from 'node:fs/promises'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, watch as fsWatch } from 'node:fs'
 import { execFile } from 'node:child_process'
 import { randomUUID, randomBytes } from 'node:crypto'
 import os from 'node:os'
@@ -11,9 +12,12 @@ import * as pty from 'node-pty'
 import type { IPty } from 'node-pty'
 import { snapToToken } from './ingestion/index.js'
 import { loadAgentPolicy } from './agentPolicy.js'
+import { checkBetaExpiry, startVersionCheck, stopVersionCheck, getBetaInfo } from './betaGuard.js'
+import { ThumbnailGenerator } from './thumbnailGenerator.js'
+import type { ThumbnailOptions } from './thumbnailGenerator.js'
 
 // ── FileTreeNode ───────────────────────────────────────────────────────────────
-// Mirrors the renderer-side type in src/types/bridge-api.d.ts.
+// Mirrors the renderer-side type in src/types/flint-api.d.ts.
 // Cannot be imported cross-boundary, so it is re-declared here.
 interface FileTreeNode {
     name: string
@@ -22,8 +26,70 @@ interface FileTreeNode {
     children?: FileTreeNode[]
 }
 
-/** Tracks the active project root so the main process can locate bridge-manifest.json. */
+/** Tracks the active project root so the main process can locate flint-manifest.json. */
 let activeProjectRoot: string | null = null
+
+// ── Phase CV2.2: Thumbnail Generator ─────────────────────────────────────────
+// Module-level singleton created lazily when the first project is opened.
+// Replaced via setProjectRoot() on subsequent opens; disposed on quit/close.
+let thumbnailGenerator: ThumbnailGenerator | null = null
+
+/**
+ * Returns the app root directory (the repo root containing src/).
+ * In dev builds, __dirname is dist-electron/ so we go up one level.
+ * In prod builds, __dirname is the bundled resources directory.
+ */
+function _getThumbnailAppRoot(): string {
+    // Walk up until we find src/preview-vendor or reach the filesystem root
+    let dir = __dirname
+    for (let i = 0; i < 4; i++) {
+        if (existsSync(path.join(dir, 'src', 'preview-vendor'))) return dir
+        dir = path.dirname(dir)
+    }
+    return __dirname
+}
+
+/**
+ * Returns (creating if needed) the ThumbnailGenerator for the given projectRoot.
+ * If one already exists, updates its projectRoot and returns it.
+ */
+function getThumbnailGenerator(projectRoot: string): ThumbnailGenerator {
+    if (!thumbnailGenerator) {
+        thumbnailGenerator = new ThumbnailGenerator(projectRoot, _getThumbnailAppRoot(), fileTransactionManager)
+    } else {
+        thumbnailGenerator.setProjectRoot(projectRoot)
+    }
+    return thumbnailGenerator
+}
+
+/**
+ * Auto-invalidates a component thumbnail when its source file is saved.
+ * Reads flint-manifest.json to map filePath → componentName.
+ * Fire-and-forget — errors are logged but do not affect the save operation.
+ */
+async function autoInvalidateThumbnail(filePath: string): Promise<void> {
+    if (!activeProjectRoot || !thumbnailGenerator) return
+    const manifestPath = path.join(activeProjectRoot, BRAND.manifestFile)
+    try {
+        const raw = await readFile(manifestPath, 'utf8')
+        const manifest = JSON.parse(raw) as Record<string, unknown>
+        const components = (manifest.components ?? {}) as Record<string, unknown>
+        for (const [name, entry] of Object.entries(components)) {
+            const entryObj = entry as { importPath?: string; filePath?: string }
+            const srcPath = entryObj.filePath ?? entryObj.importPath
+            if (!srcPath || typeof srcPath !== 'string') continue
+            const resolvedPath = path.isAbsolute(srcPath)
+                ? srcPath
+                : path.join(activeProjectRoot, srcPath)
+            if (resolvedPath === filePath) {
+                await thumbnailGenerator.invalidate(name)
+                break
+            }
+        }
+    } catch {
+        // Manifest missing or unparseable — no invalidation needed
+    }
+}
 
 /**
  * Server-side store for pre-heal code (Security fix for SECURITY-01).
@@ -111,16 +177,16 @@ let stopServer: (() => void) | null = null
 // restart, so override counts reset cleanly between sessions.
 const governanceSessionId: string = randomUUID()
 
-// ── Bridge ID Babel Plugin ────────────────────────────────────────────────────
+// ── Flint ID Babel Plugin ────────────────────────────────────────────────────
 //
-// Injects `data-bridge-id="tagName:line:col"` onto every JSXOpeningElement
+// Injects `data-flint-id="tagName:line:col"` onto every JSXOpeningElement
 // during preview compilation. This attribute links AST nodes to their DOM
 // counterparts, enabling the bi-directional Layer Tree ↔ Live Preview
 // selection feature (highlight + click-to-select).
 //
 // This attribute is added ONLY to the Babel output sent to the srcdoc iframe —
 // it is never written back to the user's source code.
-function injectBridgeIdPlugin() {
+function injectFlintIdPlugin() {
     return {
         visitor: {
             JSXOpeningElement(path: NodePath<JSXOpeningElement>): void {
@@ -141,20 +207,20 @@ function injectBridgeIdPlugin() {
                     tagName = 'unknown'
                 }
 
-                const bridgeId = `${tagName}:${loc.start.line}:${loc.start.column}`
+                const flintId = `${tagName}:${loc.start.line}:${loc.start.column}`
 
                 // Skip if already injected (idempotent guard)
                 const alreadySet = path.node.attributes.some((attr) => {
                     if (attr.type !== 'JSXAttribute') return false
                     const name = attr.name
-                    return name.type === 'JSXIdentifier' && name.name === 'data-bridge-id'
+                    return name.type === 'JSXIdentifier' && name.name === 'data-flint-id'
                 })
                 if (alreadySet) return
 
                 path.node.attributes.push(
                     jsxAttribute(
-                        jsxIdentifier('data-bridge-id'),
-                        stringLiteral(bridgeId)
+                        jsxIdentifier('data-flint-id'),
+                        stringLiteral(flintId)
                     )
                 )
             },
@@ -206,6 +272,30 @@ function buildAppMenu(): void {
         { role: 'editMenu' },
         { role: 'viewMenu' },
         { role: 'windowMenu' },
+
+        // ── Help ──────────────────────────────────────────────────────────────
+        {
+            label: 'Help',
+            submenu: [
+                {
+                    label: 'Reset to First Launch\u2026',
+                    click: () => {
+                        const choice = dialog.showMessageBoxSync({
+                            type: 'warning',
+                            buttons: ['Reset', 'Cancel'],
+                            defaultId: 1,
+                            cancelId: 1,
+                            title: 'Reset to First Launch',
+                            message: 'Reset Flint Glass to first launch?',
+                            detail: 'Your setup preferences will be cleared and the app will reload from the beginning. Your projects will not be deleted.',
+                        })
+                        if (choice === 0) {
+                            mainWindow?.webContents.send('menu:reset-state')
+                        }
+                    },
+                },
+            ],
+        },
     ]
 
     Menu.setApplicationMenu(Menu.buildFromTemplate(template))
@@ -223,7 +313,7 @@ const DEVELOPMENT_CSP = [
     "connect-src 'self' ws://localhost:* http://localhost:* http://127.0.0.1:*",
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
-    "frame-src 'self' blob: http://localhost:*",
+    "frame-src 'self' blob: http://localhost:* http://127.0.0.1:*",
 ].join('; ')
 
 const PRODUCTION_CSP = [
@@ -233,14 +323,14 @@ const PRODUCTION_CSP = [
     "connect-src 'self' http://127.0.0.1:*",
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
-    "frame-src 'self' blob: http://localhost:*",
+    "frame-src 'self' blob: http://localhost:* http://127.0.0.1:*",
 ].join('; ')
 
 function createWindow(): void {
     mainWindow = new BrowserWindow({
         width: 1400,
         height: 900,
-        title: 'Bridge IDE',
+        title: BRAND.appTitle,
         webPreferences: {
             preload: PRELOAD_PATH,
             contextIsolation: true,
@@ -253,10 +343,10 @@ function createWindow(): void {
             // Mitigation: contextIsolation: true + contextBridge enforce the
             // process boundary at the API surface level. The preload exposes
             // no Node.js APIs directly; all calls go through the typed
-            // BridgeAPI surface defined in src/types/bridge-api.d.ts.
+            // FlintAPI surface defined in src/types/flint-api.d.ts.
             // Track: https://github.com/electron/electron/issues — revisit
             // when vite-plugin-electron gains sandbox-compatible ESM output.
-            // See: .bridge-context/decisions.md
+            // See: .flint-context/decisions.md
             sandbox: false,
         },
     })
@@ -289,6 +379,11 @@ function createWindow(): void {
     } else {
         mainWindow.loadFile(path.join(RENDERER_DIST, 'index.html'))
     }
+
+    // ── Beta version check ────────────────────────────────────────────────
+    // Non-blocking periodic check for newer beta builds. Safe no-op when
+    // FLINT_BETA_VERSION_URL is not set (dev builds).
+    startVersionCheck(mainWindow)
 }
 
 // ── IPC Handlers ──────────────────────────────────────────────────────────────
@@ -325,17 +420,25 @@ ipcMain.handle(
 
         // Ensure git repo exists so we can track shadow commits
         await gitManager.ensureRepo(folderPath).catch(err => {
-            console.error(`[Bridge] main.ts: ensureRepo failed for ${folderPath}`, err)
+            console.error(`${BRAND.logPrefix} main.ts: ensureRepo failed for ${folderPath}`, err)
         })
 
         activeProjectRoot = folderPath
         // AGV.1: Load per-project agent policy
         void loadAgentPolicy(folderPath).catch((err) => {
-            console.error('[Bridge] loadAgentPolicy failed after openFolder:', err)
+            console.error(`${BRAND.logPrefix} loadAgentPolicy failed after openFolder:`, err)
         })
         // Phase W.3: start MCP client for the newly opened project
         void mcpClient.start(folderPath).catch((err) => {
-            console.error('[Bridge] mcpClient.start failed after openFolder:', err)
+            console.error(`${BRAND.logPrefix} mcpClient.start failed after openFolder:`, err)
+        })
+        // CV2.2: Initialize thumbnail generator for the new project root
+        getThumbnailGenerator(folderPath)
+        // CK.1: Seed RAG store with component docs + tokens
+        void import('./ragSeeder.js').then(({ seedRAGFromProject }) => {
+            seedRAGFromProject(folderPath).catch(err => {
+                console.error(`${logTag('CK.1')} RAG seeding failed:`, err)
+            })
         })
         return scanDirectory(folderPath)
     }
@@ -376,7 +479,7 @@ ipcMain.handle('code:transform', (_event, code: unknown): { js: string | null; e
             filename: 'App.tsx',
             plugins: [
                 ['@babel/plugin-transform-typescript', { isTSX: true, allExtensions: true }],
-                injectBridgeIdPlugin,
+                injectFlintIdPlugin,
                 ['@babel/plugin-transform-react-jsx', { runtime: 'classic' }],
             ],
             configFile: false,
@@ -446,7 +549,7 @@ ipcMain.handle('preview:start', async (_event, projectRoot: unknown): Promise<{ 
         return { url }
     } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
-        console.error('[Bridge] preview:start failed:', msg)
+        console.error(`${BRAND.logPrefix} preview:start failed:`, msg)
         return { error: `Preview server failed to start: ${msg}` }
     }
 })
@@ -467,9 +570,35 @@ ipcMain.handle('preview:url', (): string | null => {
     return getPreviewUrl()
 })
 
+// ── Single-instance lock ──────────────────────────────────────────────────────
+// Prevents multiple Flint Glass processes from running simultaneously.
+// Without this, every activation (dock click, OS session restore, crash retry)
+// spawns a new process, causing the "opens faster than you can close" loop.
+{
+    const gotLock = app.requestSingleInstanceLock()
+    if (!gotLock) {
+        // Another instance is already running — quit immediately and let it
+        // handle the activation (second-instance handler below will focus it).
+        app.quit()
+    }
+}
+
+app.on('second-instance', () => {
+    // A second launch was attempted — focus the existing window instead.
+    if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore()
+        mainWindow.focus()
+    }
+})
+
 // ── App Lifecycle ─────────────────────────────────────────────────────────────
 
 app.whenReady().then(async () => {
+    // ── Beta guard ────────────────────────────────────────────────────────────
+    // Must run before any window creation. Shows expiry dialog and quits if
+    // the build has expired.
+    if (!checkBetaExpiry()) return
+
     // Initialise the database first (imported for side-effects: tables are
     // created synchronously inside store.ts on module load).
     const { default: db } = await import('./store.js')
@@ -505,7 +634,7 @@ app.whenReady().then(async () => {
     // (watchTokens) receive updates regardless of which source triggered the write.
     function broadcastTokensUpdated(): void {
         BrowserWindow.getAllWindows().forEach((w) => {
-            if (!w.isDestroyed()) w.webContents.send('bridge:tokens-updated')
+            if (!w.isDestroyed()) w.webContents.send(ipcChannel('tokens-updated'))
         })
     }
 
@@ -585,27 +714,27 @@ app.whenReady().then(async () => {
 
     ipcMain.handle('tokens:clear-all', () => {
         const result = stmtClearAll.run()
-        console.log(`[Bridge] tokens:clear-all: removed ${result.changes} tokens`)
+        console.log(`${BRAND.logPrefix} tokens:clear-all: removed ${result.changes} tokens`)
         broadcastTokensUpdated()
         return { changes: result.changes }
     })
 
     // ── Component Override Clear Handler (Phase E — Garbage Collection) ────────
-    // Deletes the component_overrides row for `bridgeId`, releasing the export
+    // Deletes the component_overrides row for `flintId`, releasing the export
     // lock associated with a deleted AST node. Called by the renderer-side
-    // applyMutationBatch deleteNode path via window.bridgeAPI.tokens.clearOverride.
+    // applyMutationBatch deleteNode path via window.flintAPI.tokens.clearOverride.
     //
     // Silent no-op if the row does not exist (idempotent).
-    ipcMain.handle('tokens:clear-override', (_event, bridgeId: unknown): void => {
-        if (typeof bridgeId !== 'string' || bridgeId.length === 0) return
-        db.prepare('DELETE FROM component_overrides WHERE bridge_id = ?').run(bridgeId)
+    ipcMain.handle('tokens:clear-override', (_event, flintId: unknown): void => {
+        if (typeof flintId !== 'string' || flintId.length === 0) return
+        db.prepare('DELETE FROM component_overrides WHERE flint_id = ?').run(flintId)
     })
 
     // ── Component Override Upsert Handler (Phase E — Write Pathway) ───────────
     // INSERT OR REPLACE a single property row in component_overrides, recording
-    // that `propertyKey` on `bridgeId` has been manually overridden.
+    // that `propertyKey` on `flintId` has been manually overridden.
     //
-    // The composite PK (bridge_id, property_key) ensures each property for a
+    // The composite PK (flint_id, property_key) ensures each property for a
     // given element has exactly one row; subsequent edits to the same property
     // update the row in-place via the ON CONFLICT replacement.
     //
@@ -613,33 +742,33 @@ app.whenReady().then(async () => {
     // by the renderer via canvasStore.setOverridesExist after each commit.
     ipcMain.handle(
         'tokens:upsert-override',
-        (_event, bridgeId: unknown, propertyKey: unknown, propertyValue: unknown): void => {
+        (_event, flintId: unknown, propertyKey: unknown, propertyValue: unknown): void => {
             if (
-                typeof bridgeId !== 'string' || bridgeId.length === 0 ||
+                typeof flintId !== 'string' || flintId.length === 0 ||
                 typeof propertyKey !== 'string' || propertyKey.length === 0 ||
                 typeof propertyValue !== 'string'
             ) return
             db.prepare(
                 `INSERT OR REPLACE INTO component_overrides
-                    (bridge_id, property_key, property_value, updated_at)
+                    (flint_id, property_key, property_value, updated_at)
                  VALUES (?, ?, ?, strftime('%s','now'))`
-            ).run(bridgeId, propertyKey, propertyValue)
+            ).run(flintId, propertyKey, propertyValue)
         }
     )
 
     // ── Component Override Read Handler (Phase B.2 — Export Gate) ─────────────
     // Returns every row in component_overrides so the ExportModal can surface
-    // exactly which bridge IDs and properties are blocking export.
+    // exactly which flint IDs and properties are blocking export.
     // Results are ordered by updated_at DESC so the most recently dirtied nodes
     // appear first in the violation list.
     type OverrideRow = {
-        bridge_id: string
+        flint_id: string
         property_key: string
         property_value: string
         updated_at: number
     }
     const stmtReadOverrides = db.prepare<[], OverrideRow>(`
-        SELECT bridge_id, property_key, property_value, updated_at
+        SELECT flint_id, property_key, property_value, updated_at
         FROM component_overrides
         ORDER BY updated_at DESC
     `)
@@ -653,7 +782,7 @@ app.whenReady().then(async () => {
     // Payload shape: { id, userId, nodeId, x, y }
     //   id     — session UUID that uniquely identifies the sender's presence row
     //   userId — human-readable display name or generated handle
-    //   nodeId — the bridge ID of the node currently selected (may be '')
+    //   nodeId — the flint ID of the node currently selected (may be '')
     //   x, y   — cursor coordinates in canvas space
     const stmtUpsertPresence = db.prepare<[string, string, string, number, number]>(`
         INSERT INTO presence (id, user_id, node_id, x, y, updated_at)
@@ -727,8 +856,11 @@ app.whenReady().then(async () => {
 
         // Commandment 13: Must shadowCommit only after fileTransactionManager resolves
         await gitManager.shadowCommit(path.dirname(filePath)).catch((err: Error) => {
-            console.error('[Bridge] main.ts: ast:save-file shadowCommit failed', err)
+            console.error(`${BRAND.logPrefix} main.ts: ast:save-file shadowCommit failed`, err)
         })
+
+        // CV2.2: Auto-invalidate thumbnail when a component file is saved
+        void autoInvalidateThumbnail(filePath)
     })
 
     // ── Batch Save Handler ─────────────────────────────────────────────────────
@@ -765,11 +897,16 @@ app.whenReady().then(async () => {
         await fileTransactionManager.writeBatch(validated)
 
         // Commandment 13: shadowCommit after successful batch
-        const firstPath = Object.keys(validated)[0]
+        const firstPath = [...validated.keys()][0]
         if (firstPath) {
             await gitManager.shadowCommit(path.dirname(firstPath)).catch((err: Error) => {
-                console.error('[Bridge] main.ts: ast:save-batch shadowCommit failed', err)
+                console.error(`${BRAND.logPrefix} main.ts: ast:save-batch shadowCommit failed`, err)
             })
+        }
+
+        // CV2.2: Auto-invalidate thumbnails for all saved component files
+        for (const filePath of validated.keys()) {
+            void autoInvalidateThumbnail(filePath)
         }
     })
 
@@ -870,6 +1007,75 @@ app.whenReady().then(async () => {
         }
     )
 
+    // ── Phase CV2.2: Thumbnail IPC Handlers ───────────────────────────────────
+    //
+    // All thumbnail operations are pull-based (renderer requests when needed).
+    // No push events — thumbnails are derived cache artifacts, not source-of-truth.
+    // Security: componentName is sanitized inside ThumbnailGenerator.sanitizeComponentName().
+
+    /**
+     * thumbnails:generate — renders a single component and saves a PNG to
+     * .flint/thumbnails/. Returns cache hit immediately if the PNG exists.
+     */
+    ipcMain.handle('thumbnails:generate', async (_event, payload: unknown) => {
+        if (
+            typeof payload !== 'object' || payload === null ||
+            typeof (payload as Record<string, unknown>).filePath !== 'string' ||
+            typeof (payload as Record<string, unknown>).componentName !== 'string'
+        ) {
+            throw new TypeError('thumbnails:generate — payload must have filePath and componentName strings')
+        }
+        const p = payload as ThumbnailOptions
+        const home = app.getPath('home')
+        if (!path.isAbsolute(p.filePath) || !/\.(tsx?|jsx?)$/.test(p.filePath)) {
+            throw new Error('thumbnails:generate — filePath must be an absolute path to a source file')
+        }
+        if (!p.filePath.startsWith(home + path.sep)) {
+            throw new Error('thumbnails:generate — path outside user home directory')
+        }
+        if (!activeProjectRoot) {
+            return { componentName: p.componentName, thumbnailPath: '', generated: false, error: 'No active project' }
+        }
+        const gen = getThumbnailGenerator(activeProjectRoot)
+        return gen.generate(p)
+    })
+
+    /**
+     * thumbnails:generate-all — batch generates thumbnails for all components
+     * listed in flint-manifest.json. Processed sequentially.
+     */
+    ipcMain.handle('thumbnails:generate-all', async () => {
+        if (!activeProjectRoot) {
+            return { total: 0, succeeded: 0, failed: 0, results: [] }
+        }
+        const gen = getThumbnailGenerator(activeProjectRoot)
+        return gen.generateAll()
+    })
+
+    /**
+     * thumbnails:get — reads a cached thumbnail as a base64 data URL.
+     * Returns null if the thumbnail is not cached (caller should generate first).
+     */
+    ipcMain.handle('thumbnails:get', async (_event, componentName: unknown) => {
+        if (typeof componentName !== 'string' || componentName.trim() === '') {
+            return null
+        }
+        if (!activeProjectRoot) return null
+        const gen = getThumbnailGenerator(activeProjectRoot)
+        return gen.get(componentName)
+    })
+
+    /**
+     * thumbnails:invalidate — deletes the cached PNG for a component.
+     * Called automatically on ast:save-file; can also be called manually.
+     */
+    ipcMain.handle('thumbnails:invalidate', async (_event, componentName: unknown) => {
+        if (typeof componentName !== 'string' || componentName.trim() === '') return
+        if (!activeProjectRoot) return
+        const gen = getThumbnailGenerator(activeProjectRoot)
+        await gen.invalidate(componentName)
+    })
+
     // ── Project Registry + Template Scaffolding ───────────────────────────────
     const { upsertProject, getRecentProjects, removeProject } = await import('./registry.js')
     const { initializeProject, injectDemoState } = await import('./templateService.js')
@@ -896,7 +1102,7 @@ app.whenReady().then(async () => {
     })
 
     // ── project:initialize ────────────────────────────────────────────────────
-    // Scaffolds a new Bridge workspace by copying the bundled template into an
+    // Scaffolds a new Flint workspace by copying the bundled template into an
     // empty user-selected directory.
     //
     // Payload: { targetPath: string, templateId: string }
@@ -933,27 +1139,27 @@ app.whenReady().then(async () => {
         // Empty-Dir Gate + cpSync (templateService throws if non-empty)
         initializeProject(targetPath, templateId)
 
-        // ── Scaffold .bridge/ directory with starter config files ────────────
-        // Creates .bridge/policy.json (DEFAULT_POLICY) and
-        // .bridge/design-tokens.json (empty array) so the governance engine
+        // ── Scaffold .flint/ directory with starter config files ────────────
+        // Creates .flint/policy.json (DEFAULT_POLICY) and
+        // .flint/design-tokens.json (empty array) so the governance engine
         // and StatusBar can read them immediately without falling back to
         // hard-coded defaults.  Uses the atomic FTM queue — no raw writeFile.
-        const bridgeDir = path.join(targetPath, '.bridge')
-        await mkdir(bridgeDir, { recursive: true })
+        const flintDir = path.join(targetPath, BRAND.configDir)
+        await mkdir(flintDir, { recursive: true })
 
-        const { DEFAULT_POLICY } = await import('../bridge-mcp/src/core/config.js')
-        await fileTransactionManager.writeFile(
-            path.join(bridgeDir, 'policy.json'),
+        const { DEFAULT_POLICY } = await import('../flint-mcp/src/core/config.js')
+        await fileTransactionManager.write(
+            path.join(flintDir, 'policy.json'),
             JSON.stringify(DEFAULT_POLICY, null, 2) + '\n',
         )
-        await fileTransactionManager.writeFile(
-            path.join(bridgeDir, 'design-tokens.json'),
+        await fileTransactionManager.write(
+            path.join(flintDir, 'design-tokens.json'),
             '[]\n',
         )
 
         // Ensure git repo is initialized on the new workspace
         await gitManager.ensureRepo(targetPath).catch(err => {
-            console.error(`[Bridge] main.ts: ensureRepo failed for new project ${targetPath}`, err)
+            console.error(`${BRAND.logPrefix} main.ts: ensureRepo failed for new project ${targetPath}`, err)
         })
 
         // Write to registry (UUID is stable: path UNIQUE constraint preserves
@@ -966,50 +1172,50 @@ app.whenReady().then(async () => {
     })
 
     // ── project:create-scratchpad ─────────────────────────────────────────────
-    // Instantly scaffolds a new project in ~/Bridge Projects/Untitled-N with no
+    // Instantly scaffolds a new project in ~/Flint Projects/Untitled-N with no
     // dialog. The first available counter slot is chosen so names never collide.
     //
     // Steps:
-    //   1. Ensure ~/Bridge Projects/ exists.
+    //   1. Ensure ~/Flint Projects/ exists.
     //   2. Pick the next free Untitled-N name.
     //   3. Create the directory and scaffold from 'base-vite-tailwind'.
-    //   4. Write .bridge/ policy + tokens (same as project:initialize).
+    //   4. Write .flint/ policy + tokens (same as project:initialize).
     //   5. Git init via gitManager.ensureRepo.
     //   6. Register in the global registry.
     //   7. Set activeProjectRoot and start the MCP client.
     //   8. Scan and return the FileTreeNode tree.
     ipcMain.handle('project:create-scratchpad', async (): Promise<FileTreeNode> => {
-        const bridgeProjectsDir = path.join(app.getPath('home'), 'Bridge Projects')
-        await mkdir(bridgeProjectsDir, { recursive: true })
+        const flintProjectsDir = path.join(app.getPath('home'), `${BRAND.product} Projects`)
+        await mkdir(flintProjectsDir, { recursive: true })
 
         // Find the first free Untitled-N slot
         let existing: string[] = []
-        try { existing = await readdir(bridgeProjectsDir) } catch { /* empty dir is fine */ }
+        try { existing = await readdir(flintProjectsDir) } catch { /* empty dir is fine */ }
         let counter = 1
         while (existing.includes(`Untitled-${counter}`)) counter++
         const projectName = `Untitled-${counter}`
-        const targetPath = path.join(bridgeProjectsDir, projectName)
+        const targetPath = path.join(flintProjectsDir, projectName)
         await mkdir(targetPath)
 
         // Scaffold using the same template service as project:initialize
         initializeProject(targetPath, 'base-vite-tailwind')
 
-        // Write .bridge/ starter config files
-        const bridgeDir = path.join(targetPath, '.bridge')
-        await mkdir(bridgeDir, { recursive: true })
-        const { DEFAULT_POLICY } = await import('../bridge-mcp/src/core/config.js')
-        await fileTransactionManager.writeFile(
-            path.join(bridgeDir, 'policy.json'),
+        // Write .flint/ starter config files
+        const flintDir = path.join(targetPath, BRAND.configDir)
+        await mkdir(flintDir, { recursive: true })
+        const { DEFAULT_POLICY } = await import('../flint-mcp/src/core/config.js')
+        await fileTransactionManager.write(
+            path.join(flintDir, 'policy.json'),
             JSON.stringify(DEFAULT_POLICY, null, 2) + '\n',
         )
-        await fileTransactionManager.writeFile(
-            path.join(bridgeDir, 'design-tokens.json'),
+        await fileTransactionManager.write(
+            path.join(flintDir, 'design-tokens.json'),
             '[]\n',
         )
 
         // Git init
         await gitManager.ensureRepo(targetPath).catch(err => {
-            console.error(`[Bridge] project:create-scratchpad: ensureRepo failed for ${targetPath}`, err)
+            console.error(`${BRAND.logPrefix} project:create-scratchpad: ensureRepo failed for ${targetPath}`, err)
         })
 
         // Register in registry
@@ -1019,17 +1225,25 @@ app.whenReady().then(async () => {
         activeProjectRoot = targetPath
         // AGV.1: Load per-project agent policy
         void loadAgentPolicy(targetPath).catch((err) => {
-            console.error('[Bridge] loadAgentPolicy failed after create-scratchpad:', err)
+            console.error(`${BRAND.logPrefix} loadAgentPolicy failed after create-scratchpad:`, err)
         })
         void mcpClient.start(targetPath).catch((err) => {
-            console.error('[Bridge] mcpClient.start failed after create-scratchpad:', err)
+            console.error(`${BRAND.logPrefix} mcpClient.start failed after create-scratchpad:`, err)
+        })
+        // CV2.2: Initialize thumbnail generator for the new project root
+        getThumbnailGenerator(targetPath)
+        // CK.1: Seed RAG store with component docs + tokens
+        void import('./ragSeeder.js').then(({ seedRAGFromProject }) => {
+            seedRAGFromProject(targetPath).catch(err => {
+                console.error(`${logTag('CK.1')} RAG seeding failed:`, err)
+            })
         })
 
         return scanDirectory(targetPath)
     })
 
     // ── project:reset-to-demo ──────────────────────────────────────────────────
-    // Resets the provided targetPath to the bundled 'bridge-demo' state.
+    // Resets the provided targetPath to the bundled 'flint-demo' state.
     //
     // Throws if path is not absolute or not inside home dir.
     ipcMain.handle('project:reset-to-demo', async (_event, targetPath: unknown): Promise<FileTreeNode> => {
@@ -1050,7 +1264,7 @@ app.whenReady().then(async () => {
 
         // Reset git repo
         await gitManager.ensureRepo(targetPath).catch(err => {
-            console.error(`[Bridge] main.ts: ensureRepo failed for reset project ${targetPath}`, err)
+            console.error(`${BRAND.logPrefix} main.ts: ensureRepo failed for reset project ${targetPath}`, err)
         })
 
         // Return the fresh directory tree
@@ -1073,7 +1287,7 @@ app.whenReady().then(async () => {
         try {
             // Ensure git repo exists before returning the tree
             await gitManager.ensureRepo(normalized).catch(err => {
-                console.error(`[Bridge] main.ts: ensureRepo failed for ${normalized}`, err)
+                console.error(`${BRAND.logPrefix} main.ts: ensureRepo failed for ${normalized}`, err)
             })
 
             const tree = await scanDirectory(normalized)
@@ -1082,16 +1296,68 @@ app.whenReady().then(async () => {
             activeProjectRoot = normalized
             // AGV.1: Load per-project agent policy
             void loadAgentPolicy(normalized).catch((err) => {
-                console.error('[Bridge] loadAgentPolicy failed after openPath:', err)
+                console.error(`${BRAND.logPrefix} loadAgentPolicy failed after openPath:`, err)
             })
             // Phase W.3: start MCP client for the newly opened project
             void mcpClient.start(normalized).catch((err) => {
-                console.error('[Bridge] mcpClient.start failed after openPath:', err)
+                console.error(`${BRAND.logPrefix} mcpClient.start failed after openPath:`, err)
+            })
+            // CV2.2: Initialize thumbnail generator for the new project root
+            getThumbnailGenerator(normalized)
+            // CK.1: Seed RAG store with component docs + tokens
+            void import('./ragSeeder.js').then(({ seedRAGFromProject }) => {
+                seedRAGFromProject(normalized).catch(err => {
+                    console.error(`${logTag('CK.1')} RAG seeding failed:`, err)
+                })
             })
             return tree
         } catch {
             return null
         }
+    })
+
+    // ── project:reindex ───────────────────────────────────────────────────────
+    // CK.3: Re-scans the active project for components, merges the result
+    // into flint-manifest.json, and re-seeds the RAG store so that
+    // flint_search_design_system returns up-to-date results.
+    //
+    // Returns { components, ragChunks } — both zero when no project is open.
+    // Never throws: errors are logged and reflected in the zero-count return.
+    ipcMain.handle('project:reindex', async (): Promise<{ components: number; ragChunks: number }> => {
+        if (!activeProjectRoot) return { components: 0, ragChunks: 0 }
+
+        const root = activeProjectRoot
+
+        // 1. Run component indexer (Babel AST scan — Commandment 13)
+        const { indexComponents } = await import(
+            '../flint-mcp/src/core/init/componentIndexer.js'
+        )
+        const indexResult = await indexComponents(root)
+
+        // 2. Merge into flint-manifest.json (read existing manifest → update → write)
+        const manifestPath = path.join(root, BRAND.manifestFile)
+        let manifest: Record<string, unknown> = {}
+        try {
+            const raw = await readFile(manifestPath, 'utf-8')
+            manifest = JSON.parse(raw) as Record<string, unknown>
+        } catch {
+            // Missing or malformed manifest — start fresh
+        }
+        manifest.components = indexResult.components
+        await fileTransactionManager.write(
+            manifestPath,
+            JSON.stringify(manifest, null, 2) + '\n',
+        )
+
+        // 3. Re-seed RAG store from the updated manifest + tokens + docs
+        const { seedRAGFromProject } = await import('./ragSeeder.js')
+        const ragResult = await seedRAGFromProject(root)
+
+        console.log(
+            `${logTag('CK.3')} Reindex complete — ${indexResult.count} components, ${ragResult.ingested} RAG chunks`,
+        )
+
+        return { components: indexResult.count, ragChunks: ragResult.ingested }
     })
 
     // ── registry:getRecent ────────────────────────────────────────────────────
@@ -1146,23 +1412,23 @@ app.whenReady().then(async () => {
     // Never log the decrypted key.
 
     // ── SEC.4 startup migration ───────────────────────────────────────────────
-    // Run once on app.whenReady. If legacy plaintext `apiKey` exists and
-    // safeStorage is available, encrypt it in-place and remove the plaintext
-    // field. Running this twice is a no-op (idempotent).
+    // Migrates a legacy plaintext `apiKey` to encrypted storage. Only runs when
+    // a config file already exists (i.e., NOT on first launch). This avoids
+    // triggering the macOS Keychain permission dialog on a fresh install before
+    // the user has even seen the app.
     await (async () => {
-        if (!safeStorage.isEncryptionAvailable()) return
         try {
             const cfg = await readAIConfig()
-            // Migration condition: plaintext key exists but no encrypted key.
-            if (
+            // Only migrate if there's actually a plaintext key to encrypt.
+            const hasPlaintextKey =
                 typeof (cfg as Record<string, unknown>).apiKey === 'string' &&
                 ((cfg as Record<string, unknown>).apiKey as string).length > 0 &&
                 !((cfg as Record<string, unknown>).apiKeyEncrypted)
-            ) {
-                // writeAIConfig will encrypt and remove the plaintext field.
-                await writeAIConfig(cfg)
-                console.log('[Bridge] Migrated API key to encrypted storage')
-            }
+            if (!hasPlaintextKey) return
+            // Now check safeStorage — this is what triggers the Keychain prompt.
+            if (!safeStorage.isEncryptionAvailable()) return
+            await writeAIConfig(cfg)
+            console.log(`${BRAND.logPrefix} Migrated API key to encrypted storage`)
         } catch {
             // Non-fatal — migration will retry on next startup.
         }
@@ -1220,8 +1486,8 @@ app.whenReady().then(async () => {
     // Sentinel ACK — actual AST surgery runs in editorStore.applyBatch in renderer.
     ipcMain.handle('ai:apply-batch', (): { ok: boolean } => ({ ok: true }))
 
-    // ── Phase N: Figma-to-Bridge AST Hydration (hydroPaste) ───────────────
-    ipcMain.handle('bridge:hydro-paste', async (_event, payloadStr: unknown) => {
+    // ── Phase N: Figma-to-Flint AST Hydration (hydroPaste) ───────────────
+    ipcMain.handle(ipcChannel('hydro-paste'), async (_event, payloadStr: unknown) => {
         if (typeof payloadStr !== 'string') return { error: 'Invalid payload' }
 
         try {
@@ -1230,11 +1496,11 @@ app.whenReady().then(async () => {
             // Read manifest — try project root first, then home dir
             let manifest: any = { components: {} }
             const searchPaths = [
-                activeProjectRoot ? path.join(activeProjectRoot, 'bridge-manifest.json') : null,
-                path.join(app.getPath('home'), 'bridge-manifest.json'),
-                path.join(process.cwd(), 'bridge-manifest.json'),
-                path.join(app.getAppPath(), 'bridge-manifest.json'),
-                path.join(app.getAppPath(), '..', 'bridge-manifest.json'),
+                activeProjectRoot ? path.join(activeProjectRoot, BRAND.manifestFile) : null,
+                path.join(app.getPath('home'), BRAND.manifestFile),
+                path.join(process.cwd(), BRAND.manifestFile),
+                path.join(app.getAppPath(), BRAND.manifestFile),
+                path.join(app.getAppPath(), '..', BRAND.manifestFile),
             ].filter(Boolean) as string[]
 
             console.log('[HydroPaste] activeProjectRoot:', activeProjectRoot)
@@ -1251,7 +1517,7 @@ app.whenReady().then(async () => {
                 } catch { /* try next */ }
             }
             if (!manifestLoaded) {
-                console.warn('[HydroPaste] No bridge-manifest.json found in any search path')
+                console.warn('[HydroPaste] No flint-manifest.json found in any search path')
                 return { error: `Manifest not found. Searched: ${searchPaths.join(', ')}. activeProjectRoot=${activeProjectRoot}` }
             }
 
@@ -1664,38 +1930,45 @@ app.whenReady().then(async () => {
         return ragChunkCount()
     })
 
+    // CK.1: Manual RAG re-seed trigger — called by the renderer via window.flintAPI.ai.seedRAG()
+    ipcMain.handle('ai:seed-rag', async (): Promise<{ ingested: number; sources: string[] }> => {
+        if (!activeProjectRoot) return { ingested: 0, sources: [] }
+        const { seedRAGFromProject } = await import('./ragSeeder.js')
+        return await seedRAGFromProject(activeProjectRoot)
+    })
+
     // ── Phase COLLAB.4: Annotation IPC + fs.watch ─────────────────────────────
     //
-    // Annotations are written to .bridge/annotations.json by the MCP tool
-    // (bridge_annotate). Glass reads them via 'annotations:read-all' and
+    // Annotations are written to .flint/annotations.json by the MCP tool
+    // (flint_annotate). Glass reads them via 'annotations:read-all' and
     // resolves them via 'annotations:resolve'. An fs.watch subscription on the
-    // file pushes 'bridge:annotations-changed' to all renderer windows whenever
+    // file pushes ipcChannel('annotations-changed') to all renderer windows whenever
     // the file changes so the React store re-fetches without polling.
     //
     // The annotations file path is derived from the active project root at
     // call-time so it always targets the currently open workspace.
 
     /**
-     * Returns the absolute path to .bridge/annotations.json for the active
+     * Returns the absolute path to .flint/annotations.json for the active
      * project, falling back to the user home directory when no project is open.
      */
     function getAnnotationsFilePath(): string {
         const base = activeProjectRoot ?? app.getPath('home')
-        return path.join(base, '.bridge', 'annotations.json')
+        return path.join(base, BRAND.configDir, 'annotations.json')
     }
 
     /**
-     * Broadcasts 'bridge:annotations-changed' to all non-destroyed renderer windows.
+     * Broadcasts ipcChannel('annotations-changed') to all non-destroyed renderer windows.
      * Called by the fs.watch callback whenever the annotations file is modified.
      */
     function broadcastAnnotationsChanged(): void {
         BrowserWindow.getAllWindows().forEach((w) => {
-            if (!w.isDestroyed()) w.webContents.send('bridge:annotations-changed')
+            if (!w.isDestroyed()) w.webContents.send(ipcChannel('annotations-changed'))
         })
     }
 
     /**
-     * Reads .bridge/annotations.json and returns the parsed array.
+     * Reads .flint/annotations.json and returns the parsed array.
      * Returns [] when the file is missing or unparseable — never throws.
      */
     async function readAnnotationsFile(filePath: string): Promise<unknown[]> {
@@ -1711,7 +1984,7 @@ app.whenReady().then(async () => {
 
     /**
      * Atomically writes `annotations` to `filePath` via FileTransactionManager.
-     * Creates the parent .bridge directory if it does not yet exist.
+     * Creates the parent .flint directory if it does not yet exist.
      *
      * Fix 6 (P3-3): Routes through FTM instead of raw writeFile/rename to comply
      * with Commandment 12 (Atomic Queuing) and Commandment 14 (Bypass Prohibition).
@@ -1725,7 +1998,7 @@ app.whenReady().then(async () => {
     }
 
     // ── annotations:read-all ──────────────────────────────────────────────────
-    // Returns all annotations from .bridge/annotations.json.
+    // Returns all annotations from .flint/annotations.json.
     // Safe: returns [] when the file is missing — renderer handles empty state.
     ipcMain.handle('annotations:read-all', async (): Promise<unknown[]> => {
         const filePath = getAnnotationsFilePath()
@@ -1754,20 +2027,20 @@ app.whenReady().then(async () => {
         }
     })
 
-    // ── fs.watch on .bridge/annotations.json ─────────────────────────────────
+    // ── fs.watch on .flint/annotations.json ─────────────────────────────────
     // Watches for external writes (from MCP tools) and pushes push events to
     // the renderer so annotationStore.fetchAnnotations() is triggered without
     // polling. The watcher is re-created whenever the active project changes
     // (tracked via the existing activeProjectRoot module-level variable).
     //
-    // Implementation note: we watch the parent .bridge/ directory rather than
+    // Implementation note: we watch the parent .flint/ directory rather than
     // the file directly because fs.watch on a non-existent file throws on some
     // platforms. The directory is created on first annotation write.
     {
         let annotationsWatcher: ReturnType<typeof fsWatch> | null = null
 
         /**
-         * (Re)starts the fs.watch on the active project's .bridge/ directory.
+         * (Re)starts the fs.watch on the active project's .flint/ directory.
          * Called once at app-ready and should be re-called if activeProjectRoot changes.
          * Exported as a no-op for now; the current project lifecycle does not
          * dynamically switch roots after the watcher is started — the renderer
@@ -1776,29 +2049,29 @@ app.whenReady().then(async () => {
         function startAnnotationsWatcher(): void {
             annotationsWatcher?.close()
             const base = activeProjectRoot ?? app.getPath('home')
-            const bridgeDir = path.join(base, '.bridge')
+            const flintDir = path.join(base, BRAND.configDir)
 
-            // Ensure the .bridge directory exists before watching it
-            if (!existsSync(bridgeDir)) {
+            // Ensure the .flint directory exists before watching it
+            if (!existsSync(flintDir)) {
                 try {
                     // Synchronous mkdir is acceptable here — this runs once at startup
                     // outside the hot path. mkdirSync is imported at the top of the file.
-                    mkdirSync(bridgeDir, { recursive: true })
+                    mkdirSync(flintDir, { recursive: true })
                 } catch { /* directory may already exist */ }
             }
 
             try {
-                annotationsWatcher = fsWatch(bridgeDir, { persistent: false }, (eventType, filename) => {
+                annotationsWatcher = fsWatch(flintDir, { persistent: false }, (eventType, filename) => {
                     if (filename === 'annotations.json' && (eventType === 'rename' || eventType === 'change')) {
                         broadcastAnnotationsChanged()
                     }
                 })
                 annotationsWatcher.on('error', (err) => {
-                    console.error('[Bridge] annotations fs.watch error:', err)
+                    console.error(`${BRAND.logPrefix} annotations fs.watch error:`, err)
                     annotationsWatcher = null
                 })
             } catch (err) {
-                console.error('[Bridge] Failed to start annotations fs.watch:', err)
+                console.error(`${BRAND.logPrefix} Failed to start annotations fs.watch:`, err)
             }
         }
 
@@ -1815,9 +2088,9 @@ app.whenReady().then(async () => {
     // ── Phase W.1: MCP Event Push Channel ─────────────────────────────────────
     //
     // The MCP server appends MCPEvent records (newline-delimited JSON) to
-    // `.bridge/mcp-events.jsonl` after each tool completion. The Electron main
+    // `.flint/mcp-events.jsonl` after each tool completion. The Electron main
     // process tail-follows that file using fs.watch (with a 10-second poll
-    // fallback for NFS/NAS mounts) and broadcasts `bridge:mcp-event` to all
+    // fallback for NFS/NAS mounts) and broadcasts `flint:mcp-event` to all
     // renderer windows so the `useMCPEventListener` hook can dispatch to stores.
     //
     // Design invariants:
@@ -1833,7 +2106,7 @@ app.whenReady().then(async () => {
 
         function getMCPEventsFilePath(): string {
             const base = activeProjectRoot ?? app.getPath('home')
-            return path.join(base, '.bridge', 'mcp-events.jsonl')
+            return path.join(base, BRAND.configDir, 'mcp-events.jsonl')
         }
 
         /**
@@ -1844,7 +2117,7 @@ app.whenReady().then(async () => {
             if (mcpEventsBatch.length === 0) return
             const events = mcpEventsBatch.splice(0)
             BrowserWindow.getAllWindows().forEach((w) => {
-                if (!w.isDestroyed()) w.webContents.send('bridge:mcp-event', events)
+                if (!w.isDestroyed()) w.webContents.send(ipcChannel('mcp-event'), events)
             })
         }
 
@@ -1899,7 +2172,7 @@ app.whenReady().then(async () => {
         }
 
         /**
-         * (Re)starts the fs.watch on the active project's .bridge/ directory,
+         * (Re)starts the fs.watch on the active project's .flint/ directory,
          * monitoring for changes to mcp-events.jsonl.
          * Also installs a 10-second poll fallback for NFS/NAS mounts where
          * inotify events may not fire.
@@ -1909,26 +2182,26 @@ app.whenReady().then(async () => {
             mcpEventsOffset = 0
 
             const base = activeProjectRoot ?? app.getPath('home')
-            const bridgeDir = path.join(base, '.bridge')
+            const flintDir = path.join(base, BRAND.configDir)
 
-            if (!existsSync(bridgeDir)) {
+            if (!existsSync(flintDir)) {
                 try {
-                    mkdirSync(bridgeDir, { recursive: true })
+                    mkdirSync(flintDir, { recursive: true })
                 } catch { /* already exists */ }
             }
 
             try {
-                mcpEventsWatcher = fsWatch(bridgeDir, { persistent: false }, (eventType, filename) => {
+                mcpEventsWatcher = fsWatch(flintDir, { persistent: false }, (eventType, filename) => {
                     if (filename === 'mcp-events.jsonl' && (eventType === 'rename' || eventType === 'change')) {
                         void tailMCPEvents()
                     }
                 })
                 mcpEventsWatcher.on('error', (err) => {
-                    console.error('[Bridge] mcp-events fs.watch error:', err)
+                    console.error(`${BRAND.logPrefix} mcp-events fs.watch error:`, err)
                     mcpEventsWatcher = null
                 })
             } catch (err) {
-                console.error('[Bridge] Failed to start mcp-events fs.watch:', err)
+                console.error(`${BRAND.logPrefix} Failed to start mcp-events fs.watch:`, err)
             }
 
             // 10-second poll fallback for NFS/NAS mounts
@@ -1945,9 +2218,9 @@ app.whenReady().then(async () => {
         startMCPEventsWatcher()
     }
 
-    // ── Phase W.3: Bidirectional Action Bridge — IPC Handlers ─────────────────
+    // ── Phase W.3: Bidirectional Action Flint — IPC Handlers ─────────────────
     //
-    // Renderer calls these via window.bridgeAPI.mcp.callTool / readResource / status.
+    // Renderer calls these via window.flintAPI.mcp.callTool / readResource / status.
     // All execution stays in the main process; the renderer only receives the result.
     //
     // The mcpClient singleton is started when a project opens and stopped when
@@ -1984,7 +2257,7 @@ app.whenReady().then(async () => {
             // SEC.3 + AGV.1: Unified tool access check
             const access = checkToolAccess(agentId, name as string)
             if (!access.allowed) {
-                console.warn('[Bridge] mcp:call-tool DENIED — agent=%s tool=%s reason=%s', agentId, name, access.reason)
+                console.warn(`${BRAND.logPrefix} mcp:call-tool DENIED — agent=%s tool=%s reason=%s`, agentId, name, access.reason)
                 throw new Error(access.reason ?? `mcp:call-tool — tool "${name}" denied for agent "${agentId}"`)
             }
 
@@ -1994,7 +2267,7 @@ app.whenReady().then(async () => {
             const result = await mcpClient.callTool(name, cleanArgs)
 
             // AGV.1: Track mutation count for rate limiting
-            if (['bridge_ast_mutate', 'bridge_fix', 'bridge_sync_tokens', 'bridge_ingest_figma'].includes(name)) {
+            if (['flint_ast_mutate', 'flint_fix', 'flint_sync_tokens', 'flint_ingest_figma'].includes(name)) {
                 recordMutation(agentId)
             }
 
@@ -2024,7 +2297,7 @@ app.whenReady().then(async () => {
     // ── Policy Engine IPC Handler ─────────────────────────────────────────────
     //
     // policy:get — Returns the active governance policy for the current project.
-    // Reads `.bridge/policy.json` from the project root. Returns DEFAULT_POLICY
+    // Reads `.flint/policy.json` from the project root. Returns DEFAULT_POLICY
     // if the file is missing or malformed.
     //
     // This channel lets the renderer (ExportModal, canvasStore) read the policy
@@ -2032,23 +2305,23 @@ app.whenReady().then(async () => {
     ipcMain.handle('policy:get', async (): Promise<unknown> => {
         if (!activeProjectRoot) {
             // Return default policy when no project is open
-            const { DEFAULT_POLICY } = await import('../bridge-mcp/src/core/config.js')
+            const { DEFAULT_POLICY } = await import('../flint-mcp/src/core/config.js')
             return DEFAULT_POLICY
         }
-        const { loadPolicy } = await import('../bridge-mcp/src/core/config-loader.js')
+        const { loadPolicy } = await import('../flint-mcp/src/core/config-loader.js')
         return loadPolicy(activeProjectRoot)
     })
 
     // ── GOV.2: Governance Override Telemetry IPC Handlers ────────────────────
     //
     // These three handlers implement the GOV.2 contract from
-    // .bridge-context/contracts/gov1-gov2-provenance-telemetry.md.
+    // .flint-context/contracts/gov1-gov2-provenance-telemetry.md.
     //
     // Dependency note: GovernanceEventService is imported from
-    // bridge-mcp/src/core/governance/eventService.ts, and
+    // flint-mcp/src/core/governance/eventService.ts, and
     // resolveProvenance / buildComplianceSummary are imported from
-    // bridge-mcp/src/core/governance/ruleProvenanceRegistry.ts.
-    // ruleProvenanceRegistry.ts is being created by the bridge-ast-surgeon agent
+    // flint-mcp/src/core/governance/ruleProvenanceRegistry.ts.
+    // ruleProvenanceRegistry.ts is being created by the flint-ast-surgeon agent
     // in parallel (Group 1). Dynamic imports are used so this handler compiles
     // and runs even before ruleProvenanceRegistry.ts is present — it will throw
     // at runtime if called before the MCP engine agent delivers the file.
@@ -2057,17 +2330,17 @@ app.whenReady().then(async () => {
     // reused across all handler invocations. The shared SQLite `db` instance
     // (from store.ts) is passed in so governance events land in the same
     // database as tokens, presence, and component overrides.
-    const { GovernanceEventService } = await import('../bridge-mcp/src/core/governance/eventService.js')
+    const { GovernanceEventService } = await import('../flint-mcp/src/core/governance/eventService.js')
     const govEventService = new GovernanceEventService(db)
 
     /**
-     * Broadcasts 'bridge:governance-override-recorded' to all renderer windows.
+     * Broadcasts ipcChannel('governance-override-recorded') to all renderer windows.
      * Called after each successful governance:record-override write so StatusBar
      * can re-fetch the override count without polling.
      */
     function broadcastGovernanceOverrideRecorded(): void {
         BrowserWindow.getAllWindows().forEach((w) => {
-            if (!w.isDestroyed()) w.webContents.send('bridge:governance-override-recorded')
+            if (!w.isDestroyed()) w.webContents.send(ipcChannel('governance-override-recorded'))
         })
     }
 
@@ -2145,11 +2418,11 @@ app.whenReady().then(async () => {
         }
 
         // Dynamic import: ruleProvenanceRegistry.ts is being created by the
-        // bridge-ast-surgeon agent (Group 1 of the GOV.1/GOV.2 implementation).
+        // flint-ast-surgeon agent (Group 1 of the GOV.1/GOV.2 implementation).
         // This import will throw at runtime if the file does not yet exist —
         // callers (ExportModal) must handle the rejection gracefully.
         const { resolveProvenance, buildComplianceSummary } = await import(
-            '../bridge-mcp/src/core/governance/ruleProvenanceRegistry.js'
+            '../flint-mcp/src/core/governance/ruleProvenanceRegistry.js'
         ) as {
             resolveProvenance: (ruleId: string) => unknown
             buildComplianceSummary: (violations: Array<{ ruleId: string; severity: 'critical' | 'warning' | 'info' }>) => unknown
@@ -2170,7 +2443,7 @@ app.whenReady().then(async () => {
 
     // ── Delta Mode: Baseline IPC Handlers ────────────────────────────────────
     //
-    // violation_baselines table lives in the shared bridge.db (store.ts).
+    // violation_baselines table lives in the shared flint.db (store.ts).
     // Four handlers cover the full lifecycle: set, get, clear, is-set.
     //
     // baseline:set  — bulk-upserts every violation in the current audit into the
@@ -2246,7 +2519,7 @@ app.whenReady().then(async () => {
             }))
 
         insertMany(rows)
-        console.log(`[Bridge] baseline:set — ${rows.length} violations baselined`)
+        console.log(`${BRAND.logPrefix} baseline:set — ${rows.length} violations baselined`)
     })
 
     // ── baseline:get ──────────────────────────────────────────────────────────
@@ -2264,7 +2537,7 @@ app.whenReady().then(async () => {
     // Returns void; idempotent when the table is already empty.
     ipcMain.handle('baseline:clear', (): void => {
         const result = baselineClear.run()
-        console.log(`[Bridge] baseline:clear — ${result.changes} rows removed`)
+        console.log(`${BRAND.logPrefix} baseline:clear — ${result.changes} rows removed`)
     })
 
     // ── baseline:is-set ───────────────────────────────────────────────────────
@@ -2286,7 +2559,7 @@ app.whenReady().then(async () => {
      *   2. Resolves the active file path from context.json (written by useContextSync).
      *   3. Reads the file from disk.
      *   4. Calls snapToToken() (Babel AST surgery) to replace the arbitrary class
-     *      with the token class in the element identified by data-bridge-id.
+     *      with the token class in the element identified by data-flint-id.
      *   5. Writes the updated code back via fileTransactionManager (Commandment 12).
      *   6. Broadcasts the updated code to the renderer so editorStore re-parses.
      *   7. Returns { ok: true } on success, { ok: false, error } on failure.
@@ -2297,7 +2570,7 @@ app.whenReady().then(async () => {
      * Commandment compliance:
      *   C12 — All disk writes via fileTransactionManager.
      *   C13 — Babel AST traversal via snapToToken() in IngestionAuditor.ts.
-     *   C7  — data-bridge-id is never mutated.
+     *   C7  — data-flint-id is never mutated.
      */
     ipcMain.handle('import:snap-to-token', async (_event, payload: unknown) => {
         // ── 1. Validate payload ───────────────────────────────────────────────
@@ -2319,11 +2592,11 @@ app.whenReady().then(async () => {
             originalClass: string
         }
 
-        // ── 2. Resolve active file path from context.json ─────────────────────
-        const bridgeDir = activeProjectRoot
-            ? path.join(activeProjectRoot, '.bridge')
-            : path.join(app.getPath('home'), '.bridge')
-        const contextPath = path.join(bridgeDir, 'context.json')
+        // ── 2. Resolve active file path from context.json ─────────────────��───
+        const flintDir = activeProjectRoot
+            ? path.join(activeProjectRoot, BRAND.configDir)
+            : path.join(app.getPath('home'), BRAND.configDir)
+        const contextPath = path.join(flintDir, 'context.json')
 
         let activeFile: string | null = null
         try {
@@ -2377,14 +2650,14 @@ app.whenReady().then(async () => {
         // ── 7. Broadcast updated code to renderer ─────────────────────────────
         const windows = BrowserWindow.getAllWindows()
         if (windows.length > 0) {
-            windows[0].webContents.send('bridge:file-updated', {
+            windows[0].webContents.send(ipcChannel('file-updated'), {
                 filePath: resolvedFile,
                 code: snapResult.code,
             })
         }
 
         console.log(
-            `[Bridge] import:snap-to-token — node=${p.nodeId} ` +
+            `${BRAND.logPrefix} import:snap-to-token — node=${p.nodeId} ` +
             `token=${p.tokenPath} file=${resolvedFile}`
         )
         return { ok: true }
@@ -2401,31 +2674,31 @@ app.whenReady().then(async () => {
     ipcMain.handle('import:undo-all-heals', () => {
         const code = preHealCodeStore.get('latest')
         if (!code) {
-            console.warn('[Bridge] import:undo-all-heals — no pre-heal code stored')
+            console.warn(`${BRAND.logPrefix} import:undo-all-heals — no pre-heal code stored`)
             return { ok: false }
         }
         // Broadcast the server-stored pre-heal code to the renderer
         const windows = BrowserWindow.getAllWindows()
         if (windows.length > 0) {
-            windows[0].webContents.send('bridge:hydro-paste-auto', code)
+            windows[0].webContents.send(ipcChannel('hydro-paste-auto'), code)
         }
         // Clear after use to prevent stale restores
         preHealCodeStore.delete('latest')
-        console.log('[Bridge] import:undo-all-heals — pre-heal code restored from server store')
+        console.log(`${BRAND.logPrefix} import:undo-all-heals — pre-heal code restored from server store`)
         return { ok: true }
     })
 
     // ── Phase ACX.5: Context Sync Pipeline ───────────────────────────────────
     //
-    // context:sync   — Receives a BridgeContext snapshot from useContextSync
-    //                  and atomically writes it to .bridge/context.json so the
-    //                  headless MCP server can read it via bridge_get_context.
+    // context:sync   — Receives a FlintContext snapshot from useContextSync
+    //                  and atomically writes it to .flint/context.json so the
+    //                  headless MCP server can read it via flint_get_context.
     //
     // context:get-enriched — Reads context.json, then enriches it with live
     //                        SQLite metrics (token count, override count) and
     //                        returns the combined EnrichedContext object.
     //
-    // Security: context.json is written to the active project's .bridge/
+    // Security: context.json is written to the active project's .flint/
     // subdirectory. When no project is open we fall back to the user's home
     // directory. No path traversal is possible because we construct the path
     // ourselves rather than accepting it from the renderer.
@@ -2436,19 +2709,19 @@ app.whenReady().then(async () => {
         }
 
         // Determine the target directory. Prefer the active project root so
-        // context.json lands in <projectRoot>/.bridge/context.json. Fall back to
-        // ~/.bridge/context.json when no project has been opened yet.
-        const bridgeDir = activeProjectRoot
-            ? path.join(activeProjectRoot, '.bridge')
-            : path.join(app.getPath('home'), '.bridge')
+        // context.json lands in <projectRoot>/.flint/context.json. Fall back to
+        // ~/.flint/context.json when no project has been opened yet.
+        const flintDir = activeProjectRoot
+            ? path.join(activeProjectRoot, BRAND.configDir)
+            : path.join(app.getPath('home'), BRAND.configDir)
 
         try {
-            await mkdir(bridgeDir, { recursive: true })
+            await mkdir(flintDir, { recursive: true })
         } catch {
             // Directory already exists — not an error.
         }
 
-        const contextPath = path.join(bridgeDir, 'context.json')
+        const contextPath = path.join(flintDir, 'context.json')
         const json = JSON.stringify(context, null, 2)
 
         // Route through FileTransactionManager for Commandment 12 + 14 compliance.
@@ -2460,11 +2733,11 @@ app.whenReady().then(async () => {
     const stmtOverrideCount = db.prepare<[], { count: number }>('SELECT COUNT(*) AS count FROM component_overrides')
 
     ipcMain.handle('context:get-enriched', async (): Promise<unknown> => {
-        const bridgeDir = activeProjectRoot
-            ? path.join(activeProjectRoot, '.bridge')
-            : path.join(app.getPath('home'), '.bridge')
+        const flintDir = activeProjectRoot
+            ? path.join(activeProjectRoot, BRAND.configDir)
+            : path.join(app.getPath('home'), BRAND.configDir)
 
-        const contextPath = path.join(bridgeDir, 'context.json')
+        const contextPath = path.join(flintDir, 'context.json')
 
         let base: Record<string, unknown> = {}
         try {
@@ -2502,7 +2775,7 @@ app.whenReady().then(async () => {
         const resolvedCwd = path.resolve(cwd)
         const allowedRoot = activeProjectRoot ?? app.getPath('home')
         if (resolvedCwd !== allowedRoot && !resolvedCwd.startsWith(allowedRoot + path.sep)) {
-            console.error(`[Bridge] terminal:spawn — SEC.5 rejected cwd outside allowed root: ${resolvedCwd} (root: ${allowedRoot})`)
+            console.error(`${BRAND.logPrefix} terminal:spawn — SEC.5 rejected cwd outside allowed root: ${resolvedCwd} (root: ${allowedRoot})`)
             return
         }
 
@@ -2532,7 +2805,7 @@ app.whenReady().then(async () => {
                 ptyProcess = null
             })
         } catch (err) {
-            console.error('[Bridge] terminal:spawn failed', err)
+            console.error(`${BRAND.logPrefix} terminal:spawn failed`, err)
         }
     })
 
@@ -2541,14 +2814,14 @@ app.whenReady().then(async () => {
 
         // SEC.5: Reject oversized input (8 KB limit).
         if (Buffer.byteLength(data, 'utf-8') > TERMINAL_INPUT_MAX_BYTES) {
-            console.warn(`[Bridge] terminal:data — SEC.5 rejected oversized input (${Buffer.byteLength(data, 'utf-8')} bytes, limit ${TERMINAL_INPUT_MAX_BYTES})`)
+            console.warn(`${BRAND.logPrefix} terminal:data — SEC.5 rejected oversized input (${Buffer.byteLength(data, 'utf-8')} bytes, limit ${TERMINAL_INPUT_MAX_BYTES})`)
             return
         }
 
         // SEC.5: Strip null bytes from terminal input.
         let sanitized = data
         if (data.includes('\x00')) {
-            console.warn('[Bridge] terminal:data — SEC.5 stripped null bytes from input')
+            console.warn(`${BRAND.logPrefix} terminal:data — SEC.5 stripped null bytes from input`)
             sanitized = data.replaceAll('\x00', '')
         }
 
@@ -2565,7 +2838,7 @@ app.whenReady().then(async () => {
             try {
                 ptyProcess.resize(clampedCols, clampedRows)
             } catch (err) {
-                console.error('[Bridge] terminal:resize failed', err)
+                console.error(`${BRAND.logPrefix} terminal:resize failed`, err)
             }
         }
     })
@@ -2591,8 +2864,443 @@ app.whenReady().then(async () => {
         stopIngestionServer()
     })
 
+    // ── ONBOARD.1: Setup Wizard IPC ───────────────────────────────────────────
+
+    /**
+     * Strips single-line (//) and multi-line (/* *\/) comments from a JSONC
+     * string, returning plain JSON safe to pass to JSON.parse().
+     * Uses a character-by-character scan so that comment markers inside
+     * string literals are never treated as comments.
+     * No external dependency — pure string manipulation only.
+     */
+    function stripJsoncComments(jsonc: string): string {
+        let result = ''
+        let inString = false
+        let i = 0
+        while (i < jsonc.length) {
+            const ch = jsonc[i]
+            const next = jsonc[i + 1]
+            if (ch === '"' && (i === 0 || jsonc[i - 1] !== '\\')) {
+                inString = !inString
+                result += ch
+                i++
+            } else if (!inString && ch === '/' && next === '/') {
+                // Skip to end of line
+                while (i < jsonc.length && jsonc[i] !== '\n') i++
+            } else if (!inString && ch === '/' && next === '*') {
+                // Skip to end of block comment
+                i += 2
+                while (i < jsonc.length && !(jsonc[i] === '*' && jsonc[i + 1] === '/')) i++
+                i += 2
+            } else {
+                result += ch
+                i++
+            }
+        }
+        return result
+    }
+
+    /**
+     * Resolves the absolute path to flint-mcp/dist/server.js.
+     * In packaged builds: resources/flint-mcp/dist/server.js
+     * In development:     <repo-root>/flint-mcp/dist/server.js
+     */
+    function getMCPServerPath(): string {
+        if (app.isPackaged) {
+            return path.join(process.resourcesPath, 'flint-mcp', 'dist', 'server.js')
+        }
+        return path.resolve(__dirname, '..', 'flint-mcp', 'dist', 'server.js')
+    }
+
+    /**
+     * setup:detect-ides
+     * Checks for installed IDEs by probing known settings file paths.
+     * Detection file  ≠  config file for Claude Code (see contract §13).
+     * Returns the IDE list plus the resolved MCP server path so the renderer
+     * can build the snippet in one round-trip.
+     */
+    ipcMain.handle('setup:detect-ides', () => {
+        const home = os.homedir()
+
+        const IDE_CANDIDATES: Array<{
+            name: 'Claude Code' | 'Cursor' | 'VS Code' | 'Antigravity'
+            detectionPath: string
+            settingsPath: string
+        }> = [
+            {
+                name: 'Claude Code',
+                // Dual-file detection: older installs have settings.json;
+                // MCP-first / fresh installs may only have mcp.json.
+                // detectionPath is unused for Claude Code — see the map() below.
+                detectionPath: path.join(home, '.claude', 'settings.json'),
+                // Config: mcp.json is the authoritative MCP registration target.
+                // Prefer mcp.json if present, fall back to settings.json.
+                settingsPath: existsSync(path.join(home, '.claude', 'mcp.json'))
+                    ? path.join(home, '.claude', 'mcp.json')
+                    : path.join(home, '.claude', 'settings.json'),
+            },
+            {
+                // Antigravity is a VS Code fork. Its MCP config lives at
+                // ~/.gemini/antigravity/mcp_config.json and uses the VS Code
+                // `mcp.servers` format (not the Claude Code `mcpServers` format).
+                name: 'Antigravity',
+                detectionPath: path.join(home, 'Library', 'Application Support', 'Antigravity', 'User', 'settings.json'),
+                settingsPath: path.join(home, '.gemini', 'antigravity', 'mcp_config.json'),
+            },
+            {
+                name: 'Cursor',
+                detectionPath: path.join(home, 'Library', 'Application Support', 'Cursor', 'User', 'settings.json'),
+                settingsPath: path.join(home, 'Library', 'Application Support', 'Cursor', 'User', 'settings.json'),
+            },
+            {
+                name: 'VS Code',
+                detectionPath: path.join(home, 'Library', 'Application Support', 'Code', 'User', 'settings.json'),
+                settingsPath: path.join(home, 'Library', 'Application Support', 'Code', 'User', 'settings.json'),
+            },
+        ]
+
+        const claudeSettingsPath = path.join(home, '.claude', 'settings.json')
+        const claudeMcpPath = path.join(home, '.claude', 'mcp.json')
+
+        const ides = IDE_CANDIDATES.map(({ name, detectionPath, settingsPath }) => ({
+            name,
+            settingsPath,
+            // Claude Code: detect via settings.json (older) OR mcp.json (MCP-first)
+            detected:
+                name === 'Claude Code'
+                    ? existsSync(claudeSettingsPath) || existsSync(claudeMcpPath)
+                    : existsSync(detectionPath),
+        }))
+
+        return { ides, mcpServerPath: getMCPServerPath() }
+    })
+
+    /**
+     * setup:check-first-launch
+     * Reads ~/.flint/setup.json.
+     * Returns { isFirstLaunch: true } when the file is absent or unparseable,
+     * { isFirstLaunch: false } when firstLaunchComplete === true.
+     */
+    ipcMain.handle('setup:check-first-launch', () => {
+        const setupPath = path.join(os.homedir(), BRAND.configDir, 'setup.json')
+        try {
+            const raw = readFileSync(setupPath, 'utf-8')
+            const parsed = JSON.parse(raw) as { firstLaunchComplete?: boolean }
+            if (parsed.firstLaunchComplete === true) {
+                return { isFirstLaunch: false }
+            }
+            return { isFirstLaunch: true }
+        } catch {
+            // File missing or JSON parse failure — treat as first launch
+            return { isFirstLaunch: true }
+        }
+    })
+
+    /**
+     * setup:complete-first-launch
+     * Writes { firstLaunchComplete: true, completedAt: <unix ms> } to
+     * ~/.flint/setup.json. Creates the ~/.flint/ directory if needed.
+     * Uses writeFileSync directly — this is a config flag, not source code
+     * (Commandment 12 exemption; consistent with ai:save-config pattern).
+     */
+    ipcMain.handle('setup:complete-first-launch', () => {
+        const flintDir = path.join(os.homedir(), BRAND.configDir)
+        mkdirSync(flintDir, { recursive: true })
+        const setupPath = path.join(flintDir, 'setup.json')
+        writeFileSync(
+            setupPath,
+            JSON.stringify({ firstLaunchComplete: true, completedAt: Date.now() }, null, 2),
+            'utf-8',
+        )
+    })
+
+    /**
+     * app:reset-state
+     * Deletes ~/.flint/setup.json so the next launch shows the full onboarding
+     * flow from the beginning. The renderer clears localStorage and reloads
+     * itself after this call returns.
+     */
+    ipcMain.handle('app:reset-state', () => {
+        const setupPath = path.join(os.homedir(), BRAND.configDir, 'setup.json')
+        try {
+            if (existsSync(setupPath)) rmSync(setupPath)
+        } catch (err) {
+            console.error(`${BRAND.logPrefix} app:reset-state — could not delete setup.json:`, err)
+        }
+    })
+
+    /**
+     * setup:write-mcp-config
+     * Automatically writes the MCP server entry into the IDE's config file.
+     * Merges with existing config — never clobbers other entries.
+     *
+     * ideName: 'Claude Code' | 'Cursor' | 'VS Code' | 'Antigravity'
+     * configPath: the IDE-specific path resolved by setup:detect-ides
+     * mcpServerPath: absolute path to flint-mcp/dist/server.js
+     *
+     * Returns { written: true } on success or throws on failure.
+     */
+    ipcMain.handle(
+        'setup:write-mcp-config',
+        (_event, ideName: string, configPath: string, mcpServerPath: string) => {
+            // Ensure parent directory exists
+            mkdirSync(path.dirname(configPath), { recursive: true })
+
+            // Read existing config if present.
+            // stripJsoncComments() is called before JSON.parse() because VS Code
+            // and Cursor settings files are JSONC — they commonly contain // and
+            // /* */ comments that cause a plain JSON.parse() to throw.
+            let existing: Record<string, unknown> = {}
+            try {
+                existing = JSON.parse(
+                    stripJsoncComments(readFileSync(configPath, 'utf-8')),
+                ) as Record<string, unknown>
+            } catch {
+                // File absent or unparseable — start fresh
+            }
+
+            // VS Code and Antigravity use { mcp: { servers: { flint: ... } } }
+            // Claude Code and Cursor use { mcpServers: { flint: ... } }
+            if (ideName === 'VS Code' || ideName === 'Antigravity') {
+                const flintEntry = { type: 'stdio', command: 'node', args: [mcpServerPath] }
+                const mcp = (existing.mcp ?? {}) as Record<string, unknown>
+                const servers = (mcp.servers ?? {}) as Record<string, unknown>
+                servers.flint = flintEntry
+                mcp.servers = servers
+                existing.mcp = mcp
+            } else {
+                const flintEntry = { command: 'node', args: [mcpServerPath] }
+                const mcpServers = (existing.mcpServers ?? {}) as Record<string, unknown>
+                mcpServers.flint = flintEntry
+                existing.mcpServers = mcpServers
+            }
+
+            writeFileSync(configPath, JSON.stringify(existing, null, 2), 'utf-8')
+            return { written: true }
+        },
+    )
+
+    // ── Phase REM.2.1: Governance Autopilot ──────────────────────────────────
+    //
+    // When enabled, watches the active source file for changes and runs a
+    // flint_fix dry-run after a 500 ms debounce. The governed (post-fix)
+    // source is broadcast to all renderer windows via ipcChannel('autopilot-result')
+    // so the renderer can display the live governance diff without writing to disk.
+    //
+    // Lifecycle:
+    //   autopilot:enable  — (re)starts the watcher + runs an immediate audit.
+    //   autopilot:disable — tears down the watcher; idempotent.
+    //
+    // Design notes:
+    //   - One watcher at a time. Calling enable() while active replaces the
+    //     previous watcher (disable first, then start new).
+    //   - File is watched at the directory level (same pattern as annotations
+    //     and mcp-events watchers above) to survive atomic tmp→rename writes.
+    //   - The MCP client is used so flint_fix logic stays in flint-mcp with
+    //     no source duplication. Falls back gracefully when disconnected.
+
+    let autopilotWatcher: ReturnType<typeof fsWatch> | null = null
+    // autopilotFilePath tracking removed — watcher state is managed by autopilotWatcher lifecycle
+    let autopilotDebounceTimer: ReturnType<typeof setTimeout> | null = null
+    const AUTOPILOT_DEBOUNCE_MS = 500
+
+    /**
+     * Broadcasts an AutopilotResult to all live renderer windows.
+     */
+    function broadcastAutopilotResult(result: {
+        filePath: string
+        governedSource: string
+        fixableCount: number
+        mithrilCount: number
+        a11yCount: number
+        timestamp: number
+    }): void {
+        BrowserWindow.getAllWindows().forEach((w) => {
+            if (!w.isDestroyed()) {
+                w.webContents.send(ipcChannel('autopilot-result'), result)
+            }
+        })
+    }
+
+    /**
+     * Reads the file at `filePath`, calls flint_fix via the MCP client with
+     * dry_run: true, and broadcasts the result. Non-fatal — logs and returns
+     * on any error so a transient I/O or MCP failure does not crash the app.
+     */
+    async function runAutopilotAudit(filePath: string): Promise<void> {
+        try {
+            if (!existsSync(filePath)) return
+            const source = readFileSync(filePath, 'utf-8')
+
+            // Call flint_fix via the MCP client (dry_run: true so no disk writes).
+            // The MCP client is the established pattern for calling flint-mcp tools
+            // from the main process without importing the MCP engine directly.
+            const status = mcpClient.status()
+            if (!status.connected) {
+                // MCP server not yet connected — emit a passthrough result so the
+                // renderer sees something (fixableCount 0, original source).
+                broadcastAutopilotResult({
+                    filePath,
+                    governedSource: source,
+                    fixableCount: 0,
+                    mithrilCount: 0,
+                    a11yCount: 0,
+                    timestamp: Date.now(),
+                })
+                return
+            }
+
+            const rawResult = await mcpClient.callTool('flint_fix', {
+                file: filePath,
+                dry_run: true,
+            })
+
+            // flint_fix returns its structured data in the content[0].text field
+            // as a JSON string (standard MCP tool response shape).
+            let fixedSource = source
+            let fixableCount = 0
+            let mithrilCount = 0
+            let a11yCount = 0
+
+            if (rawResult.content.length > 0 && rawResult.content[0].text) {
+                try {
+                    const parsed = JSON.parse(rawResult.content[0].text) as {
+                        fixedSource?: string
+                        fixesApplied?: number
+                        mithrilViolations?: number
+                        a11yViolations?: number
+                    }
+                    fixedSource = parsed.fixedSource ?? source
+                    fixableCount = parsed.fixesApplied ?? 0
+                    mithrilCount = parsed.mithrilViolations ?? 0
+                    a11yCount = parsed.a11yViolations ?? 0
+                } catch {
+                    // If the text is not JSON (e.g. a human-readable message), fall back
+                    // to the original source with 0 fixes — not fatal.
+                }
+            }
+
+            broadcastAutopilotResult({
+                filePath,
+                governedSource: fixedSource,
+                fixableCount,
+                mithrilCount,
+                a11yCount,
+                timestamp: Date.now(),
+            })
+        } catch (err) {
+            console.error(`${logTag('Autopilot')} Audit failed for %s:`, filePath, err)
+        }
+    }
+
+    // ── autopilot:enable ─────────────────────────────────────────────────────
+    // Validates the filePath (must be inside the user's home directory), tears
+    // down any existing watcher, starts a new fsWatch on the file's parent
+    // directory, and fires an immediate audit.
+    ipcMain.handle('autopilot:enable', async (_event, filePath: unknown): Promise<void> => {
+        if (typeof filePath !== 'string' || filePath.length === 0) {
+            throw new TypeError('autopilot:enable — filePath must be a non-empty string')
+        }
+
+        const resolvedPath = path.resolve(filePath)
+        const homeDir = app.getPath('home')
+        if (resolvedPath !== homeDir && !resolvedPath.startsWith(homeDir + path.sep)) {
+            throw new Error(
+                `autopilot:enable — filePath must be inside the home directory (got: ${resolvedPath})`
+            )
+        }
+
+        // Tear down any existing watcher before starting a new one.
+        if (autopilotWatcher) {
+            autopilotWatcher.close()
+            autopilotWatcher = null
+        }
+        if (autopilotDebounceTimer) {
+            clearTimeout(autopilotDebounceTimer)
+            autopilotDebounceTimer = null
+        }
+
+        // autopilotFilePath tracking — resolvedPath is used by the watcher closure
+        const watchDir = path.dirname(resolvedPath)
+        const watchBasename = path.basename(resolvedPath)
+
+        try {
+            autopilotWatcher = fsWatch(watchDir, { persistent: false }, (eventType, filename) => {
+                if (filename !== watchBasename) return
+                if (eventType !== 'change' && eventType !== 'rename') return
+
+                // Debounce: reset the timer on every rapid-fire event.
+                if (autopilotDebounceTimer) clearTimeout(autopilotDebounceTimer)
+                autopilotDebounceTimer = setTimeout(() => {
+                    autopilotDebounceTimer = null
+                    void runAutopilotAudit(resolvedPath)
+                }, AUTOPILOT_DEBOUNCE_MS)
+            })
+
+            autopilotWatcher.on('error', (err) => {
+                console.error(`${logTag('Autopilot')} fsWatch error:`, err)
+                autopilotWatcher = null
+            })
+        } catch (err) {
+            console.error(`${logTag('Autopilot')} Failed to start fsWatch:`, err)
+        }
+
+        // Run an immediate audit so the renderer gets an initial result without
+        // waiting for the first file change.
+        void runAutopilotAudit(resolvedPath)
+    })
+
+    // ── autopilot:disable ────────────────────────────────────────────────────
+    // Closes the file watcher and cancels any pending debounce. Idempotent.
+    ipcMain.handle('autopilot:disable', async (): Promise<void> => {
+        if (autopilotWatcher) {
+            autopilotWatcher.close()
+            autopilotWatcher = null
+        }
+        if (autopilotDebounceTimer) {
+            clearTimeout(autopilotDebounceTimer)
+            autopilotDebounceTimer = null
+        }
+        // autopilotFilePath cleared
+        console.log(`${logTag('Autopilot')} Disabled`)
+    })
+
+    // Ensure the watcher is cleaned up on app exit.
+    app.on('will-quit', () => {
+        autopilotWatcher?.close()
+        if (autopilotDebounceTimer) clearTimeout(autopilotDebounceTimer)
+    })
+
     createWindow()
     buildAppMenu()
+
+    // ── Auto-scratchpad: ensure MCP server is always running ─────────────
+    // On first launch (or when no project was previously open), auto-create
+    // a scratchpad project so the MCP server starts immediately. This ensures
+    // the StatusBar, Figma connection check, and governance tools work from
+    // the first second — no "open a project first" roadblock.
+    if (!activeProjectRoot) {
+        const flintProjectsDir = path.join(app.getPath('home'), `${BRAND.product} Projects`)
+        mkdirSync(flintProjectsDir, { recursive: true })
+        let counter = 1
+        let targetPath = path.join(flintProjectsDir, 'Untitled')
+        while (existsSync(targetPath)) {
+            targetPath = path.join(flintProjectsDir, `Untitled-${counter}`)
+            counter++
+        }
+        mkdirSync(targetPath, { recursive: true })
+        mkdirSync(path.join(targetPath, BRAND.configDir), { recursive: true })
+        writeFileSync(
+            path.join(targetPath, BRAND.configDir, 'design-tokens.json'),
+            '[]',
+            'utf-8',
+        )
+        activeProjectRoot = targetPath
+        void mcpClient.start(targetPath).catch((err) => {
+            console.error(`${BRAND.logPrefix} mcpClient.start failed for auto-scratchpad:`, err)
+        })
+        console.log(`${BRAND.logPrefix} Auto-scratchpad created at ${targetPath}`)
+    }
 
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {
@@ -2601,7 +3309,779 @@ app.whenReady().then(async () => {
     })
 })
 
+// ── Beta Distribution IPC ────────────────────────────────────────────────────
+
+ipcMain.handle('beta:get-info', () => getBetaInfo())
+
+ipcMain.handle('beta:submit-feedback', async (_event, feedback: unknown) => {
+    if (
+        typeof feedback !== 'object' || feedback === null ||
+        typeof (feedback as Record<string, unknown>).category !== 'string' ||
+        typeof (feedback as Record<string, unknown>).description !== 'string' ||
+        typeof (feedback as Record<string, unknown>).severity !== 'string'
+    ) {
+        throw new Error('beta:submit-feedback — invalid payload shape')
+    }
+
+    const fb = feedback as {
+        category: string
+        description: string
+        severity: string
+        context?: string
+    }
+
+    // Validate enum values (defense-in-depth)
+    const ALLOWED_CATEGORIES = new Set(['bug', 'feature', 'usability', 'other'])
+    const ALLOWED_SEVERITIES = new Set(['cosmetic', 'annoying', 'blocker'])
+    if (!ALLOWED_CATEGORIES.has(fb.category) || !ALLOWED_SEVERITIES.has(fb.severity)) {
+        throw new Error('beta:submit-feedback — invalid category or severity')
+    }
+
+    // Truncate description to prevent unbounded file growth
+    const MAX_DESCRIPTION_LEN = 10_000
+    if (fb.description.length > MAX_DESCRIPTION_LEN) {
+        fb.description = fb.description.slice(0, MAX_DESCRIPTION_LEN)
+    }
+
+    const entry = {
+        id: randomUUID(),
+        timestamp: new Date().toISOString(),
+        buildId: getBetaInfo().buildId,
+        appVersion: app.getVersion(),
+        platform: `${process.platform}-${process.arch}`,
+        ...fb,
+    }
+
+    // Save to ~/.flint/beta-feedback.json (always, works offline)
+    const flintDir = path.join(os.homedir(), BRAND.configDir)
+    const feedbackPath = path.join(flintDir, 'beta-feedback.json')
+
+    try {
+        if (!existsSync(flintDir)) mkdirSync(flintDir, { recursive: true })
+
+        let existing: unknown[] = []
+        if (existsSync(feedbackPath)) {
+            try {
+                const raw = readFileSync(feedbackPath, 'utf-8')
+                existing = JSON.parse(raw)
+                if (!Array.isArray(existing)) existing = []
+            } catch {
+                existing = []
+            }
+        }
+
+        existing.push(entry)
+        writeFileSync(feedbackPath, JSON.stringify(existing, null, 2))
+
+        return { saved: true }
+    } catch (err) {
+        console.error(`${logTag('Beta')} Failed to save feedback:`, err)
+        return { saved: false }
+    }
+})
+
+// ── Phase CV2.3: Component Cards IPC ──────────────────────────────────────────
+//
+// Three handlers back componentCardStore.loadCards() and savePositions().
+// Reads go through the existing activeProjectRoot variable.
+// Writes use atomic tmp→rename (Commandment 12 — Atomic Queuing).
+// No renderer-side Node.js APIs (Process Boundary Law — Commandment 4).
+//
+// Category derivation rules (from file path convention):
+//   /primitives/ or /atoms/      → 'primitive'
+//   /molecules/                  → 'molecule'
+//   /organisms/ or /templates/   → 'organism'
+//   /pages/                      → 'page'
+//   /layouts/                    → 'layout'
+//   anything else                → 'uncategorized'
+
+/** Derives a ComponentCategory from an absolute file path. */
+function deriveComponentCategory(
+    filePath: string
+): 'primitive' | 'molecule' | 'organism' | 'page' | 'layout' | 'uncategorized' {
+    const n = filePath.replace(/\\/g, '/')
+    if (/\/primitives\//.test(n) || /\/atoms\//.test(n)) return 'primitive'
+    if (/\/molecules\//.test(n)) return 'molecule'
+    if (/\/organisms\//.test(n) || /\/templates\//.test(n)) return 'organism'
+    if (/\/pages\//.test(n)) return 'page'
+    if (/\/layouts\//.test(n)) return 'layout'
+    return 'uncategorized'
+}
+
+// ── CV2.6: Category Override Helpers ─────────────────────────────────────────
+//
+// These are defined before `components:list` so the list handler can call them.
+// The IPC handler `components:set-category` also uses them.
+
+/** All valid ComponentCategory values. Used for input validation. */
+const VALID_CATEGORIES = new Set([
+    'primitive', 'molecule', 'organism', 'page', 'layout', 'uncategorized',
+])
+
+/** Reads .flint/category-overrides.json. Returns {} on any read/parse failure. */
+async function readCategoryOverrides(base: string): Promise<Record<string, string>> {
+    const overridesPath = path.join(base, BRAND.configDir, 'category-overrides.json')
+    try {
+        const raw = await readFile(overridesPath, 'utf-8')
+        const parsed: unknown = JSON.parse(raw)
+        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+            return parsed as Record<string, string>
+        }
+        return {}
+    } catch {
+        return {}
+    }
+}
+
+/** Produces a deterministic 8-char hex ID from component name + importPath (djb2). */
+function makeComponentId(name: string, importPath: string): string {
+    const input = `${name}::${importPath}`
+    let hash = 5381
+    for (let i = 0; i < input.length; i++) {
+        // eslint-disable-next-line no-bitwise
+        hash = ((hash << 5) + hash) ^ input.charCodeAt(i)
+    }
+    // eslint-disable-next-line no-bitwise
+    return (hash >>> 0).toString(16).padStart(8, '0')
+}
+
+// ── CV2.4: Per-Component Health Assessment ────────────────────────────────────
+// Logic lives in componentHealth.ts so tests can import it without pulling in
+// the full main.ts (which calls app.disableHardwareAcceleration() at load time).
+import {
+    enrichComponentHealth,
+    type ComponentHealth,
+    type AuditAllFn,
+    type A11yAuditFn,
+} from './componentHealth.js'
+
+ipcMain.handle('components:list', async (): Promise<unknown[]> => {
+    // 1. Locate flint-manifest.json — same search order as HydroPaste.
+    const searchPaths: string[] = [
+        activeProjectRoot ? path.join(activeProjectRoot, BRAND.manifestFile) : null,
+        path.join(app.getPath('home'), BRAND.manifestFile),
+        path.join(process.cwd(), BRAND.manifestFile),
+    ].filter((p): p is string => p !== null)
+
+    let manifest: Record<string, unknown> = { components: {} }
+    for (const candidate of searchPaths) {
+        try {
+            const raw = await readFile(candidate, 'utf-8')
+            manifest = JSON.parse(raw) as Record<string, unknown>
+            break
+        } catch {
+            /* try next path */
+        }
+    }
+
+    // 2. Extract components and enrich each entry.
+    const components = (manifest.components ?? {}) as Record<string, unknown>
+    const thumbnailBase = activeProjectRoot
+        ? path.join(activeProjectRoot, BRAND.configDir, 'thumbnails')
+        : null
+
+    const categoryOrder: Record<string, number> = {
+        primitive: 0, molecule: 1, organism: 2, page: 3, layout: 4, uncategorized: 5,
+    }
+
+    // ── CV2.4: Load linters once before the per-component loop ────────────────
+    // Dynamic imports wrapped in try/catch so a missing flint-mcp package
+    // degrades gracefully — all components get `health: null` in that case.
+    let auditAllFn: AuditAllFn | null = null
+    let a11yAuditFn: A11yAuditFn | null = null
+    let designTokens: Array<{ token_path: string; token_type: string; token_value: string }> = []
+
+    try {
+        const mithrilMod = await import('../flint-mcp/src/core/MithrilLinter.js')
+        const a11yMod = await import('../flint-mcp/src/core/A11yLinter.js')
+        auditAllFn = mithrilMod.auditAll as AuditAllFn
+        a11yAuditFn = (ast: import('@babel/types').File) =>
+            (a11yMod.A11yLinter as { audit: A11yAuditFn }).audit(ast)
+
+        // Load design tokens from SQLite.
+        // This handler is registered at module level so `db` is not directly in
+        // scope — use the same dynamic import pattern as the rest of main.ts.
+        try {
+            const { default: storeDb } = await import('./store.js')
+            const rows = storeDb.prepare(
+                'SELECT token_path, token_type, token_value FROM design_tokens ORDER BY token_type, token_path',
+            ).all() as Array<{ token_path: string; token_type: string; token_value: string }>
+            designTokens = rows
+        } catch {
+            designTokens = []
+        }
+    } catch {
+        // flint-mcp not available — health enrichment will be skipped.
+    }
+
+    const cards = await Promise.all(
+        Object.entries(components).map(async ([name, entry]) => {
+        const e = (entry ?? {}) as Record<string, unknown>
+        const importPath = typeof e.importPath === 'string' ? e.importPath : ''
+        const filePath = typeof e.filePath === 'string' ? e.filePath : ''
+        const variants = Array.isArray(e.variants) ? e.variants : []
+        const propsRaw = (e.props ?? {}) as Record<string, unknown>
+        const id = makeComponentId(name, importPath)
+
+        let thumbnailPath: string | null = null
+        if (thumbnailBase) {
+            const tp = path.join(thumbnailBase, `${id}.png`)
+            if (existsSync(tp)) thumbnailPath = tp
+        }
+
+        const props: Record<string, { type: string; required: boolean }> = {}
+        for (const [propName, propDef] of Object.entries(propsRaw)) {
+            const p = (propDef ?? {}) as Record<string, unknown>
+            props[propName] = {
+                type: typeof p.type === 'string' ? p.type : 'unknown',
+                required: typeof p.required === 'boolean' ? p.required : false,
+            }
+        }
+
+        // ── CV2.4: Per-component health enrichment ────────────────────────────
+        let health: ComponentHealth | null = null
+        if (filePath && auditAllFn && a11yAuditFn) {
+            const resolvedPath = path.isAbsolute(filePath)
+                ? filePath
+                : activeProjectRoot
+                    ? path.join(activeProjectRoot, filePath)
+                    : filePath
+            health = await enrichComponentHealth(resolvedPath, designTokens, auditAllFn, a11yAuditFn)
+        }
+
+        const derivedCategory = deriveComponentCategory(filePath)
+
+        return {
+            id,
+            name,
+            importPath,
+            filePath,
+            // CV2.6: category is resolved after overrides are loaded below.
+            category: derivedCategory,
+            variantCount: variants.length,
+            variants,
+            props,
+            thumbnailPath,
+            health,
+            tokens: Array.isArray(e.tokens) ? (e.tokens as string[]) : [],
+            dependencies: Array.isArray(e.dependencies) ? (e.dependencies as string[]) : [],
+        }
+    }))
+
+    // CV2.6: Apply category overrides. Read the overrides file once and patch each card.
+    const base = activeProjectRoot ?? app.getPath('home')
+    const categoryOverrides = await readCategoryOverrides(base)
+    for (const card of cards) {
+        const override = categoryOverrides[card.id]
+        if (override && VALID_CATEGORIES.has(override)) {
+            card.category = override as 'primitive' | 'molecule' | 'organism' | 'page' | 'layout' | 'uncategorized'
+        }
+    }
+
+    // 3. Sort: category order, then alphabetical by name.
+    cards.sort((a, b) => {
+        const d = (categoryOrder[a.category] ?? 5) - (categoryOrder[b.category] ?? 5)
+        return d !== 0 ? d : a.name.localeCompare(b.name)
+    })
+
+    return cards
+})
+
+ipcMain.handle('components:save-positions', async (_event, positions: unknown): Promise<void> => {
+    if (typeof positions !== 'object' || positions === null || Array.isArray(positions)) {
+        throw new TypeError('components:save-positions — positions must be a plain object')
+    }
+    const base = activeProjectRoot ?? app.getPath('home')
+    const flintDir = path.join(base, BRAND.configDir)
+    if (!existsSync(flintDir)) mkdirSync(flintDir, { recursive: true })
+
+    const positionsPath = path.join(flintDir, 'card-positions.json')
+    // Commandment 12/14: route through FileTransactionManager for atomic queuing
+    await fileTransactionManager.write(positionsPath, JSON.stringify(positions, null, 2))
+})
+
+ipcMain.handle('components:load-positions', async (): Promise<unknown> => {
+    const base = activeProjectRoot ?? app.getPath('home')
+    const positionsPath = path.join(base, BRAND.configDir, 'card-positions.json')
+    try {
+        const raw = await readFile(positionsPath, 'utf-8')
+        const parsed: unknown = JSON.parse(raw)
+        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+            return parsed
+        }
+        return {}
+    } catch {
+        return {} // Missing or corrupt — safe default.
+    }
+})
+
+// ── CV2.6: Category Override IPC Handler ─────────────────────────────────────
+//
+// Reads .flint/category-overrides.json (creates if missing), sets the override
+// for the given componentId, and writes back atomically via FileTransactionManager.
+// VALID_CATEGORIES and readCategoryOverrides are defined above, near deriveComponentCategory.
+
+ipcMain.handle(
+    'components:set-category',
+    async (_event, payload: unknown): Promise<void> => {
+        // Validate payload shape.
+        if (
+            typeof payload !== 'object' ||
+            payload === null ||
+            Array.isArray(payload)
+        ) {
+            throw new TypeError('components:set-category — payload must be an object')
+        }
+
+        const p = payload as Record<string, unknown>
+
+        if (typeof p.componentId !== 'string' || p.componentId.trim() === '') {
+            throw new TypeError('components:set-category — componentId must be a non-empty string')
+        }
+        if (typeof p.category !== 'string' || !VALID_CATEGORIES.has(p.category)) {
+            throw new TypeError(
+                `components:set-category — category must be one of: ${[...VALID_CATEGORIES].join(', ')}`,
+            )
+        }
+
+        const base = activeProjectRoot ?? app.getPath('home')
+        const flintDir = path.join(base, BRAND.configDir)
+
+        // Ensure .flint/ directory exists before writing.
+        if (!existsSync(flintDir)) mkdirSync(flintDir, { recursive: true })
+
+        // Read current overrides, apply mutation, write back atomically.
+        const overrides = await readCategoryOverrides(base)
+        overrides[p.componentId] = p.category
+
+        const overridesPath = path.join(flintDir, 'category-overrides.json')
+        await fileTransactionManager.write(overridesPath, JSON.stringify(overrides, null, 2))
+    },
+)
+
+ipcMain.handle('beta:load-demo-project', async () => {
+    try {
+        // In packaged builds, demo assets are in resources/build-resources/demo-project/
+        // In dev, they're relative to the project root.
+        const demoSourceDir = app.isPackaged
+            ? path.join(process.resourcesPath, 'build-resources', 'demo-project')
+            : path.join(__dirname, '..', 'build-resources', 'demo-project')
+
+        if (!existsSync(demoSourceDir)) {
+            return { error: 'Demo project bundle not found.' }
+        }
+
+        // Create a temp directory for the demo project
+        const tmpBase = path.join(os.tmpdir(), 'flint-beta-demo')
+        if (!existsSync(tmpBase)) mkdirSync(tmpBase, { recursive: true })
+        const projectDir = path.join(tmpBase, `demo-${Date.now()}`)
+        mkdirSync(projectDir, { recursive: true })
+
+        // Recursively copy the entire demo project (handles subdirectories safely)
+        await cp(demoSourceDir, projectDir, { recursive: true })
+
+        // Copy design tokens into .flint/ so the governance engine picks them up
+        const tokensSrc = path.join(projectDir, 'design-tokens.json')
+        if (existsSync(tokensSrc)) {
+            const flintDir = path.join(projectDir, BRAND.configDir)
+            mkdirSync(flintDir, { recursive: true })
+            const tokensContent = await readFile(tokensSrc)
+            await writeFile(path.join(flintDir, 'design-tokens.json'), tokensContent)
+        }
+
+        console.log(`${logTag('Beta')} Demo project created at: ${projectDir}`)
+        return { projectPath: projectDir }
+    } catch (err) {
+        console.error(`${logTag('Beta')} Failed to create demo project:`, err)
+        return { error: 'Failed to create demo project.' }
+    }
+})
+
+// ── CR.4: Component Scope Management IPC ─────────────────────────────────────
+//
+// Two handlers back window.flintAPI.scope in the renderer:
+//
+//   scope:get-registry-and-scope — reads flint-manifest.json + .flint/policy.json
+//     and returns them in a single round-trip so the ComponentScopePanel never
+//     reads the registry and policy separately (race-condition-free).
+//
+//   scope:set-scope — persists componentScope changes to .flint/policy.json via
+//     FileTransactionManager (Commandment 12: Atomic Queuing).
+//
+// Both handlers follow the established pattern of guarding on activeProjectRoot,
+// wrapping in try/catch, and never throwing from an IPC handler.
+
+ipcMain.handle('scope:get-registry-and-scope', async (): Promise<{
+    registry: Record<string, {
+        name: string
+        props: Record<string, { type: string; required: boolean }>
+        variants: string[]
+        consumedTokens: string[]
+        description: string
+    }>
+    scope: string[] | null
+    registryAvailable: boolean
+}> => {
+    if (!activeProjectRoot) {
+        return { registry: {}, scope: null, registryAvailable: false }
+    }
+
+    try {
+        // ── 1. Read flint-manifest.json ──────────────────────────────────────
+        const manifestPath = path.join(activeProjectRoot, BRAND.manifestFile)
+        if (!existsSync(manifestPath)) {
+            return { registry: {}, scope: null, registryAvailable: false }
+        }
+
+        let manifest: Record<string, unknown>
+        try {
+            const raw = await readFile(manifestPath, 'utf-8')
+            manifest = JSON.parse(raw) as Record<string, unknown>
+        } catch {
+            return { registry: {}, scope: null, registryAvailable: false }
+        }
+
+        // ── 2. Normalize registry entries ─────────────────────────────────────
+        // Field mapping: manifest's `tokens` array → `consumedTokens`.
+        // Missing fields get safe defaults.
+        const rawComponents = (manifest.components ?? {}) as Record<string, unknown>
+        const registry: Record<string, {
+            name: string
+            props: Record<string, { type: string; required: boolean }>
+            variants: string[]
+            consumedTokens: string[]
+            description: string
+        }> = {}
+
+        for (const [componentName, entry] of Object.entries(rawComponents)) {
+            const e = (entry ?? {}) as Record<string, unknown>
+
+            const propsRaw = (e.props ?? {}) as Record<string, unknown>
+            const props: Record<string, { type: string; required: boolean }> = {}
+            for (const [propName, propDef] of Object.entries(propsRaw)) {
+                const p = (propDef ?? {}) as Record<string, unknown>
+                props[propName] = {
+                    type: typeof p.type === 'string' ? p.type : 'unknown',
+                    required: typeof p.required === 'boolean' ? p.required : false,
+                }
+            }
+
+            registry[componentName] = {
+                name: componentName,
+                props,
+                variants: Array.isArray(e.variants) ? (e.variants as string[]) : [],
+                consumedTokens: Array.isArray(e.tokens) ? (e.tokens as string[]) : [],
+                description: typeof e.description === 'string' ? e.description : '',
+            }
+        }
+
+        // ── 3. Read componentScope from .flint/policy.json ───────────────────
+        let scope: string[] | null = null
+        const policyPath = path.join(activeProjectRoot, BRAND.configDir, 'policy.json')
+        if (existsSync(policyPath)) {
+            try {
+                const policyRaw = await readFile(policyPath, 'utf-8')
+                const policy = JSON.parse(policyRaw) as Record<string, unknown>
+                if (Array.isArray(policy.componentScope) && policy.componentScope.length > 0) {
+                    scope = policy.componentScope as string[]
+                }
+                // Empty array is treated as null per CR.3 semantics.
+            } catch {
+                // Malformed policy — treat as missing.
+            }
+        }
+
+        return { registry, scope, registryAvailable: true }
+    } catch (err) {
+        console.error(`${BRAND.logPrefix} scope:get-registry-and-scope failed:`, err)
+        return { registry: {}, scope: null, registryAvailable: false }
+    }
+})
+
+ipcMain.handle('scope:set-scope', async (_event, payload: unknown): Promise<{ ok: boolean; error?: string }> => {
+    if (!activeProjectRoot) {
+        return { ok: false, error: 'No project open' }
+    }
+
+    try {
+        // ── 1. Validate payload ───────────────────────────────────────────────
+        if (
+            typeof payload !== 'object' ||
+            payload === null ||
+            !('scope' in payload)
+        ) {
+            return { ok: false, error: 'Invalid payload: expected { scope: string[] | null }' }
+        }
+        const { scope } = payload as { scope: unknown }
+        if (scope !== null && !Array.isArray(scope)) {
+            return { ok: false, error: 'Invalid payload: scope must be string[] or null' }
+        }
+        if (Array.isArray(scope) && !scope.every((item) => typeof item === 'string')) {
+            return { ok: false, error: 'Invalid payload: scope array must contain only strings' }
+        }
+
+        // ── 2. Ensure .flint/ directory exists ───────────────────────────────
+        const flintDir = path.join(activeProjectRoot, BRAND.configDir)
+        if (!existsSync(flintDir)) {
+            mkdirSync(flintDir, { recursive: true })
+        }
+
+        // ── 3. Read existing policy.json (create empty object if missing) ──────
+        const policyPath = path.join(flintDir, 'policy.json')
+        let policy: Record<string, unknown> = {}
+        if (existsSync(policyPath)) {
+            try {
+                const raw = await readFile(policyPath, 'utf-8')
+                policy = JSON.parse(raw) as Record<string, unknown>
+            } catch {
+                // Malformed — start fresh.
+                policy = {}
+            }
+        }
+
+        // ── 4. Apply scope mutation ───────────────────────────────────────────
+        // null or empty array → remove componentScope key (all components allowed).
+        // non-empty array → set explicit allow-list.
+        if (scope === null || (Array.isArray(scope) && scope.length === 0)) {
+            delete policy.componentScope
+        } else {
+            policy.componentScope = scope
+        }
+
+        // ── 5. Write atomically via FileTransactionManager (Commandment 12) ───
+        await fileTransactionManager.write(policyPath, JSON.stringify(policy, null, 2) + '\n')
+
+        return { ok: true }
+    } catch (err) {
+        console.error(`${BRAND.logPrefix} scope:set-scope failed:`, err)
+        return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+})
+
+// ── EN.1: Enrichment Draft Reading and Approval IPC ──────────────────────────
+//
+// Two handlers back window.flintAPI.enrichment in the renderer:
+//
+//   enrichment:get-drafts — reads .flint/enrichment-drafts.json and
+//     flint-manifest.json in one round-trip, returning all pending drafts
+//     plus computed stats (bare / draft / enriched / total).
+//
+//   enrichment:approve — approves or dismisses a single draft. On approval
+//     the draft fields (with any renderer-edited overrides) are merged into
+//     flint-manifest.json via FileTransactionManager, then the RAG store is
+//     re-seeded so the updated description is immediately queryable.
+//
+// A component is:
+//   "enriched" — has both `description` AND `usageExample` in the manifest.
+//   "draft"    — exists in enrichment-drafts.json (may also be in manifest
+//                without a usageExample yet).
+//   "bare"     — in the manifest, neither enriched nor draft.
+//
+// Commandment 12: all manifest writes go through FileTransactionManager.
+
+ipcMain.handle('enrichment:get-drafts', async (): Promise<{
+    drafts: Record<string, {
+        description: string
+        usageExample: string
+        compositionNotes?: string
+        a11yNotes?: string
+        relatedComponents?: string[]
+        confidence: 'high' | 'medium' | 'low'
+        usageFileCount: number
+        sourceFile: string
+        generatedAt: string
+        generatedBy: string
+    }>
+    enrichmentStats: { bare: number; draft: number; enriched: number; total: number }
+} | null> => {
+    if (!activeProjectRoot) return null
+
+    try {
+        // ── 1. Read enrichment-drafts.json ────────────────────────────────────
+        // File format: { generatedAt, generatedBy, drafts: Record<name, Draft> }
+        // We unwrap the `.drafts` sub-key to get the component-keyed map.
+        const draftsPath = path.join(activeProjectRoot, BRAND.configDir, 'enrichment-drafts.json')
+        let drafts: Record<string, unknown> = {}
+        if (existsSync(draftsPath)) {
+            try {
+                const raw = await readFile(draftsPath, 'utf-8')
+                const parsed = JSON.parse(raw) as Record<string, unknown>
+                // Unwrap: the actual drafts live under the `drafts` key.
+                // If the file is a flat map (no wrapper), fall back to the parsed object itself.
+                drafts = (typeof parsed.drafts === 'object' && parsed.drafts !== null)
+                    ? parsed.drafts as Record<string, unknown>
+                    : parsed
+            } catch {
+                // Malformed file — treat as empty.
+                drafts = {}
+            }
+        }
+
+        // ── 2. Read flint-manifest.json to compute stats ─────────────────────
+        const manifestPath = path.join(activeProjectRoot, BRAND.manifestFile)
+        let total = 0
+        let enriched = 0
+
+        if (existsSync(manifestPath)) {
+            try {
+                const raw = await readFile(manifestPath, 'utf-8')
+                const manifest = JSON.parse(raw) as Record<string, unknown>
+                const components = (manifest.components ?? {}) as Record<string, unknown>
+
+                for (const entry of Object.values(components)) {
+                    const e = (entry ?? {}) as Record<string, unknown>
+                    total++
+                    if (typeof e.description === 'string' && e.description.length > 0 &&
+                        typeof e.usageExample === 'string' && e.usageExample.length > 0) {
+                        enriched++
+                    }
+                }
+            } catch {
+                // Malformed manifest — stats stay at 0.
+            }
+        }
+
+        const draftCount = Object.keys(drafts).length
+        // "bare" = in manifest, not enriched, not in draft queue
+        const bare = Math.max(0, total - enriched - draftCount)
+
+        return {
+            drafts: drafts as Record<string, {
+                description: string
+                usageExample: string
+                compositionNotes?: string
+                a11yNotes?: string
+                relatedComponents?: string[]
+                confidence: 'high' | 'medium' | 'low'
+                usageFileCount: number
+                sourceFile: string
+                generatedAt: string
+                generatedBy: string
+            }>,
+            enrichmentStats: { bare, draft: draftCount, enriched, total },
+        }
+    } catch (err) {
+        console.error(`${BRAND.logPrefix} enrichment:get-drafts failed:`, err)
+        return null
+    }
+})
+
+ipcMain.handle('enrichment:approve', async (
+    _event,
+    payload: unknown,
+): Promise<{ ok: boolean; remainingDrafts: number; error?: string }> => {
+    if (!activeProjectRoot) {
+        return { ok: false, remainingDrafts: 0, error: 'No project open' }
+    }
+
+    try {
+        // ── 1. Validate payload ───────────────────────────────────────────────
+        if (
+            typeof payload !== 'object' ||
+            payload === null ||
+            !('componentName' in payload) ||
+            !('action' in payload)
+        ) {
+            return { ok: false, remainingDrafts: 0, error: 'Invalid payload: expected { componentName, action }' }
+        }
+
+        const { componentName, action, editedFields } = payload as {
+            componentName: unknown
+            action: unknown
+            editedFields?: Record<string, unknown>
+        }
+
+        if (typeof componentName !== 'string' || componentName.trim() === '') {
+            return { ok: false, remainingDrafts: 0, error: 'Invalid payload: componentName must be a non-empty string' }
+        }
+        if (action !== 'approve' && action !== 'dismiss') {
+            return { ok: false, remainingDrafts: 0, error: 'Invalid payload: action must be "approve" or "dismiss"' }
+        }
+
+        // ── 2. Load current drafts ────────────────────────────────────────────
+        // File format: { generatedAt, generatedBy, drafts: Record<name, Draft> }
+        // We must unwrap the `.drafts` sub-key to get the component-keyed map,
+        // and preserve the wrapper so we write back the correct shape.
+        const flintDir = path.join(activeProjectRoot, BRAND.configDir)
+        if (!existsSync(flintDir)) {
+            mkdirSync(flintDir, { recursive: true })
+        }
+        const draftsPath = path.join(flintDir, 'enrichment-drafts.json')
+
+        let draftsWrapper: Record<string, unknown> = { drafts: {} }
+        let drafts: Record<string, unknown> = {}
+        if (existsSync(draftsPath)) {
+            try {
+                const raw = await readFile(draftsPath, 'utf-8')
+                const parsed = JSON.parse(raw) as Record<string, unknown>
+                if (typeof parsed.drafts === 'object' && parsed.drafts !== null) {
+                    draftsWrapper = parsed
+                    drafts = parsed.drafts as Record<string, unknown>
+                } else {
+                    // Flat format fallback
+                    drafts = parsed
+                    draftsWrapper = { drafts: parsed }
+                }
+            } catch {
+                drafts = {}
+                draftsWrapper = { drafts: {} }
+            }
+        }
+
+        // ── 3. If approve: merge draft fields into flint-manifest.json ───────
+        if (action === 'approve') {
+            const draft = (drafts[componentName] ?? {}) as Record<string, unknown>
+            const manifestPath = path.join(activeProjectRoot, BRAND.manifestFile)
+
+            let manifest: Record<string, unknown> = {}
+            if (existsSync(manifestPath)) {
+                try {
+                    const raw = await readFile(manifestPath, 'utf-8')
+                    manifest = JSON.parse(raw) as Record<string, unknown>
+                } catch {
+                    manifest = {}
+                }
+            }
+
+            const components = (manifest.components ?? {}) as Record<string, unknown>
+            const existing = (components[componentName] ?? {}) as Record<string, unknown>
+
+            // Merge: manifest fields <- draft fields <- renderer editedFields overrides
+            components[componentName] = {
+                ...existing,
+                ...draft,
+                ...(editedFields ?? {}),
+            }
+            manifest.components = components
+
+            // Atomic write via FileTransactionManager (Commandment 12)
+            await fileTransactionManager.write(manifestPath, JSON.stringify(manifest, null, 2) + '\n')
+
+            // Trigger RAG re-seed so the updated description is immediately queryable
+            void import('./ragSeeder.js').then(({ seedRAGFromProject }) => {
+                seedRAGFromProject(activeProjectRoot!).catch(err => {
+                    console.error(`${BRAND.logPrefix} enrichment:approve — RAG re-seed failed:`, err)
+                })
+            })
+        }
+
+        // ── 4. Remove from drafts file (approve or dismiss) ───────────────────
+        delete drafts[componentName]
+        draftsWrapper.drafts = drafts
+        await fileTransactionManager.write(draftsPath, JSON.stringify(draftsWrapper, null, 2) + '\n')
+
+        const remainingDrafts = Object.keys(drafts).length
+        return { ok: true, remainingDrafts }
+    } catch (err) {
+        console.error(`${BRAND.logPrefix} enrichment:approve failed:`, err)
+        return { ok: false, remainingDrafts: 0, error: err instanceof Error ? err.message : String(err) }
+    }
+})
+
 app.on('will-quit', () => {
+    // Stop beta version check polling
+    stopVersionCheck()
+
     // Close the ingestion server gracefully before the process exits so the
     // OS port is released immediately. This prevents EADDRINUSE on fast
     // dev-server reloads where Electron restarts before the OS reclaims 4545.
@@ -2611,6 +4091,9 @@ app.on('will-quit', () => {
     // stop() is async but will-quit is synchronous — fire-and-forget is acceptable
     // here because the OS will reclaim the child process anyway on app exit.
     void mcpClient.stop()
+
+    // CV2.2: Destroy any pending thumbnail BrowserWindows
+    thumbnailGenerator?.dispose()
 })
 
 app.on('window-all-closed', () => {

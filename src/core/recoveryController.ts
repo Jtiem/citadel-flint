@@ -1,7 +1,7 @@
 /**
  * Recovery Controller — src/core/recoveryController.ts
  *
- * Phase G.1: Global Undo/Redo engine for the Bridge AST Command Pattern.
+ * Phase G.1: Global Undo/Redo engine for the Flint AST Command Pattern.
  *
  * Exports two async functions — `applyUndo` and `applyRedo` — that the App
  * shell calls in response to `Cmd+Z` / `Cmd+Shift+Z` keyboard events.
@@ -119,14 +119,14 @@ async function applyCrossFileUndo(group: HistoryEntry[]): Promise<void> {
 
     // Atomically write all restored files (Commandment 12).
     try {
-        await window.bridgeAPI.saveFileBatch(batch)
+        await window.flintAPI.saveFileBatch(batch)
     } catch (err) {
-        console.error('[Bridge] applyUndo (cross-file): saveFileBatch failed:', err)
+        console.error('[Flint] applyUndo (cross-file): saveFileBatch failed:', err)
         return
     }
 
     // Evict stale buffers and reload from the freshly-saved restored code.
-    // loadBuffer applies 7D hardening (injectBridgeIds) automatically.
+    // loadBuffer applies 7D hardening (injectFlintIds) automatically.
     const bufferStore = useASTBufferStore.getState()
     for (const filePath of Object.keys(batch)) {
         bufferStore.evictBuffer(filePath)

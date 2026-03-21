@@ -21,15 +21,15 @@
  *   A "Delta Mode" badge appears in the header.  "Clear Baseline" resets.
  *
  * Mithril compliance:
- *   - No hardcoded hex colours — all classes use Bridge token palette.
+ *   - No hardcoded hex colours — all classes use Flint token palette.
  *   - No arbitrary spacing — all spacing from the 4 px grid scale.
- *   - data-bridge-id is not required here (dashboard is not canvas-selectable).
+ *   - data-flint-id is not required here (dashboard is not canvas-selectable).
  */
 
 import { useMemo, useState, useEffect, useCallback } from 'react'
 import { useEditorStore } from '../../store/editorStore'
 import { useCanvasStore } from '../../store/canvasStore'
-import type { LinterWarning, BaselineEntry } from '../../types/bridge-api'
+import type { LinterWarning, BaselineEntry } from '../../types/flint-api'
 import { auditDelta } from '../../utils/deltaAudit'
 
 // ── Score / grade helpers ─────────────────────────────────────────────────────
@@ -88,6 +88,7 @@ const TYPE_LABEL: Record<LinterWarning['type'], string> = {
     'shadow-drift':     'Shadow',
     'opacity-drift':    'Opacity',
     'a11y':             'A11y',
+    'semantic-drift':   'Semantic',
 }
 
 // ── Score ring (SVG) ──────────────────────────────────────────────────────────
@@ -179,7 +180,7 @@ export function GovernanceDashboard() {
     // On mount (and when the active file changes) check whether a baseline is set
     // and fetch entries for the current file.
     useEffect(() => {
-        const api = window.bridgeAPI.baseline
+        const api = window.flintAPI.baseline
         if (!api) return
 
         void api.isSet().then(setIsBaselineSet)
@@ -274,7 +275,7 @@ export function GovernanceDashboard() {
 
     // ── Set Baseline handler ──────────────────────────────────────────────────
     const handleSetBaseline = useCallback(async () => {
-        const api = window.bridgeAPI.baseline
+        const api = window.flintAPI.baseline
         if (!api || !activeFilePath) return
 
         setBaselineStatus('setting')
@@ -307,7 +308,7 @@ export function GovernanceDashboard() {
 
     // ── Clear Baseline handler ────────────────────────────────────────────────
     const handleClearBaseline = useCallback(async () => {
-        const api = window.bridgeAPI.baseline
+        const api = window.flintAPI.baseline
         if (!api) return
 
         setBaselineStatus('clearing')
@@ -331,7 +332,10 @@ export function GovernanceDashboard() {
 
                 {/* Delta Mode badge */}
                 {isBaselineSet && (
-                    <span className="inline-flex items-center gap-1 rounded border border-indigo-500/40 bg-indigo-900/20 px-1.5 py-0.5 text-[10px] font-medium text-indigo-400">
+                    <span
+                        className="inline-flex items-center gap-1 rounded border border-indigo-500/40 bg-indigo-900/20 px-1.5 py-0.5 text-[10px] font-medium text-indigo-400"
+                        title="Delta Mode — only new violations since the baseline are counted. Click 'Clear Baseline' below to show all violations again."
+                    >
                         <span className="h-1.5 w-1.5 rounded-full bg-indigo-400" aria-hidden="true" />
                         Delta Mode
                     </span>

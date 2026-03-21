@@ -21,7 +21,7 @@
  */
 
 import { useEffect, useRef, useCallback, useState } from 'react'
-import type { SyncState } from '../../types/bridge-api'
+import type { SyncState } from '../../types/flint-api'
 import { useTokenStore } from '../../store/tokenStore'
 
 // ── Presence throttle constant ────────────────────────────────────────────────
@@ -54,7 +54,7 @@ export function useSyncPresence(sessionId: string, userId: string) {
         pendingRef.current = null
         timerRef.current = null
 
-        window.bridgeAPI
+        window.flintAPI
             .syncPresence({ id: sessionId, userId, ...pending })
             .catch((err: Error) => {
                 console.warn('[SyncStatus] syncPresence IPC error:', err.message)
@@ -122,7 +122,7 @@ const STATE_CONFIG: Record<SyncState, BadgeConfig> = {
 /**
  * Footer chip displaying the current sync state.
  *
- * On mount it probes the IPC bridge via `window.bridgeAPI.ping()`. When the
+ * On mount it probes the IPC flint via `window.flintAPI.ping()`. When the
  * ping resolves the local better-sqlite3 database is confirmed live and the
  * chip transitions to CONNECTED ("Sync: Online (PowerSync)"). A rejected ping
  * means the Electron main process is unreachable, so we fall back to
@@ -138,10 +138,10 @@ export function SyncStatus() {
     useEffect(() => {
         let unsubscribe: (() => void) | null = null
 
-        // Verify the IPC bridge is reachable before activating the reactive
+        // Verify the IPC flint is reachable before activating the reactive
         // token subscription. On success, initSync() delivers the current
         // token list immediately and re-pushes on every subsequent DB write.
-        window.bridgeAPI
+        window.flintAPI
             .ping()
             .then(() => {
                 setSyncState('CONNECTED')

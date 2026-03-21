@@ -11,7 +11,7 @@
  *        Pre-flight: zombie node causes undo to revert via restoreCode snapshot
  *        Stack discipline: past shrinks by 1, future grows by 1 after undo
  *
- * Test environment: jsdom (via vitest.config.react.ts) with window.bridgeAPI mocked
+ * Test environment: jsdom (via vitest.config.react.ts) with window.flintAPI mocked
  * by the global setup in src/components/__tests__/setup.ts.
  *
  * The LanguageRegistry must be seeded with the ReactAdapter before any store
@@ -37,15 +37,15 @@ LanguageRegistry.register(['ts', 'tsx', 'js', 'jsx'], reactAdapter)
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
 /**
- * Minimal valid TSX that carries a data-bridge-id so the structural mutation
+ * Minimal valid TSX that carries a data-flint-id so the structural mutation
  * engine can target it by attribute value rather than line:col position.
- * Using a known bridge ID keeps tests independent of code-generation whitespace.
+ * Using a known flint ID keeps tests independent of code-generation whitespace.
  */
-const BRIDGE_ID = 'card-a1b2'
+const FLINT_ID = 'card-a1b2'
 
 const ORIGINAL_CODE = `export default function Card() {
   return (
-    <div data-bridge-id="${BRIDGE_ID}" className="text-zinc-400">Hello</div>
+    <div data-flint-id="${FLINT_ID}" className="text-zinc-400">Hello</div>
   )
 }`
 
@@ -65,7 +65,7 @@ const MUTATED_CLASS = 'text-zinc-100'
 function applyMutation(): void {
     useEditorStore.setState({ rawCode: ORIGINAL_CODE })
     useEditorStore.getState().applyBatch([
-        { op: 'updateClassName', nodeId: BRIDGE_ID, className: MUTATED_CLASS },
+        { op: 'updateClassName', nodeId: FLINT_ID, className: MUTATED_CLASS },
     ])
 }
 
@@ -114,12 +114,12 @@ describe('applyUndo', () => {
         expect(code).not.toContain(MUTATED_CLASS)
     })
 
-    it('preserves data-bridge-id on the target element after undo', async () => {
+    it('preserves data-flint-id on the target element after undo', async () => {
         applyMutation()
         await applyUndo()
 
         const code = useEditorStore.getState().rawCode
-        expect(code).toContain(`data-bridge-id="${BRIDGE_ID}"`)
+        expect(code).toContain(`data-flint-id="${FLINT_ID}"`)
     })
 
     // 6.2 — Undo pushes the redo entry onto historyStore.future
@@ -287,13 +287,13 @@ describe('applyRedo', () => {
         expect(useHistoryStore.getState().canRedo).toBe(false)
     })
 
-    it('preserves data-bridge-id after a full undo→redo round-trip', async () => {
+    it('preserves data-flint-id after a full undo→redo round-trip', async () => {
         applyMutation()
         await applyUndo()
         await applyRedo()
 
         const code = useEditorStore.getState().rawCode
-        expect(code).toContain(`data-bridge-id="${BRIDGE_ID}"`)
+        expect(code).toContain(`data-flint-id="${FLINT_ID}"`)
     })
 })
 
@@ -341,7 +341,7 @@ describe('historyStore stack invariants', () => {
         // Apply two sequential mutations.
         applyMutation()
         useEditorStore.getState().applyBatch([
-            { op: 'updateClassName', nodeId: BRIDGE_ID, className: 'text-white' },
+            { op: 'updateClassName', nodeId: FLINT_ID, className: 'text-white' },
         ])
 
         expect(useHistoryStore.getState().past).toHaveLength(2)

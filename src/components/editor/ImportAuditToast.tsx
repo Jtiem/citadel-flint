@@ -3,7 +3,7 @@
  *
  * Phase O.2 / Phase ING: Post-import notification toast.
  *
- * Shown after a Figma → Bridge hydro-paste import completes.
+ * Shown after a Figma → Flint hydro-paste import completes.
  * Displays a grouped count of non-aligned style values by property category
  * (colors, spacing, typography) and links to the Export Gate for review.
  *

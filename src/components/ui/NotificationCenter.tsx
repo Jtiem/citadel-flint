@@ -11,13 +11,13 @@
  *   - Dismiss X button
  *   - Auto-dismisses via useEffect + setTimeout when autoDismissMs > 0
  *
- * Severity → color mapping (Bridge token palette only):
+ * Severity → color mapping (Flint token palette only):
  *   success → emerald
  *   warning → amber
  *   error   → red
  *   info    → indigo
  *
- * Mithril Safety: all classes from Bridge design token palette only.
+ * Mithril Safety: all classes from Flint design token palette only.
  */
 
 import { useEffect } from 'react'

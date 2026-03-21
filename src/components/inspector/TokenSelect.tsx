@@ -7,7 +7,7 @@
  * Path normalisation and class derivation are delegated to src/utils/classMapper.ts.
  */
 
-import type { TokenType } from '../../types/bridge-api'
+import type { TokenType } from '../../types/flint-api'
 import { useTokenStore } from '../../store/tokenStore'
 import { normalizePath, tokenToClass } from '../../utils/classMapper'
 

@@ -1,15 +1,15 @@
 /**
  * RecoveryPanel — src/components/ui/RecoveryPanel.tsx
  *
- * The "Time Machine" macro-recovery UI for Bridge IDE.
+ * The "Time Machine" macro-recovery UI for Flint IDE.
  *
  * Surfaces the git shadow-commit history for the active file and allows the
  * user to surgically transplant a single JSX element (identified by its
- * data-bridge-id) from any historical commit into the live AST — without
+ * data-flint-id) from any historical commit into the live AST — without
  * touching the rest of the file (Commandment 11: Surgical Git Transplants).
  *
  * Key behaviours:
- *   • Fetches committed history via `window.bridgeAPI.gitLog`.
+ *   • Fetches committed history via `window.flintAPI.gitLog`.
  *   • Uses `editorStore.revertNodeToCommit` for the actual AST transplant.
  *   • The transplant is pushed onto historyStore so Cmd+Z can undo it.
  *   • Empty state: renders a subtle empty-state banner when there is no
@@ -21,7 +21,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import type { GitLogEntry } from '../../types/bridge-api'
+import type { GitLogEntry } from '../../types/flint-api'
 import { useEditorStore } from '../../store/editorStore'
 import { useCanvasStore } from '../../store/canvasStore'
 
@@ -42,8 +42,8 @@ function formatTimestamp(unix: number): string {
 }
 
 function commitLabel(entry: GitLogEntry): string {
-    // Strip the "bridge:sync:" prefix for brevity in the UI.
-    const msg = entry.message.replace(/^bridge:sync:/, '').slice(0, 36)
+    // Strip the "flint:sync:" prefix for brevity in the UI.
+    const msg = entry.message.replace(/^flint:sync:/, '').slice(0, 36)
     return msg || entry.hash
 }
 
@@ -67,7 +67,7 @@ export function RecoveryPanel() {
         }
 
         setStatus('loading')
-        window.bridgeAPI.gitLog(activeFilePath)
+        window.flintAPI.gitLog(activeFilePath)
             .then((entries) => {
                 setLog(entries)
                 setStatus('idle')
@@ -140,7 +140,7 @@ export function RecoveryPanel() {
                 </span>
                 {!selectedNodeId && (
                     <span className="rounded bg-amber-900/40 px-1.5 py-0.5 text-[10px] text-amber-300">
-                        Select a layer to transplant
+                        Select a component in the canvas to restore from a previous version
                     </span>
                 )}
             </div>

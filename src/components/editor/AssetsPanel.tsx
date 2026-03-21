@@ -16,6 +16,7 @@ import { Package, MousePointerClick } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
 import { componentRegistry } from '../../data/componentRegistry'
 import type { RegistryEntry } from '../../data/componentRegistry'
+import { ComponentSearch } from '../ui/ComponentSearch'
 
 export function AssetsPanel() {
     const selectedNodeId = useEditorStore((state) => state.selectedNodeId)
@@ -34,6 +35,12 @@ export function AssetsPanel() {
 
     return (
         <div className="flex flex-col gap-3 p-3">
+            {/* Live registry search */}
+            <ComponentSearch />
+
+            {/* Divider */}
+            <div className="border-t border-zinc-800" />
+
             {/* Inline alert — shown when no layer is selected */}
             {alert !== null && (
                 <div className="flex items-center gap-2 rounded-md border border-amber-700/40 bg-amber-900/20 px-3 py-2 text-xs text-amber-300">
@@ -42,8 +49,9 @@ export function AssetsPanel() {
                 </div>
             )}
 
+            {/* Quick Insert */}
             <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
-                Components
+                Quick Insert
             </span>
 
             {componentRegistry.map((entry) => (

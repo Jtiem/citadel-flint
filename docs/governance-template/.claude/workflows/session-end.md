@@ -32,10 +32,23 @@ If any code was changed this session:
 - [ ] Health pulse reflects the change
 - [ ] Agent prompts are current
 
-### 4. Clean Up
+### 4. Update HANDOFF.md
+Open `HANDOFF.md` at the project root and update your session entry:
+- Change status from "In Progress" to "Done"
+- Add what was completed
+- Add what remains for the next session
+- Note any traps or context the next agent will need
+
+This is the most important thing you do at session end. The next agent (or your
+next context window) starts by reading this.
+
+### 5. Clear Territory
+Remove your entry from `.governance/ACTIVE-TERRITORY.md`.
+
+### 6. Clean Up
 - [ ] No uncommitted changes that should be committed
 - [ ] No TODO comments without tracking issues
 - [ ] No temporary debug logging left in code
 
 ## Output
-Updated `HEALTH-PULSE.md` with current date and session summary.
+Updated `HEALTH-PULSE.md` and `HANDOFF.md` with current date and session summary.

@@ -1,13 +1,13 @@
 /**
  * GitManager — electron/GitManager.ts
  *
- * Provides git-backed shadow history for the Bridge Macro-Recovery Engine.
+ * Provides git-backed shadow history for the Flint Macro-Recovery Engine.
  *
  * Three public methods:
  *   ensureRepo    — initialises a git repository at projectPath if one is absent.
  *   shadowCommit  — stages all working-tree changes and creates a labelled commit.
  *   getGitNode    — retrieves a specific JSX node from a historical commit by
- *                   its data-bridge-id attribute.
+ *                   its data-flint-id attribute.
  *
  * All git operations use execFile with array arguments — no shell interpolation.
  *
@@ -29,31 +29,31 @@ import type { Node } from '@babel/types'
 
 const execFileAsync = promisify(execFile)
 
-const GITIGNORE_CONTENT = 'node_modules\n.bridge/tmp\n'
+const GITIGNORE_CONTENT = 'node_modules\n.flint/tmp\n'
 
 // ── AST Walker ────────────────────────────────────────────────────────────────
 
 /**
  * Recursively walks a Babel AST node looking for a JSXElement whose
- * JSXOpeningElement carries a `data-bridge-id` attribute equal to `targetId`.
+ * JSXOpeningElement carries a `data-flint-id` attribute equal to `targetId`.
  *
  * Returns the [start, end] character offsets of the matching JSXElement in the
  * original source string, or null if no match is found.
  */
-function findBridgeIdOffsets(node: Node, targetId: string): [number, number] | null {
+function findFlintIdOffsets(node: Node, targetId: string): [number, number] | null {
     if (node.type === 'JSXElement') {
         for (const attr of node.openingElement.attributes) {
             if (
                 attr.type === 'JSXAttribute' &&
                 attr.name.type === 'JSXIdentifier' &&
-                attr.name.name === 'data-bridge-id'
+                attr.name.name === 'data-flint-id'
             ) {
-                console.log('found data-bridge-id attr:', attr.value)
+                console.log('found data-flint-id attr:', attr.value)
             }
             if (
                 attr.type === 'JSXAttribute' &&
                 attr.name.type === 'JSXIdentifier' &&
-                attr.name.name === 'data-bridge-id' &&
+                attr.name.name === 'data-flint-id' &&
                 attr.value?.type === 'StringLiteral' &&
                 attr.value.value === targetId &&
                 node.start != null &&
@@ -70,12 +70,12 @@ function findBridgeIdOffsets(node: Node, targetId: string): [number, number] | n
         if (Array.isArray(child)) {
             for (const item of child) {
                 if (item != null && typeof item === 'object' && 'type' in item) {
-                    const found = findBridgeIdOffsets(item as Node, targetId)
+                    const found = findFlintIdOffsets(item as Node, targetId)
                     if (found) return found
                 }
             }
         } else if (child != null && typeof child === 'object' && 'type' in child) {
-            const found = findBridgeIdOffsets(child as Node, targetId)
+            const found = findFlintIdOffsets(child as Node, targetId)
             if (found) return found
         }
     }
@@ -91,11 +91,11 @@ export class GitManager {
      *
      * If `.git` is absent:
      *   1. Runs `git init`
-     *   2. Writes `.gitignore` (node_modules, .bridge/tmp)
-     *   3. Configures repo-local identity (bridge@local / Bridge IDE) so commits
+     *   2. Writes `.gitignore` (node_modules, .flint/tmp)
+     *   3. Configures repo-local identity (flint@local / Flint IDE) so commits
      *      work in environments with no global git user config.
      *   4. Stages all files with `git add .`
-     *   5. Creates an initial `bridge:init` commit (--allow-empty for safety).
+     *   5. Creates an initial `flint:init` commit (--allow-empty for safety).
      *
      * Idempotent — if `.git` already exists the method returns immediately.
      */
@@ -112,22 +112,22 @@ export class GitManager {
         await writeFile(path.join(projectPath, '.gitignore'), GITIGNORE_CONTENT, 'utf8')
 
         // Configure repo-local identity so `git commit` succeeds without global config.
-        await execFileAsync('git', ['config', 'user.email', 'bridge@local'], { cwd: projectPath })
-        await execFileAsync('git', ['config', 'user.name', 'Bridge IDE'], { cwd: projectPath })
+        await execFileAsync('git', ['config', 'user.email', 'flint@local'], { cwd: projectPath })
+        await execFileAsync('git', ['config', 'user.name', 'Flint IDE'], { cwd: projectPath })
 
         // Stage everything (including template files when called after initializeProject).
         await execFileAsync('git', ['add', '.'], { cwd: projectPath })
         await execFileAsync(
-            'git', ['commit', '-m', 'bridge:init', '--allow-empty'],
+            'git', ['commit', '-m', 'flint:init', '--allow-empty'],
             { cwd: projectPath }
         )
 
-        console.log(`[Bridge] GitManager: initialised git repo at ${projectPath}`)
+        console.log(`[Flint] GitManager: initialised git repo at ${projectPath}`)
     }
 
     /**
      * Stages all working-tree changes under the git root containing `cwd` and
-     * creates a shadow commit labelled "bridge:sync:{batchId}".
+     * creates a shadow commit labelled "flint:sync:{batchId}".
      *
      * Silent no-op when:
      *   - `cwd` is not inside a git repository.
@@ -155,27 +155,27 @@ export class GitManager {
         if (!status.trim()) return
 
         await execFileAsync(
-            'git', ['commit', '-m', `bridge:sync:${id}`],
+            'git', ['commit', '-m', `flint:sync:${id}`],
             { cwd: gitRoot }
         )
-        console.log(`[Bridge] GitManager: shadow commit bridge:sync:${id}`)
+        console.log(`[Flint] GitManager: shadow commit flint:sync:${id}`)
     }
 
     /**
-     * Returns the JSX source text of the element with `dataBridgeId` from
+     * Returns the JSX source text of the element with `dataFlintId` from
      * `filePath` at `commitHash`.
      *
      * Steps:
      *   1. Resolves the git root from `filePath`'s directory.
      *   2. Runs `git show <commitHash>:<relPath>` to retrieve historical content.
      *   3. Parses with @babel/parser (TypeScript + JSX plugins).
-     *   4. Walks the AST to locate the JSXElement with the matching bridge ID.
+     *   4. Walks the AST to locate the JSXElement with the matching flint ID.
      *   5. Returns the raw source slice for that element.
      *
      * Returns null when:
      *   - `filePath` is not in a git repository.
      *   - The commit or file does not exist in git history.
-     *   - No element with the given bridge ID exists in the historical file.
+     *   - No element with the given flint ID exists in the historical file.
      *   - The file cannot be parsed as TypeScript/JSX.
      *
      * Read-only — never calls `git checkout` (Commandment 11).
@@ -183,7 +183,7 @@ export class GitManager {
     async getGitNode(
         commitHash: string,
         filePath: string,
-        dataBridgeId: string
+        dataFlintId: string
     ): Promise<string | null> {
         const gitRoot = await this._getGitRoot(path.dirname(filePath))
         if (!gitRoot) return null
@@ -207,7 +207,7 @@ export class GitManager {
                 sourceType: 'module',
                 plugins: ['typescript', 'jsx'],
             })
-            const offsets = findBridgeIdOffsets(ast.program, dataBridgeId)
+            const offsets = findFlintIdOffsets(ast.program, dataFlintId)
             return offsets ? content.slice(offsets[0], offsets[1]) : null
         } catch (e) {
             console.error('parse failed:', e)

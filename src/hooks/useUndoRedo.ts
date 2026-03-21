@@ -8,7 +8,7 @@
  *   1. Pop the most-recent entry from historyStore.past.
  *   2. Run nodeExists pre-flight check on each inverse — skip restoreCode
  *      inverses (they are always safe) but verify surgical inverses before
- *      applying them so stale bridge IDs don't corrupt the AST.
+ *      applying them so stale flint IDs don't corrupt the AST.
  *   3. applyInversions(rawCode, inversions) → newCode.
  *   4. editorStore.setCode(newCode) — updates Monaco, VisualTree, LivePreview.
  *   5. Push entry.redoMutations onto historyStore.future for redo.
@@ -43,7 +43,7 @@ function performUndoStep(rawCode: string): void {
     if (entry === null) return
 
     // Pre-flight check (Commandment 10): for surgical inverses that target a
-    // specific bridge ID, verify the node still exists before applying.
+    // specific flint ID, verify the node still exists before applying.
     // restoreCode inverses are unconditional and skip this check.
     const safeInversions = entry.inversions.filter((inv) => {
         if (inv.op === 'restoreCode') return true
