@@ -13,7 +13,7 @@ LanguageRegistry.register(['vue'], vueAdapter)
 import { XYCanvas } from './components/editor/XYCanvas'
 import { LayerTree } from './components/ui/LayerTree'
 import { AssetsPanel } from './components/editor/AssetsPanel'
-
+import { FileExplorer } from './components/ui/FileExplorer'
 import { PropertiesPanel } from './components/ui/PropertiesPanel'
 import { TokenManager } from './components/ui/TokenManager'
 import { ActivityFeed } from './components/ui/ActivityFeed'
@@ -72,7 +72,7 @@ function findPrimaryFile(tree: FileTreeNode): string | null {
 // ── App ───────────────────────────────────────────────────────────────────────
 
 function App() {
-    const [leftTab, setLeftTab] = useState<'layers' | 'assets'>('layers')
+    const [leftTab, setLeftTab] = useState<'layers' | 'assets' | 'files'>('layers')
     const rightTab    = useCanvasStore((s) => s.rightTab)
     const setRightTab = useCanvasStore((s) => s.setRightTab)
     const [ipcStatus, setIpcStatus] = useState<string>('Connecting…')
@@ -710,7 +710,7 @@ function App() {
                     className="flex min-h-0 shrink-0 flex-col border-r border-gray-800"
                 >
                     <div className="flex shrink-0 border-b border-gray-800">
-                        {(['layers', 'assets'] as const).map((tab) => (
+                        {(['layers', 'assets', 'files'] as const).map((tab) => (
                             <button
                                 key={tab}
                                 type="button"
@@ -727,7 +727,7 @@ function App() {
                     <div className="min-h-0 flex-1 overflow-y-auto">
                         {leftTab === 'layers' && <LayerTree />}
                         {leftTab === 'assets' && <AssetsPanel />}
-
+                        {leftTab === 'files' && <FileExplorer />}
                     </div>
                 </section>
 

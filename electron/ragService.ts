@@ -83,9 +83,8 @@ const searchStmt = db.prepare(`
         r.chunk_type
     FROM vec_design_system v
     JOIN rag_chunks r ON r.id = v.chunk_id
-    WHERE embedding MATCH ?
+    WHERE embedding MATCH ? AND k = ?
     ORDER BY distance
-    LIMIT ?
 `)
 
 const deleteVecStmt = db.prepare(`DELETE FROM vec_design_system WHERE chunk_id = ?`)
