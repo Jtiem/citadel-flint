@@ -507,6 +507,16 @@ export async function activate(
             if (!editor || !client?.isConnected()) return;
 
             const filePath = editor.document.uri.fsPath;
+
+            // IDE→Glass file sync: write active file so Flint Glass can follow focus.
+            const flintDir = path.join(workspaceRoot, '.flint');
+            const syncFile = path.join(flintDir, 'ide-active-file.json');
+            try {
+                fs.mkdirSync(flintDir, { recursive: true });
+                fs.writeFileSync(syncFile, JSON.stringify({ path: filePath, ts: Date.now() }), 'utf8');
+            } catch {
+                // Non-fatal — Glass just won't auto-follow this editor change
+            }
             try {
                 const result = await callMcpTool('flint_audit', {
                     source: editor.document.getText(),

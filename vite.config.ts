@@ -1,9 +1,20 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
-import electron from 'vite-plugin-electron'
+import electron, { startup } from 'vite-plugin-electron'
 import renderer from 'vite-plugin-electron-renderer'
 import path from 'path'
+
+// Debounced startup prevents concurrent Electron spawns when multiple entries
+// finish building at nearly the same time (race in vite-plugin-electron 0.29).
+let _startupTimer: ReturnType<typeof setTimeout> | null = null
+function debouncedStartup() {
+  if (_startupTimer) clearTimeout(_startupTimer)
+  _startupTimer = setTimeout(() => {
+    _startupTimer = null
+    void startup()
+  }, 150)
+}
 
 const electronExternalMatcher = (id: string) => {
   if (
@@ -46,6 +57,7 @@ export default defineConfig({
     electron([
       {
         entry: 'electron/main.ts',
+        onstart: debouncedStartup,
         vite: {
           build: {
             outDir: 'dist-electron',
@@ -78,6 +90,7 @@ export default defineConfig({
       },
       {
         entry: 'electron/powersync.worker.ts',
+        onstart: debouncedStartup,
         vite: {
           build: {
             outDir: 'dist-electron',

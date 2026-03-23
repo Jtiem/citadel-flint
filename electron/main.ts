@@ -2081,6 +2081,55 @@ app.whenReady().then(async () => {
         })
     }
 
+    // ── IDE→Glass File Sync ───────────────────────────────────────────────────
+    // The VS Code extension writes the active file path to
+    // `.flint/ide-active-file.json` on every editor focus change.
+    // We stat-poll that file (same pattern as annotations) and broadcast
+    // ipcChannel('ide-file-selected') to the renderer so Glass auto-follows
+    // IDE focus without the user touching the Files tab.
+    {
+        let ideFileSyncInterval: ReturnType<typeof setInterval> | null = null
+        let ideFileSyncLastMtime = 0
+        let ideFileSyncLastPath = ''
+
+        function startIDEFileSyncWatcher(): void {
+            if (ideFileSyncInterval) clearInterval(ideFileSyncInterval)
+            ideFileSyncLastMtime = 0
+            ideFileSyncLastPath = ''
+
+            ideFileSyncInterval = setInterval(async () => {
+                const filePath = path.join(
+                    activeProjectRoot ?? app.getPath('home'),
+                    BRAND.configDir,
+                    'ide-active-file.json'
+                )
+                try {
+                    const { mtimeMs } = await fsStat(filePath)
+                    if (mtimeMs > ideFileSyncLastMtime) {
+                        ideFileSyncLastMtime = mtimeMs
+                        const raw = await import('node:fs/promises').then(m => m.readFile(filePath, 'utf8'))
+                        const parsed = JSON.parse(raw) as { path?: string }
+                        if (parsed.path && parsed.path !== ideFileSyncLastPath) {
+                            ideFileSyncLastPath = parsed.path
+                            BrowserWindow.getAllWindows().forEach((w) => {
+                                if (!w.isDestroyed()) w.webContents.send(ipcChannel('ide-file-selected'), parsed.path)
+                            })
+                        }
+                    }
+                } catch { /* file doesn't exist yet — normal until first IDE focus change */ }
+            }, 1_000)
+        }
+
+        startIDEFileSyncWatcher()
+
+        // Re-arm when project root changes (same pattern as annotations watcher).
+        ipcMain.on('project:root-changed', () => startIDEFileSyncWatcher())
+
+        app.on('will-quit', () => {
+            if (ideFileSyncInterval) clearInterval(ideFileSyncInterval)
+        })
+    }
+
     // ── Phase W.1: MCP Event Push Channel ─────────────────────────────────────
     //
     // The MCP server appends MCPEvent records (newline-delimited JSON) to
