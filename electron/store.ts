@@ -230,12 +230,12 @@ db.exec(`
 `)
 
 // sqlite-vec virtual table — 384-dim float32 vectors
-// db.exec(`
-//     CREATE VIRTUAL TABLE IF NOT EXISTS vec_design_system USING vec0(
-//         chunk_id INTEGER PRIMARY KEY,
-//         embedding float[384]
-//     )
-// `)
+db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS vec_design_system USING vec0(
+        chunk_id INTEGER PRIMARY KEY,
+        embedding float[384]
+    )
+`)
 
 console.log(`${BRAND.logPrefix} RAG vector tables ready`)
 

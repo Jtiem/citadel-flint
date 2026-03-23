@@ -59,7 +59,7 @@ export default function PaymentCalculator() {
         {/* ── Header ─────────────────────────────────────────────── */}
         <div className="mb-8">
           <p className="text-xs font-semibold uppercase tracking-widest text-brand-primary mb-2">
-            Flint IDE · Demo
+            Flint · Demo
           </p>
           <h1 className="text-2xl font-bold text-content-primary tracking-tight">
             Enrollment Calculator

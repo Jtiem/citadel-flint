@@ -11,6 +11,7 @@ directories:
 files:
   - dist/**/*
   - dist-electron/**/*
+  - node_modules/**/*
   - flint-mcp/dist/**/*
   - flint-mcp/package.json
   # flint-mcp is spawned as a child process (ELECTRON_RUN_AS_NODE=1) which

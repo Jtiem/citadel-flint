@@ -13,7 +13,7 @@ LanguageRegistry.register(['vue'], vueAdapter)
 import { XYCanvas } from './components/editor/XYCanvas'
 import { LayerTree } from './components/ui/LayerTree'
 import { AssetsPanel } from './components/editor/AssetsPanel'
-import { FileExplorer } from './components/ui/FileExplorer'
+
 import { PropertiesPanel } from './components/ui/PropertiesPanel'
 import { TokenManager } from './components/ui/TokenManager'
 import { ActivityFeed } from './components/ui/ActivityFeed'
@@ -72,7 +72,7 @@ function findPrimaryFile(tree: FileTreeNode): string | null {
 // ── App ───────────────────────────────────────────────────────────────────────
 
 function App() {
-    const [leftTab, setLeftTab] = useState<'layers' | 'assets' | 'files'>('layers')
+    const [leftTab, setLeftTab] = useState<'layers' | 'assets'>('layers')
     const rightTab    = useCanvasStore((s) => s.rightTab)
     const setRightTab = useCanvasStore((s) => s.setRightTab)
     const [ipcStatus, setIpcStatus] = useState<string>('Connecting…')
@@ -80,6 +80,7 @@ function App() {
     const [showExportModal, setShowExportModal] = useState(false)
     const [showGovernancePanel, setShowGovernancePanel] = useState(false)
     const [showProjectMenu, setShowProjectMenu] = useState(false)
+    const [isLoadingProject, setIsLoadingProject] = useState(false)
 
     // ── Setup Wizard gate (ONBOARD.1) ─────────────────────────────────────────
     const [setupComplete, setSetupComplete] = useState<boolean | null>(null)
@@ -145,13 +146,19 @@ function App() {
     const handleOpenFolder = async () => {
         const tree = await window.flintAPI.openFolder()
         if (!tree) return
-        void window.flintAPI.registry.upsertProject({ name: tree.name, path: tree.path })
-        await hydrateWorkspace(tree as FileTreeNode)
+        setIsLoadingProject(true)
+        try {
+            void window.flintAPI.registry.upsertProject({ name: tree.name, path: tree.path })
+            await hydrateWorkspace(tree as FileTreeNode)
+        } finally {
+            setIsLoadingProject(false)
+        }
     }
 
     // One click → canvas. No folder picker. Scaffolds instantly into
     // ~/{Product} Projects/Untitled-N via the project:create-scratchpad IPC handler.
     const handleNewProject = async () => {
+        setIsLoadingProject(true)
         try {
             const tree = await window.flintAPI.project.createScratchpad()
             await hydrateWorkspace(tree as FileTreeNode)
@@ -163,6 +170,8 @@ function App() {
                 severity: 'error',
                 autoDismissMs: 0,
             })
+        } finally {
+            setIsLoadingProject(false)
         }
     }
 
@@ -531,6 +540,16 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [setupComplete, betaWelcomeDone])
 
+    // Loading project — show a neutral screen instead of flashing white
+    if (isLoadingProject) {
+        return (
+            <div className="flex h-screen flex-col items-center justify-center bg-gray-950 gap-3">
+                <div className="h-8 w-8 animate-spin rounded-full border-2 border-gray-700 border-t-indigo-500" />
+                <p className="text-xs text-gray-500 tracking-wide">Opening project…</p>
+            </div>
+        )
+    }
+
     // While checking first-launch status, render nothing (avoids flash)
     if (setupComplete === null) return null
 
@@ -691,7 +710,7 @@ function App() {
                     className="flex min-h-0 shrink-0 flex-col border-r border-gray-800"
                 >
                     <div className="flex shrink-0 border-b border-gray-800">
-                        {(['layers', 'assets', 'files'] as const).map((tab) => (
+                        {(['layers', 'assets'] as const).map((tab) => (
                             <button
                                 key={tab}
                                 type="button"
@@ -708,7 +727,7 @@ function App() {
                     <div className="min-h-0 flex-1 overflow-y-auto">
                         {leftTab === 'layers' && <LayerTree />}
                         {leftTab === 'assets' && <AssetsPanel />}
-                        {leftTab === 'files' && <FileExplorer />}
+
                     </div>
                 </section>
 

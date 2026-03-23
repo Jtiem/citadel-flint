@@ -113,7 +113,7 @@ export class GitManager {
 
         // Configure repo-local identity so `git commit` succeeds without global config.
         await execFileAsync('git', ['config', 'user.email', 'flint@local'], { cwd: projectPath })
-        await execFileAsync('git', ['config', 'user.name', 'Flint IDE'], { cwd: projectPath })
+        await execFileAsync('git', ['config', 'user.name', 'Flint'], { cwd: projectPath })
 
         // Stage everything (including template files when called after initializeProject).
         await execFileAsync('git', ['add', '.'], { cwd: projectPath })
