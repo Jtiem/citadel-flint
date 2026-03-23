@@ -1666,6 +1666,17 @@ export interface FlintAPI {
 
     /** Opens a file in the host IDE / canvas. Optional. */
     openFile?: (filePath: string) => void
+
+    // ── IDE→Glass File Sync ───────────────────────────────────────────────────
+
+    /**
+     * Registers a callback fired when the VS Code/Cursor extension changes the
+     * active file. Glass uses this to auto-follow IDE focus.
+     */
+    onIDEFileSelected?: (cb: (filePath: string) => void) => void
+
+    /** Removes all `onIDEFileSelected` listeners. */
+    removeIDEFileSelectedListener?: () => void
 }
 
 // ── Phase Q: Asset metadata types ─────────────────────────────────────────────

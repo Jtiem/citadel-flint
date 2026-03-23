@@ -9,8 +9,9 @@
  * renderer process tree.
  *
  * Exports:
- *   auditAll      — run all five visitors and return merged Map<id, warning>
- *   visitClassNames, visitTypography, visitSpacing, visitShadows, visitOpacity
+ *   auditAll      — run all six visitors and return merged Map<id, warning>
+ *   visitClassNames, visitTypography, visitSpacing, visitShadows, visitOpacity,
+ *   visitInlineStyles
  *   MITHRIL_THRESHOLD — 2.0 ΔE (default, overridable via PolicyOptions)
  *
  * Policy Engine (Gap 3):
@@ -230,6 +231,270 @@ function getClassString(classAttr: t.JSXAttribute): string | null {
 
 function severity(delta: number, criticalThreshold = 10): LinterWarning['severity'] {
     return delta > criticalThreshold ? 'critical' : 'amber'
+}
+
+// ── Inline style prop constants (exported for Universal AST plugin) ───────────
+
+/** CSS color property names (camelCase) that should reference color tokens. */
+export const INLINE_COLOR_PROPS = new Set([
+    'color', 'backgroundColor', 'borderColor',
+    'borderTopColor', 'borderRightColor', 'borderBottomColor', 'borderLeftColor',
+    'borderInlineColor', 'borderBlockColor',
+    'outlineColor', 'caretColor', 'fill', 'stroke',
+    'textDecorationColor', 'columnRuleColor', 'accentColor', 'scrollbarColor',
+])
+
+/** CSS typography property names → expected token type. */
+export const INLINE_TYPOGRAPHY_PROPS: Readonly<Record<string, DesignToken['token_type']>> = {
+    fontSize: 'dimension',
+    fontWeight: 'fontWeight',
+    lineHeight: 'lineHeight',
+    letterSpacing: 'letterSpacing',
+    fontFamily: 'fontFamily',
+}
+
+/**
+ * CSS spacing/dimension property names (camelCase).
+ * All values here should reference dimension tokens.
+ * Excludes `fontSize` — that is handled by INLINE_TYPOGRAPHY_PROPS.
+ */
+export const INLINE_SPACING_PROPS = new Set([
+    'margin', 'marginTop', 'marginRight', 'marginBottom', 'marginLeft',
+    'marginInline', 'marginInlineStart', 'marginInlineEnd',
+    'marginBlock', 'marginBlockStart', 'marginBlockEnd',
+    'padding', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
+    'paddingInline', 'paddingInlineStart', 'paddingInlineEnd',
+    'paddingBlock', 'paddingBlockStart', 'paddingBlockEnd',
+    'gap', 'rowGap', 'columnGap',
+    'width', 'height', 'minWidth', 'maxWidth', 'minHeight', 'maxHeight',
+    'inlineSize', 'blockSize', 'minInlineSize', 'maxInlineSize', 'minBlockSize', 'maxBlockSize',
+    'top', 'right', 'bottom', 'left',
+    'inset', 'insetInline', 'insetInlineStart', 'insetInlineEnd',
+    'insetBlock', 'insetBlockStart', 'insetBlockEnd',
+    'flexBasis',
+    'borderWidth', 'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth',
+    'borderRadius', 'borderTopLeftRadius', 'borderTopRightRadius',
+    'borderBottomRightRadius', 'borderBottomLeftRadius',
+    'borderStartStartRadius', 'borderStartEndRadius',
+    'borderEndStartRadius', 'borderEndEndRadius',
+    'outlineWidth', 'outlineOffset',
+])
+
+/** CSS shadow property names (camelCase). */
+export const INLINE_SHADOW_PROPS = new Set(['boxShadow', 'textShadow'])
+
+// ── CSS color value parser ─────────────────────────────────────────────────────
+
+/**
+ * Converts a CSS color string to hex for CIEDE2000 comparison.
+ * Handles: #RGB, #RRGGBB, #RRGGBBAA, rgb(r,g,b), rgba(r,g,b,a), CSS4 space-sep rgb().
+ * Returns null for: named colors, currentColor, inherit, var(), hsl() — these are
+ * either semantically correct (token reference, system color) or too dynamic to flag.
+ */
+export function parseCssColorToHex(value: string): string | null {
+    const trimmed = value.trim()
+    if (/^#[0-9a-fA-F]{3,8}$/.test(trimmed)) return trimmed
+    const rgbMatch = /^rgba?\(\s*(\d+)\s*[,\s]\s*(\d+)\s*[,\s]\s*(\d+)/i.exec(trimmed)
+    if (rgbMatch !== null) {
+        const r = parseInt(rgbMatch[1], 10).toString(16).padStart(2, '0')
+        const g = parseInt(rgbMatch[2], 10).toString(16).padStart(2, '0')
+        const b = parseInt(rgbMatch[3], 10).toString(16).padStart(2, '0')
+        return `#${r}${g}${b}`
+    }
+    return null
+}
+
+// ── Language-agnostic style prop checker ──────────────────────────────────────
+
+/**
+ * A single resolved inline style property, framework-independent.
+ * Produced by the Babel JSX visitor (from ObjectExpression AST nodes) and
+ * by the Universal AST plugin (from parsed CSS string declarations).
+ */
+export interface StylePropEntry {
+    /** CSS property name in camelCase (e.g. 'fontSize', 'backgroundColor'). */
+    prop: string
+    /** String value as written (e.g. '14px', '#ff0000'). Null for pure numeric AST nodes. */
+    stringValue: string | null
+    /** Numeric value for NumericLiteral nodes (e.g. `opacity: 0.5`). Null when stringValue is set. */
+    numericValue: number | null
+}
+
+/**
+ * Core inline-style violation checker — language agnostic.
+ *
+ * Evaluates a list of resolved StylePropEntry items against the design token
+ * set and returns the FIRST violation found, or null if everything is clean.
+ * Consistent with the "first-write-wins per node" contract of the className visitors.
+ *
+ * Exported so the Universal AST plugin (mithrilStylePlugin.ts) can reuse
+ * CIEDE2000 and token-matching logic without re-implementing it.
+ *
+ * Skip conditions (not violations):
+ *   - Spacing / opacity value of exactly 0 (always valid)
+ *   - Opacity value of exactly 1 (fully visible, always valid)
+ *   - Color/shadow when no tokens of that type are registered
+ *   - Empty / null values
+ */
+export function checkStyleProps(
+    entries: StylePropEntry[],
+    nodeId: string,
+    tokens: DesignToken[],
+    options?: PolicyOptions,
+): LinterWarning | null {
+    const threshold = options?.deltaE_threshold ?? MITHRIL_THRESHOLD
+    const criticalThreshold = options?.deltaE_critical_threshold ?? 10
+
+    for (const { prop, stringValue, numericValue } of entries) {
+        const rawVal = stringValue ?? (numericValue !== null ? String(numericValue) : null)
+        if (rawVal === null) continue
+
+        // ── COLOR ──────────────────────────────────────────────────────────────
+        if (INLINE_COLOR_PROPS.has(prop) && stringValue !== null) {
+            const colMode = options?.ruleModes?.['MITHRIL-IST-COL']
+            if (colMode === 'off') continue
+            const hexVal = parseCssColorToHex(stringValue)
+            if (hexVal === null) continue // var(), named color, currentColor → skip
+            const match = findClosestToken(hexVal, tokens)
+            if (match === null) continue // no color tokens — can't evaluate
+            if (match.deltaE <= threshold) continue
+            const colSeverity: LinterWarning['severity'] = colMode === 'advisory' ? 'advisory'
+                : severity(match.deltaE, criticalThreshold)
+            return {
+                id: nodeId,
+                type: 'inline-style-drift',
+                severity: colSeverity,
+                value: match.deltaE,
+                message: `MITHRIL-IST-COL: inline \`${prop}: ${stringValue}\` ΔE ${match.deltaE.toFixed(1)} — use token ${match.tokenPath}`,
+                nearestToken: match.tokenPath,
+                nearestTokenValue: match.tokenValue,
+                ruleId: 'MITHRIL-IST-COL',
+                ...taxonomyFields('MITHRIL-IST-COL'),
+            }
+        }
+
+        // ── TYPOGRAPHY ─────────────────────────────────────────────────────────
+        const typTokenType = (INLINE_TYPOGRAPHY_PROPS as Record<string, DesignToken['token_type']>)[prop]
+        if (typTokenType !== undefined) {
+            const typMode = options?.ruleModes?.['MITHRIL-IST-TYP']
+            if (typMode === 'off') continue
+            const typeTokens = tokens.filter((tok) => tok.token_type === typTokenType)
+            const hasMatch = typeTokens.some(
+                (tok) =>
+                    tok.token_value.toLowerCase() === rawVal.toLowerCase() ||
+                    tok.token_value === rawVal.replace('px', '') ||
+                    `${tok.token_value}px` === rawVal,
+            )
+            if (hasMatch) continue
+            const suggestion = typeTokens[0]?.token_path ?? null
+            return {
+                id: nodeId,
+                type: 'inline-style-drift',
+                severity: typMode === 'advisory' ? 'advisory' : 'amber',
+                value: 1,
+                message: suggestion !== null
+                    ? `MITHRIL-IST-TYP: inline \`${prop}: ${rawVal}\` not in ${typTokenType} tokens — use ${suggestion}`
+                    : `MITHRIL-IST-TYP: inline \`${prop}: ${rawVal}\` — no ${typTokenType} tokens defined`,
+                nearestToken: suggestion,
+                nearestTokenValue: suggestion !== null
+                    ? (typeTokens.find((tk) => tk.token_path === suggestion)?.token_value ?? null)
+                    : null,
+                ruleId: 'MITHRIL-IST-TYP',
+                ...taxonomyFields('MITHRIL-IST-TYP'),
+            }
+        }
+
+        // ── SPACING ────────────────────────────────────────────────────────────
+        if (INLINE_SPACING_PROPS.has(prop)) {
+            const spcMode = options?.ruleModes?.['MITHRIL-IST-SPC']
+            if (spcMode === 'off') continue
+            if (rawVal === '0' || numericValue === 0) continue // 0 is always valid
+            const dimTokens = tokens.filter((tok) => tok.token_type === 'dimension')
+            const hasMatch = dimTokens.some(
+                (tok) =>
+                    tok.token_value === rawVal ||
+                    tok.token_value === rawVal.replace('px', '') ||
+                    `${tok.token_value}px` === rawVal,
+            )
+            if (hasMatch) continue
+            const suggestion = dimTokens[0]?.token_path ?? null
+            return {
+                id: nodeId,
+                type: 'inline-style-drift',
+                severity: spcMode === 'advisory' ? 'advisory' : 'amber',
+                value: 1,
+                message: suggestion !== null
+                    ? `MITHRIL-IST-SPC: inline \`${prop}: ${rawVal}\` not in dimension tokens — use ${suggestion}`
+                    : `MITHRIL-IST-SPC: inline \`${prop}: ${rawVal}\` — no dimension tokens defined`,
+                nearestToken: suggestion,
+                nearestTokenValue: suggestion !== null
+                    ? (dimTokens.find((tk) => tk.token_path === suggestion)?.token_value ?? null)
+                    : null,
+                ruleId: 'MITHRIL-IST-SPC',
+                ...taxonomyFields('MITHRIL-IST-SPC'),
+            }
+        }
+
+        // ── SHADOW ─────────────────────────────────────────────────────────────
+        if (INLINE_SHADOW_PROPS.has(prop) && stringValue !== null) {
+            const shdMode = options?.ruleModes?.['MITHRIL-IST-SHD']
+            if (shdMode === 'off') continue
+            const shadowTokens = tokens.filter((tok) => tok.token_type === 'shadow')
+            if (shadowTokens.length === 0) continue // no shadow tokens — skip
+            const hasMatch = shadowTokens.some((tok) => tok.token_value === stringValue)
+            if (hasMatch) continue
+            const suggestion = shadowTokens[0]?.token_path ?? null
+            return {
+                id: nodeId,
+                type: 'inline-style-drift',
+                severity: shdMode === 'advisory' ? 'advisory' : 'amber',
+                value: 1,
+                message: suggestion !== null
+                    ? `MITHRIL-IST-SHD: inline \`${prop}\` not in shadow tokens — use ${suggestion}`
+                    : `MITHRIL-IST-SHD: inline \`${prop}\` — add a shadow token`,
+                nearestToken: suggestion,
+                nearestTokenValue: suggestion !== null
+                    ? (shadowTokens.find((tk) => tk.token_path === suggestion)?.token_value ?? null)
+                    : null,
+                ruleId: 'MITHRIL-IST-SHD',
+                ...taxonomyFields('MITHRIL-IST-SHD'),
+            }
+        }
+
+        // ── OPACITY ────────────────────────────────────────────────────────────
+        if (prop === 'opacity') {
+            const opcMode = options?.ruleModes?.['MITHRIL-IST-OPC']
+            if (opcMode === 'off') continue
+            // 0 (invisible) and 1 (fully opaque) are semantically valid — skip
+            if (numericValue === 0 || numericValue === 1 || rawVal === '0' || rawVal === '1') continue
+            const opacityTokens = tokens.filter((tok) => tok.token_type === 'opacity')
+            if (opacityTokens.length === 0) continue // no opacity tokens — skip
+            const hasMatch = opacityTokens.some(
+                (tok) =>
+                    tok.token_value === rawVal ||
+                    (numericValue !== null && parseFloat(tok.token_value) === numericValue),
+            )
+            if (hasMatch) continue
+            const suggestion = opacityTokens[0]?.token_path ?? null
+            return {
+                id: nodeId,
+                type: 'inline-style-drift',
+                severity: opcMode === 'advisory' ? 'advisory' : 'amber',
+                value: 1,
+                message: suggestion !== null
+                    ? `MITHRIL-IST-OPC: inline \`opacity: ${rawVal}\` — use ${suggestion}`
+                    : `MITHRIL-IST-OPC: inline \`opacity: ${rawVal}\` — add an opacity token`,
+                nearestToken: suggestion,
+                nearestTokenValue: suggestion !== null
+                    ? (opacityTokens.find((tk) => tk.token_path === suggestion)?.token_value ?? null)
+                    : null,
+                ruleId: 'MITHRIL-IST-OPC',
+                ...taxonomyFields('MITHRIL-IST-OPC'),
+            }
+        }
+    }
+
+    return null
 }
 
 // ── Visitor — Color (MITHRIL-COL) ─────────────────────────────────────────────
@@ -531,6 +796,73 @@ export function visitOpacity(ast: File, tokens: DesignToken[], options?: PolicyO
     return warnings
 }
 
+// ── Visitor — Inline Style Props (MITHRIL-IST-*) ─────────────────────────────
+//
+// Inspects `style={{ ... }}` JSXAttribute object expressions for hardcoded
+// CSS values that should be design tokens. Framework: Babel/TSX only.
+// For HTML/Vue/Angular template coverage use the Universal plugin (mithrilStylePlugin.ts).
+//
+// Covered properties:
+//   MITHRIL-IST-COL — any color prop (color, backgroundColor, borderColor, fill, stroke, …)
+//   MITHRIL-IST-TYP — fontSize, fontWeight, lineHeight, letterSpacing, fontFamily
+//   MITHRIL-IST-SPC — margin*, padding*, gap, width, height, borderRadius, top/right/bottom/left, …
+//   MITHRIL-IST-SHD — boxShadow, textShadow
+//   MITHRIL-IST-OPC — opacity
+//
+// Only StringLiteral and NumericLiteral property values are flagged.
+// MemberExpression (tokens.colorPrimary), Identifier, CallExpression,
+// TemplateLiteral values are NOT flagged — presumed to reference tokens.
+// SpreadElement properties are skipped entirely.
+
+export function visitInlineStyles(
+    ast: File,
+    tokens: DesignToken[],
+    options?: PolicyOptions,
+): Map<string, LinterWarning> {
+    const warnings = new Map<string, LinterWarning>()
+
+    traverse(ast, {
+        JSXAttribute(path) {
+            if (!t.isJSXIdentifier(path.node.name, { name: 'style' })) return
+
+            const openEl = path.parentPath?.node
+            if (!t.isJSXOpeningElement(openEl)) return
+            const nodeId = getFlintId(openEl)
+            if (nodeId === null) return
+            if (warnings.has(nodeId)) return // already flagged
+
+            const val = path.node.value
+            if (!t.isJSXExpressionContainer(val)) return
+            const expr = val.expression
+            // Only inspect object literals — skip variables, conditional expressions, forwardRef wrappers
+            if (!t.isObjectExpression(expr)) return
+
+            const entries: StylePropEntry[] = []
+            for (const prop of expr.properties) {
+                if (!t.isObjectProperty(prop)) continue // skip SpreadElement
+                if (!t.isIdentifier(prop.key) && !t.isStringLiteral(prop.key)) continue
+                const propName = t.isIdentifier(prop.key)
+                    ? prop.key.name
+                    : (prop.key as t.StringLiteral).value
+                const propValue = prop.value
+                if (t.isStringLiteral(propValue)) {
+                    entries.push({ prop: propName, stringValue: propValue.value, numericValue: null })
+                } else if (t.isNumericLiteral(propValue)) {
+                    entries.push({ prop: propName, stringValue: null, numericValue: propValue.value })
+                }
+                // MemberExpression, Identifier, CallExpression, TemplateLiteral → skip (uses tokens)
+            }
+
+            if (entries.length === 0) return
+
+            const warning = checkStyleProps(entries, nodeId, tokens, options)
+            if (warning !== null) warnings.set(nodeId, warning)
+        },
+    })
+
+    return warnings
+}
+
 // ── auditAll ──────────────────────────────────────────────────────────────────
 
 /** Options for auditAll, extending PolicyOptions with optional sync DB. */
@@ -542,7 +874,7 @@ export interface AuditAllOptions extends PolicyOptions {
 }
 
 /**
- * Runs all five Mithril visitors and merges results into a single
+ * Runs all six Mithril visitors and merges results into a single
  * Map<flintId, LinterWarning>. Color drift takes precedence over other
  * dimensions (first-write wins per node).
  *
@@ -558,6 +890,7 @@ export function auditAll(ast: File, tokens: DesignToken[], options?: AuditAllOpt
         () => visitSpacing(ast, tokens, options),
         () => visitShadows(ast, tokens, options),
         () => visitOpacity(ast, tokens, options),
+        () => visitInlineStyles(ast, tokens, options),
     ]) {
         for (const [id, warning] of visit()) {
             if (!merged.has(id)) merged.set(id, warning)

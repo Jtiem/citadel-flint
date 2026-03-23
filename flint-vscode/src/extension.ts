@@ -504,19 +504,20 @@ export async function activate(
     // Update governance panel when active editor changes
     context.subscriptions.push(
         vscode.window.onDidChangeActiveTextEditor(async (editor) => {
-            if (!editor || !client?.isConnected()) return;
+            if (!editor) return;
 
             const filePath = editor.document.uri.fsPath;
 
             // IDE→Glass file sync: write active file so Flint Glass can follow focus.
+            // Runs unconditionally — Glass sync works even when MCP is not connected.
             const flintDir = path.join(workspaceRoot, '.flint');
             const syncFile = path.join(flintDir, 'ide-active-file.json');
-            try {
-                fs.mkdirSync(flintDir, { recursive: true });
-                fs.writeFileSync(syncFile, JSON.stringify({ path: filePath, ts: Date.now() }), 'utf8');
-            } catch {
-                // Non-fatal — Glass just won't auto-follow this editor change
-            }
+            fs.promises.mkdir(flintDir, { recursive: true })
+                .then(() => fs.promises.writeFile(syncFile, JSON.stringify({ path: filePath, ts: Date.now() }), 'utf8'))
+                .catch(() => { /* Non-fatal — Glass just won't auto-follow this editor change */ });
+
+            // Governance audit requires MCP connection.
+            if (!client?.isConnected()) return;
             try {
                 const result = await callMcpTool('flint_audit', {
                     source: editor.document.getText(),

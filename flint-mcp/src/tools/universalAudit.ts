@@ -10,6 +10,7 @@ import { PluginRegistry } from "../core/universal/registry.js";
 import { JSXAdapter } from "../core/universal/adapters/jsx-adapter.js";
 import { JSONSchemaAdapter } from "../core/universal/adapters/json-schema-adapter.js";
 import type { UniversalAuditResult } from "../core/universal/registry.js";
+import { createMithrilStylePlugin } from "../core/universal/plugins/mithrilStylePlugin.js";
 import { handleFlintFix } from "./fix.js";
 import type { FlintConfig } from "../core/config.js";
 
@@ -24,6 +25,10 @@ export function getDefaultRegistry(): PluginRegistry {
         _defaultRegistry = new PluginRegistry();
         _defaultRegistry.registerAdapter(new JSXAdapter());
         _defaultRegistry.registerAdapter(new JSONSchemaAdapter());
+        // Inline-style governance: catches hardcoded CSS values in style="" / :style="..."
+        // across HTML, Vue, Angular templates, and any future adapter.
+        // Tokens are injected per-audit via LintContext.config.tokens.
+        _defaultRegistry.registerPlugin(createMithrilStylePlugin());
     }
     return _defaultRegistry;
 }

@@ -604,6 +604,20 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
         },
     },
 
+    // ── IDE→Glass File Sync ───────────────────────────────────────────────────
+
+    /**
+     * Fires when the VS Code extension writes a new active file path to
+     * `.flint/ide-active-file.json`. Glass uses this to auto-follow IDE focus.
+     */
+    onIDEFileSelected: (cb: (filePath: string) => void): void => {
+        ipcRenderer.on(ipcChannel('ide-file-selected'), (_event, filePath: string) => cb(filePath))
+    },
+
+    removeIDEFileSelectedListener: (): void => {
+        ipcRenderer.removeAllListeners(ipcChannel('ide-file-selected'))
+    },
+
     // ── Phase W: MCP Push Channel + Bidirectional Action Flint ───────────────
 
     /**

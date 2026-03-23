@@ -34,7 +34,7 @@ export interface DesignToken {
 
 export interface LinterWarning {
     id: string
-    type: 'color-drift' | 'typography-drift' | 'spacing-drift' | 'shadow-drift' | 'opacity-drift' | 'a11y' | 'sync'
+    type: 'color-drift' | 'typography-drift' | 'spacing-drift' | 'shadow-drift' | 'opacity-drift' | 'a11y' | 'sync' | 'inline-style-drift'
     severity: 'amber' | 'critical' | 'advisory'
     value: number
     message: string

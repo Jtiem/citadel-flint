@@ -2107,9 +2107,15 @@ app.whenReady().then(async () => {
                     const { mtimeMs } = await fsStat(filePath)
                     if (mtimeMs > ideFileSyncLastMtime) {
                         ideFileSyncLastMtime = mtimeMs
-                        const raw = await import('node:fs/promises').then(m => m.readFile(filePath, 'utf8'))
+                        const raw = await readFile(filePath, 'utf8')
                         const parsed = JSON.parse(raw) as { path?: string }
-                        if (parsed.path && parsed.path !== ideFileSyncLastPath) {
+                        if (
+                            typeof parsed.path === 'string' &&
+                            path.isAbsolute(parsed.path) &&
+                            activeProjectRoot &&
+                            parsed.path.startsWith(activeProjectRoot + path.sep) &&
+                            parsed.path !== ideFileSyncLastPath
+                        ) {
                             ideFileSyncLastPath = parsed.path
                             BrowserWindow.getAllWindows().forEach((w) => {
                                 if (!w.isDestroyed()) w.webContents.send(ipcChannel('ide-file-selected'), parsed.path)
@@ -2121,9 +2127,6 @@ app.whenReady().then(async () => {
         }
 
         startIDEFileSyncWatcher()
-
-        // Re-arm when project root changes (same pattern as annotations watcher).
-        ipcMain.on('project:root-changed', () => startIDEFileSyncWatcher())
 
         app.on('will-quit', () => {
             if (ideFileSyncInterval) clearInterval(ideFileSyncInterval)

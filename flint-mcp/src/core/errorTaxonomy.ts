@@ -194,6 +194,97 @@ const REGISTRY: Record<string, ErrorEntry> = {
         sourceAuthority: 'Flint Commandment 2 (No Hallucinated Styling)',
     },
 
+    // ── Mithril Inline Style rules (MITHRIL-IST-*) ────────────────────────────
+    // These mirror the className visitors but fire on `style={{ ... }}` object props.
+
+    'FLINT-MITH-010': {
+        code: 'FLINT-MITH-010',
+        ruleId: 'MITHRIL-IST-COL',
+        category: 'mithril',
+        severity: 'error',
+        title: 'Inline Style Color Not in Token Set',
+        explanation:
+            'A hardcoded hex or rgb() color value appears in a `style={{}}` prop rather than referencing a design token. ' +
+            'Inline style colors bypass the design system entirely: they are invisible to theme switching, brand audits, ' +
+            'and rebranding operations. CIEDE2000 perceptual distance confirms the color is not equivalent to any registered token.',
+        recovery:
+            'Replace the hardcoded color value with a CSS variable or token reference ' +
+            '(e.g. `color: tokens.colorOnSurface` or `color: var(--color-on-surface)`). ' +
+            'If the color is intentional and new, add it as a `color` design token first.',
+        sourceAuthority: 'Flint Commandment 2 (No Hallucinated Styling); Flint Commandment 9 (CIEDE2000 Delta-E Logic)',
+        regulatoryRef: 'CIEDE2000 ΔE > 2.0 threshold',
+    },
+
+    'FLINT-MITH-011': {
+        code: 'FLINT-MITH-011',
+        ruleId: 'MITHRIL-IST-TYP',
+        category: 'mithril',
+        severity: 'warning',
+        title: 'Inline Style Typography Value Not in Token Set',
+        explanation:
+            'A hardcoded typography value (fontSize, fontWeight, lineHeight, letterSpacing, or fontFamily) appears in a ' +
+            '`style={{}}` prop rather than referencing a design token. ' +
+            'Hardcoded type values fragment the type scale and prevent system-wide accessibility or brand adjustments ' +
+            'from propagating to this element.',
+        recovery:
+            'Replace the hardcoded value with a token reference ' +
+            '(e.g. `fontSize: tokens.typeSizeSm` or `fontWeight: tokens.typeWeightBold`). ' +
+            'If the value is a legitimate type scale step, add it as a typography token and re-run the audit.',
+        sourceAuthority: 'Flint Commandment 2 (No Hallucinated Styling)',
+    },
+
+    'FLINT-MITH-012': {
+        code: 'FLINT-MITH-012',
+        ruleId: 'MITHRIL-IST-SPC',
+        category: 'mithril',
+        severity: 'warning',
+        title: 'Inline Style Spacing Value Not in Token Set',
+        explanation:
+            'A hardcoded spacing or dimension value (margin, padding, gap, width, height, borderRadius, etc.) appears in a ' +
+            '`style={{}}` prop rather than referencing a dimension token. ' +
+            'Spacing tokens define the layout grid and rhythm; arbitrary inline values break alignment ' +
+            'and make components impossible to maintain across breakpoints or design system updates.',
+        recovery:
+            'Replace the hardcoded value with a token reference ' +
+            '(e.g. `marginTop: tokens.spacingSm` or `padding: tokens.spacing4`). ' +
+            'If the value belongs in the spacing scale, add it as a `dimension` token.',
+        sourceAuthority: 'Flint Commandment 2 (No Hallucinated Styling)',
+    },
+
+    'FLINT-MITH-013': {
+        code: 'FLINT-MITH-013',
+        ruleId: 'MITHRIL-IST-SHD',
+        category: 'mithril',
+        severity: 'warning',
+        title: 'Inline Style Shadow Not in Token Set',
+        explanation:
+            'A hardcoded `boxShadow` or `textShadow` value appears in a `style={{}}` prop rather than referencing a shadow token. ' +
+            'Shadow definitions control the elevation language and material depth of the UI. ' +
+            'Hardcoded shadows break the elevation system and prevent retheming.',
+        recovery:
+            'Replace the hardcoded shadow with a token reference ' +
+            '(e.g. `boxShadow: tokens.shadowMd`). ' +
+            'Register the shadow definition as a `shadow` token if it is an intentional elevation step.',
+        sourceAuthority: 'Flint Commandment 2 (No Hallucinated Styling)',
+    },
+
+    'FLINT-MITH-014': {
+        code: 'FLINT-MITH-014',
+        ruleId: 'MITHRIL-IST-OPC',
+        category: 'mithril',
+        severity: 'warning',
+        title: 'Inline Style Opacity Not in Token Set',
+        explanation:
+            'A hardcoded `opacity` value appears in a `style={{}}` prop rather than referencing an opacity token. ' +
+            'Opacity tokens define the transparency vocabulary of the design system (disabled states, overlays, ghost elements). ' +
+            'Arbitrary inline values create inconsistent transparency behaviour across components.',
+        recovery:
+            'Replace the hardcoded opacity with a token reference ' +
+            '(e.g. `opacity: tokens.opacityDisabled`). ' +
+            'Register the value as an `opacity` token if it is a legitimate transparency step.',
+        sourceAuthority: 'Flint Commandment 2 (No Hallucinated Styling)',
+    },
+
     // ── A11y rules — Names & Labels ────────────────────────────────────────────
 
     'FLINT-A11Y-001': {

@@ -45,6 +45,7 @@ import { BetaWelcome, shouldShowBetaWelcome } from './components/ui/BetaWelcome'
 import { useContextSync } from './hooks/useContextSync'
 import { useMCPEventListener } from './hooks/useMCPEventListener'
 import { useAutopilot } from './hooks/useAutopilot'
+import { useIDEFileSync } from './hooks/useIDEFileSync'
 import { ShieldAlert, ShieldCheck, Settings2, SlidersHorizontal, Palette, Activity, Bot, History, Layers, MoreHorizontal } from 'lucide-react'
 import { OnboardingNudge } from './components/ui/OnboardingNudge'
 import { CommandPalette } from './components/ui/CommandPalette'
@@ -135,6 +136,7 @@ function App() {
     // Enables/disables the autopilot watcher and stores governed diff results.
     // Must be called once at App root so the effect is tied to workspace lifetime.
     useAutopilot()
+    useIDEFileSync()
 
     // ── Shared hydrate helper ─────────────────────────────────────────────────
     const hydrateWorkspace = async (tree: FileTreeNode) => {

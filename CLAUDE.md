@@ -185,6 +185,7 @@ Additional tools registered via `flint-mcp/src/tools/` modules cover governance 
 | Multi-Agent Epistemic Consensus Gate (secondary agent eval for Amber/Red mutations, `flint_consensus_report`, per-domain config) | V.4 | **ONLINE** |
 | First-Launch Setup Wizard (IDE detection, MCP snippet, connection test, first-launch flag) | ONBOARD.1 | **ONLINE** |
 | Ghost Code Snippet Overlay (contextual source panel on node select, Hover-to-Source) | U.2 | **ONLINE** |
+| IDE→Glass File Sync (VS Code/Cursor active-file follows IDE focus via `.flint/ide-active-file.json` stat-poll) | IDE.2 | **ONLINE** |
 
 ### Collaboration + Sync
 

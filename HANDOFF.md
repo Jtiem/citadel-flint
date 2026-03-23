@@ -6,6 +6,33 @@
 
 ---
 
+## Session: 2026-03-22 IDE→Glass File Sync + Rebrand Cleanup (COMPLETE)
+
+**Goal:** Wire VS Code extension active-file selection into Glass (auto-follow IDE focus), remove "Flint IDE" branding remnants.
+
+**What shipped:**
+
+| File | Change |
+|------|--------|
+| `flint-vscode/src/extension.ts` | `onDidChangeActiveTextEditor` now writes `{path, ts}` to `.flint/ide-active-file.json` (fire-and-forget, non-fatal) |
+| `electron/main.ts` | 1s stat-poll watcher on `ide-active-file.json`; broadcasts `flint:ide-file-selected` to renderer when path changes |
+| `electron/preload.ts` | Exposes `onIDEFileSelected(cb)` and `removeIDEFileSelectedListener()` |
+| `src/types/flint-api.d.ts` | Added `onIDEFileSelected?` and `removeIDEFileSelectedListener?` to `FlintAPI` interface |
+| `src/hooks/useIDEFileSync.ts` | New hook — subscribes to IDE file change events, calls `setActiveFile` |
+| `src/App.tsx` | Mounts `useIDEFileSync()` at app root |
+| `electron/GitManager.ts` | git commit identity: `'Flint IDE'` → `'Flint'` |
+| `electron/orchestrator.ts` | SYSTEM_PROMPT updated: "Flint IDE" → "Flint Glass" |
+| `src/templates/paymentCalculator.ts` | Demo label: "Flint IDE · Demo" → "Flint · Demo" |
+
+**Architecture:**
+- VS Code extension → `.flint/ide-active-file.json` → Electron stat-poll → IPC → `useIDEFileSync` → `setActiveFile`
+- Files tab preserved in Glass left panel as fallback for standalone use
+- All new IPC channels follow existing `ipcChannel()` + `BrowserWindow.getAllWindows()` broadcast pattern
+
+**Next:** Pending review verdict; rebuild `.vsix` after fixes if any.
+
+---
+
 ## Session: 2026-03-22 Extension Verification + Strategy Review (COMPLETE)
 
 **Goal:** Verify VS Code extension builds clean, validate product strategy for dual-audience (designers + developers).
