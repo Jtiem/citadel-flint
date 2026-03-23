@@ -4,7 +4,7 @@ import path from 'node:path'
 import { BRAND, ipcChannel, logTag } from '../shared/brand.ts'
 import { fileURLToPath } from 'node:url'
 import { readdir, readFile, writeFile, mkdir, stat as fsStat, open as fsOpen, cp } from 'node:fs/promises'
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, watch as fsWatch } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { execFile } from 'node:child_process'
 import { randomUUID, randomBytes } from 'node:crypto'
 import os from 'node:os'
@@ -2046,51 +2046,38 @@ app.whenReady().then(async () => {
     // the file directly because fs.watch on a non-existent file throws on some
     // platforms. The directory is created on first annotation write.
     {
-        let annotationsWatcher: ReturnType<typeof fsWatch> | null = null
+        let annotationsPollInterval: ReturnType<typeof setInterval> | null = null
+        let annotationsLastMtime = 0
 
         /**
-         * (Re)starts the fs.watch on the active project's .flint/ directory.
-         * Called once at app-ready and should be re-called if activeProjectRoot changes.
-         * Exported as a no-op for now; the current project lifecycle does not
-         * dynamically switch roots after the watcher is started — the renderer
-         * triggers a full reload on project switch instead.
+         * (Re)starts the annotations poll. Uses stat-based polling instead of
+         * fs.watch to avoid fsevents crashes on macOS 26 during env cleanup.
          */
         function startAnnotationsWatcher(): void {
-            annotationsWatcher?.close()
-            const base = activeProjectRoot ?? app.getPath('home')
-            const flintDir = path.join(base, BRAND.configDir)
+            if (annotationsPollInterval) clearInterval(annotationsPollInterval)
+            annotationsLastMtime = 0
 
-            // Ensure the .flint directory exists before watching it
-            if (!existsSync(flintDir)) {
+            annotationsPollInterval = setInterval(async () => {
+                const filePath = path.join(
+                    activeProjectRoot ?? app.getPath('home'),
+                    BRAND.configDir,
+                    'annotations.json'
+                )
                 try {
-                    // Synchronous mkdir is acceptable here — this runs once at startup
-                    // outside the hot path. mkdirSync is imported at the top of the file.
-                    mkdirSync(flintDir, { recursive: true })
-                } catch { /* directory may already exist */ }
-            }
-
-            try {
-                annotationsWatcher = fsWatch(flintDir, { persistent: false }, (eventType, filename) => {
-                    if (filename === 'annotations.json' && (eventType === 'rename' || eventType === 'change')) {
+                    const { mtimeMs } = await fsStat(filePath)
+                    if (mtimeMs > annotationsLastMtime) {
+                        annotationsLastMtime = mtimeMs
                         broadcastAnnotationsChanged()
                     }
-                })
-                annotationsWatcher.on('error', (err) => {
-                    console.error(`${BRAND.logPrefix} annotations fs.watch error:`, err)
-                    annotationsWatcher = null
-                })
-            } catch (err) {
-                console.error(`${BRAND.logPrefix} Failed to start annotations fs.watch:`, err)
-            }
+                } catch { /* file doesn't exist yet */ }
+            }, 1_500)
         }
 
         // Start the watcher for the initial project root (may be null on first launch).
-        // The watcher will pick up the correct path when a project is opened because
-        // getAnnotationsFilePath() reads activeProjectRoot at call-time.
         startAnnotationsWatcher()
 
         app.on('will-quit', () => {
-            annotationsWatcher?.close()
+            if (annotationsPollInterval) clearInterval(annotationsPollInterval)
         })
     }
 
@@ -2109,7 +2096,6 @@ app.whenReady().then(async () => {
     //   - On rotation (file shrinks below the last offset), offset resets to 0.
     {
         let mcpEventsOffset = 0
-        let mcpEventsWatcher: ReturnType<typeof fsWatch> | null = null
         let mcpEventsBatchTimer: ReturnType<typeof setTimeout> | null = null
         const mcpEventsBatch: unknown[] = []
 
@@ -2181,46 +2167,18 @@ app.whenReady().then(async () => {
         }
 
         /**
-         * (Re)starts the fs.watch on the active project's .flint/ directory,
-         * monitoring for changes to mcp-events.jsonl.
-         * Also installs a 10-second poll fallback for NFS/NAS mounts where
-         * inotify events may not fire.
+         * (Re)starts the MCP events poll. Uses a 2-second interval instead of
+         * fs.watch to avoid fsevents crashes on macOS 26 during env cleanup.
          */
         function startMCPEventsWatcher(): void {
-            mcpEventsWatcher?.close()
             mcpEventsOffset = 0
 
-            const base = activeProjectRoot ?? app.getPath('home')
-            const flintDir = path.join(base, BRAND.configDir)
-
-            if (!existsSync(flintDir)) {
-                try {
-                    mkdirSync(flintDir, { recursive: true })
-                } catch { /* already exists */ }
-            }
-
-            try {
-                mcpEventsWatcher = fsWatch(flintDir, { persistent: false }, (eventType, filename) => {
-                    if (filename === 'mcp-events.jsonl' && (eventType === 'rename' || eventType === 'change')) {
-                        void tailMCPEvents()
-                    }
-                })
-                mcpEventsWatcher.on('error', (err) => {
-                    console.error(`${BRAND.logPrefix} mcp-events fs.watch error:`, err)
-                    mcpEventsWatcher = null
-                })
-            } catch (err) {
-                console.error(`${BRAND.logPrefix} Failed to start mcp-events fs.watch:`, err)
-            }
-
-            // 10-second poll fallback for NFS/NAS mounts
             const pollInterval = setInterval(() => {
                 void tailMCPEvents()
-            }, 10_000)
+            }, 2_000)
 
             app.once('will-quit', () => {
                 clearInterval(pollInterval)
-                mcpEventsWatcher?.close()
             })
         }
 
@@ -3030,8 +2988,8 @@ app.whenReady().then(async () => {
     //   - The MCP client is used so flint_fix logic stays in flint-mcp with
     //     no source duplication. Falls back gracefully when disconnected.
 
-    let autopilotWatcher: ReturnType<typeof fsWatch> | null = null
-    // autopilotFilePath tracking removed — watcher state is managed by autopilotWatcher lifecycle
+    let autopilotPollInterval: ReturnType<typeof setInterval> | null = null
+    let autopilotLastMtime = 0
     let autopilotDebounceTimer: ReturnType<typeof setTimeout> | null = null
     const AUTOPILOT_DEBOUNCE_MS = 500
 
@@ -3141,40 +3099,31 @@ app.whenReady().then(async () => {
             )
         }
 
-        // Tear down any existing watcher before starting a new one.
-        if (autopilotWatcher) {
-            autopilotWatcher.close()
-            autopilotWatcher = null
+        // Tear down any existing poll before starting a new one.
+        if (autopilotPollInterval) {
+            clearInterval(autopilotPollInterval)
+            autopilotPollInterval = null
         }
         if (autopilotDebounceTimer) {
             clearTimeout(autopilotDebounceTimer)
             autopilotDebounceTimer = null
         }
+        autopilotLastMtime = 0
 
-        // autopilotFilePath tracking — resolvedPath is used by the watcher closure
-        const watchDir = path.dirname(resolvedPath)
-        const watchBasename = path.basename(resolvedPath)
-
-        try {
-            autopilotWatcher = fsWatch(watchDir, { persistent: false }, (eventType, filename) => {
-                if (filename !== watchBasename) return
-                if (eventType !== 'change' && eventType !== 'rename') return
-
-                // Debounce: reset the timer on every rapid-fire event.
-                if (autopilotDebounceTimer) clearTimeout(autopilotDebounceTimer)
-                autopilotDebounceTimer = setTimeout(() => {
-                    autopilotDebounceTimer = null
-                    void runAutopilotAudit(resolvedPath)
-                }, AUTOPILOT_DEBOUNCE_MS)
-            })
-
-            autopilotWatcher.on('error', (err) => {
-                console.error(`${logTag('Autopilot')} fsWatch error:`, err)
-                autopilotWatcher = null
-            })
-        } catch (err) {
-            console.error(`${logTag('Autopilot')} Failed to start fsWatch:`, err)
-        }
+        // Poll every 500 ms for mtime changes — avoids fsevents crashes on macOS 26.
+        autopilotPollInterval = setInterval(async () => {
+            try {
+                const { mtimeMs } = await fsStat(resolvedPath)
+                if (mtimeMs > autopilotLastMtime) {
+                    autopilotLastMtime = mtimeMs
+                    if (autopilotDebounceTimer) clearTimeout(autopilotDebounceTimer)
+                    autopilotDebounceTimer = setTimeout(() => {
+                        autopilotDebounceTimer = null
+                        void runAutopilotAudit(resolvedPath)
+                    }, AUTOPILOT_DEBOUNCE_MS)
+                }
+            } catch { /* file removed or inaccessible */ }
+        }, 500)
 
         // Run an immediate audit so the renderer gets an initial result without
         // waiting for the first file change.
@@ -3182,23 +3131,23 @@ app.whenReady().then(async () => {
     })
 
     // ── autopilot:disable ────────────────────────────────────────────────────
-    // Closes the file watcher and cancels any pending debounce. Idempotent.
+    // Stops the file poll and cancels any pending debounce. Idempotent.
     ipcMain.handle('autopilot:disable', async (): Promise<void> => {
-        if (autopilotWatcher) {
-            autopilotWatcher.close()
-            autopilotWatcher = null
+        if (autopilotPollInterval) {
+            clearInterval(autopilotPollInterval)
+            autopilotPollInterval = null
         }
+        autopilotLastMtime = 0
         if (autopilotDebounceTimer) {
             clearTimeout(autopilotDebounceTimer)
             autopilotDebounceTimer = null
         }
-        // autopilotFilePath cleared
         console.log(`${logTag('Autopilot')} Disabled`)
     })
 
-    // Ensure the watcher is cleaned up on app exit.
+    // Ensure the poll is cleaned up on app exit.
     app.on('will-quit', () => {
-        autopilotWatcher?.close()
+        if (autopilotPollInterval) clearInterval(autopilotPollInterval)
         if (autopilotDebounceTimer) clearTimeout(autopilotDebounceTimer)
     })
 
