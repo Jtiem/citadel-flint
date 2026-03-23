@@ -65,6 +65,14 @@ const stmtRemove = registryDb.prepare<[string]>(
     'DELETE FROM recent_projects WHERE id = ?'
 )
 
+// ── Types ─ Session Restore ──────────────────────────────────────────────────
+
+export interface LastSession {
+    path: string
+    name: string
+    isScratchpad: boolean  // true if path includes "Flint Projects/Untitled"
+}
+
 // ── Public API ─────────────────────────────────────────────────────────────────
 
 /**
@@ -91,4 +99,19 @@ export function getRecentProjects(): RecentProject[] {
  */
 export function removeProject(id: string): void {
     stmtRemove.run(id)
+}
+
+/**
+ * Returns the most recent project from the registry with metadata needed
+ * for auto-resume on launch. Returns `null` when the registry is empty.
+ */
+export function getLastSession(): LastSession | null {
+    const recent = stmtGetRecent.all()
+    if (recent.length === 0) return null
+    const top = recent[0]
+    return {
+        path: top.path,
+        name: top.name,
+        isScratchpad: /Flint Projects\/Untitled/i.test(top.path),
+    }
 }

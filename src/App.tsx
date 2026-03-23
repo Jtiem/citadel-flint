@@ -87,6 +87,10 @@ function App() {
     // Default to done (no blank flash). The useEffect below flips this to false
     // only when we confirm this is a beta build AND the welcome hasn't been shown.
     const [betaWelcomeDone, setBetaWelcomeDone] = useState(true)
+    // ── Auto-resume gate (LAUNCH.2) ──────────────────────────────────────────
+    // Tracks whether we've attempted to restore the last session.
+    // null = not checked yet, true = attempted (regardless of outcome)
+    const [autoResumeChecked, setAutoResumeChecked] = useState(false)
     const [betaInfo, setBetaInfo] = useState<{ buildId: string; daysRemaining: number | null } | null>(null)
     // Phase ING.2: true when Import Summary panel takes over the right sidebar
     const importSummaryPanelMode = useImportSummaryStore((s) => s.isPanelMode)
@@ -498,6 +502,34 @@ function App() {
             .catch(() => { /* not a beta build or API unavailable */ })
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
+
+    // ── Auto-resume: restore last session if available (LAUNCH.2) ────────────
+    // Runs once after setup + beta gates resolve. If a prior session exists on
+    // disk, opens it directly — the user never sees the LaunchScreen.
+    useEffect(() => {
+        if (setupComplete !== true || !betaWelcomeDone) return
+        if (autoResumeChecked) return
+        if (workspaceFiles) return // already hydrated (e.g. demo loaded)
+
+        setAutoResumeChecked(true)
+        window.flintAPI.session
+            ?.getLastSession()
+            .then(async (session) => {
+                if (!session) return
+                // Don't auto-resume empty scratchpads — let the user choose
+                if (session.isScratchpad) return
+                try {
+                    const tree = await window.flintAPI.project.openPath(session.path)
+                    if (tree) await hydrateWorkspace(tree as FileTreeNode)
+                } catch {
+                    // Path no longer valid — fall through to LaunchScreen
+                }
+            })
+            .catch(() => {
+                // IPC unavailable — fall through to LaunchScreen
+            })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [setupComplete, betaWelcomeDone])
 
     // While checking first-launch status, render nothing (avoids flash)
     if (setupComplete === null) return null

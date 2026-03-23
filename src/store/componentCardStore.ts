@@ -15,11 +15,12 @@
  *   - cardPositions     — Persisted spatial positions keyed by card ID.
  *   - isLoaded / isLoading — Fetch lifecycle flags.
  *
- * Cross-store coordination rule (Commandment anti-pattern):
- *   DO NOT import canvasStore here. When selectedCardId changes, a React effect
- *   in App.tsx reads the new ID, finds the card, and calls:
+ * Cross-store isolation:
+ *   This store imports NO other stores. When selectedCardId changes, a React
+ *   effect in App.tsx reads the new ID, finds the card, and calls:
  *     canvasStore.setActiveFile(card.filePath)
  *     canvasStore.setRightTab('properties')
+ *   Notifications after setCategoryOverride are the caller's responsibility.
  *
  * Position persistence:
  *   updatePosition()  — Updates in-memory map immediately.
@@ -47,7 +48,6 @@
 import { create } from 'zustand'
 import type { Node, Edge } from '@xyflow/react'
 import type { ComponentCardData, ComponentCategory } from '../types/flint-api'
-import { useNotificationStore } from './notificationStore'
 
 // ── Governance Stickers ────────────────────────────────────────────────────────
 
@@ -481,35 +481,17 @@ export const useComponentCardStore = create<ComponentCardStore>((set, get) => ({
         )
         set({ cards: updatedCards })
 
-        // Persist via IPC.
+        // Persist via IPC. On failure, revert the optimistic update.
+        // Notification dispatch is the caller's responsibility (no cross-store import).
         window.flintAPI.components
             .setCategory({ componentId: cardId, category })
-            .then(() => {
-                // Success: push a brief confirmation notification.
-                const cardName = updatedCards[targetIndex]?.name ?? cardId
-                useNotificationStore.getState().push({
-                    type: 'mutation',
-                    title: 'Category updated',
-                    message: `${cardName} reclassified as ${category}`,
-                    severity: 'success',
-                    autoDismissMs: 3000,
-                })
-            })
             .catch((err: unknown) => {
-                // IPC failure: revert optimistic update.
                 console.error('[Flint] setCategoryOverride IPC failed — reverting:', err)
                 set((state) => ({
                     cards: state.cards.map((c) =>
                         c.id === cardId ? { ...c, category: previousCategory } : c,
                     ),
                 }))
-                useNotificationStore.getState().push({
-                    type: 'error',
-                    title: 'Category update failed',
-                    message: 'Could not save category override. Change reverted.',
-                    severity: 'error',
-                    autoDismissMs: 5000,
-                })
             })
     },
 

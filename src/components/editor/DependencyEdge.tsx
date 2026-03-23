@@ -120,18 +120,7 @@ export function DependencyEdge({
                 </div>
             </EdgeLabelRenderer>
 
-            {/*
-                CSS keyframe for animated dash — injected once as a <style> tag.
-                We use a CSS variable approach so this style block is idempotent
-                (multiple DependencyEdge instances rendering the same keyframe
-                do not stack or conflict).
-            */}
-            <style>{`
-                @keyframes dash-flow {
-                    from { stroke-dashoffset: 0; }
-                    to   { stroke-dashoffset: -24; }
-                }
-            `}</style>
+            {/* dash-flow keyframe defined in src/index.css (global, shared across all edges) */}
         </>
     )
 }

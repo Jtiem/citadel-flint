@@ -4,12 +4,10 @@ import path from 'node:path'
 import { BRAND, ipcChannel, logTag } from '../shared/brand.ts'
 import { fileURLToPath } from 'node:url'
 import { readdir, readFile, writeFile, mkdir, stat as fsStat, open as fsOpen, cp } from 'node:fs/promises'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, watch as fsWatch } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, watch as fsWatch } from 'node:fs'
 import { execFile } from 'node:child_process'
 import { randomUUID, randomBytes } from 'node:crypto'
 import os from 'node:os'
-import * as pty from 'node-pty'
-import type { IPty } from 'node-pty'
 import { snapToToken } from './ingestion/index.js'
 import { loadAgentPolicy } from './agentPolicy.js'
 import { checkBetaExpiry, startVersionCheck, stopVersionCheck, getBetaInfo } from './betaGuard.js'
@@ -1077,7 +1075,7 @@ app.whenReady().then(async () => {
     })
 
     // ── Project Registry + Template Scaffolding ───────────────────────────────
-    const { upsertProject, getRecentProjects, removeProject } = await import('./registry.js')
+    const { upsertProject, getRecentProjects, removeProject, getLastSession } = await import('./registry.js')
     const { initializeProject, injectDemoState } = await import('./templateService.js')
 
     // ── Select-Folder Dialog ───────────────────────────────────────────────────
@@ -1365,6 +1363,17 @@ app.whenReady().then(async () => {
     // registry. Called by LaunchScreen on mount to populate the recent list.
     ipcMain.handle('registry:getRecent', (): ReturnType<typeof getRecentProjects> => {
         return getRecentProjects()
+    })
+
+    // ── project:get-last-session ──────────────────────────────────────────
+    // Returns the most recent project for auto-resume, or null if none exists.
+    // The renderer uses this to skip the LaunchScreen for returning users.
+    ipcMain.handle('project:get-last-session', async (): Promise<unknown> => {
+        const session = getLastSession()
+        if (!session) return null
+        // Verify the path still exists on disk
+        if (!existsSync(session.path)) return null
+        return session
     })
 
     // ── registry:upsertProject ────────────────────────────────────────────────
@@ -2294,6 +2303,12 @@ app.whenReady().then(async () => {
      */
     ipcMain.handle('mcp:status', (): unknown => mcpClient.status())
 
+    /**
+     * mcp:reconnect — Resets the crash counter and re-spawns the MCP server.
+     * Safe to call at any time; no-op if no project is open.
+     */
+    ipcMain.handle('mcp:reconnect', (): void => mcpClient.reconnect())
+
     // ── Policy Engine IPC Handler ─────────────────────────────────────────────
     //
     // policy:get — Returns the active governance policy for the current project.
@@ -2759,90 +2774,6 @@ app.whenReady().then(async () => {
         }
     })
 
-    // ── Phase P: Integrated Terminal ──────────────────────────────────────────
-    let ptyProcess: IPty | null = null
-
-    // SEC.5: Maximum input size for terminal:data (8 KB).
-    const TERMINAL_INPUT_MAX_BYTES = 8192
-
-    ipcMain.handle('terminal:spawn', (event, cwd: unknown) => {
-        if (typeof cwd !== 'string') return
-
-        // SEC.5: Validate cwd against activeProjectRoot (preferred) or home dir
-        // (fallback). This tightens the original Fix 3 (P1-3) so that when a
-        // project is open the terminal is constrained to the project tree, not
-        // the entire home directory.
-        const resolvedCwd = path.resolve(cwd)
-        const allowedRoot = activeProjectRoot ?? app.getPath('home')
-        if (resolvedCwd !== allowedRoot && !resolvedCwd.startsWith(allowedRoot + path.sep)) {
-            console.error(`${BRAND.logPrefix} terminal:spawn — SEC.5 rejected cwd outside allowed root: ${resolvedCwd} (root: ${allowedRoot})`)
-            return
-        }
-
-        const shell = process.env[os.platform() === 'win32' ? 'COMSPEC' : 'SHELL'] || (os.platform() === 'win32' ? 'cmd.exe' : 'bash')
-
-        if (ptyProcess) {
-            ptyProcess.kill()
-        }
-
-        try {
-            ptyProcess = pty.spawn(shell, [], {
-                name: 'xterm-256color',
-                cols: 80,
-                rows: 24,
-                cwd: resolvedCwd,
-                env: process.env as Record<string, string>,
-            })
-
-            ptyProcess.onData((data) => {
-                const window = BrowserWindow.fromWebContents(event.sender)
-                if (window && !window.isDestroyed()) {
-                    window.webContents.send('terminal:output', data)
-                }
-            })
-
-            ptyProcess.onExit(() => {
-                ptyProcess = null
-            })
-        } catch (err) {
-            console.error(`${BRAND.logPrefix} terminal:spawn failed`, err)
-        }
-    })
-
-    ipcMain.handle('terminal:data', (_event, data: unknown) => {
-        if (!ptyProcess || typeof data !== 'string') return
-
-        // SEC.5: Reject oversized input (8 KB limit).
-        if (Buffer.byteLength(data, 'utf-8') > TERMINAL_INPUT_MAX_BYTES) {
-            console.warn(`${BRAND.logPrefix} terminal:data — SEC.5 rejected oversized input (${Buffer.byteLength(data, 'utf-8')} bytes, limit ${TERMINAL_INPUT_MAX_BYTES})`)
-            return
-        }
-
-        // SEC.5: Strip null bytes from terminal input.
-        let sanitized = data
-        if (data.includes('\x00')) {
-            console.warn(`${BRAND.logPrefix} terminal:data — SEC.5 stripped null bytes from input`)
-            sanitized = data.replaceAll('\x00', '')
-        }
-
-        if (sanitized.length > 0) {
-            ptyProcess.write(sanitized)
-        }
-    })
-
-    ipcMain.handle('terminal:resize', (_event, cols: unknown, rows: unknown) => {
-        if (ptyProcess && typeof cols === 'number' && typeof rows === 'number') {
-            // Clamp to reasonable bounds (defense-in-depth against malicious renderer)
-            const clampedCols = Math.max(1, Math.min(500, Math.floor(cols)))
-            const clampedRows = Math.max(1, Math.min(200, Math.floor(rows)))
-            try {
-                ptyProcess.resize(clampedCols, clampedRows)
-            } catch (err) {
-                console.error(`${BRAND.logPrefix} terminal:resize failed`, err)
-            }
-        }
-    })
-
     // Start the ingestion server and register its IPC handlers
     const { startIngestionServer, getServerStatus, getFigmaStatus, stopIngestionServer, setPreHealCodeCallback } = await import('./ingestion-server.js')
     // Wire the pre-heal code store (SECURITY-01: server-side storage, no renderer round-trip)
@@ -3275,31 +3206,63 @@ app.whenReady().then(async () => {
     buildAppMenu()
 
     // ── Auto-scratchpad: ensure MCP server is always running ─────────────
-    // On first launch (or when no project was previously open), auto-create
-    // a scratchpad project so the MCP server starts immediately. This ensures
-    // the StatusBar, Figma connection check, and governance tools work from
-    // the first second — no "open a project first" roadblock.
+    // On first launch (or when no project was previously open), reuse an
+    // existing scratchpad or create one. This ensures the MCP server starts
+    // immediately so StatusBar, Figma, and governance tools work from the
+    // first second — no "open a project first" roadblock.
+    //
+    // LAUNCH.2 fix: reuse the first existing Untitled-N scratchpad instead
+    // of creating a new one every launch (which previously accumulated
+    // hundreds of empty folders).
     if (!activeProjectRoot) {
         const flintProjectsDir = path.join(app.getPath('home'), `${BRAND.product} Projects`)
         mkdirSync(flintProjectsDir, { recursive: true })
-        let counter = 1
-        let targetPath = path.join(flintProjectsDir, 'Untitled')
-        while (existsSync(targetPath)) {
-            targetPath = path.join(flintProjectsDir, `Untitled-${counter}`)
-            counter++
+
+        // Try to reuse an existing scratchpad
+        let targetPath: string | null = null
+        try {
+            const entries = readdirSync(flintProjectsDir)
+            const existing = entries
+                .filter(e => e === 'Untitled' || /^Untitled-\d+$/.test(e))
+                .sort((a, b) => {
+                    const numA = a === 'Untitled' ? 0 : parseInt(a.split('-')[1], 10)
+                    const numB = b === 'Untitled' ? 0 : parseInt(b.split('-')[1], 10)
+                    return numB - numA // most recent first
+                })
+            if (existing.length > 0) {
+                targetPath = path.join(flintProjectsDir, existing[0])
+                console.log(`${BRAND.logPrefix} Reusing existing scratchpad: ${targetPath}`)
+            }
+        } catch { /* empty dir is fine */ }
+
+        // Create a new scratchpad only if none exist
+        if (!targetPath) {
+            targetPath = path.join(flintProjectsDir, 'Untitled')
+            mkdirSync(targetPath, { recursive: true })
+            mkdirSync(path.join(targetPath, BRAND.configDir), { recursive: true })
+            writeFileSync(
+                path.join(targetPath, BRAND.configDir, 'design-tokens.json'),
+                '[]',
+                'utf-8',
+            )
+            console.log(`${BRAND.logPrefix} Auto-scratchpad created at ${targetPath}`)
         }
-        mkdirSync(targetPath, { recursive: true })
-        mkdirSync(path.join(targetPath, BRAND.configDir), { recursive: true })
-        writeFileSync(
-            path.join(targetPath, BRAND.configDir, 'design-tokens.json'),
-            '[]',
-            'utf-8',
-        )
+
+        // Ensure .flint/ dir exists (may be missing on reused scratchpads)
+        const flintDir = path.join(targetPath, BRAND.configDir)
+        if (!existsSync(flintDir)) {
+            mkdirSync(flintDir, { recursive: true })
+            writeFileSync(
+                path.join(flintDir, 'design-tokens.json'),
+                '[]',
+                'utf-8',
+            )
+        }
+
         activeProjectRoot = targetPath
         void mcpClient.start(targetPath).catch((err) => {
             console.error(`${BRAND.logPrefix} mcpClient.start failed for auto-scratchpad:`, err)
         })
-        console.log(`${BRAND.logPrefix} Auto-scratchpad created at ${targetPath}`)
     }
 
     app.on('activate', () => {

@@ -1,147 +1,1476 @@
 {
-    "version": "2.0",
-    "resolvers": [
-        {
-            "match": { "Size": ["Small", "Medium", "Large"] },
-            "detect": ["Color", "Delete?", "Thumbnail?"],
-            "componentName": "_Chip",
-            "skip": true
-        },
-        {
-            "match": { "Variant": ["Outlined", "Filled", "Standard"] },
-            "detect": ["Has Value", "Placeholder", "Helper?", "Value?"],
-            "excludeDetect": ["Delete?", "Thumbnail?"],
-            "componentName": "TextField",
-            "importPath": "@/components/ui/TextField",
-            "leafComponent": true,
-            "propMap": {
-                "Label": "label",
-                "↳ Placeholder": "placeholder",
-                "↳ Value": "value",
-                "Helper Text": "helperText"
-            }
-        },
-        {
-            "match": { "Variant": ["body1", "body2", "subtitle1", "subtitle2", "h1", "h2", "h3", "h4", "h5", "h6"] },
-            "detect": ["Gutter Bottom", "Content"],
-            "componentName": "Heading",
-            "importPath": "@/components/ui/Heading",
-            "leafComponent": true,
-            "propMap": {
-                "Content": "children"
-            },
-            "variantToProp": {
-                "field": "Variant",
-                "map": {
-                    "h1": { "as": 1 },
-                    "h2": { "as": 2 },
-                    "h3": { "as": 3 },
-                    "h4": { "as": 4 },
-                    "h5": { "as": 5 },
-                    "h6": { "as": 6 },
-                    "body1": { "as": 3 },
-                    "body2": { "as": 4 },
-                    "subtitle1": { "as": 5 },
-                    "subtitle2": { "as": 6 }
-                }
-            }
-        },
-        {
-            "match": { "Variant": ["caption", "overline"] },
-            "detect": ["Gutter Bottom"],
-            "componentName": "Heading",
-            "importPath": "@/components/ui/Heading",
-            "leafComponent": true,
-            "propMap": {
-                "Content": "children"
-            },
-            "defaultProps": { "as": 6 }
-        },
-        {
-            "match": { "Direction": ["Row", "Column"] },
-            "detect": ["Spacing", "Slots"],
-            "componentName": "_Container",
-            "wrapperTag": "div",
-            "propMap": {}
-        },
-        {
-            "match": { "Variant": ["Contained", "Text", "Outlined"] },
-            "detect": ["Label", "Disabled"],
-            "excludeDetect": ["Has Value", "Placeholder", "Helper?"],
-            "componentName": "Button",
-            "importPath": "@/components/ui/Button",
-            "leafComponent": true,
-            "propMap": {
-                "Label": "children",
-                "Label Text": "children"
-            },
-            "variantToProp": {
-                "field": "Variant",
-                "map": {
-                    "Contained": { "variant": "primary" },
-                    "Text": { "variant": "secondary" },
-                    "Outlined": { "variant": "outline" }
-                }
-            }
-        },
-        {
-            "match": { "State": ["On", "Off"] },
-            "detect": ["Label"],
-            "componentName": "SwitchToggle",
-            "importPath": "@/components/ui/SwitchToggle",
-            "leafComponent": true,
-            "propMap": {
-                "Label": "label"
-            },
-            "variantToProp": {
-                "field": "State",
-                "map": {
-                    "On": { "checked": true },
-                    "Off": { "checked": false }
-                }
-            }
+  "version": "2.0",
+  "resolvers": [
+    {
+      "match": {
+        "Size": [
+          "Small",
+          "Medium",
+          "Large"
+        ]
+      },
+      "detect": [
+        "Color",
+        "Delete?",
+        "Thumbnail?"
+      ],
+      "componentName": "_Chip",
+      "skip": true
+    },
+    {
+      "match": {
+        "Variant": [
+          "Outlined",
+          "Filled",
+          "Standard"
+        ]
+      },
+      "detect": [
+        "Has Value",
+        "Placeholder",
+        "Helper?",
+        "Value?"
+      ],
+      "excludeDetect": [
+        "Delete?",
+        "Thumbnail?"
+      ],
+      "componentName": "TextField",
+      "importPath": "@/components/ui/TextField",
+      "leafComponent": true,
+      "propMap": {
+        "Label": "label",
+        "↳ Placeholder": "placeholder",
+        "↳ Value": "value",
+        "Helper Text": "helperText"
+      }
+    },
+    {
+      "match": {
+        "Variant": [
+          "body1",
+          "body2",
+          "subtitle1",
+          "subtitle2",
+          "h1",
+          "h2",
+          "h3",
+          "h4",
+          "h5",
+          "h6"
+        ]
+      },
+      "detect": [
+        "Gutter Bottom",
+        "Content"
+      ],
+      "componentName": "Heading",
+      "importPath": "@/components/ui/Heading",
+      "leafComponent": true,
+      "propMap": {
+        "Content": "children"
+      },
+      "variantToProp": {
+        "field": "Variant",
+        "map": {
+          "h1": {
+            "as": 1
+          },
+          "h2": {
+            "as": 2
+          },
+          "h3": {
+            "as": 3
+          },
+          "h4": {
+            "as": 4
+          },
+          "h5": {
+            "as": 5
+          },
+          "h6": {
+            "as": 6
+          },
+          "body1": {
+            "as": 3
+          },
+          "body2": {
+            "as": 4
+          },
+          "subtitle1": {
+            "as": 5
+          },
+          "subtitle2": {
+            "as": 6
+          }
         }
-    ],
-    "components": {
-        "Heading": {
-            "importPath": "@/components/ui/Heading",
-            "componentName": "Heading",
-            "propMap": { "content": "children", "level": "as" }
-        },
-        "Stack": {
-            "importPath": "@/components/ui/Layout",
-            "componentName": "Stack",
-            "propMap": { "direction": "direction", "gap": "spacing" }
-        },
-        "Input": {
-            "importPath": "@/components/ui/Input",
-            "componentName": "Input",
-            "propMap": { "placeholder": "placeholder", "type": "type" }
-        },
-        "Button": {
-            "importPath": "@/components/ui/Button",
-            "componentName": "Button",
-            "propMap": { "variant": "variant", "content": "children" }
-        },
-        "TextField": {
-            "importPath": "@/components/ui/TextField",
-            "componentName": "TextField",
-            "propMap": { "Label": "label", "Placeholder": "placeholder", "Value": "value" }
-        },
-        "SelectField": {
-            "importPath": "@/components/ui/SelectField",
-            "componentName": "SelectField",
-            "propMap": { "Label": "label", "Options": "options", "Value": "value" }
-        },
-        "SwitchToggle": {
-            "importPath": "@/components/ui/SwitchToggle",
-            "componentName": "SwitchToggle",
-            "propMap": { "Label": "label", "State": "checked" }
-        },
-        "IconButton": {
-            "importPath": "@/components/ui/IconButton",
-            "componentName": "IconButton",
-            "propMap": { "Icon": "icon", "Label": "label" }
+      }
+    },
+    {
+      "match": {
+        "Variant": [
+          "caption",
+          "overline"
+        ]
+      },
+      "detect": [
+        "Gutter Bottom"
+      ],
+      "componentName": "Heading",
+      "importPath": "@/components/ui/Heading",
+      "leafComponent": true,
+      "propMap": {
+        "Content": "children"
+      },
+      "defaultProps": {
+        "as": 6
+      }
+    },
+    {
+      "match": {
+        "Direction": [
+          "Row",
+          "Column"
+        ]
+      },
+      "detect": [
+        "Spacing",
+        "Slots"
+      ],
+      "componentName": "_Container",
+      "wrapperTag": "div",
+      "propMap": {}
+    },
+    {
+      "match": {
+        "Variant": [
+          "Contained",
+          "Text",
+          "Outlined"
+        ]
+      },
+      "detect": [
+        "Label",
+        "Disabled"
+      ],
+      "excludeDetect": [
+        "Has Value",
+        "Placeholder",
+        "Helper?"
+      ],
+      "componentName": "Button",
+      "importPath": "@/components/ui/Button",
+      "leafComponent": true,
+      "propMap": {
+        "Label": "children",
+        "Label Text": "children"
+      },
+      "variantToProp": {
+        "field": "Variant",
+        "map": {
+          "Contained": {
+            "variant": "primary"
+          },
+          "Text": {
+            "variant": "secondary"
+          },
+          "Outlined": {
+            "variant": "outline"
+          }
         }
+      }
+    },
+    {
+      "match": {
+        "State": [
+          "On",
+          "Off"
+        ]
+      },
+      "detect": [
+        "Label"
+      ],
+      "componentName": "SwitchToggle",
+      "importPath": "@/components/ui/SwitchToggle",
+      "leafComponent": true,
+      "propMap": {
+        "Label": "label"
+      },
+      "variantToProp": {
+        "field": "State",
+        "map": {
+          "On": {
+            "checked": true
+          },
+          "Off": {
+            "checked": false
+          }
+        }
+      }
     }
+  ],
+  "components": {
+    "LoginScreen": {
+      "name": "LoginScreen",
+      "importPath": "./src/components/LoginScreen",
+      "props": {}
+    },
+    "AssetsPanel": {
+      "name": "AssetsPanel",
+      "importPath": "./src/components/editor/AssetsPanel",
+      "props": {}
+    },
+    "CanvasViewToggle": {
+      "name": "CanvasViewToggle",
+      "importPath": "./src/components/editor/CanvasViewToggle",
+      "props": {},
+      "description": "CanvasViewToggle"
+    },
+    "DependencyEdge": {
+      "name": "DependencyEdge",
+      "importPath": "./src/components/editor/DependencyEdge",
+      "props": {
+        "id": {
+          "type": "unknown",
+          "required": false
+        },
+        "sourceX": {
+          "type": "unknown",
+          "required": false
+        },
+        "sourceY": {
+          "type": "unknown",
+          "required": false
+        },
+        "targetX": {
+          "type": "unknown",
+          "required": false
+        },
+        "targetY": {
+          "type": "unknown",
+          "required": false
+        },
+        "sourcePosition": {
+          "type": "unknown",
+          "required": false
+        },
+        "targetPosition": {
+          "type": "unknown",
+          "required": false
+        },
+        "data": {
+          "type": "unknown",
+          "required": false
+        },
+        "markerEnd": {
+          "type": "unknown",
+          "required": false
+        }
+      }
+    },
+    "GhostCodeSnippet": {
+      "name": "GhostCodeSnippet",
+      "importPath": "./src/components/editor/GhostCodeSnippet",
+      "props": {},
+      "description": "Floating code snippet card."
+    },
+    "GhostOverlay": {
+      "name": "GhostOverlay",
+      "importPath": "./src/components/editor/GhostOverlay",
+      "props": {},
+      "description": "Floating overlay rendered as a React portal into document.body."
+    },
+    "GovernanceOverlay": {
+      "name": "GovernanceOverlay",
+      "importPath": "./src/components/editor/GovernanceOverlay",
+      "props": {}
+    },
+    "ImportAuditToast": {
+      "name": "ImportAuditToast",
+      "importPath": "./src/components/editor/ImportAuditToast",
+      "props": {}
+    },
+    "LivePreview": {
+      "name": "LivePreview",
+      "importPath": "./src/components/editor/LivePreview",
+      "props": {}
+    },
+    "RecipeStrip": {
+      "name": "RecipeStrip",
+      "importPath": "./src/components/editor/RecipeStrip",
+      "props": {},
+      "description": "RecipeStrip"
+    },
+    "ShieldOverlay": {
+      "name": "ShieldOverlay",
+      "importPath": "./src/components/editor/ShieldOverlay",
+      "props": {
+        "iframeRef": {
+          "type": "React.RefObject",
+          "required": true
+        }
+      }
+    },
+    "StatusBar": {
+      "name": "StatusBar",
+      "importPath": "./src/components/editor/StatusBar",
+      "props": {}
+    },
+    "ViolationTooltip": {
+      "name": "ViolationTooltip",
+      "importPath": "./src/components/editor/ViolationTooltip",
+      "props": {
+        "nodeId": {
+          "type": "string",
+          "required": true
+        },
+        "position": {
+          "type": "unknown",
+          "required": true
+        },
+        "mithrilWarnings": {
+          "type": "unknown[]",
+          "required": true
+        },
+        "a11yMessages": {
+          "type": "string[]",
+          "required": true
+        },
+        "onClose": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        }
+      }
+    },
+    "XYCanvas": {
+      "name": "XYCanvas",
+      "importPath": "./src/components/editor/XYCanvas",
+      "props": {}
+    },
+    "ClassBuilder": {
+      "name": "ClassBuilder",
+      "importPath": "./src/components/inspector/ClassBuilder",
+      "props": {
+        "className": {
+          "type": "string",
+          "required": true
+        },
+        "onCommit": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        }
+      }
+    },
+    "DriftDetector": {
+      "name": "DriftDetector",
+      "importPath": "./src/components/inspector/DriftDetector",
+      "props": {}
+    },
+    "LayoutPanel": {
+      "name": "LayoutPanel",
+      "importPath": "./src/components/inspector/LayoutPanel",
+      "props": {
+        "className": {
+          "type": "string",
+          "required": true
+        },
+        "onChange": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        }
+      }
+    },
+    "TokenSelect": {
+      "name": "TokenSelect",
+      "importPath": "./src/components/inspector/TokenSelect",
+      "props": {
+        "label": {
+          "type": "string",
+          "required": true
+        },
+        "tokenType": {
+          "type": "TokenType",
+          "required": true
+        },
+        "classPrefix": {
+          "type": "string",
+          "required": true
+        },
+        "value": {
+          "type": "string",
+          "required": true
+        },
+        "onChange": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        }
+      }
+    },
+    "Accordion": {
+      "name": "Accordion",
+      "importPath": "./src/components/inspector/primitives",
+      "props": {
+        "title": {
+          "type": "unknown",
+          "required": false
+        },
+        "defaultOpen": {
+          "type": "unknown",
+          "required": false
+        },
+        "children": {
+          "type": "unknown",
+          "required": false
+        },
+        "headerRight": {
+          "type": "unknown",
+          "required": false
+        }
+      }
+    },
+    "CompactSelect": {
+      "name": "CompactSelect",
+      "importPath": "./src/components/inspector/primitives",
+      "props": {
+        "icon": {
+          "type": "unknown",
+          "required": false
+        },
+        "value": {
+          "type": "unknown",
+          "required": false
+        },
+        "onChange": {
+          "type": "unknown",
+          "required": false
+        },
+        "options": {
+          "type": "unknown",
+          "required": false
+        }
+      }
+    },
+    "PopoverPicker": {
+      "name": "PopoverPicker",
+      "importPath": "./src/components/inspector/primitives",
+      "props": {
+        "isOpen": {
+          "type": "unknown",
+          "required": false
+        },
+        "onClose": {
+          "type": "unknown",
+          "required": false
+        },
+        "triggerRef": {
+          "type": "unknown",
+          "required": false
+        },
+        "children": {
+          "type": "unknown",
+          "required": false
+        }
+      }
+    },
+    "TokenAutocomplete": {
+      "name": "TokenAutocomplete",
+      "importPath": "./src/components/inspector/primitives",
+      "props": {
+        "suggestions": {
+          "type": "unknown",
+          "required": false
+        },
+        "value": {
+          "type": "unknown",
+          "required": false
+        },
+        "onChange": {
+          "type": "unknown",
+          "required": false
+        },
+        "onCommit": {
+          "type": "unknown",
+          "required": false
+        },
+        "placeholder": {
+          "type": "unknown",
+          "required": false
+        }
+      }
+    },
+    "ColorPickerSwatch": {
+      "name": "ColorPickerSwatch",
+      "importPath": "./src/components/inspector/primitives",
+      "props": {
+        "colorHex": {
+          "type": "unknown",
+          "required": false
+        },
+        "activeTokenDisplay": {
+          "type": "unknown",
+          "required": false
+        },
+        "options": {
+          "type": "unknown",
+          "required": false
+        },
+        "onSelect": {
+          "type": "unknown",
+          "required": false
+        }
+      }
+    },
+    "MithrilProvider": {
+      "name": "MithrilProvider",
+      "importPath": "./src/components/mithril/MithrilProvider",
+      "props": {
+        "children": {
+          "type": "ReactNode",
+          "required": true
+        }
+      }
+    },
+    "ActivityFeed": {
+      "name": "ActivityFeed",
+      "importPath": "./src/components/ui/ActivityFeed",
+      "props": {}
+    },
+    "AgentChatPanel": {
+      "name": "AgentChatPanel",
+      "importPath": "./src/components/ui/AgentChatPanel",
+      "props": {}
+    },
+    "AgentDashboard": {
+      "name": "AgentDashboard",
+      "importPath": "./src/components/ui/AgentDashboard",
+      "props": {}
+    },
+    "AgentSettingsModal": {
+      "name": "AgentSettingsModal",
+      "importPath": "./src/components/ui/AgentSettingsModal",
+      "props": {
+        "onClose": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        }
+      }
+    },
+    "AnnotationList": {
+      "name": "AnnotationList",
+      "importPath": "./src/components/ui/AnnotationList",
+      "props": {
+        "nodeId": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "description": "Embeds an accordion section in PropertiesPanel showing all unresolved annotations anchored to `nodeId`. Collapsed by default; header shows a count badge when annotations exist."
+    },
+    "BetaFeedbackModal": {
+      "name": "BetaFeedbackModal",
+      "importPath": "./src/components/ui/BetaFeedbackModal",
+      "props": {
+        "open": {
+          "type": "boolean",
+          "required": true
+        },
+        "onClose": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        }
+      }
+    },
+    "BetaWelcome": {
+      "name": "BetaWelcome",
+      "importPath": "./src/components/ui/BetaWelcome",
+      "props": {
+        "onTryDemo": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "onSkip": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "buildId": {
+          "type": "string",
+          "required": false
+        },
+        "daysRemaining": {
+          "type": "number | null",
+          "required": false
+        }
+      }
+    },
+    "Button": {
+      "name": "Button",
+      "importPath": "./src/stories/Button",
+      "props": {
+        "primary": {
+          "type": "boolean",
+          "required": false
+        },
+        "backgroundColor": {
+          "type": "string",
+          "required": false
+        },
+        "size": {
+          "type": "'small' | 'medium' | 'large'",
+          "required": false
+        },
+        "label": {
+          "type": "string",
+          "required": true
+        },
+        "onClick": {
+          "type": "(...args: any[]) => any",
+          "required": false
+        }
+      },
+      "description": "Primary UI component for user interaction"
+    },
+    "CommandPalette": {
+      "name": "CommandPalette",
+      "importPath": "./src/components/ui/CommandPalette",
+      "props": {
+        "onOpenExportModal": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "onOpenGovernancePanel": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        }
+      }
+    },
+    "ComponentScopePanel": {
+      "name": "ComponentScopePanel",
+      "importPath": "./src/components/ui/ComponentScopePanel",
+      "props": {}
+    },
+    "ComponentSearch": {
+      "name": "ComponentSearch",
+      "importPath": "./src/components/ui/ComponentSearch",
+      "props": {}
+    },
+    "DiffCard": {
+      "name": "DiffCard",
+      "importPath": "./src/components/ui/DiffCard",
+      "props": {
+        "call": {
+          "type": "PendingToolCall",
+          "required": true
+        },
+        "onApprove": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "onReject": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "riskTier": {
+          "type": "RiskTier",
+          "required": false
+        },
+        "consensusOutcome": {
+          "type": "string",
+          "required": false
+        },
+        "consensusReasoning": {
+          "type": "string",
+          "required": false
+        }
+      }
+    },
+    "ExportModal": {
+      "name": "ExportModal",
+      "importPath": "./src/components/ui/ExportModal",
+      "props": {
+        "onClose": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        }
+      }
+    },
+    "FigmaSetupWizard": {
+      "name": "FigmaSetupWizard",
+      "importPath": "./src/components/ui/FigmaSetupWizard",
+      "props": {
+        "visible": {
+          "type": "boolean",
+          "required": true
+        },
+        "onClose": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        }
+      }
+    },
+    "FileExplorer": {
+      "name": "FileExplorer",
+      "importPath": "./src/components/ui/FileExplorer",
+      "props": {},
+      "description": "Renders the recursive project file tree in the left sidebar."
+    },
+    "GovernanceDashboard": {
+      "name": "GovernanceDashboard",
+      "importPath": "./src/components/ui/GovernanceDashboard",
+      "props": {}
+    },
+    "GovernancePanel": {
+      "name": "GovernancePanel",
+      "importPath": "./src/components/ui/GovernancePanel",
+      "props": {
+        "onClose": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        }
+      }
+    },
+    "Heading": {
+      "name": "Heading",
+      "importPath": "./src/components/ui/Heading",
+      "props": {
+        "as": {
+          "type": "1 | 2 | 3 | 4 | 5 | 6",
+          "required": false
+        },
+        "className": {
+          "type": "unknown",
+          "required": false
+        },
+        "children": {
+          "type": "unknown",
+          "required": false
+        }
+      }
+    },
+    "IconButton": {
+      "name": "IconButton",
+      "importPath": "./src/components/ui/IconButton",
+      "props": {
+        "icon": {
+          "type": "'close' | 'info' | 'add' | 'document'",
+          "required": true
+        },
+        "size": {
+          "type": "'sm' | 'md'",
+          "required": false
+        },
+        "label": {
+          "type": "string",
+          "required": false
+        },
+        "className": {
+          "type": "unknown",
+          "required": false
+        }
+      }
+    },
+    "ImportSummaryPanelView": {
+      "name": "ImportSummaryPanelView",
+      "importPath": "./src/components/ui/ImportSummary",
+      "props": {},
+      "description": "Full panel view rendered inside the right sidebar. Public export for App.tsx mounting."
+    },
+    "ImportSummaryToastMount": {
+      "name": "ImportSummaryToastMount",
+      "importPath": "./src/components/ui/ImportSummary",
+      "props": {},
+      "description": "Renders the toast variant at a fixed position above the StatusBar. App.tsx mounts this unconditionally — it self-hides when isVisible=false or when isPanelMode=true (panel is shown in sidebar instead)."
+    },
+    "Input": {
+      "name": "Input",
+      "importPath": "./src/components/ui/Input",
+      "props": {
+        "className": {
+          "type": "unknown",
+          "required": false
+        }
+      }
+    },
+    "LaunchScreen": {
+      "name": "LaunchScreen",
+      "importPath": "./src/components/ui/LaunchScreen",
+      "props": {
+        "onOpenFolder": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "onNewProject": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "onOpenRecent": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "onLoadDemo": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        }
+      }
+    },
+    "LayerTree": {
+      "name": "LayerTree",
+      "importPath": "./src/components/ui/LayerTree",
+      "props": {}
+    },
+    "Stack": {
+      "name": "Stack",
+      "importPath": "./src/components/ui/Layout",
+      "props": {
+        "direction": {
+          "type": "'horizontal' | 'vertical'",
+          "required": false
+        },
+        "spacing": {
+          "type": "number",
+          "required": false
+        },
+        "className": {
+          "type": "unknown",
+          "required": false
+        },
+        "children": {
+          "type": "unknown",
+          "required": false
+        }
+      }
+    },
+    "NotificationCenter": {
+      "name": "NotificationCenter",
+      "importPath": "./src/components/ui/NotificationCenter",
+      "props": {}
+    },
+    "OnboardingNudge": {
+      "name": "OnboardingNudge",
+      "importPath": "./src/components/ui/OnboardingNudge",
+      "props": {
+        "onConnectFigma": {
+          "type": "(...args: any[]) => any",
+          "required": false
+        },
+        "onStartEditing": {
+          "type": "(...args: any[]) => any",
+          "required": false
+        }
+      }
+    },
+    "OnboardingOverlay": {
+      "name": "OnboardingOverlay",
+      "importPath": "./src/components/ui/OnboardingOverlay",
+      "props": {
+        "onDismiss": {
+          "type": "(...args: any[]) => any",
+          "required": false
+        }
+      }
+    },
+    "PolicySettings": {
+      "name": "PolicySettings",
+      "importPath": "./src/components/ui/PolicySettings",
+      "props": {
+        "onClose": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        }
+      }
+    },
+    "PropertiesPanel": {
+      "name": "PropertiesPanel",
+      "importPath": "./src/components/ui/PropertiesPanel",
+      "props": {}
+    },
+    "RecoveryPanel": {
+      "name": "RecoveryPanel",
+      "importPath": "./src/components/ui/RecoveryPanel",
+      "props": {}
+    },
+    "ResizeHandle": {
+      "name": "ResizeHandle",
+      "importPath": "./src/components/ui/ResizeHandle",
+      "props": {
+        "onDrag": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        }
+      }
+    },
+    "SelectField": {
+      "name": "SelectField",
+      "importPath": "./src/components/ui/SelectField",
+      "props": {
+        "label": {
+          "type": "string",
+          "required": false
+        },
+        "options": {
+          "type": "unknown[]",
+          "required": true
+        },
+        "placeholder": {
+          "type": "string",
+          "required": false
+        },
+        "error": {
+          "type": "boolean",
+          "required": false
+        },
+        "size": {
+          "type": "'sm' | 'md'",
+          "required": false
+        },
+        "className": {
+          "type": "unknown",
+          "required": false
+        },
+        "id": {
+          "type": "unknown",
+          "required": false
+        }
+      }
+    },
+    "SetupWizard": {
+      "name": "SetupWizard",
+      "importPath": "./src/components/ui/SetupWizard",
+      "props": {
+        "onComplete": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        }
+      }
+    },
+    "SwitchToggle": {
+      "name": "SwitchToggle",
+      "importPath": "./src/components/ui/SwitchToggle",
+      "props": {
+        "label": {
+          "type": "string",
+          "required": false
+        },
+        "checked": {
+          "type": "boolean",
+          "required": false
+        },
+        "onChange": {
+          "type": "(...args: any[]) => any",
+          "required": false
+        },
+        "disabled": {
+          "type": "boolean",
+          "required": false
+        },
+        "className": {
+          "type": "string",
+          "required": false
+        },
+        "id": {
+          "type": "string",
+          "required": false
+        }
+      }
+    },
+    "SyncStatus": {
+      "name": "SyncStatus",
+      "importPath": "./src/components/ui/SyncStatus",
+      "props": {},
+      "description": "Footer chip displaying the current sync state."
+    },
+    "TextField": {
+      "name": "TextField",
+      "importPath": "./src/components/ui/TextField",
+      "props": {
+        "label": {
+          "type": "string",
+          "required": false
+        },
+        "helperText": {
+          "type": "string",
+          "required": false
+        },
+        "error": {
+          "type": "boolean",
+          "required": false
+        },
+        "size": {
+          "type": "'sm' | 'md'",
+          "required": false
+        },
+        "className": {
+          "type": "unknown",
+          "required": false
+        },
+        "id": {
+          "type": "unknown",
+          "required": false
+        }
+      }
+    },
+    "TokenManager": {
+      "name": "TokenManager",
+      "importPath": "./src/components/ui/TokenManager",
+      "props": {}
+    },
+    "Header": {
+      "name": "Header",
+      "importPath": "./src/stories/Header",
+      "props": {
+        "user": {
+          "type": "User",
+          "required": false
+        },
+        "onLogin": {
+          "type": "(...args: any[]) => any",
+          "required": false
+        },
+        "onLogout": {
+          "type": "(...args: any[]) => any",
+          "required": false
+        },
+        "onCreateAccount": {
+          "type": "(...args: any[]) => any",
+          "required": false
+        }
+      }
+    },
+    "Page": {
+      "name": "Page",
+      "importPath": "./src/stories/Page",
+      "props": {}
+    },
+    "MatAutocomplete": {
+      "name": "MatAutocomplete",
+      "importPath": "@angular/material/autocomplete",
+      "description": "Dropdown panel displaying filtered options as users type in an input field. Manages option selection, keyboard navigation, panel visibility, and ARIA accessibility.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatBadge": {
+      "name": "MatBadge",
+      "importPath": "@angular/material/badge",
+      "description": "Directive to display a small text badge on an element. Supports positioning, sizing, color theming, and visibility toggling for notification counts and status indicators.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatBottomSheet": {
+      "name": "MatBottomSheet",
+      "importPath": "@angular/material/bottom-sheet",
+      "description": "Service that triggers Material Design bottom sheets. Manages lifecycle of overlay panels that slide up from the bottom edge for contextual actions or content.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatButton": {
+      "name": "MatButton",
+      "importPath": "@angular/material/button",
+      "description": "Material Design button component supporting raised, flat, stroked, FAB, mini-FAB, and icon button variants. Handles ripple effects, disabled states, and color theming.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatButtonToggle": {
+      "name": "MatButtonToggle",
+      "importPath": "@angular/material/button-toggle",
+      "description": "Toggle button group component for selecting one or multiple options from a set. Supports single and multiple selection modes with exclusive/non-exclusive toggling.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatCard": {
+      "name": "MatCard",
+      "importPath": "@angular/material/card",
+      "description": "Content container component following Material Design card patterns. Supports header, title, subtitle, content, actions, image, and footer sub-components.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatCheckbox": {
+      "name": "MatCheckbox",
+      "importPath": "@angular/material/checkbox",
+      "description": "Material Design checkbox component with support for indeterminate state, label positioning, color theming, and forms integration via ngModel and FormControl.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatChip": {
+      "name": "MatChip",
+      "importPath": "@angular/material/chips",
+      "description": "Material Design chip components for displaying compact elements representing inputs, attributes, or actions. Includes chip list, chip grid, chip input, and chip option variants.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatChipSet": {
+      "name": "MatChipSet",
+      "importPath": "@angular/material/chips",
+      "description": "Container component for organizing chip elements. Manages focus, keyboard navigation, and interaction patterns across a set of chips.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatDatepicker": {
+      "name": "MatDatepicker",
+      "importPath": "@angular/material/datepicker",
+      "description": "Calendar-based date selection component with popup overlay. Supports date ranges, min/max bounds, date filtering, custom date formats, and multi-calendar navigation.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatDateRangePicker": {
+      "name": "MatDateRangePicker",
+      "importPath": "@angular/material/datepicker",
+      "description": "Date range selection component allowing users to pick start and end dates. Extends datepicker with range-specific input fields and calendar selection behavior.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatDialog": {
+      "name": "MatDialog",
+      "importPath": "@angular/material/dialog",
+      "description": "Service for opening modal dialog overlays. Manages dialog lifecycle, backdrop interactions, keyboard escape handling, and focus trapping for accessible modal experiences.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatDivider": {
+      "name": "MatDivider",
+      "importPath": "@angular/material/divider",
+      "description": "Thin line component for visually separating content sections. Supports horizontal and vertical orientations with inset positioning.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatExpansionPanel": {
+      "name": "MatExpansionPanel",
+      "importPath": "@angular/material/expansion",
+      "description": "Expandable content panel with header and collapsible body. Supports accordion behavior, lazy content rendering, custom toggle positioning, and animation states.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatAccordion": {
+      "name": "MatAccordion",
+      "importPath": "@angular/material/expansion",
+      "description": "Container directive for grouping expansion panels into an accordion where only one panel can be expanded at a time. Manages multi/single expansion modes.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatFormField": {
+      "name": "MatFormField",
+      "importPath": "@angular/material/form-field",
+      "description": "Wrapper component providing Material Design styling for form controls. Manages labels, hints, errors, prefixes, suffixes, and appearance variants (fill, outline).",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatGridList": {
+      "name": "MatGridList",
+      "importPath": "@angular/material/grid-list",
+      "description": "Two-dimensional grid layout component for arranging cells with configurable column counts, row heights, and gutter sizing. Tiles can span multiple rows and columns.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatGridTile": {
+      "name": "MatGridTile",
+      "importPath": "@angular/material/grid-list",
+      "description": "Individual tile element within a grid list. Supports colspan and rowspan properties to span multiple grid cells, with optional header and footer overlays.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatIcon": {
+      "name": "MatIcon",
+      "importPath": "@angular/material/icon",
+      "description": "Component for rendering named Material Design icons from icon fonts or SVG sources. Supports icon registries, inline SVG, ligature-based fonts, and accessibility labeling.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatInput": {
+      "name": "MatInput",
+      "importPath": "@angular/material/input",
+      "description": "Directive enhancing native input and textarea elements with Material Design styling. Integrates with mat-form-field for labels, hints, errors, and validation states.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatList": {
+      "name": "MatList",
+      "importPath": "@angular/material/list",
+      "description": "Vertical list component for displaying rows of items. Supports single-line, multi-line, icons, avatars, and action items with dividers.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatNavList": {
+      "name": "MatNavList",
+      "importPath": "@angular/material/list",
+      "description": "Navigation-specific list variant rendering anchor elements as list items. Provides accessible navigation link styling within Material Design list patterns.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatSelectionList": {
+      "name": "MatSelectionList",
+      "importPath": "@angular/material/list",
+      "description": "List component with built-in selection state for each item. Supports single and multiple selection modes with checkbox indicators and forms integration.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatMenu": {
+      "name": "MatMenu",
+      "importPath": "@angular/material/menu",
+      "description": "Floating overlay panel displaying a list of action items triggered by a button or other element. Supports nested submenus, keyboard navigation, and positioning.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatPaginator": {
+      "name": "MatPaginator",
+      "importPath": "@angular/material/paginator",
+      "description": "Pagination control for navigating through paged data sets. Displays page size selector, current range, and next/previous navigation buttons.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatProgressBar": {
+      "name": "MatProgressBar",
+      "importPath": "@angular/material/progress-bar",
+      "description": "Horizontal progress indicator bar supporting determinate, indeterminate, buffer, and query display modes. Indicates loading or operation progress.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatProgressSpinner": {
+      "name": "MatProgressSpinner",
+      "importPath": "@angular/material/progress-spinner",
+      "description": "Circular progress indicator supporting determinate and indeterminate modes. Renders an SVG circle with configurable diameter and stroke width for loading states.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatRadioGroup": {
+      "name": "MatRadioGroup",
+      "importPath": "@angular/material/radio",
+      "description": "Radio button group for selecting a single option from a set. Manages mutual exclusivity, keyboard navigation, and forms integration via ngModel and FormControl.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatRadioButton": {
+      "name": "MatRadioButton",
+      "importPath": "@angular/material/radio",
+      "description": "Individual radio button element used within a radio group. Supports label positioning, color theming, disabled state, and accessibility attributes.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatSelect": {
+      "name": "MatSelect",
+      "importPath": "@angular/material/select",
+      "description": "Dropdown selection component replacing native select elements with Material Design styling. Supports single and multiple selection, option groups, search, and custom triggers.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatSidenav": {
+      "name": "MatSidenav",
+      "importPath": "@angular/material/sidenav",
+      "description": "Side navigation panel that slides in from the edge of the viewport. Supports push, over, and side display modes with responsive behavior and backdrop overlay.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatSidenavContainer": {
+      "name": "MatSidenavContainer",
+      "importPath": "@angular/material/sidenav",
+      "description": "Container component that wraps sidenav and main content areas. Manages sidenav open/close transitions, content margin adjustments, and backdrop rendering.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatDrawer": {
+      "name": "MatDrawer",
+      "importPath": "@angular/material/sidenav",
+      "description": "Generic drawer panel component providing the sliding panel behavior without the full sidenav semantics. Used as the base for mat-sidenav within mat-drawer-container.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatSlideToggle": {
+      "name": "MatSlideToggle",
+      "importPath": "@angular/material/slide-toggle",
+      "description": "Material Design slide toggle switch for binary on/off settings. Supports label positioning, color theming, disabled state, and forms integration.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatSlider": {
+      "name": "MatSlider",
+      "importPath": "@angular/material/slider",
+      "description": "Range slider component for selecting a value or range within a bounded interval. Supports discrete steps, tick marks, thumb labels, and vertical orientation.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatSnackBar": {
+      "name": "MatSnackBar",
+      "importPath": "@angular/material/snack-bar",
+      "description": "Service for displaying brief notification messages at the bottom of the screen. Supports action buttons, custom components, duration, horizontal/vertical positioning.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatSort": {
+      "name": "MatSort",
+      "importPath": "@angular/material/sort",
+      "description": "Directive for adding sortable column headers to tables and lists. Manages sort direction cycling, active sort state, and sort change event emission.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatSortHeader": {
+      "name": "MatSortHeader",
+      "importPath": "@angular/material/sort",
+      "description": "Column header button component that integrates with matSort to provide clickable sort controls with directional arrow indicators and accessibility labels.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatStepper": {
+      "name": "MatStepper",
+      "importPath": "@angular/material/stepper",
+      "description": "Multi-step workflow component managing sequential or non-linear step navigation. Supports horizontal and vertical layouts, step validation, editable steps, and animated transitions.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatStep": {
+      "name": "MatStep",
+      "importPath": "@angular/material/stepper",
+      "description": "Individual step within a stepper workflow. Contains step content, label, optional status icon, and supports form validation gating before proceeding to subsequent steps.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatTable": {
+      "name": "MatTable",
+      "importPath": "@angular/material/table",
+      "description": "Data table component extending CDK table with Material Design styling. Supports column definitions, row templates, sticky headers/footers, and integration with sort and pagination.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatHeaderRow": {
+      "name": "MatHeaderRow",
+      "importPath": "@angular/material/table",
+      "description": "Header row component for mat-table defining the row template for column headers. Works with matHeaderCellDef to render column header cells.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatRow": {
+      "name": "MatRow",
+      "importPath": "@angular/material/table",
+      "description": "Data row component for mat-table defining the template for each data row. Works with matCellDef to render column data cells for each record in the data source.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatTabGroup": {
+      "name": "MatTabGroup",
+      "importPath": "@angular/material/tabs",
+      "description": "Tab group container organizing content into tabbed sections. Manages tab selection, keyboard navigation, lazy content loading, animated transitions, and header scrolling.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatTab": {
+      "name": "MatTab",
+      "importPath": "@angular/material/tabs",
+      "description": "Individual tab within a tab group containing label and content templates. Supports lazy rendering, custom labels, disabled state, and ARIA labeling.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatTabNav": {
+      "name": "MatTabNav",
+      "importPath": "@angular/material/tabs",
+      "description": "Navigation-oriented tab bar component rendering anchor-based tab links for router integration. Provides tab-styled navigation without content panels.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatTimepicker": {
+      "name": "MatTimepicker",
+      "importPath": "@angular/material/timepicker",
+      "description": "Time-of-day selection component rendering a listbox dropdown with configurable time intervals. Integrates with MatTimepickerInput for keyboard entry and validation.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatToolbar": {
+      "name": "MatToolbar",
+      "importPath": "@angular/material/toolbar",
+      "description": "Horizontal bar component for headers and title sections. Supports multiple rows, color theming, and serves as an anchor for navigation, branding, and action items.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatTooltip": {
+      "name": "MatTooltip",
+      "importPath": "@angular/material/tooltip",
+      "description": "Directive for displaying informational text when hovering over or focusing on an element. Supports configurable positioning, show/hide delays, and touch gestures.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatTree": {
+      "name": "MatTree",
+      "importPath": "@angular/material/tree",
+      "description": "Hierarchical tree view component extending CDK tree with Material Design styling. Supports flat and nested data sources, expandable nodes, and custom node templates.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatTreeNode": {
+      "name": "MatTreeNode",
+      "importPath": "@angular/material/tree",
+      "description": "Individual node element within a tree component. Supports expand/collapse toggling, indentation levels, and custom content templates for leaf and branch nodes.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatRipple": {
+      "name": "MatRipple",
+      "importPath": "@angular/material/core",
+      "description": "Directive adding Material Design ripple ink effect to host elements on click and touch interactions. Supports configurable color, radius, animation speed, and centered mode.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatOption": {
+      "name": "MatOption",
+      "importPath": "@angular/material/core",
+      "description": "Option element used inside select, autocomplete, and listbox components. Handles selection state, keyboard activation, and accessibility labeling for dropdown choices.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    },
+    "MatOptgroup": {
+      "name": "MatOptgroup",
+      "importPath": "@angular/material/core",
+      "description": "Grouping component for organizing mat-option elements under a labeled section header within select and autocomplete dropdowns.",
+      "source": "remote",
+      "remoteUrl": "https://github.com/angular/components",
+      "props": {}
+    }
+  }
 }

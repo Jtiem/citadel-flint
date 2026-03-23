@@ -1,9 +1,9 @@
 # Flint — Prioritized Product Backlog
-**Date:** 2026-03-16
+**Date:** 2026-03-21
 **Author:** flint-product-planner
 **Sources:** CLAUDE.md, HANDOFF.md, FLINT-MASTER-PLAN.md, FLINT-GAP-REMEDIATION-PLAN.md, FLINT-EXPANSION-PLAN.md, FLINT-FUTURE-SPRINTS.md, FLINT-GLASS-PIVOT.md, JOURNEY-MAPS.md, JourneyMap-TestAudit.md, JTBD-GapFill-Plan.md, Snyk-Competitive-Analysis.md, INVESTOR-BRIEF-2026.md
 **Current JTBD score:** 8.4/10 (target: 9.0)
-**Test baseline:** 2,645 tests passing, 0 TSC errors (updated 2026-03-16)
+**Test baseline:** MCP: 2165/2165 | Glass: 975/983 | Core: 1005/1005 — TSC 0 errors (updated 2026-03-21)
 
 ---
 
@@ -65,7 +65,7 @@ These items are unblocked today, carry security or correctness implications, or 
 | **Priority** | P0 |
 | **Effort** | M |
 | **Dependencies** | None |
-| **Status** | PLANNED |
+| **Status** | ONLINE |
 
 **What:** Replace plaintext Anthropic API key storage in `~/.flint/config.json` with `safeStorage.encryptString` / `decryptString` (Electron built-in wrapping macOS Keychain / Windows DPAPI / Linux libsecret). Migrate existing plaintext keys on first load.
 
@@ -87,7 +87,7 @@ These items are unblocked today, carry security or correctness implications, or 
 | **Priority** | P0 |
 | **Effort** | M |
 | **Dependencies** | None |
-| **Status** | PLANNED |
+| **Status** | ONLINE |
 
 **What:** Four additive changes to MCP tool responses — no schema breaking changes:
 1. `summary` field on all tool responses (one human-readable sentence alongside the technical payload)
@@ -111,7 +111,7 @@ These items are unblocked today, carry security or correctness implications, or 
 | **Priority** | P0 |
 | **Effort** | S |
 | **Dependencies** | CX.1 (for readable output), ING.3 clearance of `server.ts` |
-| **Status** | IN-FLIGHT (code shipped in commit c08c93c, wire-up deferred) |
+| **Status** | ONLINE |
 
 **What:** Register `flint_plan` in `flint-mcp/src/server.ts`: add import, add to ListTools array, add case to CallTool switch. Three-line change. The `planService.ts`, `plan.ts`, and 64 tests are already committed.
 
@@ -129,7 +129,7 @@ These items are unblocked today, carry security or correctness implications, or 
 | **Priority** | P1 |
 | **Effort** | S |
 | **Dependencies** | Phase ING (ONLINE) |
-| **Status** | IN-FLIGHT (code shipped, tests pending) |
+| **Status** | ONLINE |
 
 **What:** Write `flint-mcp/src/__tests__/healOnAudit.test.ts` covering the `healOnAudit` parameter on `flint_audit`. Also wire real AST surgery for `import:snap-to-token` IPC in `electron/main.ts`.
 
@@ -147,7 +147,7 @@ These items are unblocked today, carry security or correctness implications, or 
 | **Priority** | P1 |
 | **Effort** | S |
 | **Dependencies** | None |
-| **Status** | PLANNED |
+| **Status** | ONLINE |
 
 **What:** Validate `cwd` in `terminal:spawn` handler is at or below `workspaceRoot`. Add 8KB max-length guard on `terminal:data` input.
 
@@ -165,7 +165,7 @@ These items are unblocked today, carry security or correctness implications, or 
 | **Priority** | P2 |
 | **Effort** | S |
 | **Dependencies** | None |
-| **Status** | PLANNED |
+| **Status** | ONLINE |
 
 **What:** Token-bucket rate limiter on the ingestion server: 10 req/min for `/ingest`, 60 req/min for `/ingest-ast`. Respond `429` when exceeded.
 
@@ -187,7 +187,7 @@ These items build shared infrastructure that multiple downstream phases depend o
 | **Priority** | P0 |
 | **Effort** | S |
 | **Dependencies** | V.2-mp (ONLINE), V.1-rs service (ONLINE) |
-| **Status** | IN-FLIGHT (service shipped, registration deferred pending CX.2/server.ts clearance) |
+| **Status** | ONLINE |
 
 **What:** Register the `flint_risk_score` MCP tool in `server.ts` once CX.2 clears the territory claim. The `riskScoringService.ts` and tests are committed.
 
@@ -205,7 +205,7 @@ These items build shared infrastructure that multiple downstream phases depend o
 | **Priority** | P1 |
 | **Effort** | L |
 | **Dependencies** | INFRA.2 (ONLINE), V.2-mp (ONLINE) |
-| **Status** | PLANNED |
+| **Status** | ONLINE |
 
 **What:** After each `applyMutationBatch`, run a validation pass: all `data-flint-id` values unique, no orphaned nodes, import statements match actual usage. Store session mutation history in ledger. Surface validation failures as a new error category in the Mithril Safety Score.
 
@@ -225,7 +225,7 @@ These items build shared infrastructure that multiple downstream phases depend o
 | **Priority** | P1 |
 | **Effort** | M |
 | **Dependencies** | None (additive) |
-| **Status** | PLANNED |
+| **Status** | ONLINE |
 
 **What:** Structured error codes (`FLINT-ERR-001`) with plain-language descriptions and recovery instructions. Per-rule `explanation` field on every governance rule surfaced in `flint_audit` and `flint_audit_report`.
 
@@ -243,7 +243,7 @@ These items build shared infrastructure that multiple downstream phases depend o
 | **Priority** | P1 |
 | **Effort** | L |
 | **Dependencies** | INFRA.1 (ONLINE) |
-| **Status** | PLANNED |
+| **Status** | ONLINE |
 
 **What:** Extend every violation emitted by MithrilLinter and A11yLinter with provenance metadata: `ruleId`, `sourceAuthority` (WCAG 2.1 AA / SOC2 / FDA SaMD), `regulatoryReference`, `lastUpdated`. Expose in Export Gate modal "Compliance Summary" section. Enable PDF/JSON "Audit Report" export.
 
@@ -261,7 +261,7 @@ These items build shared infrastructure that multiple downstream phases depend o
 | **Priority** | P1 |
 | **Effort** | M |
 | **Dependencies** | INFRA.1 (ONLINE) |
-| **Status** | PLANNED |
+| **Status** | ONLINE |
 
 **What:** Capture every `data-flint-override` bypass: node, rule, session, timestamp, project context. Write to `override_events` table. Surface as "Overrides (N)" badge in Glass status bar and filterable dashboard view.
 
@@ -279,7 +279,7 @@ These items build shared infrastructure that multiple downstream phases depend o
 | **Priority** | P1 |
 | **Effort** | S |
 | **Dependencies** | None |
-| **Status** | PLANNED |
+| **Status** | ONLINE |
 
 **What:** Remove bottom horizontal split (CodeEditorPanel + TerminalPanel). Set `XYCanvas` to occupy full viewport height. Recovers ~40% vertical real estate for the design canvas.
 
@@ -301,7 +301,7 @@ These items build shared infrastructure that multiple downstream phases depend o
 | **Priority** | P0 |
 | **Effort** | L |
 | **Dependencies** | V.2-mp (ONLINE), V.1-rs service (ONLINE, needs wire-up) |
-| **Status** | PLANNED (service shipped, integration not yet wired to orchestrator flow) |
+| **Status** | ONLINE |
 
 **What:** Wire MRS (Mutation Risk Score) 0.0–1.0 into the full mutation approval flow. Three tiers: Green (0.0–0.3, auto-approve eligible) / Amber (0.31–0.69, requires human review) / Red (0.7–1.0, requires senior sign-off + justification). Surface in MCP `tool_result`. Log to provenance ledger.
 
@@ -321,7 +321,7 @@ These items build shared infrastructure that multiple downstream phases depend o
 | **Priority** | P1 |
 | **Effort** | M |
 | **Dependencies** | SEC.3 (ONLINE — MCP tool allowlist) |
-| **Status** | BACKLOG |
+| **Status** | ONLINE |
 
 **What:** Extend the `RENDERER_ALLOWED_MCP_TOOLS` allowlist (from SEC.3, in `electron/mcp-policy.ts`) to a per-agent permission model. Each registered agent (identified by `agent_id` in MCP session metadata) gets its own ACL: which tools it can call, at which tier. An untrusted agent can call read-only tools (audit, query_registry, status) but not mutation tools (ast_mutate, fix, sync) without explicit elevation.
 
@@ -341,7 +341,7 @@ These items build shared infrastructure that multiple downstream phases depend o
 | **Priority** | P1 |
 | **Effort** | M |
 | **Dependencies** | V.1-rs (ONLINE), V.2-mp (ONLINE), AGV.1 |
-| **Status** | BACKLOG |
+| **Status** | ONLINE |
 
 **What:** New MCP resource `flint://agent-risk` that aggregates MRS scores, provenance records, and override counts grouped by `agent_id`. Surfaced in Glass as a tab in the Health panel: "Top 5 riskiest agents this week," average risk score per agent, count of Red-tier mutations per agent.
 
@@ -359,7 +359,7 @@ These items build shared infrastructure that multiple downstream phases depend o
 | **Priority** | P2 |
 | **Effort** | M |
 | **Dependencies** | AGV.2, V.1 |
-| **Status** | BACKLOG |
+| **Status** | ONLINE |
 
 **What:** Configurable rules that trigger when an agent's cumulative risk score exceeds a threshold: "If agent X produces 3 or more Red-tier mutations in a session, require manual review for all subsequent mutations from that agent." Rules stored in `.flint/agent-policy.json`. Escalation events logged to `governance_events` table (INFRA.1, ONLINE).
 
@@ -383,7 +383,7 @@ These complete the JTBD 9.0 target and make Glass a bidirectional control surfac
 | **Priority** | P1 |
 | **Effort** | M |
 | **Dependencies** | U.3 (Immersive Canvas) |
-| **Status** | PLANNED |
+| **Status** | ONLINE |
 
 **What:** When a node is selected on the canvas, a `GhostCodeSnippet.tsx` overlay surfaces relevant source using a lightweight syntax highlighter (`react-syntax-highlighter`). Integrate with `ShieldOverlay.tsx` for "Hover-to-Source." Code is contextual, not permanently embedded. No Monaco panel.
 
@@ -401,7 +401,7 @@ These complete the JTBD 9.0 target and make Glass a bidirectional control surfac
 | **Priority** | P1 |
 | **Effort** | L |
 | **Dependencies** | None (uses fs.watch pattern already established by annotationStore) |
-| **Status** | PLANNED (Wave 3, JTBD gap-fill) |
+| **Status** | ONLINE |
 
 **What:** Event bus via filesystem: MCP server appends to `.flint/mcp-events.jsonl` after tool completion. Electron main process tail-follows from stored byte offset (10s poll fallback). Emits `flint:mcp-event` IPC event to renderer. `useMCPEventListener` hook dispatches to stores. Bell notification for critical governance events within 5 seconds.
 
@@ -421,7 +421,7 @@ These complete the JTBD 9.0 target and make Glass a bidirectional control surfac
 | **Priority** | P1 |
 | **Effort** | XL |
 | **Dependencies** | W.1 (recommended, not blocking) |
-| **Status** | PLANNED (Wave 3, JTBD gap-fill) |
+| **Status** | ONLINE |
 
 **What:** Electron main process as MCP client (`electron/mcpClient.ts`). Exposes `flintAPI.mcp.callTool(name, args)` and `flintAPI.mcp.readResource(uri)` to the renderer. Glass buttons "Run Audit" and "Auto-Fix" invoke MCP tools directly from the canvas. Activity Feed gains "Retry" and "Approve" buttons.
 
@@ -439,7 +439,7 @@ These complete the JTBD 9.0 target and make Glass a bidirectional control surfac
 | **Priority** | P2 |
 | **Effort** | M |
 | **Dependencies** | INFRA.1 (ONLINE), EXP.1 (ONLINE) |
-| **Status** | BACKLOG |
+| **Status** | ONLINE |
 
 **What:** New SQLite table `mithril_baseline` storing the last accepted audit snapshot per project. `MithrilLinter` gains an `auditDelta(baseline)` method returning only net-new violations. Export Gate gains a "Set Baseline" button. Delta violations surface in amber; baseline violations are tracked but do not block export.
 
@@ -463,7 +463,7 @@ These extend Flint's horizontal surface into adjacent markets with existing infr
 | **Priority** | P1 |
 | **Effort** | L |
 | **Dependencies** | EXP.1 (ONLINE — CI gate), EXP.2 (ONLINE — debt report) |
-| **Status** | PLANNED |
+| **Status** | ONLINE |
 
 **What:** `flint migrate-tw <glob> --from 3 --to 4` — AST-level class transformation via Babel visitor on JSX `className`. Covers deprecated class maps (`bg-opacity-X` → `bg-color/X`, `flex-grow` → `grow`, etc.). Config migrator for `tailwind.config.js` → CSS-based v4 pattern. Post-migration audit. Dry-run mode.
 
@@ -481,7 +481,7 @@ These extend Flint's horizontal surface into adjacent markets with existing infr
 | **Priority** | P2 |
 | **Effort** | L |
 | **Dependencies** | EXP.1 (ONLINE), EXP.3 (class transformer pattern) |
-| **Status** | PLANNED |
+| **Status** | ONLINE |
 
 **What:** `flint theme-validate <glob> --themes brand-a.json,brand-b.json` — validates single codebase under multiple brand token sets. Each theme is a DTCG token file. Cross-theme matrix report: "Brand B has 12 violations Brand A doesn't." MCP tool: `flint_validate_themes`.
 
@@ -499,7 +499,7 @@ These extend Flint's horizontal surface into adjacent markets with existing infr
 | **Priority** | P1 |
 | **Effort** | M |
 | **Dependencies** | None |
-| **Status** | BACKLOG |
+| **Status** | ONLINE |
 
 **What:** `.flint/policy.json` schema per project. `MithrilLinter` reads it at runtime: configurable ΔE threshold (default 2.0), blocking vs. advisory rule IDs, export gate severity floor, per-team rule overrides. Glass settings panel exposes the policy as a UI form.
 
@@ -537,7 +537,7 @@ These extend Flint's horizontal surface into adjacent markets with existing infr
 | **Priority** | P1 |
 | **Effort** | M |
 | **Dependencies** | Flint Glass (distribution), IDE.1 (for IDE-specific snippet generation) |
-| **Status** | BACKLOG |
+| **Status** | ONLINE |
 
 **What:** When Flint Glass opens for the first time (no `.flint/` config, or an explicit `first-launch` flag), it shows a full-screen setup wizard before the main canvas. Steps:
 
@@ -580,7 +580,7 @@ These build the architectural depth that competitors cannot replicate quickly.
 | **Priority** | P1 |
 | **Effort** | L |
 | **Dependencies** | EXP.6a (ONLINE — 30 rules exist), A11yLinter architecture |
-| **Status** | PLANNED |
+| **Status** | ONLINE |
 
 **What:** Extend to full WCAG 2.1 AA coverage (~50 rules). Add: focus management, APCA color contrast (WCAG 3.0 readiness), ARIA roles, landmark regions, live regions, keyboard navigation, motion preferences. Auto-fix transforms for all new rules. VPAT/ACR report generation. Domain rule sets for Section 508 (government), HIPAA (healthcare), ADA Title III.
 
@@ -598,7 +598,7 @@ These build the architectural depth that competitors cannot replicate quickly.
 | **Priority** | P2 |
 | **Effort** | M |
 | **Dependencies** | GOV.1 (Rule Provenance), EXP.2 (ONLINE — Debt Report) |
-| **Status** | BACKLOG |
+| **Status** | ONLINE |
 
 **What:** Machine-readable export inventorying: every design token used + compliance status, every component + source (Figma/Flint/handwritten) + Mithril audit result, every a11y violation with severity and rule ID, overall design compliance posture (score, trend). Format: JSON, with CycloneDX-extended option. New IPC channel `flint:generate-dbom`. Export modal gains "Export DBOM" button.
 
@@ -614,7 +614,7 @@ These build the architectural depth that competitors cannot replicate quickly.
 | **Priority** | P2 |
 | **Effort** | XL |
 | **Dependencies** | None (can parallel with V.1/V.2) |
-| **Status** | PLANNED |
+| **Status** | ONLINE |
 
 **What:** Universal AST Adapter layer decoupling the mutation engine from Babel/JSX. Canonical `FlintNode` schema. `LinterPlugin` interface accepting any rule set. `PluginRegistry` in `flint-manifest.json` mapping domain profiles (`clinical_samd`, `iac_soc2`, `legal_contract`) to parser/linter configs. Two reference adapters: JSON-schema + plain-text clause parser.
 
@@ -632,7 +632,7 @@ These build the architectural depth that competitors cannot replicate quickly.
 | **Priority** | P2 |
 | **Effort** | L |
 | **Dependencies** | V.1 (Risk Scoring), V.2-mp (ONLINE) |
-| **Status** | PLANNED |
+| **Status** | ONLINE |
 
 **What:** For mutations scoring Amber or Red on MRS: route to stateless secondary agent for independent safety evaluation. Secondary agent receives only current AST snapshot + proposed mutation, no primary agent reasoning history. Log both verdicts and disagreements to Provenance Ledger. Configurable per domain profile.
 
@@ -648,7 +648,7 @@ These build the architectural depth that competitors cannot replicate quickly.
 | **Priority** | P2 |
 | **Effort** | L |
 | **Dependencies** | INFRA.1 (ONLINE), GOV.3, V.1-rs (ONLINE) |
-| **Status** | PLANNED |
+| **Status** | ONLINE |
 
 **What:** Baseline statistics from historical mutations (average mutations per session, typical override frequency, normal violation distribution). Anomaly flagging at 3σ threshold: sudden override spikes, unusual violation patterns, drift in Token Integrity Ratio. Surface as ambient amber alert in Glass Health tab. Weekly/monthly trend reports.
 
@@ -664,7 +664,7 @@ These build the architectural depth that competitors cannot replicate quickly.
 | **Priority** | P2 |
 | **Effort** | L |
 | **Dependencies** | EXP.3 (class transformer pattern) |
-| **Status** | PLANNED |
+| **Status** | ONLINE |
 
 **What:** `flint migrate-ds <glob> --from tokens-v4.json --to tokens-v5.json` — token diff engine maps old tokens to new ones, surgically updates consuming code. Handles renamed, removed, changed, and new tokens. Reuses EXP.3 class transformer infrastructure.
 
@@ -680,7 +680,7 @@ These build the architectural depth that competitors cannot replicate quickly.
 | **Priority** | P3 |
 | **Effort** | L |
 | **Dependencies** | AGV.1 (Per-Agent ACL), AGV.2 (Agent Risk Dashboard), GOV.2 (Override Telemetry) |
-| **Status** | BACKLOG |
+| **Status** | ONLINE |
 
 **What:** New agents start in a "Restricted" tier: read-only tools only (audit, query, status), no mutation capabilities. Agents earn elevation to "Standard" tier after N sessions with zero Red-tier mutations and zero override events. "Trusted" tier requires explicit human elevation. Tier stored in `flint.db` per agent_id. Trust resets on suspicious activity (AGV.3 escalation trigger).
 
@@ -704,7 +704,7 @@ Bidirectional Figma token sync. This is the longest sprint window and the most c
 | **Priority** | P1 |
 | **Effort** | L |
 | **Dependencies** | EXP.7 (Cross-Platform Token Sync, for DTCG format maturity) |
-| **Status** | PLANNED |
+| **Status** | ONLINE |
 
 **What:** Four new tables in `flint.db`: `figma_connections`, `token_source`, `sync_history`, `pending_conflicts`. OAuth 2.0 PKCE flow via `flint_figma_connect` MCP tool. `figmaApiService.ts` wrapping Figma Variables API with exponential backoff. MCP resource: `flint://figma-connection`.
 
@@ -720,7 +720,7 @@ Bidirectional Figma token sync. This is the longest sprint window and the most c
 | **Priority** | P1 |
 | **Effort** | L |
 | **Dependencies** | SYNC.1 |
-| **Status** | PLANNED |
+| **Status** | ONLINE |
 
 **What:** `tokenSyncEngine.ts` three-way diff: Figma Variables vs. `token_source` last-sync state vs. `design_tokens` table. Seven diff categories with appropriate auto-actions. Webhook extension. MCP tools: `flint_sync_pull`, `flint_sync_push`, `flint_resolve_conflict`, `flint_resolve_all`.
 
@@ -734,7 +734,7 @@ Bidirectional Figma token sync. This is the longest sprint window and the most c
 | **Priority** | P1 |
 | **Effort** | M |
 | **Dependencies** | SYNC.2 |
-| **Status** | PLANNED |
+| **Status** | ONLINE |
 
 **What:** Two new violation types: `SYNC-001` (Token Out of Sync, ΔE > 2.0 divergence from Figma source) and `SYNC-002` (Orphaned Token, no Figma mapping). Include in Token Integrity Ratio.
 
@@ -748,7 +748,7 @@ Bidirectional Figma token sync. This is the longest sprint window and the most c
 | **Priority** | P2 |
 | **Effort** | L |
 | **Dependencies** | SYNC.2, SYNC.3 |
-| **Status** | PLANNED |
+| **Status** | ONLINE |
 
 **What:** `flint sync --check` CI command. Figma API rate-limit handling. Offline queue with retry. Process-restart conflict recovery. Sync history export (JSON/CSV). Include sync health in `flint://dashboard`.
 
@@ -762,7 +762,7 @@ Bidirectional Figma token sync. This is the longest sprint window and the most c
 | **Priority** | P3 |
 | **Effort** | XL |
 | **Dependencies** | EXP.3, EXP.5 (token system maturity) |
-| **Status** | PLANNED |
+| **Status** | ONLINE |
 
 **What:** DTCG tokens → 5 platform outputs: Tailwind (web), CSS custom properties, React Native StyleSheet, Swift UIColor, Kotlin Color. Platform-specific parsers. Cross-platform audit. Sync report.
 
@@ -778,10 +778,10 @@ This track applies Flint's existing governance model to the AI agents themselves
 
 | Phase | Priority | Effort | Status | Key dependency |
 |-------|----------|--------|--------|----------------|
-| AGV.1 Per-agent tool ACL | P1 | M | BACKLOG | SEC.3 (ONLINE) |
-| AGV.2 Agent risk dashboard | P1 | M | BACKLOG | V.1-rs, V.2-mp |
-| AGV.3 Auto-escalation rules | P2 | M | BACKLOG | AGV.2, V.1 |
-| AGV.4 Agent trust tiers | P3 | L | BACKLOG | AGV.1, AGV.2, AGV.3 |
+| AGV.1 Per-agent tool ACL | P1 | M | ONLINE | SEC.3 (ONLINE) |
+| AGV.2 Agent risk dashboard | P1 | M | ONLINE | V.1-rs, V.2-mp |
+| AGV.3 Auto-escalation rules | P2 | M | ONLINE | AGV.2, V.1 |
+| AGV.4 Agent trust tiers | P3 | L | ONLINE | AGV.1, AGV.2, AGV.3 |
 
 AGV.1 and AGV.2 are detailed in Sprint 3 above. AGV.3 and AGV.4 are detailed in Sprint 6.
 

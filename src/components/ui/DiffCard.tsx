@@ -268,6 +268,65 @@ function DiffBlock({ lines }: { lines: DiffLine[] }) {
     )
 }
 
+// ── Consensus badge ───────────────────────────────────────────────────────────
+
+interface ConsensusBadgeProps {
+    outcome: string
+    reasoning?: string
+}
+
+function ConsensusBadge({ outcome, reasoning }: ConsensusBadgeProps) {
+    if (outcome === 'disagree') {
+        return (
+            <div className="flex flex-col gap-0.5">
+                <span className="flex items-center gap-1 rounded bg-amber-900/20 px-1.5 py-0.5 text-[10px] font-medium text-amber-400 border border-amber-500/30">
+                    <AlertTriangle size={9} />
+                    Consensus: Disagreement
+                </span>
+                {reasoning && (
+                    <span className="truncate text-[9px] text-zinc-500" title={reasoning}>
+                        {reasoning}
+                    </span>
+                )}
+            </div>
+        )
+    }
+
+    if (outcome === 'agree_reject') {
+        return (
+            <div className="flex flex-col gap-0.5">
+                <span className="flex items-center gap-1 rounded bg-red-900/10 px-1.5 py-0.5 text-[10px] font-medium text-red-400 border border-red-700/30">
+                    <XCircle size={9} />
+                    Consensus: Both agents rejected
+                </span>
+                {reasoning && (
+                    <span className="truncate text-[9px] text-zinc-500" title={reasoning}>
+                        {reasoning}
+                    </span>
+                )}
+            </div>
+        )
+    }
+
+    if (outcome === 'agree_approve') {
+        return (
+            <div className="flex flex-col gap-0.5">
+                <span className="flex items-center gap-1 rounded bg-emerald-900/20 px-1.5 py-0.5 text-[10px] font-medium text-emerald-400 border border-emerald-700/30">
+                    <CheckCircle2 size={9} />
+                    Consensus: Approved
+                </span>
+                {reasoning && (
+                    <span className="truncate text-[9px] text-zinc-500" title={reasoning}>
+                        {reasoning}
+                    </span>
+                )}
+            </div>
+        )
+    }
+
+    return null
+}
+
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 export interface DiffCardProps {
@@ -276,11 +335,15 @@ export interface DiffCardProps {
     onReject: (id: string) => void
     /** Explicitly override the inferred risk tier. */
     riskTier?: RiskTier
+    /** Consensus gate outcome for this mutation (e.g. 'agree_approve', 'agree_reject', 'disagree'). */
+    consensusOutcome?: string
+    /** Natural-language explanation from the secondary evaluator. */
+    consensusReasoning?: string
 }
 
 // ── DiffCard ──────────────────────────────────────────────────────────────────
 
-export function DiffCard({ call, onApprove, onReject, riskTier }: DiffCardProps) {
+export function DiffCard({ call, onApprove, onReject, riskTier, consensusOutcome, consensusReasoning }: DiffCardProps) {
     const { toolName, input, status, beforeSnapshot } = call
     const isPending = status === 'pending'
     const tier = riskTier ?? inferRiskTier(toolName)
@@ -322,6 +385,13 @@ export function DiffCard({ call, onApprove, onReject, riskTier }: DiffCardProps)
                     <RiskBadge tier={tier} />
                 </span>
             </div>
+
+            {/* Consensus badge — shown when consensusOutcome is provided */}
+            {consensusOutcome && (
+                <div className="border-b border-white/5 px-3 py-1.5">
+                    <ConsensusBadge outcome={consensusOutcome} reasoning={consensusReasoning} />
+                </div>
+            )}
 
             {/* Mutation summary */}
             <div

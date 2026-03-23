@@ -255,7 +255,7 @@ export function migrateV1ToV2(policy: RawPolicy): RawPolicy {
  * by deep-merging with DEFAULT_RESOLVED_POLICY. No validation is performed here
  * (validation is done separately by validatePolicy).
  */
-function coerceToResolved(raw: RawPolicy): ResolvedPolicy {
+export function coerceToResolved(raw: RawPolicy): ResolvedPolicy {
     const def = DEFAULT_RESOLVED_POLICY
 
     // Determine mithril mode — run migration hints first.

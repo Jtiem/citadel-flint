@@ -10,12 +10,9 @@
  * Coverage:
  *   Fix 1 (P0-3) — figma:status strips secret field
  *   Fix 2 (P1-2) — safeStorage encrypt/decrypt + migration logic
- *   Fix 3 (P1-3) — terminal:spawn cwd restricted to home directory
  */
 
 import { describe, it, expect } from 'vitest'
-import path from 'node:path'
-import os from 'node:os'
 
 // ── Fix 1: Secret stripping logic ─────────────────────────────────────────────
 
@@ -230,78 +227,3 @@ describe('Fix 2 (P1-2) — safeStorage API key encryption', () => {
     })
 })
 
-// ── Fix 3: terminal:spawn cwd validation ──────────────────────────────────────
-
-describe('Fix 3 (P1-3) — terminal:spawn cwd restriction', () => {
-    /**
-     * Reproduces the validation logic from the terminal:spawn handler:
-     *   const resolvedCwd = path.resolve(cwd)
-     *   const home = app.getPath('home')
-     *   if (resolvedCwd !== home && !resolvedCwd.startsWith(home + path.sep)) { reject }
-     */
-    const home = os.homedir()
-
-    function validateCwd(cwd: unknown): { allowed: boolean; reason?: string } {
-        if (typeof cwd !== 'string') return { allowed: false, reason: 'not a string' }
-        const resolvedCwd = path.resolve(cwd)
-        if (resolvedCwd !== home && !resolvedCwd.startsWith(home + path.sep)) {
-            return { allowed: false, reason: `outside home dir: ${resolvedCwd}` }
-        }
-        return { allowed: true }
-    }
-
-    it('allows the home directory itself', () => {
-        expect(validateCwd(home).allowed).toBe(true)
-    })
-
-    it('allows a subdirectory of home', () => {
-        const subdir = path.join(home, 'Projects', 'my-flint-project')
-        expect(validateCwd(subdir).allowed).toBe(true)
-    })
-
-    it('allows a deeply nested path under home', () => {
-        const deep = path.join(home, 'a', 'b', 'c', 'd')
-        expect(validateCwd(deep).allowed).toBe(true)
-    })
-
-    it('rejects /etc', () => {
-        expect(validateCwd('/etc').allowed).toBe(false)
-    })
-
-    it('rejects /tmp', () => {
-        expect(validateCwd('/tmp').allowed).toBe(false)
-    })
-
-    it('rejects /', () => {
-        expect(validateCwd('/').allowed).toBe(false)
-    })
-
-    it('rejects a path that starts with home as a prefix but is not under it (path confusion)', () => {
-        // e.g., if home is /Users/alice, reject /Users/alice_evil
-        const evil = home + '_evil'
-        expect(validateCwd(evil).allowed).toBe(false)
-    })
-
-    it('rejects non-string input', () => {
-        expect(validateCwd(null).allowed).toBe(false)
-        expect(validateCwd(42).allowed).toBe(false)
-        expect(validateCwd(undefined).allowed).toBe(false)
-    })
-
-    it('resolves symlink-style relative traversal before checking', () => {
-        // path.resolve normalizes '..' sequences — a traversal attempt like
-        // ~/Projects/../../../etc resolves to /etc which is outside home.
-        const traversal = path.join(home, 'Projects', '..', '..', '..', 'etc')
-        const result = validateCwd(traversal)
-        // /etc is outside home, so this must be rejected.
-        if (!traversal.startsWith(home + path.sep) && traversal !== home) {
-            expect(result.allowed).toBe(false)
-        }
-    })
-
-    it('handles a path that resolves exactly to home via ".."', () => {
-        // home/Projects/.. resolves to home — should be allowed.
-        const atHome = path.join(home, 'Projects', '..')
-        expect(validateCwd(atHome).allowed).toBe(true)
-    })
-})

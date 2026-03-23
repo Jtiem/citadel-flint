@@ -1,0 +1,12 @@
+import "electron";
+import "node:path";
+import "./main-_3n3to1x.js";
+import "node:url";
+import "node:fs/promises";
+import "node:fs";
+import "node:child_process";
+import "node:crypto";
+import "node:os";
+import "node:util";
+import "@babel/core";
+import "@babel/types";

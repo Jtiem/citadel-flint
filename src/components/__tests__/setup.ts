@@ -92,16 +92,21 @@ export function createMockFlintAPI() {
             removeProject: vi.fn().mockResolvedValue(undefined),
             reindex: vi.fn().mockResolvedValue(undefined),
         },
+        session: {
+            getLastSession: vi.fn().mockResolvedValue(null),
+        },
         project: {
             initialize: vi.fn().mockResolvedValue({ name: 'test', path: '/tmp/test', type: 'directory', children: [] }),
             openPath: vi.fn().mockResolvedValue(null),
             resetToDemo: vi.fn().mockResolvedValue({ name: 'demo', path: '/tmp/demo', type: 'directory', children: [] }),
+            createScratchpad: vi.fn().mockResolvedValue({ name: 'scratchpad', path: '/tmp/scratchpad', type: 'directory', children: [] }),
         },
         menu: {
             onNewProject: vi.fn(),
             onOpenProject: vi.fn(),
             onCloseProject: vi.fn(),
             onSaveProjectAs: vi.fn(),
+            onResetState: vi.fn(),
             removeMenuListeners: vi.fn(),
         },
         ai: {
@@ -121,12 +126,6 @@ export function createMockFlintAPI() {
             start: vi.fn().mockResolvedValue(undefined),
             stop: vi.fn().mockResolvedValue(undefined),
             getUrl: vi.fn().mockResolvedValue(''),
-        },
-        terminal: {
-            spawn: vi.fn().mockResolvedValue(undefined),
-            write: vi.fn(),
-            resize: vi.fn(),
-            onOutput: vi.fn(),
         },
         governance: {
             recordOverride: vi.fn().mockResolvedValue(undefined),
@@ -161,10 +160,12 @@ export function createMockFlintAPI() {
             checkFirstLaunch: vi.fn().mockResolvedValue({ isFirstLaunch: false }),
             completeFirstLaunch: vi.fn().mockResolvedValue(undefined),
             writeMCPConfig: vi.fn().mockResolvedValue({ written: true }),
+            resetState: vi.fn().mockResolvedValue(undefined),
         },
         annotations: {
             readAll: vi.fn().mockResolvedValue([]),
             onChanged: vi.fn().mockReturnValue(() => {}),
+            removeChangedListener: vi.fn(),
         },
         autopilot: {
             enable: vi.fn().mockResolvedValue(undefined),

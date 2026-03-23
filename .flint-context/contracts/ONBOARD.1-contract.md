@@ -1,308 +1,285 @@
-# Contract Artifact: ONBOARD.1 — First-Launch Setup Walkthrough
+# Contract Artifact: ONBOARD.1 -- First-Launch Setup Walkthrough
 
 **Phase:** ONBOARD.1
-**Status:** APPROVED
-**Date:** 2026-03-18
+**Status:** ONLINE (implemented, shipped, validated)
+**Original Date:** 2026-03-18
+**Updated:** 2026-03-21 (v2 -- reflects as-built state including R-1..R-10 fixes, Antigravity IDE, consent-first install flow, and `setup:write-mcp-config` IPC)
 **Author:** flint-architect
 
 ---
 
-## 1. Impact Map
+## 0. Executive Summary
 
-| File | Change Type | Owner Agent | Purpose |
-|------|------------|-------------|---------|
-| `src/components/ui/SetupWizard.tsx` | CREATE | flint-design-engineer | 5-step full-screen wizard component |
-| `src/components/ui/__tests__/SetupWizard.test.tsx` | CREATE | flint-test-writer | Unit tests for all wizard states |
-| `electron/__tests__/setupIpc.test.ts` | CREATE | flint-test-writer | IPC handler tests |
-| `electron/main.ts` | MODIFY | flint-electron-ipc | Add 3 IPC handlers |
-| `electron/preload.ts` | MODIFY | flint-electron-ipc | Add `setup` namespace to flintAPI |
-| `src/types/flint-api.d.ts` | MODIFY | flint-electron-ipc | Add setup type declarations |
-| `src/App.tsx` | MODIFY | flint-design-engineer | Insert wizard gate before LaunchScreen |
+ONBOARD.1 is a 5-step first-launch wizard that gates the Flint Glass application before the LaunchScreen. It detects installed IDEs, auto-writes the MCP server config (with user consent), tests the internal MCP connection, and writes a completion flag to suppress the wizard on subsequent launches.
+
+**Current state:** Fully implemented across 7 files, with 4 IPC channels, 38+ tests, and an integration validation report (SHIP verdict). Subsequent sprints added Antigravity IDE support, a consent-first install flow (R-1), copy-paste fallback (R-2), accurate verify copy (R-5), escape-key safety during writes (R-4), and accessibility improvements (R-9, R-10).
 
 ---
 
-## 2. Type Contracts
+## 1. Impact Map (As-Built)
+
+| File | Change Type | Owner Agent | Purpose |
+|------|------------|-------------|---------|
+| `src/components/ui/SetupWizard.tsx` | CREATE | flint-design-engineer | 5-step full-screen wizard with consent-first install flow |
+| `src/components/ui/__tests__/SetupWizard.test.tsx` | CREATE | flint-test-writer | 38+ tests covering all steps, state transitions, R-* fixes |
+| `electron/main.ts` | MODIFY | flint-electron-ipc | 4 IPC handlers (`setup:detect-ides`, `setup:check-first-launch`, `setup:complete-first-launch`, `setup:write-mcp-config`) + `getMCPServerPath()` helper + `app:reset-state` handler |
+| `electron/preload.ts` | MODIFY | flint-electron-ipc | `setup` namespace on `window.flintAPI` surface |
+| `src/types/flint-api.d.ts` | MODIFY | flint-electron-ipc | `setup` property on `FlintAPI` interface |
+| `src/App.tsx` | MODIFY | flint-design-engineer | Wizard gate before LaunchScreen + BetaWelcome |
+
+---
+
+## 2. Type Contracts (As-Built)
 
 ### 2.1 IDE Detection Result
 
 ```typescript
-/** Returned by the setup:detect-ides IPC handler. */
+/** Internal type in SetupWizard.tsx. */
 interface DetectedIDE {
-  /** Human-readable name shown in the wizard UI. */
-  name: 'Claude Code' | 'Cursor' | 'VS Code'
-  /** Absolute path to the IDE's MCP settings file. */
+  name: 'Claude Code' | 'Cursor' | 'VS Code' | 'Antigravity'
   settingsPath: string
-  /** True when the settings file was found on disk. */
   detected: boolean
-}
-
-interface IDEDetectionResult {
-  /** IDEs found (or not) on this machine, ordered by detection priority. */
-  ides: DetectedIDE[]
 }
 ```
 
-### 2.2 First-Launch Check
+### 2.2 IPC Return Shape: `setup:detect-ides`
 
 ```typescript
-/** Returned by setup:check-first-launch. */
+interface IDEDetectionResult {
+  ides: Array<{
+    name: 'Claude Code' | 'Cursor' | 'VS Code' | 'Antigravity'
+    settingsPath: string
+    detected: boolean
+  }>
+  /** Absolute path to flint-mcp/dist/server.js (dev or packaged). */
+  mcpServerPath: string
+}
+```
+
+### 2.3 First-Launch Check
+
+```typescript
 interface FirstLaunchStatus {
-  /** True when .flint/setup.json does NOT exist or lacks the 'firstLaunchComplete' key. */
   isFirstLaunch: boolean
 }
 ```
 
-### 2.3 MCP Snippet Payload
+### 2.4 Write Status (Component-Local)
 
 ```typescript
-/** The JSON snippet shown to the user for copy-paste into their IDE settings. */
-interface MCPSnippet {
-  /** The IDE this snippet targets. */
-  ide: 'Claude Code' | 'Cursor' | 'VS Code'
-  /** The absolute path to the settings file where this should be pasted. */
-  settingsPath: string
-  /**
-   * The JSON object to paste. Structure:
-   * For Claude Code (~/.claude/mcp.json — top-level mcpServers key):
-   *   { "mcpServers": { "flint": { "command": "node", "args": ["<serverPath>"] } } }
-   *
-   * For Cursor / VS Code (settings.json — nested under mcp.servers or mcpServers):
-   *   { "flint": { "command": "node", "args": ["<serverPath>"] } }
-   *
-   * <serverPath> is the absolute path to flint-mcp/dist/server.js
-   * resolved from process.resourcesPath (packaged) or __dirname (dev).
-   */
-  json: string
-}
-```
-
-### 2.4 Setup Wizard Component State
-
-```typescript
-/** Local React state — NOT a Zustand store. */
 type WizardStep = 'welcome' | 'ide-detect' | 'mcp-snippet' | 'verify' | 'done'
-
-// Internal state shape (useState within SetupWizard):
-// step: WizardStep
-// detectedIDEs: DetectedIDE[] | null  (null = loading)
-// selectedIDE: DetectedIDE | null     (user's choice or auto-selected)
-// copied: boolean                     (snippet copied to clipboard)
-// verifyStatus: 'idle' | 'checking' | 'connected' | 'error'
-// verifyError: string | null          (specific failure message)
+type VerifyStatus = 'idle' | 'checking' | 'connected' | 'error'
+type WriteStatus = 'writing' | 'written' | 'error'
 ```
 
 ### 2.5 Setup Wizard Props
 
 ```typescript
 interface SetupWizardProps {
-  /** Called when the wizard completes or is skipped. App.tsx uses this to proceed to LaunchScreen. */
   onComplete: () => void
 }
 ```
 
 ---
 
-## 3. IPC Channels
+## 3. IPC Channels (As-Built)
 
 | Channel | Direction | Request Payload | Return Type | Handler Location |
 |---------|-----------|----------------|-------------|-----------------|
 | `setup:detect-ides` | renderer -> main | (none) | `IDEDetectionResult` | `electron/main.ts` |
-| `setup:check-first-launch` | renderer -> main | (none) | `FirstLaunchStatus` | `electron/main.ts` |
+| `setup:check-first-launch` | renderer -> main | (none) | `{ isFirstLaunch: boolean }` | `electron/main.ts` |
 | `setup:complete-first-launch` | renderer -> main | (none) | `void` | `electron/main.ts` |
+| `setup:write-mcp-config` | renderer -> main | `(ideName: string, configPath: string, mcpServerPath: string)` | `{ written: boolean }` | `electron/main.ts` |
+| `app:reset-state` | renderer -> main | (none) | `void` | `electron/main.ts` |
 
-### 3.1 Handler Specifications
+### 3.1 Handler Specifications (As-Built)
 
 **`setup:detect-ides`**
-- Checks for IDE settings files in this priority order:
-  1. `~/.claude/settings.json` -- if exists, report "Claude Code" (covers Antigravity)
-  2. `~/Library/Application Support/Cursor/User/settings.json` -- "Cursor"
-  3. `~/Library/Application Support/Code/User/settings.json` -- "VS Code"
-- Uses `existsSync` for each path (synchronous, fast, no risk of blocking -- 3 stat calls)
-- Returns `{ ides: DetectedIDE[] }` with `detected: true/false` for each
-- Platform note: macOS paths shown above. Linux/Windows paths are out of scope for v1 but the handler should use `os.homedir()` as the base so Linux `~/.config/Code/` works with a future path table update.
+- Probes 4 IDE candidates in this order:
+  1. **Claude Code** -- Detection: `~/.claude/settings.json` OR `~/.claude/mcp.json`. Config target: prefers `~/.claude/mcp.json` if it exists, otherwise `~/.claude/settings.json`.
+  2. **Antigravity** -- Detection: `~/Library/Application Support/Antigravity/User/settings.json`. Config target: `~/.gemini/antigravity/mcp_config.json`.
+  3. **Cursor** -- Detection and config: `~/Library/Application Support/Cursor/User/settings.json`.
+  4. **VS Code** -- Detection and config: `~/Library/Application Support/Code/User/settings.json`.
+- Uses `existsSync` for each path (synchronous, 4 stat calls).
+- Also returns `mcpServerPath` via the `getMCPServerPath()` helper (mirrors `mcpClient.ts` resolution).
+- Platform: macOS paths. Linux/Windows stubs planned for future (handler uses `os.homedir()` as base).
 
 **`setup:check-first-launch`**
-- Reads `path.join(os.homedir(), '.flint', 'setup.json')`
-- If file does not exist or JSON parse fails: `{ isFirstLaunch: true }`
-- If file exists and contains `{ "firstLaunchComplete": true }`: `{ isFirstLaunch: false }`
+- Reads `path.join(os.homedir(), BRAND.configDir, 'setup.json')` (resolves to `~/.flint/setup.json`).
+- File absent or JSON parse failure: `{ isFirstLaunch: true }`.
+- File present with `firstLaunchComplete === true`: `{ isFirstLaunch: false }`.
 
 **`setup:complete-first-launch`**
-- Writes `{ "firstLaunchComplete": true, "completedAt": Date.now() }` to `~/.flint/setup.json`
-- Creates `~/.flint/` directory if it does not exist (`mkdirSync({ recursive: true })`)
-- Uses `writeFile` (not FileTransactionManager -- this is a config flag, not source code)
+- Writes `{ firstLaunchComplete: true, completedAt: <unix ms> }` to `~/.flint/setup.json`.
+- Creates `~/.flint/` directory if needed via `mkdirSync({ recursive: true })`.
+- Uses `writeFileSync` directly (Commandment 12 exemption -- config flag, not source code).
+
+**`setup:write-mcp-config`**
+- Accepts `(ideName, configPath, mcpServerPath)`.
+- Reads existing config at `configPath` (handles JSONC via `stripJsoncComments()`).
+- Merges the Flint MCP entry without clobbering existing config:
+  - VS Code and Antigravity: `{ mcp: { servers: { flint: { type: 'stdio', command: 'node', args: [mcpServerPath] } } } }`
+  - Claude Code and Cursor: `{ mcpServers: { flint: { command: 'node', args: [mcpServerPath] } } }`
+- Creates parent directory if needed.
+- Returns `{ written: true }` on success; throws on failure.
+
+**`app:reset-state`**
+- Deletes `~/.flint/setup.json` to re-enable the wizard on next launch.
+- The renderer calls this from the native OS menu "Reset State" handler, then clears `localStorage` and reloads.
 
 ### 3.2 MCP Server Path Resolution
 
-The MCP snippet must contain the absolute path to `flint-mcp/dist/server.js`. Resolution logic (in the `setup:detect-ides` handler or a shared helper used by the snippet step):
-
 ```typescript
-import { app } from 'electron'
-import path from 'node:path'
-
 function getMCPServerPath(): string {
   if (app.isPackaged) {
-    // In production: flint-mcp is bundled inside the app's resources
     return path.join(process.resourcesPath, 'flint-mcp', 'dist', 'server.js')
   }
-  // In development: resolve relative to electron/ directory
   return path.resolve(__dirname, '..', 'flint-mcp', 'dist', 'server.js')
 }
 ```
 
-This mirrors the existing resolution in `electron/mcpClient.ts` line 75.
+This is defined alongside the IPC handlers in `electron/main.ts` and mirrors the `SERVER_ENTRY` constant in `electron/mcpClient.ts`.
 
 ---
 
 ## 4. Store Contracts
 
-No new Zustand stores. All wizard state is local `useState` inside `SetupWizard.tsx`.
+No Zustand stores. All wizard state is local `useState` inside `SetupWizard.tsx`.
 
 ---
 
-## 5. Component Contracts
+## 5. Component Architecture (As-Built)
 
-### 5.1 SetupWizard
+### 5.1 SetupWizard (`src/components/ui/SetupWizard.tsx`)
 
 | Aspect | Value |
 |--------|-------|
 | File | `src/components/ui/SetupWizard.tsx` |
-| Props | `SetupWizardProps` (see section 2.5) |
+| Props | `SetupWizardProps` (`onComplete: () => void`) |
 | Store dependencies | None |
-| IPC calls | `window.flintAPI.setup.detectIDEs()`, `window.flintAPI.setup.completeFirstLaunch()` |
-| MCP calls | `window.flintAPI.mcp.callTool('flint_status', {})` for verify step |
+| IPC calls | `window.flintAPI.setup.detectIDEs()`, `window.flintAPI.setup.writeMCPConfig()`, `window.flintAPI.setup.completeFirstLaunch()` |
+| MCP calls | `window.flintAPI.mcp?.callTool('flint_status', {})` for verify step |
+| Icons | `CheckCircle`, `XCircle`, `ChevronRight`, `ChevronLeft`, `Loader2`, `Copy`, `Check` from `lucide-react` |
 
-**Step-by-step behavior:**
+**Step behavior:**
 
 1. **Welcome** (`step === 'welcome'`)
-   - Full-screen dark overlay with centered card
-   - Heading: "Get Flint running in 2 minutes"
-   - Subtext: "Flint connects to your IDE via MCP. We'll help you set it up."
-   - Single CTA button: "Let's go" -> advances to `'ide-detect'`
-   - No skip/dismiss on this step (it's the entry point)
+   - Full-screen `bg-zinc-950` overlay with centered `max-w-lg` card.
+   - Heading: "Get {BRAND.product} running in 2 minutes"
+   - Single CTA: "Let's go" advances to `ide-detect`.
+   - No skip/dismiss on this step.
 
 2. **IDE Detection** (`step === 'ide-detect'`)
-   - On mount: calls `window.flintAPI.setup.detectIDEs()`
-   - Shows loading spinner while `detectedIDEs === null`
-   - Lists each IDE with a radio-button selector:
-     - Detected IDEs show a green checkmark + "Found" badge
-     - Undetected IDEs show a gray dash + "Not found" badge but remain selectable (manual override)
-   - Auto-selects the first detected IDE (or none if all undetected)
-   - "Continue" button (disabled until an IDE is selected) -> advances to `'mcp-snippet'`
-   - "Skip setup" link at bottom -> calls `onComplete()`
+   - On mount: calls `detectIDEs()`. Shows `Loader2` spinner while null.
+   - Lists 4 IDEs as selectable buttons (not radio buttons).
+   - Detected: green `CheckCircle` + "Found" badge. Undetected: gray "-- Not found" but still selectable.
+   - Auto-selects first detected IDE.
+   - R-6: Changing IDE selection resets `writeStatus` and `writeError`.
+   - "Continue" disabled until selection made. "Skip setup" calls `onComplete()`.
 
-3. **MCP Snippet** (`step === 'mcp-snippet'`)
-   - Heading: "Add Flint to {selectedIDE.name}"
-   - Instruction text: "Copy this snippet and paste it into `{settingsPath}`"
-   - Pre-formatted JSON code block with the MCP config snippet
-   - Snippet format depends on IDE:
-     - **Claude Code:** Full `mcp.json` object: `{ "mcpServers": { "flint": { "command": "node", "args": ["{serverPath}"] } } }`
-     - **Cursor / VS Code:** The server entry only: `{ "flint": { "command": "node", "args": ["{serverPath}"] } }` with instruction to add under `mcpServers` key in settings.json
-   - "Copy" button -> writes to clipboard via `navigator.clipboard.writeText()`, shows "Copied!" confirmation for 2 seconds
-   - "Next" button -> advances to `'verify'`
-   - "Skip" link -> calls `onComplete()` after writing the first-launch flag
+3. **MCP Config** (`step === 'mcp-snippet'`) -- Consent-First Flow (R-1)
+   - Heading: "Connecting {BRAND.product} to {selectedIDE.name}"
+   - Shows the JSON snippet in a `<pre>` code block (preview-only before install).
+   - Three-state flow:
+     - **Pre-install** (`writeStatus === null`): Shows "Review the config above" message + "Install MCP Config" button.
+     - **Installing** (`writeStatus === 'writing'`): Disabled button with spinner. Escape key blocked (R-4).
+     - **Success** (`writeStatus === 'written'`): Green checkmark + "Config written" + "Continue" button.
+     - **Error** (`writeStatus === 'error'`): Red error message + "Copy config snippet" clipboard button (R-2) + manual paste instructions + "Retry" button.
+   - "Skip" link always advances to `verify` (R-3), never calls `completeFirstLaunch`.
 
 4. **Verify Connection** (`step === 'verify'`)
-   - "Test Connection" button
-   - On click: sets `verifyStatus = 'checking'`, calls `window.flintAPI.mcp.callTool('flint_status', {})`
-   - On success (result returned without error): `verifyStatus = 'connected'`, show green "Flint is live" with checkmark
-   - On error: `verifyStatus = 'error'`, show red message with specific failure:
-     - If `mcp.callTool` throws with connection error: "MCP server not found. Make sure you saved the config and restarted your IDE."
-     - If call succeeds but returns unexpected shape: "Server registered but not responding correctly."
-   - "Retry" button shown on error
-   - "Continue" button (shown on success) -> advances to `'done'`
-   - "Skip" link -> advances to `'done'` regardless of verify status
+   - R-5: Accurate copy -- "Flint is checking its internal connection. No changes to your IDE are needed."
+   - "Test Connection" button calls `window.flintAPI.mcp?.callTool('flint_status', {})`.
+   - Success: green "Flint is live" + "Continue" button.
+   - Error: red message with context-aware text (ECONNREFUSED vs. generic).
+   - "Skip" advances to done.
 
 5. **Done** (`step === 'done'`)
-   - "You're ready." heading with a success illustration/icon
-   - Subtext: "Flint will audit your code and enforce your design system automatically."
-   - "Start building" button -> calls `window.flintAPI.setup.completeFirstLaunch()` then `onComplete()`
-   - Auto-transition: if this step is reached, the flag write happens on the CTA click (not on step entry) so the user can go back
+   - Large `CheckCircle` icon + "You're ready." heading.
+   - "Start building" button calls `completeFirstLaunch()` then `onComplete()`.
+
+**Sub-component: `StepDots`**
+- R-10: Non-color distinction -- completed steps show solid indigo dots with checkmark glyphs, current step shows outlined ring with filled inner dot, future steps show hollow rings.
+- R-9: `aria-hidden="true"` on the dot container (decorative).
 
 **Global behaviors:**
-- Step indicator dots at the bottom (5 dots, current highlighted)
-- Back button on steps 2-4 (not on welcome or done)
-- Escape key calls `onComplete()` (non-blocking requirement)
-- Keyboard: Enter triggers primary CTA on each step
+- Back button on steps 2-4 (not welcome or done).
+- Escape key calls `onComplete()` unless `writeStatus === 'writing'` (R-4).
+- Enter key triggers `[data-wizard-primary]` button.
+- `BRAND.product` used for all product name strings.
 
 ### 5.2 App.tsx Integration
 
-The wizard gate is inserted BEFORE the existing LaunchScreen gate (line 346):
+The wizard gate chain in `App.tsx` (lines 84-508):
 
-```tsx
-// ── Setup Wizard gate (ONBOARD.1) ─────────────────────────────────────────
-const [setupComplete, setSetupComplete] = useState<boolean | null>(null)
-
-useEffect(() => {
-  window.flintAPI.setup.checkFirstLaunch().then(({ isFirstLaunch }) => {
-    setSetupComplete(!isFirstLaunch)
-  })
-}, [])
-
-// While checking first-launch status, render nothing (avoids flash)
-if (setupComplete === null) return null
-
-// If first launch, show the wizard instead of LaunchScreen
-if (!setupComplete) {
-  return <SetupWizard onComplete={() => setSetupComplete(true)} />
-}
-
-// ── LaunchScreen gate (existing) ──────────────────────────────────────────
-if (!workspaceFiles) {
-  return <LaunchScreen ... />
-}
+```
+setupComplete === null  --> render nothing (avoids flash)
+setupComplete === false --> render <SetupWizard />
+betaWelcomeDone === false --> render <BetaWelcome />
+workspaceFiles === null --> render <LaunchScreen />
+otherwise --> render main 3-panel workspace
 ```
 
-This goes at approximately line 346 of `src/App.tsx`, immediately before the existing `if (!workspaceFiles)` block.
+The `setupComplete` state is initialized as `null`. A `useEffect` calls `setup?.checkFirstLaunch()` with a 3-second timeout fallback that defaults to `setupComplete = true` (skip wizard if IPC hangs). On IPC failure, the wizard is also skipped.
+
+The native OS menu "Reset State" handler calls `setup?.resetState()`, clears `localStorage`, and reloads, which triggers the wizard again.
+
+### 5.3 Config Snippet Builder
+
+The `buildConfigSnippet()` function in `SetupWizard.tsx` produces IDE-specific JSON:
+
+- **VS Code / Cursor:** `{ "mcp.servers": { "flint": { "command": "node", "args": [mcpServerPath] } } }`
+- **Claude Code / Antigravity:** `{ "mcpServers": { "flint": { "command": "node", "args": [mcpServerPath] } } }`
+
+Note: The snippet builder differs slightly from the `setup:write-mcp-config` handler's merge logic (which uses `mcp.servers` nesting for VS Code/Antigravity and `mcpServers` for Claude Code/Cursor). The snippet is for display/copy; the handler performs the actual config merge.
 
 ---
 
-## 6. Preload Surface Additions
+## 6. Preload Surface (As-Built)
 
-Add to `electron/preload.ts` inside the `contextBridge.exposeInMainWorld('flintAPI', { ... })` object:
+In `electron/preload.ts` lines 868-890:
 
 ```typescript
-// ── ONBOARD.1: Setup Wizard IPC ──────────────────────────────────────────
 setup: {
-  /** Detect which IDEs are installed by checking settings file paths. */
-  detectIDEs: (): Promise<{
-    ides: Array<{
-      name: string
-      settingsPath: string
-      detected: boolean
-    }>
+  detectIDEs: () => Promise<{
+    ides: Array<{ name: string; settingsPath: string; detected: boolean }>
     mcpServerPath: string
   }> => ipcRenderer.invoke('setup:detect-ides'),
 
-  /** Check if this is the first launch (no .flint/setup.json). */
-  checkFirstLaunch: (): Promise<{ isFirstLaunch: boolean }> =>
+  checkFirstLaunch: () => Promise<{ isFirstLaunch: boolean }> =>
     ipcRenderer.invoke('setup:check-first-launch'),
 
-  /** Write the first-launch-complete flag to .flint/setup.json. */
-  completeFirstLaunch: (): Promise<void> =>
+  completeFirstLaunch: () => Promise<void> =>
     ipcRenderer.invoke('setup:complete-first-launch'),
-},
-```
 
-Note: `detectIDEs` also returns `mcpServerPath` so the renderer can build the snippet without needing a separate IPC call. The path is resolved once in main and sent down.
+  writeMCPConfig: (ideName: string, configPath: string, mcpServerPath: string) =>
+    Promise<{ written: boolean }> =>
+    ipcRenderer.invoke('setup:write-mcp-config', ideName, configPath, mcpServerPath),
+
+  resetState: () => Promise<void> => ipcRenderer.invoke('app:reset-state'),
+}
+```
 
 ---
 
-## 7. flint-api.d.ts Additions
+## 7. flint-api.d.ts (As-Built)
 
-Add to the `FlintAPI` interface in `src/types/flint-api.d.ts`:
+In `src/types/flint-api.d.ts` lines 1547-1572:
 
 ```typescript
 setup: {
   detectIDEs: () => Promise<{
     ides: Array<{
-      name: 'Claude Code' | 'Cursor' | 'VS Code'
+      name: 'Claude Code' | 'Cursor' | 'VS Code' | 'Antigravity'
       settingsPath: string
       detected: boolean
     }>
     mcpServerPath: string
   }>
   checkFirstLaunch: () => Promise<{ isFirstLaunch: boolean }>
+  writeMCPConfig: (ideName: string, configPath: string, mcpServerPath: string) => Promise<{ written: boolean }>
   completeFirstLaunch: () => Promise<void>
+  resetState: () => Promise<void>
 }
 ```
 
@@ -312,84 +289,55 @@ setup: {
 
 | # | Commandment | Applies | How Satisfied |
 |---|------------|---------|---------------|
-| 4 | Local-First Only | YES | IDE detection uses `existsSync` on local paths. No network calls during setup. The verify step uses the existing MCP client which is a local stdio child process. |
-| 9 | Process Boundary | YES | All filesystem access (IDE detection, setup flag read/write) happens in `electron/main.ts` via IPC. Renderer uses `window.flintAPI.setup.*` only. |
-| 12 | Atomic Queuing | NO | `setup.json` is a config flag, not source code. Direct `writeFile` is acceptable here -- FileTransactionManager is for source files. |
-| 14 | Bypass Prohibition | PARTIAL | The setup flag write uses `fs.writeFile` directly because it is a config file in `~/.flint/`, not a project source file. This is consistent with how `ai:save-config` handles `~/.flint/config.json` in the existing codebase. |
+| 4 | Local-First Only | YES | All IDE detection uses `existsSync` on local paths. No network calls. The verify step uses the local MCP stdio client. |
+| 9 | Process Boundary | YES | All filesystem access happens in `electron/main.ts` via IPC. Renderer uses `window.flintAPI.setup.*` only. No `fs` imports in `src/`. |
+| 12 | Atomic Queuing | EXEMPT | `setup.json` is a config flag in `~/.flint/`, not source code. Direct `writeFileSync` is acceptable (same pattern as `ai:save-config`). |
+| 14 | Bypass Prohibition | EXEMPT | Same exemption as Commandment 12 -- config files, not project source. |
 
 No other commandments apply. This feature does not touch AST, tokens, design drift, undo/redo, or exports.
 
 ---
 
-## 9. Implementation Order
+## 9. First-Launch Flag
 
-### Group 1 (parallel) — IPC Layer
-
-**Agent: flint-electron-ipc**
-
-1. Add three IPC handlers to `electron/main.ts`:
-   - `setup:detect-ides` — IDE detection logic with `existsSync`
-   - `setup:check-first-launch` — read `~/.flint/setup.json`
-   - `setup:complete-first-launch` — write `~/.flint/setup.json`
-2. Add `setup` namespace to `electron/preload.ts`
-3. Add types to `src/types/flint-api.d.ts`
-
-### Group 2 (parallel with Group 1) — UI Component
-
-**Agent: flint-design-engineer**
-
-1. Create `src/components/ui/SetupWizard.tsx` — all 5 steps as described in section 5.1
-2. Modify `src/App.tsx` — add wizard gate as described in section 5.2
-
-### Group 3 (after Groups 1+2) — Tests
-
-**Agent: flint-test-writer**
-
-1. Create `electron/__tests__/setupIpc.test.ts`:
-   - `setup:detect-ides`: returns correct structure, handles missing files, handles all-missing case
-   - `setup:check-first-launch`: returns `true` when file missing, `false` when flag set, `true` on corrupt JSON
-   - `setup:complete-first-launch`: creates directory if needed, writes valid JSON, idempotent on re-call
-2. Create `src/components/ui/__tests__/SetupWizard.test.tsx`:
-   - Renders welcome step on mount
-   - Advances through all 5 steps
-   - Calls `detectIDEs` on ide-detect step entry
-   - Auto-selects first detected IDE
-   - Manual override (selecting undetected IDE) works
-   - Copy button writes to clipboard
-   - Verify step: success path shows green
-   - Verify step: error path shows red with message
-   - Skip link calls `onComplete`
-   - Escape key calls `onComplete`
-   - Done step calls `completeFirstLaunch` then `onComplete`
-   - Back button navigates correctly
-3. Test that `App.tsx` renders wizard when `checkFirstLaunch` returns `isFirstLaunch: true`
-4. Test that `App.tsx` renders LaunchScreen when `checkFirstLaunch` returns `isFirstLaunch: false`
-
-### Group 4 (after Group 3) — Validation
-
-**Agent: flint-integration-validator**
-
-- Run full test suites: `npm test`, `npm run test:react`, `cd flint-mcp && npm test`
-- Run `npx tsc --noEmit`
-- Confirm no regressions against baseline (2,875 tests, 0 TSC errors)
+| Aspect | Value |
+|--------|-------|
+| File path | `~/.flint/setup.json` (resolved via `path.join(os.homedir(), BRAND.configDir, 'setup.json')`) |
+| Content when complete | `{ "firstLaunchComplete": true, "completedAt": <unix-ms> }` |
+| Checked at startup | `App.tsx` useEffect calls `setup.checkFirstLaunch()` with 3s timeout |
+| Written on completion | "Start building" button on done step calls `setup.completeFirstLaunch()` |
+| Reset mechanism | Native menu "Reset State" calls `setup.resetState()` (deletes file), clears localStorage, reloads |
+| Config directory creation | `mkdirSync(flintDir, { recursive: true })` in `setup:complete-first-launch` handler |
 
 ---
 
-## 10. Risks
+## 10. IDE Detection Logic (As-Built)
 
-| Risk | Severity | Mitigation | Commandment Threatened |
-|------|----------|-----------|----------------------|
-| `process.resourcesPath` differs between dev and packaged builds | Medium | Use `app.isPackaged` guard matching existing `mcpClient.ts` line 75 pattern | 4 (Local-First) |
-| Claude Code uses `~/.claude/mcp.json` not `~/.claude/settings.json` for MCP config | High | The IDE detection checks `settings.json` to confirm Claude Code is installed. The snippet JSON must target `~/.claude/mcp.json` as the paste destination. These are different files -- detection file vs. config file. Document clearly in the UI. | None |
-| Wizard blocks app on IPC failure | Medium | `checkFirstLaunch` has a 3-second timeout; on timeout, treat as `isFirstLaunch: false` (skip wizard). Wizard escape key always works. | None |
-| Existing `OnboardingOverlay` conflict | Low | `OnboardingOverlay` is a post-project-open tooltip tour (localStorage-gated). `SetupWizard` is a pre-LaunchScreen full-screen wizard (file-gated). They serve different purposes at different lifecycle points. No conflict. | None |
-| macOS-only IDE paths | Low | v1 is macOS only. Linux paths (`~/.config/Code/`) can be added in a follow-up by extending the path table in the IPC handler. The handler already uses `os.homedir()` as base. | None |
+### macOS Paths (Implemented)
+
+| IDE | Detection File(s) | Config Target |
+|-----|-------------------|---------------|
+| Claude Code | `~/.claude/settings.json` OR `~/.claude/mcp.json` | `~/.claude/mcp.json` (preferred) or `~/.claude/settings.json` (fallback) |
+| Antigravity | `~/Library/Application Support/Antigravity/User/settings.json` | `~/.gemini/antigravity/mcp_config.json` |
+| Cursor | `~/Library/Application Support/Cursor/User/settings.json` | Same as detection file |
+| VS Code | `~/Library/Application Support/Code/User/settings.json` | Same as detection file |
+
+### Key Design Decisions
+
+1. **Detection != Config for Claude Code:** The detection file proves the IDE is installed. The config file is where MCP entries go. For Claude Code, `mcp.json` is the authoritative MCP registration target (newer installs may not have `settings.json`).
+2. **Antigravity is a VS Code fork:** Uses the VS Code `mcp.servers` format in the write handler, not the Claude Code `mcpServers` format. Config lives at a Gemini-specific path.
+3. **Multiple IDEs can be detected:** All 4 are checked and listed. User selects one to configure.
+4. **Manual override:** Undetected IDEs remain selectable so users with non-standard installations can proceed.
+
+### Linux/Windows (Stubs -- Not Implemented)
+
+The handler uses `os.homedir()` as base, so a future path table for Linux (`~/.config/Code/User/settings.json`) and Windows (`%APPDATA%/Code/User/settings.json`) can be added by extending the `IDE_CANDIDATES` array.
 
 ---
 
-## 11. MCP Snippet Templates
+## 11. MCP Snippet Templates (As-Built)
 
-### Claude Code (`~/.claude/mcp.json`)
+### Claude Code / Antigravity (`mcpServers` format)
 
 ```json
 {
@@ -402,13 +350,11 @@ No other commandments apply. This feature does not touch AST, tokens, design dri
 }
 ```
 
-User instruction: "Save this as `~/.claude/mcp.json` (create the file if it doesn't exist)."
-
-### Cursor (`~/Library/Application Support/Cursor/User/settings.json`)
+### Cursor / VS Code (`mcp.servers` format -- snippet display)
 
 ```json
 {
-  "mcpServers": {
+  "mcp.servers": {
     "flint": {
       "command": "node",
       "args": ["{mcpServerPath}"]
@@ -417,47 +363,100 @@ User instruction: "Save this as `~/.claude/mcp.json` (create the file if it does
 }
 ```
 
-User instruction: "Add this to your Cursor settings.json. If a `mcpServers` key already exists, merge the `flint` entry into it."
-
-### VS Code (`~/Library/Application Support/Code/User/settings.json`)
-
-```json
-{
-  "mcp": {
-    "servers": {
-      "flint": {
-        "command": "node",
-        "args": ["{mcpServerPath}"]
-      }
-    }
-  }
-}
-```
-
-User instruction: "Add this to your VS Code settings.json. If an `mcp.servers` key already exists, merge the `flint` entry into it."
+Note: The `setup:write-mcp-config` handler uses a deeper merge structure for VS Code/Antigravity (`{ mcp: { servers: { flint: ... } } }`) that properly nests inside existing config. The display snippet uses the flat `mcp.servers` key for readability.
 
 ---
 
-## 12. Visual Design Notes
+## 12. Test Plan (As-Shipped)
 
-- Full-screen wizard on a `bg-gray-950` background with a centered card (`max-w-lg`)
-- Card uses `bg-gray-900 border border-gray-800 rounded-xl shadow-2xl`
-- Primary CTA: `bg-indigo-600 hover:bg-indigo-500 text-white` (matches existing Flint palette)
+### SetupWizard.test.tsx (38+ tests)
+
+| ID | Test |
+|----|------|
+| WIZ-01 | Renders welcome step on initial mount |
+| WIZ-02 | "Let's go" advances to ide-detect |
+| WIZ-03 | detectIDEs called when ide-detect mounts |
+| WIZ-04 | Spinner while detectedIDEs is null |
+| WIZ-05 | Auto-selects first detected IDE |
+| WIZ-06 | Undetected IDE can be manually selected |
+| WIZ-07 | "Continue" disabled with no selection |
+| WIZ-08 | "Continue" advances to mcp-snippet |
+| WIZ-09 | "Skip setup" calls onComplete |
+| WIZ-10 | "Install MCP Config" button shown (no auto-write) |
+| WIZ-11 | "Config written" after Install + writeMCPConfig resolves |
+| WIZ-12 | Error state when writeMCPConfig rejects |
+| WIZ-13 | Retry resets write state |
+| WIZ-14 | "Continue" after success advances to verify |
+| WIZ-15 | "Skip" on mcp-snippet advances to verify; no completeFirstLaunch |
+| WIZ-16 | Verify success: callTool resolves, shows "Flint is live" |
+| WIZ-17 | Verify error: callTool rejects, shows error |
+| WIZ-18 | "Continue" on verify success advances to done |
+| WIZ-19 | "Skip" on verify advances to done |
+| WIZ-20 | Done step calls completeFirstLaunch then onComplete |
+| WIZ-21 | Back on ide-detect returns to welcome |
+| WIZ-22 | Back on mcp-snippet returns to ide-detect |
+| WIZ-23 | Escape calls onComplete (when not writing) |
+| WIZ-24 | Step indicator renders 5 dots |
+| WIZ-24b | Antigravity appears in IDE list |
+| WIZ-24c | writeMCPConfig called with Antigravity path |
+| R1-A | writeMCPConfig NOT auto-called on step entry |
+| R1-B | "Install MCP Config" button present before write |
+| R1-C | Clicking Install calls writeMCPConfig |
+| R1-D | Install button shows spinner while writing |
+| R2-A | "Copy config snippet" button in error state |
+| R2-B | Copy writes JSON to clipboard |
+| R2-C | Manual paste instruction in error state |
+| R3-A | Skip in mcp-snippet advances to verify (not done) |
+| R3-B | completeFirstLaunch NOT called on skip |
+| R3-C | Only done step "Start building" calls completeFirstLaunch |
+| R4-A | Escape ignored while writeStatus === 'writing' |
+| R5-A | Verify shows accurate copy (no "restart your IDE") |
+| R5-B | Verify shows "internal connection" language |
+| R6-A | writeStatus resets when IDE selection changes |
+| R9-A | Status box has aria-live="polite" |
+| R10-A | Completed steps show checkmark |
+| R10-B | Current step shows ring indicator |
+
+---
+
+## 13. Visual Design (As-Built)
+
+- Full-screen overlay: `fixed inset-0 z-50 bg-zinc-950`
+- Card: `max-w-lg rounded-xl border border-zinc-800 bg-zinc-900 p-8 shadow-2xl`
+- Primary CTA: `bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg`
 - Skip links: `text-zinc-500 hover:text-zinc-400 text-xs underline`
-- Code block for MCP snippet: `bg-gray-950 border border-gray-700 rounded-lg font-mono text-xs p-4` with horizontal scroll
-- Step dots: same pattern as existing `OnboardingOverlay` (section 5.1 of that component)
-- IDE list items: `border border-gray-700 rounded-lg p-3` with radio-style selection highlight
-- Green check for detected IDEs: `text-emerald-400`
-- Verify success: `text-emerald-400` with `CheckCircle` icon
-- Verify error: `text-red-400` with `XCircle` icon
-- Use `lucide-react` icons only (already in the project): `CheckCircle`, `XCircle`, `Copy`, `Check`, `ChevronRight`, `ChevronLeft`, `Loader2`
+- Code block: `bg-zinc-950 border border-zinc-700/50 rounded-lg font-mono text-xs`
+- IDE list items: `rounded-lg border p-3` with `border-indigo-500/60 bg-indigo-900/20` selection highlight
+- Detected badge: `text-emerald-400` with `CheckCircle`
+- Verify success: `text-emerald-400` with `CheckCircle`
+- Verify error: `text-red-400` with `XCircle`
+- Palette: zinc scale throughout (no gray -- R-8 consistency fix)
+- Icons: `lucide-react` only
 
 ---
 
-## 13. Clarifications for Claude Code MCP Path
+## 14. Risks (Reviewed)
 
-The detection step checks `~/.claude/settings.json` to confirm Claude Code is installed. However, the MCP snippet must be pasted into `~/.claude/mcp.json` (a different file). The `DetectedIDE` type for Claude Code should set:
-- `settingsPath` to `~/.claude/mcp.json` (the file the user needs to edit)
-- Detection logic checks `~/.claude/settings.json` (the file that proves the IDE exists)
+| Risk | Severity | Mitigation | Status |
+|------|----------|-----------|--------|
+| `process.resourcesPath` differs between dev and packaged | Medium | `app.isPackaged` guard matches `mcpClient.ts` | RESOLVED |
+| Claude Code detection != config file | High | Dual-file detection: `settings.json` OR `mcp.json` for detection; `mcp.json` preferred for config | RESOLVED |
+| Wizard blocks app on IPC failure | Medium | 3-second timeout fallback in App.tsx; catch clause skips wizard | RESOLVED |
+| Existing OnboardingOverlay conflict | Low | Different lifecycle (post-project-open tooltip tour vs. pre-LaunchScreen wizard) | RESOLVED |
+| macOS-only IDE paths | Low | v1 is macOS only; `os.homedir()` base allows future extension | ACCEPTED |
+| JSONC comments in IDE settings files | Medium | `stripJsoncComments()` before `JSON.parse()` in write handler | RESOLVED |
+| Write handler clobbers existing config | High | Deep merge pattern preserves all existing keys | RESOLVED |
+| Consent without user action | Medium | R-1 consent-first: no write until user clicks "Install MCP Config" | RESOLVED |
 
-This distinction must be clear in both the IPC handler implementation and the wizard UI text.
+---
+
+## 15. Changelog
+
+| Date | Change |
+|------|--------|
+| 2026-03-18 | v1: Original contract approved. 3 IPC channels, 3 IDEs, copy-paste only. |
+| 2026-03-18 | Implementation shipped. 36 tests, SHIP verdict. |
+| 2026-03-19 | R-1..R-10 fixes: consent-first install, copy fallback, accurate verify copy, escape safety, a11y. |
+| 2026-03-19 | Antigravity IDE added (4th IDE). `setup:write-mcp-config` IPC added. |
+| 2026-03-21 | Cleanup sprint: zinc palette consistency (R-8). |
+| 2026-03-21 | v2: Contract updated to reflect as-built state. |

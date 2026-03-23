@@ -11,10 +11,11 @@
  *      If expired → show dialog, quit, return false.
  *   2. On window creation, call `startVersionCheck(win)`.
  *      Periodically fetches the remote version manifest and pushes
- *      'beta:update-available' events to the renderer for toast display.
+ *      ipcChannel('beta:update-available') events to the renderer for toast display.
  */
 
 import { app, dialog, BrowserWindow, net } from 'electron'
+import { ipcChannel } from '../shared/brand.js'
 
 // ── Compile-time constants ──────────────────────────────────────────────────
 
@@ -118,7 +119,7 @@ async function fetchManifest(win: BrowserWindow): Promise<void> {
         // Kill switch — remote deactivation
         if (manifest.active === false) {
             if (!win.isDestroyed()) {
-                win.webContents.send('beta:expired-remote', {
+                win.webContents.send(ipcChannel('beta:expired-remote'), {
                     message: manifest.message || 'This beta has been deactivated.',
                 })
             }
@@ -130,7 +131,7 @@ async function fetchManifest(win: BrowserWindow): Promise<void> {
             const remoteExpiry = new Date(manifest.expires)
             if (!isNaN(remoteExpiry.getTime()) && new Date() > remoteExpiry) {
                 if (!win.isDestroyed()) {
-                    win.webContents.send('beta:expired-remote', {
+                    win.webContents.send(ipcChannel('beta:expired-remote'), {
                         message: `This beta expired on ${remoteExpiry.toLocaleDateString()}.`,
                     })
                 }
@@ -141,7 +142,7 @@ async function fetchManifest(win: BrowserWindow): Promise<void> {
         // New version available
         if (manifest.latestVersion && manifest.latestVersion !== app.getVersion()) {
             if (!win.isDestroyed()) {
-                win.webContents.send('beta:update-available', {
+                win.webContents.send(ipcChannel('beta:update-available'), {
                     version: manifest.latestVersion,
                     downloadUrl: manifest.downloadUrl || '',
                     message: manifest.message || `Flint ${manifest.latestVersion} is available.`,

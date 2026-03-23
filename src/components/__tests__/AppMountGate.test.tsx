@@ -130,6 +130,27 @@ vi.mock('../../components/ui/BetaWelcome', () => ({
     shouldShowBetaWelcome: () => false,
 }))
 
+// Mock components added after initial test authoring
+vi.mock('../../components/ui/FileExplorer', () => ({
+    FileExplorer: () => <div data-testid="file-explorer" />,
+}))
+
+vi.mock('../../components/ui/AgentDashboard', () => ({
+    AgentDashboard: () => <div data-testid="agent-dashboard" />,
+}))
+
+vi.mock('../../components/ui/ComponentScopePanel', () => ({
+    ComponentScopePanel: () => <div data-testid="component-scope-panel" />,
+}))
+
+vi.mock('../../components/ui/OnboardingNudge', () => ({
+    OnboardingNudge: () => <div data-testid="onboarding-nudge" />,
+}))
+
+vi.mock('../../components/ui/CommandPalette', () => ({
+    CommandPalette: () => <div data-testid="command-palette" />,
+}))
+
 // Silence hooks that use IPC or timers
 vi.mock('../../hooks/useContextSync', () => ({
     useContextSync: vi.fn(),
@@ -137,6 +158,10 @@ vi.mock('../../hooks/useContextSync', () => ({
 
 vi.mock('../../hooks/useMCPEventListener', () => ({
     useMCPEventListener: vi.fn(),
+}))
+
+vi.mock('../../hooks/useAutopilot', () => ({
+    useAutopilot: vi.fn(),
 }))
 
 // Silence seedTokens dynamic import
@@ -168,9 +193,7 @@ describe('App — LaunchScreen mount gate (Journey 1, Step 1.1)', () => {
         // setup.ts, but we augment it here to add the missing removeChangedListener
         // and to ensure annotations.onChanged is callable.
         resetAllStores()
-        const api = createMockFlintAPI()
-        ;(api.annotations as any).removeChangedListener = vi.fn()
-        ;(window as any).flintAPI = api
+        ;(window as any).flintAPI = createMockFlintAPI()
     })
 
     // ── Test 1 ────────────────────────────────────────────────────────────────
@@ -182,8 +205,8 @@ describe('App — LaunchScreen mount gate (Journey 1, Step 1.1)', () => {
             render(<App />)
         })
 
-        // LaunchScreen has the "Flint IDE" heading
-        expect(screen.getByText('What brings you to Flint?')).toBeInTheDocument()
+        // LaunchScreen always shows "Design System Governance" in its header
+        expect(screen.getByText('Design System Governance')).toBeInTheDocument()
 
         // Workspace panels must NOT be present
         expect(screen.queryByTestId('xy-canvas')).not.toBeInTheDocument()
@@ -206,8 +229,8 @@ describe('App — LaunchScreen mount gate (Journey 1, Step 1.1)', () => {
         expect(screen.getByTestId('status-bar')).toBeInTheDocument()
         expect(screen.getByTestId('layer-tree')).toBeInTheDocument()
 
-        // LaunchScreen heading must NOT appear
-        expect(screen.queryByText('What brings you to Flint?')).not.toBeInTheDocument()
+        // LaunchScreen must NOT appear
+        expect(screen.queryByText('Design System Governance')).not.toBeInTheDocument()
 
         // The workspace header always shows "Flint Glass"
         expect(screen.getByRole('heading', { name: /flint glass/i })).toBeInTheDocument()
@@ -251,7 +274,7 @@ describe('App — LaunchScreen mount gate (Journey 1, Step 1.1)', () => {
 
         // Workspace is visible
         expect(screen.getByTestId('xy-canvas')).toBeInTheDocument()
-        expect(screen.queryByText('What brings you to Flint?')).not.toBeInTheDocument()
+        expect(screen.queryByText('Design System Governance')).not.toBeInTheDocument()
 
         // Simulate closing the project (equivalent to clicking "Close Project"
         // or the native menu event triggering closeWorkspace())
@@ -260,7 +283,7 @@ describe('App — LaunchScreen mount gate (Journey 1, Step 1.1)', () => {
         })
 
         // LaunchScreen must reappear
-        expect(screen.getByText('What brings you to Flint?')).toBeInTheDocument()
+        expect(screen.getByText('Design System Governance')).toBeInTheDocument()
 
         // Workspace panels must be gone
         expect(screen.queryByTestId('xy-canvas')).not.toBeInTheDocument()
@@ -280,9 +303,7 @@ describe('App — LaunchScreen mount gate (Journey 1, Step 1.1)', () => {
 describe('App — Setup Wizard gate (ONBOARD.1)', () => {
     beforeEach(() => {
         resetAllStores()
-        const api = createMockFlintAPI()
-        ;(api.annotations as any).removeChangedListener = vi.fn()
-        ;(window as any).flintAPI = api
+        ;(window as any).flintAPI = createMockFlintAPI()
     })
 
     // ── Wizard gate test 1 ────────────────────────────────────────────────────
@@ -297,7 +318,7 @@ describe('App — Setup Wizard gate (ONBOARD.1)', () => {
 
         expect(screen.getByTestId('setup-wizard')).toBeInTheDocument()
         // LaunchScreen must NOT appear while wizard is shown
-        expect(screen.queryByText('What brings you to Flint?')).not.toBeInTheDocument()
+        expect(screen.queryByText('Design System Governance')).not.toBeInTheDocument()
     })
 
     // ── Wizard gate test 2 ────────────────────────────────────────────────────
@@ -312,7 +333,7 @@ describe('App — Setup Wizard gate (ONBOARD.1)', () => {
             render(<App />)
         })
 
-        expect(screen.getByText('What brings you to Flint?')).toBeInTheDocument()
+        expect(screen.getByText('Design System Governance')).toBeInTheDocument()
         expect(screen.queryByTestId('setup-wizard')).not.toBeInTheDocument()
     })
 
@@ -332,6 +353,6 @@ describe('App — Setup Wizard gate (ONBOARD.1)', () => {
         expect(container.firstChild).toBeNull()
         // Neither wizard nor LaunchScreen should be present
         expect(screen.queryByTestId('setup-wizard')).not.toBeInTheDocument()
-        expect(screen.queryByText('What brings you to Flint?')).not.toBeInTheDocument()
+        expect(screen.queryByText('Design System Governance')).not.toBeInTheDocument()
     })
 })

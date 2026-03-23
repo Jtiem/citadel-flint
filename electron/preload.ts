@@ -345,6 +345,15 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
     },
 
     /**
+     * Session restoration API.
+     * Used by App.tsx to auto-resume the last project on launch.
+     */
+    session: {
+        getLastSession: (): Promise<{ path: string; name: string; isScratchpad: boolean } | null> =>
+            ipcRenderer.invoke('project:get-last-session'),
+    },
+
+    /**
      * Project lifecycle API — template scaffolding and path-based open.
      */
     project: {
@@ -595,23 +604,6 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
         },
     },
 
-    // ── Phase P: Integrated Terminal ──────────────────────────────────────────
-    terminal: {
-        spawn: (cwd: string): Promise<void> =>
-            ipcRenderer.invoke('terminal:spawn', cwd),
-        write: (data: string): Promise<void> =>
-            ipcRenderer.invoke('terminal:data', data),
-        resize: (cols: number, rows: number): Promise<void> =>
-            ipcRenderer.invoke('terminal:resize', cols, rows),
-        onOutput: (callback: (data: string) => void): (() => void) => {
-            const listener = (_event: Electron.IpcRendererEvent, data: string) => callback(data)
-            ipcRenderer.on('terminal:output', listener)
-            return () => {
-                ipcRenderer.removeListener('terminal:output', listener)
-            }
-        },
-    },
-
     // ── Phase W: MCP Push Channel + Bidirectional Action Flint ───────────────
 
     /**
@@ -636,6 +628,9 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
 
         status: (): Promise<{ connected: boolean; serverPid: number | null }> =>
             ipcRenderer.invoke('mcp:status'),
+
+        reconnect: (): Promise<void> =>
+            ipcRenderer.invoke('mcp:reconnect'),
 
         onEvent: (callback: (events: unknown[]) => void): void => {
             ipcRenderer.on(ipcChannel('mcp-event'), (_event, events: unknown[]) => callback(events))
@@ -863,19 +858,19 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
             message: string
         }) => void): (() => void) => {
             const listener = (_event: Electron.IpcRendererEvent, data: { version: string; downloadUrl: string; message: string }) => callback(data)
-            ipcRenderer.on('beta:update-available', listener)
-            return () => { ipcRenderer.removeListener('beta:update-available', listener) }
+            ipcRenderer.on(ipcChannel('beta:update-available'), listener)
+            return () => { ipcRenderer.removeListener(ipcChannel('beta:update-available'), listener) }
         },
 
         onExpiredRemote: (callback: (event: { message: string }) => void): (() => void) => {
             const listener = (_event: Electron.IpcRendererEvent, data: { message: string }) => callback(data)
-            ipcRenderer.on('beta:expired-remote', listener)
-            return () => { ipcRenderer.removeListener('beta:expired-remote', listener) }
+            ipcRenderer.on(ipcChannel('beta:expired-remote'), listener)
+            return () => { ipcRenderer.removeListener(ipcChannel('beta:expired-remote'), listener) }
         },
 
         removeListeners: (): void => {
-            ipcRenderer.removeAllListeners('beta:update-available')
-            ipcRenderer.removeAllListeners('beta:expired-remote')
+            ipcRenderer.removeAllListeners(ipcChannel('beta:update-available'))
+            ipcRenderer.removeAllListeners(ipcChannel('beta:expired-remote'))
         },
     },
 

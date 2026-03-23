@@ -63,7 +63,7 @@ Any feature crossing this boundary needs an IPC channel via `contextBridge`.
 
 ## MCP Surface
 
-### Tools (33 registered)
+### Tools (45 registered)
 
 Primary tools (see `flint-mcp/src/server.ts` for the full catalog):
 
@@ -103,7 +103,7 @@ Primary tools (see `flint-mcp/src/server.ts` for the full catalog):
 
 Additional tools registered via `flint-mcp/src/tools/` modules cover governance events, mutation ledger, annotations, and CI/CD gate operations.
 
-### Resources (9 registered)
+### Resources (13 registered)
 
 | URI | What it exposes |
 |-----|----------------|
@@ -182,6 +182,9 @@ Additional tools registered via `flint-mcp/src/tools/` modules cover governance 
 | MCP Push Channel (mcp-events.jsonl, useMCPEventListener, fs.watch tail) | W.1 | **ONLINE** |
 | Bidirectional Action Flint (mcpClient.ts, Glass-initiated MCP tool calls) | W.3 | **ONLINE** |
 | Agent Risk Dashboard (per-agent risk badges, escalation indicators) | AGV.2 | **ONLINE** |
+| Multi-Agent Epistemic Consensus Gate (secondary agent eval for Amber/Red mutations, `flint_consensus_report`, per-domain config) | V.4 | **ONLINE** |
+| First-Launch Setup Wizard (IDE detection, MCP snippet, connection test, first-launch flag) | ONBOARD.1 | **ONLINE** |
+| Ghost Code Snippet Overlay (contextual source panel on node select, Hover-to-Source) | U.2 | **ONLINE** |
 
 ### Collaboration + Sync
 
@@ -250,6 +253,9 @@ Additional tools registered via `flint-mcp/src/tools/` modules cover governance 
 | CI Sync Gate + Offline Queue + History Export + Dashboard Integration | SYNC.4 | **ONLINE** |
 | Multi-Brand Theme Validation (cross-theme matrix, delta report) | EXP.4 | **ONLINE** |
 | Design System Version Migration (token diff, AST rename, ΔE scoring) | EXP.5 | **ONLINE** |
+| Cross-Platform Token Sync (DTCG → Tailwind/CSS/React Native/Swift/Kotlin, cross-platform audit) | EXP.7 | **ONLINE** |
+| Governance Pack Export (`flint_pack_export`, security scanner, SHA-256 checksums) | GPX.1 | **ONLINE** |
+| Governance Pack Import (`flint_pack_import`, conflict detection, 3 merge strategies, snapshot rollback) | GPX.2 | **ONLINE** |
 | VS Code / Cursor Extension (diagnostics, quick fixes, status bar, MCP client) | IDE.1 | **ONLINE** |
 | Universal AST Abstraction (FlintNode, JSX + JSON Schema adapters, PluginRegistry) | V.3 | **ONLINE** |
 | Constrained Registry (proactive system prompt injection, registry membership gate, per-project scope) | CR.1-3 | **ONLINE** |
@@ -396,6 +402,32 @@ SESSION END: Update HANDOFF.md + clear territory claim
 Single-file bug fixes and cosmetic changes are exempt from the Contract-First flow but NOT from the Session Start Protocol. All other work follows this flow. Contract artifacts are the binding specification — Phase 2 agents implement exactly what the contract defines. If the contract is wrong, return to Phase 1.
 
 **Git ceremonies** are handled by `flint-git-guru` at every phase boundary. It manages branch naming (`feat/<phase>-<desc>`), conventional commit messages, pre-commit validation, and PR creation. Never commit without running the pre-commit gate (TSC + relevant test suites).
+
+## Feature Budget Framework
+
+Every feature proposal must pass these 6 gates before implementation. Full framework at `docs/strategy/FEATURE-BUDGET-FRAMEWORK.md`.
+
+### The 6 Gates
+
+1. **Who is this for?** Identify the audience: Engine (both), Designer (Glass), Developer (VS Code extension), or CI. Features claiming "both/everyone" must justify why each audience needs it separately.
+2. **What behavior does this enable?** State as: "[User] can now [action] which they couldn't before." If you can't state this clearly, the feature is a solution looking for a problem.
+3. **Is this the 80% use case or the 5% demo moment?** Build 80% features first. Demo moments are only justified when you have users to demo to.
+4. **What's the maintenance cost?** Low (pure function, self-contained) / Medium (store slice, IPC, component) / High (cross-process, multi-interface, real-time). High-maintenance features require 3x the user signal.
+5. **Can we validate without building it?** Ask users, show a mockup, ship a minimal version, or run a manual process first. Features taking >1 week must be validated before implementation.
+6. **What do we stop doing to make room?** Explicitly name what gets deprioritized. If you can't name the trade-off, you haven't prioritized.
+
+### Dual-Audience Rule
+
+Flint serves designers AND developers. Features go to the layer that matches their audience:
+
+| Audience | Where it lives | Core actions |
+|----------|---------------|--------------|
+| **Both** | `flint-mcp/` (engine) | Audit, fix, emit tokens, pack export/import |
+| **Designer** | `electron/` + `src/` (Glass) | Preview, Verify, Fix, Score, Export |
+| **Developer** | `flint-vscode/` (extension) | Diagnostics, Quick Fix, Status, Panel |
+| **CI** | `flint-ci/` (CLI) | Headless audit, SARIF output |
+
+Do not port designer features to the extension or developer features to Glass unless user signals justify it. Each interface is deliberately scoped.
 
 ## Critical AI Directives
 

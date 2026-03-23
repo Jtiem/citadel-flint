@@ -2,7 +2,189 @@
 
 **Date:** 2026-03-21
 **Architecture:** Flint MCP (headless governance engine) + Flint Glass (Electron observability layer)
-**Test baseline:** 2,135/2,135 MCP | 960/960 Glass | 977/977 Core — TSC 0 errors
+**Test baseline:** 2,454/2,454 MCP | 983/983 Glass | 966/966 Core — TSC 0 errors
+
+---
+
+## Session: 2026-03-22 Extension Verification + Strategy Review (COMPLETE)
+
+**Goal:** Verify VS Code extension builds clean, validate product strategy for dual-audience (designers + developers).
+
+**What confirmed:**
+
+- `flint-vscode/` builds with 0 TSC errors, 0 stale Bridge references
+- Extension already has: Governance panel, Activity panel, diagnostics, quick fixes, auto-audit, MCP client, multi-IDE auto-registration
+- Extension is ready for testing via `Fn+F5` in VS Code
+
+**Strategic decisions documented:**
+
+- Glass serves designers (visual verification), VS Code extension serves developers (inline governance)
+- Governance Packs are the shared contract between both audiences
+- Distribution strategy: private beta first (zip/direct share), then npm+BSL after validation
+- Feature freeze recommended until 5 real users provide signal
+
+---
+
+## Session: 2026-03-21 GPX.1 + GPX.2 — Governance Pack Exchange (COMPLETE)
+
+**Goal:** Build portable governance pack export/import so teams can share Flint configs across projects.
+
+**What shipped:**
+
+| Phase | Files | Tests |
+|-------|-------|-------|
+| GPX.1 — Pack Export | `packTypes.ts`, `packSecurityScanner.ts`, `packAssembler.ts`, `tools/packExport.ts` | 101 new |
+| GPX.2 — Pack Import | `packImportService.ts`, `tools/packImport.ts`, `governance/types.ts` extended | 63 new |
+
+**3 new MCP tools:** `flint_pack_export`, `flint_pack_import`, `flint_pack_rollback`
+
+**Key capabilities:**
+- Export: bundles policy.json + agent-policy.json + rule overrides + CLAUDE.md fragments into `.flint-pack/` with SHA-256 checksums and security scanning (11 secret patterns)
+- Import: conflict detection across 4 domains (policy, agents, rules, fragments), 3 merge strategies (override, skip-conflicts, interactive), snapshot-based rollback
+- Security: blocks export/import if secrets or absolute paths detected in pack files
+
+**Test results:**
+```
+MCP:   2454/2454 passing (164 new)
+Core:   966/966 passing
+Glass:  983/983 passing
+TSC:    0 errors
+```
+
+---
+
+## Session: 2026-03-21 GPX.2 — Governance Pack Import + Conflict Resolution (CONTRACT)
+
+**Goal:** Produce a full architecture contract for the pack import engine and conflict resolution system.
+
+**What shipped:**
+
+| File | Purpose |
+|------|---------|
+| `.flint-context/contracts/GPX.2-contract.md` | Full architecture contract: 14 sections, type contracts, MCP tool schemas, conflict detection pipeline, merge engine, snapshot/rollback, provenance integration, test plan, commandment compliance |
+
+**Architecture decisions:**
+- MCP-only phase: two new tools (`flint_pack_import`, `flint_pack_rollback`), no Glass UI changes
+- 7 new types added to `governance/types.ts`: `PackManifest`, `MergeStrategy`, `PackConflict`, `ConflictResolution`, `PackSnapshot`, `PackImportResult`, `PackRollbackResult`
+- Core service: `packImportService.ts` — owns unzip, manifest validation, checksum verification, conflict detection, merge engine, snapshot/rollback
+- Policy merge uses `policyEngine.ts` primitives (`validatePolicy`, `coerceToResolved`) — requires exporting `coerceToResolved` as public
+- 3 merge strategies: `override` (pack wins), `skip-conflicts` (non-conflicting only), `interactive` (two-phase user resolution)
+- Snapshot system: `.flint/pack-snapshots/<uuid>/` with `index.json` registry, max 10 retained
+- Trust tier cap: community packs cannot grant elevated/admin agent tiers
+- Provenance: uses existing `'import'` source type in `MutationProvenanceService`
+- Glass import wizard deferred to follow-up `GPX.2-glass-contract.md`
+
+**Next:** Phase 2 implementation — spawn agents per the contract's implementation order (types -> service -> tool handlers -> tests).
+
+---
+
+## Session: 2026-03-21 EXP.7 — Cross-Platform Token Sync (COMPLETE)
+
+**Goal:** DTCG design tokens → 5 platform-native outputs with cross-platform consistency audit.
+
+**What shipped:**
+
+| File | Purpose |
+|------|---------|
+| `flint-mcp/src/core/emitters/types.ts` | Shared types: `PlatformTarget`, `PlatformEmitter`, `PlatformOutput`, `CrossPlatformAuditResult`, `TokenSyncReport` |
+| `flint-mcp/src/core/emitters/index.ts` | Emitter registry with lazy factory pattern |
+| `flint-mcp/src/core/emitters/tailwindEmitter.ts` | DTCG → Tailwind CSS v4 theme config |
+| `flint-mcp/src/core/emitters/cssEmitter.ts` | DTCG → CSS custom properties (`:root {}`) |
+| `flint-mcp/src/core/emitters/reactNativeEmitter.ts` | DTCG → React Native TypeScript exports |
+| `flint-mcp/src/core/emitters/swiftEmitter.ts` | DTCG → Swift UIColor extensions + DesignTokens struct |
+| `flint-mcp/src/core/emitters/kotlinEmitter.ts` | DTCG → Kotlin Compose Color/Dp objects |
+| `flint-mcp/src/tools/emitTokens.ts` | `flint_emit_tokens` MCP tool handler + cross-platform auditor |
+| `flint-mcp/src/server.ts` | Tool registration |
+
+**Architecture:** MCP-only, no Glass UI, no IPC. Pure-function emitters (tokens in → string out). Registry pattern for extensibility. Supports dryRun, mode/collection filtering, and atomic file writes.
+
+**Test results:**
+```
+MCP:   2290/2290 passing (125 new)
+Core:   966/966 passing
+Glass:  983/983 passing
+TSC:    0 errors
+```
+
+---
+
+## Session: 2026-03-21 Tech Debt Sprint (COMPLETE)
+
+**Goal:** Clean up all tracked technical debt items from HANDOFF.md.
+
+**What shipped:**
+
+| Fix | File | Details |
+|-----|------|---------|
+| AppMountGate 8 test failures | `setup.ts`, `AppMountGate.test.tsx` | Added missing mocks for `onResetState`, `resetState`, `removeChangedListener`, `createScratchpad` + 5 new component mocks |
+| Cross-store import | `componentCardStore.ts` | Removed `useNotificationStore` import; notification dispatch moved to caller |
+| betaGuard IPC strings | `betaGuard.ts` | Raw `'beta:expired-remote'` / `'beta:update-available'` → `ipcChannel()` helper |
+| DependencyEdge per-edge CSS | `DependencyEdge.tsx`, `index.css` | `@keyframes dash-flow` moved from per-instance `<style>` to global CSS |
+| ragSeeder sync I/O | `ragSeeder.ts` | `readFileSync` / `readdirSync` → `fs/promises` async; added symlink guard on `.flint/docs/` |
+| MRS formula duplication | `mrsEngine.ts` (CREATE), `orchestrator.ts`, `riskApproval.test.ts` | Extracted MRS types + scorer to shared module; removed 120-line duplication |
+
+**Test results:**
+```
+MCP:   2165/2165 passing
+Glass:  983/983  passing (was 975/983 — 8 failures fixed)
+Core:   966/966  passing
+TSC:    0 errors
+```
+
+**Remaining warnings:** None. All tracked debt items resolved.
+
+---
+
+## Session: 2026-03-21 Doc Audit Sprint (COMPLETE)
+
+**Goal:** Bring all docs in sync with actual shipped state. Found that most backlog items marked PLANNED/BACKLOG were already built but undocumented.
+
+**What changed:**
+
+- `CLAUDE.md` — Added ONBOARD.1 (Setup Wizard) and U.2 (GhostCodeSnippet overlay) to Module Status; added V.4 (Consensus Gate)
+- `docs/strategy/BACKLOG-PRIORITIZED.md` — 34 stale PLANNED/BACKLOG/IN-FLIGHT items marked ONLINE; date + test baseline updated to 2026-03-21
+- `.flint-context/contracts/ONBOARD.1-contract.md` — Updated to v2 as-built
+
+**Genuine remaining items (not yet built):**
+
+- `GPX Track` — Governance Pack Exchange (long-term horizon)
+
+All other items resolved: EXP.7 shipped, AppMountGate tests fixed, tech debt cleaned.
+
+---
+
+## Session: 2026-03-21 V.4 — Multi-Agent Epistemic Consensus Gate (COMPLETE)
+
+**Goal:** For Amber/Red MRS mutations, route to a stateless secondary agent before surfacing the approval UI. Prevents confirmation bias. Fail-open; domain-configurable.
+
+**What shipped:**
+
+| File | Change |
+|------|--------|
+| `electron/consensusGateService.ts` (CREATE) | Secondary Anthropic API call, `resolveConfig`, `shouldFireGate`, `evaluate`, `persistRecord` → `.flint/consensus.db` |
+| `electron/consensusGateService.test.ts` (CREATE) | 25 tests: resolveConfig, shouldFireGate, evaluate (6 scenarios incl. timeout/error), persistRecord |
+| `flint-mcp/src/core/governance/consensusQueryService.ts` (CREATE) | Read-only query service: `getSummary`, `getBySession`, `getByAgent`, `getDisagreements`, `pruneRecords` |
+| `flint-mcp/src/core/governance/__tests__/consensusQueryService.test.ts` (CREATE) | 30 tests covering all query methods, zero-state, aggregations, limit enforcement |
+| `flint-mcp/src/core/governance/types.ts` | Added `ConsensusJudgment`, `ConsensusOutcome`, `EvaluatorVerdict`, `ConsensusRecord`, `ConsensusReportSummary` |
+| `flint-mcp/src/server.ts` | Registered `flint_consensus_report` tool (summary/by_session/by_agent/disagreements modes) |
+| `electron/orchestrator.ts` | Wired gate after MRS/escalation, before `onChunk`; extended `OrchestratorChunk` with `consensusOutcome?` + `consensusReasoning?` |
+| `src/components/ui/AgentDashboard.tsx` | Consensus Gate stats section (total evals, disagreement rate, outcome distribution) |
+| `src/components/ui/DiffCard.tsx` | Consensus badge (agree_approve/disagree/agree_reject variants with reasoning tooltip) |
+
+**Architecture decisions:**
+
+- Gate uses `.flint/consensus.db` per-project (matches provenance/anomaly pattern) — NOT the shared Electron userData db
+- Fail-open: `error` + `skipped` outcomes always `proceed: true`; outer try/catch in orchestrator is non-fatal
+- Domain defaults: healthcare/fintech/government → enabled by default; general/e-commerce/enterprise-saas → disabled
+- `includePrimaryReasoning: false` enforced by prompt construction (epistemic independence)
+
+**Test results:**
+```
+MCP:   2165/2165 passing (30 new)
+Core:  1005/1005 passing (25 new)
+Glass: 975/983  passing (23 new; 8 pre-existing AppMountGate failures, unrelated)
+TSC:   0 errors
+```
 
 ---
 

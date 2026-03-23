@@ -13,7 +13,7 @@
  * logged so that a broken manifest or missing file never crashes the session.
  */
 
-import * as fs from 'fs'
+import * as fs from 'fs/promises'
 import * as path from 'path'
 
 import { clearRAG, ingestChunks } from './ragService.js'
@@ -153,7 +153,7 @@ export async function seedRAGFromProject(
     const manifestPath = path.join(projectRoot, 'flint-manifest.json')
 
     try {
-        const raw = fs.readFileSync(manifestPath, 'utf-8')
+        const raw = await fs.readFile(manifestPath, 'utf-8')
         const manifest: FlintManifest = JSON.parse(raw)
         const components = manifest.components ?? {}
 
@@ -186,7 +186,7 @@ export async function seedRAGFromProject(
     const tokensPath = path.join(projectRoot, '.flint', 'design-tokens.json')
 
     try {
-        const raw = fs.readFileSync(tokensPath, 'utf-8')
+        const raw = await fs.readFile(tokensPath, 'utf-8')
         const tokens: DesignToken[] = JSON.parse(raw)
 
         if (Array.isArray(tokens) && tokens.length > 0) {
@@ -235,13 +235,19 @@ export async function seedRAGFromProject(
     const docsDir = path.join(projectRoot, '.flint', 'docs')
 
     try {
-        const entries = fs.readdirSync(docsDir)
+        const entries = await fs.readdir(docsDir)
         const mdFiles = entries.filter((f) => f.endsWith('.md'))
 
         for (const filename of mdFiles) {
             const filePath = path.join(docsDir, filename)
             try {
-                const content = fs.readFileSync(filePath, 'utf-8').trim()
+                // Symlink guard: skip symlinks to prevent directory traversal
+                const stat = await fs.lstat(filePath)
+                if (stat.isSymbolicLink()) {
+                    console.warn(`[Flint CK.1] Skipping symlink: docs/${filename}`)
+                    continue
+                }
+                const content = (await fs.readFile(filePath, 'utf-8')).trim()
                 if (content.length > 0) {
                     chunks.push({
                         content,

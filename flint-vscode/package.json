@@ -19,6 +19,29 @@
   ],
   "main": "./dist/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "flint",
+          "title": "Flint",
+          "icon": "$(shield)"
+        }
+      ]
+    },
+    "views": {
+      "flint": [
+        {
+          "type": "webview",
+          "id": "flint.governancePanel",
+          "name": "Governance"
+        },
+        {
+          "type": "webview",
+          "id": "flint.activityPanel",
+          "name": "Activity"
+        }
+      ]
+    },
     "languages": [
       {
         "id": "typescriptreact",

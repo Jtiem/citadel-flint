@@ -18,6 +18,14 @@
  * 12. Shows "Applied" status after approval
  * 13. Shows "Rejected" status after rejection
  *
+ * Consensus badge tests (V.4):
+ * 24. ConsensusBadge — disagree outcome renders amber badge
+ * 25. ConsensusBadge — agree_reject outcome renders red badge
+ * 26. ConsensusBadge — agree_approve outcome renders green badge
+ * 27. ConsensusBadge — shows reasoning text when provided
+ * 28. ConsensusBadge — not rendered when consensusOutcome is absent
+ * 29. ConsensusBadge — unknown outcome renders nothing
+ *
  * Utility function tests:
  * 14. diffLines — identical strings produce only context lines
  * 15. diffLines — addition detected
@@ -275,6 +283,80 @@ describe('DiffCard', () => {
         )
         // No reasoning paragraph — should still render cleanly
         expect(screen.getByText('flint_add_class')).toBeDefined()
+    })
+
+    // ── Consensus badge (V.4) ───────────────────────────────────────────────
+
+    it('renders amber "Consensus: Disagreement" badge for disagree outcome', () => {
+        render(
+            <DiffCard
+                call={makeCall()}
+                onApprove={vi.fn()}
+                onReject={vi.fn()}
+                consensusOutcome="disagree"
+            />
+        )
+        expect(screen.getByText('Consensus: Disagreement')).toBeDefined()
+    })
+
+    it('renders red "Consensus: Both agents rejected" badge for agree_reject outcome', () => {
+        render(
+            <DiffCard
+                call={makeCall()}
+                onApprove={vi.fn()}
+                onReject={vi.fn()}
+                consensusOutcome="agree_reject"
+            />
+        )
+        expect(screen.getByText('Consensus: Both agents rejected')).toBeDefined()
+    })
+
+    it('renders green "Consensus: Approved" badge for agree_approve outcome', () => {
+        render(
+            <DiffCard
+                call={makeCall()}
+                onApprove={vi.fn()}
+                onReject={vi.fn()}
+                consensusOutcome="agree_approve"
+            />
+        )
+        expect(screen.getByText('Consensus: Approved')).toBeDefined()
+    })
+
+    it('renders consensusReasoning text beneath the badge', () => {
+        render(
+            <DiffCard
+                call={makeCall()}
+                onApprove={vi.fn()}
+                onReject={vi.fn()}
+                consensusOutcome="disagree"
+                consensusReasoning="Secondary model flagged accessibility violation"
+            />
+        )
+        expect(screen.getByText('Secondary model flagged accessibility violation')).toBeDefined()
+    })
+
+    it('does not render consensus badge when consensusOutcome is absent', () => {
+        render(
+            <DiffCard
+                call={makeCall()}
+                onApprove={vi.fn()}
+                onReject={vi.fn()}
+            />
+        )
+        expect(screen.queryByText(/Consensus:/)).toBeNull()
+    })
+
+    it('renders nothing for an unrecognised consensus outcome', () => {
+        render(
+            <DiffCard
+                call={makeCall()}
+                onApprove={vi.fn()}
+                onReject={vi.fn()}
+                consensusOutcome="unknown_outcome"
+            />
+        )
+        expect(screen.queryByText(/Consensus:/)).toBeNull()
     })
 })
 

@@ -91,6 +91,8 @@ export const window = {
     showErrorMessage: () => {},
     activeTextEditor: null,
     withProgress: async (_opts: unknown, task: Function) => task({ report: () => {} }, { isCancellationRequested: false }),
+    registerWebviewViewProvider: (_viewId: string, _provider: unknown) => ({ dispose: () => {} }),
+    onDidChangeActiveTextEditor: (_callback: Function) => ({ dispose: () => {} }),
 };
 
 export const env = {

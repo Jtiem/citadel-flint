@@ -65,6 +65,7 @@ import { TrustTierService } from "./core/governance/trustTierService.js";
 import type { TrustTier } from "./core/governance/trustTierService.js";
 import { AnomalyDetectionService } from "./core/governance/anomalyDetectionService.js";
 import type { AgentRiskSummary } from "./core/governance/types.js";
+import { ConsensusQueryService } from "./core/governance/consensusQueryService.js";
 import { migrateFile } from "./core/tailwindMigrator.js";
 import type { MigrateResult } from "./core/tailwindMigrator.js";
 import { computeTokenDiff, migrateFiles as migrateDesignSystemFiles, generateMigrationReport } from "./core/designSystemMigration.js";
@@ -89,6 +90,20 @@ import {
     handleReindexRegistry,
     FLINT_REINDEX_REGISTRY_TOOL,
 } from "./tools/reindex.js";
+import {
+    handleEmitTokens,
+    FLINT_EMIT_TOKENS_TOOL,
+} from "./tools/emitTokens.js";
+import {
+    handlePackExport,
+    FLINT_PACK_EXPORT_TOOL,
+} from "./tools/packExport.js";
+import {
+    handlePackImport,
+    handlePackRollback,
+    FLINT_PACK_IMPORT_TOOL,
+    FLINT_PACK_ROLLBACK_TOOL,
+} from "./tools/packImport.js";
 
 // @ts-ignore
 const generate = _generate.default || _generate;
@@ -197,6 +212,27 @@ function getAnomalyDetectionService(projectRoot: string): AnomalyDetectionServic
     const db = new BetterSqlite3(path.join(dbDir, "anomalies.db"));
     const service = new AnomalyDetectionService(db);
     _anomalyServices.set(projectRoot, service);
+    return service;
+}
+
+// ---------------------------------------------------------------------------
+// Consensus Query singleton — V.4: one ConsensusQueryService per project root,
+// backed by a file-based SQLite database at <root>/.flint/consensus.db
+// ---------------------------------------------------------------------------
+
+const _consensusServices = new Map<string, ConsensusQueryService>();
+
+function getConsensusQueryService(projectRoot: string): ConsensusQueryService {
+    const existing = _consensusServices.get(projectRoot);
+    if (existing !== undefined) return existing;
+
+    const dbDir = path.join(projectRoot, BRAND.configDir);
+    if (!fs.existsSync(dbDir)) {
+        fs.mkdirSync(dbDir, { recursive: true });
+    }
+    const db = new BetterSqlite3(path.join(dbDir, "consensus.db"));
+    const service = new ConsensusQueryService(db);
+    _consensusServices.set(projectRoot, service);
     return service;
 }
 
@@ -600,6 +636,38 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 },
             },
             {
+                name: toolName("consensus_report"),
+                description:
+                    "Query the epistemic consensus gate records. Returns disagreement rate, " +
+                    "outcome distribution, and recent disagreements. Use this to assess whether " +
+                    "the AI agent is consistently proposing safe mutations or triggering reviewer disagreements.",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        mode: {
+                            type: "string",
+                            enum: ["summary", "by_session", "by_agent", "disagreements"],
+                            description:
+                                '"summary" returns aggregate stats. "by_session" filters by sessionId. ' +
+                                '"by_agent" filters by agentId. "disagreements" returns only disagreement records.',
+                        },
+                        sessionId: {
+                            type: "string",
+                            description: "Session UUID to filter by (only for by_session mode).",
+                        },
+                        agentId: {
+                            type: "string",
+                            description: "Agent ID to filter by (only for by_agent mode).",
+                        },
+                        limit: {
+                            type: "number",
+                            description: "Maximum number of records to return (default 20, max 100).",
+                        },
+                    },
+                    required: ["mode"],
+                },
+            },
+            {
                 name: toolName("risk_score"),
                 description: "Query the V.1-rs Mutation Risk Scoring engine. Supports three actions: 'score_mutation' — compute and persist a 5-factor weighted risk score (0-100) for a single mutation ID. 'file_profile' — aggregate risk profile for a file (mean/max score, trend). 'project_summary' — project-wide risk distribution, riskiest files, riskiest agents.",
                 inputSchema: {
@@ -949,6 +1017,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             FLINT_ENRICH_REGISTRY_TOOL,
             FLINT_APPROVE_ENRICHMENT_TOOL,
             FLINT_REINDEX_REGISTRY_TOOL,
+            FLINT_EMIT_TOKENS_TOOL,
+            FLINT_PACK_EXPORT_TOOL,
+            FLINT_PACK_IMPORT_TOOL,
+            FLINT_PACK_ROLLBACK_TOOL,
         ],
     };
 });
@@ -3289,6 +3361,139 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             return {
                 content: [{ type: "text", text: JSON.stringify(reindexResult, null, 2) }],
             };
+        }
+
+        // -----------------------------------------------------------------
+        // V.4 — Epistemic Consensus Gate Query
+        // -----------------------------------------------------------------
+
+        case "flint_consensus_report": {
+            const consensusArgs = request.params.arguments as {
+                mode: "summary" | "by_session" | "by_agent" | "disagreements";
+                sessionId?: string;
+                agentId?: string;
+                limit?: number;
+            };
+
+            const consensusSvc = getConsensusQueryService(process.cwd());
+
+            switch (consensusArgs.mode) {
+                case "summary": {
+                    const result = consensusSvc.getSummary();
+                    return {
+                        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+                    };
+                }
+
+                case "by_session": {
+                    if (!consensusArgs.sessionId) {
+                        return {
+                            isError: true,
+                            content: [{
+                                type: "text",
+                                text: "flint_consensus_report: mode='by_session' requires 'sessionId'.",
+                            }],
+                        };
+                    }
+                    const result = consensusSvc.getBySession(consensusArgs.sessionId, consensusArgs.limit);
+                    return {
+                        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+                    };
+                }
+
+                case "by_agent": {
+                    if (!consensusArgs.agentId) {
+                        return {
+                            isError: true,
+                            content: [{
+                                type: "text",
+                                text: "flint_consensus_report: mode='by_agent' requires 'agentId'.",
+                            }],
+                        };
+                    }
+                    const result = consensusSvc.getByAgent(consensusArgs.agentId, consensusArgs.limit);
+                    return {
+                        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+                    };
+                }
+
+                case "disagreements": {
+                    const result = consensusSvc.getDisagreements(consensusArgs.limit);
+                    return {
+                        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+                    };
+                }
+
+                default: {
+                    return {
+                        isError: true,
+                        content: [{
+                            type: "text",
+                            text: `flint_consensus_report: unknown mode '${(consensusArgs as { mode: string }).mode}'. Must be 'summary', 'by_session', 'by_agent', or 'disagreements'.`,
+                        }],
+                    };
+                }
+            }
+        }
+
+        // -----------------------------------------------------------------
+        // EXP.7 -- Cross-Platform Token Sync
+        // -----------------------------------------------------------------
+
+        case "flint_emit_tokens": {
+            const emitArgs = request.params.arguments as {
+                platforms?: string[];
+                outputDir?: string;
+                dryRun?: boolean;
+                projectRoot?: string;
+                mode?: string;
+                collection?: string;
+                prefix?: string;
+            };
+            return handleEmitTokens(emitArgs as Parameters<typeof handleEmitTokens>[0], process.cwd());
+        }
+
+        // -----------------------------------------------------------------
+        // GPX.1 -- Governance Pack Export
+        // -----------------------------------------------------------------
+
+        case "flint_pack_export": {
+            const exportArgs = request.params.arguments as {
+                id: string;
+                name: string;
+                version: string;
+                description: string;
+                author: { name: string; email?: string; org?: string };
+                stack_tags?: string[];
+                include_claude_fragments?: string[];
+                output_path?: string;
+                dry_run?: boolean;
+                projectRoot?: string;
+            };
+            return handlePackExport(exportArgs, process.cwd());
+        }
+
+        // -----------------------------------------------------------------
+        // GPX.2 -- Governance Pack Import + Rollback
+        // -----------------------------------------------------------------
+
+        case "flint_pack_import": {
+            const importArgs = request.params.arguments as {
+                source: string;
+                projectRoot: string;
+                strategy?: 'override' | 'skip-conflicts' | 'interactive';
+                resolutions?: Array<{ key: string; action: 'accept_incoming' | 'keep_current' | 'custom'; customValue?: unknown }>;
+                dry_run?: boolean;
+            };
+            return handlePackImport(importArgs);
+        }
+
+        case "flint_pack_rollback": {
+            const rollbackArgs = request.params.arguments as {
+                snapshotId: string;
+                projectRoot: string;
+            };
+            return handlePackRollback(rollbackArgs);
         }
 
         default:

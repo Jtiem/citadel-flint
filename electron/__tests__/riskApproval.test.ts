@@ -4,14 +4,8 @@
  * Tests for V.1 — Mutation Risk Score (MRS) wired into the orchestrator
  * approval flow.
  *
- * Architecture note
- * ─────────────────
- * orchestrator.ts cannot be imported directly in this test environment because
- * esbuild 0.27.x fails to parse certain Unicode characters in its template
- * literals. The tests below verify the MRS contract using the same pure
- * functions replicated here, matching the implementation in orchestrator.ts.
- *
- * This mirrors the established pattern in orchestratorSafety.test.ts.
+ * Imports the canonical MRS implementation from mrsEngine.ts (extracted
+ * from orchestrator.ts to sidestep the esbuild 0.27.x Unicode issue).
  *
  * What is tested
  * ──────────────
@@ -28,129 +22,12 @@
  */
 
 import { describe, it, expect } from 'vitest'
-
-// ── Replicated MRS types (match orchestrator.ts exactly) ─────────────────────
-
-type MRSTier = 'green' | 'amber' | 'red'
-
-interface MRSFactor {
-    name: string
-    contribution: number
-    description: string
-}
-
-interface MRSAssessment {
-    tier: MRSTier
-    score: number
-    factors: MRSFactor[]
-}
-
-// ── Replicated MRS implementation (mirrors orchestrator.ts computeMRS) ────────
-// Any change to computeMRS in orchestrator.ts must be reflected here.
-
-const MRS_OP_WEIGHTS: Record<string, number> = {
-    flint_update_text:    0.15,
-    flint_update_props:   0.20,
-    flint_add_class:      0.10,
-    flint_remove_class:   0.10,
-    flint_insert_node:    0.55,   // structural — above the 0.50 threshold
-    flint_wrap_node:      0.60,   // structural
-    flint_delete_node:    0.90,   // destructive — structural, highest weight
-}
-
-const MRS_UNKNOWN_OP_WEIGHT = 0.50
-
-const MRS_TIER_FLOORS: Record<string, MRSTier> = {
-    flint_insert_node: 'amber',
-    flint_wrap_node:   'amber',
-    flint_delete_node: 'red',
-}
-
-const MRS_TIER_RANK: Record<MRSTier, number> = { green: 0, amber: 1, red: 2 }
-
-function mrsClamped(n: number): number {
-    return Math.round(Math.max(0.0, Math.min(1.0, n)) * 10000) / 10000
-}
-
-function mrsTier(score: number): MRSTier {
-    if (score <= 0.30) return 'green'
-    if (score <= 0.69) return 'amber'
-    return 'red'
-}
-
-function applyTierFloor(computed: MRSTier, floor: MRSTier | undefined): MRSTier {
-    if (!floor) return computed
-    return MRS_TIER_RANK[floor] > MRS_TIER_RANK[computed] ? floor : computed
-}
-
-function computeMRS(
-    toolName: string,
-    affectedNodes: number = 1,
-    hasViolations: boolean = false,
-): MRSAssessment {
-    try {
-        const opWeightRaw = MRS_OP_WEIGHTS[toolName] ?? MRS_UNKNOWN_OP_WEIGHT
-        const opContribution = mrsClamped(opWeightRaw * 0.40)
-        const opFactor: MRSFactor = {
-            name: 'opWeight',
-            contribution: opContribution,
-            description: `Operation '${toolName}' has base risk weight ${opWeightRaw.toFixed(2)}`,
-        }
-
-        const blastRaw = Math.min(affectedNodes / 10, 1.0)
-        const blastContribution = mrsClamped(blastRaw * 0.35)
-        const blastFactor: MRSFactor = {
-            name: 'blastRadius',
-            contribution: blastContribution,
-            description: `${affectedNodes} affected node(s); blast radius ${blastRaw.toFixed(2)}`,
-        }
-
-        const isStructural = opWeightRaw >= 0.50
-        let severityRaw: number
-        if (isStructural && !hasViolations) {
-            severityRaw = 0.70
-        } else if (hasViolations) {
-            severityRaw = 0.30
-        } else {
-            severityRaw = 0.00
-        }
-        const severityContribution = mrsClamped(severityRaw * 0.15)
-        const severityFactor: MRSFactor = {
-            name: 'severity',
-            contribution: severityContribution,
-            description: isStructural && !hasViolations
-                ? 'Structural op with no audit baseline'
-                : hasViolations
-                ? 'File has active violations'
-                : 'No violation context',
-        }
-
-        const familiarityContribution = mrsClamped(0.10 * 0.10)
-        const familiarityFactor: MRSFactor = {
-            name: 'familiarity',
-            contribution: familiarityContribution,
-            description: 'Agent-provenance mutation — neutral familiarity',
-        }
-
-        const rawScore =
-            opContribution +
-            blastContribution +
-            severityContribution +
-            familiarityContribution
-
-        const score = mrsClamped(rawScore)
-        const formulaTier = mrsTier(score)
-        const tier = applyTierFloor(formulaTier, MRS_TIER_FLOORS[toolName])
-
-        return {
-            tier,
-            score,
-            factors: [opFactor, blastFactor, severityFactor, familiarityFactor],
-        }
-    } catch {
-        return { tier: 'green', score: 0.0, factors: [] }
-    }
-}
+import {
+    computeMRS,
+    mrsTier,
+    type MRSTier,
+    type MRSFactor,
+} from '../mrsEngine'
 
 // ── Set of mutation tool names (mirrors MUTATION_TOOL_NAMES in orchestrator.ts)
 const MUTATION_TOOL_NAMES = new Set([

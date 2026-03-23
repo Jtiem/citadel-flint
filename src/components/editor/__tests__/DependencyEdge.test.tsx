@@ -212,19 +212,19 @@ describe('DependencyEdge', () => {
         expect(path!.getAttribute('stroke-dasharray')).toBe('4 4')
     })
 
-    // DE-16: CSS keyframe style block is rendered when violations are present
-    it('DE-16: renders CSS keyframe style block when target has violations (grade F)', () => {
+    // DE-16: Animation style is applied when violations are present
+    // (keyframe now defined in global CSS; component applies animation inline)
+    it('DE-16: applies dash-flow animation style when target has violations (grade F)', () => {
         const { container } = render(
             <svg>
                 <DependencyEdge {...makeEdgeProps('F')} />
             </svg>,
         )
 
-        // The <style> tag with the dash-flow keyframe should be present
-        const styleEl = container.querySelector('style')
-        expect(styleEl).not.toBeNull()
-        expect(styleEl!.textContent).toContain('dash-flow')
-        expect(styleEl!.textContent).toContain('stroke-dashoffset')
+        // The path should have the dash-flow animation applied inline
+        const path = container.querySelector('path')
+        expect(path).not.toBeNull()
+        expect(path!.style.animation).toContain('dash-flow')
     })
 
     // Edge: data prop is undefined — should not crash, defaults grade to null

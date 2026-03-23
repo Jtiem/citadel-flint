@@ -710,3 +710,194 @@ export interface DBOM {
     /** One-sentence plain-English summary of the DBOM. */
     summary: string
 }
+
+// ── V.4: Epistemic Consensus Gate ────────────────────────────────────────────
+
+/**
+ * Verdict from a single evaluator (primary or secondary agent).
+ */
+export type ConsensusJudgment = 'approve' | 'reject' | 'abstain'
+
+/**
+ * Overall consensus outcome after comparing primary and secondary verdicts.
+ */
+export type ConsensusOutcome = 'agree_approve' | 'agree_reject' | 'disagree' | 'error' | 'skipped'
+
+/**
+ * A single evaluator's verdict within the consensus gate.
+ */
+export interface EvaluatorVerdict {
+    /** Which evaluator produced this verdict. */
+    evaluator: 'primary' | 'secondary'
+    /** The judgment: approve, reject, or abstain (timeout/error). */
+    judgment: ConsensusJudgment
+    /** Plain-text reasoning from the evaluator. */
+    reasoning: string
+    /** Confidence score, 0.0-1.0. Null if unavailable. */
+    confidence: number | null
+    /** Wall-clock duration of the evaluation in milliseconds. */
+    durationMs: number
+}
+
+/**
+ * Full consensus record persisted to the consensus_records table.
+ */
+export interface ConsensusRecord {
+    /** UUID primary key. */
+    id: string
+    /** The mutation_id this consensus evaluated (if available). */
+    mutationId: string | null
+    /** Tool name that triggered the consensus gate. */
+    toolName: string
+    /** Tool input serialized as JSON string. */
+    toolInput: string
+    /** MRS score (0.0-1.0) that triggered the gate. */
+    mrsScore: number
+    /** MRS tier that triggered the gate. */
+    mrsTier: 'amber' | 'red'
+    /** Primary agent's verdict. */
+    primaryVerdict: EvaluatorVerdict
+    /** Secondary agent's verdict. */
+    secondaryVerdict: EvaluatorVerdict
+    /** Overall outcome after comparing verdicts. */
+    outcome: ConsensusOutcome
+    /** ISO 8601 timestamp. */
+    timestamp: string
+    /** Session ID for the orchestrator session. */
+    sessionId: string | null
+    /** Agent ID (always 'orchestrator' for the built-in agent). */
+    agentId: string
+    /** Governance domain active when the gate fired. */
+    domain: string
+}
+
+/**
+ * Summary statistics returned by flint_consensus_report.
+ */
+export interface ConsensusReportSummary {
+    /** Total consensus evaluations performed. */
+    totalEvaluations: number
+    /** Count by outcome. */
+    byOutcome: Record<ConsensusOutcome, number>
+    /** Disagreement rate (disagree / totalEvaluations), 0.0-1.0. */
+    disagreementRate: number
+    /** Average secondary agent evaluation duration in ms. */
+    avgSecondaryDurationMs: number
+    /** Evaluations in the last 24 hours. */
+    last24hCount: number
+    /** Most recent disagreements (up to 10). */
+    recentDisagreements: ConsensusRecord[]
+}
+
+// ── GPX.2: Governance Pack Import types ──────────────────────────────────────
+
+import type { PackManifest } from '../packTypes.js'
+
+/**
+ * User-selected strategy for resolving conflicts during pack import.
+ */
+export type MergeStrategy = 'override' | 'skip-conflicts' | 'interactive'
+
+/**
+ * Machine-readable conflict domain for pack import conflicts.
+ */
+export type ConflictDomain =
+    | 'policy_value'
+    | 'rule_mode'
+    | 'agent_id'
+    | 'fragment_file'
+
+/**
+ * Describes a single conflict detected between the incoming pack
+ * and the active project's existing configuration.
+ */
+export interface PackConflict {
+    /** Machine-readable conflict domain. */
+    domain: ConflictDomain
+    /** Human-readable key path (e.g. 'mithril.deltaE_threshold', 'agent:hipaa-sentinel'). */
+    key: string
+    /** The value currently in the project. */
+    currentValue: unknown
+    /** The value the pack wants to set. */
+    incomingValue: unknown
+    /** Human-readable description of the conflict. */
+    message: string
+    /** Severity hint for UI rendering. */
+    severity: 'blocking' | 'advisory'
+}
+
+/**
+ * A single user resolution for an interactive-mode conflict.
+ * Passed back to the import engine after the user has reviewed conflicts.
+ */
+export interface ConflictResolution {
+    /** The conflict key (matches PackConflict.key). */
+    key: string
+    /** User decision: accept the pack value, keep the project value, or provide a custom value. */
+    action: 'accept_incoming' | 'keep_current' | 'custom'
+    /** Custom value, required when action is 'custom'. */
+    customValue?: unknown
+}
+
+/**
+ * Records a pre-import snapshot of the .flint/ directory.
+ * Stored in .flint/pack-snapshots/<uuid>/ as a directory copy.
+ */
+export interface PackSnapshot {
+    /** UUID for this snapshot. */
+    id: string
+    /** Pack ID that triggered this snapshot. */
+    packId: string
+    /** Pack version. */
+    packVersion: string
+    /** ISO 8601 timestamp when the snapshot was taken. */
+    createdAt: string
+    /** Absolute path to the snapshot directory. */
+    snapshotPath: string
+    /** Files that were backed up (relative to project root). */
+    backedUpFiles: string[]
+    /** Files that were added by the import (relative to project root). */
+    addedFiles: string[]
+}
+
+/**
+ * Result returned by the pack import engine and surfaced by the MCP tool.
+ */
+export interface PackImportResult {
+    /** Whether the import completed successfully. */
+    success: boolean
+    /** The pack manifest that was imported. */
+    manifest: PackManifest
+    /** Merge strategy used. */
+    strategy: MergeStrategy
+    /** Conflicts detected. Empty when no conflicts exist. */
+    conflicts: PackConflict[]
+    /** Conflicts that were skipped (for 'skip-conflicts' strategy). */
+    skippedConflicts: PackConflict[]
+    /** Conflicts resolved (for 'interactive' strategy). */
+    resolvedConflicts: ConflictResolution[]
+    /** Files written to the project. */
+    filesWritten: string[]
+    /** Snapshot ID for rollback. Null if import did not proceed. */
+    snapshotId: string | null
+    /** Error message, if import failed. */
+    error?: string
+    /** Human-readable summary. */
+    summary: string
+}
+
+/**
+ * Result returned by the pack rollback engine.
+ */
+export interface PackRollbackResult {
+    /** Whether rollback succeeded. */
+    success: boolean
+    /** Snapshot that was restored. */
+    snapshotId: string
+    /** Files restored. */
+    filesRestored: string[]
+    /** Error message, if rollback failed. */
+    error?: string
+    /** Human-readable summary. */
+    summary: string
+}

@@ -702,6 +702,13 @@ export interface MCPAPI {
     status: () => Promise<MCPClientStatus>
 
     /**
+     * Resets the crash counter and re-spawns the MCP server child process.
+     * Safe to call when connected (will stop + restart) or disconnected.
+     * Resolves immediately — connection happens asynchronously.
+     */
+    reconnect: () => Promise<void>
+
+    /**
      * Subscribes `callback` to `flint:mcp-event` push events.
      * Events are batched within a 500ms window before dispatch.
      * Call `removeEventListener()` in useEffect cleanup to prevent leaks.
@@ -1276,6 +1283,11 @@ export interface FlintAPI {
     /** Project Registry CRUD — backed by the global flint-registry.db. */
     registry: RegistryAPI
 
+    /** Session restoration — used by App.tsx for auto-resume on launch. */
+    session: {
+        getLastSession: () => Promise<{ path: string; name: string; isScratchpad: boolean } | null>
+    }
+
     /** Project lifecycle operations — scaffolding and path-based open. */
     project: ProjectAPI
 
@@ -1455,14 +1467,6 @@ export interface FlintAPI {
 
     /** Programmatic Vite dev server API — agnostic preview engine. */
     preview: PreviewAPI
-    // ── Phase P: Integrated Terminal ──────────────────────────────────────────
-    terminal: {
-        spawn: (cwd: string) => Promise<void>
-        write: (data: string) => Promise<void>
-        resize: (cols: number, rows: number) => Promise<void>
-        onOutput: (callback: (data: string) => void) => () => void
-    }
-
     // ── Phase W: MCP Push Channel + Bidirectional Action Flint ───────────────
 
     /**

@@ -70,8 +70,8 @@ function defaultLaunchProps() {
 
 // ── #33: LaunchScreen "New Project" button calls onNewProject ─────────────────
 
-describe('#33 — LaunchScreen "Prototype from Figma" path', () => {
-    it('navigates to Figma step when "Prototype from Figma" is clicked', async () => {
+describe('#33 — LaunchScreen "From Figma" path', () => {
+    it('navigates to Figma step when "From Figma" tile is clicked', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
         ;(window.flintAPI.figma?.status as ReturnType<typeof vi.fn>)?.mockResolvedValue({
             running: true, lastWebhookAt: null, tokenCount: 0, port: 4545,
@@ -81,17 +81,17 @@ describe('#33 — LaunchScreen "Prototype from Figma" path', () => {
         render(<LaunchScreen {...props} />)
 
         await waitFor(() => {
-            expect(screen.getByText('Prototype from Figma')).toBeDefined()
+            expect(screen.getByText('From Figma')).toBeDefined()
         })
 
-        fireEvent.click(screen.getByText('Prototype from Figma'))
+        fireEvent.click(screen.getByText('From Figma'))
 
         await waitFor(() => {
             expect(screen.getByText('Connect your Figma file')).toBeDefined()
         })
     })
 
-    it('does NOT call onOpenFolder or onLoadDemo when Prototype path starts', async () => {
+    it('does NOT call onOpenFolder or onLoadDemo when Figma path starts', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
         ;(window.flintAPI.figma?.status as ReturnType<typeof vi.fn>)?.mockResolvedValue({
             running: true, lastWebhookAt: null, tokenCount: 0, port: 4545,
@@ -99,8 +99,8 @@ describe('#33 — LaunchScreen "Prototype from Figma" path', () => {
         const props = defaultLaunchProps()
         render(<LaunchScreen {...props} />)
 
-        await waitFor(() => screen.getByText('Prototype from Figma'))
-        fireEvent.click(screen.getByText('Prototype from Figma'))
+        await waitFor(() => screen.getByText('From Figma'))
+        fireEvent.click(screen.getByText('From Figma'))
 
         expect(props.onOpenFolder).not.toHaveBeenCalled()
         expect(props.onLoadDemo).not.toHaveBeenCalled()
@@ -196,26 +196,27 @@ describe('#40 — First-run nudge: renders when conditions are met', () => {
         expect(localStorage.getItem('flint-onboarding-nudge-dismissed')).toBeNull()
     })
 
-    it('renders "Prototype from Figma" as the primary Figma-related path on first visit', async () => {
+    it('renders "From Figma" as the primary Figma-related tile on first visit', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
 
         render(<LaunchScreen {...defaultLaunchProps()} />)
 
         await waitFor(() => {
-            expect(screen.getByText('Prototype from Figma')).toBeDefined()
+            expect(screen.getByText('From Figma')).toBeDefined()
         })
     })
 
-    it('renders the three JTBD goal cards when workspaceFiles is null (no project loaded)', async () => {
+    it('renders all four compact tiles when workspaceFiles is null (no project loaded)', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
 
         const props = defaultLaunchProps()
         render(<LaunchScreen {...props} />)
 
         await waitFor(() => {
-            expect(screen.getByText('Prototype from Figma')).toBeDefined()
-            expect(screen.getByText('Connect my design system')).toBeDefined()
-            expect(screen.getByText('Audit existing code')).toBeDefined()
+            expect(screen.getByText('From Figma')).toBeDefined()
+            expect(screen.getByText('Connect codebase')).toBeDefined()
+            expect(screen.getByText('Audit a folder')).toBeDefined()
+            expect(screen.getByText('Governance dashboard')).toBeDefined()
         })
     })
 })

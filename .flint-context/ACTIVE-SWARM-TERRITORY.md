@@ -14,6 +14,8 @@
 
 ---
 
+---
+
 ## Template for new swarm entry
 
 ```markdown
@@ -29,12 +31,3 @@
 ```
 
 ---
-
-## Swarm: Phase CV2.4 — Component Health Enrichment
-
-**Status:** IN PROGRESS
-
-### Files to MODIFY
-| File | What changes |
-|------|-------------|
-| `electron/main.ts` | `components:list` handler enriched with per-component audit data |

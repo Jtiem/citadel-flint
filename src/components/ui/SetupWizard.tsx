@@ -223,33 +223,52 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
     }, [selectedIDE, mcpServerPath])
 
     // ── Verify connection ─────────────────────────────────────────────────────
+    // The MCP server is an internal child process that may still be booting
+    // when this runs (cold start loads ~78 ESM imports + SQLite + rules).
+    // Retry up to 6 times with 2s spacing (12s total) before giving up.
     const handleVerify = useCallback(async () => {
         setVerifyStatus('checking')
         setVerifyError(null)
-        try {
-            const result = await window.flintAPI.mcp?.callTool('flint_status', {})
-            // Treat any successful return as connected — flint_status returns
-            // an object with a `status` key when the server is alive.
-            if (result && typeof result === 'object') {
-                setVerifyStatus('connected')
-            } else {
-                setVerifyStatus('error')
-                setVerifyError('Server registered but not responding correctly.')
+
+        const MAX_ATTEMPTS = 6
+        const RETRY_DELAY_MS = 2_000
+
+        for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            try {
+                const result = await window.flintAPI.mcp?.callTool('flint_status', {})
+                if (result && typeof result === 'object') {
+                    setVerifyStatus('connected')
+                    return
+                }
+            } catch {
+                // Server still booting — wait and retry (unless last attempt)
+                if (attempt < MAX_ATTEMPTS) {
+                    await new Promise((r) => setTimeout(r, RETRY_DELAY_MS))
+                    continue
+                }
             }
-        } catch (err) {
-            setVerifyStatus('error')
-            const message = err instanceof Error ? err.message : ''
-            if (
-                message.toLowerCase().includes('connect') ||
-                message.toLowerCase().includes('econnrefused') ||
-                message.toLowerCase().includes('not found')
-            ) {
+        }
+
+        // All attempts exhausted — check status for a better error message
+        setVerifyStatus('error')
+        try {
+            const status = await window.flintAPI.mcp?.status?.()
+            if (status && !status.connected) {
                 setVerifyError(
-                    'MCP server not found. Make sure you saved the config and restarted your IDE.',
+                    'MCP server is starting but not ready yet. ' +
+                    'Wait a few seconds and try again, or check the console for errors.',
                 )
             } else {
-                setVerifyError('Server registered but not responding correctly.')
+                setVerifyError(
+                    'MCP server responded but returned an unexpected result. ' +
+                    'Check the developer console (View → Toggle Developer Tools) for details.',
+                )
             }
+        } catch {
+            setVerifyError(
+                'Could not reach the MCP server. ' +
+                'Try restarting the app, or check the developer console for errors.',
+            )
         }
     }, [])
 

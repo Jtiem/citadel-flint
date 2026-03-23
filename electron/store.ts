@@ -26,8 +26,18 @@ const db = new Database(DB_PATH)
 db.pragma('journal_mode = WAL')
 
 // ── Phase M: Load sqlite-vec extension for vector search ──────────────────────
-// Load extension manually to avoid ESM/Vite path resolution bugs
-db.loadExtension(sqliteVec.getLoadablePath())
+// In packaged builds, import.meta.url resolves to a virtual ASAR path, breaking
+// sqlite-vec's getLoadablePath(). Bypass it by computing the unpacked path directly.
+function getSqliteVecPath(): string {
+    if (!app.isPackaged) return sqliteVec.getLoadablePath()
+    const platform = process.platform === 'darwin' ? 'darwin' : process.platform === 'win32' ? 'windows' : 'linux'
+    const ext = process.platform === 'darwin' ? 'dylib' : process.platform === 'win32' ? 'dll' : 'so'
+    return path.join(
+        process.resourcesPath, 'app.asar.unpacked', 'node_modules',
+        `sqlite-vec-${platform}-${process.arch}`, `vec0.${ext}`
+    )
+}
+db.loadExtension(getSqliteVecPath())
 console.log(`${BRAND.logPrefix} sqlite-vec extension loaded`)
 
 // ── Static tables (schema is stable, CREATE IF NOT EXISTS is safe) ─────────────

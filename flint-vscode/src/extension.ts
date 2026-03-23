@@ -20,6 +20,8 @@ import * as path from 'node:path';
 import { FlintClient } from './flintClient';
 import { DiagnosticsProvider } from './diagnosticsProvider';
 import { FlintCodeActionProvider } from './codeActionProvider';
+import { GovernancePanelProvider } from './webview/governancePanel';
+import { ActivityPanelProvider } from './webview/activityPanel';
 
 // -- Supported languages for code action provider ---------------------------
 
@@ -458,6 +460,78 @@ export async function activate(
     statusBarItem.command = 'flint.auditFile';
     statusBarItem.show();
     context.subscriptions.push(statusBarItem);
+
+    // -- Webview panels --------------------------------------------------------
+
+    // MCP tool call wrapper with activity logging
+    const activityProvider = new ActivityPanelProvider(context.extensionUri);
+
+    const callMcpTool = async (
+        tool: string,
+        params: Record<string, unknown>,
+    ): Promise<unknown> => {
+        const start = Date.now();
+        try {
+            const result = await client!.callTool(tool, params);
+            const durationMs = Date.now() - start;
+            log(`MCP tool ${tool}: success (${durationMs}ms)`);
+            activityProvider.logToolCall(tool, 'success', durationMs);
+            return result;
+        } catch (err) {
+            const durationMs = Date.now() - start;
+            log(`MCP tool ${tool}: error (${durationMs}ms) -- ${String(err)}`);
+            activityProvider.logToolCall(tool, 'error', durationMs);
+            throw err;
+        }
+    };
+
+    const governanceProvider = new GovernancePanelProvider(
+        context.extensionUri,
+        callMcpTool,
+    );
+
+    context.subscriptions.push(
+        vscode.window.registerWebviewViewProvider(
+            GovernancePanelProvider.viewType,
+            governanceProvider,
+        ),
+        vscode.window.registerWebviewViewProvider(
+            ActivityPanelProvider.viewType,
+            activityProvider,
+        ),
+    );
+
+    // Update governance panel when active editor changes
+    context.subscriptions.push(
+        vscode.window.onDidChangeActiveTextEditor(async (editor) => {
+            if (!editor || !client?.isConnected()) return;
+
+            const filePath = editor.document.uri.fsPath;
+            try {
+                const result = await callMcpTool('flint_audit', {
+                    source: editor.document.getText(),
+                    filePath,
+                });
+                // Extract violations from MCP response
+                let violations: unknown[] = [];
+                const raw = result as { content?: Array<{ text?: string }> };
+                if (raw?.content?.[0]?.text) {
+                    try {
+                        const parsed = JSON.parse(raw.content[0].text) as {
+                            violations?: unknown[];
+                        };
+                        violations = parsed.violations ?? [];
+                    } catch {
+                        // Non-JSON response -- leave violations empty
+                    }
+                }
+                governanceProvider.updateForFile(violations, filePath);
+            } catch {
+                // Audit failed -- update with empty violations
+                governanceProvider.updateForFile([], filePath);
+            }
+        }),
+    );
 
     log('Flint extension activated successfully');
 }

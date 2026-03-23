@@ -12,12 +12,13 @@
  *   - start(projectRoot)   — Spawns the server process. Idempotent: stops any
  *                            existing process first.
  *   - stop()               — Sends SIGTERM; waits up to 5 s for clean exit.
+ *   - reconnect()          — Resets crash counter and re-spawns. No-op if no
+ *                            project is open.
  *   - callTool(name, args)  — JSON-RPC tools/call
  *   - readResource(uri)     — JSON-RPC resources/read
  *   - status()              — { connected, serverPid }
  *
- * Crash recovery: if the process exits unexpectedly the client attempts a
- * single automatic restart. A second crash within 10 s is treated as fatal.
+ * Crash recovery: exponential backoff up to MAX_RETRIES attempts.
  *
  * Process boundary law:
  *   renderer → preload(ipcRenderer.invoke) → main(ipcMain.handle) → mcpClient → stdio → MCP server
@@ -87,8 +88,11 @@ const CALL_TIMEOUT_MS = 30_000
 /** How long (ms) to wait for graceful shutdown before SIGKILL. */
 const SHUTDOWN_GRACE_MS = 5_000
 
-/** Minimum time (ms) between crashes to trigger a second-crash guard. */
-const CRASH_WINDOW_MS = 10_000
+/** Maximum number of automatic restart attempts after unexpected exits. */
+const MAX_RETRIES = 5
+
+/** Base delay (ms) for the first retry; doubles with each attempt (capped at 30 s). */
+const RETRY_BASE_MS = 1_000
 
 // ── MCP Client class ──────────────────────────────────────────────────────────
 
@@ -103,10 +107,12 @@ class MCPClient {
         timer: ReturnType<typeof setTimeout>
     }>()
 
-    /** Unix timestamp (ms) of the last unexpected exit — crash recovery guard. */
-    private lastCrashMs: number | null = null
-    /** Whether a restart is already scheduled. */
-    private restarting = false
+    /** Number of consecutive crash-restart attempts since last successful connection. */
+    private retryCount = 0
+    /** Handle for the pending retry timer, if one is scheduled. */
+    private retryTimer: ReturnType<typeof setTimeout> | null = null
+    /** Accumulated stderr output — searched as a buffer to guard against chunk splits. */
+    private _stderrBuffer = ''
 
     // ── Public API ─────────────────────────────────────────────────────────────
 
@@ -119,6 +125,7 @@ class MCPClient {
             await this.stop()
         }
         this.projectRoot = projectRoot
+        this.retryCount = 0
         this._spawn()
     }
 
@@ -127,6 +134,10 @@ class MCPClient {
      * Sends SIGTERM and waits up to SHUTDOWN_GRACE_MS, then SIGKILL.
      */
     async stop(): Promise<void> {
+        if (this.retryTimer !== null) {
+            clearTimeout(this.retryTimer)
+            this.retryTimer = null
+        }
         if (!this.proc) return
         const proc = this.proc
         this.proc = null
@@ -170,6 +181,22 @@ class MCPClient {
         }
     }
 
+    /**
+     * Resets the crash counter and re-spawns the MCP server child process.
+     * Safe to call when connected (will stop + restart) or disconnected.
+     * No-op if no project root has been set.
+     */
+    reconnect(): void {
+        if (this.retryTimer !== null) {
+            clearTimeout(this.retryTimer)
+            this.retryTimer = null
+        }
+        this.retryCount = 0
+        if (this.projectRoot !== null) {
+            void this.start(this.projectRoot)
+        }
+    }
+
     // ── Internal ──────────────────────────────────────────────────────────────
 
     private _spawn(): void {
@@ -185,11 +212,17 @@ class MCPClient {
             return
         }
 
+        // Reset the stderr accumulation buffer for each fresh spawn.
+        this._stderrBuffer = ''
+
         // Spawn the MCP server as a Node.js child process communicating via stdio.
+        // ELECTRON_RUN_AS_NODE=1 is required when process.execPath is the Electron
+        // binary — without it Electron tries to open SERVER_ENTRY as an app window.
         const proc = spawn(process.execPath, [SERVER_ENTRY], {
             cwd: this.projectRoot,
             env: {
                 ...process.env,
+                ELECTRON_RUN_AS_NODE: '1',
                 FLINT_PROJECT_ROOT: this.projectRoot,
                 // Suppress colour codes that can corrupt JSON lines
                 NO_COLOR: '1',
@@ -215,12 +248,20 @@ class MCPClient {
 
         // Mirror the server's stderr to our stderr for visibility in the dev console.
         // The server writes "[Flint] Project root: …" and "Flint MCP Server listening on stdio"
-        // to stderr — we use the latter as a connected signal.
+        // to stderr — we use the latter as a secondary connected signal.
+        // Chunks are accumulated in _stderrBuffer so the ready string is found even
+        // when it arrives split across multiple data events.
         proc.stderr?.on('data', (chunk: Buffer) => {
             const text = chunk.toString()
-            if (!this.connected && text.includes('Flint MCP Server listening')) {
+            this._stderrBuffer += text
+            if (!this.connected && this._stderrBuffer.includes('Flint MCP Server listening')) {
                 this.connected = true
-                console.log('[Flint] mcpClient: connected (pid=%d)', proc.pid)
+                this.retryCount = 0
+                if (this.retryTimer !== null) {
+                    clearTimeout(this.retryTimer)
+                    this.retryTimer = null
+                }
+                console.log('[Flint] mcpClient: connected via stderr signal (pid=%d)', proc.pid)
             }
             process.stderr.write('[flint-mcp] ' + text)
         })
@@ -260,34 +301,43 @@ class MCPClient {
         // the MCP protocol handshake (server stays in "initializing" state
         // until this notification arrives and will queue — then timeout — all
         // tool/resource calls without it).
+        //
+        // On timeout: reject with a visible error and trigger _handleCrash() so
+        // the exponential-backoff retry path fires. This prevents a late-arriving
+        // initialize response from silently succeeding after the entry is gone.
+        // MCP server cold start loads ~78 ESM imports, initializes SQLite,
+        // and registers all tools/resources before it can respond to initialize.
+        // 15s is generous but avoids false-negative timeouts on first launch.
         const timer = setTimeout(() => {
-            this.pendingCalls.delete(handshakeId)
-        }, 3000)
+            const entry = this.pendingCalls.get(handshakeId)
+            if (entry) {
+                this.pendingCalls.delete(handshakeId)
+                entry.reject(new Error('handshake timeout'))
+            }
+            console.error('[Flint] mcpClient: initialize handshake timed out — triggering retry')
+            this._handleCrash()
+        }, 15_000)
 
         this.pendingCalls.set(handshakeId, {
             resolve: () => {
                 this._sendInitializedNotification()
                 if (!this.connected) {
                     this.connected = true
-                    console.log('[Flint] mcpClient: connected via initialize handshake')
+                    this.retryCount = 0
+                    if (this.retryTimer !== null) {
+                        clearTimeout(this.retryTimer)
+                        this.retryTimer = null
+                    }
+                    console.log('[Flint] mcpClient: connected via initialize handshake (pid=%d)', this.proc?.pid)
                 }
             },
-            reject: () => { /* ignore initialize errors — stderr signal is fallback */ },
+            reject: (err: Error) => {
+                console.error('[Flint] mcpClient: initialize handshake failed —', err.message)
+            },
             timer,
         })
 
         this._send(req)
-
-        // Fallback: assume connected after a settle period if stderr signal missed.
-        setTimeout(() => {
-            if (this.proc && !this.connected) {
-                this.connected = true
-                console.log('[Flint] mcpClient: assumed connected after handshake settle')
-                // Send initialized notification even in fallback path so the server
-                // transitions out of "initializing" state.
-                this._sendInitializedNotification()
-            }
-        }, 2000)
     }
 
     /** Sends the MCP `notifications/initialized` notification (no id, no response). */
@@ -311,34 +361,32 @@ class MCPClient {
     }
 
     private _handleCrash(): void {
-        if (this.restarting) return
         this.connected = false
-        this.proc = null
+        // Kill the old process if it's still running — don't orphan it.
+        if (this.proc) {
+            try { this.proc.kill('SIGTERM') } catch { /* already dead */ }
+            this.proc = null
+        }
         this._rejectAllPending(new Error('MCP server process exited unexpectedly'))
 
-        const now = Date.now()
-        const isSecondCrash =
-            this.lastCrashMs !== null && now - this.lastCrashMs < CRASH_WINDOW_MS
-
-        if (isSecondCrash) {
+        if (this.retryCount >= MAX_RETRIES) {
             console.error(
-                '[Flint] mcpClient: second crash within %dms — disabling auto-restart',
-                CRASH_WINDOW_MS
+                '[Flint] mcpClient: giving up after %d attempts',
+                this.retryCount
             )
-            this.lastCrashMs = null
             return
         }
 
-        this.lastCrashMs = now
-        this.restarting = true
+        const delay = Math.min(RETRY_BASE_MS * 2 ** this.retryCount, 30_000)
+        this.retryCount++
 
-        console.warn('[Flint] mcpClient: scheduling restart in 1 s…')
-        setTimeout(() => {
-            this.restarting = false
+        console.warn('[Flint] mcpClient: scheduling restart in %d ms (attempt %d/%d)…', delay, this.retryCount, MAX_RETRIES)
+        this.retryTimer = setTimeout(() => {
+            this.retryTimer = null
             if (this.projectRoot !== null) {
                 this._spawn()
             }
-        }, 1000)
+        }, delay)
     }
 
     private _rpc(method: string, params: unknown): Promise<unknown> {

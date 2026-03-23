@@ -12,7 +12,11 @@ files:
   - dist/**/*
   - dist-electron/**/*
   - flint-mcp/dist/**/*
-  - node_modules/**/*
+  - flint-mcp/package.json
+  # flint-mcp is spawned as a child process (ELECTRON_RUN_AS_NODE=1) which
+  # cannot read from ASAR. Its node_modules must be included so they can be
+  # unpacked alongside the server code.
+  - flint-mcp/node_modules/**/*
   - package.json
   # Exclude source code — testers get compiled JS only
   - "!src/**"
@@ -52,12 +56,26 @@ asar: true
 asarUnpack:
   # Native .node binaries must live outside the ASAR (dlopen requirement)
   - "**/*.node"
-  # MCP server must be outside ASAR — it is spawned as a child process by the
-  # main process and the OS cannot execute files from inside an ASAR archive.
-  - "flint-mcp/dist/**"
+  # sqlite-vec distributes as .dylib on macOS, not .node — must also be unpacked
+  - "**/*.dylib"
+  # MCP server is spawned as a child process with ELECTRON_RUN_AS_NODE=1.
+  # Child processes are plain Node.js — they CANNOT read from ASAR.
+  # Therefore the ENTIRE flint-mcp directory (code + all dependencies) must
+  # be unpacked so the child process can resolve imports normally.
+  - "flint-mcp/**"
+  # Native modules used by the Electron main process also need full unpacking
+  # (the .node binary AND the JS wrapper + package.json for ESM resolution).
+  - "node_modules/better-sqlite3/**"
+  - "node_modules/sqlite-vec/**"
+  - "node_modules/sqlite-vec-darwin-arm64/**"
+  - "node_modules/sqlite-vec-darwin-x64/**"
+  - "node_modules/sqlite-vec-linux-x64/**"
+  - "node_modules/sqlite-vec-windows-x64/**"
+  - "node_modules/bufferutil/**"
+  - "node_modules/utf-8-validate/**"
 
 # ── Native modules ───────────────────────────────────────────────────────────
-# electron-rebuild handles better-sqlite3, node-pty, sqlite-vec, bufferutil, utf-8-validate
+# electron-rebuild handles better-sqlite3, sqlite-vec, bufferutil, utf-8-validate
 npmRebuild: true
 
 # ── macOS ────────────────────────────────────────────────────────────────────
@@ -93,8 +111,10 @@ linux:
   category: Development
 
 # ── Before-build hook ────────────────────────────────────────────────────────
-# Stamps FLINT_BETA_EXPIRY / FLINT_BETA_BUILD_ID into the compiled output.
-beforeBuild: scripts/before-build.cjs
+# Disabled: build:beta:mac already runs `npm run build` before electron-builder,
+# so the beforeBuild hook would double-build. Re-enable if you need a standalone
+# `electron-builder` invocation without a preceding `npm run build`.
+# beforeBuild: scripts/before-build.cjs
 
 # ── GitHub Releases publish ───────────────────────────────────────────────────
 # electron-updater reads this section to locate the update feed.

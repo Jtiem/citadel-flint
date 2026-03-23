@@ -1,1 +1,7 @@
 @import "tailwindcss";
+
+/* ── DependencyEdge animated dash (CV2.3) ──────────────────────────────────── */
+@keyframes dash-flow {
+    from { stroke-dashoffset: 0; }
+    to   { stroke-dashoffset: -24; }
+}

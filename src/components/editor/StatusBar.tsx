@@ -128,6 +128,26 @@ export function StatusBar() {
         return unsubscribe
     }, [fetchOverrideCount])
 
+    // ── MCP connection status ─────────────────────────────────────────────────
+    const [mcpConnected, setMcpConnected] = useState<boolean | null>(null)
+
+    useEffect(() => {
+        const poll = () => {
+            window.flintAPI.mcp?.status()
+                .then((s) => setMcpConnected(s.connected))
+                .catch(() => setMcpConnected(false))
+        }
+        poll()
+        const id = setInterval(poll, 5000)
+        return () => clearInterval(id)
+    }, [])
+
+    const handleMcpReconnect = useCallback(() => {
+        setMcpConnected(null) // show loading state
+        window.flintAPI.mcp?.reconnect?.()
+            .catch(() => { /* reconnect is fire-and-forget */ })
+    }, [])
+
     // ── Figma status state ────────────────────────────────────────────────────
     const [figmaStatus, setFigmaStatus] = useState<FigmaStatus | null>(null)
     const [popoverOpen, setPopoverOpen] = useState(false)
@@ -298,6 +318,33 @@ export function StatusBar() {
 
     return (
         <footer className="relative flex shrink-0 items-center gap-6 border-t border-gray-800 bg-gray-950 px-4 py-[3px]">
+            {/* MCP Connection Indicator */}
+            <div className="flex items-center gap-1.5 px-2 py-0.5">
+                <span
+                    className={[
+                        'inline-block w-2 h-2 rounded-full',
+                        mcpConnected === null
+                            ? 'bg-zinc-500 animate-pulse'
+                            : mcpConnected
+                            ? 'bg-emerald-400'
+                            : 'bg-red-400',
+                    ].join(' ')}
+                    aria-hidden="true"
+                />
+                <span className="text-xs text-zinc-300">
+                    {mcpConnected === null ? 'MCP…' : mcpConnected ? 'MCP' : 'MCP'}
+                </span>
+                {mcpConnected === false && (
+                    <button
+                        onClick={handleMcpReconnect}
+                        className="text-xs text-zinc-400 hover:text-white underline underline-offset-2 ml-0.5"
+                        aria-label="Reconnect MCP server"
+                    >
+                        Reconnect
+                    </button>
+                )}
+            </div>
+
             <span className="text-xs text-gray-500">
                 Local SQLite (better-sqlite3)
             </span>

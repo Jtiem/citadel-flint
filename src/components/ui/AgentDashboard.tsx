@@ -33,6 +33,23 @@ interface AgentRiskSummary {
     period: string
 }
 
+// ── Types (mirror of flint-mcp ConsensusReportSummary) ──────────────────────
+
+export interface ConsensusReportSummary {
+    totalEvaluations: number
+    byOutcome: {
+        agree_approve: number
+        agree_reject: number
+        disagree: number
+        error: number
+        skipped: number
+    }
+    disagreementRate: number  // 0.0–1.0
+    avgSecondaryDurationMs: number
+    last24hCount: number
+    recentDisagreements: unknown[]
+}
+
 // ── Risk badge helpers ──────────────────────────────────────────────────────
 
 function riskBadgeClass(score: number): string {
@@ -60,12 +77,108 @@ function formatLastActive(iso: string | null): string {
     return `${days}d ago`
 }
 
+// ── Consensus helpers ───────────────────────────────────────────────────────
+
+/** Returns Tailwind colour classes for a disagreement rate value (0.0–1.0). */
+export function disagreementRateClass(rate: number): string {
+    if (rate > 0.15) return 'text-red-400'
+    if (rate >= 0.05) return 'text-amber-400'
+    return 'text-emerald-400'
+}
+
+/** Format a 0.0–1.0 rate as a percentage string, e.g. "12.3%". */
+export function formatRate(rate: number): string {
+    return `${(rate * 100).toFixed(1)}%`
+}
+
+// ── ConsensusGateSection ────────────────────────────────────────────────────
+
+interface ConsensusGateSectionProps {
+    summary: ConsensusReportSummary
+    onViewDisagreements: () => void
+}
+
+function ConsensusGateSection({ summary, onViewDisagreements }: ConsensusGateSectionProps) {
+    const { totalEvaluations, byOutcome, disagreementRate, last24hCount } = summary
+    const rateClass = disagreementRateClass(disagreementRate)
+
+    return (
+        <div className="border-t border-zinc-800">
+            {/* Section header */}
+            <div className="flex items-center justify-between px-3 py-2">
+                <h3 className="text-xs font-medium uppercase tracking-wider text-zinc-400">
+                    Consensus Gate
+                </h3>
+                <button
+                    type="button"
+                    onClick={onViewDisagreements}
+                    className="rounded px-1.5 py-0.5 text-[10px] text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+                    title="View disagreements"
+                >
+                    View disagreements
+                </button>
+            </div>
+
+            {/* Stats row */}
+            <div className="grid grid-cols-3 gap-2 px-3 pb-3">
+                <div className="flex flex-col items-center rounded bg-zinc-800/50 px-2 py-2">
+                    <span className="text-lg font-bold text-zinc-100">{totalEvaluations}</span>
+                    <span className="text-[10px] text-zinc-500">Evaluations</span>
+                </div>
+                <div className="flex flex-col items-center rounded bg-zinc-800/50 px-2 py-2">
+                    <span className={`text-lg font-bold ${rateClass}`}>
+                        {formatRate(disagreementRate)}
+                    </span>
+                    <span className="text-[10px] text-zinc-500">Disagreement</span>
+                </div>
+                <div className="flex flex-col items-center rounded bg-zinc-800/50 px-2 py-2">
+                    <span className="text-lg font-bold text-zinc-100">{last24hCount}</span>
+                    <span className="text-[10px] text-zinc-500">Last 24h</span>
+                </div>
+            </div>
+
+            {/* Outcome distribution */}
+            <div className="flex flex-wrap gap-1 px-3 pb-3">
+                {byOutcome.agree_approve > 0 && (
+                    <span className="rounded bg-emerald-900/20 px-1.5 py-0.5 font-mono text-[9px] text-emerald-400">
+                        approve {byOutcome.agree_approve}
+                    </span>
+                )}
+                {byOutcome.agree_reject > 0 && (
+                    <span className="rounded bg-red-900/30 px-1.5 py-0.5 font-mono text-[9px] text-red-400">
+                        reject {byOutcome.agree_reject}
+                    </span>
+                )}
+                {byOutcome.disagree > 0 && (
+                    <span className="rounded bg-amber-900/20 px-1.5 py-0.5 font-mono text-[9px] text-amber-400">
+                        disagree {byOutcome.disagree}
+                    </span>
+                )}
+                {byOutcome.error > 0 && (
+                    <span className="rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-[9px] text-zinc-500">
+                        error {byOutcome.error}
+                    </span>
+                )}
+                {byOutcome.skipped > 0 && (
+                    <span className="rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-[9px] text-zinc-600">
+                        skipped {byOutcome.skipped}
+                    </span>
+                )}
+                {totalEvaluations === 0 && (
+                    <span className="text-[10px] text-zinc-600">No evaluations yet</span>
+                )}
+            </div>
+        </div>
+    )
+}
+
 // ── Component ───────────────────────────────────────────────────────────────
 
 export function AgentDashboard() {
     const [data, setData] = useState<AgentRiskSummary | null>(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
+    const [consensusSummary, setConsensusSummary] = useState<ConsensusReportSummary | null>(null)
 
     const fetchData = useCallback(async () => {
         try {
@@ -85,6 +198,22 @@ export function AgentDashboard() {
             setData(null)
         } finally {
             setLoading(false)
+        }
+
+        // Fetch consensus summary separately — failure here is non-fatal
+        try {
+            const consensusResult = await window.flintAPI.mcp?.callTool(
+                'flint_consensus_report',
+                { mode: 'summary' },
+            )
+            const toolRaw = consensusResult as { content?: Array<{ text?: string }> }
+            const toolText = toolRaw?.content?.[0]?.text
+            if (toolText) {
+                setConsensusSummary(JSON.parse(toolText) as ConsensusReportSummary)
+            }
+        } catch {
+            // Consensus gate may not be wired yet; silently skip
+            setConsensusSummary(null)
         }
     }, [])
 
@@ -236,6 +365,16 @@ export function AgentDashboard() {
                         </div>
                     ))}
                 </div>
+            )}
+
+            {/* ── Consensus Gate ──────────────────────────────────────── */}
+            {consensusSummary && (
+                <ConsensusGateSection
+                    summary={consensusSummary}
+                    onViewDisagreements={() => {
+                        void window.flintAPI.mcp?.callTool('flint_consensus_report', { mode: 'disagreements' })
+                    }}
+                />
             )}
 
             {/* ── Period label ────────────────────────────────────────── */}

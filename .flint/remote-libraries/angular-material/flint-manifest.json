@@ -1,0 +1,458 @@
+{
+  "name": "angular-material",
+  "version": "21.2.3",
+  "repository": "https://github.com/angular/components",
+  "description": "Angular Material Design component library implementing Google's Material Design specification",
+  "components": {
+    "MatAutocomplete": {
+      "path": "src/material/autocomplete",
+      "description": "Dropdown panel displaying filtered options as users type in an input field. Manages option selection, keyboard navigation, panel visibility, and ARIA accessibility.",
+      "category": "form-control",
+      "selector": "mat-autocomplete",
+      "module": "MatAutocompleteModule"
+    },
+    "MatBadge": {
+      "path": "src/material/badge",
+      "description": "Directive to display a small text badge on an element. Supports positioning, sizing, color theming, and visibility toggling for notification counts and status indicators.",
+      "category": "data-display",
+      "selector": "[matBadge]",
+      "module": "MatBadgeModule"
+    },
+    "MatBottomSheet": {
+      "path": "src/material/bottom-sheet",
+      "description": "Service that triggers Material Design bottom sheets. Manages lifecycle of overlay panels that slide up from the bottom edge for contextual actions or content.",
+      "category": "overlay",
+      "selector": null,
+      "module": "MatBottomSheetModule"
+    },
+    "MatButton": {
+      "path": "src/material/button",
+      "description": "Material Design button component supporting raised, flat, stroked, FAB, mini-FAB, and icon button variants. Handles ripple effects, disabled states, and color theming.",
+      "category": "button",
+      "selector": "button[mat-button], button[mat-raised-button], button[mat-flat-button], button[mat-stroked-button], button[mat-icon-button], button[mat-fab], button[mat-mini-fab]",
+      "module": "MatButtonModule"
+    },
+    "MatButtonToggle": {
+      "path": "src/material/button-toggle",
+      "description": "Toggle button group component for selecting one or multiple options from a set. Supports single and multiple selection modes with exclusive/non-exclusive toggling.",
+      "category": "button",
+      "selector": "mat-button-toggle-group, mat-button-toggle",
+      "module": "MatButtonToggleModule"
+    },
+    "MatCard": {
+      "path": "src/material/card",
+      "description": "Content container component following Material Design card patterns. Supports header, title, subtitle, content, actions, image, and footer sub-components.",
+      "category": "layout",
+      "selector": "mat-card",
+      "module": "MatCardModule"
+    },
+    "MatCheckbox": {
+      "path": "src/material/checkbox",
+      "description": "Material Design checkbox component with support for indeterminate state, label positioning, color theming, and forms integration via ngModel and FormControl.",
+      "category": "form-control",
+      "selector": "mat-checkbox",
+      "module": "MatCheckboxModule"
+    },
+    "MatChip": {
+      "path": "src/material/chips",
+      "description": "Material Design chip components for displaying compact elements representing inputs, attributes, or actions. Includes chip list, chip grid, chip input, and chip option variants.",
+      "category": "data-display",
+      "selector": "mat-chip, mat-chip-option, mat-chip-row",
+      "module": "MatChipsModule"
+    },
+    "MatChipSet": {
+      "path": "src/material/chips",
+      "description": "Container component for organizing chip elements. Manages focus, keyboard navigation, and interaction patterns across a set of chips.",
+      "category": "data-display",
+      "selector": "mat-chip-set, mat-chip-listbox, mat-chip-grid",
+      "module": "MatChipsModule"
+    },
+    "MatDatepicker": {
+      "path": "src/material/datepicker",
+      "description": "Calendar-based date selection component with popup overlay. Supports date ranges, min/max bounds, date filtering, custom date formats, and multi-calendar navigation.",
+      "category": "form-control",
+      "selector": "mat-datepicker",
+      "module": "MatDatepickerModule"
+    },
+    "MatDateRangePicker": {
+      "path": "src/material/datepicker",
+      "description": "Date range selection component allowing users to pick start and end dates. Extends datepicker with range-specific input fields and calendar selection behavior.",
+      "category": "form-control",
+      "selector": "mat-date-range-picker",
+      "module": "MatDatepickerModule"
+    },
+    "MatDialog": {
+      "path": "src/material/dialog",
+      "description": "Service for opening modal dialog overlays. Manages dialog lifecycle, backdrop interactions, keyboard escape handling, and focus trapping for accessible modal experiences.",
+      "category": "overlay",
+      "selector": null,
+      "module": "MatDialogModule"
+    },
+    "MatDivider": {
+      "path": "src/material/divider",
+      "description": "Thin line component for visually separating content sections. Supports horizontal and vertical orientations with inset positioning.",
+      "category": "layout",
+      "selector": "mat-divider",
+      "module": "MatDividerModule"
+    },
+    "MatExpansionPanel": {
+      "path": "src/material/expansion",
+      "description": "Expandable content panel with header and collapsible body. Supports accordion behavior, lazy content rendering, custom toggle positioning, and animation states.",
+      "category": "layout",
+      "selector": "mat-expansion-panel",
+      "module": "MatExpansionModule"
+    },
+    "MatAccordion": {
+      "path": "src/material/expansion",
+      "description": "Container directive for grouping expansion panels into an accordion where only one panel can be expanded at a time. Manages multi/single expansion modes.",
+      "category": "layout",
+      "selector": "mat-accordion",
+      "module": "MatExpansionModule"
+    },
+    "MatFormField": {
+      "path": "src/material/form-field",
+      "description": "Wrapper component providing Material Design styling for form controls. Manages labels, hints, errors, prefixes, suffixes, and appearance variants (fill, outline).",
+      "category": "form-control",
+      "selector": "mat-form-field",
+      "module": "MatFormFieldModule"
+    },
+    "MatGridList": {
+      "path": "src/material/grid-list",
+      "description": "Two-dimensional grid layout component for arranging cells with configurable column counts, row heights, and gutter sizing. Tiles can span multiple rows and columns.",
+      "category": "layout",
+      "selector": "mat-grid-list",
+      "module": "MatGridListModule"
+    },
+    "MatGridTile": {
+      "path": "src/material/grid-list",
+      "description": "Individual tile element within a grid list. Supports colspan and rowspan properties to span multiple grid cells, with optional header and footer overlays.",
+      "category": "layout",
+      "selector": "mat-grid-tile",
+      "module": "MatGridListModule"
+    },
+    "MatIcon": {
+      "path": "src/material/icon",
+      "description": "Component for rendering named Material Design icons from icon fonts or SVG sources. Supports icon registries, inline SVG, ligature-based fonts, and accessibility labeling.",
+      "category": "data-display",
+      "selector": "mat-icon",
+      "module": "MatIconModule"
+    },
+    "MatInput": {
+      "path": "src/material/input",
+      "description": "Directive enhancing native input and textarea elements with Material Design styling. Integrates with mat-form-field for labels, hints, errors, and validation states.",
+      "category": "form-control",
+      "selector": "input[matInput], textarea[matInput]",
+      "module": "MatInputModule"
+    },
+    "MatList": {
+      "path": "src/material/list",
+      "description": "Vertical list component for displaying rows of items. Supports single-line, multi-line, icons, avatars, and action items with dividers.",
+      "category": "layout",
+      "selector": "mat-list, mat-action-list",
+      "module": "MatListModule"
+    },
+    "MatNavList": {
+      "path": "src/material/list",
+      "description": "Navigation-specific list variant rendering anchor elements as list items. Provides accessible navigation link styling within Material Design list patterns.",
+      "category": "navigation",
+      "selector": "mat-nav-list",
+      "module": "MatListModule"
+    },
+    "MatSelectionList": {
+      "path": "src/material/list",
+      "description": "List component with built-in selection state for each item. Supports single and multiple selection modes with checkbox indicators and forms integration.",
+      "category": "form-control",
+      "selector": "mat-selection-list",
+      "module": "MatListModule"
+    },
+    "MatMenu": {
+      "path": "src/material/menu",
+      "description": "Floating overlay panel displaying a list of action items triggered by a button or other element. Supports nested submenus, keyboard navigation, and positioning.",
+      "category": "navigation",
+      "selector": "mat-menu",
+      "module": "MatMenuModule"
+    },
+    "MatPaginator": {
+      "path": "src/material/paginator",
+      "description": "Pagination control for navigating through paged data sets. Displays page size selector, current range, and next/previous navigation buttons.",
+      "category": "data-table",
+      "selector": "mat-paginator",
+      "module": "MatPaginatorModule"
+    },
+    "MatProgressBar": {
+      "path": "src/material/progress-bar",
+      "description": "Horizontal progress indicator bar supporting determinate, indeterminate, buffer, and query display modes. Indicates loading or operation progress.",
+      "category": "feedback",
+      "selector": "mat-progress-bar",
+      "module": "MatProgressBarModule"
+    },
+    "MatProgressSpinner": {
+      "path": "src/material/progress-spinner",
+      "description": "Circular progress indicator supporting determinate and indeterminate modes. Renders an SVG circle with configurable diameter and stroke width for loading states.",
+      "category": "feedback",
+      "selector": "mat-progress-spinner, mat-spinner",
+      "module": "MatProgressSpinnerModule"
+    },
+    "MatRadioGroup": {
+      "path": "src/material/radio",
+      "description": "Radio button group for selecting a single option from a set. Manages mutual exclusivity, keyboard navigation, and forms integration via ngModel and FormControl.",
+      "category": "form-control",
+      "selector": "mat-radio-group",
+      "module": "MatRadioModule"
+    },
+    "MatRadioButton": {
+      "path": "src/material/radio",
+      "description": "Individual radio button element used within a radio group. Supports label positioning, color theming, disabled state, and accessibility attributes.",
+      "category": "form-control",
+      "selector": "mat-radio-button",
+      "module": "MatRadioModule"
+    },
+    "MatSelect": {
+      "path": "src/material/select",
+      "description": "Dropdown selection component replacing native select elements with Material Design styling. Supports single and multiple selection, option groups, search, and custom triggers.",
+      "category": "form-control",
+      "selector": "mat-select",
+      "module": "MatSelectModule"
+    },
+    "MatSidenav": {
+      "path": "src/material/sidenav",
+      "description": "Side navigation panel that slides in from the edge of the viewport. Supports push, over, and side display modes with responsive behavior and backdrop overlay.",
+      "category": "navigation",
+      "selector": "mat-sidenav",
+      "module": "MatSidenavModule"
+    },
+    "MatSidenavContainer": {
+      "path": "src/material/sidenav",
+      "description": "Container component that wraps sidenav and main content areas. Manages sidenav open/close transitions, content margin adjustments, and backdrop rendering.",
+      "category": "navigation",
+      "selector": "mat-sidenav-container",
+      "module": "MatSidenavModule"
+    },
+    "MatDrawer": {
+      "path": "src/material/sidenav",
+      "description": "Generic drawer panel component providing the sliding panel behavior without the full sidenav semantics. Used as the base for mat-sidenav within mat-drawer-container.",
+      "category": "navigation",
+      "selector": "mat-drawer",
+      "module": "MatSidenavModule"
+    },
+    "MatSlideToggle": {
+      "path": "src/material/slide-toggle",
+      "description": "Material Design slide toggle switch for binary on/off settings. Supports label positioning, color theming, disabled state, and forms integration.",
+      "category": "form-control",
+      "selector": "mat-slide-toggle",
+      "module": "MatSlideToggleModule"
+    },
+    "MatSlider": {
+      "path": "src/material/slider",
+      "description": "Range slider component for selecting a value or range within a bounded interval. Supports discrete steps, tick marks, thumb labels, and vertical orientation.",
+      "category": "form-control",
+      "selector": "mat-slider",
+      "module": "MatSliderModule"
+    },
+    "MatSnackBar": {
+      "path": "src/material/snack-bar",
+      "description": "Service for displaying brief notification messages at the bottom of the screen. Supports action buttons, custom components, duration, horizontal/vertical positioning.",
+      "category": "overlay",
+      "selector": null,
+      "module": "MatSnackBarModule"
+    },
+    "MatSort": {
+      "path": "src/material/sort",
+      "description": "Directive for adding sortable column headers to tables and lists. Manages sort direction cycling, active sort state, and sort change event emission.",
+      "category": "data-table",
+      "selector": "[matSort]",
+      "module": "MatSortModule"
+    },
+    "MatSortHeader": {
+      "path": "src/material/sort",
+      "description": "Column header button component that integrates with matSort to provide clickable sort controls with directional arrow indicators and accessibility labels.",
+      "category": "data-table",
+      "selector": "[mat-sort-header]",
+      "module": "MatSortModule"
+    },
+    "MatStepper": {
+      "path": "src/material/stepper",
+      "description": "Multi-step workflow component managing sequential or non-linear step navigation. Supports horizontal and vertical layouts, step validation, editable steps, and animated transitions.",
+      "category": "navigation",
+      "selector": "mat-stepper, mat-vertical-stepper, mat-horizontal-stepper",
+      "module": "MatStepperModule"
+    },
+    "MatStep": {
+      "path": "src/material/stepper",
+      "description": "Individual step within a stepper workflow. Contains step content, label, optional status icon, and supports form validation gating before proceeding to subsequent steps.",
+      "category": "navigation",
+      "selector": "mat-step",
+      "module": "MatStepperModule"
+    },
+    "MatTable": {
+      "path": "src/material/table",
+      "description": "Data table component extending CDK table with Material Design styling. Supports column definitions, row templates, sticky headers/footers, and integration with sort and pagination.",
+      "category": "data-table",
+      "selector": "mat-table, table[mat-table]",
+      "module": "MatTableModule"
+    },
+    "MatHeaderRow": {
+      "path": "src/material/table",
+      "description": "Header row component for mat-table defining the row template for column headers. Works with matHeaderCellDef to render column header cells.",
+      "category": "data-table",
+      "selector": "mat-header-row, tr[mat-header-row]",
+      "module": "MatTableModule"
+    },
+    "MatRow": {
+      "path": "src/material/table",
+      "description": "Data row component for mat-table defining the template for each data row. Works with matCellDef to render column data cells for each record in the data source.",
+      "category": "data-table",
+      "selector": "mat-row, tr[mat-row]",
+      "module": "MatTableModule"
+    },
+    "MatTabGroup": {
+      "path": "src/material/tabs",
+      "description": "Tab group container organizing content into tabbed sections. Manages tab selection, keyboard navigation, lazy content loading, animated transitions, and header scrolling.",
+      "category": "navigation",
+      "selector": "mat-tab-group",
+      "module": "MatTabsModule"
+    },
+    "MatTab": {
+      "path": "src/material/tabs",
+      "description": "Individual tab within a tab group containing label and content templates. Supports lazy rendering, custom labels, disabled state, and ARIA labeling.",
+      "category": "navigation",
+      "selector": "mat-tab",
+      "module": "MatTabsModule"
+    },
+    "MatTabNav": {
+      "path": "src/material/tabs",
+      "description": "Navigation-oriented tab bar component rendering anchor-based tab links for router integration. Provides tab-styled navigation without content panels.",
+      "category": "navigation",
+      "selector": "nav[mat-tab-nav-bar]",
+      "module": "MatTabsModule"
+    },
+    "MatTimepicker": {
+      "path": "src/material/timepicker",
+      "description": "Time-of-day selection component rendering a listbox dropdown with configurable time intervals. Integrates with MatTimepickerInput for keyboard entry and validation.",
+      "category": "form-control",
+      "selector": "mat-timepicker",
+      "module": "MatTimepickerModule"
+    },
+    "MatToolbar": {
+      "path": "src/material/toolbar",
+      "description": "Horizontal bar component for headers and title sections. Supports multiple rows, color theming, and serves as an anchor for navigation, branding, and action items.",
+      "category": "navigation",
+      "selector": "mat-toolbar",
+      "module": "MatToolbarModule"
+    },
+    "MatTooltip": {
+      "path": "src/material/tooltip",
+      "description": "Directive for displaying informational text when hovering over or focusing on an element. Supports configurable positioning, show/hide delays, and touch gestures.",
+      "category": "overlay",
+      "selector": "[matTooltip]",
+      "module": "MatTooltipModule"
+    },
+    "MatTree": {
+      "path": "src/material/tree",
+      "description": "Hierarchical tree view component extending CDK tree with Material Design styling. Supports flat and nested data sources, expandable nodes, and custom node templates.",
+      "category": "layout",
+      "selector": "mat-tree",
+      "module": "MatTreeModule"
+    },
+    "MatTreeNode": {
+      "path": "src/material/tree",
+      "description": "Individual node element within a tree component. Supports expand/collapse toggling, indentation levels, and custom content templates for leaf and branch nodes.",
+      "category": "layout",
+      "selector": "mat-tree-node, mat-nested-tree-node",
+      "module": "MatTreeModule"
+    },
+    "MatRipple": {
+      "path": "src/material/core",
+      "description": "Directive adding Material Design ripple ink effect to host elements on click and touch interactions. Supports configurable color, radius, animation speed, and centered mode.",
+      "category": "data-display",
+      "selector": "[mat-ripple], [matRipple]",
+      "module": "MatRippleModule"
+    },
+    "MatOption": {
+      "path": "src/material/core",
+      "description": "Option element used inside select, autocomplete, and listbox components. Handles selection state, keyboard activation, and accessibility labeling for dropdown choices.",
+      "category": "form-control",
+      "selector": "mat-option",
+      "module": "MatOptionModule"
+    },
+    "MatOptgroup": {
+      "path": "src/material/core",
+      "description": "Grouping component for organizing mat-option elements under a labeled section header within select and autocomplete dropdowns.",
+      "category": "form-control",
+      "selector": "mat-optgroup",
+      "module": "MatOptionModule"
+    }
+  },
+  "categories": {
+    "form-control": {
+      "label": "Form Controls",
+      "description": "Components for capturing user input: text fields, selectors, toggles, date/time pickers"
+    },
+    "navigation": {
+      "label": "Navigation",
+      "description": "Components for app navigation: menus, sidebars, tabs, steppers, toolbars"
+    },
+    "layout": {
+      "label": "Layout",
+      "description": "Components for organizing and structuring content: cards, grids, lists, trees, dividers"
+    },
+    "button": {
+      "label": "Buttons & Toggles",
+      "description": "Interactive button and toggle components for triggering actions"
+    },
+    "data-display": {
+      "label": "Data Display",
+      "description": "Components for presenting data: icons, badges, chips, ripple effects"
+    },
+    "data-table": {
+      "label": "Data Table",
+      "description": "Table infrastructure: data table, sort headers, pagination, row definitions"
+    },
+    "overlay": {
+      "label": "Popups & Modals",
+      "description": "Overlay components: dialogs, bottom sheets, snackbars, tooltips"
+    },
+    "feedback": {
+      "label": "Feedback & Indicators",
+      "description": "Progress indicators and loading state components"
+    }
+  },
+  "entryPoints": [
+    "@angular/material/autocomplete",
+    "@angular/material/badge",
+    "@angular/material/bottom-sheet",
+    "@angular/material/button",
+    "@angular/material/button-toggle",
+    "@angular/material/card",
+    "@angular/material/checkbox",
+    "@angular/material/chips",
+    "@angular/material/core",
+    "@angular/material/datepicker",
+    "@angular/material/dialog",
+    "@angular/material/divider",
+    "@angular/material/expansion",
+    "@angular/material/form-field",
+    "@angular/material/grid-list",
+    "@angular/material/icon",
+    "@angular/material/input",
+    "@angular/material/list",
+    "@angular/material/menu",
+    "@angular/material/paginator",
+    "@angular/material/progress-bar",
+    "@angular/material/progress-spinner",
+    "@angular/material/radio",
+    "@angular/material/select",
+    "@angular/material/sidenav",
+    "@angular/material/slide-toggle",
+    "@angular/material/slider",
+    "@angular/material/snack-bar",
+    "@angular/material/sort",
+    "@angular/material/stepper",
+    "@angular/material/table",
+    "@angular/material/tabs",
+    "@angular/material/timepicker",
+    "@angular/material/toolbar",
+    "@angular/material/tooltip",
+    "@angular/material/tree"
+  ]
+}
