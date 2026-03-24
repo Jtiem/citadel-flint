@@ -199,13 +199,18 @@ export async function startViteServer(projectRoot: string): Promise<string> {
   _port = await findFreePort()
   _root = projectRoot
 
-  // Attempt to resolve the user's vite.config so their plugins (React, Vue…)
-  // are included automatically. Fall back to zero plugins on any error so
-  // plain-HTML projects still work.
+  // Attempt to resolve the user's vite.config so their framework plugins
+  // (React, Vue, Svelte, Tailwind…) are included automatically.
+  // CRITICAL: We MUST filter out vite-plugin-electron and its sub-plugins.
+  // If they leak into this server, their configureServer hook fires and
+  // creates a SECOND set of electron build watchers — causing the infinite
+  // rebuild → restart → file-write → rebuild loop.
   let userPlugins: Plugin[] = []
   try {
     const resolved = await resolveConfig({ root: projectRoot }, 'serve')
-    userPlugins = (resolved.plugins ?? []) as Plugin[]
+    userPlugins = ((resolved.plugins ?? []) as Plugin[]).filter(
+      (p) => !p.name?.includes('electron')
+    )
   } catch {
     // No vite.config found or resolution error — run bare.
   }
