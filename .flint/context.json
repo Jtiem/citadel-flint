@@ -1,6 +1,6 @@
 {
-  "timestamp": 1774311445318,
-  "activeFile": "/Users/tiemann/Lunar-Elevator-Bridge/electron/templates/base-vite-tailwind/src/App.tsx",
+  "timestamp": 1774312026300,
+  "activeFile": null,
   "selectedNodeId": null,
   "cursorPosition": null,
   "violations": {
@@ -9,16 +9,14 @@
     "criticalCount": 0,
     "nodeIds": []
   },
-  "saveState": "editing",
+  "saveState": "idle",
   "canvasMode": "design",
-  "openFiles": [
-    "/Users/tiemann/Lunar-Elevator-Bridge/electron/templates/base-vite-tailwind/src/App.tsx"
-  ],
+  "openFiles": [],
   "healthScore": null,
   "healthGrade": null,
   "overrideCount": 0,
   "importSummary": null,
-  "sourceExcerpt": "export default function App() {\n  return (\n    <div className=\"flex min-h-screen items-center justify-center bg-gray-950 p-8\">\n      <div className=\"max-w-md rounded-xl border border-gray-800 bg-gray-900 p-8 shadow-lg\">\n        <h1 className=\"text-2xl font-bold text-white\">Welcome to Flint</h1>\n        <p className=\"mt-3 text-sm text-gray-400\">\n          This starter component is governed by your design system.\n          Edit it to see live governance feedback.\n        </p>\n        <div className=\"mt-6 flex gap-3\">\n          <button\n            type=\"button\"\n            className=\"rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500\"\n          >\n            Get Started\n          </button>\n          <button\n            type=\"button\"\n            className=\"rounded-lg border border-gray-700 px-4 py-2 text-sm font-medium text-gray-300 hover:border-gray-600\"\n          >\n            Learn More\n          </button>\n        </div>\n      </div>\n    </div>\n  )\n}\n",
+  "sourceExcerpt": "import React from 'react'\n\ninterface Props {\n  title: string\n}\n\nexport default function Card({ title }: Props) {\n  return (\n    <div className=\"rounded-xl border border-gray-800 bg-gray-900 p-6\">\n      <h2 className=\"text-lg font-semibold text-white\">{title}</h2>\n      <p className=\"mt-2 text-sm text-gray-400\">\n        Edit this component to see the AST update in real time.\n      </p>\n    </div>\n  )\n}\n",
   "selectedNodeSummary": null,
   "violationSnapshot": {
     "total": 0,
