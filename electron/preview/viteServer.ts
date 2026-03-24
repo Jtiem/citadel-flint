@@ -22,7 +22,7 @@
  * Main process only — never imported by the renderer.
  */
 
-import { createServer, type ViteDevServer, type Plugin, resolveConfig } from 'vite'
+import { createServer, type ViteDevServer, type Plugin } from 'vite'
 import net from 'node:net'
 
 // ── Port utilities ─────────────────────────────────────────────────────────────
@@ -199,21 +199,13 @@ export async function startViteServer(projectRoot: string): Promise<string> {
   _port = await findFreePort()
   _root = projectRoot
 
-  // Attempt to resolve the user's vite.config so their framework plugins
-  // (React, Vue, Svelte, Tailwind…) are included automatically.
-  // CRITICAL: We MUST filter out vite-plugin-electron and its sub-plugins.
-  // If they leak into this server, their configureServer hook fires and
-  // creates a SECOND set of electron build watchers — causing the infinite
-  // rebuild → restart → file-write → rebuild loop.
-  let userPlugins: Plugin[] = []
-  try {
-    const resolved = await resolveConfig({ root: projectRoot }, 'serve')
-    userPlugins = ((resolved.plugins ?? []) as Plugin[]).filter(
-      (p) => !p.name?.includes('electron')
-    )
-  } catch {
-    // No vite.config found or resolution error — run bare.
-  }
+  // DO NOT call resolveConfig() here. It compiles vite.config.ts to a temp
+  // file in node_modules/.vite-temp/, which the OUTER Vite dev server detects
+  // as a config change → full server restart → Electron restart → this function
+  // runs again → resolveConfig → loop forever.
+  //
+  // Instead, let Vite auto-detect the user's config via configFile (default).
+  // We only override server settings and append our interaction plugin.
 
   _server = await createServer({
     root: projectRoot,
@@ -222,27 +214,19 @@ export async function startViteServer(projectRoot: string): Promise<string> {
       port: _port,
       strictPort: false,
       host: '127.0.0.1',
-      // Disable HMR overlay in favor of Flint's own error panel.
       hmr: { overlay: false },
       watch: {
-        // Use polling instead of native fsevents to prevent SIGABRT crash
-        // during Electron environment teardown on macOS 26.
-        // fsevents.node's fse_instance_destroy calls uv_mutex_lock on an
-        // already-freed mutex during FreeEnvironment → abort().
         usePolling: true,
         interval: 1000,
         ignored: ['**/.flint/**', '**/node_modules/**', '**/.git/**', '**/dist-electron/**', '**/*.db', '**/*.db-journal', '**/*.db-wal'],
       },
     },
     plugins: [
-      ...userPlugins,
       flintInteractPlugin(),
     ],
-    // Suppress Vite's banner — Flint has its own status bar.
     logLevel: 'warn',
     clearScreen: false,
-    // Required to allow Electron's renderer (file://) to iframe the preview
-    configFile: false,   // Don't re-read vite.config — we already resolved it above
+    configFile: false,
   })
 
   await _server.listen()

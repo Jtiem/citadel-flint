@@ -70,8 +70,6 @@ export default defineConfig({
         vite: {
           build: {
             outDir: 'dist-electron',
-            // Tell Rollup's watcher to ignore Electron-written files.
-            // Without this, .flint/context.json writes trigger full rebuilds.
             watch: { exclude: watchExclude },
             rollupOptions: {
               external: electronExternalMatcher,
