@@ -4,50 +4,11 @@ import tailwindcss from '@tailwindcss/vite'
 import electron from 'vite-plugin-electron'
 import renderer from 'vite-plugin-electron-renderer'
 import path from 'path'
-import { createRequire } from 'node:module'
-import type { ChildProcess } from 'node:child_process'
 
-const _require = createRequire(import.meta.url)
-
-// ── Custom Electron launcher ────────────────────────────────────────────────
-// vite-plugin-electron 0.29 + Vite 7: the plugin's `startup()` function uses
-// `await import('electron')` which returns a Vite-intercepted module namespace
-// where `.default` is undefined, causing spawn() to receive an Object instead
-// of a string path. Using createRequire() bypasses Vite's module interception.
-let _startupTimer: ReturnType<typeof setTimeout> | null = null
-
-function debouncedStartup() {
-  if (_startupTimer) clearTimeout(_startupTimer)
-  _startupTimer = setTimeout(() => {
-    _startupTimer = null
-    void launchElectron()
-  }, 300)
-}
-
-async function launchElectron(): Promise<void> {
-  const { spawn } = await import('node:child_process')
-  const existing = process.electronApp as ChildProcess | undefined
-  if (existing && !existing.killed) {
-    await new Promise<void>((resolve) => {
-      existing.removeAllListeners()
-      existing.once('exit', resolve)
-      existing.kill('SIGTERM')
-    })
-  }
-  process.electronApp = null
-
-  const electronPath = _require('electron') as string
-  const child = spawn(electronPath, ['.', '--no-sandbox'], {
-    stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
-  })
-  process.electronApp = child as never
-  child.once('exit', () => process.exit())
-}
-
-// ── Rollup externals ────────────────────────────────────────────────────────
 const electronExternalMatcher = (id: string) => {
   if (
     id === 'vite' ||
+    id === 'node-pty' ||
     id === 'better-sqlite3' ||
     id === 'sqlite-vec' ||
     id === 'bufferutil' ||
@@ -62,29 +23,22 @@ const electronExternalMatcher = (id: string) => {
     return true
   }
   if (id.startsWith('@babel/')) return true
-  // @huggingface/transformers uses onnxruntime-node which dynamically require()s
-  // platform-specific .node binaries. Rollup replaces require() with a CJS shim
-  // that cannot load native binaries. Keep external so Node resolves at runtime.
   if (id.startsWith('@huggingface/')) return true
   if (id.startsWith('onnxruntime')) return true
   if (id === '../pkg' || id === './pkg') return true
   return false
 }
 
-// ── Watch exclusions ────────────────────────────────────────────────────────
-// Electron writes to .flint/ at runtime (context.json, mcp-events.jsonl,
-// annotations.json). Without exclusions, Rollup's watchers detect those writes
-// and trigger a rebuild → Electron restart → more writes → infinite loop.
+// Patterns that Electron writes at runtime — must be excluded from all watchers
+// to prevent Vite rebuild → Electron restart → file write → rebuild loops.
 const watchExclude = [
-  'dist-electron/**',
-  '.flint/**',
-  '.flint-context/**',
-  '.git/**',
-  'node_modules/**',
+  '**/.flint/**',
+  '**/dist-electron/**',
+  '**/.git/**',
+  '**/node_modules/**',
   '**/*.db',
-  '**/*.jsonl',
-  'release/**',
-  'build-resources/**',
+  '**/*.db-journal',
+  '**/*.db-wal',
 ]
 
 export default defineConfig({
@@ -98,8 +52,13 @@ export default defineConfig({
   },
   server: {
     watch: {
-      // Prevent Vite's dev server from picking up Electron's runtime writes
-      ignored: ['**/.flint/**', '**/dist-electron/**', '**/*.db', '**/*.jsonl'],
+      // Prevent the CLIENT Vite dev server from triggering HMR when
+      // Electron writes .flint/context.json, .flint/mcp-events.jsonl, etc.
+      ignored: watchExclude,
+      // Use polling instead of native fsevents to prevent SIGABRT crash
+      // during Electron environment teardown on macOS 26.
+      usePolling: true,
+      interval: 1000,
     },
   },
   plugins: [
@@ -108,10 +67,11 @@ export default defineConfig({
     electron([
       {
         entry: 'electron/main.ts',
-        onstart: debouncedStartup,
         vite: {
           build: {
             outDir: 'dist-electron',
+            // Tell Rollup's watcher to ignore Electron-written files.
+            // Without this, .flint/context.json writes trigger full rebuilds.
             watch: { exclude: watchExclude },
             rollupOptions: {
               external: electronExternalMatcher,
@@ -121,15 +81,8 @@ export default defineConfig({
       },
       {
         entry: 'electron/preload.ts',
-        onstart({ reload }) {
-          // reload() sends HMR to renderer if Electron is running, but falls
-          // back to vite-plugin-electron's broken startup() if it isn't.
-          // Guard: only reload when Electron is alive; otherwise debounce-start.
-          if (process.electronApp) {
-            reload()
-          } else {
-            debouncedStartup()
-          }
+        onstart(args) {
+          args.reload()
         },
         vite: {
           build: {
@@ -143,7 +96,6 @@ export default defineConfig({
       },
       {
         entry: 'electron/powersync.worker.ts',
-        onstart: debouncedStartup,
         vite: {
           build: {
             outDir: 'dist-electron',

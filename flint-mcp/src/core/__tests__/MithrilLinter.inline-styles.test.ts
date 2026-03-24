@@ -370,54 +370,54 @@ describe('visitInlineStyles — JSX traversal', () => {
     it('B1: style={{ fontSize: "14px" }} without a token match → warning', () => {
         // fontSize 20px is NOT in the token set (only 14 is)
         const ast = jsxFile(`<div data-flint-id="b1" style={{ fontSize: '20px' }} />`)
-        const result = visitInlineStyles(ast, tokens)
-        expect(result.size).toBe(1)
-        expect(result.get('b1')?.ruleId).toBe('MITHRIL-IST-TYP')
+        const { warnings } = visitInlineStyles(ast, tokens)
+        expect(warnings.size).toBe(1)
+        expect(warnings.get('b1')?.ruleId).toBe('MITHRIL-IST-TYP')
     })
 
     it('B2: node without data-flint-id → no warning emitted', () => {
         const ast = jsxFile(`<div style={{ fontSize: '20px' }} />`)
-        const result = visitInlineStyles(ast, tokens)
-        expect(result.size).toBe(0)
+        const { warnings } = visitInlineStyles(ast, tokens)
+        expect(warnings.size).toBe(0)
     })
 
     it('B3: style={myVar} (non-object) → no warning', () => {
         const ast = jsxFile(`<div data-flint-id="b3" style={myVar} />`)
-        const result = visitInlineStyles(ast, tokens)
-        expect(result.size).toBe(0)
+        const { warnings } = visitInlineStyles(ast, tokens)
+        expect(warnings.size).toBe(0)
     })
 
     it('B4: SpreadElement skipped; literal prop after spread still flagged', () => {
         const ast = jsxFile(`<div data-flint-id="b4" style={{ ...baseStyle, color: '#ff0000' }} />`)
-        const result = visitInlineStyles(ast, tokens)
-        expect(result.size).toBe(1)
-        expect(result.get('b4')?.ruleId).toBe('MITHRIL-IST-COL')
+        const { warnings } = visitInlineStyles(ast, tokens)
+        expect(warnings.size).toBe(1)
+        expect(warnings.get('b4')?.ruleId).toBe('MITHRIL-IST-COL')
     })
 
     it('B5: MemberExpression value (tokens.colorPrimary) → no warning', () => {
         const ast = jsxFile(`<div data-flint-id="b5" style={{ color: tokens.colorPrimary }} />`)
-        const result = visitInlineStyles(ast, tokens)
-        expect(result.size).toBe(0)
+        const { warnings } = visitInlineStyles(ast, tokens)
+        expect(warnings.size).toBe(0)
     })
 
     it('B6: NumericLiteral opacity 0.5 → warning', () => {
         const withOpacity = [...tokens, ...OPACITY_TOKENS]
         const ast = jsxFile(`<div data-flint-id="b6" style={{ opacity: 0.5 }} />`)
-        const result = visitInlineStyles(ast, withOpacity)
-        expect(result.size).toBe(1)
-        expect(result.get('b6')?.ruleId).toBe('MITHRIL-IST-OPC')
+        const { warnings } = visitInlineStyles(ast, withOpacity)
+        expect(warnings.size).toBe(1)
+        expect(warnings.get('b6')?.ruleId).toBe('MITHRIL-IST-OPC')
     })
 
     it('B7: NumericLiteral zero (marginBottom: 0) → no warning', () => {
         const ast = jsxFile(`<div data-flint-id="b7" style={{ marginBottom: 0 }} />`)
-        const result = visitInlineStyles(ast, tokens)
-        expect(result.size).toBe(0)
+        const { warnings } = visitInlineStyles(ast, tokens)
+        expect(warnings.size).toBe(0)
     })
 
     it('B8: empty style={{}} → no warning', () => {
         const ast = jsxFile(`<div data-flint-id="b8" style={{}} />`)
-        const result = visitInlineStyles(ast, tokens)
-        expect(result.size).toBe(0)
+        const { warnings } = visitInlineStyles(ast, tokens)
+        expect(warnings.size).toBe(0)
     })
 
     it('B9: auditAll includes visitInlineStyles results', () => {
@@ -431,7 +431,32 @@ describe('visitInlineStyles — JSX traversal', () => {
     it('B10: color that matches a token within ΔE 2.0 → no warning', () => {
         // #ffffff is color.surface.base — should be within threshold
         const ast = jsxFile(`<div data-flint-id="b10" style={{ color: '#ffffff' }} />`)
-        const result = visitInlineStyles(ast, tokens)
-        expect(result.size).toBe(0)
+        const { warnings } = visitInlineStyles(ast, tokens)
+        expect(warnings.size).toBe(0)
+    })
+
+    // Phase 1 — coverage stats
+    it('B11: coverage tracks scanned and skipped props correctly', () => {
+        const ast = jsxFile(`<div data-flint-id="b11" style={{ fontSize: '20px', color: tokens.primary }} />`)
+        const { coverage } = visitInlineStyles(ast, tokens)
+        // fontSize is a StringLiteral → scanned; tokens.primary is MemberExpression → skipped
+        expect(coverage.inlinePropsScanned).toBe(1)
+        expect(coverage.inlinePropsSkipped).toBe(1)
+    })
+
+    it('B12: coverage.inlineViolations counts warnings found', () => {
+        const ast = jsxFile(`<div data-flint-id="b12" style={{ fontSize: '20px' }} />`)
+        const { coverage } = visitInlineStyles(ast, tokens)
+        expect(coverage.inlineViolations).toBe(1)
+    })
+
+    // Phase 3 — line numbers
+    it('B13: warning includes line number from style attribute loc', () => {
+        const ast = jsxFile(`<div data-flint-id="b13" style={{ fontSize: '20px' }} />`)
+        const { warnings } = visitInlineStyles(ast, tokens)
+        const w = warnings.get('b13')
+        expect(w).toBeDefined()
+        expect(typeof w?.line).toBe('number')
+        expect((w?.line ?? 0) > 0).toBe(true)
     })
 })

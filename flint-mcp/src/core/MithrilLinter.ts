@@ -24,7 +24,7 @@ import _traverse from '@babel/traverse'
 import * as t from '@babel/types'
 import type { File } from '@babel/types'
 import type Database from 'better-sqlite3'
-import type { DesignToken, LinterWarning } from '../types.js'
+import type { DesignToken, LinterWarning, TokenCoverage } from '../types.js'
 import { getErrorEntryByRuleId } from './errorTaxonomy.js'
 import { checkSyncViolations, type DesignTokenFileEntry } from './sync/syncViolationChecker.js'
 
@@ -541,11 +541,13 @@ export function visitClassNames(ast: File, tokens: DesignToken[], options?: Poli
             const colSeverity: LinterWarning['severity'] = colMode === 'advisory'
                 ? 'advisory'
                 : severity(worstDelta, criticalThreshold)
+            const loc = path.node.loc?.start
             warnings.set(nodeId, {
                 id: nodeId,
                 type: 'color-drift',
                 severity: colSeverity,
                 value: worstDelta,
+                ...(loc !== undefined ? { line: loc.line, column: loc.column } : {}),
                 message: tokenLabel !== null
                     ? `MITHRIL-COL: ΔE ${worstDelta.toFixed(1)} – use ${tokenLabel}`
                     : `MITHRIL-COL: ΔE ${worstDelta.toFixed(1)} – no matching token`,
@@ -608,11 +610,13 @@ export function visitTypography(ast: File, tokens: DesignToken[], options?: Poli
                         : `${rule}: arbitrary '${rawVal}' not in token set — add a ${tokenType} token`
 
                     if (!warnings.has(nodeId)) {
+                        const typLoc = path.node.loc?.start
                         warnings.set(nodeId, {
                             id: nodeId,
                             type: 'typography-drift',
                             severity: ruleMode === 'advisory' ? 'advisory' : 'amber',
                             value: 1,
+                            ...(typLoc !== undefined ? { line: typLoc.line, column: typLoc.column } : {}),
                             message: msg,
                             nearestToken: suggestion,
                             nearestTokenValue: suggestion !== null
@@ -663,11 +667,13 @@ export function visitSpacing(ast: File, tokens: DesignToken[], options?: PolicyO
 
                 const suggestion = dimTokens[0]?.token_path ?? null
                 if (!warnings.has(nodeId)) {
+                    const spcLoc = path.node.loc?.start
                     warnings.set(nodeId, {
                         id: nodeId,
                         type: 'spacing-drift',
                         severity: spcMode === 'advisory' ? 'advisory' : 'amber',
                         value: 1,
+                        ...(spcLoc !== undefined ? { line: spcLoc.line, column: spcLoc.column } : {}),
                         message: suggestion !== null
                             ? `MITHRIL-SPC-001: arbitrary '${rawVal}' not in dimension tokens — use ${suggestion}`
                             : `MITHRIL-SPC-001: arbitrary '${rawVal}' — no dimension tokens defined`,
@@ -718,11 +724,13 @@ export function visitShadows(ast: File, tokens: DesignToken[], options?: PolicyO
 
                 const suggestion = shadowTokens[0]?.token_path ?? null
                 if (!warnings.has(nodeId)) {
+                    const shdLoc = path.node.loc?.start
                     warnings.set(nodeId, {
                         id: nodeId,
                         type: 'shadow-drift',
                         severity: shdMode === 'advisory' ? 'advisory' : 'amber',
                         value: 1,
+                        ...(shdLoc !== undefined ? { line: shdLoc.line, column: shdLoc.column } : {}),
                         message: suggestion !== null
                             ? `MITHRIL-SHD-001: arbitrary shadow not in token set — use ${suggestion}`
                             : `MITHRIL-SHD-001: arbitrary shadow — add a shadow token`,
@@ -773,11 +781,13 @@ export function visitOpacity(ast: File, tokens: DesignToken[], options?: PolicyO
 
                 const suggestion = opacityTokens[0]?.token_path ?? null
                 if (!warnings.has(nodeId)) {
+                    const opcLoc = path.node.loc?.start
                     warnings.set(nodeId, {
                         id: nodeId,
                         type: 'opacity-drift',
                         severity: opcMode === 'advisory' ? 'advisory' : 'amber',
                         value: 1,
+                        ...(opcLoc !== undefined ? { line: opcLoc.line, column: opcLoc.column } : {}),
                         message: suggestion !== null
                             ? `MITHRIL-OPC-001: arbitrary opacity '${rawVal}' — use ${suggestion}`
                             : `MITHRIL-OPC-001: arbitrary opacity '${rawVal}' — add an opacity token`,
@@ -814,12 +824,22 @@ export function visitOpacity(ast: File, tokens: DesignToken[], options?: PolicyO
 // TemplateLiteral values are NOT flagged — presumed to reference tokens.
 // SpreadElement properties are skipped entirely.
 
+/** Coverage statistics returned by visitInlineStyles. */
+export interface InlineStyleCoverage {
+    inlinePropsScanned: number
+    inlinePropsSkipped: number
+    inlineViolations: number
+}
+
 export function visitInlineStyles(
     ast: File,
     tokens: DesignToken[],
     options?: PolicyOptions,
-): Map<string, LinterWarning> {
+): { warnings: Map<string, LinterWarning>; coverage: InlineStyleCoverage } {
     const warnings = new Map<string, LinterWarning>()
+    let inlinePropsScanned = 0
+    let inlinePropsSkipped = 0
+    let inlineViolations = 0
 
     traverse(ast, {
         JSXAttribute(path) {
@@ -837,6 +857,9 @@ export function visitInlineStyles(
             // Only inspect object literals — skip variables, conditional expressions, forwardRef wrappers
             if (!t.isObjectExpression(expr)) return
 
+            // Capture loc of the style JSXAttribute for line/column reporting
+            const styleLoc = path.node.loc?.start
+
             const entries: StylePropEntry[] = []
             for (const prop of expr.properties) {
                 if (!t.isObjectProperty(prop)) continue // skip SpreadElement
@@ -846,17 +869,209 @@ export function visitInlineStyles(
                     : (prop.key as t.StringLiteral).value
                 const propValue = prop.value
                 if (t.isStringLiteral(propValue)) {
+                    inlinePropsScanned++
                     entries.push({ prop: propName, stringValue: propValue.value, numericValue: null })
                 } else if (t.isNumericLiteral(propValue)) {
+                    inlinePropsScanned++
                     entries.push({ prop: propName, stringValue: null, numericValue: propValue.value })
+                } else {
+                    // MemberExpression, Identifier, CallExpression, TemplateLiteral → skip (uses tokens)
+                    inlinePropsSkipped++
                 }
-                // MemberExpression, Identifier, CallExpression, TemplateLiteral → skip (uses tokens)
             }
 
             if (entries.length === 0) return
 
             const warning = checkStyleProps(entries, nodeId, tokens, options)
-            if (warning !== null) warnings.set(nodeId, warning)
+            if (warning !== null) {
+                // Attach line/column from the style attribute node
+                if (styleLoc !== undefined) {
+                    warning.line = styleLoc.line
+                    warning.column = styleLoc.column
+                }
+                warnings.set(nodeId, warning)
+                inlineViolations++
+            }
+        },
+    })
+
+    return { warnings, coverage: { inlinePropsScanned, inlinePropsSkipped, inlineViolations } }
+}
+
+// ── Phase 1: buildTokenCoverage helper ───────────────────────────────────────
+
+/**
+ * Builds a TokenCoverage object by counting loaded tokens by type and merging
+ * the inline style stats returned by visitInlineStyles.
+ *
+ * Call this after running auditAll and visitInlineStyles to populate
+ * AuditResult.coverage.
+ */
+export function buildTokenCoverage(
+    tokens: DesignToken[],
+    inlineStats: { inlinePropsScanned: number; inlinePropsSkipped: number; inlineViolations: number },
+): TokenCoverage {
+    const colorTokens = tokens.filter((t) => t.token_type === 'color').length
+    const dimensionTokens = tokens.filter((t) => t.token_type === 'dimension').length
+    const shadowTokens = tokens.filter((t) => t.token_type === 'shadow').length
+    const fontWeightTokens = tokens.filter((t) => t.token_type === 'fontWeight').length
+    return {
+        colorTokens,
+        dimensionTokens,
+        shadowTokens,
+        fontWeightTokens,
+        inlinePropsScanned: inlineStats.inlinePropsScanned,
+        inlinePropsSkipped: inlineStats.inlinePropsSkipped,
+        inlineViolations: inlineStats.inlineViolations,
+    }
+}
+
+// ── Phase 2: visitLocalTokenObjects (MITHRIL-DTO-001) ─────────────────────────
+//
+// Detects module-scoped `const tokens = { colorX: '#hex', ... }` objects that
+// shadow the Flint design system by duplicating token values as local literals.
+//
+// Detection rules:
+//   1. VariableDeclarator at module scope (top-level or inside a module-scope
+//      function — depth check via parent node type).
+//   2. init is an ObjectExpression.
+//   3. Collect all StringLiteral / NumericLiteral property values that look
+//      like design tokens (hex color, px value, font-weight integer 100-900).
+//   4. Count how many of those values match Flint tokens.
+//   5. If ≥ 2 match, emit one MITHRIL-DTO-001 warning for the file.
+
+/** Hex color pattern: #RGB or #RRGGBB */
+const HEX_COLOR_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
+/** Pixel dimension pattern: digits + 'px' */
+const PX_VALUE_RE = /^\d+(\.\d+)?px$/
+
+/** Returns true if the value looks like a color, px dimension, or font-weight. */
+function isTokenLike(value: string | number): boolean {
+    if (typeof value === 'string') {
+        if (HEX_COLOR_RE.test(value)) return true
+        if (PX_VALUE_RE.test(value)) return true
+        return false
+    }
+    // Numeric: pure font-weight (100-900, multiples of 100)
+    return Number.isInteger(value) && value >= 100 && value <= 900 && value % 100 === 0
+}
+
+/** Returns true if the token-like value has a match in the Flint token set. */
+function matchesFlintToken(value: string | number, tokens: DesignToken[], threshold: number): boolean {
+    const strVal = String(value)
+    for (const tok of tokens) {
+        // Color comparison via CIEDE2000
+        if (tok.token_type === 'color' && typeof value === 'string') {
+            const hexVal = parseCssColorToHex(value)
+            const tokHex = parseCssColorToHex(tok.token_value)
+            if (hexVal !== null && tokHex !== null) {
+                const lab1 = hexToLab(hexVal)
+                const lab2 = hexToLab(tokHex)
+                if (lab1 !== null && lab2 !== null && deltaE2000(lab1, lab2) <= threshold) return true
+            }
+            continue
+        }
+        // Dimension comparison (px-normalised)
+        if (tok.token_type === 'dimension') {
+            if (
+                tok.token_value === strVal ||
+                tok.token_value === strVal.replace('px', '') ||
+                `${tok.token_value}px` === strVal
+            ) return true
+            continue
+        }
+        // fontWeight comparison
+        if (tok.token_type === 'fontWeight') {
+            if (tok.token_value === strVal) return true
+            continue
+        }
+    }
+    return false
+}
+
+export function visitLocalTokenObjects(
+    ast: File,
+    tokens: DesignToken[],
+    options?: PolicyOptions,
+): Map<string, LinterWarning> {
+    const dtoMode = options?.ruleModes?.['MITHRIL-DTO-001']
+    if (dtoMode === 'off') return new Map()
+    if (tokens.length === 0) return new Map()
+
+    const threshold = options?.deltaE_threshold ?? MITHRIL_THRESHOLD
+    const warnings = new Map<string, LinterWarning>()
+
+    traverse(ast, {
+        VariableDeclarator(path) {
+            const init = path.node.init
+            if (!t.isObjectExpression(init)) return
+
+            // Only inspect module-scope declarators — parent chain must be
+            // VariableDeclaration → Program (or ExportNamedDeclaration → Program)
+            const parentDecl = path.parentPath?.node
+            if (!t.isVariableDeclaration(parentDecl)) return
+            const grandParent = path.parentPath?.parentPath?.node
+            const isModuleScope = t.isProgram(grandParent) || t.isExportNamedDeclaration(grandParent)
+            if (!isModuleScope) return
+
+            // Only named declarators (const tokens = {...})
+            if (!t.isIdentifier(path.node.id)) return
+            const varName = path.node.id.name
+
+            let matchCount = 0
+            let unregisteredCount = 0
+
+            for (const prop of init.properties) {
+                if (!t.isObjectProperty(prop)) continue
+                const propValue = prop.value
+
+                let rawValue: string | number | null = null
+                if (t.isStringLiteral(propValue)) {
+                    rawValue = propValue.value
+                } else if (t.isNumericLiteral(propValue)) {
+                    rawValue = propValue.value
+                }
+                if (rawValue === null) continue
+                if (!isTokenLike(rawValue)) continue
+
+                if (matchesFlintToken(rawValue, tokens, threshold)) {
+                    matchCount++
+                } else {
+                    unregisteredCount++
+                }
+            }
+
+            if (matchCount < 2) return
+
+            const nodeId = `dto-${varName}-${path.node.loc?.start.line ?? 0}`
+            const loc = path.node.loc?.start
+
+            let message =
+                `Local token object "${varName}" shadows ${matchCount} Flint design tokens. ` +
+                'Remove this local copy and reference tokens via CSS variables or Tailwind classes to prevent drift.'
+
+            if (unregisteredCount >= 1) {
+                message += ` ${unregisteredCount} values have no matching Flint token — register them in design-tokens.json.`
+            }
+
+            const severity: LinterWarning['severity'] = dtoMode === 'advisory' ? 'advisory' : 'amber'
+
+            const warning: LinterWarning = {
+                id: nodeId,
+                type: 'inline-style-drift',
+                severity,
+                value: matchCount,
+                message,
+                nearestToken: null,
+                nearestTokenValue: null,
+                ruleId: 'MITHRIL-DTO-001',
+                ...taxonomyFields('MITHRIL-DTO-001'),
+                ...(loc !== undefined ? { line: loc.line, column: loc.column } : {}),
+            }
+
+            if (!warnings.has(nodeId)) {
+                warnings.set(nodeId, warning)
+            }
         },
     })
 
@@ -874,7 +1089,7 @@ export interface AuditAllOptions extends PolicyOptions {
 }
 
 /**
- * Runs all six Mithril visitors and merges results into a single
+ * Runs all seven Mithril visitors and merges results into a single
  * Map<flintId, LinterWarning>. Color drift takes precedence over other
  * dimensions (first-write wins per node).
  *
@@ -890,11 +1105,22 @@ export function auditAll(ast: File, tokens: DesignToken[], options?: AuditAllOpt
         () => visitSpacing(ast, tokens, options),
         () => visitShadows(ast, tokens, options),
         () => visitOpacity(ast, tokens, options),
-        () => visitInlineStyles(ast, tokens, options),
     ]) {
         for (const [id, warning] of visit()) {
             if (!merged.has(id)) merged.set(id, warning)
         }
+    }
+
+    // visitInlineStyles returns { warnings, coverage } — unpack warnings only for merge
+    const { warnings: inlineWarnings } = visitInlineStyles(ast, tokens, options)
+    for (const [id, warning] of inlineWarnings) {
+        if (!merged.has(id)) merged.set(id, warning)
+    }
+
+    // visitLocalTokenObjects — 7th visitor (Phase 2: MITHRIL-DTO-001)
+    const dtoWarnings = visitLocalTokenObjects(ast, tokens, options)
+    for (const [id, warning] of dtoWarnings) {
+        if (!merged.has(id)) merged.set(id, warning)
     }
 
     // SYNC.3: Append sync violations when syncDb is available

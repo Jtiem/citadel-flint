@@ -285,6 +285,24 @@ const REGISTRY: Record<string, ErrorEntry> = {
         sourceAuthority: 'Flint Commandment 2 (No Hallucinated Styling)',
     },
 
+    // ── Mithril Local Token Object rule (MITHRIL-DTO-001) ─────────────────────
+
+    'FLINT-MITH-015': {
+        code: 'FLINT-MITH-015',
+        ruleId: 'MITHRIL-DTO-001',
+        category: 'mithril',
+        severity: 'warning',
+        title: 'Local Token Object Shadows Design System',
+        explanation:
+            'A module-scoped object literal contains hardcoded values that duplicate entries in the Flint token store. ' +
+            'If the design system changes, this local copy will not update, causing silent drift. ' +
+            'Flint\'s CIEDE2000 engine cannot track drift through local object indirection.',
+        recovery:
+            'Remove the local token object. Reference design tokens via CSS custom properties (var(--color-primary)) ' +
+            'or use the project\'s Tailwind token classes.',
+        sourceAuthority: 'Flint Commandment 2 (No Hallucinated Styling)',
+    },
+
     // ── A11y rules — Names & Labels ────────────────────────────────────────────
 
     'FLINT-A11Y-001': {

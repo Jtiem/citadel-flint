@@ -6,10 +6,10 @@
  */
 
 import { parse } from '@babel/parser'
-import { auditAll } from '../core/MithrilLinter.js'
+import { auditAll, visitInlineStyles, buildTokenCoverage } from '../core/MithrilLinter.js'
 import { A11yLinter } from '../core/A11yLinter.js'
 import type { FlintConfig } from '../core/config.js'
-import type { DesignToken } from '../types.js'
+import type { DesignToken, TokenCoverage } from '../types.js'
 import fs from 'node:fs'
 import path from 'node:path'
 import { loadProjectContext } from '../core/projectContext.js'
@@ -87,6 +87,8 @@ export interface AuditResult {
         severity: string
         message: string
         type: string
+        /** Phase 3: Source line number (1-based) where the violation occurs. */
+        line?: number
         /** Plain-language explanation of why this rule exists. Populated by CX.3 errorTaxonomy. */
         explanation?: string
         /** Actionable recovery steps. Populated by CX.3 errorTaxonomy. */
@@ -106,6 +108,8 @@ export interface AuditResult {
     summary: string
     /** Project-level health context. Omitted when unavailable. CX.1 */
     project_context?: ProjectContext
+    /** Phase 1: Token coverage stats — distinguishes checked+passed from unchecked. */
+    coverage?: TokenCoverage
 }
 
 export interface BatchFileResult {
@@ -139,32 +143,82 @@ export interface BatchAuditResult {
 
 /**
  * Generate a one-sentence plain-English summary of single-file audit findings.
+ * When coverage is provided, appends a token coverage line.
  */
 export function generateAuditSummary(
     filePath: string,
     violations: AuditResult['violations'],
     mithrilCount: number,
     a11yCount: number,
+    coverage?: TokenCoverage,
 ): string {
     const basename = path.basename(filePath)
     const total = violations.length
 
+    let base: string
     if (total === 0) {
-        return `No violations found in ${basename}. This file is export-ready.`
+        base = `No violations found in ${basename}. This file is export-ready.`
+    } else {
+        // fixable = Mithril violations (flint_fix can auto-fix them; a11y requires manual fix)
+        const fixable = mithrilCount
+
+        if (a11yCount === 0) {
+            base = `Found ${total} violation(s) in ${basename} -- ${fixable} auto-fixable.`
+        } else {
+            base = (
+                `Found ${total} violation(s) in ${basename} -- ` +
+                `${mithrilCount} design drift, ${a11yCount} accessibility. ` +
+                `${fixable} auto-fixable.`
+            )
+        }
     }
 
-    // fixable = Mithril violations (flint_fix can auto-fix them; a11y requires manual fix)
-    const fixable = mithrilCount
+    if (coverage === undefined) return base
 
-    if (a11yCount === 0) {
-        return `Found ${total} violation(s) in ${basename} -- ${fixable} auto-fixable.`
+    // Phase 1: append token coverage transparency lines
+    const lines: string[] = [base]
+
+    if (coverage.colorTokens === 0) {
+        lines.push('Colors: unchecked (no color tokens)')
+    } else {
+        const colorViolations = violations.filter((v) =>
+            v.type === 'color-drift' || (v.type === 'inline-style-drift' && v.ruleId === 'MITHRIL-IST-COL'),
+        ).length
+        if (colorViolations === 0) {
+            lines.push(`Colors: passing (${coverage.colorTokens} tokens)`)
+        } else {
+            lines.push(`Colors: ${colorViolations} violation(s) (${coverage.colorTokens} tokens loaded)`)
+        }
     }
 
-    return (
-        `Found ${total} violation(s) in ${basename} -- ` +
-        `${mithrilCount} design drift, ${a11yCount} accessibility. ` +
-        `${fixable} auto-fixable.`
+    if (coverage.dimensionTokens === 0) {
+        lines.push('Dimensions: unchecked (no dimension tokens)')
+    } else {
+        const dimViolations = violations.filter((v) => v.type === 'spacing-drift').length
+        if (dimViolations === 0) {
+            lines.push(`Dimensions: passing (${coverage.dimensionTokens} tokens)`)
+        } else {
+            lines.push(`Dimensions: ${dimViolations} violation(s) (${coverage.dimensionTokens} tokens loaded)`)
+        }
+    }
+
+    if (coverage.shadowTokens === 0) {
+        lines.push('Shadows: unchecked (no shadow tokens)')
+    } else {
+        const shdViolations = violations.filter((v) => v.type === 'shadow-drift').length
+        if (shdViolations === 0) {
+            lines.push(`Shadows: passing (${coverage.shadowTokens} tokens)`)
+        } else {
+            lines.push(`Shadows: ${shdViolations} violation(s) (${coverage.shadowTokens} tokens loaded)`)
+        }
+    }
+
+    lines.push(
+        `Inline styles: ${coverage.inlinePropsScanned} props scanned, ` +
+        `${coverage.inlinePropsSkipped} skipped (dynamic refs)`,
     )
+
+    return lines.join(' | ')
 }
 
 /**
@@ -222,6 +276,17 @@ export async function handleFlintAudit(
 
     // Mithril audit (respects policy mode)
     let mithrilCount = 0
+    // Phase 1: run visitInlineStyles separately to capture coverage stats
+    const { coverage: inlineStats } = visitInlineStyles(
+        ast as Parameters<typeof visitInlineStyles>[0],
+        tokens,
+        {
+            deltaE_threshold: policy.mithril.deltaE_threshold,
+            deltaE_critical_threshold: policy.mithril.deltaE_critical_threshold,
+        },
+    )
+    const coverage = buildTokenCoverage(tokens, inlineStats)
+
     if (policy.mithril.mode !== 'off') {
         const mithrilWarnings = auditAll(
             ast as Parameters<typeof auditAll>[0],
@@ -239,6 +304,10 @@ export async function handleFlintAudit(
                 severity: w.severity,
                 message: w.message,
                 type: w.type,
+            }
+            // Phase 3: attach line number when available (format: file.tsx:42)
+            if (w.line !== undefined) {
+                violation.line = w.line
             }
             // CX.3: attach explanation/recovery from LinterWarning (populated by taxonomyFields) or taxonomy lookup
             const explanation = w.explanation ?? getErrorEntryByRuleId(w.ruleId ?? '')?.explanation
@@ -285,7 +354,7 @@ export async function handleFlintAudit(
         }
     }
 
-    const summary = generateAuditSummary(filePath, violations, mithrilCount, a11yCount)
+    const summary = generateAuditSummary(filePath, violations, mithrilCount, a11yCount, coverage)
 
     const result: AuditResult = {
         violations,
@@ -296,6 +365,7 @@ export async function handleFlintAudit(
             a11y: policy.a11y.mode,
         },
         summary,
+        coverage,
     }
 
     // CX.1: Attach project_context footer (best-effort, never blocks audit)

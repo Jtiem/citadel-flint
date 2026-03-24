@@ -50,6 +50,35 @@ export interface LinterWarning {
     explanation?: string
     /** Actionable recovery steps. Populated by CX.3 errorTaxonomy. */
     recovery?: string
+    /** Source line number (1-based) where the violation occurs. Populated by Phase 3. */
+    line?: number
+    /** Source column number (0-based) where the violation occurs. Populated by Phase 3. */
+    column?: number
+}
+
+// ── Phase 1: Token Coverage types ────────────────────────────────────────────
+
+/**
+ * Reports how many design tokens of each category were loaded during an audit
+ * and how many inline style props were inspected vs. skipped.
+ * Attached to AuditResult.coverage to distinguish "checked and passed"
+ * from "unchecked (no tokens of this category)".
+ */
+export interface TokenCoverage {
+    /** How many color tokens were loaded. */
+    colorTokens: number
+    /** How many dimension tokens were loaded. */
+    dimensionTokens: number
+    /** How many shadow tokens were loaded. */
+    shadowTokens: number
+    /** How many fontWeight tokens were loaded. */
+    fontWeightTokens: number
+    /** How many style={} props were inspected by visitInlineStyles. */
+    inlinePropsScanned: number
+    /** How many style props were skipped (MemberExpression/dynamic refs). */
+    inlinePropsSkipped: number
+    /** How many inline style violations were found. */
+    inlineViolations: number
 }
 
 // ── Phase ACX.2: Context Delta types ────────────────────────────────────────

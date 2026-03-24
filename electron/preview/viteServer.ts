@@ -219,6 +219,15 @@ export async function startViteServer(projectRoot: string): Promise<string> {
       host: '127.0.0.1',
       // Disable HMR overlay in favor of Flint's own error panel.
       hmr: { overlay: false },
+      watch: {
+        // Use polling instead of native fsevents to prevent SIGABRT crash
+        // during Electron environment teardown on macOS 26.
+        // fsevents.node's fse_instance_destroy calls uv_mutex_lock on an
+        // already-freed mutex during FreeEnvironment → abort().
+        usePolling: true,
+        interval: 1000,
+        ignored: ['**/.flint/**', '**/node_modules/**', '**/.git/**', '**/dist-electron/**', '**/*.db', '**/*.db-journal', '**/*.db-wal'],
+      },
     },
     plugins: [
       ...userPlugins,

@@ -34,5 +34,9 @@
   { "id": 33, "token_path": "shadow.sm", "token_type": "shadow", "token_value": "0 1px 2px 0 rgba(0,0,0,0.05)" },
   { "id": 34, "token_path": "shadow.md", "token_type": "shadow", "token_value": "0 4px 6px -1px rgba(0,0,0,0.10), 0 2px 4px -1px rgba(0,0,0,0.06)" },
   { "id": 35, "token_path": "shadow.lg", "token_type": "shadow", "token_value": "0 10px 15px -3px rgba(0,0,0,0.10), 0 4px 6px -2px rgba(0,0,0,0.05)" },
-  { "id": 36, "token_path": "shadow.xl", "token_type": "shadow", "token_value": "0 20px 25px -5px rgba(0,0,0,0.10), 0 10px 10px -5px rgba(0,0,0,0.04)" }
+  { "id": 36, "token_path": "shadow.xl", "token_type": "shadow", "token_value": "0 20px 25px -5px rgba(0,0,0,0.10), 0 10px 10px -5px rgba(0,0,0,0.04)" },
+  { "id": 37, "token_path": "fontWeight.regular", "token_type": "fontWeight", "token_value": "400" },
+  { "id": 38, "token_path": "fontWeight.medium", "token_type": "fontWeight", "token_value": "500" },
+  { "id": 39, "token_path": "fontWeight.semibold", "token_type": "fontWeight", "token_value": "600" },
+  { "id": 40, "token_path": "fontWeight.bold", "token_type": "fontWeight", "token_value": "700" }
 ]
