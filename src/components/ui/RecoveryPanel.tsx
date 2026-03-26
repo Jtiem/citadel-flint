@@ -1,7 +1,7 @@
 /**
  * RecoveryPanel — src/components/ui/RecoveryPanel.tsx
  *
- * The "Time Machine" macro-recovery UI for Flint IDE.
+ * The "Time Machine" macro-recovery UI for Flint Glass.
  *
  * Surfaces the git shadow-commit history for the active file and allows the
  * user to surgically transplant a single JSX element (identified by its

@@ -3,7 +3,7 @@
  *
  * Module A: The Infinite Whiteboard Canvas.
  *
- * Mounts an @xyflow/react (React Flow v12) instance that hosts the Flint IDE
+ * Mounts an @xyflow/react (React Flow v12) instance that hosts the Flint Glass
  * Live Preview as a draggable, resizable node on an infinite whiteboard.
  *
  * Design decisions:

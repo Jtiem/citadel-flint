@@ -7,6 +7,6 @@
   "editorType": ["figma", "dev"],
   "networkAccess": {
     "allowedDomains": ["*"],
-    "reasoning": "Sends local Figma variable data to the Flint IDE ingestion server running on localhost."
+    "reasoning": "Sends local Figma variable data to the Flint Glass ingestion server running on localhost."
   }
 }

@@ -36,7 +36,7 @@ const STARTER_TEMPLATE = `export default function App() {
           Hello, Flint!
         </h1>
         <p className="mt-2 text-sm text-gray-400">
-          Open this file in Flint IDE to start editing.
+          Open this file in Flint Glass to start editing.
         </p>
         <div className="mt-8 flex justify-center gap-3">
           <button

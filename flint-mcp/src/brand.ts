@@ -15,7 +15,7 @@ export const BRAND = {
   productLower: 'flint',
 
   /** Full app title */
-  appTitle: 'Flint IDE',
+  appTitle: 'Flint Glass',
   /** Full viewer title */
   viewerTitle: 'Flint Glass',
 

@@ -1,7 +1,7 @@
 /**
  * Sync Schema — electron/sync-schema.ts
  *
- * PowerSync bucket definitions for the Flint IDE multiplayer layer.
+ * PowerSync bucket definitions for the Flint Glass multiplayer layer.
  *
  * Three buckets partition shared data:
  *   global_tokens      — all design tokens; visible to every collaborator

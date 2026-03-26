@@ -128,7 +128,7 @@ export default function App() {
         <header className="flex items-center justify-between border-b border-gray-800 px-6 py-4">
           <div>
             <h1 className="text-lg font-semibold text-white">Dashboard</h1>
-            <p className="text-xs text-gray-500">Flint IDE · Demo Workspace</p>
+            <p className="text-xs text-gray-500">Flint Glass · Demo Workspace</p>
           </div>
           <button
             type="button"

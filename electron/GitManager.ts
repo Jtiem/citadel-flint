@@ -92,7 +92,7 @@ export class GitManager {
      * If `.git` is absent:
      *   1. Runs `git init`
      *   2. Writes `.gitignore` (node_modules, .flint/tmp)
-     *   3. Configures repo-local identity (flint@local / Flint IDE) so commits
+     *   3. Configures repo-local identity (flint@local / Flint Glass) so commits
      *      work in environments with no global git user config.
      *   4. Stages all files with `git add .`
      *   5. Creates an initial `flint:init` commit (--allow-empty for safety).
@@ -145,7 +145,12 @@ export class GitManager {
         if (!gitRoot) return
 
         const id = batchId ?? randomUUID()
-        await execFileAsync('git', ['add', '.'], { cwd: gitRoot })
+        // Only stage .flint/ files — NOT the entire working tree.
+        // `git add .` stages vite.config.ts and other source files, which
+        // updates the git index stat cache. Vite's config file watcher then
+        // detects a ctime change on vite.config.ts → full server restart →
+        // Electron restart → shadowCommit → git add . → loop forever.
+        await execFileAsync('git', ['add', '.flint/'], { cwd: gitRoot })
 
         // Avoid empty commits — check for staged changes first.
         const { stdout: status } = await execFileAsync(

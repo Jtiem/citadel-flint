@@ -1,7 +1,7 @@
 /**
  * Sync Schema — src/core/sync/schema.ts
  *
- * Renderer-side type definitions for the Flint IDE sync layer.
+ * Renderer-side type definitions for the Flint Glass sync layer.
  *
  * This is the renderer-process mirror of `electron/sync-schema.ts`.
  * No cross-boundary imports are allowed (two-tsconfig architecture),
