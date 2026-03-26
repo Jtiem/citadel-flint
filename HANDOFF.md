@@ -2,7 +2,244 @@
 
 **Date:** 2026-03-21
 **Architecture:** Flint MCP (headless governance engine) + Flint Glass (Electron observability layer)
-**Test baseline:** 2,454/2,454 MCP | 983/983 Glass | 966/966 Core — TSC 0 errors
+**Test baseline:** 2,823/2,823 MCP | 993/993 Glass | 959/959 Core — TSC 0 errors
+
+---
+
+## Session: 2026-03-25 UCFG.1 — Unified Config Loader (COMPLETE)
+
+**Goal:** Replace 3 fragmented JSON config files with a single `flint.config.yaml`. Phase 1: YAML parser + loader + type definitions + JSON fallback + mode/tier mapping.
+
+**What shipped:**
+
+| File | Change |
+|------|--------|
+| `flint-mcp/package.json` | Added `yaml: ^2.7.1` dependency |
+| `flint-mcp/src/core/config.ts` | `FlintProjectConfig` type, `RuleMode`, `TrustTier`, `DataClassification`, `PolicyRef`, `ApprovalGate`, mapping functions |
+| `flint-mcp/src/core/config-loader.ts` | `loadYamlConfig()`, `applyEnvironmentOverlay()`, `loadProjectConfig()`. `loadConfig()` checks YAML first, falls back to JSON |
+| `flint-mcp/src/core/__tests__/configLoader.test.ts` | 35 new tests |
+| `docs/strategy/UNIFIED-CONFIG-SPEC.md` | Full spec (7 research sources) |
+| `docs/strategy/examples/` | 3 example configs |
+
+**Results:** `MCP: 3015/3015 passing (35 new) | TSC: 0 errors`
+
+---
+
+## Session: 2026-03-25 UCFG.3+4 — Normative Mode + Migrate Tool (COMPLETE)
+
+**What shipped:**
+
+| File | Change |
+|------|--------|
+| `flint-mcp/src/core/config.ts` | `normative` added to `PolicyMode`, `ruleModeToPolicy` and `policyToRuleMode` map normative ↔ normative |
+| `flint-mcp/src/core/policyEngine.ts` | `normative` added to `PolicyMode`, `VALID_POLICY_MODES`, validation messages, `shouldBlockExport()` treats normative as blocking |
+| `flint-mcp/src/tools/migrateConfig.ts` | **NEW** — `buildProjectConfigFromLegacy()` reads 3 JSON files → FlintProjectConfig, `handleMigrateConfig()` MCP tool handler |
+| `flint-mcp/src/server.ts` | `flint_migrate_config` tool registration + handler |
+| `flint-mcp/src/tools/__tests__/migrateConfig.test.ts` | **NEW** — 11 tests |
+
+**Results:** `MCP: 3059/3059 passing | TSC: 0 errors`
+**Review:** SHIP (1 critical fixed during review — policyEngine.ts normative gap)
+
+---
+
+## Session: 2026-03-25 UCFG.2 — Extends + Tighten-Only (COMPLETE)
+
+**Goal:** Composable governance inheritance via `extends` + tighten-only invariant.
+
+**What shipped:**
+
+| File | Change |
+|------|--------|
+| `flint-mcp/src/core/config-loader.ts` | `deepMergeConfigs()`, `validateTightenOnly()`, `resolveExtends()` with circular-ref detection, `@flint/` preset + local file + absolute path resolution |
+| `flint-mcp/presets/` | 6 official presets: general, healthcare, fintech, e-commerce, government, enterprise-saas |
+| `flint-mcp/src/core/__tests__/configLoader.test.ts` | 26 new tests (36-61): deep merge, tighten-only validation, extends resolution, recursive extends, circular detection, preset loading |
+
+**Results:** `MCP: 3048/3048 passing (26 new) | TSC: 0 errors`
+
+**Next phases:** UCFG.3 (full normative mode), UCFG.4 (migrate tool), UCFG.5 (approval gates), UCFG.6 (GPX pack migration)
+
+---
+
+## Session: 2026-03-25 D2C — Figma Design-to-Code Pipeline (COMPLETE)
+
+**Goal:** End-to-end pipeline: paste a Figma design payload + pick a UI library → get library-specific component code + theme file in a single MCP call. Then harden output quality so the generated code is actually correct.
+
+**What shipped:**
+
+| File | Change |
+|------|--------|
+| `flint-mcp/src/core/hydroPaste-emitters.ts` | **NEW** — `LibraryCodeEmitter` interface + 4 emitters (Shadcn, MUI, PrimeReact, Tailwind). Button/heading detection. `emitHeading()` method. |
+| `flint-mcp/src/core/hydroPaste.ts` | Library-aware engine: `HydroOptions`, `generateJSXWithEmitter()`, color role detection (`text-`/`bg-`), `isLikelyButton()`, `isLikelyHeading()` with exclusion list. |
+| `flint-mcp/src/core/colorDistance.ts` | **NEW** — CIEDE2000 perceptual color math (ported from IngestionAuditor). `findNearestToken()` fuzzy matching with ΔE ≤ 3.0 threshold. |
+| `flint-mcp/src/tools/ingest.ts` | Reads `selectedLibrary` from `.flint/policy.json`, passes to `HydroPasteEngine`. |
+| `flint-mcp/src/tools/designToCode.ts` | **NEW** — `flint_design_to_code` unified MCP tool: ingest + map + hydrate in one call. |
+| `flint-mcp/src/server.ts` | Registered `flint_design_to_code` tool + handler. |
+| `flint-mcp/src/core/libraryAdapters/shadcnAdapter.ts` | Fixed HSL saturation formula bug (`max-min` → `max+min`). |
+| `flint-mcp/src/core/__tests__/hydroPaste.test.ts` | 94+ new tests: emitters, color roles, buttons, headings, fuzzy matching. |
+| `flint-mcp/src/core/__tests__/colorDistance.test.ts` | **NEW** — 39 tests: CIEDE2000 math, fuzzy token matching. |
+| `flint-mcp/src/core/__tests__/shadcnAdapter.test.ts` | **NEW** — 23 tests: HSL conversion, semantic mapping. |
+| `flint-mcp/src/tools/__tests__/designToCode.test.ts` | **NEW** — 22 tests: all libraries, auto-detect, error cases. |
+
+**Quality hardening (second pass):**
+
+| Issue | Fix |
+|-------|-----|
+| Text nodes got `bg-` instead of `text-` | Token lookup stores bare names; prefix applied by role (`bg-` for FRAME, `text-` for TEXT) |
+| Every FRAME became `<Card>` | `isLikelyButton()` heuristic: single TEXT child + short action phrase → `<Button>` |
+| "Subtitle" falsely treated as heading | Exclusion list: `subtitle`, `subheading`, `caption`, `overline`, `eyebrow` |
+| Near-identical colors not matched | CIEDE2000 fuzzy matching with ΔE ≤ 3.0 threshold (e.g. `#17171C` → `color.background` token `#171719`) |
+| `#171719` → `220 100% 46.1%` in shadcn theme | HSL saturation formula had wrong denominator for dark colors |
+
+**Verified output (shadcn):**
+```jsx
+<Card className="flex flex-col bg-color-background">
+  <CardContent>
+    <h2 className="text-2xl font-bold text-color-foreground">Ship with confidence</h2>
+    <p className="text-color-muted">AI-generated UI.</p>
+    <Button>Get Started</Button>
+  </CardContent>
+</Card>
+// Imports: Card, CardContent, Button — correct paths
+// Token mappings: 3/3 resolved via exact + CIEDE2000
+```
+
+**Test results:**
+```
+MCP:   3015/3015 passing (129 new)
+TSC:   0 errors
+```
+
+---
+
+## Session: 2026-03-24 LIB.1 — Library-First Bidirectional Workflow (COMPLETE)
+
+**Goal:** Enable the full bidirectional workflow: User selects library → seed tokens → push to Figma → design → pull back → AI builds with library idioms. AND the reverse: pull from Figma → detect library → set active → AI builds.
+
+**What shipped:**
+
+| File | Change |
+|------|--------|
+| `flint-mcp/src/core/libraryAdapters/types.ts` | Added `LibraryMatchResult` interface, `seedTokens()`, `getIdiomBlock()`, `matchTokens()` to `LibraryAdapter` contract |
+| `flint-mcp/src/core/libraryAdapters/shadcnAdapter.ts` | Implemented 3 new methods: 20 seed tokens, idiom block, 8-signal fingerprint matcher |
+| `flint-mcp/src/core/libraryAdapters/muiAdapter.ts` | Implemented 3 new methods: 25 seed tokens, idiom block, 8-signal fingerprint matcher |
+| `flint-mcp/src/core/libraryAdapters/primeAdapter.ts` | Implemented 3 new methods: 21 seed tokens, idiom block, 7-signal fingerprint matcher |
+| `flint-mcp/src/core/libraryAdapters/tailwindAdapter.ts` | Implemented 3 new methods: 35 seed tokens, idiom block, 6-signal matcher (capped at 65 — generic fallback) |
+| `flint-mcp/src/core/libraryAdapters/index.ts` | Added `detectLibraryFromTokens()` — runs all adapters, returns top scorer with ≥60% confidence |
+| `flint-mcp/src/tools/setLibrary.ts` | **NEW** `flint_set_library` MCP tool — explicit set, auto-detect, list, none modes; seeds tokens with merge-preserve |
+| `flint-mcp/src/server.ts` | Registered `flint_set_library` tool + handler |
+| `flint-mcp/src/core/sync/tokenSyncEngine.ts` | Fixed `executePush()` to use proper Figma Variable types (COLOR/FLOAT/STRING); added `hexToFigmaRGBA()` conversion; added post-pull library detection to `executePull()` |
+| `electron/orchestrator.ts` | Added `serializeLibraryIdiomConstraints()` — injects library idiom block into AI system prompt when `selectedLibrary` set in policy.json |
+| `electron/main.ts` | Added `library:get-active` and `library:set-active` IPC handlers |
+| `electron/preload.ts` | Added `getActiveLibrary()` and `setActiveLibrary()` to `scope` bridge |
+| `src/types/flint-api.d.ts` | Added `getActiveLibrary`/`setActiveLibrary` to `ScopeAPI`; added `selectedLibrary` to `FlintContext` |
+| `src/hooks/useContextSync.ts` | Added `selectedLibrary` to context sync (reads from IPC, included in 200ms debounce cycle) |
+| `src/components/ui/ComponentScopePanel.tsx` | Added Active Library dropdown selector in Scope panel with optimistic UI |
+
+**Architecture:**
+
+Forward flow: `flint_set_library library="shadcn"` → seeds tokens → `flint_sync_push` → Figma → design → `flint_sync_pull` → `flint_map_tokens library="shadcn"` → theme file → AI builds with shadcn idioms in system prompt
+
+Reverse flow: `flint_sync_pull` → post-pull detection → `PullResult.detectedLibrary` suggestion → `flint_set_library library="auto"` → auto-detect → set active → AI builds
+
+**Integration gap fixed:** `executePull()` now bootstraps `token_source` baseline from local tokens on first pull (plugin-first flow). Without this, tokens ingested via the Figma plugin were treated as "added_local" instead of being recognized as Figma-sourced baseline. The bootstrap only runs inside `executePull()` — not `computeDiff()` — so `executePush()` correctly treats local-only tokens as additions to push.
+
+**Test results:**
+```
+MCP:   2823/2823 passing (0 regressions)
+Glass: 993/993 passing (2 pre-existing failures: GhostCodeSnippet, SetupWizard)
+Core:  959/959 passing (7 pre-existing failures: GitManager dirty worktree)
+TSC:   0 errors
+```
+
+---
+
+## Reference: Figma Integration Pipeline (Two Paths)
+
+This section documents the complete Figma token sync architecture. Both paths are fully implemented and working.
+
+### Path 1: Figma Plugin (Push — Figma → Flint)
+
+**Direction:** One-way. Figma → Flint only.
+
+**Flow:**
+1. `figma-plugin/code.ts` collects variables via `figma.variables.getLocalVariables()`
+2. `figma-plugin/ui.html` sends POST to `http://127.0.0.1:4545/ingest` with `x-flint-secret` header
+3. `electron/ingestion-server.ts` receives, validates secret (SEC.2)
+4. `electron/normalizer.ts` converts Figma types (RGBA → hex, FLOAT → dimension, etc.) to W3C DTCG format
+5. Tokens batch-upserted into `design_tokens` SQLite table
+6. IPC `tokens-updated` fires to renderer
+
+**Security:** Loopback-only (127.0.0.1), per-session secret (32 bytes, runtime-injected), wildcard CORS (safe on loopback).
+
+**Glass UI:** `FigmaSetupWizard.tsx` — 3-step wizard shows endpoint + secret for plugin config.
+
+### Path 2: REST API with PAT (Bidirectional — Flint ↔ Figma)
+
+**Direction:** Both ways. Pull AND push.
+
+**Setup:**
+```
+flint_figma_connect action="connect" fileKey="YOUR_FILE_KEY" accessToken="figd_YOUR_PAT"
+```
+Get a Personal Access Token from figma.com → Settings → Personal access tokens.
+Get the file key from your Figma URL: `figma.com/design/FILE_KEY_HERE/...`
+
+**Pull (Figma → Flint):**
+```
+flint_sync_pull projectRoot="/path/to/project"
+```
+- Calls Figma REST API: `GET /v1/files/{fileKey}/variables/local`
+- Three-way diff: baseline (token_source table) vs local (design-tokens.json) vs remote (Figma API)
+- Auto-applies `added_remote` and `modified_remote`
+- Creates conflicts for `modified_both` (resolve via `flint_resolve_conflict`)
+- Writes updated tokens to `.flint/design-tokens.json`
+- Updates baseline in `token_source` table
+
+**Push (Flint → Figma):**
+```
+flint_sync_push projectRoot="/path/to/project"
+```
+- Three-way diff identifies `added_local`, `modified_local`, `removed_local`
+- Calls Figma REST API: `POST /v1/files/{fileKey}/variables`
+- CREATE: new variables with correct type (COLOR/FLOAT/STRING)
+- UPDATE: existing variables by `figmaVariableId`
+- DELETE: removed variables
+
+**Plugin-First Bootstrap:** When tokens arrive via the plugin path first (no API sync yet), `executePull()` auto-seeds the `token_source` baseline from local tokens. This prevents the first API pull from treating plugin-ingested tokens as user-local additions.
+
+### Both Paths Together (Recommended Workflow)
+
+1. Install Figma plugin → sync tokens once (populates `design_tokens`)
+2. Connect API: `flint_figma_connect action="connect" fileKey="..." accessToken="figd_..."`
+3. Now `flint_sync_pull` and `flint_sync_push` work bidirectionally
+4. Plugin can still be used for quick manual syncs
+
+### Key Files
+
+| File | Role |
+|------|------|
+| `figma-plugin/code.ts` | Plugin main thread — collects variables |
+| `figma-plugin/ui.html` | Plugin UI — endpoint/secret config + sync button |
+| `electron/ingestion-server.ts` | HTTP server on port 4545 (loopback) |
+| `electron/normalizer.ts` | Figma variables → W3C DTCG token mapping |
+| `flint-mcp/src/core/sync/figmaApiService.ts` | Figma REST API client (GET/POST variables) |
+| `flint-mcp/src/core/sync/connectionService.ts` | Encrypted PAT storage (safeStorage) |
+| `flint-mcp/src/core/sync/tokenSyncEngine.ts` | Three-way diff + pull/push orchestration |
+| `flint-mcp/src/core/sync/tokenSourceService.ts` | Baseline tracking (token_source table) |
+| `flint-mcp/src/core/sync/conflictService.ts` | Conflict detection + resolution |
+| `flint-mcp/src/core/sync/syncHistoryService.ts` | Sync audit trail |
+
+### MCP Tools
+
+| Tool | What it does |
+|------|-------------|
+| `flint_figma_connect` | Connect/disconnect/status for Figma PAT |
+| `flint_sync_pull` | Pull remote changes + post-pull library detection |
+| `flint_sync_push` | Push local changes as typed Figma variables |
+| `flint_resolve_conflict` | Resolve a single merge conflict |
+| `flint_resolve_all` | Bulk resolve all conflicts (local or remote wins) |
+| `flint_sync_check` | CI/CD health check (inSync?, drift count) |
+| `flint_sync_history` | Export sync history as JSON/CSV |
 
 ---
 

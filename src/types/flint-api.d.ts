@@ -211,6 +211,22 @@ export interface OverrideRow {
     updated_at: number
 }
 
+// ── Strategy 7: Deferred Violation Row ────────────────────────────────────
+
+/**
+ * A single row from the `deferred_violations` SQLite table.
+ * Represents a violation the user has explicitly deferred to a later session.
+ */
+export interface DeferredViolationRow {
+    id: number
+    file_path: string
+    rule_id: string
+    node_id: string | null
+    reason: string | null
+    session_id: string
+    deferred_at: string
+}
+
 // ── Sync / Presence types (Module G) ─────────────────────────────────────────
 
 /**
@@ -893,6 +909,23 @@ export interface FlintContext {
         exportBlocked: boolean
         exportBlockReason: string | null
     } | null
+
+    // ── Strategy 2/4: Session Persona + Summary ──────────────────────────────
+
+    /**
+     * Persona inferred from the user's first message.
+     * Set by the MCP prompt layer via context file. Null until classified.
+     */
+    sessionPersona?: 'designer' | 'developer' | null
+
+    // ── LIB.1: Active Library Context ────────────────────────────────────────
+
+    /**
+     * The currently selected component library for this project.
+     * Read from .flint/policy.json selectedLibrary field.
+     * Null when no library is selected.
+     */
+    selectedLibrary?: string | null
 }
 
 /**
@@ -1265,6 +1298,10 @@ export interface ScopeAPI {
     getRegistryAndScope: () => Promise<ComponentScopeData>
     /** Persists scope changes to .flint/policy.json. */
     setScope: (update: ComponentScopeUpdate) => Promise<{ ok: boolean; error?: string }>
+    /** LIB.1: Returns the currently selected library and available adapters. */
+    getActiveLibrary: () => Promise<{ library: string | null; availableLibraries: Array<{ library: string; displayName: string }> }>
+    /** LIB.1: Sets the active library, seeds tokens, returns result. */
+    setActiveLibrary: (update: { library: string | null }) => Promise<{ ok: boolean; library: string | null; seeded: number; error?: string }>
 }
 
 export interface FlintAPI {
@@ -1540,6 +1577,26 @@ export interface FlintAPI {
     context?: {
         getEnriched: () => Promise<EnrichedContext>
     }
+
+    // ── Strategy 7: Deferred Violations ──────────────────────────────────────
+
+    /**
+     * Defers a governance violation so the user can return to it later.
+     * Upserts by (file, ruleId, nodeId) — deferring the same violation twice
+     * refreshes the timestamp and reason.
+     */
+    deferViolation?: (file: string, ruleId: string, nodeId?: string, reason?: string) => Promise<void>
+
+    /**
+     * Returns all unresolved deferred violations (resolved_at IS NULL).
+     * Used by GovernanceOverlay to show "Deferred" badges.
+     */
+    getDeferredViolations?: () => Promise<DeferredViolationRow[]>
+
+    /**
+     * Resolves a previously deferred violation by setting resolved_at.
+     */
+    resolveDeferredViolation?: (file: string, ruleId: string, nodeId?: string) => Promise<void>
 
     // ── Beta Distribution ────────────────────────────────────────────────────
 

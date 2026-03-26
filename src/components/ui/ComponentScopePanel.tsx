@@ -317,6 +317,11 @@ export function ComponentScopePanel() {
     /** EN.4: Whether the discovery banner has been dismissed this session. */
     const [bannerDismissed, setBannerDismissed] = useState(false)
 
+    /** LIB.1: Active library selection. */
+    const [activeLibrary, setActiveLibrary] = useState<string | null>(null)
+    const [availableLibraries, setAvailableLibraries] = useState<Array<{ library: string; displayName: string }>>([])
+    const [libraryLoading, setLibraryLoading] = useState(false)
+
     const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const pushNotification = useNotificationStore((s) => s.push)
 
@@ -327,11 +332,18 @@ export function ComponentScopePanel() {
             setLoading(true)
             setError(null)
 
-            // Parallel IPC calls — registry/scope + enrichment drafts.
-            const [scopeResult, enrichmentResult] = await Promise.all([
+            // Parallel IPC calls — registry/scope + enrichment drafts + active library.
+            const [scopeResult, enrichmentResult, libraryResult] = await Promise.all([
                 window.flintAPI.scope?.getRegistryAndScope(),
                 window.flintAPI.enrichment?.getDrafts(),
+                window.flintAPI.scope?.getActiveLibrary?.(),
             ])
+
+            // LIB.1: Populate library state
+            if (libraryResult) {
+                setActiveLibrary(libraryResult.library)
+                setAvailableLibraries(libraryResult.availableLibraries)
+            }
 
             if (!scopeResult) {
                 // No IPC surface — headless / test environment.
@@ -370,6 +382,39 @@ export function ComponentScopePanel() {
             }
         }
     }, [fetchData])
+
+    // ── LIB.1: Library change handler ───────────────────────────────────────
+
+    const handleLibraryChange = useCallback(async (newLibrary: string | null) => {
+        const previous = activeLibrary
+        setActiveLibrary(newLibrary)
+        setLibraryLoading(true)
+        try {
+            const res = await window.flintAPI.scope?.setActiveLibrary?.({ library: newLibrary })
+            if (res && !res.ok) {
+                setActiveLibrary(previous)
+                pushNotification({
+                    type: 'error',
+                    title: 'Library change failed',
+                    message: res.error ?? 'Unknown error',
+                    severity: 'error',
+                    autoDismissMs: 5000,
+                })
+            } else if (res && res.seeded > 0) {
+                pushNotification({
+                    type: 'info',
+                    title: 'Library tokens seeded',
+                    message: `${res.seeded} base tokens added for ${newLibrary}`,
+                    severity: 'info',
+                    autoDismissMs: 4000,
+                })
+            }
+        } catch {
+            setActiveLibrary(previous)
+        } finally {
+            setLibraryLoading(false)
+        }
+    }, [activeLibrary, pushNotification])
 
     // ── Debounced persist ────────────────────────────────────────────────────
 
@@ -616,6 +661,39 @@ export function ComponentScopePanel() {
             <p className="border-b border-zinc-800/50 px-3 py-1.5 text-[10px] text-zinc-600">
                 Controls which components the AI can use when generating code.
             </p>
+
+            {/* ── LIB.1: Active Library Selector ─────────────────────────── */}
+            <div className="border-b border-zinc-800/50 px-3 py-2">
+                <label
+                    htmlFor="active-library-select"
+                    className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-zinc-500"
+                >
+                    Active Library
+                </label>
+                <select
+                    id="active-library-select"
+                    value={activeLibrary ?? ''}
+                    onChange={(e) => {
+                        const val = e.target.value || null
+                        void handleLibraryChange(val)
+                    }}
+                    disabled={libraryLoading}
+                    className="w-full rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-200 outline-none focus:border-zinc-500 disabled:opacity-50"
+                    data-testid="active-library-select"
+                >
+                    <option value="">(None)</option>
+                    {availableLibraries.map((lib) => (
+                        <option key={lib.library} value={lib.library}>
+                            {lib.displayName}
+                        </option>
+                    ))}
+                </select>
+                {activeLibrary && (
+                    <p className="mt-1 text-[10px] text-zinc-600">
+                        AI will generate code using {activeLibrary} conventions.
+                    </p>
+                )}
+            </div>
 
             {showEmptyState ? (
                 /* ── Empty state ─────────────────────────────────────────── */

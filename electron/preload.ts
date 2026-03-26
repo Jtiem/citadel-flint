@@ -831,6 +831,38 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
             ipcRenderer.invoke('context:get-enriched'),
     },
 
+    // ── Strategy 7: Deferred Violations ──────────────────────────────────────
+
+    /**
+     * Defers a governance violation so the user can return to it in a later
+     * session. Upserts by (file, ruleId, nodeId) — deferring the same
+     * violation twice just refreshes the timestamp and reason.
+     */
+    deferViolation: (file: string, ruleId: string, nodeId?: string, reason?: string): Promise<void> =>
+        ipcRenderer.invoke('governance:defer-violation', file, ruleId, nodeId, reason),
+
+    /**
+     * Returns all unresolved deferred violations (resolved_at IS NULL).
+     * Used by GovernanceOverlay to show "Deferred" badges.
+     */
+    getDeferredViolations: (): Promise<Array<{
+        id: number
+        file_path: string
+        rule_id: string
+        node_id: string | null
+        reason: string | null
+        session_id: string
+        deferred_at: string
+    }>> =>
+        ipcRenderer.invoke('governance:get-deferred-violations'),
+
+    /**
+     * Resolves a previously deferred violation by setting its resolved_at
+     * timestamp. Called when the violation is fixed or dismissed.
+     */
+    resolveDeferredViolation: (file: string, ruleId: string, nodeId?: string): Promise<void> =>
+        ipcRenderer.invoke('governance:resolve-deferred-violation', file, ruleId, nodeId),
+
     // ── Beta Distribution IPC ────────────────────────────────────────────────
 
     /**
@@ -1078,6 +1110,21 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
          */
         setScope: (update: { scope: string[] | null }): Promise<{ ok: boolean; error?: string }> =>
             ipcRenderer.invoke('scope:set-scope', update),
+
+        /**
+         * LIB.1: Get the currently selected library from policy.json.
+         * Returns the library target string or null if none set.
+         */
+        getActiveLibrary: (): Promise<{ library: string | null; availableLibraries: Array<{ library: string; displayName: string }> }> =>
+            ipcRenderer.invoke('library:get-active'),
+
+        /**
+         * LIB.1: Set the active component library.
+         * Writes selectedLibrary to policy.json and seeds base tokens.
+         * Pass null to clear the selection.
+         */
+        setActiveLibrary: (update: { library: string | null }): Promise<{ ok: boolean; library: string | null; seeded: number; error?: string }> =>
+            ipcRenderer.invoke('library:set-active', update),
     },
 
     // ── EN.1: Enrichment Draft Reading and Approval ───────────────────────────

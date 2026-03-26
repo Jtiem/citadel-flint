@@ -16,6 +16,8 @@
 
 ---
 
+---
+
 ## Template for new swarm entry
 
 ```markdown

@@ -384,6 +384,24 @@ function createWindow(): void {
     startVersionCheck(mainWindow)
 }
 
+// ── Self-hosting guard ────────────────────────────────────────────────────────
+// During development (`npm run dev`), the Flint source tree is served by Vite.
+// If the user opens it (or any subdirectory) as a Flint project, the preview
+// iframe would serve the same app → infinite recursion, and file watchers
+// from the inner Vite server conflict with the outer one → reload loops.
+// Walk UP the directory tree to catch both the root and subdirectories.
+function isFlintSourceTree(projectPath: string): boolean {
+    let dir = path.resolve(projectPath)
+    const root = path.parse(dir).root
+    while (dir !== root) {
+        if (existsSync(path.join(dir, 'electron', 'main.ts'))) return true
+        const parent = path.dirname(dir)
+        if (parent === dir) break
+        dir = parent
+    }
+    return false
+}
+
 // ── IPC Handlers ──────────────────────────────────────────────────────────────
 
 ipcMain.handle('ping', () => 'pong from Main Process ✓')
@@ -413,6 +431,19 @@ ipcMain.handle(
 
         // Security: restrict scanning to the user's home directory
         if (folderPath !== home && !folderPath.startsWith(home + path.sep)) {
+            return null
+        }
+
+        // Self-hosting guard: don't open the Flint source tree as a project
+        // during development — causes preview iframe recursion.
+        if (isFlintSourceTree(folderPath)) {
+            console.warn(`${BRAND.logPrefix} Refusing to open Flint source tree as project (self-hosting guard)`)
+            dialog.showMessageBoxSync({
+                type: 'warning',
+                title: 'Cannot Open This Folder',
+                message: 'This folder is part of the Flint development project.',
+                detail: 'During development, Flint cannot open its own source tree as a project (it would create an infinite loop). Choose a different folder.',
+            })
             return null
         }
 
@@ -1281,6 +1312,12 @@ app.whenReady().then(async () => {
         const normalized = path.normalize(folderPath)
         const home = app.getPath('home')
         if (normalized !== home && !normalized.startsWith(home + path.sep)) return null
+
+        // Self-hosting guard: don't open the Flint source tree as a project
+        if (isFlintSourceTree(normalized)) {
+            console.warn(`${BRAND.logPrefix} Refusing to open Flint source tree as project (self-hosting guard)`)
+            return null
+        }
 
         try {
             // Ensure git repo exists before returning the tree
@@ -2466,6 +2503,70 @@ app.whenReady().then(async () => {
         return buildComplianceSummary(violations)
     })
 
+    // ── Strategy 7: Deferred Violations IPC Handlers ──────────────────────────
+    //
+    // deferred_violations table stores violations the user explicitly deferred.
+    // Three handlers: defer (upsert), get-all (query unresolved), resolve.
+    //
+    // The MCP tool flint_defer_violation also writes to .flint/deferred-violations.json
+    // so the headless MCP server can read deferrals without SQLite access.
+
+    const deferViolationUpsert = db.prepare<[string, string, string | null, string | null, string]>(`
+        INSERT INTO deferred_violations (file_path, rule_id, node_id, reason, session_id)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(file_path, rule_id, node_id)
+        DO UPDATE SET
+            reason      = excluded.reason,
+            session_id  = excluded.session_id,
+            deferred_at = datetime('now'),
+            resolved_at = NULL
+    `)
+
+    const deferViolationSelectUnresolved = db.prepare(
+        `SELECT id, file_path, rule_id, node_id, reason, session_id, deferred_at
+         FROM deferred_violations
+         WHERE resolved_at IS NULL
+         ORDER BY deferred_at DESC`
+    )
+
+    const deferViolationResolve = db.prepare<[string, string, string | null]>(`
+        UPDATE deferred_violations
+        SET resolved_at = datetime('now')
+        WHERE file_path = ? AND rule_id = ? AND (node_id = ? OR (node_id IS NULL AND ? IS NULL)) AND resolved_at IS NULL
+    `)
+
+    ipcMain.handle('governance:defer-violation', (
+        _event,
+        filePath: unknown,
+        ruleId: unknown,
+        nodeId?: unknown,
+        reason?: unknown,
+    ): void => {
+        if (typeof filePath !== 'string' || typeof ruleId !== 'string') {
+            throw new TypeError('governance:defer-violation — filePath and ruleId must be strings')
+        }
+        const nId = typeof nodeId === 'string' ? nodeId : null
+        const r = typeof reason === 'string' ? reason : null
+        deferViolationUpsert.run(filePath, ruleId, nId, r, governanceSessionId)
+    })
+
+    ipcMain.handle('governance:get-deferred-violations', (): unknown[] => {
+        return deferViolationSelectUnresolved.all()
+    })
+
+    ipcMain.handle('governance:resolve-deferred-violation', (
+        _event,
+        filePath: unknown,
+        ruleId: unknown,
+        nodeId?: unknown,
+    ): void => {
+        if (typeof filePath !== 'string' || typeof ruleId !== 'string') {
+            throw new TypeError('governance:resolve-deferred-violation — filePath and ruleId must be strings')
+        }
+        const nId = typeof nodeId === 'string' ? nodeId : null
+        deferViolationResolve.run(filePath, ruleId, nId, nId)
+    })
+
     // ── Delta Mode: Baseline IPC Handlers ────────────────────────────────────
     //
     // violation_baselines table lives in the shared flint.db (store.ts).
@@ -3206,6 +3307,255 @@ app.whenReady().then(async () => {
     createWindow()
     buildAppMenu()
 
+    // ── Starter template for scratchpad index.html ──────────────────────
+    // Written to new scratchpads so the LivePreview shows a polished landing
+    // page instead of an empty white iframe. Every element carries a
+    // data-flint-id so Flint's interaction layer can select/hover it.
+    // 100% inline — no external deps (Commandment 4).
+    const SCRATCHPAD_INDEX_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Untitled — ${BRAND.product}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --surface: #0f0f11;
+      --surface-raised: #18181b;
+      --surface-overlay: #1e1e22;
+      --border: #2a2a2e;
+      --border-subtle: #232327;
+      --text-primary: #f0f0f2;
+      --text-secondary: #9b9ba4;
+      --text-tertiary: #65656d;
+      --accent: #6d5cff;
+      --accent-hover: #7d6eff;
+      --accent-subtle: rgba(109, 92, 255, 0.12);
+      --success: #34d399;
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 20px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: var(--surface);
+      color: var(--text-primary);
+      line-height: 1.6;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 24px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Hero ─────────────────────────────────── */
+    .hero {
+      text-align: center;
+      max-width: 520px;
+      margin-bottom: 48px;
+    }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 14px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--accent);
+      background: var(--accent-subtle);
+      border: 1px solid rgba(109, 92, 255, 0.2);
+      border-radius: 999px;
+      margin-bottom: 24px;
+    }
+
+    .hero-badge::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      background: var(--accent);
+      border-radius: 50%;
+    }
+
+    .hero h1 {
+      font-size: 36px;
+      font-weight: 700;
+      letter-spacing: -0.025em;
+      line-height: 1.2;
+      margin-bottom: 12px;
+    }
+
+    .hero p {
+      font-size: 16px;
+      color: var(--text-secondary);
+      max-width: 400px;
+      margin: 0 auto;
+    }
+
+    /* ── Card grid ────────────────────────────── */
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+      max-width: 520px;
+      width: 100%;
+      margin-bottom: 40px;
+    }
+
+    .card {
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 24px;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .card:hover {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent), 0 4px 24px rgba(109, 92, 255, 0.08);
+    }
+
+    .card-icon {
+      width: 36px;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--surface-overlay);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      font-size: 18px;
+      margin-bottom: 14px;
+    }
+
+    .card h3 {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+
+    .card p {
+      font-size: 13px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    /* ── Button group ─────────────────────────── */
+    .button-group {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 40px;
+      padding: 0 20px;
+      font-size: 14px;
+      font-weight: 500;
+      border-radius: var(--radius-sm);
+      border: none;
+      cursor: pointer;
+      transition: background 0.15s ease, transform 0.1s ease;
+      font-family: inherit;
+    }
+
+    .btn:active {
+      transform: scale(0.97);
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .btn-primary:hover {
+      background: var(--accent-hover);
+    }
+
+    .btn-secondary {
+      background: transparent;
+      color: var(--text-secondary);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary:hover {
+      color: var(--text-primary);
+      border-color: var(--text-tertiary);
+      background: var(--surface-raised);
+    }
+
+    /* ── Footer hint ──────────────────────────── */
+    .footer-hint {
+      margin-top: 24px;
+      font-size: 12px;
+      color: var(--text-tertiary);
+      text-align: center;
+    }
+
+    .kbd {
+      display: inline-block;
+      padding: 2px 6px;
+      font-size: 11px;
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      background: var(--surface-overlay);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text-secondary);
+    }
+  </style>
+</head>
+<body>
+  <section class="hero" data-flint-id="hero-section" style="text-align: center; max-width: 520px; margin-bottom: 48px">
+    <span class="hero-badge" data-flint-id="hero-badge" style="font-size: 12px; font-weight: 600; letter-spacing: 0.04em; color: #6d5cff; background: rgba(109,92,255,0.12); border-radius: 999px; padding: 5px 14px">Scratchpad</span>
+    <h1 data-flint-id="hero-heading" style="font-size: 36px; font-weight: 700; line-height: 1.2; letter-spacing: -0.025em; color: #f0f0f2">Start building</h1>
+    <p data-flint-id="hero-description" style="font-size: 16px; color: #9b9ba4; line-height: 1.6">This is your design scratchpad. Edit this file in your IDE and see changes live, or ask your AI assistant to build something.</p>
+  </section>
+
+  <div class="card-grid" data-flint-id="card-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; max-width: 520px">
+    <div class="card" data-flint-id="card-governance" style="background: #18181b; border: 1px solid #2a2a2e; border-radius: 12px; padding: 24px">
+      <div class="card-icon" data-flint-id="icon-governance" style="font-size: 18px; background: #1e1e22; border-radius: 8px; width: 36px; height: 36px">\u{1F6E1}</div>
+      <h3 style="font-size: 14px; font-weight: 600">Governance</h3>
+      <p style="font-size: 13px; color: #9b9ba4">Token compliance, accessibility, and brand safety enforced at the AST level.</p>
+    </div>
+    <div class="card" data-flint-id="card-preview" style="background: #18181b; border: 1px solid #2a2a2e; border-radius: 12px; padding: 24px">
+      <div class="card-icon" data-flint-id="icon-preview" style="font-size: 18px; background: #1e1e22; border-radius: 8px; width: 36px; height: 36px">\u{1F441}</div>
+      <h3 style="font-size: 14px; font-weight: 600">Live Preview</h3>
+      <p style="font-size: 13px; color: #9b9ba4">See every change instantly. No build step, no refresh needed.</p>
+    </div>
+    <div class="card" data-flint-id="card-a11y" style="background: #18181b; border: 1px solid #2a2a2e; border-radius: 12px; padding: 24px">
+      <div class="card-icon" data-flint-id="icon-a11y" style="font-size: 18px; background: #1e1e22; border-radius: 8px; width: 36px; height: 36px">\u{2714}</div>
+      <h3 style="font-size: 14px; font-weight: 600">Accessibility</h3>
+      <p style="font-size: 13px; color: #9b9ba4">50 WCAG 2.1 AA rules checked automatically before export.</p>
+    </div>
+    <div class="card" data-flint-id="card-tokens" style="background: #18181b; border: 1px solid #2a2a2e; border-radius: 12px; padding: 24px">
+      <div class="card-icon" data-flint-id="icon-tokens" style="font-size: 18px; background: #1e1e22; border-radius: 8px; width: 36px; height: 36px">\u{1F3A8}</div>
+      <h3 style="font-size: 14px; font-weight: 600">Design Tokens</h3>
+      <p style="font-size: 13px; color: #9b9ba4">Every color, spacing, and type value tied to your design system.</p>
+    </div>
+  </div>
+
+  <div class="button-group" data-flint-id="button-group" style="display: flex; gap: 12px">
+    <button class="btn btn-primary" data-flint-id="btn-start" style="font-size: 14px; font-weight: 500; background: #6d5cff; color: #fff; border-radius: 8px; padding: 0 20px; height: 40px; border: none">Get Started</button>
+    <button class="btn btn-secondary" data-flint-id="btn-docs" style="font-size: 14px; font-weight: 500; background: transparent; color: #9b9ba4; border: 1px solid #2a2a2e; border-radius: 8px; padding: 0 20px; height: 40px">Documentation</button>
+  </div>
+
+  <p class="footer-hint" data-flint-id="footer-hint" style="font-size: 12px; color: #65656d; margin-top: 24px">
+    Open this project in your IDE to start editing &middot; <kbd class="kbd">Cmd+K</kbd> for commands
+  </p>
+</body>
+</html>
+`
+
     // ── Auto-scratchpad: ensure MCP server is always running ─────────────
     // On first launch (or when no project was previously open), reuse an
     // existing scratchpad or create one. This ensures the MCP server starts
@@ -3246,6 +3596,11 @@ app.whenReady().then(async () => {
                 '[]',
                 'utf-8',
             )
+            writeFileSync(
+                path.join(targetPath, 'index.html'),
+                SCRATCHPAD_INDEX_HTML,
+                'utf-8',
+            )
             console.log(`${BRAND.logPrefix} Auto-scratchpad created at ${targetPath}`)
         }
 
@@ -3258,6 +3613,14 @@ app.whenReady().then(async () => {
                 '[]',
                 'utf-8',
             )
+        }
+
+        // Ensure index.html exists (may be missing on reused scratchpads
+        // created before the starter template was introduced)
+        const indexPath = path.join(targetPath, 'index.html')
+        if (!existsSync(indexPath)) {
+            writeFileSync(indexPath, SCRATCHPAD_INDEX_HTML, 'utf-8')
+            console.log(`${BRAND.logPrefix} Wrote starter index.html to ${targetPath}`)
         }
 
         activeProjectRoot = targetPath
@@ -3819,6 +4182,127 @@ ipcMain.handle('scope:set-scope', async (_event, payload: unknown): Promise<{ ok
     } catch (err) {
         console.error(`${BRAND.logPrefix} scope:set-scope failed:`, err)
         return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+})
+
+// ── LIB.1: Library Selection IPC ──────────────────────────────────────────────
+//
+// Two handlers back window.flintAPI.scope.getActiveLibrary/setActiveLibrary:
+//
+//   library:get-active — reads .flint/policy.json and returns selectedLibrary
+//   library:set-active — writes selectedLibrary + seeds tokens
+
+ipcMain.handle('library:get-active', async (): Promise<{
+    library: string | null
+    availableLibraries: Array<{ library: string; displayName: string }>
+}> => {
+    const availableLibraries = [
+        { library: 'shadcn', displayName: 'shadcn/ui' },
+        { library: 'mui', displayName: 'Material UI (MUI)' },
+        { library: 'primeng', displayName: 'PrimeNG / PrimeReact / PrimeVue' },
+        { library: 'tailwind', displayName: 'Tailwind CSS' },
+    ]
+
+    if (!activeProjectRoot) {
+        return { library: null, availableLibraries }
+    }
+
+    try {
+        const policyPath = path.join(activeProjectRoot, BRAND.configDir, 'policy.json')
+        if (existsSync(policyPath)) {
+            const policy = JSON.parse(readFileSync(policyPath, 'utf-8'))
+            return { library: policy.selectedLibrary ?? null, availableLibraries }
+        }
+    } catch { /* non-fatal */ }
+
+    return { library: null, availableLibraries }
+})
+
+ipcMain.handle('library:set-active', async (_event, payload: unknown): Promise<{
+    ok: boolean
+    library: string | null
+    seeded: number
+    error?: string
+}> => {
+    if (!activeProjectRoot) {
+        return { ok: false, library: null, seeded: 0, error: 'No project open' }
+    }
+
+    // ── Runtime payload validation (BLOCKER 3 fix) ───────────────────────
+    if (typeof payload !== 'object' || payload === null) {
+        return { ok: false, library: null, seeded: 0, error: 'Invalid payload' }
+    }
+    const { library } = payload as { library: unknown }
+    if (library !== null && typeof library !== 'string') {
+        return { ok: false, library: null, seeded: 0, error: 'library must be a string or null' }
+    }
+    const libraryValue = library as string | null
+
+    try {
+        // Read current policy
+        const policyPath = path.join(activeProjectRoot, BRAND.configDir, 'policy.json')
+        let policy: Record<string, unknown> = {}
+        if (existsSync(policyPath)) {
+            try {
+                policy = JSON.parse(readFileSync(policyPath, 'utf-8'))
+            } catch { /* start fresh */ }
+        }
+
+        // Clear library
+        if (!libraryValue || libraryValue === 'none') {
+            delete policy.selectedLibrary
+            await fileTransactionManager.write(policyPath, JSON.stringify(policy, null, 2) + '\n')
+            return { ok: true, library: null, seeded: 0 }
+        }
+
+        // ── Validate library name against the canonical adapter registry ──
+        // Single source of truth: the adapter registry (not a hardcoded list).
+        const { getAdapter, hasAdapter, getAvailableLibraries } = await import('../flint-mcp/src/core/libraryAdapters/index.js')
+        if (!hasAdapter(libraryValue as import('../flint-mcp/src/core/libraryAdapters/types.js').LibraryTarget)) {
+            const available = getAvailableLibraries().join(', ')
+            return { ok: false, library: libraryValue, seeded: 0, error: `Unknown library: "${libraryValue}". Supported: ${available}` }
+        }
+
+        // Set library in policy (only after validation)
+        policy.selectedLibrary = libraryValue
+        await fileTransactionManager.write(policyPath, JSON.stringify(policy, null, 2) + '\n')
+
+        const adapter = getAdapter(libraryValue as import('../flint-mcp/src/core/libraryAdapters/types.js').LibraryTarget)
+        const seedTokens = adapter.seedTokens()
+
+        // Read current tokens
+        const tokensPath = path.join(activeProjectRoot, BRAND.configDir, 'design-tokens.json')
+        let currentTokens: Array<{ id: number; token_path: string; [key: string]: unknown }> = []
+        if (existsSync(tokensPath)) {
+            try {
+                const parsed = JSON.parse(readFileSync(tokensPath, 'utf-8'))
+                if (Array.isArray(parsed)) currentTokens = parsed
+            } catch { /* start fresh */ }
+        }
+
+        // Merge with preserve — never overwrite existing token paths
+        const existingPaths = new Set(currentTokens.map(t => t.token_path))
+        let seeded = 0
+        let nextId = currentTokens.length > 0
+            ? Math.max(...currentTokens.map(t => t.id)) + 1
+            : 1
+        const merged = [...currentTokens]
+        for (const seed of seedTokens) {
+            if (!existingPaths.has(seed.token_path)) {
+                merged.push({ ...seed, id: nextId++ })
+                seeded++
+            }
+        }
+
+        // Write via FileTransactionManager (Commandment 12)
+        if (seeded > 0) {
+            await fileTransactionManager.write(tokensPath, JSON.stringify(merged, null, 2) + '\n')
+        }
+
+        return { ok: true, library: libraryValue, seeded }
+    } catch (err) {
+        console.error(`${BRAND.logPrefix} library:set-active failed:`, err)
+        return { ok: false, library: null, seeded: 0, error: err instanceof Error ? err.message : String(err) }
     }
 })
 

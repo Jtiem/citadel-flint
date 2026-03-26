@@ -56,6 +56,8 @@ export interface IngestResult {
     imports: string[];
     summary: string;
     tokenMappings: Record<string, string>;
+    /** The active UI library used for generation, if any. */
+    library?: string;
     error?: string;
 }
 
@@ -100,7 +102,21 @@ export async function handleFlintIngest(
         }
     }
 
-    const engine = new HydroPasteEngine(manifest, tokens)
+    // Read active library from .flint/policy.json
+    let selectedLibrary: string | undefined
+    const policyPath = path.join(projectRoot, configPath('policy.json'))
+    if (fs.existsSync(policyPath)) {
+        try {
+            const policy = JSON.parse(fs.readFileSync(policyPath, 'utf-8')) as Record<string, unknown>
+            if (typeof policy.selectedLibrary === 'string') {
+                selectedLibrary = policy.selectedLibrary
+            }
+        } catch {
+            // ignore — policy.json is optional
+        }
+    }
+
+    const engine = new HydroPasteEngine(manifest, tokens, { library: selectedLibrary })
 
     let result: Awaited<ReturnType<typeof engine.processPayload>>
     try {
@@ -134,5 +150,6 @@ export async function handleFlintIngest(
         imports: result.imports,
         summary: result.summary,
         tokenMappings: result.tokenMappings,
+        ...(result.library !== undefined && { library: result.library }),
     }
 }

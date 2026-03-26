@@ -79,6 +79,7 @@ import { SyncCheckService } from "./core/sync/syncCheckService.js";
 import { OfflineQueue } from "./core/sync/offlineQueue.js";
 import { SyncHistoryService } from "./core/sync/syncHistoryService.js";
 import { handleUniversalAudit, FLINT_UNIVERSAL_AUDIT_TOOL } from "./tools/universalAudit.js";
+import { handleDeferViolation, FLINT_DEFER_VIOLATION_TOOL } from "./tools/deferViolation.js";
 import { elicitRemediation } from "./core/elicitRemediation.js";
 import {
     handleEnrichRegistry,
@@ -95,6 +96,14 @@ import {
     FLINT_EMIT_TOKENS_TOOL,
 } from "./tools/emitTokens.js";
 import {
+    handleMapTokens,
+    FLINT_MAP_TOKENS_TOOL,
+} from "./tools/mapTokens.js";
+import {
+    handleSetLibrary,
+    FLINT_SET_LIBRARY_TOOL,
+} from "./tools/setLibrary.js";
+import {
     handlePackExport,
     FLINT_PACK_EXPORT_TOOL,
 } from "./tools/packExport.js";
@@ -104,6 +113,10 @@ import {
     FLINT_PACK_IMPORT_TOOL,
     FLINT_PACK_ROLLBACK_TOOL,
 } from "./tools/packImport.js";
+import {
+    handleDesignToCode,
+    FLINT_DESIGN_TO_CODE_TOOL,
+} from "./tools/designToCode.js";
 
 // @ts-ignore
 const generate = _generate.default || _generate;
@@ -351,6 +364,48 @@ function getSyncHistoryService(projectRoot: string): SyncHistoryService {
 /** Active project configuration — initialised in runServer() */
 let flintConfig: FlintConfig = DEFAULT_CONFIG;
 
+// ---------------------------------------------------------------------------
+// Strategy 1: The Greeter — context-aware welcome message
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the MCP server instructions string based on whether the user is new
+ * or returning. A returning user is detected by the presence of a non-null
+ * `healthGrade` in `.flint/context.json`.
+ *
+ * Called once in `runServer()` after the project root is known.
+ */
+export function buildGreeting(projectRoot: string): string {
+    const TOOL_COUNT = 45;
+
+    try {
+        const contextPath = path.join(projectRoot, BRAND.configDir, "context.json");
+        if (fs.existsSync(contextPath)) {
+            const raw = fs.readFileSync(contextPath, "utf-8");
+            const ctx = JSON.parse(raw);
+            if (ctx && typeof ctx.healthGrade === "string" && ctx.healthGrade) {
+                // Returning user — skip the tutorial, go straight to context
+                return (
+                    `${BRAND.product} is connected. ` +
+                    `Read ${resourceUri("session-context")} for your project's current state ` +
+                    `and what's changed since your last session.`
+                );
+            }
+        }
+    } catch {
+        // Fall through to new-user greeting on any read/parse error
+    }
+
+    // New user — orient them
+    return (
+        `${BRAND.product} is connected. ${TOOL_COUNT} governance tools available.\n\n` +
+        `You're new here. Say 'what can ${BRAND.product} do?' to get started, ` +
+        `or read ${resourceUri("capabilities")} for a full orientation.\n\n` +
+        `If you already know ${BRAND.product}, read ${resourceUri("session-context")} ` +
+        `for your project's current state.`
+    );
+}
+
 const server = new Server(
     {
         name: BRAND.productLower + "-mcp-server",
@@ -362,6 +417,7 @@ const server = new Server(
             resources: {},
             prompts: {},
         },
+        // Default instructions — replaced in runServer() with context-aware greeting
         instructions:
             `${BRAND.product} is a governance engine that enforces design systems, accessibility, ` +
             "and brand compliance at the AST level. " +
@@ -845,6 +901,31 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 },
             },
             {
+                name: toolName("migrate_config"),
+                description:
+                    "UCFG.4: Migrate legacy JSON config files (.flint/policy.json, .flint/agent-policy.json, " +
+                    ".flint/escalation-rules.json) into a unified flint.config.yaml. " +
+                    "Generates YAML from existing config, optionally backs up legacy files to *.bak. " +
+                    "Use dry_run=true (default) to preview the generated YAML without writing.",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        project_name: {
+                            type: "string",
+                            description: "Project name for the config. Defaults to the directory name.",
+                        },
+                        backup: {
+                            type: "boolean",
+                            description: "When true (default), rename legacy JSON files to *.bak after migration.",
+                        },
+                        dry_run: {
+                            type: "boolean",
+                            description: "When true (default), preview the YAML without writing. Set false to write.",
+                        },
+                    },
+                },
+            },
+            {
                 name: toolName("agent_trust"),
                 description: "AGV.4: Dynamic Agent Trust Tiers. Query and manage agent trust levels — agents earn/lose tiers based on behavioral history (red mutations, overrides, escalations). Actions: 'profile' (single agent), 'list' (all agents), 'promote' (manual upgrade), 'demote' (manual downgrade), 'reset' (return to restricted).",
                 inputSchema: {
@@ -1018,9 +1099,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             FLINT_APPROVE_ENRICHMENT_TOOL,
             FLINT_REINDEX_REGISTRY_TOOL,
             FLINT_EMIT_TOKENS_TOOL,
+            FLINT_MAP_TOKENS_TOOL,
+            FLINT_SET_LIBRARY_TOOL,
+            FLINT_DESIGN_TO_CODE_TOOL,
             FLINT_PACK_EXPORT_TOOL,
             FLINT_PACK_IMPORT_TOOL,
             FLINT_PACK_ROLLBACK_TOOL,
+            FLINT_DEFER_VIOLATION_TOOL,
         ],
     };
 });
@@ -2831,6 +2916,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             }
         }
 
+        case "flint_migrate_config": {
+            const { handleMigrateConfig } = await import('./tools/migrateConfig.js')
+            const migrateArgs = request.params.arguments as {
+                project_name?: string;
+                backup?: boolean;
+                dry_run?: boolean;
+            };
+            return handleMigrateConfig(migrateArgs, flintConfig);
+        }
+
         case "flint_migrate_tw": {
             const twArgs = request.params.arguments as {
                 filePaths: string[];
@@ -3454,6 +3549,53 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
 
         // -----------------------------------------------------------------
+        // Library Token Mapping
+        // -----------------------------------------------------------------
+
+        case "flint_map_tokens": {
+            const mapArgs = request.params.arguments as {
+                library: string;
+                projectRoot?: string;
+                basePreset?: string;
+                mode?: string;
+                collection?: string;
+                writeFile?: boolean;
+                outputPath?: string;
+            };
+            return handleMapTokens(mapArgs);
+        }
+
+        // -----------------------------------------------------------------
+        // LIB.1 -- Set Active Library
+        // -----------------------------------------------------------------
+
+        case "flint_set_library": {
+            const libArgs = request.params.arguments as {
+                library: string;
+                projectRoot?: string;
+            };
+            return handleSetLibrary(libArgs);
+        }
+
+        // -----------------------------------------------------------------
+        // LIB.2 -- Design to Code (end-to-end Figma → library pipeline)
+        // -----------------------------------------------------------------
+
+        case "flint_design_to_code": {
+            const d2cArgs = request.params.arguments as {
+                figmaPayload: string;
+                library?: string;
+                projectRoot?: string;
+                writeThemeFile?: boolean;
+                figmaUrl?: string;
+            };
+            const result = await handleDesignToCode(d2cArgs, flintConfig);
+            return {
+                content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            };
+        }
+
+        // -----------------------------------------------------------------
         // GPX.1 -- Governance Pack Export
         // -----------------------------------------------------------------
 
@@ -3494,6 +3636,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 projectRoot: string;
             };
             return handlePackRollback(rollbackArgs);
+        }
+
+        case "flint_defer_violation": {
+            const deferArgs = request.params.arguments as {
+                file: string;
+                ruleId: string;
+                nodeId?: string;
+                reason?: string;
+                projectRoot: string;
+            };
+            return handleDeferViolation(deferArgs);
         }
 
         default:
@@ -3675,6 +3828,11 @@ export async function runServer() {
 
     console.error(`${logTag()} Project root: ${projectRoot}`);
     console.error(`${logTag()} Active domains: ${flintConfig.domains.join(", ")}`);
+
+    // Strategy 1: The Greeter — set context-aware instructions now that
+    // the project root is known. The MCP SDK stores instructions as a
+    // simple property on the server instance.
+    (server as any)._instructions = buildGreeting(projectRoot);
 
     // Phase ACX.2 — start the event-driven context push manager.
     contextPushManager.start(projectRoot);

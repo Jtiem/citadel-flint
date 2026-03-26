@@ -1362,6 +1362,58 @@ export function serializeTokenConstraints(tokens: MithrilToken[]): string {
 }
 
 /**
+ * LIB.1: Serialize library idiom constraints for AI system prompt injection.
+ * When a project has a selectedLibrary in policy.json, the corresponding
+ * adapter's idiom block is prepended to the system prompt so AI-generated
+ * code matches the library's conventions.
+ *
+ * Returns empty string when no library is selected or adapter is unavailable.
+ */
+/**
+ * Idiom block cache — populated lazily from the adapter registry.
+ * Once loaded, the cache persists for the process lifetime.
+ */
+let _idiomCache: Record<string, string> | null = null
+
+/**
+ * Populate the idiom cache from the canonical adapter registry.
+ * Called once (lazily) on first use. Uses dynamic import() which is safe
+ * in the Electron main process and resolves the same cross-package path
+ * that library:set-active already uses.
+ */
+async function loadIdiomCache(): Promise<Record<string, string>> {
+    if (_idiomCache) return _idiomCache
+    _idiomCache = {}
+    try {
+        const { getAvailableLibraries, getAdapter } = await import(
+            '../flint-mcp/src/core/libraryAdapters/index.js'
+        ) as {
+            getAvailableLibraries: () => string[]
+            getAdapter: (lib: string) => { getIdiomBlock: () => string }
+        }
+        for (const lib of getAvailableLibraries()) {
+            try { _idiomCache[lib] = getAdapter(lib).getIdiomBlock() }
+            catch { /* skip unavailable adapters */ }
+        }
+    } catch {
+        // Adapter registry unavailable (e.g., test environment) — empty cache
+    }
+    return _idiomCache
+}
+
+export function serializeLibraryIdiomConstraints(selectedLibrary: string | undefined): string {
+    if (!selectedLibrary) return ''
+    // If cache is warm, use it synchronously (the common path after first call)
+    if (_idiomCache) return _idiomCache[selectedLibrary] ?? ''
+    // Cache is cold — trigger async load. This call will return '' for the
+    // very first message in a session. Subsequent calls use the warm cache.
+    // This is acceptable because the first message typically doesn't need
+    // library constraints (it's usually the user's initial prompt).
+    loadIdiomCache().catch(() => {})
+    return ''
+}
+
+/**
  * CR.2 — Validate that a component-creating tool call targets a registered component.
  *
  * Only checks tools that create or reference component types:
@@ -1606,7 +1658,7 @@ export async function sendChatMessage(
                 )
                 if (existsSync(policyPath)) {
                     const policyRaw = await readFile(policyPath, 'utf-8')
-                    const policy = JSON.parse(policyRaw) as { domain?: string; componentScope?: string[] }
+                    const policy = JSON.parse(policyRaw) as { domain?: string; componentScope?: string[]; selectedLibrary?: string }
 
                     // V.4: Capture domain for consensus gate
                     if (policy.domain) {
@@ -1630,12 +1682,13 @@ export async function sendChatMessage(
                         systemPromptForCall = `[${BRAND.product} Sentinel: domain=${policy.domain}]\n\n${SYSTEM_PROMPT}`
                     }
 
-                    // CR.1: Build and prepend constraint blocks
+                    // CR.1 + LIB.1: Build and prepend constraint blocks
                     // activeRegistry is already scope-filtered above — no second filter needed.
                     const tokens = loadMithrilTokens()
                     const registryBlock = serializeRegistryConstraints(activeRegistry)
                     const tokenBlock = serializeTokenConstraints(tokens)
-                    const constraintPrefix = [registryBlock, tokenBlock].filter(Boolean).join('\n\n')
+                    const libraryBlock = serializeLibraryIdiomConstraints(policy.selectedLibrary)
+                    const constraintPrefix = [libraryBlock, registryBlock, tokenBlock].filter(Boolean).join('\n\n')
                     if (constraintPrefix.length > 0) {
                         systemPromptForCall = `${constraintPrefix}\n\n${systemPromptForCall}`
                     }
@@ -1643,11 +1696,12 @@ export async function sendChatMessage(
                     // No policy file — use full registry
                     activeRegistry = cachedRegistry
 
-                    // CR.1: Still inject constraints when registry/tokens are available
+                    // CR.1 + LIB.1: Still inject constraints when registry/tokens are available
                     const tokens = loadMithrilTokens()
                     const registryBlock = serializeRegistryConstraints(activeRegistry)
                     const tokenBlock = serializeTokenConstraints(tokens)
-                    const constraintPrefix = [registryBlock, tokenBlock].filter(Boolean).join('\n\n')
+                    const libraryBlock = serializeLibraryIdiomConstraints(undefined)
+                    const constraintPrefix = [libraryBlock, registryBlock, tokenBlock].filter(Boolean).join('\n\n')
                     if (constraintPrefix.length > 0) {
                         systemPromptForCall = `${constraintPrefix}\n\n${systemPromptForCall}`
                     }

@@ -11,7 +11,7 @@
  * orchestration by individual components.
  */
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useCanvasStore } from '../store/canvasStore'
 import { useEditorStore } from '../store/editorStore'
 import { useGovernanceStore } from '../store/governanceStore'
@@ -43,6 +43,14 @@ export function useContextSync(): void {
     // project is open. Graceful degradation: null when data is unavailable.
     const overrides        = useGovernanceStore((s) => s.overrides)
     const importSummary    = useImportSummaryStore((s) => s.summary)
+
+    // ── LIB.1: Active library (read once on mount, refreshed on file change) ──
+    const [selectedLibrary, setSelectedLibrary] = useState<string | null>(null)
+    useEffect(() => {
+        window.flintAPI?.scope?.getActiveLibrary?.()
+            .then((result) => setSelectedLibrary(result.library))
+            .catch(() => { /* non-fatal */ })
+    }, [activeFilePath]) // re-read when active file changes (project may change)
 
     // Ref-based debounce timer — stable across re-renders, no state needed.
     const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -194,6 +202,10 @@ export function useContextSync(): void {
                 sourceExcerpt,
                 selectedNodeSummary,
                 violationSnapshot,
+                // Strategy 2/4: session persona (set by MCP prompt layer, null until classified)
+                sessionPersona: null,
+                // LIB.1: Active library selection
+                selectedLibrary,
             }
 
             void window.flintAPI.syncContext(ctx)
@@ -221,5 +233,6 @@ export function useContextSync(): void {
         visualTree,
         overrides,
         importSummary,
+        selectedLibrary,
     ])
 }
