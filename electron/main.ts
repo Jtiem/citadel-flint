@@ -4526,6 +4526,220 @@ ipcMain.handle('enrichment:approve', async (
     }
 })
 
+// ── Phase D2C.2: Design-to-Code LivePreview Integration ──────────────────────
+
+/**
+ * workspace:rescan — Re-scans the active project root and returns the
+ * updated FileTreeNode. Useful after any operation that creates or deletes
+ * files outside the normal save-file flow (D2C apply, template scaffolding).
+ *
+ * Returns null when no project is open (activeProjectRoot is null).
+ */
+ipcMain.handle('workspace:rescan', async (): Promise<FileTreeNode | null> => {
+    if (!activeProjectRoot) return null
+    return await scanDirectory(activeProjectRoot)
+})
+
+/**
+ * d2c:apply — Atomically writes all generated component files from a
+ * flint_design_to_code MCP tool result to disk, runs injectFlintIds on each
+ * component's AST (Commandment 7), shadow-commits the generated directory,
+ * re-scans the workspace tree, and returns the page compositor path so the
+ * renderer can open it via canvasStore.setActiveFile().
+ *
+ * Security:
+ *   - All generated paths must be within the user's home directory.
+ *   - All generated .tsx files are written via FileTransactionManager (Commandment 12).
+ *   - The theme file (if present) is written via FileTransactionManager after a
+ *     path-within-home check (no extension restriction — theme files may be .css/.ts).
+ *   - mkdir is the only direct fs call — it only creates directories, not source files.
+ */
+ipcMain.handle('d2c:apply', async (_event, request: unknown): Promise<{
+    ok: boolean
+    pageFilePath: string
+    componentFilePaths: string[]
+    workspaceTree: FileTreeNode
+    error?: string
+}> => {
+    const EMPTY_TREE: FileTreeNode = { name: '', path: '', type: 'directory', children: [] }
+
+    try {
+        // ── 1. Validate request shape ─────────────────────────────────────────
+        if (
+            typeof request !== 'object' || request === null ||
+            !('pageName' in request) || !('components' in request) || !('page' in request)
+        ) {
+            return { ok: false, pageFilePath: '', componentFilePaths: [], workspaceTree: EMPTY_TREE, error: 'Invalid request: missing required fields (pageName, components, page)' }
+        }
+
+        const req = request as {
+            pageName: unknown
+            components: unknown
+            page: unknown
+            themeFile?: unknown
+        }
+
+        if (typeof req.pageName !== 'string' || req.pageName.trim() === '') {
+            return { ok: false, pageFilePath: '', componentFilePaths: [], workspaceTree: EMPTY_TREE, error: 'Invalid request: pageName must be a non-empty string' }
+        }
+        if (!Array.isArray(req.components)) {
+            return { ok: false, pageFilePath: '', componentFilePaths: [], workspaceTree: EMPTY_TREE, error: 'Invalid request: components must be an array' }
+        }
+        if (typeof req.page !== 'object' || req.page === null) {
+            return { ok: false, pageFilePath: '', componentFilePaths: [], workspaceTree: EMPTY_TREE, error: 'Invalid request: page must be an object' }
+        }
+        const page = req.page as { name?: unknown; code?: unknown }
+        if (typeof page.name !== 'string' || typeof page.code !== 'string') {
+            return { ok: false, pageFilePath: '', componentFilePaths: [], workspaceTree: EMPTY_TREE, error: 'Invalid request: page must have name and code strings' }
+        }
+
+        // ── 2. Validate project is open ───────────────────────────────────────
+        if (!activeProjectRoot) {
+            return { ok: false, pageFilePath: '', componentFilePaths: [], workspaceTree: EMPTY_TREE, error: 'No project open — open a project before applying D2C output' }
+        }
+
+        const home = app.getPath('home')
+
+        // ── 3. Compute target directory ───────────────────────────────────────
+        const targetDir = path.join(activeProjectRoot, 'src', 'components', 'generated', req.pageName)
+
+        // ── 4. Ensure target directory exists (mkdir is exempt from FTM — Commandment 14 note) ──
+        await mkdir(targetDir, { recursive: true })
+
+        // ── 5. Import Babel parse + generate (dynamic to avoid ESM/CJS issues) ─
+        const { parse: babelParse } = await import('@babel/parser')
+        const _genMod = await import('@babel/generator') as unknown as Record<string, unknown>
+        const babelGenerate: (ast: unknown, opts?: unknown) => { code: string } =
+            typeof _genMod === 'function' ? (_genMod as unknown as (ast: unknown) => { code: string })
+            : typeof (_genMod as { default?: unknown }).default === 'function' ? ((_genMod as { default: unknown }).default as (ast: unknown) => { code: string })
+            : typeof ((_genMod as { default?: { default?: unknown } }).default?.default) === 'function' ? ((_genMod as { default: { default: unknown } }).default.default as (ast: unknown) => { code: string })
+            : (_genMod as { generate: (ast: unknown) => { code: string } }).generate
+
+        // ── 6. Helper: parse code, run injectFlintIds plugin, generate code ────
+        function processComponentCode(code: string, filename: string): { code: string; warning?: string } {
+            try {
+                const ast = babelParse(code, {
+                    sourceType: 'module',
+                    plugins: ['typescript', 'jsx'],
+                    errorRecovery: true,
+                })
+
+                // Run injectFlintIdPlugin visitor on the parsed AST (Commandment 7).
+                // We reuse the same plugin that powers the preview engine.
+                const pluginResult = injectFlintIdPlugin()
+                const visitor = pluginResult.visitor
+
+                // Walk all JSXOpeningElements in the AST
+                const traverse = (node: Record<string, unknown>): void => {
+                    if (!node || typeof node !== 'object') return
+                    if (node.type === 'JSXOpeningElement') {
+                        // Create a minimal NodePath-compatible object for the visitor
+                        const pseudoPath = { node: node as unknown as JSXOpeningElement } as NodePath<JSXOpeningElement>
+                        visitor.JSXOpeningElement(pseudoPath)
+                    }
+                    for (const key of Object.keys(node)) {
+                        const child = node[key]
+                        if (Array.isArray(child)) {
+                            for (const item of child) {
+                                if (item && typeof item === 'object' && 'type' in item) {
+                                    traverse(item as Record<string, unknown>)
+                                }
+                            }
+                        } else if (child && typeof child === 'object' && 'type' in child) {
+                            traverse(child as Record<string, unknown>)
+                        }
+                    }
+                }
+                traverse(ast.program as unknown as Record<string, unknown>)
+
+                const { code: generated } = babelGenerate(ast)
+                return { code: generated }
+            } catch (err) {
+                // If parsing fails, write the code as-is (user can fix manually)
+                // and include a warning in the result (contract §12 risk mitigation)
+                console.warn(`${BRAND.logPrefix} d2c:apply — parse failed for ${filename}, writing as-is:`, err)
+                return { code, warning: `Parse failed for ${filename}: ${err instanceof Error ? err.message : String(err)}` }
+            }
+        }
+
+        // ── 7. Build file batch ───────────────────────────────────────────────
+        const fileBatch = new Map<string, string>()
+        const componentFilePaths: string[] = []
+        const warnings: string[] = []
+
+        for (const comp of req.components) {
+            const c = comp as { name?: unknown; code?: unknown }
+            if (typeof c.name !== 'string' || typeof c.code !== 'string') continue
+            const filePath = path.join(targetDir, `${c.name}.tsx`)
+
+            // Security: must be within home directory
+            if (!filePath.startsWith(home + path.sep)) {
+                return { ok: false, pageFilePath: '', componentFilePaths: [], workspaceTree: EMPTY_TREE, error: `Security: path outside home directory — ${filePath}` }
+            }
+
+            const { code: processed, warning } = processComponentCode(c.code, c.name)
+            if (warning) warnings.push(warning)
+            fileBatch.set(filePath, processed)
+            componentFilePaths.push(filePath)
+        }
+
+        // Page compositor
+        const pageFilePath = path.join(targetDir, `${page.name}.tsx`)
+        if (!pageFilePath.startsWith(home + path.sep)) {
+            return { ok: false, pageFilePath: '', componentFilePaths: [], workspaceTree: EMPTY_TREE, error: `Security: page path outside home directory — ${pageFilePath}` }
+        }
+
+        // Ensure page compositor has an export default (contract Q1 resolution)
+        let pageCode = page.code
+        if (!/export\s+default\b/.test(pageCode)) {
+            pageCode = pageCode + `\nexport default ${page.name};\n`
+        }
+        const { code: processedPage, warning: pageWarning } = processComponentCode(pageCode, page.name)
+        if (pageWarning) warnings.push(pageWarning)
+        fileBatch.set(pageFilePath, processedPage)
+
+        // ── 8. Write all source files via FileTransactionManager ──────────────
+        await fileTransactionManager.writeBatch(fileBatch)
+
+        // ── 9. Write theme file (if present) — separate write, no extension check ─
+        if (req.themeFile !== undefined && req.themeFile !== null) {
+            const tf = req.themeFile as { filename?: unknown; code?: unknown }
+            if (typeof tf.filename === 'string' && typeof tf.code === 'string') {
+                const themeFilePath = path.join(activeProjectRoot, tf.filename)
+                // Security: must be within home directory
+                if (!themeFilePath.startsWith(home + path.sep)) {
+                    return { ok: false, pageFilePath: '', componentFilePaths: [], workspaceTree: EMPTY_TREE, error: `Security: theme file path outside home directory — ${themeFilePath}` }
+                }
+                await fileTransactionManager.write(themeFilePath, tf.code)
+            }
+        }
+
+        // ── 10. Shadow commit (Commandment 13: after FTM resolves) ───────────
+        await gitManager.shadowCommit(targetDir).catch((err: Error) => {
+            console.warn(`${BRAND.logPrefix} d2c:apply — shadowCommit failed (non-fatal):`, err)
+        })
+
+        // ── 11. Re-scan workspace ─────────────────────────────────────────────
+        const workspaceTree = await scanDirectory(activeProjectRoot)
+
+        console.log(`${BRAND.logPrefix} d2c:apply — wrote ${fileBatch.size} files to ${targetDir}`)
+        if (warnings.length > 0) {
+            console.warn(`${BRAND.logPrefix} d2c:apply — warnings:`, warnings)
+        }
+
+        return { ok: true, pageFilePath, componentFilePaths, workspaceTree }
+    } catch (err) {
+        console.error(`${BRAND.logPrefix} d2c:apply failed:`, err)
+        return {
+            ok: false,
+            pageFilePath: '',
+            componentFilePaths: [],
+            workspaceTree: EMPTY_TREE,
+            error: err instanceof Error ? err.message : String(err),
+        }
+    }
+})
+
 app.on('will-quit', () => {
     // Stop beta version check polling
     stopVersionCheck()

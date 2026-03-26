@@ -1304,6 +1304,69 @@ export interface ScopeAPI {
     setActiveLibrary: (update: { library: string | null }) => Promise<{ ok: boolean; library: string | null; seeded: number; error?: string }>
 }
 
+// ── Phase D2C.2: Design-to-Code types ────────────────────────────────────────
+
+/**
+ * Request payload for the `d2c:apply` IPC channel.
+ * Mirrors the shape of DesignToCodeResult from the flint_design_to_code MCP
+ * tool but only carries the fields needed for file creation.
+ *
+ * The main process handler writes all files under:
+ *   `<projectRoot>/src/components/generated/<pageName>/`
+ */
+export interface D2CApplyRequest {
+    /** Page name used as the folder name under src/components/generated/ */
+    pageName: string
+    /** Section components to write as individual .tsx files */
+    components: Array<{
+        name: string
+        code: string
+    }>
+    /** Page compositor that imports and assembles all sections */
+    page: {
+        name: string
+        code: string
+    }
+    /** Optional theme file to write at the project root */
+    themeFile?: {
+        filename: string
+        code: string
+    }
+}
+
+/**
+ * Response from the `d2c:apply` IPC channel.
+ */
+export interface D2CApplyResult {
+    /** Whether all files were written successfully */
+    ok: boolean
+    /** Absolute path to the page compositor file — pass to setActiveFile() */
+    pageFilePath: string
+    /** Absolute paths of all written section component files */
+    componentFilePaths: string[]
+    /** Refreshed workspace file tree — pass to setWorkspaceFiles() */
+    workspaceTree: FileTreeNode
+    /** Error message when ok === false */
+    error?: string
+}
+
+/**
+ * IPC surface for the Design-to-Code apply pipeline (Phase D2C.2).
+ * Exposed as `window.flintAPI.designToCode`.
+ */
+export interface DesignToCodeAPI {
+    /**
+     * Writes all generated component files to disk, runs injectFlintIds on each
+     * component's AST (Commandment 7), shadow-commits the new files, re-scans
+     * the workspace tree, and returns the page compositor path so the renderer
+     * can call canvasStore.setActiveFile() to trigger LivePreview rendering.
+     *
+     * The apply is atomic: all files are written via FileTransactionManager.writeBatch
+     * in a single operation. On failure, ok === false and error contains the reason.
+     */
+    apply: (request: D2CApplyRequest) => Promise<D2CApplyResult>
+}
+
 export interface FlintAPI {
     /** Health-check: verifies the IPC flint is functional. */
     ping: () => Promise<string>
@@ -1734,6 +1797,30 @@ export interface FlintAPI {
 
     /** Removes all `onIDEFileSelected` listeners. */
     removeIDEFileSelectedListener?: () => void
+
+    // ── Phase D2C.2: Design-to-Code LivePreview Integration ───────────────────
+
+    /**
+     * Design-to-code pipeline integration — atomically writes all generated
+     * component files to disk, runs injectFlintIds, shadow-commits, and rescans
+     * the workspace tree so LivePreview can render the page compositor immediately.
+     *
+     * Optional-chained by callers (`window.flintAPI.designToCode?.apply(...)`)
+     * so Vitest / headless environments (older preload versions) degrade gracefully.
+     */
+    designToCode?: DesignToCodeAPI
+
+    /**
+     * Re-scans the active project directory and returns the updated FileTreeNode.
+     * Useful after any operation that creates or deletes files outside the normal
+     * save-file flow (D2C apply, template scaffolding, etc.).
+     *
+     * Returns null if no project is open (activeProjectRoot is null).
+     *
+     * Optional-chained by callers so Vitest / headless environments degrade
+     * gracefully.
+     */
+    rescanWorkspace?: () => Promise<FileTreeNode | null>
 }
 
 // ── Phase Q: Asset metadata types ─────────────────────────────────────────────

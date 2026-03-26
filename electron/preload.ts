@@ -1160,4 +1160,39 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
         }): Promise<{ ok: boolean; remainingDrafts: number; error?: string }> =>
             ipcRenderer.invoke('enrichment:approve', payload),
     },
+
+    // ── Phase D2C.2: Design-to-Code LivePreview Integration ──────────────────
+
+    /**
+     * Design-to-code apply pipeline — atomically writes all generated component
+     * files to disk (with injectFlintIds), shadow-commits the generated directory,
+     * re-scans the workspace tree, and returns the page compositor path so the
+     * renderer can call canvasStore.setActiveFile() to trigger LivePreview rendering.
+     *
+     * Implements contract D2C.2 (d2c:apply IPC channel).
+     */
+    designToCode: {
+        apply: (request: {
+            pageName: string
+            components: Array<{ name: string; code: string }>
+            page: { name: string; code: string }
+            themeFile?: { filename: string; code: string }
+        }): Promise<{
+            ok: boolean
+            pageFilePath: string
+            componentFilePaths: string[]
+            workspaceTree: unknown
+            error?: string
+        }> => ipcRenderer.invoke('d2c:apply', request),
+    },
+
+    /**
+     * Re-scans the active project directory and returns the updated FileTreeNode.
+     * Useful after any operation that creates or deletes files outside the normal
+     * save-file flow (D2C apply, template scaffolding, etc.).
+     *
+     * Returns null when no project is open (activeProjectRoot is null).
+     */
+    rescanWorkspace: (): Promise<unknown> =>
+        ipcRenderer.invoke('workspace:rescan'),
 })

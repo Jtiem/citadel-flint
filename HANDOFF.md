@@ -6,6 +6,48 @@
 
 ---
 
+## Session: 2026-03-25 UCFG.5+6 — Approval Gates + GPX YAML Migration (COMPLETE)
+
+**What shipped:**
+
+| File | Change |
+|------|--------|
+| `flint-mcp/src/core/governance/approvalGateService.ts` | **NEW** — Conditional approval gates with operator-based conditions (gt/gte/lt/lte/eq/ne) |
+| `flint-mcp/src/core/governance/scoringWeightsService.ts` | **NEW** — Configurable scoring weights with domain presets (healthcare/fintech/government) |
+| `flint-mcp/src/core/governance/classificationService.ts` | **NEW** — Data classification → governance profile mapping (public/internal/confidential/restricted) |
+| `flint-mcp/src/core/packTypes.ts` | Added `format?: 'json' \| 'yaml'` to PackManifest |
+| `flint-mcp/src/core/packAssembler.ts` | Added `assembleYamlPack()` — YAML-based pack assembly |
+| `flint-mcp/src/core/packImportService.ts` | Added `importYamlPack()`, `isYamlFormatPack()` — YAML-aware pack import with extends integration |
+
+**Tests:** 80 (UCFG.5) + 28 (UCFG.6) = 108 new tests
+**Results:** `MCP: 3167/3167 passing (108 new) | TSC: 0 errors`
+
+---
+
+## Session: 2026-03-25 D2C.2 — LivePreview Integration (CONTRACT APPROVED)
+
+**Goal:** Wire `flint_design_to_code` MCP tool output into Glass LivePreview so generated components render live on the canvas.
+
+**What shipped:**
+
+| File | Change |
+|------|--------|
+| `.flint-context/contracts/D2C-2-livepreview-integration.md` | Full contract artifact: IPC channels, type contracts, sequence diagram, undo plan, test plan |
+| `.flint-context/ACTIVE-SWARM-TERRITORY.md` | Territory claimed for D2C.2 implementation |
+
+**Architecture decisions:**
+- Main-process orchestration: `d2c:apply` IPC handler owns mkdir + injectFlintIds + writeBatch + shadowCommit + scanDirectory
+- File layout: `src/components/generated/<PageName>/` with sibling `.tsx` files
+- No new store state: hook calls existing `setWorkspaceFiles` + `setActiveFile` + `setCanvasView`
+- No new canvas nodes: page compositor renders all sections in the single LivePreview iframe
+- Undo via Git Time Machine (shadowCommit), not AST inversions (files didn't exist before)
+- New general-purpose `workspace:rescan` IPC channel for future reuse
+- React hook (`useDesignToCodeApply`) is the only IPC caller -- no store actions call flintAPI
+
+**Next:** Phase 2 implementation (2a: IPC layer, 2b: React hook -- parallelizable). Then Phase 3 integration validation.
+
+---
+
 ## Session: 2026-03-25 UCFG.1 — Unified Config Loader (COMPLETE)
 
 **Goal:** Replace 3 fragmented JSON config files with a single `flint.config.yaml`. Phase 1: YAML parser + loader + type definitions + JSON fallback + mode/tier mapping.

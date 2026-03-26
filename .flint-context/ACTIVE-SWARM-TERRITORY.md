@@ -18,6 +18,26 @@
 
 ---
 
+## Swarm: Phase D2C.2 -- LivePreview Integration
+
+**Status:** CONTRACTS IN PROGRESS
+
+### Files to CREATE
+| File | Purpose |
+| `src/hooks/useDesignToCodeApply.ts` | React hook orchestrating D2C apply flow |
+| `src/hooks/__tests__/useDesignToCodeApply.test.ts` | Tests for D2C apply hook |
+
+### Files to MODIFY
+| File | What changes |
+| `electron/main.ts` | New `d2c:apply` IPC handler |
+| `electron/preload.ts` | New `designToCode.apply` surface method |
+| `src/types/flint-api.d.ts` | D2C apply types |
+| `src/store/canvasStore.ts` | No store changes -- uses existing setActiveFile |
+| `src/store/editorStore.ts` | No store changes -- uses existing setCode |
+| `src/components/editor/XYCanvas.tsx` | No changes needed -- LivePreview auto-updates |
+
+---
+
 ## Template for new swarm entry
 
 ```markdown
