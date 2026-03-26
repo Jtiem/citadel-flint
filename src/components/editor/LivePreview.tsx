@@ -25,6 +25,11 @@ import { BRAND } from '../../../shared/brand'
 import reactUMD from '../../preview-vendor/react.prod.js?raw'
 import reactDOMUMD from '../../preview-vendor/react-dom.prod.js?raw'
 import tailwindCDN from '../../preview-vendor/tailwind-cdn.js?raw'
+import {
+  getLibraryShims,
+  getGenericShims,
+  type LibraryShimBundle,
+} from '../../preview-vendor/shims/index'
 import { MousePointer2, Hand } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
 import { useTokenStore } from '../../store/tokenStore'
@@ -62,8 +67,16 @@ import { useRemotePresence, useLockedNodeIds } from '../../hooks/useRemotePresen
  * @param js               Babel-transformed component JS ready to execute.
  * @param tailwindConfigJson  JSON string produced by `generateTailwindConfig`.
  *                            Applied via `tailwind.config = ...` after CDN load.
+ * @param libraryShims     Optional library-specific shim bundle. When provided,
+ *                         its CSS variables are injected in <head> and its
+ *                         component shims override any matching generic stubs.
+ *                         Pass null to use generic stubs only (default behaviour).
  */
-function buildSrcdoc(js: string, tailwindConfigJson: string): string {
+export function buildSrcdoc(
+  js: string,
+  tailwindConfigJson: string,
+  libraryShims: LibraryShimBundle | null,
+): string {
   // JSON.stringify produces a string safe to embed inside a script tag.
   // Replace bare `<` with its Unicode escape so `</script>` in string
   // literals can never terminate the enclosing script element.
@@ -78,6 +91,7 @@ function buildSrcdoc(js: string, tailwindConfigJson: string): string {
   <script>${reactDOMUMD}<\/script>
   <script>${tailwindCDN}<\/script>
   <script>tailwind.config = ${tailwindConfigJson};<\/script>
+  ${libraryShims ? `<style>${libraryShims.cssVars}<\/style>` : ''}
   <style>
     *, *::before, *::after { box-sizing: border-box; }
     body { margin: 0; padding: 1rem; background: #111827; color: #f9fafb; font-family: system-ui, sans-serif; }
@@ -102,79 +116,15 @@ function buildSrcdoc(js: string, tailwindConfigJson: string): string {
           forwardRef, memo, cloneElement, Children, isValidElement } = React;
   <\/script>
   <script>
-    // UI Component Registry Stubs for Live Preview
-    // These mirror the shadcn/ui API surface so injected components render
-    // without a bundler resolving the actual package imports.
-    window.Badge = function({ className, children, ...rest }) {
-      return React.createElement('span', {
-        className: 'inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-semibold transition-colors bg-slate-900 text-white shadow hover:bg-slate-900/80 ' + (className || ''),
-        ...rest,
-        style: { pointerEvents: 'auto' }
-      }, children);
-    };
-    window.Button = function({ variant, className, children, ...rest }) {
-      var base = 'inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors h-9 px-4 py-2 ';
-      var variants = { primary: 'bg-blue-600 text-white shadow hover:bg-blue-700', secondary: 'text-blue-600 hover:bg-blue-50', outline: 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50' };
-      return React.createElement('button', {
-        className: base + (variants[variant] || variants.primary) + ' ' + (className || ''),
-        ...rest,
-        style: { pointerEvents: 'auto' }
-      }, children);
-    };
-    window.Heading = function({ as, className, children, ...rest }) {
-      var level = as || 1;
-      var sizes = { 1: 'text-2xl', 2: 'text-xl', 3: 'text-lg', 4: 'text-base', 5: 'text-sm', 6: 'text-xs' };
-      return React.createElement('h' + level, {
-        className: 'font-medium tracking-tight text-slate-800 ' + (sizes[level] || 'text-base') + ' ' + (className || ''),
-        ...rest
-      }, children);
-    };
-    window.TextField = function({ label, placeholder, value, helperText, className, ...rest }) {
-      return React.createElement('div', { className: 'flex flex-col gap-1 ' + (className || '') },
-        label ? React.createElement('label', { className: 'text-sm font-medium text-slate-700' }, label) : null,
-        React.createElement('input', { type: 'text', placeholder: placeholder || '', defaultValue: value || '', className: 'rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500', ...rest }),
-        helperText ? React.createElement('span', { className: 'text-xs text-slate-500' }, helperText) : null
-      );
-    };
-    window.SwitchToggle = function({ label, checked, className }) {
-      return React.createElement('label', { className: 'inline-flex items-center gap-3 cursor-pointer ' + (className || '') },
-        React.createElement('span', {
-          className: 'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ' + (checked ? 'bg-blue-600' : 'bg-slate-300'),
-        }, React.createElement('span', { className: 'inline-block h-3.5 w-3.5 rounded-full bg-white shadow transform transition-transform ' + (checked ? 'translate-x-4' : 'translate-x-0.5') })),
-        label ? React.createElement('span', { className: 'text-sm text-slate-700' }, label) : null
-      );
-    };
-    window.SelectField = function({ label, options, value, className }) {
-      return React.createElement('div', { className: 'flex flex-col gap-1 ' + (className || '') },
-        label ? React.createElement('label', { className: 'text-sm font-medium text-slate-700' }, label) : null,
-        React.createElement('select', { defaultValue: value || '', className: 'rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500' })
-      );
-    };
-    window.IconButton = function({ icon, label, size, className, ...rest }) {
-      var sizeClass = size === 'sm' ? 'h-5 w-5 p-0.5' : 'h-8 w-8 p-1.5';
-      return React.createElement('button', {
-        type: 'button',
-        'aria-label': label || icon,
-        className: 'inline-flex items-center justify-center rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors ' + sizeClass + ' ' + (className || ''),
-        ...rest
-      }, icon);
-    };
-    window.Stack = function({ direction, spacing, className, children }) {
-      var dir = direction === 'horizontal' ? 'flex-row' : 'flex-col';
-      var gap = spacing ? 'gap-' + spacing : 'gap-4';
-      return React.createElement('div', {
-        className: 'flex ' + dir + ' ' + gap + ' ' + (className || ''),
-      }, children);
-    };
-    window.Input = function({ placeholder, type, className, ...rest }) {
-      return React.createElement('input', {
-        type: type || 'text',
-        placeholder: placeholder || '',
-        className: 'rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 ' + (className || ''),
-        ...rest
-      });
-    };
+    // Generic component stubs — always loaded as the base layer.
+    // Library-specific shims (below) override any matching component name.
+    ${getGenericShims().shimSource.replace(/<\/script>/g, '<\\/script>')}
   <\/script>
+  ${libraryShims ? `<script>
+    // Library-specific shims: ${libraryShims.displayName} (${libraryShims.componentCount} components)
+    // These override the generic stubs above for matching component names.
+    ${libraryShims.shimSource.replace(/<\/script>/g, '<\\/script>')}
+  <\/script>` : ''}
   <script>
     (function () {
       var root = document.getElementById('root');
@@ -469,6 +419,21 @@ export function LivePreview() {
   const [transformError, setTransformError] = useState<string | null>(null)
   const [demoLoading, setDemoLoading] = useState(false)
 
+  // ── Phase D2C.3: Active library for shim injection ─────────────────────────
+  // Read the active library via the existing `scope:get-active-library` IPC channel.
+  // Stored as local component state — no store changes needed.
+  const [activeLibrary, setActiveLibrary] = useState<string | null>(null)
+
+  useEffect(() => {
+    window.flintAPI?.scope?.getActiveLibrary?.()
+      .then((result: { library: string | null }) => {
+        setActiveLibrary(result?.library ?? null)
+      })
+      .catch(() => {
+        // Non-fatal: fall back to generic stubs
+      })
+  }, [])
+
   // ── Phase REM.2.2: Governance Autopilot diff toggle ─────────────────────
   const autopilotEnabled = useCanvasStore((s) => s.autopilotEnabled)
   const governedCode = useCanvasStore((s) => s.governedCode)
@@ -558,17 +523,28 @@ export function LivePreview() {
     [pendingCardDrag],
   )
 
+  // Track the last project root we started the preview for so we don't
+  // restart on every remount (React Strict Mode double-fires effects).
+  const lastPreviewRoot = useRef<string | null>(null)
+
   useEffect(() => {
     const api = window.flintAPI?.preview
-    if (!api) return   // Preload not yet available (e.g. Vitest environment)
+    if (!api) return
 
     if (workspaceFiles == null) {
-      // No project open — stop server and revert to srcdoc mode.
-      void api.stop().then(() => setPreviewUrl(null))
+      if (lastPreviewRoot.current !== null) {
+        lastPreviewRoot.current = null
+        void api.stop().then(() => setPreviewUrl(null))
+      }
       return
     }
 
     const projectRoot = workspaceFiles.path
+
+    // Skip if we already started the preview for this exact path.
+    if (projectRoot === lastPreviewRoot.current) return
+
+    lastPreviewRoot.current = projectRoot
     void api.start(projectRoot).then((result) => {
       if ('error' in result) {
         console.warn('[Flint] Vite preview failed to start:', result.error)
@@ -578,10 +554,13 @@ export function LivePreview() {
       }
     })
 
+    // Cleanup only resets state — don't stop the server on every unmount
+    // because Strict Mode double-fires. The server is stopped when the
+    // path actually changes (above) or on null workspace (above).
     return () => {
-      void api.stop().then(() => setPreviewUrl(null))
+      setPreviewUrl(null)
     }
-  }, [workspaceFiles?.path])   // Only restart when the project root changes
+  }, [workspaceFiles?.path])
 
   async function handleLoadDemo(): Promise<void> {
     setDemoLoading(true)
@@ -638,7 +617,8 @@ export function LivePreview() {
         setTransformError(null)
         if (iframeRef.current !== null) {
           const executeCode = js.replace(/import\s+.*?from\s+['"].*?['"];?/g, '')
-          iframeRef.current.srcdoc = buildSrcdoc(executeCode, tailwindConfigJson)
+          const libraryShims = getLibraryShims(activeLibrary)
+          iframeRef.current.srcdoc = buildSrcdoc(executeCode, tailwindConfigJson, libraryShims)
         }
       })
       .catch((err: unknown) => {
@@ -648,7 +628,7 @@ export function LivePreview() {
     return () => {
       cancelled = true
     }
-  }, [previewCode, tailwindConfigJson])
+  }, [previewCode, tailwindConfigJson, activeLibrary])
 
   // When the selected layer changes → send HIGHLIGHT to the iframe
   useEffect(() => {

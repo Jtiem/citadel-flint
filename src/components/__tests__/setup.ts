@@ -193,6 +193,7 @@ export function createMockFlintAPI() {
                 registryAvailable: false,
             }),
             setScope: vi.fn().mockResolvedValue({ ok: true }),
+            getActiveLibrary: vi.fn().mockResolvedValue({ library: null, availableLibraries: [] }),
         },
         enrichment: {
             getDrafts: vi.fn().mockResolvedValue({ drafts: {}, enrichmentStats: { bare: 0, draft: 0, enriched: 0, total: 0 } }),

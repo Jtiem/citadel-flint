@@ -6,6 +6,42 @@
 
 ---
 
+## Session: 2026-03-26 D2C.3b -- LivePreview Shim Wiring (COMPLETE)
+
+**Goal:** Wire the library shim registry into `buildSrcdoc` so the srcdoc preview injects library-specific components (shadcn, MUI, PrimeNG) when a library is active.
+
+**What shipped:**
+
+| File | Change |
+|------|--------|
+| `src/components/editor/LivePreview.tsx` | (1) Import `getLibraryShims`, `getGenericShims`, `LibraryShimBundle` from shim registry. (2) `activeLibrary` local state via `scope:get-active-library` IPC on mount. (3) `buildSrcdoc` signature extended with `libraryShims: LibraryShimBundle \| null` param. (4) Inline stub block replaced with `getGenericShims().shimSource` injection + optional library shim block. (5) Library CSS vars `<style>` injected in `<head>` after Tailwind config. (6) `buildSrcdoc` call passes `getLibraryShims(activeLibrary)`. (7) `activeLibrary` added to effect dependency array. (8) `buildSrcdoc` exported for testing. |
+| `src/components/__tests__/setup.ts` | Added `getActiveLibrary` mock to `scope` API stub |
+| `src/components/editor/__tests__/buildSrcdoc.test.ts` | **NEW** — 23 tests for shim injection: null/shadcn/MUI/PrimeNG paths, injection order, CSS vars, library switching |
+| `src/preview-vendor/shims/index.ts` | Created by parallel agent (d2c3-shims) — shim registry with `getLibraryShims`, `getGenericShims`, `getRegisteredLibraries` |
+| `src/preview-vendor/shims/generic.js` | Created by parallel agent — 9 generic stubs extracted from LivePreview inline |
+| `src/preview-vendor/shims/shadcn.js` | Created by parallel agent — 15 shadcn/ui component shims + CSS vars |
+| `src/preview-vendor/shims/mui.js` | Created by parallel agent — 12 MUI component shims + CSS vars |
+| `src/preview-vendor/shims/primeng.js` | Created by parallel agent — 10 PrimeNG shims + CSS vars |
+| `src/preview-vendor/shims/__tests__/shimRegistry.test.ts` | Created by parallel agent — 56 registry tests |
+
+**Test results:** Glass: 1113/1115 passing (79 new). TSC: 0 errors.
+- 2 pre-existing failures unrelated to this work: `GhostCodeSnippet > displays the line number`, `SetupWizard > MCP server not found`.
+
+**Architecture delivered:**
+- Injection order: Tailwind config → library CSS vars `<style>` → base styles → generic stubs → library shims
+- Library shims override generic stubs for matching component names (additive pattern)
+- `buildSrcdoc(null)` preserves original behaviour exactly — no regression
+- Vite dev server path unaffected (shims only apply to srcdoc path when `previewUrl == null`)
+- `activeLibrary` read once on mount via existing `scope:get-active-library` IPC, rerenders trigger preview rebuild
+
+**Next:** Phase 3 integration validation — launch Flint Glass, set library to shadcn via `flint_set_library`, confirm Card/Button render in preview.
+
+---
+
+## Session: 2026-03-26 D2C.3 -- Library Preview Runtime (CONTRACT APPROVED)
+
+---
+
 ## Session: 2026-03-26 UCFG.7 — Full Wiring + Presets + Validation (COMPLETE)
 
 **Goal:** Wire UCFG.5 services into runtime, enrich presets, add config validation.
