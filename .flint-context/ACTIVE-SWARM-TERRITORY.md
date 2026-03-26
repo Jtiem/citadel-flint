@@ -38,6 +38,27 @@
 
 ---
 
+## Swarm: Phase D2C.3 -- Library Preview Runtime
+
+**Status:** CONTRACTS IN PROGRESS
+
+### Files to CREATE
+| File | Purpose |
+| `src/preview-vendor/shims/shadcn.js` | Shadcn/ui component shims for srcdoc preview |
+| `src/preview-vendor/shims/mui.js` | MUI component shims for srcdoc preview |
+| `src/preview-vendor/shims/primeng.js` | PrimeNG component shims for srcdoc preview |
+| `src/preview-vendor/shims/types.ts` | TypeScript types for shim registry |
+| `src/preview-vendor/shims/index.ts` | Shim registry: library name -> shim source code |
+| `src/preview-vendor/shims/__tests__/shimRegistry.test.ts` | Tests for shim registry |
+| `src/components/editor/__tests__/buildSrcdoc.test.ts` | Tests for shim injection into srcdoc |
+
+### Files to MODIFY
+| File | What changes |
+| `src/components/editor/LivePreview.tsx` | Import shim registry, inject active library shims into buildSrcdoc |
+| `src/hooks/useContextSync.ts` | No changes (already reads selectedLibrary) |
+
+---
+
 ## Template for new swarm entry
 
 ```markdown

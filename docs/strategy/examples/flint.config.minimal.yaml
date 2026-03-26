@@ -1,0 +1,9 @@
+# flint.config.yaml — Minimum viable governance
+# This is all you need. Everything else has sensible defaults:
+#   Mithril: blocking, delta-E 2.0
+#   Accessibility: WCAG 2.1 AA, blocking
+#   Export gate: blocks on violations and overrides
+#   Agents: standard tier, 4 default escalation rules
+#   Library: auto-detected from package.json
+
+project: My Product

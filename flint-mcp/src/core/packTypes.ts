@@ -47,6 +47,12 @@ export interface PackManifest {
     contents: PackContentsDeclaration;
     checksums: Record<string, string>;  // filename -> "sha256:<hex>" for each file in the pack
     published_at: string;       // ISO 8601 UTC
+    /**
+     * Pack format version (UCFG.6).
+     * 'json' — legacy format: policy.json + agent-policy.json (default for backward compat)
+     * 'yaml' — unified format: flint.config.yaml replaces separate JSON files
+     */
+    format?: 'json' | 'yaml';
 }
 
 // Re-export for consumers

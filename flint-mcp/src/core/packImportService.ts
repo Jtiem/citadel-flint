@@ -12,6 +12,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import { stringify as stringifyYaml, parse as parseYaml } from 'yaml'
 import type { PackManifest } from './packTypes.js'
 import type { GovernanceDomain } from './policyEngine.js'
 import { validatePolicy, coerceToResolved, loadPolicy } from './policyEngine.js'
@@ -975,6 +976,232 @@ function copyFragmentFiles(
     return { filesWritten, skipped: skippedConflicts }
 }
 
+// ── YAML Pack Import (UCFG.6) ────────────────────────────────────────────────
+
+/**
+ * Returns true if the manifest's format field indicates a YAML-format pack.
+ * Backward-compatible: packs without a `format` field are treated as 'json'.
+ */
+export function isYamlFormatPack(manifest: PackManifest): boolean {
+    return manifest.format === 'yaml'
+}
+
+/**
+ * Reads the project's existing flint.config.yaml `extends` list.
+ * Returns the parsed config object (or a minimal one if the file doesn't exist).
+ * Returns null on parse error.
+ */
+function readProjectYamlConfig(projectRoot: string): Record<string, unknown> | null {
+    const configPath = path.join(projectRoot, 'flint.config.yaml')
+    if (!fs.existsSync(configPath)) {
+        return null
+    }
+    try {
+        const raw = fs.readFileSync(configPath, 'utf-8')
+        return parseYaml(raw) as Record<string, unknown>
+    } catch {
+        return null
+    }
+}
+
+/**
+ * Writes a minimal flint.config.yaml for the project with just the `extends` list.
+ * Merges into the existing file if one already exists.
+ */
+function writeProjectYamlExtends(projectRoot: string, packRef: string): void {
+    const configPath = path.join(projectRoot, 'flint.config.yaml')
+    let config: Record<string, unknown>
+
+    if (fs.existsSync(configPath)) {
+        try {
+            config = parseYaml(fs.readFileSync(configPath, 'utf-8')) as Record<string, unknown> ?? {}
+        } catch {
+            config = {}
+        }
+    } else {
+        config = {
+            schema_version: '1.0.0',
+            project: path.basename(projectRoot),
+        }
+    }
+
+    // Merge extends list (deduplicated)
+    const existing: string[] = Array.isArray(config.extends) ? config.extends as string[] : []
+    if (!existing.includes(packRef)) {
+        config.extends = [...existing, packRef]
+    }
+
+    const header = '# flint.config.yaml\n# Managed by flint_pack_import (UCFG.6).\n\n'
+    fs.writeFileSync(configPath, header + stringifyYaml(config, { lineWidth: 100 }), 'utf-8')
+}
+
+/**
+ * Returns true if the given pack's flint.config.yaml is already in the project's extends list.
+ */
+function isAlreadyExtended(projectRoot: string, packRef: string): boolean {
+    const config = readProjectYamlConfig(projectRoot)
+    if (!config) return false
+    const existing: string[] = Array.isArray(config.extends) ? config.extends as string[] : []
+    return existing.includes(packRef)
+}
+
+/**
+ * Imports a YAML-format governance pack (UCFG.6).
+ *
+ * Strategy:
+ *  1. Create `.flint-packs/<pack-id>/` directory in the project
+ *  2. Copy the pack's `flint.config.yaml` there
+ *  3. Add the path to the project's `flint.config.yaml` `extends` list
+ *     (creating a minimal flint.config.yaml if none exists)
+ *  4. Copy design-tokens.json if present
+ *  5. Copy claude-fragments if present
+ */
+export async function importYamlPack(options: ImportPackOptions): Promise<PackImportResult> {
+    const {
+        packPath,
+        projectRoot,
+        strategy = 'skip-conflicts',
+        dryRun = false,
+    } = options
+
+    // 1. Validate pack path
+    if (!fs.existsSync(packPath)) {
+        return makeErrorResult(`Pack path does not exist: ${packPath}`, strategy)
+    }
+    if (!fs.statSync(packPath).isDirectory()) {
+        return makeErrorResult(`Pack path is not a directory: ${packPath}`, strategy)
+    }
+
+    // 2. Parse and validate manifest
+    const manifestPath = path.join(packPath, 'manifest.json')
+    if (!fs.existsSync(manifestPath)) {
+        return makeErrorResult('Pack is missing manifest.json', strategy)
+    }
+
+    let manifest: PackManifest
+    try {
+        manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')) as PackManifest
+    } catch (err) {
+        return makeErrorResult(`Failed to parse manifest.json: ${(err as Error).message}`, strategy)
+    }
+
+    const manifestErrors = validateManifest(manifest)
+    if (manifestErrors.length > 0) {
+        return makeErrorResult(`Invalid manifest: ${manifestErrors.join('; ')}`, strategy)
+    }
+
+    // 3. Verify checksums
+    if (manifest.checksums && Object.keys(manifest.checksums).length > 0) {
+        const checksumErrors = verifyChecksums(packPath, manifest.checksums)
+        if (checksumErrors.length > 0) {
+            return makeErrorResult(`Checksum verification failed: ${checksumErrors.join('; ')}`, strategy)
+        }
+    }
+
+    // 4. Security scan
+    const securityErrors = securityScanPack(packPath)
+    if (securityErrors.length > 0) {
+        return {
+            success: false,
+            manifest,
+            strategy,
+            conflicts: [],
+            skippedConflicts: [],
+            resolvedConflicts: [],
+            filesWritten: [],
+            snapshotId: null,
+            error: `Security scan failed: ${securityErrors.join('; ')}`,
+            summary: `Import blocked: security violations found in pack "${manifest.name}"`,
+        }
+    }
+
+    // 5. Determine destination paths
+    const packDestDir = path.join(projectRoot, '.flint-packs', manifest.id)
+    const packRef = `./.flint-packs/${manifest.id}/flint.config.yaml`
+
+    // 6. Check if already extended (idempotency)
+    const alreadyExtended = isAlreadyExtended(projectRoot, packRef)
+
+    // 7. Dry run: report what would happen
+    if (dryRun) {
+        const plannedFiles: string[] = []
+        const packYamlSrc = path.join(packPath, 'flint.config.yaml')
+        if (fs.existsSync(packYamlSrc)) {
+            plannedFiles.push(`.flint-packs/${manifest.id}/flint.config.yaml`)
+        }
+        const tokensSrc = path.join(packPath, 'design-tokens.json')
+        if (fs.existsSync(tokensSrc)) {
+            plannedFiles.push(`.flint-packs/${manifest.id}/design-tokens.json`)
+        }
+        if (!alreadyExtended) {
+            plannedFiles.push('flint.config.yaml (extends list updated)')
+        }
+
+        return {
+            success: false,
+            manifest,
+            strategy,
+            conflicts: [],
+            skippedConflicts: [],
+            resolvedConflicts: [],
+            filesWritten: plannedFiles,
+            snapshotId: null,
+            summary: `Dry run: ${plannedFiles.length} file(s) would be written for YAML pack "${manifest.name}"`,
+        }
+    }
+
+    // 8. Write the pack config directory
+    fs.mkdirSync(packDestDir, { recursive: true })
+    const filesWritten: string[] = []
+
+    const packYamlSrc = path.join(packPath, 'flint.config.yaml')
+    if (fs.existsSync(packYamlSrc)) {
+        const packYamlDest = path.join(packDestDir, 'flint.config.yaml')
+        fs.copyFileSync(packYamlSrc, packYamlDest)
+        filesWritten.push(`.flint-packs/${manifest.id}/flint.config.yaml`)
+    }
+
+    // Copy design-tokens.json if present
+    const tokensSrc = path.join(packPath, 'design-tokens.json')
+    if (fs.existsSync(tokensSrc)) {
+        fs.copyFileSync(tokensSrc, path.join(packDestDir, 'design-tokens.json'))
+        filesWritten.push(`.flint-packs/${manifest.id}/design-tokens.json`)
+    }
+
+    // Copy claude-fragments if present
+    const fragmentsSrc = path.join(packPath, 'claude-fragments')
+    if (fs.existsSync(fragmentsSrc) && manifest.contents.claude_fragments?.length) {
+        for (const fragPath of manifest.contents.claude_fragments) {
+            const src = path.join(fragmentsSrc, fragPath)
+            if (!fs.existsSync(src)) continue
+            const dest = path.join(projectRoot, '.claude', fragPath)
+            fs.mkdirSync(path.dirname(dest), { recursive: true })
+            fs.copyFileSync(src, dest)
+            filesWritten.push(`.claude/${fragPath}`)
+        }
+    }
+
+    // 9. Update project's extends list
+    if (!alreadyExtended) {
+        writeProjectYamlExtends(projectRoot, packRef)
+        filesWritten.push('flint.config.yaml')
+    }
+
+    return {
+        success: true,
+        manifest,
+        strategy,
+        conflicts: [],
+        skippedConflicts: [],
+        resolvedConflicts: options.resolutions ?? [],
+        filesWritten,
+        snapshotId: null,
+        summary: `Successfully imported YAML pack "${manifest.name}" v${manifest.version}. ` +
+            `${filesWritten.length} file(s) written.` +
+            (alreadyExtended ? ' (extends list already up to date)' : ''),
+    }
+}
+
 // ── Main Import Function ────────────────────────────────────────────────────
 
 export interface ImportPackOptions {
@@ -1044,6 +1271,12 @@ export async function importPack(options: ImportPackOptions): Promise<PackImport
     }
 
     const manifest = manifestRaw as PackManifest
+
+    // 4a. YAML format delegation (UCFG.6)
+    // If the pack declares format: 'yaml', use the dedicated YAML import path.
+    if (isYamlFormatPack(manifest)) {
+        return importYamlPack(options)
+    }
 
     // 4. Verify checksums
     if (manifest.checksums && Object.keys(manifest.checksums).length > 0) {

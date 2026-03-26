@@ -24,7 +24,7 @@ import { queryRegistry, formatShadowStorybook } from "./core/registryService.js"
 import { queryRAGRegistry } from "./core/ragRegistryService.js";
 import type { DesignToken, LinterWarning, FlintSDIPayload } from "./types.js";
 import { flintEvents, EVENTS } from "./core/events.js";
-import { resolveProjectRoot, loadConfig } from "./core/config-loader.js";
+import { resolveProjectRoot, loadConfig, loadProjectConfig } from "./core/config-loader.js";
 import { DEFAULT_CONFIG } from "./core/config.js";
 import type { FlintConfig, FlintPolicy } from "./core/config.js";
 import { readPolicy, writePolicy, mergePolicy, getDefaultPolicy } from "./core/policyLoader.js";
@@ -1875,6 +1875,43 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
             const { code: newCode } = generate(ast);
             const batchId = crypto.randomUUID();
+
+            // UCFG.7a: Approval gate check — evaluate configurable gates from flint.config.yaml
+            // before committing any write to disk. Dry runs bypass this check entirely.
+            if (!dryRunMutate) {
+                const yamlConfig = loadProjectConfig(projectRoot);
+                if (yamlConfig?.trust?.approval && yamlConfig.trust.approval.length > 0) {
+                    const { evaluateApprovalGates } = await import('./core/governance/approvalGateService.js');
+
+                    // Build context: prefer a rough per-mutation risk estimate (mutation_count * 10)
+                    // so the gate fires before MRS runs (MRS comes after the write block).
+                    const gateContext: Record<string, number> = {
+                        risk_score: mutations.length * 10,
+                        mutation_count: mutations.length,
+                    };
+
+                    const decision = evaluateApprovalGates(yamlConfig.trust.approval, gateContext);
+
+                    if (decision.action === 'require_approval' || decision.action === 'escalate') {
+                        return {
+                            content: [{
+                                type: 'text',
+                                text: JSON.stringify({
+                                    status: decision.action === 'escalate' ? 'escalation_required' : 'approval_required',
+                                    message: decision.message ?? (decision.action === 'escalate'
+                                        ? 'Mutation requires escalation review before writing.'
+                                        : 'Mutation requires approval before writing.'),
+                                    mutations_applied: mutations.length,
+                                    risk_context: gateContext,
+                                    gate: decision.matchedGate,
+                                    pending_code: newCode,
+                                }, null, 2),
+                            }],
+                        };
+                    }
+                    // auto_approve and no_gate fall through to the write block below
+                }
+            }
 
             if (effectiveWriteFile) {
                 // Commandment 12: atomic write via .tmp → rename

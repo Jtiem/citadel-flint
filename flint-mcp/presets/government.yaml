@@ -1,0 +1,47 @@
+# @flint/government — Section 508 + WCAG AAA governance
+# Strictest accessibility level. Tight visual thresholds.
+project: "@flint/government"
+domain: government
+classification: restricted
+
+rules:
+  mithril:
+    mode: coercive
+    delta_e: 1.0
+    delta_e_critical: 5.0
+    ignore:
+      - "**/node_modules/**"
+  accessibility:
+    level: AAA
+    mode: coercive
+  export_gate:
+    block_on_overrides: true
+  baseline:
+    enabled: false
+
+trust:
+  default_tier: intern
+  allow_demotion: true
+  escalation:
+    - when: { red_count: ">= 1", window: session }
+      then: require_review
+    - when: { mutation_velocity: ">= 10", window: 5m }
+      then: block
+  promotion:
+    clean_sessions: 15
+    security_validation: true
+    governance_signoff: true
+
+scoring:
+  weights:
+    coercive: 0.95
+    normative: 0.85
+    advisory: 0.6
+    recency: 0.8
+
+content:
+  style_guide: google
+
+audit:
+  retention: 2555d
+  export: [json, sarif, csv]

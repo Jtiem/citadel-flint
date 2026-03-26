@@ -35,6 +35,23 @@ export interface DebtReport {
     scannedFiles: number
     /** ISO 8601 UTC timestamp of when the report was generated. */
     timestamp: string
+    /**
+     * UCFG.7b: Weighted violation score derived from configurable scoring
+     * weights (coercive/normative/advisory). Present when scoring weights are
+     * available from flint.config.yaml. Omitted for projects using only the
+     * legacy policy.json config.
+     *
+     * When violation mode data is available per-violation, this score will
+     * reflect the full per-mode weighting. Currently computed as a
+     * severity-proxy weighted score (critical → coercive weight, warning →
+     * normative weight, info → advisory weight) until mode-aware scanning
+     * carries explicit mode labels.
+     */
+    weightedScore?: {
+        raw: number
+        weighted: number
+        weights: { coercive: number; normative: number; advisory: number; recency: number }
+    }
 }
 
 // ── DebtHistoryEntry ──────────────────────────────────────────────────────────

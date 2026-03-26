@@ -1,0 +1,18 @@
+# @flint/general — Base governance preset
+# This is the implicit default. Extending it explicitly is a no-op
+# but useful for documentation and composability.
+project: "@flint/general"
+domain: general
+
+rules:
+  mithril:
+    mode: coercive
+    delta_e: 2.0
+    delta_e_critical: 10.0
+    ignore:
+      - "**/node_modules/**"
+  accessibility:
+    level: AA
+    mode: coercive
+  export_gate:
+    block_on_overrides: true

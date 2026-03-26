@@ -1,0 +1,50 @@
+# @flint/fintech — PCI-DSS + SOC 2 Type II governance
+# Tight thresholds, long audit retention, conservative trust defaults.
+project: "@flint/fintech"
+domain: fintech
+classification: confidential
+
+rules:
+  mithril:
+    mode: coercive
+    delta_e: 1.5
+    delta_e_critical: 7.0
+    ignore:
+      - "**/node_modules/**"
+  accessibility:
+    level: AA
+    mode: coercive
+  export_gate:
+    block_on_overrides: true
+  baseline:
+    enabled: false
+
+trust:
+  default_tier: junior
+  allow_demotion: true
+  escalation:
+    - when: { red_count: ">= 2", window: session }
+      then: require_review
+    - when: { session_risk_avg: "> 0.5" }
+      then: downgrade
+      to: intern
+    - when: { mutation_velocity: ">= 15", window: 5m }
+      then: block
+  promotion:
+    clean_sessions: 10
+    security_validation: true
+    governance_signoff: true
+
+scoring:
+  weights:
+    coercive: 0.9
+    normative: 0.7
+    advisory: 0.4
+    recency: 0.6
+
+content:
+  style_guide: microsoft
+
+audit:
+  retention: 365d
+  export: [json, sarif, csv]

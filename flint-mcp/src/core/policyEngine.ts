@@ -13,7 +13,7 @@ import path from 'node:path'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type PolicyMode = 'blocking' | 'advisory' | 'off'
+export type PolicyMode = 'blocking' | 'normative' | 'advisory' | 'off'
 export type SeverityFloor = 'critical' | 'warning' | 'info'
 export type ConformanceLevel = 'A' | 'AA' | 'AAA'
 export type GovernanceDomain =
@@ -144,7 +144,7 @@ const VALID_DOMAINS = new Set<string>([
     'general', 'healthcare', 'fintech', 'e-commerce', 'government', 'enterprise-saas',
 ])
 
-const VALID_POLICY_MODES = new Set<string>(['blocking', 'advisory', 'off'])
+const VALID_POLICY_MODES = new Set<string>(['blocking', 'normative', 'advisory', 'off'])
 
 const VALID_CONFORMANCE_LEVELS = new Set<string>(['A', 'AA', 'AAA'])
 
@@ -587,7 +587,7 @@ export function shouldBlockExport(
 
     for (const violation of violations) {
         const mode = getRuleMode(violation.ruleId, policy)
-        if (mode !== 'blocking') {
+        if (mode !== 'blocking' && mode !== 'normative') {
             continue
         }
         if (meetsFloor(violation.severity, floor)) {
@@ -665,7 +665,7 @@ export function validatePolicy(raw: unknown): { valid: true; policy: ResolvedPol
 
             if (m.mode !== undefined && !VALID_POLICY_MODES.has(m.mode as string)) {
                 errors.push(
-                    `mithril.mode must be one of blocking|advisory|off, got ${JSON.stringify(m.mode)}`
+                    `mithril.mode must be one of blocking|normative|advisory|off, got ${JSON.stringify(m.mode)}`
                 )
             }
 
@@ -679,7 +679,7 @@ export function validatePolicy(raw: unknown): { valid: true; policy: ResolvedPol
                         }
                         if (!VALID_POLICY_MODES.has(mode as string)) {
                             errors.push(
-                                `mithril.rules[${ruleId}] must be blocking|advisory|off, got ${JSON.stringify(mode)}`
+                                `mithril.rules[${ruleId}] must be blocking|normative|advisory|off, got ${JSON.stringify(mode)}`
                             )
                         }
                     }
@@ -703,7 +703,7 @@ export function validatePolicy(raw: unknown): { valid: true; policy: ResolvedPol
 
             if (a.mode !== undefined && !VALID_POLICY_MODES.has(a.mode as string)) {
                 errors.push(
-                    `a11y.mode must be blocking|advisory|off, got ${JSON.stringify(a.mode)}`
+                    `a11y.mode must be blocking|normative|advisory|off, got ${JSON.stringify(a.mode)}`
                 )
             }
 
@@ -717,7 +717,7 @@ export function validatePolicy(raw: unknown): { valid: true; policy: ResolvedPol
                         }
                         if (!VALID_POLICY_MODES.has(mode as string)) {
                             errors.push(
-                                `a11y.rules[${ruleId}] must be blocking|advisory|off, got ${JSON.stringify(mode)}`
+                                `a11y.rules[${ruleId}] must be blocking|normative|advisory|off, got ${JSON.stringify(mode)}`
                             )
                         }
                     }

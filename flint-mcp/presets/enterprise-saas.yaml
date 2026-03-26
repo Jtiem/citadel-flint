@@ -1,0 +1,45 @@
+# @flint/enterprise-saas — SOC 2 Type II + SAML/OIDC governance
+# Balanced thresholds with enterprise-grade audit retention.
+project: "@flint/enterprise-saas"
+domain: enterprise-saas
+classification: internal
+
+rules:
+  mithril:
+    mode: coercive
+    delta_e: 1.8
+    delta_e_critical: 8.0
+    ignore:
+      - "**/node_modules/**"
+  accessibility:
+    level: AA
+    mode: coercive
+  export_gate:
+    block_on_overrides: true
+
+trust:
+  default_tier: junior
+  allow_demotion: true
+  escalation:
+    - when: { red_count: ">= 3", window: session }
+      then: require_review
+    - when: { mutation_velocity: ">= 20", window: 5m }
+      then: block
+  promotion:
+    clean_sessions: 5
+    security_validation: true
+    governance_signoff: false
+
+scoring:
+  weights:
+    coercive: 0.85
+    normative: 0.65
+    advisory: 0.35
+    recency: 0.5
+
+content:
+  style_guide: microsoft
+
+audit:
+  retention: 365d
+  export: [json, sarif]

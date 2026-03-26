@@ -1,0 +1,180 @@
+# flint.config.yaml — Enterprise team with layered governance
+# Inherits org standards, adds team-specific overrides,
+# uses different enforcement per environment.
+schema_version: "1.0.0"
+
+project: Acme Dashboard
+domain: fintech
+classification: confidential
+
+labels:
+  brand: acme
+  audience: external
+  tier: critical
+
+extends:
+  - "@flint/fintech"                   # Official PCI-DSS + SOC 2 preset
+  - "acme-corp/base-governance"        # Org-wide standards from GPX registry
+  - "./compliance/sox-overlay.yaml"    # SOX compliance layer (local)
+
+tighten_only: true                     # Children can only add strictness
+
+
+# ─── Design System ─────────────────────────────────────────
+tokens:
+  source: .flint/design-tokens.json
+  library: mui
+  figma:
+    file_key: xK9mP2qR7wL4
+    component_library: aB3cD5eF8gH1
+
+
+# ─── Governance Rules ──────────────────────────────────────
+rules:
+  mithril:
+    mode: coercive
+    delta_e: 1.5                       # Tighter than default — brand-critical product
+    delta_e_critical: 8.0
+    ignore:
+      - "**/node_modules/**"
+      - "**/legacy/**"                 # Legacy code exempt during migration
+
+  accessibility:
+    level: AA
+    mode: coercive
+    disabled:
+      - A11Y-042                       # Skip: custom tooltip pattern approved by a11y team
+
+  export_gate:
+    block_on: coercive
+    warn_on: normative
+    block_on_overrides: true
+
+  baseline:
+    enabled: true                      # Suppress 47 pre-existing violations from legacy code
+
+  policies:
+    - ref: "flint/wcag-aa-v2"
+      required: true
+    - ref: "acme-corp/brand-colors-v3"
+      required: true
+    - ref: "team/naming-conventions-v1"
+      required: false                  # Advisory — don't fail if missing
+
+
+# ─── Scoring ───────────────────────────────────────────────
+scoring:
+  weights:
+    coercive: 0.9                      # SOX: weight violations heavily
+    normative: 0.7
+    advisory: 0.4
+    recency: 0.6                       # Recent regressions matter more
+
+
+# ─── Trust & Agents ───────────────────────────────────────
+trust:
+  default_tier: junior
+  allow_demotion: true
+
+  profiles:
+    - id: claude-code
+      name: Claude Code
+      tier: principal
+
+    - id: cursor-agent
+      name: Cursor
+      tier: senior
+      max_mutations: 100
+
+    - id: windsurf-agent
+      name: Windsurf
+      tier: junior
+      require_review: true
+
+  approval:
+    - condition: { risk_score: { gt: 60 } }
+      action: require_approval
+      message: "SOX-regulated mutation (risk {{risk_score}}). Approve?"
+
+    - condition: { risk_score: { lt: 25 } }
+      action: auto_approve
+
+  escalation:
+    - when: { red_count: ">= 2", window: session }
+      then: require_review
+      # SOX: lower threshold than default (3)
+
+    - when: { amber_count: ">= 5", window: 1h }
+      then: alert
+      message: "Amber mutation rate elevated — review before EOD"
+
+    - when: { session_risk_avg: "> 0.5" }
+      then: downgrade
+      to: junior
+
+    - when: { mutation_velocity: ">= 15", window: 5m }
+      then: block
+      # Tighter than default (20) — SOX compliance
+
+  promotion:
+    clean_sessions: 10                 # SOX: higher bar for trust promotion
+    security_validation: true
+    governance_signoff: true           # Require human approval
+
+
+# ─── Enforcement ───────────────────────────────────────────
+enforcement:
+  decision_points:
+    - mcp_audit
+    - ci_gate
+
+  points:
+    export_gate:
+      block_on: coercive
+    auto_fix:
+      apply_on: [normative]
+    ci_gate:
+      fail_on: coercive
+      warn_on: normative
+
+
+# ─── Review ────────────────────────────────────────────────
+review:
+  consensus:
+    domains: [mithril, a11y]
+    threshold: 0.8                     # Higher confidence required for fintech
+
+content:
+  style_guide: microsoft               # Microsoft style for enterprise audience
+
+audit:
+  retention: 365d                      # SOX: 1 year retention
+  export: [json, sarif, csv]
+
+
+# ─── Environment Overlays ─────────────────────────────────
+environments:
+  ci:
+    rules:
+      mithril: { mode: coercive }
+      accessibility: { mode: coercive }
+      export_gate:
+        block_on: coercive
+        block_on_overrides: true
+    trust:
+      default_tier: intern             # CI agents get minimum permissions
+
+  development:
+    rules:
+      mithril: { mode: advisory }      # Don't block devs during iteration
+      export_gate:
+        block_on_overrides: false      # Allow experimentation
+    trust:
+      default_tier: senior             # Trust dev agents more
+
+  staging:
+    rules:
+      mithril: { mode: normative }     # Warn but don't block in staging
+      accessibility: { mode: coercive }
+    trust:
+      default_tier: junior

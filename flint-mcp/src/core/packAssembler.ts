@@ -16,9 +16,11 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import { stringify as stringifyYaml, parse as parseYaml } from 'yaml'
 import { loadPolicy, validatePolicy } from './policyEngine.js'
 import type { ResolvedPolicy, GovernanceDomain } from './policyEngine.js'
 import { scanPackContents } from './packSecurityScanner.js'
+import { buildProjectConfigFromLegacy } from '../tools/migrateConfig.js'
 import type {
     PackManifest,
     PackFileEntry,
@@ -45,6 +47,41 @@ export interface PackAssemblyOptions {
     include_claude_fragments?: string[];
     output_path?: string;
     dry_run?: boolean;
+}
+
+// ── YAML Pack Metadata ──────────────────────────────────────────────────────
+
+/**
+ * Metadata fields required for assembleYamlPack (matches PackAssemblyOptions
+ * minus projectRoot, which is passed separately).
+ */
+export interface PackMetadata {
+    id: string;
+    name: string;
+    version: string;
+    description: string;
+    author: PackAuthor;
+    domain?: GovernanceDomain;
+    stack_tags?: string[];
+    include_claude_fragments?: string[];
+    output_path?: string;
+    dry_run?: boolean;
+}
+
+/**
+ * Intermediate result from assembleYamlPack before writing to disk.
+ * Contains all collected file entries and the generated manifest.
+ */
+export interface PackAssemblyResult {
+    manifest: PackManifest;
+    /** All file entries to be written (excluding manifest.json itself). */
+    entries: PackFileEntry[];
+    validationErrors: PackValidationError[];
+    /** True when the pack was written to disk (dry_run === false and no blocking errors). */
+    written: boolean;
+    /** Absolute path to the written pack directory, if written. */
+    archivePath?: string;
+    archiveSizeBytes?: number;
 }
 
 // ── SHA-256 Helper ──────────────────────────────────────────────────────────
@@ -500,6 +537,232 @@ export function writePackDirectory(
             // Ignore cleanup errors
         }
         throw err
+    }
+}
+
+// ── YAML Pack Assembly (UCFG.6) ─────────────────────────────────────────────
+
+/**
+ * Fields stripped from flint.config.yaml before pack inclusion.
+ * These are project-specific and would be wrong if imported into a different project.
+ */
+const YAML_PACK_STRIP_FIELDS: readonly string[] = ['project']
+
+/**
+ * Assembles a governance pack in the new YAML format (UCFG.6).
+ *
+ * Reads `flint.config.yaml` if it exists at projectRoot; otherwise falls back
+ * to `buildProjectConfigFromLegacy()` to generate equivalent YAML from the
+ * existing JSON files. The resulting pack directory layout is:
+ *
+ *   manifest.json
+ *   flint.config.yaml      (unified governance config, project field stripped)
+ *   design-tokens.json     (copied from .flint/design-tokens.json if present)
+ *   claude-fragments/*.md  (scrubbed for absolute paths, if requested)
+ *
+ * The legacy `assemblePack` function is preserved for backward compatibility.
+ * Callers that want the new YAML format should use this function instead.
+ */
+export async function assembleYamlPack(
+    projectRoot: string,
+    metadata: PackMetadata,
+): Promise<PackAssemblyResult> {
+    const allErrors: PackValidationError[] = []
+    const entries: PackFileEntry[] = []
+
+    // ── Step 1: Source the unified config (YAML or legacy JSON) ─────────────
+
+    const yamlConfigPath = path.join(projectRoot, 'flint.config.yaml')
+    let yamlContent: string
+
+    if (fs.existsSync(yamlConfigPath)) {
+        // Read the existing unified config
+        try {
+            const raw = fs.readFileSync(yamlConfigPath, 'utf-8')
+            // Parse, strip project-specific fields, then re-serialize
+            const parsed = parseYaml(raw) as Record<string, unknown>
+
+            for (const field of YAML_PACK_STRIP_FIELDS) {
+                delete parsed[field]
+            }
+
+            yamlContent =
+                '# flint.config.yaml — exported by flint_pack_export (UCFG.6)\n' +
+                '# Import this pack to apply these governance settings.\n\n' +
+                stringifyYaml(parsed, { lineWidth: 100 })
+        } catch (err) {
+            allErrors.push({
+                severity: 'error',
+                file: 'flint.config.yaml',
+                message: `Failed to read flint.config.yaml: ${(err as Error).message}`,
+                code: 'POLICY_INVALID',
+            })
+            yamlContent = ''
+        }
+    } else {
+        // Fall back: derive YAML from legacy JSON config files
+        try {
+            const projectName = path.basename(projectRoot)
+            const projectConfig = buildProjectConfigFromLegacy(projectRoot, projectName)
+
+            // Strip project-specific fields
+            for (const field of YAML_PACK_STRIP_FIELDS) {
+                delete (projectConfig as unknown as Record<string, unknown>)[field]
+            }
+
+            yamlContent =
+                '# flint.config.yaml — generated from legacy config by flint_pack_export (UCFG.6)\n' +
+                '# Import this pack to apply these governance settings.\n\n' +
+                stringifyYaml(projectConfig, { lineWidth: 100 })
+        } catch (err) {
+            allErrors.push({
+                severity: 'error',
+                file: 'flint.config.yaml',
+                message: `Failed to generate YAML from legacy config: ${(err as Error).message}`,
+                code: 'POLICY_INVALID',
+            })
+            yamlContent = ''
+        }
+    }
+
+    if (yamlContent) {
+        const checksum = sha256(yamlContent)
+        entries.push({
+            packPath: 'flint.config.yaml',
+            content: yamlContent,
+            checksum,
+        })
+    }
+
+    // ── Step 2: Include design-tokens.json if present ────────────────────────
+
+    const tokensPath = path.join(projectRoot, '.flint', 'design-tokens.json')
+    if (fs.existsSync(tokensPath)) {
+        try {
+            const tokensContent = fs.readFileSync(tokensPath, 'utf-8')
+            const checksum = sha256(tokensContent)
+            entries.push({
+                packPath: 'design-tokens.json',
+                content: tokensContent,
+                checksum,
+            })
+        } catch (err) {
+            allErrors.push({
+                severity: 'warning',
+                file: 'design-tokens.json',
+                message: `Failed to read .flint/design-tokens.json: ${(err as Error).message}`,
+                code: 'FILE_NOT_FOUND',
+            })
+        }
+    }
+
+    // ── Step 3: Collect claude fragments ─────────────────────────────────────
+
+    let fragmentEntries: PackFileEntry[] = []
+    if (metadata.include_claude_fragments && metadata.include_claude_fragments.length > 0) {
+        const { entries: frags, errors: fragErrors } = collectClaudeFragments(
+            projectRoot,
+            metadata.include_claude_fragments,
+        )
+        fragmentEntries = frags
+        allErrors.push(...fragErrors)
+        entries.push(...fragmentEntries)
+    }
+
+    // ── Step 4: Load the resolved policy for manifest generation ─────────────
+
+    const resolvedPolicy = loadPolicy(projectRoot)
+
+    // ── Step 5: Build a PackContents-compatible object for the manifest ───────
+    // The YAML format replaces policy + agentPolicy with a single YAML file.
+    // We represent it in PackContents as policy=true (the config file) so that
+    // generateManifest produces a valid checksums map.
+
+    const yamlEntry = entries.find(e => e.packPath === 'flint.config.yaml') ?? null
+    const tokensEntry = entries.find(e => e.packPath === 'design-tokens.json') ?? null
+
+    // Build a pseudo PackContents for the manifest generator
+    const contents: PackContents = {
+        policy: yamlEntry,        // flint.config.yaml is mapped to the "policy" slot
+        agentPolicy: null,        // Subsumed into flint.config.yaml
+        rules: [],                // Rules captured inside YAML — no separate files
+        claudeFragments: fragmentEntries,
+    }
+
+    // Manually add design-tokens to checksums (it's outside the standard slots)
+    const checksums: Record<string, string> = {}
+    for (const entry of entries) {
+        checksums[entry.packPath] = `sha256:${entry.checksum}`
+    }
+
+    // ── Step 6: Generate manifest ─────────────────────────────────────────────
+
+    const contentsDecl: PackContentsDeclaration = {
+        policy: yamlEntry !== null,
+        agent_policy: false,
+        rules: [],
+        claude_fragments: fragmentEntries.map(f => f.packPath.replace('claude-fragments/', '')),
+    }
+
+    const manifest: PackManifest = {
+        schema_version: 1,
+        id: metadata.id,
+        name: metadata.name,
+        version: metadata.version,
+        description: metadata.description,
+        author: metadata.author,
+        trust_tier: 'community',
+        domain: metadata.domain ?? resolvedPolicy.domain,
+        stack_tags: metadata.stack_tags ?? [],
+        compatibility: {
+            flint_min_version: '7.2.0',
+            flint_max_version: null,
+        },
+        dependencies: [],
+        contents: contentsDecl,
+        checksums,
+        published_at: new Date().toISOString(),
+        format: 'yaml',
+    }
+
+    // ── Step 7: Check for blocking errors ────────────────────────────────────
+
+    const blockingErrors = allErrors.filter(e => e.severity === 'error')
+
+    if (blockingErrors.length > 0 || metadata.dry_run) {
+        return {
+            manifest,
+            entries,
+            validationErrors: allErrors,
+            written: false,
+        }
+    }
+
+    // ── Step 8: Write pack directory ─────────────────────────────────────────
+
+    const outputPath = metadata.output_path ??
+        path.join(projectRoot, `${metadata.id}.flint-pack`)
+
+    // Write using the standard writePackDirectory but with our custom contents
+    // (which already has the YAML file in the policy slot)
+    const { archivePath, archiveSizeBytes } = writePackDirectory(manifest, contents, outputPath)
+
+    // If design-tokens.json is present and wasn't in the standard contents,
+    // we need to write it separately (it's not in the policy/agentPolicy/rules/fragments slots)
+    if (tokensEntry) {
+        const tokensDest = path.join(archivePath, 'design-tokens.json')
+        if (!fs.existsSync(tokensDest)) {
+            fs.writeFileSync(tokensDest, tokensEntry.content, 'utf-8')
+        }
+    }
+
+    return {
+        manifest,
+        entries,
+        validationErrors: allErrors,
+        written: true,
+        archivePath,
+        archiveSizeBytes,
     }
 }
 

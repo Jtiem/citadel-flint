@@ -17,6 +17,8 @@ import { auditAll } from '../MithrilLinter.js'
 import { A11yLinter } from '../A11yLinter.js'
 import type { DesignToken, LinterWarning } from '../../types.js'
 import type { DebtReport, DebtHistoryEntry, DashboardData } from './types.js'
+import { resolveWeights } from '../governance/scoringWeightsService.js'
+import { loadProjectConfig } from '../config-loader.js'
 
 // ── Glob helper ──────────────────────────────────────────────────────────────
 
@@ -311,6 +313,42 @@ export function generateDebtReport(options: GenerateReportOptions): DebtReport {
         .map(([ruleId, data]) => ({ ruleId, count: data.count, severity: data.severity }))
         .sort((a, b) => b.count - a.count)
 
+    // UCFG.7b: Compute weighted score using configurable scoring weights.
+    // When mode-aware violation scanning is available, each violation should
+    // carry an explicit 'mode' label (coercive/normative/advisory). Until then
+    // we use severity as a proxy: critical → coercive, warning → normative,
+    // info → advisory. This ensures coercive-weight violations inflate the
+    // weighted score more than advisory ones, making the weighted score
+    // meaningful for projects with domain presets (healthcare, fintech, etc.).
+    let weightedScore: DebtReport['weightedScore']
+    try {
+        const yamlConfig = loadProjectConfig(projectRoot)
+        if (yamlConfig !== null) {
+            const weights = resolveWeights(yamlConfig.scoring, yamlConfig.domain)
+
+            // Build a pseudo-violation list using severity as mode proxy.
+            // TODO: replace with actual mode labels once scanFile propagates them.
+            const modeProxyViolations = [
+                ...Array(bySeverity.critical).fill({ mode: 'coercive' }),
+                ...Array(bySeverity.warning).fill({ mode: 'normative' }),
+                ...Array(bySeverity.info).fill({ mode: 'advisory' }),
+            ] as { mode: string }[]
+
+            let weighted = 0
+            for (const v of modeProxyViolations) {
+                switch (v.mode) {
+                    case 'coercive': weighted += weights.coercive; break
+                    case 'normative': weighted += weights.normative; break
+                    default: weighted += weights.advisory
+                }
+            }
+
+            weightedScore = { raw: totalViolations, weighted, weights }
+        }
+    } catch {
+        // weightedScore is best-effort — never block report generation
+    }
+
     const report: DebtReport = {
         healthScore,
         grade,
@@ -321,6 +359,7 @@ export function generateDebtReport(options: GenerateReportOptions): DebtReport {
         topRules,
         scannedFiles: files.length,
         timestamp,
+        ...(weightedScore !== undefined ? { weightedScore } : {}),
     }
 
     if (track) {

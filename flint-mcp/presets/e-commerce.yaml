@@ -1,0 +1,39 @@
+# @flint/e-commerce — GDPR + consent pattern governance
+# Standard thresholds with emphasis on accessibility and data consent.
+project: "@flint/e-commerce"
+domain: e-commerce
+classification: internal
+
+rules:
+  mithril:
+    mode: coercive
+    delta_e: 2.0
+    delta_e_critical: 8.0
+    ignore:
+      - "**/node_modules/**"
+  accessibility:
+    level: AA
+    mode: coercive
+  export_gate:
+    block_on_overrides: true
+
+trust:
+  default_tier: junior
+  escalation:
+    - when: { red_count: ">= 3", window: session }
+      then: require_review
+  promotion:
+    clean_sessions: 5
+    security_validation: true
+    governance_signoff: false
+
+scoring:
+  weights:
+    coercive: 0.8
+    normative: 0.6
+    advisory: 0.3
+    recency: 0.5
+
+audit:
+  retention: 180d
+  export: [json, sarif]

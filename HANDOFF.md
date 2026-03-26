@@ -6,6 +6,27 @@
 
 ---
 
+## Session: 2026-03-26 UCFG.7 — Full Wiring + Presets + Validation (COMPLETE)
+
+**Goal:** Wire UCFG.5 services into runtime, enrich presets, add config validation.
+
+**What shipped:**
+
+| File | Change |
+|------|--------|
+| `flint-mcp/src/server.ts` | Approval gates wired into `flint_ast_mutate` — mutations above risk threshold get gated |
+| `flint-mcp/src/tools/audit.ts` | Classification-based delta-E threshold adjustment (restricted = 0.5x multiplier) |
+| `flint-mcp/src/core/dashboard/debtReportService.ts` | Weighted scoring with configurable weights from YAML config |
+| `flint-mcp/src/core/dashboard/types.ts` | `weightedScore` field added to DebtReport |
+| `flint-mcp/src/core/configValidator.ts` | **NEW** — Parse-time validation with actionable error messages |
+| `flint-mcp/src/core/config-loader.ts` | Validation wired into `loadYamlConfig()` |
+| `flint-mcp/presets/*.yaml` | 5 presets enriched with trust, escalation, promotion, classification, content |
+
+**Tests:** 55 new (5 + 20 + 30)
+**Results:** `MCP: 3221/3221 passing | TSC: 0 errors`
+
+---
+
 ## Session: 2026-03-25 UCFG.5+6 — Approval Gates + GPX YAML Migration (COMPLETE)
 
 **What shipped:**

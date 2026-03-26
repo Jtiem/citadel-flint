@@ -1,0 +1,28 @@
+# flint.config.yaml — Healthcare product with HIPAA governance
+# One line inherits the entire HIPAA compliance ruleset.
+# Override only what's specific to your product.
+schema_version: "1.0.0"
+
+project: MedChart Pro
+domain: healthcare
+classification: restricted             # PHI data — strictest governance
+
+extends:
+  - "@flint/healthcare"                # HIPAA + PHI masking + FDA SaMD rules
+
+tokens:
+  library: shadcn
+  figma:
+    file_key: abc123def456
+
+trust:
+  default_tier: junior                 # Healthcare: conservative default
+  allow_demotion: true
+  profiles:
+    - id: claude-code
+      name: Claude Code
+      tier: principal
+
+audit:
+  retention: 2190d                     # HIPAA: 6 year retention
+  export: [json, sarif]

@@ -18,6 +18,8 @@ import { getErrorEntryByRuleId } from '../core/errorTaxonomy.js'
 import { resolveProvenance } from '../core/governance/ruleProvenanceRegistry.js'
 import type { RuleProvenance } from '../core/governance/types.js'
 import { toolName, configPath, logTag } from '../brand.js'
+import { loadProjectConfig } from '../core/config-loader.js'
+import { getClassificationProfile } from '../core/governance/classificationService.js'
 
 export type { ProjectContext }
 
@@ -267,6 +269,16 @@ export async function handleFlintAudit(
         }
     }
 
+    // UCFG.7b: Adjust delta-E thresholds based on data classification.
+    // A lower multiplier (e.g. restricted = 0.5) makes thresholds stricter by
+    // shrinking the tolerance window — meaning more colour deviations trigger
+    // violations. The default (internal, multiplier = 1.0) leaves thresholds
+    // unchanged for projects that do not declare a classification.
+    const yamlConfig = loadProjectConfig(config.projectRoot)
+    const classProfile = getClassificationProfile(yamlConfig?.classification)
+    const adjustedDeltaE = policy.mithril.deltaE_threshold * classProfile.deltaEMultiplier
+    const adjustedDeltaECritical = policy.mithril.deltaE_critical_threshold * classProfile.deltaEMultiplier
+
     const ast = parse(source, {
         sourceType: 'module',
         plugins: ['jsx', 'typescript'],
@@ -281,8 +293,8 @@ export async function handleFlintAudit(
         ast as Parameters<typeof visitInlineStyles>[0],
         tokens,
         {
-            deltaE_threshold: policy.mithril.deltaE_threshold,
-            deltaE_critical_threshold: policy.mithril.deltaE_critical_threshold,
+            deltaE_threshold: adjustedDeltaE,
+            deltaE_critical_threshold: adjustedDeltaECritical,
         },
     )
     const coverage = buildTokenCoverage(tokens, inlineStats)
@@ -292,8 +304,8 @@ export async function handleFlintAudit(
             ast as Parameters<typeof auditAll>[0],
             tokens,
             {
-                deltaE_threshold: policy.mithril.deltaE_threshold,
-                deltaE_critical_threshold: policy.mithril.deltaE_critical_threshold,
+                deltaE_threshold: adjustedDeltaE,
+                deltaE_critical_threshold: adjustedDeltaECritical,
             },
         )
         mithrilCount = mithrilWarnings.size
