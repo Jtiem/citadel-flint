@@ -20,6 +20,30 @@ files:
   - flint-mcp/node_modules/**/*
   - package.json
   # Exclude source code — testers get compiled JS only
+  # Exclude build-time / dev-only dependencies from the ASAR.
+  # These are in `dependencies` for Vite dev-server compatibility but
+  # must NOT ship in the production Electron bundle.
+  - "!node_modules/rollup/**"
+  - "!node_modules/@rollup/**"
+  - "!node_modules/vite/**"
+  - "!node_modules/@vitejs/**"
+  - "!node_modules/vite-plugin-electron/**"
+  - "!node_modules/vite-plugin-electron-renderer/**"
+  - "!node_modules/@tailwindcss/vite/**"
+  - "!node_modules/typescript/**"
+  - "!node_modules/vitest/**"
+  - "!node_modules/@testing-library/**"
+  - "!node_modules/eslint/**"
+  - "!node_modules/@eslint/**"
+  - "!node_modules/tailwindcss/**"
+  - "!node_modules/@codesandbox/**"
+  - "!node_modules/@monaco-editor/**"
+  - "!node_modules/@huggingface/**"
+  - "!node_modules/onnxruntime-*/**"
+  - "!node_modules/@google/**"
+  - "!node_modules/openai/**"
+  - "!node_modules/@anthropic-ai/**"
+  - "!node_modules/@powersync/**"
   - "!src/**"
   - "!electron/**"
   - "!flint-mcp/src/**"
