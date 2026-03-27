@@ -24,13 +24,13 @@ extends:
 
 Three lines. The `@flint/healthcare` preset activates:
 
-- HIPAA-aligned color thresholds (delta-E 1.5, tighter than default)
+- Tightened color thresholds (delta-E 1.5, stricter than default) appropriate for clinical UI environments
 - Restricted data classification (audit thresholds tightened by 50%)
-- 6-year audit retention
+- 6-year audit retention aligned with healthcare record-keeping requirements
 - Conservative trust model with 10-session promotion gates
 - Escalation rules that block on hallucination loops
 
-Six official presets ship with Flint: `general`, `healthcare`, `fintech`, `e-commerce`, `government`, `enterprise-saas`. Each applies governance thresholds appropriate for regulated industries — tighter color drift detection, longer audit retention, stricter trust models, and domain-specific escalation rules. For accessibility, Flint's 50 WCAG 2.1 rules directly enforce Section 508 compliance at the AST level.
+Six official presets ship with Flint: `general`, `healthcare`, `fintech`, `e-commerce`, `government`, `enterprise-saas`. Each encodes a governance posture appropriate for its industry — tighter color drift detection, longer audit retention, stricter trust models, and domain-specific escalation rules. These presets do not constitute regulatory certification, but they align governance thresholds with the operational requirements of regulated environments. For accessibility, Flint's 50 WCAG 2.1 AA rules enforce the technical success criteria that underpin Section 508 and EN 301 549 compliance at the AST level.
 
 ## The Enterprise Case
 
@@ -238,4 +238,15 @@ The unified config design synthesizes patterns from seven external sources, vali
 
 ## Implementation
 
-235 tests across 7 implementation phases. 3221/3221 MCP engine tests passing. Zero TypeScript errors. Zero breaking changes. Full backward compatibility with existing JSON configuration.
+594 new tests across 13 implementation phases. 3,612/3,612 MCP engine tests passing. 1,209/1,209 Glass tests passing. Zero TypeScript errors. Zero breaking changes. Full backward compatibility with existing JSON configuration.
+
+### Enterprise Rule Management
+
+Flint Glass includes a visual rule management experience for enterprise teams:
+
+- **Rule Catalog** — Browsable, searchable catalog of all rule packs grouped by domain (Accessibility, Privacy, Security, Brand, Cognitive). Enable or disable packs with one click.
+- **Compliance Profile Selector** — Jurisdiction checklist (ADA, EAA, GDPR, CCPA, PCI-DSS, HIPAA, Section 508). Checking a profile adds the corresponding preset to `extends`.
+- **Coverage Dashboard** — Per-jurisdiction compliance coverage bars showing covered/total rules and percentage.
+- **Inheritance Visualizer** — Visual representation of the `extends` chain showing which values are inherited, tightened, or overridden.
+
+Five MCP tools power the management layer: `flint_list_rule_packs`, `flint_enable_pack`, `flint_disable_pack`, `flint_set_rule_mode`, `flint_compliance_coverage`.

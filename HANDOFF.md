@@ -2,7 +2,101 @@
 
 **Date:** 2026-03-21
 **Architecture:** Flint MCP (headless governance engine) + Flint Glass (Electron observability layer)
-**Test baseline:** 2,823/2,823 MCP | 993/993 Glass | 959/959 Core — TSC 0 errors
+**Test baseline:** 3,612/3,612 MCP | 1,209/1,209 Glass | 1,087/1,087 Core | 56/56 CI — TSC 0 errors
+
+---
+
+## Session: 2026-03-26 UCFG.5-7 + ERM — Unified Config Wiring + Enterprise Rule Management (COMPLETE)
+
+**Goal:** Close the gap between config spec and runtime reality. Wire all YAML config fields into the enforcement pipeline, then build enterprise rule management UI.
+
+**What shipped (594 new tests):**
+
+| Phase | What | New Tests |
+|-------|------|-----------|
+| UCFG.5 | Approval gates, scoring weights, classification services | 80 |
+| UCFG.6 | GPX pack YAML migration (assembleYamlPack, importYamlPack) | 27 |
+| UCFG.7a | Approval gates wired into `flint_ast_mutate` | 5 |
+| UCFG.7b | Classification → audit thresholds, scoring weights → debt report | 20 |
+| UCFG.7c | Enriched presets (escalation, promotion, classification) + config validator | 30 |
+| Gap 1 | Trust tiers from YAML → `agentPolicy.ts` (Electron runtime) | 32 |
+| Gap 2 | Escalation rules from YAML → `agentEscalation.ts` (Electron runtime) | 32 |
+| Gap 3 | Real MRS risk scoring in approval gate (replaces batch-size heuristic) | 20 |
+| Gap 4 | Configurable promotion gates in `trustTierService.ts` | 9 |
+| Gap 5 | Content style guide (google/microsoft/apple) → Sentinel prompt | 88 |
+| Gap 6 | Registry resolver for `org/pack-name` extends refs | 14 |
+| Gap 7 | PDP/PEP enforcement service wired into audit output | 88 |
+| ERM-1 | Rule pack registry (10 packs, 64 rules) + 5 MCP tools | 87 |
+| ERM-2 | IPC channels + preload surface + governanceStore extensions | 37 |
+| ERM-3 | Glass UI: RuleCatalogPanel, ComplianceProfileSelector, CoverageBar, InheritanceChain, useGovernanceConfig hook | 57 |
+
+**Key files created:**
+
+| File | Role |
+|------|------|
+| `flint-mcp/src/core/governance/approvalGateService.ts` | Conditional approval gate evaluation |
+| `flint-mcp/src/core/governance/scoringWeightsService.ts` | Domain-tunable scoring weights |
+| `flint-mcp/src/core/governance/classificationService.ts` | Data classification → governance profile |
+| `flint-mcp/src/core/governance/enforcementService.ts` | PDP/PEP enforcement point resolution |
+| `flint-mcp/src/core/styleGuideService.ts` | Content style guide resolution |
+| `flint-mcp/src/core/configValidator.ts` | Parse-time config validation |
+| `flint-mcp/src/core/registryResolver.ts` | org/pack-name extends resolution |
+| `flint-mcp/src/core/rulePackRegistry.ts` | Static registry of 10 rule packs |
+| `flint-mcp/src/tools/rulePacks.ts` | 5 MCP tools for rule pack management |
+| `src/components/ui/RuleCatalogPanel.tsx` | Browsable rule pack catalog |
+| `src/components/ui/ComplianceProfileSelector.tsx` | Jurisdiction checklist |
+| `src/components/ui/CoverageBar.tsx` | Per-jurisdiction coverage bars |
+| `src/components/ui/InheritanceChain.tsx` | Visual extends chain |
+| `src/hooks/useGovernanceConfig.ts` | IPC→store bridge hook |
+| `src/core/rulePackRegistryClient.ts` | Client-side pack metadata |
+
+**Test results:**
+
+```text
+MCP:   3612/3612 passing (594 new across 13 phases)
+Glass: 1209/1209 passing (57 new)
+Core:  1087/1087 passing (32 new)
+TSC:   0 errors
+```
+
+---
+
+## Session: 2026-03-26 CI.2 — CI/CD Parity Rewrite (COMPLETE)
+
+**Goal:** Replace frozen `bridge-ci/` (10 a11y rules, inlined linters, no YAML config) with `flint-ci/` — a thin CLI shell that consumes the MCP engine directly. Zero duplicated linter logic.
+
+**What shipped:**
+
+| File | Change |
+|------|--------|
+| `flint-ci/src/engine.ts` | NEW — MCP engine adapter: parseSource, auditFile, auditFiles, shouldBlock, buildSarifReport, loadTokens, loadGovernanceConfig. Imports MithrilLinter (6 visitors, CIEDE2000) + A11yLinter (50 rules) + enforcementService (PDP/PEP ci_gate) directly from flint-mcp. |
+| `flint-ci/src/cli.ts` | NEW — Commander CLI: `flint-gate audit\|debt\|sync\|dbom\|fix`. Exit codes 0/1/2/3. |
+| `flint-ci/src/commands/audit.ts` | NEW — File collection (recursive walk + git-changed), ANSI terminal output, SARIF generation, enforcement blocking. |
+| `flint-ci/src/commands/debt.ts` | NEW — Design debt report via MCP debtReportService. JSON/Markdown. Exit 1 on grade D-F. |
+| `flint-ci/src/commands/sync-check.ts` | NEW — Token drift detection. Two-tier: MCP SyncCheckService → .flint/sync-state.json fallback. |
+| `flint-ci/src/commands/dbom.ts` | NEW — Design Bill of Materials. JSON/Markdown/CycloneDX via MCP dbomService. |
+| `flint-ci/src/commands/fix.ts` | NEW — Auto-fix (dry-run default). MCP fix handler → audit-and-report fallback. |
+| `flint-ci/src/github-action.ts` | NEW — GitHub Actions wrapper: PR changed files, SARIF output, PR comment upsert, annotations. |
+| `flint-ci/src/__tests__/engine.test.ts` | NEW — 56 tests: parseSource, extractRuleId, loadTokens, auditFile, auditFiles, shouldBlock, buildSarifReport. |
+| `.flint-context/contracts/CI-parity-rewrite.md` | NEW — Architecture contract. |
+| `CLAUDE.md` | MODIFIED — Added CI.2 module status + flint-ci key files section. |
+
+**Architecture decisions:**
+
+- `flint-ci/` imports MithrilLinter and A11yLinter from `flint-mcp/src/core/` via relative paths — zero linter duplication
+- Enforcement service's `ci_gate` decision point controls blocking (coercive=block, normative=warn, advisory=info)
+- `flint.config.yaml` loaded via MCP's `loadProjectConfig()` — same config resolution as MCP server
+- Dynamic imports with try/catch for optional heavy deps (better-sqlite3, deep governance services) — CLI degrades gracefully
+- SARIF builder includes all 50+ rule IDs (MITHRIL-COL, MITHRIL-TYP-001..005, MITHRIL-SPC/SHD/OPC/INL, A11Y-001..050, SYNC-001..002, FLINT-PARSE)
+
+**Test results:**
+
+```text
+CI:    56/56 passing (56 new)
+MCP:   3612/3612 passing (0 regressions)
+Glass: 1209/1209 passing (0 regressions)
+Core:  1087/1087 passing (0 regressions)
+```
 
 ---
 

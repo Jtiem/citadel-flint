@@ -63,7 +63,7 @@ Any feature crossing this boundary needs an IPC channel via `contextBridge`.
 
 ## MCP Surface
 
-### Tools (45 registered)
+### Tools (51 registered)
 
 Primary tools (see `flint-mcp/src/server.ts` for the full catalog):
 
@@ -100,6 +100,12 @@ Primary tools (see `flint-mcp/src/server.ts` for the full catalog):
 | `flint_validate_themes` | Multi-brand theme validation (cross-theme matrix) |
 | `flint_migrate_ds` | Design system version migration (token diff + AST rename) |
 | `flint_universal_audit` | Universal audit using domain-agnostic AST engine |
+| `flint_migrate_config` | Auto-migrate JSON config to flint.config.yaml |
+| `flint_list_rule_packs` | List available rule packs (filter by domain/jurisdiction/status) |
+| `flint_enable_pack` | Add a governance preset to extends |
+| `flint_disable_pack` | Remove a governance preset from extends |
+| `flint_set_rule_mode` | Change a single rule's enforcement mode |
+| `flint_compliance_coverage` | Per-jurisdiction coverage analysis with gap identification |
 
 Additional tools registered via `flint-mcp/src/tools/` modules cover governance events, mutation ledger, annotations, and CI/CD gate operations.
 
@@ -138,6 +144,7 @@ Additional tools registered via `flint-mcp/src/tools/` modules cover governance 
 | Sharma Validation (snippetAuditor) | B.1-b | **ONLINE** |
 | AI Orchestrator Hardening | M | **ONLINE** |
 | CI/CD Governance Gate (`flint audit`) | EXP.1 | **ONLINE** |
+| CI Parity Rewrite (`flint-gate` CLI, MCP consumer) | CI.2 | **ONLINE** |
 
 ### AST Surgery Engine
 
@@ -279,6 +286,18 @@ Additional tools registered via `flint-mcp/src/tools/` modules cover governance 
 | Component Recipes (6 builtin patterns, horizontal strip in Build mode, registry validation) | VIS.5 | **ONLINE** |
 | Governance Stickers (5 sticker types, spatial badges on cards in Govern mode) | VIS.6 | **ONLINE** |
 | Smart Insert Context (position-aware drop targets, visual tree sidebar panel) | VIS.7 | **ONLINE** |
+| Unified Config YAML (loader, extends, tighten-only, env overlays, JSON fallback) | UCFG.1-2 | **ONLINE** |
+| Normative Mode + Migration Tool (`flint_migrate_config`) | UCFG.3-4 | **ONLINE** |
+| Approval Gates + Scoring Weights + Classification Services | UCFG.5 | **ONLINE** |
+| GPX Pack YAML Migration (assembleYamlPack, importYamlPack, format field) | UCFG.6 | **ONLINE** |
+| Config Wiring (gates→mutations, classification→audit, weights→debt, style→sentinel) | UCFG.7 | **ONLINE** |
+| PDP/PEP Enforcement Service (resolve, getActiveModes, getEnforcementAction) | UCFG.7-PEP | **ONLINE** |
+| Trust Tiers from YAML (agentPolicy reads flint.config.yaml, tier name mapping) | UCFG.7-TRUST | **ONLINE** |
+| Escalation Rules from YAML (agentEscalation reads flint.config.yaml) | UCFG.7-ESC | **ONLINE** |
+| Config Validation (parse-time, actionable errors, warn-not-block) | UCFG.7-VAL | **ONLINE** |
+| Rule Pack Registry (10 packs, 64 rules, domain/jurisdiction grouping) | ERM.1 | **ONLINE** |
+| Rule Pack MCP Tools (list, enable, disable, set_mode, compliance_coverage) | ERM.1 | **ONLINE** |
+| Enterprise Rule Management Glass UI (catalog, profiles, coverage, inheritance) | ERM.3 | **ONLINE** |
 
 ### Stores
 
@@ -289,7 +308,7 @@ Additional tools registered via `flint-mcp/src/tools/` modules cover governance 
 | `astBufferStore` | Headless multi-file AST buffers, crossFileMove |
 | `tokenStore` | Design token CRUD |
 | `historyStore` | Undo/redo stack management |
-| `governanceStore` | Rule override deltas (enabled/disabled, severity) |
+| `governanceStore` | Rule override deltas, activePresets, inheritanceChain, jurisdictionCoverage |
 | `notificationStore` | Global toast/notification queue (max 5 concurrent) |
 | `orchestratorStore` | AI orchestrator state, tool call approval |
 | `assetStore` | Asset metadata, zombie audit state |
@@ -394,6 +413,7 @@ GIT:    flint-git-guru → create feature branch
 Phase 1: flint-architect → Contract Artifact (.flint-context/contracts/)
 GIT:    flint-git-guru → commit contract
 Phase 2: Parallel specialist agents implement against contract
+REVIEW: /review → Pre-commit code review gate (MANDATORY for agent-produced code)
 GIT:    flint-git-guru → commit per agent + pre-commit gate (TSC + tests)
 Phase 3: flint-integration-validator → Integration Report (SHIP/FIX/REDESIGN)
 GIT:    flint-git-guru → create PR (on SHIP)
@@ -401,6 +421,8 @@ SESSION END: Update HANDOFF.md + clear territory claim
 ```
 
 Single-file bug fixes and cosmetic changes are exempt from the Contract-First flow but NOT from the Session Start Protocol. All other work follows this flow. Contract artifacts are the binding specification — Phase 2 agents implement exactly what the contract defines. If the contract is wrong, return to Phase 1.
+
+**Review gate** — `/review` runs between Phase 2 (implementation) and git commit. It catches issues that TSC and tests miss: Commandment violations, IPC security gaps, architectural anti-patterns, and missing test coverage. Code that fails review must be fixed before committing. This gate is mandatory for all agent-produced code, including single-file fixes.
 
 **Git ceremonies** are handled by `flint-git-guru` at every phase boundary. It manages branch naming (`feat/<phase>-<desc>`), conventional commit messages, pre-commit validation, and PR creation. Never commit without running the pre-commit gate (TSC + relevant test suites).
 
@@ -503,6 +525,18 @@ Do not port designer features to the extension or developer features to Glass un
 | `src/store/importSummaryStore.ts` | Ingestion summary state, tier-2 snap, undo-all-heals |
 | `src/store/annotationStore.ts` | Annotation CRUD + fs.watch push sync |
 | `src/hooks/useContextSync.ts` | Writes live state to `.flint/context.json` |
+
+### CI/CD Gate (`flint-ci/`)
+| File | Role |
+|------|------|
+| `flint-ci/src/cli.ts` | Commander CLI: `flint-gate audit|debt|sync|dbom|fix` |
+| `flint-ci/src/engine.ts` | MCP engine adapter: zero-copy linter delegation |
+| `flint-ci/src/commands/audit.ts` | File collection + Mithril/A11y audit + SARIF |
+| `flint-ci/src/commands/debt.ts` | Design debt report (0-100, A-F grade) |
+| `flint-ci/src/commands/sync-check.ts` | Token drift detection for CI |
+| `flint-ci/src/commands/dbom.ts` | Design Bill of Materials export |
+| `flint-ci/src/commands/fix.ts` | Auto-fix (dry-run default) |
+| `flint-ci/src/github-action.ts` | GitHub Actions wrapper + PR comment |
 
 ### Core Services
 | File | Role |
