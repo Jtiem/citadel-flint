@@ -547,3 +547,187 @@ describe('figmaJsxTransformer — real Figma MCP output', () => {
         expect(result.imports.length).toBe(0)
     })
 })
+
+// ---------------------------------------------------------------------------
+// 13. Typography scale mapping
+// ---------------------------------------------------------------------------
+
+describe('figmaJsxTransformer — typography scale mapping', () => {
+    // --- Font size ---
+    it('maps text-[14px] to text-sm', () => {
+        const jsx = `<p className="text-[14px]">Hello</p>`
+        const result = transformFigmaJsx(jsx, shadcnOpts())
+        expect(result.code).toContain('text-sm')
+        expect(result.code).not.toContain('text-[14px]')
+    })
+
+    it('maps text-[24px] to text-2xl', () => {
+        const jsx = `<p className="text-[24px]">Hello</p>`
+        const result = transformFigmaJsx(jsx, shadcnOpts())
+        expect(result.code).toContain('text-2xl')
+        expect(result.code).not.toContain('text-[24px]')
+    })
+
+    it('keeps text-[10px] as arbitrary (no standard match)', () => {
+        const jsx = `<p className="text-[10px]">Hello</p>`
+        const result = transformFigmaJsx(jsx, shadcnOpts())
+        expect(result.code).toContain('text-[10px]')
+    })
+
+    it('maps text-[12px] to text-xs', () => {
+        const jsx = `<p className="text-[12px]">Hello</p>`
+        const result = transformFigmaJsx(jsx, shadcnOpts())
+        expect(result.code).toContain('text-xs')
+    })
+
+    it('maps text-[16px] to text-base', () => {
+        const jsx = `<p className="text-[16px]">Hello</p>`
+        const result = transformFigmaJsx(jsx, shadcnOpts())
+        expect(result.code).toContain('text-base')
+    })
+
+    it('maps text-[48px] to text-5xl', () => {
+        const jsx = `<p className="text-[48px]">Hello</p>`
+        const result = transformFigmaJsx(jsx, shadcnOpts())
+        expect(result.code).toContain('text-5xl')
+    })
+
+    // --- Line height ---
+    it('maps leading-[20px] to leading-5', () => {
+        const jsx = `<p className="leading-[20px]">Hello</p>`
+        const result = transformFigmaJsx(jsx, shadcnOpts())
+        expect(result.code).toContain('leading-5')
+        expect(result.code).not.toContain('leading-[20px]')
+    })
+
+    it('maps leading-[32px] to leading-8', () => {
+        const jsx = `<p className="leading-[32px]">Hello</p>`
+        const result = transformFigmaJsx(jsx, shadcnOpts())
+        expect(result.code).toContain('leading-8')
+        expect(result.code).not.toContain('leading-[32px]')
+    })
+
+    it('keeps leading-[22px] as arbitrary (no standard match)', () => {
+        const jsx = `<p className="leading-[22px]">Hello</p>`
+        const result = transformFigmaJsx(jsx, shadcnOpts())
+        expect(result.code).toContain('leading-[22px]')
+    })
+
+    // --- Letter spacing ---
+    it('maps tracking-[-0.144px] to tracking-tight', () => {
+        const jsx = `<p className="tracking-[-0.144px]">Hello</p>`
+        const result = transformFigmaJsx(jsx, shadcnOpts())
+        expect(result.code).toContain('tracking-tight')
+        expect(result.code).not.toContain('tracking-[-0.144px]')
+    })
+
+    it('maps tracking-[0.8px] to tracking-wider', () => {
+        const jsx = `<p className="tracking-[0.8px]">Hello</p>`
+        const result = transformFigmaJsx(jsx, shadcnOpts())
+        expect(result.code).toContain('tracking-wider')
+        expect(result.code).not.toContain('tracking-[0.8px]')
+    })
+
+    it('maps tracking-[-0.8px] to tracking-tighter', () => {
+        const jsx = `<p className="tracking-[-0.8px]">Hello</p>`
+        const result = transformFigmaJsx(jsx, shadcnOpts())
+        expect(result.code).toContain('tracking-tighter')
+    })
+
+    it('maps tracking-[0.4px] to tracking-wide', () => {
+        const jsx = `<p className="tracking-[0.4px]">Hello</p>`
+        const result = transformFigmaJsx(jsx, shadcnOpts())
+        expect(result.code).toContain('tracking-wide')
+    })
+
+    it('maps tracking-[1.6px] to tracking-widest', () => {
+        const jsx = `<p className="tracking-[1.6px]">Hello</p>`
+        const result = transformFigmaJsx(jsx, shadcnOpts())
+        expect(result.code).toContain('tracking-widest')
+    })
+
+    it('removes tracking-[0px] (near-zero is tracking-normal)', () => {
+        const jsx = `<p className="tracking-[0px] text-sm">Hello</p>`
+        const result = transformFigmaJsx(jsx, shadcnOpts())
+        expect(result.code).not.toContain('tracking-[0px]')
+        expect(result.code).not.toContain('tracking-normal')
+        expect(result.code).toContain('text-sm')
+    })
+
+    // --- Combined ---
+    it('transforms all typography classes together', () => {
+        const jsx = `<p className="text-[14px] leading-[20px] tracking-[-0.144px] font-medium">Hello</p>`
+        const result = transformFigmaJsx(jsx, shadcnOpts())
+        expect(result.code).toContain('text-sm')
+        expect(result.code).toContain('leading-5')
+        expect(result.code).toContain('tracking-tight')
+        expect(result.code).toContain('font-medium')
+        expect(result.code).not.toContain('text-[14px]')
+        expect(result.code).not.toContain('leading-[20px]')
+        expect(result.code).not.toContain('tracking-[-0.144px]')
+    })
+
+    // --- Preservation ---
+    it('preserves non-typography classes unchanged', () => {
+        const jsx = `<div className="flex gap-4 p-6 rounded-lg bg-white text-[14px]"><p>Content</p></div>`
+        const result = transformFigmaJsx(jsx, shadcnOpts())
+        expect(result.code).toContain('flex')
+        expect(result.code).toContain('gap-4')
+        expect(result.code).toContain('p-6')
+        expect(result.code).toContain('rounded-lg')
+        expect(result.code).toContain('text-sm') // mapped
+    })
+
+    // --- Font weight additional variants ---
+    it('maps Hairline font weight to font-thin', () => {
+        const jsx = `<p className="font-['Inter:Hairline',sans-serif]">Hello</p>`
+        const result = transformFigmaJsx(jsx, shadcnOpts())
+        expect(result.code).toContain('font-thin')
+    })
+
+    it('maps Ultra_Light font weight to font-extralight', () => {
+        const jsx = `<p className="font-['Inter:Ultra_Light',sans-serif]">Hello</p>`
+        const result = transformFigmaJsx(jsx, shadcnOpts())
+        expect(result.code).toContain('font-extralight')
+    })
+
+    it('maps Demi_Bold font weight to font-semibold', () => {
+        const jsx = `<p className="font-['Inter:Demi_Bold',sans-serif]">Hello</p>`
+        const result = transformFigmaJsx(jsx, shadcnOpts())
+        expect(result.code).toContain('font-semibold')
+    })
+
+    it('maps Ultra_Bold font weight to font-extrabold', () => {
+        const jsx = `<p className="font-['Inter:Ultra_Bold',sans-serif]">Hello</p>`
+        const result = transformFigmaJsx(jsx, shadcnOpts())
+        expect(result.code).toContain('font-extrabold')
+    })
+
+    it('maps Heavy font weight to font-black', () => {
+        const jsx = `<p className="font-['Inter:Heavy',sans-serif]">Hello</p>`
+        const result = transformFigmaJsx(jsx, shadcnOpts())
+        expect(result.code).toContain('font-black')
+    })
+
+    it('maps Normal font weight to font-normal', () => {
+        const jsx = `<p className="font-['Inter:Normal',sans-serif]">Hello</p>`
+        const result = transformFigmaJsx(jsx, shadcnOpts())
+        expect(result.code).toContain('font-normal')
+    })
+
+    // --- Does not conflict with color text- classes ---
+    it('does not touch text-[color:...] patterns', () => {
+        const jsx = `<p className="text-[color:var(--foreground/default,#09090b)] text-[14px]">Hello</p>`
+        const result = transformFigmaJsx(jsx, shadcnOpts())
+        expect(result.code).toContain('text-sm')
+        // Color pattern should be processed by token mapper, not typography
+    })
+
+    // --- Real Figma input fixture ---
+    it('cleans typography from real Figma MCP input fixture', () => {
+        const result = transformFigmaJsx(FIGMA_INPUT_JSX, shadcnOpts())
+        // The fixture has text-[14px] and leading-[20px]
+        expect(result.code).not.toContain('text-[14px]')
+        expect(result.code).not.toContain('leading-[20px]')
+    })
+})

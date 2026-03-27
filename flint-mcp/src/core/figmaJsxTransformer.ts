@@ -266,17 +266,73 @@ function getLibraryMap(library: SupportedLibrary): LibraryComponentMap {
 
 const FIGMA_FONT_MAP: Record<string, string> = {
     'thin': 'font-thin',
+    'hairline': 'font-thin',
     'extralight': 'font-extralight',
     'extra_light': 'font-extralight',
+    'ultralight': 'font-extralight',
+    'ultra_light': 'font-extralight',
     'light': 'font-light',
     'regular': 'font-normal',
+    'normal': 'font-normal',
     'medium': 'font-medium',
     'semi_bold': 'font-semibold',
     'semibold': 'font-semibold',
+    'demi_bold': 'font-semibold',
+    'demibold': 'font-semibold',
     'bold': 'font-bold',
     'extra_bold': 'font-extrabold',
     'extrabold': 'font-extrabold',
+    'ultra_bold': 'font-extrabold',
+    'ultrabold': 'font-extrabold',
     'black': 'font-black',
+    'heavy': 'font-black',
+}
+
+// ---------------------------------------------------------------------------
+// Typography scale maps (Figma arbitrary values → Tailwind named classes)
+// ---------------------------------------------------------------------------
+
+/** text-[Xpx] → Tailwind text size class */
+const FONT_SIZE_MAP: Record<number, string> = {
+    12: 'text-xs',
+    14: 'text-sm',
+    16: 'text-base',
+    18: 'text-lg',
+    20: 'text-xl',
+    24: 'text-2xl',
+    30: 'text-3xl',
+    36: 'text-4xl',
+    48: 'text-5xl',
+    60: 'text-6xl',
+    72: 'text-7xl',
+    96: 'text-8xl',
+    128: 'text-9xl',
+}
+
+/** leading-[Xpx] → Tailwind leading class */
+const LINE_HEIGHT_MAP: Record<number, string> = {
+    12: 'leading-3',
+    16: 'leading-4',
+    20: 'leading-5',
+    24: 'leading-6',
+    28: 'leading-7',
+    32: 'leading-8',
+    36: 'leading-9',
+    40: 'leading-10',
+}
+
+/**
+ * Map a letter-spacing pixel value to a Tailwind tracking class using
+ * threshold ranges (Figma values vary, so exact matching is impractical).
+ */
+function mapLetterSpacing(px: number): string | null {
+    if (px < -0.5) return 'tracking-tighter'
+    if (px >= -0.5 && px < -0.1) return 'tracking-tight'
+    if (px >= -0.1 && px <= 0.1) return null // tracking-normal — remove class entirely
+    if (px > 0.1 && px <= 0.5) return 'tracking-wide'
+    if (px > 0.5 && px <= 1.0) return 'tracking-wider'
+    if (px > 1.0) return 'tracking-widest'
+    return null
 }
 
 // ---------------------------------------------------------------------------
@@ -409,6 +465,54 @@ function cleanFigmaArtifacts(className: string): string {
     )
 
     // Collapse multiple spaces
+    result = result.replace(/\s{2,}/g, ' ').trim()
+
+    return result
+}
+
+/**
+ * Map Figma arbitrary typography classes to Tailwind named scale classes.
+ *
+ * Handles three categories:
+ *   - text-[Xpx]      → text-sm, text-base, text-2xl, etc.
+ *   - leading-[Xpx]   → leading-3 through leading-10
+ *   - tracking-[Xpx]  → tracking-tight, tracking-wide, etc. (threshold ranges)
+ *
+ * Values without a Tailwind named equivalent are left as arbitrary values.
+ */
+function cleanFigmaTypography(className: string): string {
+    let result = className
+
+    // Font size: text-[Xpx] → named class (only when not a color pattern)
+    result = result.replace(
+        /\btext-\[(\d+(?:\.\d+)?)px\]/g,
+        (_match, sizeStr: string) => {
+            const size = parseFloat(sizeStr)
+            return FONT_SIZE_MAP[size] ?? _match
+        },
+    )
+
+    // Line height: leading-[Xpx] → named class
+    result = result.replace(
+        /\bleading-\[(\d+(?:\.\d+)?)px\]/g,
+        (_match, sizeStr: string) => {
+            const size = parseFloat(sizeStr)
+            return LINE_HEIGHT_MAP[size] ?? _match
+        },
+    )
+
+    // Letter spacing: tracking-[Xpx] → named class (supports negative values)
+    result = result.replace(
+        /\btracking-\[(-?\d+(?:\.\d+)?)px\]/g,
+        (_match, sizeStr: string) => {
+            const px = parseFloat(sizeStr)
+            const mapped = mapLetterSpacing(px)
+            if (mapped === null) return '' // near-zero → remove
+            return mapped
+        },
+    )
+
+    // Collapse multiple spaces left by removed classes
     result = result.replace(/\s{2,}/g, ' ').trim()
 
     return result
@@ -1100,6 +1204,9 @@ export function transformFigmaJsx(
 
                 // Clean Figma font encoding
                 className = cleanFigmaFontClasses(className)
+
+                // Map Figma arbitrary typography to Tailwind named scale
+                className = cleanFigmaTypography(className)
 
                 // Clean Figma artifacts
                 className = cleanFigmaArtifacts(className)
