@@ -27,8 +27,10 @@ import net from 'node:net'
 // Dynamic import — vite is a dev-time dependency excluded from the production ASAR.
 // In packaged builds, startViteServer() returns null and the app falls back to
 // the srcdoc preview path.
-type ViteDevServer = { close: () => Promise<void>; config: { server: { port?: number } } }
-type Plugin = { name: string; transformIndexHtml?: (html: string) => string }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type ViteDevServer = { close: () => Promise<void>; listen: () => Promise<void>; config: { server: { port?: number } } }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Plugin = { name: string; transformIndexHtml?: (html: string) => string; configureServer?: (server: any) => void }
 
 async function loadVite(): Promise<typeof import('vite') | null> {
     try {
@@ -171,8 +173,8 @@ function flintInteractPlugin(): Plugin {
     transformIndexHtml(html: string) {
       return html.replace('</body>', `${FLINT_SCRIPT}\n</body>`)
     },
-    configureServer(server) {
-      server.middlewares.use((_req, res, next) => {
+    configureServer(server: any) {
+      server.middlewares.use((_req: any, res: any, next: any) => {
         const originalSetHeader = res.setHeader;
         res.setHeader = function (name: string, value: string | number | readonly string[]) {
           if (name.toLowerCase() === 'content-security-policy') {
@@ -203,7 +205,7 @@ let _root: string | null = null
  *
  * @returns  The localhost URL the iframe should load (e.g. "http://localhost:5174").
  */
-export async function startViteServer(projectRoot: string): Promise<string> {
+export async function startViteServer(projectRoot: string): Promise<string | null> {
   // Tear down stale server before starting a new one.
   if (_server !== null) {
     await stopViteServer()
