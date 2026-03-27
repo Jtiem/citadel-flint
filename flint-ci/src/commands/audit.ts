@@ -22,7 +22,16 @@ import {
 } from '../engine.js'
 import type { AuditSummary, FlintPolicy } from '../engine.js'
 import { ANSI } from '../utils/ansi.js'
-import { isSourceFile, collectSourceFiles } from '../utils/files.js'
+import {
+    isSourceFile,
+    collectSourceFiles,
+    loadFlintIgnore,
+    isIgnored,
+    loadAuditCache,
+    saveAuditCache,
+    contentHash,
+} from '../utils/files.js'
+import type { AuditCache } from '../utils/files.js'
 
 // ── Error taxonomy (CX.3) — loaded once for explanation enrichment ───────────
 
@@ -192,6 +201,7 @@ export interface AuditOptions {
     policy?: string
     projectRoot?: string
     baseline?: boolean
+    cache?: boolean
 }
 
 export async function auditCommand(
@@ -237,11 +247,21 @@ export async function auditCommand(
         )
     }
 
+    // Load .flintignore patterns
+    const ignorePatterns = loadFlintIgnore(projectRoot)
+    if (ignorePatterns.length > 0) {
+        console.log(`${ANSI.dim}Loaded ${ignorePatterns.length} ignore patterns from .flintignore${ANSI.reset}`)
+    }
+
     // Collect files
     let filePaths: string[]
 
     if (useChanged) {
         filePaths = getGitChangedFiles()
+        // Apply .flintignore to git-changed files too
+        if (ignorePatterns.length > 0) {
+            filePaths = filePaths.filter(fp => !isIgnored(fp, ignorePatterns))
+        }
         console.log(
             `${ANSI.dim}Found ${filePaths.length} git-changed source files${ANSI.reset}`,
         )
@@ -252,9 +272,12 @@ export async function auditCommand(
             try {
                 const stat = fs.statSync(resolved)
                 if (stat.isDirectory()) {
-                    filePaths.push(...collectSourceFiles(resolved))
+                    filePaths.push(...collectSourceFiles(resolved, ignorePatterns))
                 } else if (stat.isFile() && isSourceFile(resolved)) {
-                    filePaths.push(resolved)
+                    const relPath = path.relative(projectRoot, resolved)
+                    if (ignorePatterns.length === 0 || !isIgnored(relPath, ignorePatterns)) {
+                        filePaths.push(resolved)
+                    }
                 }
             } catch {
                 console.error(
@@ -267,7 +290,7 @@ export async function auditCommand(
         )
     } else {
         // Default: scan current directory
-        filePaths = collectSourceFiles(projectRoot)
+        filePaths = collectSourceFiles(projectRoot, ignorePatterns)
         console.log(
             `${ANSI.dim}Found ${filePaths.length} source files in ${projectRoot}${ANSI.reset}`,
         )
@@ -280,13 +303,27 @@ export async function auditCommand(
         return 0
     }
 
+    // Load cache if --cache is set
+    const useCache = opts.cache ?? false
+    const cache: AuditCache = useCache ? loadAuditCache(projectRoot) : {}
+    let cacheHits = 0
+
     // Read file contents
     const files: Array<{ path: string; content: string }> = []
     for (const fp of filePaths) {
         try {
             const content = fs.readFileSync(fp, 'utf-8')
-            // Use relative path for cleaner output
             const relPath = path.relative(process.cwd(), fp) || fp
+
+            // Skip if content hash matches cache
+            if (useCache && cache[relPath]) {
+                const hash = contentHash(content)
+                if (cache[relPath].hash === hash) {
+                    cacheHits++
+                    continue
+                }
+            }
+
             files.push({ path: relPath, content })
         } catch {
             console.error(
@@ -295,8 +332,38 @@ export async function auditCommand(
         }
     }
 
-    // Run audit
+    if (useCache && cacheHits > 0) {
+        console.log(`${ANSI.dim}Cache: ${cacheHits} file(s) unchanged, ${files.length} to scan${ANSI.reset}`)
+    }
+
+    // Run audit (only on non-cached files)
     let summary = auditFiles(files, tokens, policy)
+
+    // Update cache with new results
+    if (useCache) {
+        for (const result of summary.results) {
+            const fileEntry = files.find(f => f.path === result.filePath)
+            if (fileEntry) {
+                const ruleIds: string[] = []
+                for (const w of result.mithrilWarnings) ruleIds.push(extractRuleId(w.message))
+                for (const msgs of Object.values(result.a11yViolations)) {
+                    for (const msg of msgs) ruleIds.push(extractRuleId(msg))
+                }
+                cache[result.filePath] = {
+                    hash: contentHash(fileEntry.content),
+                    mithrilCount: result.mithrilWarnings.length,
+                    a11yCount: Object.values(result.a11yViolations).reduce((s, a) => s + a.length, 0),
+                    ruleIds: [...new Set(ruleIds)],
+                }
+            }
+        }
+        // Remove stale entries for files that no longer exist
+        for (const cachedPath of Object.keys(cache)) {
+            const absPath = path.resolve(process.cwd(), cachedPath)
+            if (!fs.existsSync(absPath)) delete cache[cachedPath]
+        }
+        saveAuditCache(projectRoot, cache)
+    }
 
     // Baseline suppression: filter out known violations from .flint/baseline.json
     if (opts.baseline) {

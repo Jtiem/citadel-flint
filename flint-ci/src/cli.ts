@@ -47,6 +47,7 @@ program
     .option('--sarif <file>', 'Write SARIF 2.1.0 report to FILE')
     .option('--fail-on-warning', 'Exit 1 on amber-level violations too')
     .option('--baseline', 'Suppress known violations from .flint/baseline.json')
+    .option('--cache', 'Skip files unchanged since last audit (uses content hash)')
     .option('--tokens <file>', 'Path to design tokens JSON', '.flint/design-tokens.json')
     .option('--policy <file>', 'Path to legacy policy JSON (overrides flint.config.yaml)')
     .option('--project-root <path>', 'Project root directory', process.cwd())

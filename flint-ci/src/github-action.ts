@@ -134,8 +134,73 @@ const collectSourceFiles = _collectSourceFiles
 
 // ── PR Comment formatting ────────────────────────────────────────────────────
 
-function formatPRComment(summary: AuditSummary, blocked: boolean): string {
-    const status = blocked ? 'BLOCKED' : 'PASSED'
+interface DeltaReport {
+    newViolations: number
+    fixedViolations: number
+    unchangedViolations: number
+}
+
+/**
+ * Computes delta by comparing PR violations against base branch versions.
+ * Uses `git show <base>:<file>` to get the base version of each file.
+ */
+function computeDelta(
+    summary: AuditSummary,
+    baseBranch: string,
+    tokens: import('./engine.js').DesignToken[],
+    policy: import('./engine.js').FlintPolicy,
+): DeltaReport | null {
+    try {
+        let totalNewViolations = 0
+        let totalFixedViolations = 0
+        let totalUnchanged = 0
+
+        for (const result of summary.results) {
+            const prViolationCount = result.mithrilWarnings.length +
+                Object.values(result.a11yViolations).reduce((s, a) => s + a.length, 0)
+
+            // Get the base version of this file
+            let baseViolationCount = 0
+            try {
+                const baseContent = execSync(
+                    `git show ${baseBranch}:${result.filePath}`,
+                    { encoding: 'utf-8', stdio: 'pipe' },
+                )
+                const baseResult = auditFiles(
+                    [{ path: result.filePath, content: baseContent }],
+                    tokens,
+                    policy,
+                )
+                if (baseResult.results.length > 0) {
+                    const br = baseResult.results[0]
+                    baseViolationCount = br.mithrilWarnings.length +
+                        Object.values(br.a11yViolations).reduce((s, a) => s + a.length, 0)
+                }
+            } catch {
+                // File is new in this PR — all violations are new
+                baseViolationCount = 0
+            }
+
+            const newInThisFile = Math.max(0, prViolationCount - baseViolationCount)
+            const fixedInThisFile = Math.max(0, baseViolationCount - prViolationCount)
+            const unchanged = Math.min(prViolationCount, baseViolationCount)
+
+            totalNewViolations += newInThisFile
+            totalFixedViolations += fixedInThisFile
+            totalUnchanged += unchanged
+        }
+
+        return {
+            newViolations: totalNewViolations,
+            fixedViolations: totalFixedViolations,
+            unchangedViolations: totalUnchanged,
+        }
+    } catch {
+        return null
+    }
+}
+
+function formatPRComment(summary: AuditSummary, blocked: boolean, delta: DeltaReport | null): string {
     const statusIcon = blocked ? '`BLOCKED`' : '`PASSED`'
     const totalViolations =
         summary.totalMithrilWarnings + summary.totalA11yViolations
@@ -144,6 +209,21 @@ function formatPRComment(summary: AuditSummary, blocked: boolean): string {
         COMMENT_MARKER,
         `## Flint Governance Gate: ${statusIcon}`,
         '',
+    ]
+
+    // Delta banner — the most important info for PR reviewers
+    if (delta) {
+        if (delta.newViolations > 0) {
+            lines.push(`> **This PR introduces ${delta.newViolations} new violation(s)**`)
+        } else if (delta.fixedViolations > 0) {
+            lines.push(`> **This PR fixes ${delta.fixedViolations} violation(s)** -- nice work`)
+        } else {
+            lines.push(`> No new violations introduced`)
+        }
+        lines.push('')
+    }
+
+    lines.push(
         '| Metric | Count |',
         '| --- | --- |',
         `| Files scanned | ${summary.totalFiles} |`,
@@ -153,8 +233,16 @@ function formatPRComment(summary: AuditSummary, blocked: boolean): string {
         `| Amber | ${summary.amberCount} |`,
         `| Mithril (design drift) | ${summary.totalMithrilWarnings} |`,
         `| A11y (accessibility) | ${summary.totalA11yViolations} |`,
-        '',
-    ]
+    )
+
+    if (delta) {
+        lines.push(
+            `| New in this PR | ${delta.newViolations} |`,
+            `| Fixed in this PR | ${delta.fixedViolations} |`,
+        )
+    }
+
+    lines.push('')
 
     // Add collapsible details for files with violations
     const filesWithIssues = summary.results.filter((r) => {
@@ -441,10 +529,21 @@ export async function run(): Promise<void> {
         // Determine blocked status
         const blocked = shouldBlock(summary, projectRoot, failOnWarning)
 
+        // Compute delta (new vs existing violations) for PR context
+        let delta: DeltaReport | null = null
+        if (github.context.payload.pull_request) {
+            const baseBranch = github.context.payload.pull_request.base?.ref ?? 'main'
+            core.info(`Computing violation delta against ${baseBranch}...`)
+            delta = computeDelta(summary, `origin/${baseBranch}`, tokens, policy)
+            if (delta) {
+                core.info(`Delta: ${delta.newViolations} new, ${delta.fixedViolations} fixed`)
+            }
+        }
+
         // Post/update PR comment
         if (githubToken) {
             const octokit = github.getOctokit(githubToken)
-            const commentBody = formatPRComment(summary, blocked)
+            const commentBody = formatPRComment(summary, blocked, delta)
             await upsertPRComment(octokit, github.context, commentBody)
         }
 

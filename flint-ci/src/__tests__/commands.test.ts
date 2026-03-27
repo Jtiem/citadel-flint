@@ -13,7 +13,17 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 
-import { isSourceFile, collectSourceFiles, SOURCE_EXTENSIONS, SKIP_DIRS } from '../utils/files.js'
+import {
+    isSourceFile,
+    collectSourceFiles,
+    SOURCE_EXTENSIONS,
+    SKIP_DIRS,
+    loadFlintIgnore,
+    isIgnored,
+    contentHash,
+    loadAuditCache,
+    saveAuditCache,
+} from '../utils/files.js'
 import { ANSI } from '../utils/ansi.js'
 import { auditCommand } from '../commands/audit.js'
 import { debtCommand } from '../commands/debt.js'
@@ -766,6 +776,110 @@ describe('audit --format json', () => {
 })
 
 // ── baselineCommand ─────────────────────────────────────────────────────────
+
+// ── .flintignore ────────────────────────────────────────────────────────────
+
+describe('.flintignore', () => {
+    let tmpDir: string
+
+    beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flint-ci-ignore-'))
+        vi.spyOn(console, 'log').mockImplementation(() => {})
+        vi.spyOn(console, 'error').mockImplementation(() => {})
+    })
+
+    afterEach(() => {
+        fs.rmSync(tmpDir, { recursive: true, force: true })
+        vi.restoreAllMocks()
+    })
+
+    it('loadFlintIgnore returns empty array when no file exists', () => {
+        expect(loadFlintIgnore(tmpDir)).toEqual([])
+    })
+
+    it('loadFlintIgnore parses patterns and ignores comments', () => {
+        fs.writeFileSync(path.join(tmpDir, '.flintignore'), '# comment\nsrc/legacy/\n*.stories.tsx\n', 'utf-8')
+        const patterns = loadFlintIgnore(tmpDir)
+        expect(patterns).toEqual(['src/legacy/', '*.stories.tsx'])
+    })
+
+    it('isIgnored matches exact paths', () => {
+        expect(isIgnored('src/Button.tsx', ['src/Button.tsx'])).toBe(true)
+        expect(isIgnored('src/Card.tsx', ['src/Button.tsx'])).toBe(false)
+    })
+
+    it('isIgnored matches directory prefixes', () => {
+        expect(isIgnored('src/legacy/Old.tsx', ['src/legacy/'])).toBe(true)
+        expect(isIgnored('src/modern/New.tsx', ['src/legacy/'])).toBe(false)
+    })
+
+    it('isIgnored matches glob patterns', () => {
+        expect(isIgnored('Button.stories.tsx', ['*.stories.tsx'])).toBe(true)
+        expect(isIgnored('Button.tsx', ['*.stories.tsx'])).toBe(false)
+    })
+
+    it('isIgnored matches ** glob patterns', () => {
+        expect(isIgnored('src/deep/nested/File.test.ts', ['**/*.test.ts'])).toBe(true)
+        expect(isIgnored('src/App.tsx', ['**/*.test.ts'])).toBe(false)
+    })
+
+    it('collectSourceFiles respects ignore patterns', () => {
+        fs.writeFileSync(path.join(tmpDir, 'Keep.tsx'), CLEAN_TSX, 'utf-8')
+        fs.writeFileSync(path.join(tmpDir, 'Skip.stories.tsx'), CLEAN_TSX, 'utf-8')
+        const files = collectSourceFiles(tmpDir, ['*.stories.tsx'])
+        const names = files.map(f => path.basename(f))
+        expect(names).toContain('Keep.tsx')
+        expect(names).not.toContain('Skip.stories.tsx')
+    })
+})
+
+// ── Audit cache ─────────────────────────────────────────────────────────────
+
+describe('audit cache', () => {
+    let tmpDir: string
+
+    beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flint-ci-cache-'))
+        vi.spyOn(console, 'log').mockImplementation(() => {})
+        vi.spyOn(console, 'error').mockImplementation(() => {})
+    })
+
+    afterEach(() => {
+        fs.rmSync(tmpDir, { recursive: true, force: true })
+        vi.restoreAllMocks()
+    })
+
+    it('contentHash produces consistent hashes for same content', () => {
+        const h1 = contentHash('hello world')
+        const h2 = contentHash('hello world')
+        expect(h1).toBe(h2)
+        expect(h1.length).toBe(16)
+    })
+
+    it('contentHash produces different hashes for different content', () => {
+        expect(contentHash('hello')).not.toBe(contentHash('world'))
+    })
+
+    it('loadAuditCache returns empty object when no cache exists', () => {
+        expect(loadAuditCache(tmpDir)).toEqual({})
+    })
+
+    it('saveAuditCache creates .flint directory and writes cache', () => {
+        const cache = { 'App.tsx': { hash: 'abc123', mithrilCount: 0, a11yCount: 0, ruleIds: [] } }
+        saveAuditCache(tmpDir, cache)
+        const loaded = loadAuditCache(tmpDir)
+        expect(loaded['App.tsx'].hash).toBe('abc123')
+    })
+
+    it('round-trips cache data correctly', () => {
+        const cache = {
+            'src/Button.tsx': { hash: 'deadbeef', mithrilCount: 2, a11yCount: 1, ruleIds: ['MITHRIL-COL', 'A11Y-001'] },
+        }
+        saveAuditCache(tmpDir, cache)
+        const loaded = loadAuditCache(tmpDir)
+        expect(loaded['src/Button.tsx']).toEqual(cache['src/Button.tsx'])
+    })
+})
 
 describe('baselineCommand', () => {
     let tmpDir: string
