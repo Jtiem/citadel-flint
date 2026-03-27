@@ -21,6 +21,13 @@ import type { LibraryTarget } from '../core/libraryAdapters/types.js'
 import type { FlintConfig } from '../core/config.js'
 import type { DesignToken } from '../types.js'
 import { parseFigmaMcpResponse, enrichFigmaNodes } from '../core/figmaMcpParser.js'
+import {
+    classifyWithAI,
+    refineComponent,
+    resolveApiKey,
+    type ClassificationResult,
+    type RefinementResult,
+} from '../core/d2cRefinement.js'
 
 // ---------------------------------------------------------------------------
 // Tool definition (MCP ListTools schema)
@@ -63,6 +70,24 @@ export const FLINT_DESIGN_TO_CODE_TOOL = {
                 type: 'string',
                 description: 'Raw JSX from Figma MCP get_design_context. When provided, enriches component recognition using data-name attributes.',
             },
+            aiClassify: {
+                type: 'boolean',
+                description:
+                    'Run AI classification pass to improve component recognition. ' +
+                    'Adds ~2s latency. Default: false (deterministic-only).',
+            },
+            aiRefine: {
+                type: 'boolean',
+                description:
+                    'Run AI refinement on generated components. ' +
+                    'Adds 3-8s per component. Default: false.',
+            },
+            screenshotBase64: {
+                type: 'string',
+                description:
+                    'Base64-encoded screenshot from Figma get_design_context. ' +
+                    'Passed to AI refinement for visual understanding. Optional.',
+            },
         },
         required: ['figmaPayload'],
     },
@@ -79,6 +104,12 @@ export interface DesignToCodeArgs {
     writeThemeFile?: boolean
     figmaUrl?: string
     figmaCode?: string
+    /** D2C.5: Run AI classification pass to improve component recognition. */
+    aiClassify?: boolean
+    /** D2C.5: Run AI refinement on generated components. */
+    aiRefine?: boolean
+    /** D2C.5: Base64-encoded screenshot for AI refinement visual context. */
+    screenshotBase64?: string
 }
 
 export interface ComponentResult {
@@ -109,6 +140,19 @@ export interface DesignToCodeResult {
     tokenMappings: Record<string, string>
     summary: string
     error?: string
+    /** D2C.5: AI classification metadata (only present when aiClassify=true) */
+    aiClassification?: {
+        source: 'ai' | 'fallback'
+        classificationCount: number
+        latencyMs: number
+    }
+    /** D2C.5: Per-component refinement metadata (only present when aiRefine=true) */
+    aiRefinements?: Array<{
+        componentName: string
+        status: 'refined' | 'fallback'
+        latencyMs: number
+        reason?: string
+    }>
 }
 
 // ---------------------------------------------------------------------------
@@ -267,9 +311,37 @@ export async function handleDesignToCode(
     }
 
     // ------------------------------------------------------------------
+    // Step 6c: D2C.5 — AI classification pass (optional)
+    // ------------------------------------------------------------------
+    let aiClassificationMeta: DesignToCodeResult['aiClassification']
+    let classificationOverrides: Map<string, string> | undefined
+
+    if (args.aiClassify) {
+        const apiKey = resolveApiKey(projectRoot)
+        const parsedTree = JSON.parse(enrichedPayload)
+        const classResult = await classifyWithAI(parsedTree, libraryTarget, apiKey)
+
+        aiClassificationMeta = {
+            source: classResult.source,
+            classificationCount: classResult.classifications.size,
+            latencyMs: classResult.latencyMs,
+        }
+
+        if (classResult.classifications.size > 0) {
+            classificationOverrides = classResult.classifications
+        }
+    }
+
+    // ------------------------------------------------------------------
     // Step 7: Run ingestion (processPage handles both single + multi)
     // ------------------------------------------------------------------
-    const engine = new HydroPasteEngine(manifest, tokens, { library: libraryTarget })
+    const engineOptions: { library: LibraryTarget; classificationOverrides?: Map<string, string> } = {
+        library: libraryTarget,
+    }
+    if (classificationOverrides) {
+        engineOptions.classificationOverrides = classificationOverrides
+    }
+    const engine = new HydroPasteEngine(manifest, tokens, engineOptions)
     let hydroResult: Awaited<ReturnType<typeof engine.processPage>>
     try {
         hydroResult = await engine.processPage(enrichedPayload)
@@ -294,6 +366,42 @@ export async function handleDesignToCode(
         imports: hydroResult.imports,
         tokenRefs: c.tokenRefs,
     }))
+
+    // ------------------------------------------------------------------
+    // Step 7b: D2C.5 — AI refinement pass (optional)
+    // ------------------------------------------------------------------
+    let aiRefinementsMeta: DesignToCodeResult['aiRefinements']
+
+    if (args.aiRefine && componentResults.length > 0) {
+        const apiKey = resolveApiKey(projectRoot)
+        const adapter = getAdapter(libraryTarget)
+        const idiomBlock = adapter.getIdiomBlock()
+        const parsedTree = JSON.parse(enrichedPayload)
+
+        aiRefinementsMeta = []
+
+        for (const comp of componentResults) {
+            const result = await refineComponent(
+                comp.code,
+                parsedTree,
+                libraryTarget,
+                idiomBlock,
+                apiKey,
+                args.screenshotBase64,
+            )
+
+            aiRefinementsMeta.push({
+                componentName: comp.name,
+                status: result.status,
+                latencyMs: result.latencyMs,
+                reason: result.reason,
+            })
+
+            if (result.status === 'refined') {
+                comp.code = result.code
+            }
+        }
+    }
 
     // First component is the primary output (backward compat)
     const primaryComponent = componentResults[0] ?? { name: '', code: '', imports: [], tokenRefs: [] }
@@ -348,6 +456,20 @@ export async function handleDesignToCode(
         ` ${Object.keys(hydroResult.tokenMappings).length} token(s) mapped.` +
         writeNote
 
+    // Build AI summary notes for the summary string
+    const aiNotes: string[] = []
+    if (aiClassificationMeta) {
+        aiNotes.push(
+            ` AI classification: ${aiClassificationMeta.classificationCount} override(s)` +
+            ` (${aiClassificationMeta.source}, ${aiClassificationMeta.latencyMs}ms).`
+        )
+    }
+    if (aiRefinementsMeta) {
+        const refined = aiRefinementsMeta.filter(r => r.status === 'refined').length
+        const total = aiRefinementsMeta.length
+        aiNotes.push(` AI refinement: ${refined}/${total} component(s) improved.`)
+    }
+
     return {
         status: 'ok',
         library: libraryTarget,
@@ -362,6 +484,8 @@ export async function handleDesignToCode(
         }),
         themeFile: themeFileResult,
         tokenMappings: hydroResult.tokenMappings,
-        summary,
+        summary: summary + aiNotes.join(''),
+        ...(aiClassificationMeta && { aiClassification: aiClassificationMeta }),
+        ...(aiRefinementsMeta && { aiRefinements: aiRefinementsMeta }),
     }
 }

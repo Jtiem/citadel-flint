@@ -29,6 +29,12 @@ export interface GeneratedComponent {
 export interface HydroOptions {
     /** Active UI library — if set, output uses library-specific patterns. */
     library?: string
+    /**
+     * D2C.5: AI classification overrides from classifyWithAI().
+     * Map of Figma node name → componentType. When present, these override
+     * the heuristic classifyComponent() result for matching nodes.
+     */
+    classificationOverrides?: Map<string, string>
 }
 
 export interface HydroResult {
@@ -663,6 +669,30 @@ function componentNameFromNode(node: FigmaNode): string {
 }
 
 // ---------------------------------------------------------------------------
+// D2C.5: Apply AI classification overrides to node tree
+// ---------------------------------------------------------------------------
+
+/**
+ * Recursively apply AI classification overrides to Figma nodes.
+ * Matches by node name and sets `componentType` so that classifyComponent()
+ * picks up the AI override via its existing high-confidence path.
+ */
+function applyClassificationOverrides(
+    node: FigmaNode,
+    overrides: Map<string, string>,
+): void {
+    const name = node.name ?? ''
+    if (name && overrides.has(name)) {
+        node.componentType = overrides.get(name)
+    }
+    if (node.children) {
+        for (const child of node.children) {
+            applyClassificationOverrides(child, overrides)
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Engine
 // ---------------------------------------------------------------------------
 
@@ -714,6 +744,11 @@ export class HydroPasteEngine {
                 summary: `Unrecognized payload type: ${typeof figmaPayload}`,
                 tokenMappings: {},
             };
+        }
+
+        // D2C.5: Apply AI classification overrides before generation
+        if (this.options.classificationOverrides?.size) {
+            applyClassificationOverrides(payload, this.options.classificationOverrides);
         }
 
         const { lookup: tokenLookup, labTokens } = buildTokenLookup(this.tokens);
@@ -850,6 +885,11 @@ export class HydroPasteEngine {
         const parsed = this.parsePayload(figmaPayload);
         if ('components' in parsed) return parsed as HydroResult;
         const payload = parsed as FigmaNode;
+
+        // D2C.5: Apply AI classification overrides before generation
+        if (this.options.classificationOverrides?.size) {
+            applyClassificationOverrides(payload, this.options.classificationOverrides);
+        }
 
         // Identify section-level children (structural Figma node types at depth 1)
         const sectionTypes = new Set(["FRAME", "COMPONENT", "INSTANCE", "COMPONENT_SET", "GROUP", "SECTION"]);
