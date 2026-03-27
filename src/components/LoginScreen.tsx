@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Input } from './ui/Input';
-import { Button } from '../stories/Button';
+import { Button } from './ui/Button';
 import { IconButton } from './ui/IconButton';
 
 // Design tokens — sourced from .flint/design-tokens.json
