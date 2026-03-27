@@ -698,6 +698,8 @@ function buildMinimalContext(
             recentMutations: [],
             healthScore: null,
             healthGrade: null,
+            sessionSummary: null,
+            sessionPersona: null,
             partial: true,
         }
     } catch {

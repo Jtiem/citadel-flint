@@ -112,4 +112,86 @@ describe('SyncSchema', () => {
         const schema = new SyncSchema(db)
         expect(schema.getDb()).toBe(db)
     })
+
+    // -------------------------------------------------------------------------
+    // OAUTH.1 — auth_method column migration tests
+    // -------------------------------------------------------------------------
+
+    it('OAUTH.1: figma_connections includes auth_method column', () => {
+        new SyncSchema(db)
+        const info = db.prepare('PRAGMA table_info(figma_connections)').all() as Array<{ name: string }>
+        const colNames = info.map((c) => c.name)
+        expect(colNames).toContain('auth_method')
+    })
+
+    it('OAUTH.1: auth_method defaults to pat', () => {
+        new SyncSchema(db)
+        db.prepare(
+            `INSERT INTO figma_connections (id, project_root, figma_file_key, access_token_encrypted)
+             VALUES ('a', '/tmp', 'key', 'tok')`
+        ).run()
+        const row = db
+            .prepare(`SELECT auth_method FROM figma_connections WHERE id = 'a'`)
+            .get() as { auth_method: string }
+        expect(row.auth_method).toBe('pat')
+    })
+
+    it('OAUTH.1: auth_method accepts oauth value', () => {
+        new SyncSchema(db)
+        expect(() =>
+            db.prepare(
+                `INSERT INTO figma_connections (id, project_root, figma_file_key, access_token_encrypted, auth_method)
+                 VALUES ('b', '/tmp', 'key', 'tok', 'oauth')`
+            ).run()
+        ).not.toThrow()
+    })
+
+    it('OAUTH.1: auth_method rejects invalid value', () => {
+        new SyncSchema(db)
+        expect(() =>
+            db.prepare(
+                `INSERT INTO figma_connections (id, project_root, figma_file_key, access_token_encrypted, auth_method)
+                 VALUES ('c', '/tmp', 'key', 'tok', 'invalid')`
+            ).run()
+        ).toThrow()
+    })
+
+    it('OAUTH.1: status CHECK constraint accepts expired', () => {
+        new SyncSchema(db)
+        expect(() =>
+            db.prepare(
+                `INSERT INTO figma_connections (id, project_root, figma_file_key, access_token_encrypted, status)
+                 VALUES ('d', '/tmp', 'key', 'tok', 'expired')`
+            ).run()
+        ).not.toThrow()
+    })
+
+    it('OAUTH.1: _migrateAuthMethod is idempotent — calling constructor twice does not error', () => {
+        new SyncSchema(db)
+        // Second construction triggers _migrateAuthMethod again; column already exists, should no-op
+        expect(() => new SyncSchema(db)).not.toThrow()
+    })
+
+    it('OAUTH.1: legacy table without auth_method column is migrated', () => {
+        // Simulate a pre-OAUTH.1 database: create table without auth_method
+        db.exec(`
+            CREATE TABLE figma_connections (
+                id                      TEXT PRIMARY KEY,
+                project_root            TEXT NOT NULL,
+                figma_file_key          TEXT NOT NULL,
+                figma_file_name         TEXT NOT NULL DEFAULT '',
+                access_token_encrypted  TEXT NOT NULL,
+                refresh_token_encrypted TEXT,
+                token_expiry            TEXT,
+                connected_at            TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                last_sync_at            TEXT,
+                status                  TEXT NOT NULL DEFAULT 'active'
+            )
+        `)
+        // Constructing SyncSchema should run _migrateAuthMethod and add the column
+        expect(() => new SyncSchema(db)).not.toThrow()
+        const info = db.prepare('PRAGMA table_info(figma_connections)').all() as Array<{ name: string }>
+        const colNames = info.map((c) => c.name)
+        expect(colNames).toContain('auth_method')
+    })
 })

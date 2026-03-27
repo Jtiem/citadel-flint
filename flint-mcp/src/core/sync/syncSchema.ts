@@ -5,6 +5,9 @@
  *
  * Constructor takes a better-sqlite3 Database instance (dependency injection).
  * DDL uses CREATE TABLE IF NOT EXISTS for idempotent initialization.
+ *
+ * OAUTH.1: auth_method column added via safe migration (_migrateAuthMethod).
+ *          status CHECK constraint extended to include 'expired'.
  */
 
 import type Database from 'better-sqlite3'
@@ -24,7 +27,8 @@ CREATE TABLE IF NOT EXISTS figma_connections (
     token_expiry            TEXT,
     connected_at            TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     last_sync_at            TEXT,
-    status                  TEXT    NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disconnected', 'error'))
+    status                  TEXT    NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disconnected', 'error', 'expired')),
+    auth_method             TEXT    NOT NULL DEFAULT 'pat' CHECK (auth_method IN ('pat', 'oauth'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_figma_connections_project ON figma_connections(project_root);
@@ -89,6 +93,7 @@ export class SyncSchema {
     constructor(db: Database.Database) {
         this.db = db
         this.db.exec(INIT_SQL)
+        this._migrateAuthMethod()
     }
 
     /** Return the underlying database handle (for other services sharing this DB). */
@@ -107,5 +112,21 @@ export class SyncSchema {
             )
             .all() as Array<{ name: string }>
         return rows.map((r) => r.name)
+    }
+
+    /**
+     * OAUTH.1 — Safe migration: add auth_method column to figma_connections
+     * if it does not already exist (handles databases created before OAUTH.1).
+     */
+    private _migrateAuthMethod(): void {
+        const cols = this.db
+            .prepare(`PRAGMA table_info(figma_connections)`)
+            .all() as Array<{ name: string }>
+        const hasColumn = cols.some((c) => c.name === 'auth_method')
+        if (!hasColumn) {
+            this.db.exec(
+                `ALTER TABLE figma_connections ADD COLUMN auth_method TEXT NOT NULL DEFAULT 'pat'`
+            )
+        }
     }
 }

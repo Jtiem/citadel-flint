@@ -8,11 +8,15 @@
  * Access tokens are stored encrypted. The encrypt/decrypt functions are
  * injectable so Electron can wire in `safeStorage` (SEC.4) and headless
  * MCP / tests can pass identity functions.
+ *
+ * OAUTH.1: createOAuthConnection, updateOAuthTokens, setStatus added.
+ *          rowToConnection maps auth_method column (defaults to 'pat' for
+ *          legacy rows where the column may be absent).
  */
 
 import type Database from 'better-sqlite3'
 import crypto from 'node:crypto'
-import type { FigmaConnection, ConnectionStatus } from './types.js'
+import type { FigmaConnection, ConnectionStatus, AuthMethod } from './types.js'
 
 /** Injectable crypto interface for access token encryption (SEC.4 compliance). */
 export interface TokenCrypto {
@@ -41,6 +45,8 @@ interface ConnectionRow {
     connected_at: string
     last_sync_at: string | null
     status: string
+    /** OAUTH.1: may be absent on legacy rows pre-migration — default to 'pat'. */
+    auth_method?: string | null
 }
 
 function rowToConnection(row: ConnectionRow): FigmaConnection {
@@ -55,6 +61,7 @@ function rowToConnection(row: ConnectionRow): FigmaConnection {
         connectedAt: row.connected_at,
         lastSyncAt: row.last_sync_at,
         status: row.status as ConnectionStatus,
+        authMethod: (row.auth_method ?? 'pat') as AuthMethod,
     }
 }
 
@@ -77,7 +84,7 @@ export class ConnectionService {
     }
 
     /**
-     * Create a new Figma connection for a project root.
+     * Create a new PAT-based Figma connection for a project root.
      * If a connection already exists for this project, it is replaced.
      */
     createConnection(
@@ -98,8 +105,8 @@ export class ConnectionService {
 
         this.db
             .prepare(
-                `INSERT INTO figma_connections (id, project_root, figma_file_key, figma_file_name, access_token_encrypted, connected_at, status)
-                 VALUES (?, ?, ?, ?, ?, ?, 'active')`
+                `INSERT INTO figma_connections (id, project_root, figma_file_key, figma_file_name, access_token_encrypted, connected_at, status, auth_method)
+                 VALUES (?, ?, ?, ?, ?, ?, 'active', 'pat')`
             )
             .run(id, projectRoot, fileKey, fileName ?? '', this.crypto.encrypt(accessToken), now)
 
@@ -114,7 +121,120 @@ export class ConnectionService {
             connectedAt: now,
             lastSyncAt: null,
             status: 'active',
+            authMethod: 'pat',
         }
+    }
+
+    /**
+     * OAUTH.1 — Create an OAuth-based Figma connection.
+     * Stores both access and refresh tokens encrypted.
+     * tokenExpiryMs is ms from epoch (Date.now() style).
+     */
+    createOAuthConnection(
+        projectRoot: string,
+        fileKey: string,
+        accessToken: string,
+        refreshToken: string,
+        tokenExpiryMs: number,
+        fileName?: string,
+    ): FigmaConnection {
+        const id = crypto.randomUUID()
+        const now = new Date().toISOString()
+        const expiryIso = new Date(tokenExpiryMs).toISOString()
+
+        // Disconnect any existing connection for this project
+        this.db
+            .prepare(
+                `UPDATE figma_connections SET status = 'disconnected' WHERE project_root = ? AND status = 'active'`
+            )
+            .run(projectRoot)
+
+        this.db
+            .prepare(
+                `INSERT INTO figma_connections
+                    (id, project_root, figma_file_key, figma_file_name,
+                     access_token_encrypted, refresh_token_encrypted,
+                     token_expiry, connected_at, status, auth_method)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', 'oauth')`
+            )
+            .run(
+                id,
+                projectRoot,
+                fileKey,
+                fileName ?? '',
+                this.crypto.encrypt(accessToken),
+                this.crypto.encrypt(refreshToken),
+                expiryIso,
+                now,
+            )
+
+        return {
+            id,
+            projectRoot,
+            figmaFileKey: fileKey,
+            figmaFileName: fileName ?? '',
+            accessTokenEncrypted: this.crypto.encrypt(accessToken),
+            refreshTokenEncrypted: this.crypto.encrypt(refreshToken),
+            tokenExpiry: expiryIso,
+            connectedAt: now,
+            lastSyncAt: null,
+            status: 'active',
+            authMethod: 'oauth',
+        }
+    }
+
+    /**
+     * OAUTH.1 — Update OAuth tokens after a refresh.
+     * Pass null for newRefreshToken to keep the existing refresh token.
+     */
+    updateOAuthTokens(
+        projectRoot: string,
+        newAccessToken: string,
+        newRefreshToken: string | null,
+        newExpiryMs: number,
+    ): boolean {
+        const expiryIso = new Date(newExpiryMs).toISOString()
+
+        if (newRefreshToken !== null) {
+            const result = this.db
+                .prepare(
+                    `UPDATE figma_connections
+                     SET access_token_encrypted = ?,
+                         refresh_token_encrypted = ?,
+                         token_expiry = ?
+                     WHERE project_root = ? AND status = 'active' AND auth_method = 'oauth'`
+                )
+                .run(
+                    this.crypto.encrypt(newAccessToken),
+                    this.crypto.encrypt(newRefreshToken),
+                    expiryIso,
+                    projectRoot,
+                )
+            return result.changes > 0
+        } else {
+            const result = this.db
+                .prepare(
+                    `UPDATE figma_connections
+                     SET access_token_encrypted = ?,
+                         token_expiry = ?
+                     WHERE project_root = ? AND status = 'active' AND auth_method = 'oauth'`
+                )
+                .run(this.crypto.encrypt(newAccessToken), expiryIso, projectRoot)
+            return result.changes > 0
+        }
+    }
+
+    /**
+     * OAUTH.1 — Set connection status to any valid ConnectionStatus value.
+     * Useful for marking connections as 'expired' when token refresh fails.
+     */
+    setStatus(projectRoot: string, status: ConnectionStatus): boolean {
+        const result = this.db
+            .prepare(
+                `UPDATE figma_connections SET status = ? WHERE project_root = ? AND status != 'disconnected'`
+            )
+            .run(status, projectRoot)
+        return result.changes > 0
     }
 
     /**

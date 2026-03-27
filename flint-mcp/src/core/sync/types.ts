@@ -9,7 +9,10 @@
 // Connection
 // ---------------------------------------------------------------------------
 
-export type ConnectionStatus = 'active' | 'disconnected' | 'error'
+export type ConnectionStatus = 'active' | 'disconnected' | 'error' | 'expired'
+
+/** Authentication method used to establish the Figma connection. */
+export type AuthMethod = 'pat' | 'oauth'
 
 export interface FigmaConnection {
     id: string
@@ -22,6 +25,8 @@ export interface FigmaConnection {
     connectedAt: string
     lastSyncAt: string | null
     status: ConnectionStatus
+    /** OAUTH.1: Authentication method. Defaults to 'pat' for legacy rows. */
+    authMethod: AuthMethod
 }
 
 // ---------------------------------------------------------------------------
