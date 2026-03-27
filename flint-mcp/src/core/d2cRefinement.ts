@@ -229,6 +229,7 @@ export async function refineComponent(
     idiomBlock: string,
     apiKey: string | null,
     screenshotBase64?: string,
+    designSystemContext?: string,
 ): Promise<RefinementResult> {
     const start = Date.now()
 
@@ -242,11 +243,17 @@ export async function refineComponent(
         }
     }
 
+    // Build the design system guidelines block (only when context is provided)
+    const dsBlock = designSystemContext && designSystemContext.trim().length > 0
+        ? `\nDesign System Guidelines:\n${designSystemContext}\n\n`
+        : ''
+
     const systemPrompt =
         `You are a ${library} component specialist. You receive a React component ` +
         `scaffold generated from a Figma design and improve it to be production-ready ` +
         `${library} code.\n\n` +
-        `${idiomBlock}\n\n` +
+        `${idiomBlock}\n` +
+        `${dsBlock}` +
         `Rules:\n` +
         `1. ONLY use components from the ${library} library\n` +
         `2. Preserve the overall component structure — do not add new sections\n` +
