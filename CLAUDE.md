@@ -13,6 +13,33 @@ Two components:
 
 Flint MCP does all the work. Flint Glass reads MCP Resources to display state and calls MCP Tools to trigger actions. Glass owns zero business logic. Chat lives in the host IDE (Claude Code, Cursor, VS Code). Flint Glass is the observability layer, not a chat host.
 
+## Feature Names (The Citadel)
+
+Every feature has a Citadel name. Use these names in conversation, UI text, documentation, and agent prompts. Do NOT rename file paths, function names, IPC channels, or store names -- Citadel names are for human-facing communication only. Full naming guide: `docs/strategy/FEATURE-NAMING-THEMES.md`.
+
+```
+THE CITADEL — "Every wall. Every gate. Every guard."
+
+DEFENSE                          CREATION
+  Mithril  — perceptual lint       Mason   — JSX transform
+  Warden   — a11y lint             Sage    — AI refinement
+  Ghost    — hardcoded detection   Oracle  — AI classification
+  Shield   — spatial badges        Cipher  — CSS var resolver
+  Gate     — export gate           Scout   — token extraction
+  Sentry   — risk scoring          Decoy   — component shims
+  Flare    — anomaly detection     Envoy   — token sync
+  Proof    — snippet validator     Bridge  — Code Connect
+  Ledger   — governance log        Armory  — component registry
+  Stamp    — provenance
+  Manifest — DBOM
+
+FOUNDATION
+  Flint    — the product     Beacon   — context sync
+  Glass    — observability   Rewind   — undo/recovery
+                             Alliance — OAuth flow
+                             Garrison — setup wizard
+```
+
 ## Tech Stack
 
 * **Shell:** Electron 35.7.5 (Node.js 22)
@@ -57,7 +84,7 @@ electron/    <->  preload.ts  <->  src/
 
 Any feature crossing this boundary needs an IPC channel via `contextBridge`.
 
-### Context Flint
+### Context Flint (Beacon)
 
 `useContextSync` hook (mounted at App root) writes live Glass state to `.flint/context.json` every 200ms (debounced). The MCP server reads this file via `flint_get_context` / `flint://context` to stay synchronized with the visual layer without direct IPC coupling.
 
@@ -70,29 +97,29 @@ Primary tools (see `flint-mcp/src/server.ts` for the full catalog):
 | Tool | Purpose |
 |------|---------|
 | `flint_status` | Server health check |
-| `audit_ui_component` | Run Mithril + A11y audit on a component file |
+| `audit_ui_component` | Run Mithril + Warden audit on a component file |
 | `hydrate_figma_data` | Convert Figma AST payload into React component snippets |
 | `read_design_intent` | Read `.flint/current-intent.json` and return typed Execution Plan |
 | `flint_ast_mutate` | Apply batched structural mutations with MRS risk scoring + dry_run support |
-| `flint_query_registry` | Semantic + keyword search over component registry; returns Shadow Storybook artifact |
+| `flint_query_registry` | Armory — semantic + keyword search over component registry; returns Shadow Storybook artifact |
 | `flint_audit` | Full governance audit with SARIF output; optional `healOnAudit` for tier-1 auto-fix |
 | `flint_fix` | Deterministic auto-fix for token violations; supports `dry_run` |
 | `flint_ingest_figma` | Figma ingestion pipeline |
 | `flint_sync_tokens` | Token synchronization |
 | `flint_debt_report` | Design debt health score (0-100), grade (A-F), trend tracking |
 | `flint_plan` | Structured execution plan for multi-step agent tasks |
-| `flint_mutation_provenance` | Query provenance ledger (summary, audit_trail, by_source) |
+| `flint_mutation_provenance` | Stamp — query provenance ledger (summary, audit_trail, by_source) |
 | `flint_override_telemetry` | Query override events (summary, by_session, by_rule) |
 | `flint_audit_report` | Compliance audit report with rule provenance + sourceAuthority filter |
-| `flint_risk_score` | Mutation risk scoring (score_mutation, file_profile, project_summary) |
-| `flint_anomaly_report` | Statistical anomaly detection (detect, baseline, history) |
-| `flint_generate_dbom` | Design Bill of Materials export (json, markdown, cyclonedx) |
+| `flint_risk_score` | Sentry — mutation risk scoring (score_mutation, file_profile, project_summary) |
+| `flint_anomaly_report` | Flare — statistical anomaly detection (detect, baseline, history) |
+| `flint_generate_dbom` | Manifest — Design Bill of Materials export (json, markdown, cyclonedx) |
 | `flint_agent_risk` / `flint_agent_dashboard` | Per-agent risk posture and dashboard |
 | `flint_agent_trust` | Dynamic agent trust tiers (profile, promote, demote, reset, list) |
 | `flint_migrate_tw` | Tailwind v3→v4 AST-level class migration with post-migration audit |
-| `flint_figma_connect` | Figma connection management (connect, disconnect, status) |
-| `flint_sync_pull` | Pull remote Figma token changes to local |
-| `flint_sync_push` | Push local token changes to Figma |
+| `flint_figma_connect` | Alliance — Figma connection management (connect, disconnect, status) |
+| `flint_sync_pull` | Envoy — pull remote Figma token changes to local |
+| `flint_sync_push` | Envoy — push local token changes to Figma |
 | `flint_resolve_conflict` | Resolve a single sync conflict |
 | `flint_resolve_all` | Bulk resolve all sync conflicts |
 | `flint_sync_check` | CI/CD sync health check |
@@ -138,10 +165,10 @@ Additional tools registered via `flint-mcp/src/tools/` modules cover governance 
 | Module | Phase | Status |
 |--------|-------|--------|
 | Mithril Enterprise Linter | B-v2 | **ONLINE** |
-| Export Gate | B.2 | **ONLINE** |
-| Export Gate Severity Escalation | B.1-d | **ONLINE** |
-| Accessibility Gate (50 WCAG 2.1 AA rules) | B.3 | **ONLINE** |
-| Sharma Validation (snippetAuditor) | B.1-b | **ONLINE** |
+| Export Gate (Gate) | B.2 | **ONLINE** |
+| Export Gate Severity Escalation (Gate) | B.1-d | **ONLINE** |
+| Accessibility Gate / Warden (50 WCAG 2.1 AA rules) | B.3 | **ONLINE** |
+| Sharma Validation / Proof (snippetAuditor) | B.1-b | **ONLINE** |
 | AI Orchestrator Hardening | M | **ONLINE** |
 | CI/CD Governance Gate (`flint audit`) | EXP.1 | **ONLINE** |
 | CI Parity Rewrite (`flint-gate` CLI, MCP consumer) | CI.2 | **ONLINE** |
@@ -153,10 +180,10 @@ Additional tools registered via `flint-mcp/src/tools/` modules cover governance 
 | Batch Mutation Engine | E.1 | **ONLINE** |
 | FileTransactionManager | E.2 | **ONLINE** |
 | Cross-File Move | F.2 | **ONLINE** |
-| Global Recovery Engine (Undo/Redo) | G.1 | **ONLINE** |
-| Cross-File Redo | H | **ONLINE** |
-| Code-First Recovery (Git Transplants) | D.1 | **ONLINE** |
-| Git Time Machine UI | D.2 | **ONLINE** |
+| Global Recovery Engine / Rewind (Undo/Redo) | G.1 | **ONLINE** |
+| Cross-File Redo (Rewind) | H | **ONLINE** |
+| Code-First Recovery / Rewind (Git Transplants) | D.1 | **ONLINE** |
+| Git Time Machine UI (Rewind) | D.2 | **ONLINE** |
 | Undo Void Fix | K | **ONLINE** |
 
 ### Glass Observability Layer
@@ -165,32 +192,32 @@ Additional tools registered via `flint-mcp/src/tools/` modules cover governance 
 |--------|-------|--------|
 | Infinite Canvas (XYCanvas) | A | **ONLINE** |
 | LivePreview (srcdoc iframe) | A | **ONLINE** |
-| ShieldOverlay (spatial governance badges) | A | **ONLINE** |
-| GhostOverlay (hardcoded class HUD) | U.4 | **ONLINE** |
-| GovernanceOverlay (violation list + auto-fix) | U | **ONLINE** |
+| ShieldOverlay / Shield (spatial governance badges) | A | **ONLINE** |
+| GhostOverlay / Ghost (hardcoded class HUD) | U.4 | **ONLINE** |
+| GovernanceOverlay / Shield (violation list + auto-fix) | U | **ONLINE** |
 | GovernancePanel (rule manager) | U | **ONLINE** |
 | StatusBar (export gate + save state + sync) | A | **ONLINE** |
 | NotificationCenter (toast system) | -- | **ONLINE** |
 | ActivityFeed (MCP tool invocation log) | -- | **ONLINE** |
 | OnboardingOverlay | -- | **ONLINE** |
-| ExportModal (pre-flight audit) | B.2 | **ONLINE** |
-| RecoveryPanel (Git Time Machine) | D.2 | **ONLINE** |
+| ExportModal / Gate (pre-flight audit) | B.2 | **ONLINE** |
+| RecoveryPanel / Rewind (Git Time Machine) | D.2 | **ONLINE** |
 | Designer Experience (LayoutPanel) | N.1 | **ONLINE** |
 | Asset Management Hub | Q | **ONLINE** |
 | Interaction Modes (design/interact) | I | **ONLINE** |
 | Native OS Menu | J | **ONLINE** |
-| Context Flint (useContextSync) | 1A | **ONLINE** |
+| Context Flint / Beacon (useContextSync) | 1A | **ONLINE** |
 | Auto-Save | F.1 | **ONLINE** |
 | Activity Feed Upgrade (filter bar, search, error view) | V.2-af | **ONLINE** |
 | Figma Connection Status (IPC, StatusBar popover, staleness) | W.2 | **ONLINE** |
-| Ghost Canvas (severity heat tints, ViolationTooltip, viewport culling) | U.1 | **ONLINE** |
+| Ghost Canvas (Ghost severity heat tints, ViolationTooltip, viewport culling) | U.1 | **ONLINE** |
 | Annotation Rendering (annotationStore, AnnotationList, LayerTree dots) | COLLAB.4 | **ONLINE** |
 | Governance Dashboard (health score ring, grade, top-5 rules, "health" tab) | V.1-gd | **ONLINE** |
 | MCP Push Channel (mcp-events.jsonl, useMCPEventListener, fs.watch tail) | W.1 | **ONLINE** |
 | Bidirectional Action Flint (mcpClient.ts, Glass-initiated MCP tool calls) | W.3 | **ONLINE** |
 | Agent Risk Dashboard (per-agent risk badges, escalation indicators) | AGV.2 | **ONLINE** |
 | Multi-Agent Epistemic Consensus Gate (secondary agent eval for Amber/Red mutations, `flint_consensus_report`, per-domain config) | V.4 | **ONLINE** |
-| First-Launch Setup Wizard (IDE detection, MCP snippet, connection test, first-launch flag) | ONBOARD.1 | **ONLINE** |
+| First-Launch Setup Wizard / Garrison (IDE detection, MCP snippet, connection test, first-launch flag) | ONBOARD.1 | **ONLINE** |
 | Ghost Code Snippet Overlay (contextual source panel on node select, Hover-to-Source) | U.2 | **ONLINE** |
 | IDE→Glass File Sync (VS Code/Cursor active-file follows IDE focus via `.flint/ide-active-file.json` stat-poll) | IDE.2 | **ONLINE** |
 
@@ -210,7 +237,7 @@ Additional tools registered via `flint-mcp/src/tools/` modules cover governance 
 | SDI Webhook | O.2 | **ONLINE** |
 | MCP Intent Router | O.3 | **ONLINE** |
 | SDI Layout Assembly | O.3a | **ONLINE** |
-| Component Registry RAG | O.3b | **ONLINE** |
+| Component Registry / Armory RAG | O.3b | **ONLINE** |
 | LSP Orchestrator | P | **ONLINE** |
 | Annotation Engine | COLLAB.1-3 | **ONLINE** |
 | MCP Discoverability (capabilities resource, workflow prompt) | -- | **ONLINE** |
@@ -220,20 +247,20 @@ Additional tools registered via `flint-mcp/src/tools/` modules cover governance 
 
 | Module | Phase | Status |
 |--------|-------|--------|
-| Governance Events Table | INFRA.1 | **ONLINE** |
-| Mutations Ledger Table | INFRA.2 | **ONLINE** |
+| Governance Events Table (Ledger) | INFRA.1 | **ONLINE** |
+| Mutations Ledger Table (Ledger) | INFRA.2 | **ONLINE** |
 | Design Debt Report (`flint_debt_report`) | EXP.2 | **ONLINE** |
 | Rule Provenance (`flint_audit_report`) | GOV.1 | **ONLINE** |
 | Override Telemetry (IPC + StatusBar badge) | GOV.2 | **ONLINE** |
 | Accessibility Expansion (30 rules, auto-fix) | EXP.6a | **ONLINE** |
 | Figma Plugin Settings UI (endpoint + secret + clientStorage) | FP.1 | **ONLINE** |
-| Proactive Session Context (`flint://session-context`) | ACX.1 | **ONLINE** |
-| Event-Driven Context Push (ContextPushManager) | ACX.2 | **ONLINE** |
+| Proactive Session Context / Beacon (`flint://session-context`) | ACX.1 | **ONLINE** |
+| Event-Driven Context Push / Beacon (ContextPushManager) | ACX.2 | **ONLINE** |
 | Complexity Router (Commandment 8 model routing) | ACX.4 | **ONLINE** |
 | Sentinel Prompt (6 domain presets) | ACX.1 | **ONLINE** |
 | Tool Enrichment (pre-flight context injection) | ACX.3 | **ONLINE** |
-| Mutation Provenance Ledger | V.2-mp | **ONLINE** |
-| Risk Scoring (MRS, 5-factor weighted) | V.1-rs | **ONLINE** |
+| Mutation Provenance / Stamp | V.2-mp | **ONLINE** |
+| Risk Scoring / Sentry (MRS, 5-factor weighted) | V.1-rs | **ONLINE** |
 | Renderer Hardening (iframe sandbox + CSP) | SEC.1 | **ONLINE** |
 | Secret Hygiene (per-session secret, strip from renderer) | SEC.2 | **ONLINE** |
 | MCP Tool Allowlist (renderer-callable tool restriction) | SEC.3 | **ONLINE** |
@@ -244,19 +271,19 @@ Additional tools registered via `flint-mcp/src/tools/` modules cover governance 
 | Error Taxonomy + Rule Explanations (50 entries) | CX.3 | **ONLINE** |
 | Immersive Canvas (dead IDE panels removed) | U.3 | **ONLINE** |
 | Per-Agent Tool ACL (4 trust tiers, `.flint/agent-policy.json`) | AGV.1 | **ONLINE** |
-| MRS Approval Flow (Green/Amber/Red risk tiers on tool_call chunks) | V.1 | **ONLINE** |
+| MRS Approval Flow / Sentry (Green/Amber/Red risk tiers on tool_call chunks) | V.1 | **ONLINE** |
 | Auto-Escalation Rules (4 default rules, session-scoped) | AGV.3 | **ONLINE** |
 | Mithril Delta Mode (baseline snapshots, delta-only audit) | MDA.1 | **ONLINE** |
 | Configurable Policy Engine (ΔE threshold, per-rule modes, team overlays, Glass UI) | POL.1 | **ONLINE** |
 | Response Quality Baseline (`ResponseMeta` helper, 3 tools enriched) | CX.1 | **ONLINE** |
-| Statistical Anomaly Detection (3σ threshold, baseline/detect/history) | GOV.4 | **ONLINE** |
-| Design Bill of Materials (token/component/violation inventory, CycloneDX) | DBOM.1 | **ONLINE** |
+| Statistical Anomaly Detection / Flare (3σ threshold, baseline/detect/history) | GOV.4 | **ONLINE** |
+| Design Bill of Materials / Manifest (token/component/violation inventory, CycloneDX) | DBOM.1 | **ONLINE** |
 | Agent Risk Dashboard (MCP resource + Glass UI, per-agent risk posture) | AGV.2 | **ONLINE** |
 | Dynamic Agent Trust Tiers (behavioral promotion/demotion, SQLite-backed) | AGV.4 | **ONLINE** |
-| Accessibility Expansion (50 WCAG 2.1 AA rules, live regions, motion, forms) | EXP.6a-ext | **ONLINE** |
+| Accessibility Expansion / Warden (50 WCAG 2.1 AA rules, live regions, motion, forms) | EXP.6a-ext | **ONLINE** |
 | Tailwind v3→v4 Migration (`flint_migrate_tw`, AST class transform) | EXP.3 | **ONLINE** |
-| Figma Connection + OAuth + API Service (4 SQLite tables, injectable crypto) | SYNC.1 | **ONLINE** |
-| Three-Way Diff Sync Engine (7 diff categories, pull/push/conflict resolution) | SYNC.2 | **ONLINE** |
+| Figma Connection + OAuth / Alliance + API Service (4 SQLite tables, injectable crypto) | SYNC.1 | **ONLINE** |
+| Three-Way Diff Sync Engine / Envoy (7 diff categories, pull/push/conflict resolution) | SYNC.2 | **ONLINE** |
 | SYNC Violation Types (SYNC-001 token drift, SYNC-002 orphaned token) | SYNC.3 | **ONLINE** |
 | CI Sync Gate + Offline Queue + History Export + Dashboard Integration | SYNC.4 | **ONLINE** |
 | Multi-Brand Theme Validation (cross-theme matrix, delta report) | EXP.4 | **ONLINE** |
@@ -266,9 +293,9 @@ Additional tools registered via `flint-mcp/src/tools/` modules cover governance 
 | Governance Pack Import (`flint_pack_import`, conflict detection, 3 merge strategies, snapshot rollback) | GPX.2 | **ONLINE** |
 | VS Code / Cursor Extension (diagnostics, quick fixes, status bar, MCP client) | IDE.1 | **ONLINE** |
 | Universal AST Abstraction (FlintNode, JSX + JSON Schema adapters, PluginRegistry) | V.3 | **ONLINE** |
-| Constrained Registry (proactive system prompt injection, registry membership gate, per-project scope) | CR.1-3 | **ONLINE** |
-| Component Scope Editor (Glass right sidebar, visual allowlist, IPC scope management) | CR.4 | **ONLINE** |
-| RAG Auto-Seeding (manifest + tokens + docs seeded to sqlite-vec on project open) | CK.1 | **ONLINE** |
+| Constrained Registry / Armory (proactive system prompt injection, registry membership gate, per-project scope) | CR.1-3 | **ONLINE** |
+| Component Scope Editor / Armory (Glass right sidebar, visual allowlist, IPC scope management) | CR.4 | **ONLINE** |
+| RAG Auto-Seeding / Armory (manifest + tokens + docs seeded to sqlite-vec on project open) | CK.1 | **ONLINE** |
 | Constrained Plan Intent (component-composition, 6th intent type, registry-aware) | CK.2 | **ONLINE** |
 | On-Demand Re-Indexing (project:reindex IPC, manifest + RAG refresh) | CK.3 | **ONLINE** |
 | Extended ComponentEntry (usageExample, compositionNotes, a11yNotes, relatedComponents) | CK.4 | **ONLINE** |
@@ -405,22 +432,27 @@ This protocol is mandatory for any session involving implementation, refactoring
 
 ## Development Workflow
 
-**Contract-First Feature Build** (`.claude/workflows/feature-build.md`) is the mandatory workflow for any feature touching 2+ files or crossing a process boundary.
+**Contract-First Feature Build v2** (`.claude/workflows/feature-build.md`) is the mandatory workflow for any feature touching 2+ files or crossing a process boundary.
 
 ```
 SESSION START: Declare territory in ACTIVE-SWARM-TERRITORY.md + update HANDOFF.md
-GIT:    flint-git-guru → create feature branch
-Phase 1: flint-architect → Contract Artifact (.flint-context/contracts/)
-GIT:    flint-git-guru → commit contract
-Phase 2: Parallel specialist agents implement against contract
-REVIEW: /review → Pre-commit code review gate (MANDATORY for agent-produced code)
-GIT:    flint-git-guru → commit per agent + pre-commit gate (TSC + tests)
-Phase 3: flint-integration-validator → Integration Report (SHIP/FIX/REDESIGN)
-GIT:    flint-git-guru → create PR (on SHIP)
+GIT:      flint-git-guru → create feature branch
+Phase 1:  flint-architect → Contract Artifact (.md) + Executable Contract (.contract.ts)
+GIT:      flint-git-guru → commit contract artifacts
+Phase 1.5: flint-contract-linter → Lint Report (APPROVED / REVISE)
+Phase 2:  Parallel specialist agents implement against contract (import types from .contract.ts)
+          Group A: IPC + Store + Test Scaffolds (it.todo)
+          Group B: UI + Full Tests (it.todo → real assertions)
+Phase 2.5: /review → Pre-commit code review gate (MANDATORY for agent-produced code)
+GIT:      flint-git-guru → commit per agent + pre-commit gate (TSC + tests)
+Phase 3:  flint-integration-validator → Integration Report (SHIP/FIX/REDESIGN)
+GIT:      flint-git-guru → create PR (on SHIP)
 SESSION END: Update HANDOFF.md + clear territory claim
 ```
 
 Single-file bug fixes and cosmetic changes are exempt from the Contract-First flow but NOT from the Session Start Protocol. All other work follows this flow. Contract artifacts are the binding specification — Phase 2 agents implement exactly what the contract defines. If the contract is wrong, return to Phase 1.
+
+**v2 improvements** (2026-03-27): Executable `.contract.ts` files (Phase 2 imports real types, not prose), Phase 1.5 contract linting (catches architect mistakes before cascade), test-from-contract scaffolding (TDD red phase from `testBoundaries`), IPC runtime validation (Zod schemas at preload bridge).
 
 **Review gate** — `/review` runs between Phase 2 (implementation) and git commit. It catches issues that TSC and tests miss: Commandment violations, IPC security gaps, architectural anti-patterns, and missing test coverage. Code that fails review must be fixed before committing. This gate is mandatory for all agent-produced code, including single-file fixes.
 
@@ -464,6 +496,7 @@ Do not port designer features to the extension or developer features to Glass un
 8. **Context Flint Awareness:** Glass writes live state to `.flint/context.json` via `useContextSync`. The MCP server reads `flint_get_context` / `flint://context` to stay synchronized. Any new Glass state that should be visible to MCP must be added to the `FlintContext` type.
 9. **Process Boundary Law:** No `fs`, `sqlite`, or Node.js APIs in `src/`. All cross-boundary calls go through `window.flintAPI` (defined in `preload.ts`).
 10. **Audit Result Presentation:** When `audit_ui_component` or `flint_audit` returns results, ALWAYS present the key findings as formatted markdown in your chat response — do not rely on the tool output block alone (VS Code collapses it to one line). Present: the verdict (BLOCKED/APPROVED), the violation summary, the "Why it matters" explanations, and the natural-language next step ("Say 'fix it' to auto-remediate"). Keep your presentation concise — the report has the detail, your response has the narrative.
+11. **Citadel Vocabulary:** Use the Citadel feature names (see "Feature Names" section above) when presenting results to the user. Examples: "Mithril flagged 3 drifts", "Gate blocked export", "Mason produced 5 components", "Warden found 2 a11y violations", "Sentry elevated risk to Amber". This makes conversation consistent across all agents and sessions.
 
 ## Key Files
 
@@ -473,18 +506,18 @@ Do not port designer features to the extension or developer features to Glass un
 | `flint-mcp/src/server.ts` | MCP tool and resource registrations |
 | `flint-mcp/src/core/ast-modifier.ts` | `assembleLayout`, mutation ops |
 | `flint-mcp/src/core/registryService.ts` | `flint_query_registry` search |
-| `flint-mcp/src/core/MithrilLinter.ts` | CIEDE2000 + typography/spacing/shadow/opacity |
-| `flint-mcp/src/core/A11yLinter.ts` | 50 WCAG 2.1 AA rules (9 rule modules) |
+| `flint-mcp/src/core/MithrilLinter.ts` | Mithril — CIEDE2000 + typography/spacing/shadow/opacity |
+| `flint-mcp/src/core/A11yLinter.ts` | Warden — 50 WCAG 2.1 AA rules (9 rule modules) |
 | `flint-mcp/src/tools/` | audit, fix, ingest, sync tool handlers |
 | `flint-mcp/src/prompts/sentinel.ts` | Domain-configurable governance persona |
-| `flint-mcp/src/core/governance/mutationProvenanceService.ts` | V.2-mp — provenance tracking; `recordProvenance`, `getAuditTrail`, `getProvenanceSummary` |
-| `flint-mcp/src/core/governance/riskScoringService.ts` | V.1-rs — 5-factor weighted risk scoring (0-100), tier classification |
-| `flint-mcp/src/core/governance/anomalyDetectionService.ts` | GOV.4 — 3σ anomaly detection on mutation/override/violation baselines |
-| `flint-mcp/src/core/governance/dbomService.ts` | DBOM.1 — Design Bill of Materials generation (JSON/CycloneDX) |
+| `flint-mcp/src/core/governance/mutationProvenanceService.ts` | Stamp — provenance tracking; `recordProvenance`, `getAuditTrail`, `getProvenanceSummary` |
+| `flint-mcp/src/core/governance/riskScoringService.ts` | Sentry — 5-factor weighted risk scoring (0-100), tier classification |
+| `flint-mcp/src/core/governance/anomalyDetectionService.ts` | Flare — 3σ anomaly detection on mutation/override/violation baselines |
+| `flint-mcp/src/core/governance/dbomService.ts` | Manifest — Design Bill of Materials generation (JSON/CycloneDX) |
 | `flint-mcp/src/core/responseMeta.ts` | CX.1 — ResponseMeta helper for tool response quality measurement |
 | `flint-mcp/src/core/governance/trustTierService.ts` | AGV.4 — Dynamic trust tier promotion/demotion |
 | `flint-mcp/src/core/tailwindMigrator.ts` | EXP.3 — Tailwind v3→v4 AST class migration engine |
-| `flint-mcp/src/core/a11y/rules/` | 50 WCAG 2.1 AA rules (7 modules: names-labels, keyboard, structure, aria, landmarks, contrast, forms, live-regions, motion) |
+| `flint-mcp/src/core/a11y/rules/` | Warden rules — 50 WCAG 2.1 AA rules (7 modules: names-labels, keyboard, structure, aria, landmarks, contrast, forms, live-regions, motion) |
 
 ### Electron Main Process
 | File | Role |
@@ -507,24 +540,24 @@ Do not port designer features to the extension or developer features to Glass un
 | `src/App.tsx` | Application shell -- 3-panel layout, keyboard shortcuts, menu events |
 | `src/components/editor/XYCanvas.tsx` | Infinite canvas (`@xyflow/react` v12) |
 | `src/components/editor/LivePreview.tsx` | `srcdoc` iframe preview engine |
-| `src/components/editor/StatusBar.tsx` | Export gate + engine indicators |
-| `src/components/editor/GovernanceOverlay.tsx` | Inline violation list with auto-fix |
-| `src/components/editor/GhostOverlay.tsx` | Hardcoded class detection HUD |
-| `src/components/editor/ShieldOverlay.tsx` | Spatial governance badges + presence cursors |
+| `src/components/editor/StatusBar.tsx` | Gate + engine indicators |
+| `src/components/editor/GovernanceOverlay.tsx` | Shield — inline violation list with auto-fix |
+| `src/components/editor/GhostOverlay.tsx` | Ghost — hardcoded class detection HUD |
+| `src/components/editor/ShieldOverlay.tsx` | Shield — spatial governance badges + presence cursors |
 | `src/components/ui/NotificationCenter.tsx` | Global toast renderer |
 | `src/components/ui/ActivityFeed.tsx` | MCP tool invocation log |
 | `src/components/ui/GovernancePanel.tsx` | Rule enable/disable/severity manager |
-| `src/components/ui/ExportModal.tsx` | Export Gate pre-flight audit |
-| `src/components/ui/RecoveryPanel.tsx` | Git Time Machine UI |
+| `src/components/ui/ExportModal.tsx` | Gate — export pre-flight audit |
+| `src/components/ui/RecoveryPanel.tsx` | Rewind — Git Time Machine UI |
 | `src/components/inspector/LayoutPanel.tsx` | Figma-grade Auto Layout controls |
 | `src/components/ui/GovernanceDashboard.tsx` | Health score ring, grade letter, top-5 rules ("health" tab) |
 | `src/components/ui/AnnotationList.tsx` | Annotation rendering in right sidebar |
-| `src/components/editor/ViolationTooltip.tsx` | Ghost Canvas severity tooltip on hover |
+| `src/components/editor/ViolationTooltip.tsx` | Ghost — canvas severity tooltip on hover |
 | `src/components/ui/ImportSummary.tsx` | Ingestion heal summary toast + review panel (Phase ING) |
 | `src/components/ui/AgentDashboard.tsx` | AGV.2 — Per-agent risk posture, escalation indicators, right sidebar "agents" tab |
 | `src/store/importSummaryStore.ts` | Ingestion summary state, tier-2 snap, undo-all-heals |
 | `src/store/annotationStore.ts` | Annotation CRUD + fs.watch push sync |
-| `src/hooks/useContextSync.ts` | Writes live state to `.flint/context.json` |
+| `src/hooks/useContextSync.ts` | Beacon — writes live state to `.flint/context.json` |
 
 ### CI/CD Gate (`flint-ci/`)
 | File | Role |
@@ -534,7 +567,7 @@ Do not port designer features to the extension or developer features to Glass un
 | `flint-ci/src/commands/audit.ts` | File collection + Mithril/A11y audit + SARIF |
 | `flint-ci/src/commands/debt.ts` | Design debt report (0-100, A-F grade) |
 | `flint-ci/src/commands/sync-check.ts` | Token drift detection for CI |
-| `flint-ci/src/commands/dbom.ts` | Design Bill of Materials export |
+| `flint-ci/src/commands/dbom.ts` | Manifest — Design Bill of Materials export |
 | `flint-ci/src/commands/fix.ts` | Auto-fix (dry-run default) |
 | `flint-ci/src/github-action.ts` | GitHub Actions wrapper + PR comment |
 
@@ -544,6 +577,14 @@ Do not port designer features to the extension or developer features to Glass un
 | `src/core/ASTService.ts` | applyMutationBatch, applyInversions, synthesizeImports |
 | `src/core/recoveryController.ts` | Undo/redo orchestration (single-file + cross-file) |
 | `src/utils/layoutMapper.ts` | Atomic Tailwind layout class management |
+
+### Shared Infrastructure
+
+| File | Role |
+|------|------|
+| `shared/brand.ts` | Single source of truth for all product name strings |
+| `shared/contract-schema.ts` | Machine-readable contract types (`FlintContract`, validators) — Phase 1 outputs, Phase 1.5 validates, Phase 3 checks |
+| `shared/ipc-validators.ts` | Zod schemas for IPC runtime validation at the preload bridge — Design by Contract at the process boundary |
 
 ## Architectural Anti-Patterns (Reject These)
 
