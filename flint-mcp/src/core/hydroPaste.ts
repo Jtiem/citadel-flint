@@ -5,6 +5,7 @@
 import { queryRegistryDeterministic, type ComponentEntry } from './registryService.js';
 import { getEmitterForLibrary, type LibraryCodeEmitter } from './hydroPaste-emitters.js';
 import { hexToLab, findNearestToken, TIER2_DELTA_E, type LabTokenEntry } from './colorDistance.js';
+import { analyzeLayout, layoutClassesToString } from './layoutAnalyzer.js';
 
 // Internal normalised shape used only within this module
 interface NormalisedToken {
@@ -57,6 +58,22 @@ interface FigmaNode {
     figmaComponentId?: string;
     /** FIGMA-MAP.2: Figma file key for component origin tracking. */
     figmaFileKey?: string;
+    /** Set by figmaMcpParser when enriching from Figma MCP data-name attributes. */
+    componentType?: string;
+    /** Figma auto-layout properties */
+    layoutMode?: string;
+    primaryAxisAlignItems?: string;
+    counterAxisAlignItems?: string;
+    paddingLeft?: number;
+    paddingRight?: number;
+    paddingTop?: number;
+    paddingBottom?: number;
+    itemSpacing?: number;
+    layoutSizingHorizontal?: string;
+    layoutSizingVertical?: string;
+    cornerRadius?: number;
+    clipsContent?: boolean;
+    absoluteBoundingBox?: { x: number; y: number; width: number; height: number };
     [key: string]: unknown;
 }
 
@@ -287,7 +304,12 @@ export function classifyFrame(node: FigmaNode, depth: number): FrameClassificati
  * Returns null when no keyword matches.
  * Evaluated in order — first match wins.
  */
-export function classifyComponent(name: string): ComponentClassification | null {
+export function classifyComponent(name: string, componentType?: string): ComponentClassification | null {
+    // High-confidence path: componentType set by Figma MCP data-name enrichment
+    if (componentType) {
+        return { type: componentType as ComponentType, matchedKeywords: [`data-name:${componentType}`] }
+    }
+
     const lower = name.toLowerCase()
 
     // textarea before input — "text-field" contains "field" but "text-area" / "textarea" is more specific
@@ -580,7 +602,10 @@ function generateJSXWithEmitter(
             : `bg-${raw}`;                     // bare name — add bg- prefix
         tokenMappings[hex.toUpperCase()] = colorClass;
     }
-    const className = `flex flex-col${colorClass ? ` ${colorClass}` : ""}`;
+    // Use Figma layout properties when available, fall back to generic flex-col
+    const layoutStr = layoutClassesToString(analyzeLayout(node));
+    const baseLayout = layoutStr || 'flex flex-col';
+    const className = `${baseLayout}${colorClass ? ` ${colorClass}` : ""}`;
 
     const children = node.children ?? [];
     const childrenJSX = children
@@ -600,7 +625,7 @@ function generateJSXWithEmitter(
 
     // D2C.4 Feature 1: classify the frame before falling back to generic container.
     // Step 1: Check whether this node looks like a named component (Input, Select, etc.)
-    const componentClassification = classifyComponent(nodeName);
+    const componentClassification = classifyComponent(nodeName, node.componentType);
     if (componentClassification !== null) {
         return emitter.emitNamedComponent(componentClassification.type, {}, childrenJSX, depth);
     }

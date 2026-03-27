@@ -20,6 +20,7 @@ import {
 import type { LibraryTarget } from '../core/libraryAdapters/types.js'
 import type { FlintConfig } from '../core/config.js'
 import type { DesignToken } from '../types.js'
+import { parseFigmaMcpResponse, enrichFigmaNodes } from '../core/figmaMcpParser.js'
 
 // ---------------------------------------------------------------------------
 // Tool definition (MCP ListTools schema)
@@ -58,6 +59,10 @@ export const FLINT_DESIGN_TO_CODE_TOOL = {
                 type: 'string',
                 description: 'Optional Figma URL for traceability.',
             },
+            figmaCode: {
+                type: 'string',
+                description: 'Raw JSX from Figma MCP get_design_context. When provided, enriches component recognition using data-name attributes.',
+            },
         },
         required: ['figmaPayload'],
     },
@@ -73,6 +78,7 @@ export interface DesignToCodeArgs {
     projectRoot?: string
     writeThemeFile?: boolean
     figmaUrl?: string
+    figmaCode?: string
 }
 
 export interface ComponentResult {
@@ -243,12 +249,30 @@ export async function handleDesignToCode(
     }
 
     // ------------------------------------------------------------------
+    // Step 6b: Enrich payload with Figma MCP data-name hints (when available)
+    // ------------------------------------------------------------------
+    let enrichedPayload = args.figmaPayload
+    if (args.figmaCode) {
+        try {
+            const hints = parseFigmaMcpResponse(args.figmaCode)
+            if (hints.size > 0) {
+                const parsed = JSON.parse(args.figmaPayload)
+                const nodes = Array.isArray(parsed) ? parsed : parsed.children ? [parsed] : [parsed]
+                enrichFigmaNodes(nodes, hints)
+                enrichedPayload = JSON.stringify(Array.isArray(parsed) ? parsed : parsed)
+            }
+        } catch {
+            // Enrichment failure is non-fatal — continue with unenriched payload
+        }
+    }
+
+    // ------------------------------------------------------------------
     // Step 7: Run ingestion (processPage handles both single + multi)
     // ------------------------------------------------------------------
     const engine = new HydroPasteEngine(manifest, tokens, { library: libraryTarget })
     let hydroResult: Awaited<ReturnType<typeof engine.processPage>>
     try {
-        hydroResult = await engine.processPage(args.figmaPayload)
+        hydroResult = await engine.processPage(enrichedPayload)
     } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e)
         const empty: ComponentResult = { name: '', code: '', imports: [], tokenRefs: [] }
