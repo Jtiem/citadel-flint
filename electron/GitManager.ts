@@ -150,7 +150,12 @@ export class GitManager {
         // updates the git index stat cache. Vite's config file watcher then
         // detects a ctime change on vite.config.ts → full server restart →
         // Electron restart → shadowCommit → git add . → loop forever.
-        await execFileAsync('git', ['add', '.flint/'], { cwd: gitRoot })
+        // Guard: if .flint/ does not exist yet, git add will throw — skip.
+        try {
+            await execFileAsync('git', ['add', '.flint/'], { cwd: gitRoot })
+        } catch {
+            // .flint/ not present or nothing to add — treat as no-op
+        }
 
         // Avoid empty commits — check for staged changes first.
         const { stdout: status } = await execFileAsync(

@@ -350,18 +350,43 @@ describe('SetupWizard', () => {
     })
 
     // WIZ-17: Verify error path shows error message
+    // handleVerify retries up to 6 times with 2 s gaps before exhausting.
+    // Fake timers (shouldAdvanceTime: true) keep waitFor polling alive while
+    // letting vi.runAllTimersAsync() fast-forward the retry delays.
     it('shows an error message when callTool flint_status rejects', async () => {
+        // Set up mocks before enabling fake timers so mock resolution is immediate
         ;(window.flintAPI.mcp!.callTool as Mock).mockRejectedValue(
             new Error('connect ECONNREFUSED 127.0.0.1:5000'),
         )
+        // mcp.status throws → component falls into the outer catch and sets
+        // "Could not reach the MCP server. Try restarting the app, or check …"
+        ;(window.flintAPI.mcp!.status as Mock).mockRejectedValue(
+            new Error('not connected'),
+        )
 
+        // Advance to the verify step using real timers (all waitFor calls here
+        // need actual Promise microtask flushing to work).
         await advanceToVerify()
 
-        fireEvent.click(screen.getByText('Test Connection'))
+        // Now switch to fake timers AFTER the setup is complete.
+        // shouldAdvanceTime keeps real-time advancement so waitFor still polls.
+        vi.useFakeTimers({ shouldAdvanceTime: true })
+        try {
+            fireEvent.click(screen.getByText('Test Connection'))
 
-        await waitFor(() => {
-            expect(screen.getByText(/MCP server not found/i)).toBeDefined()
-        })
+            // Fast-forward through all 5 retry-delay setTimeout(_, 2000) calls
+            await act(async () => {
+                await vi.runAllTimersAsync()
+            })
+
+            await waitFor(() => {
+                expect(
+                    screen.getByText(/Could not reach the MCP server/i)
+                ).toBeDefined()
+            })
+        } finally {
+            vi.useRealTimers()
+        }
     })
 
     // WIZ-18: "Continue" on verify success advances to done

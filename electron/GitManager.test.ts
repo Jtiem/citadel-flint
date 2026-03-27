@@ -9,6 +9,12 @@
  *   ensureRepo   — creates .git, .gitignore, initial commit; idempotent
  *   shadowCommit — creates flint:sync commit; custom batchId; no-op cases
  *   getGitNode   — extracts JSX node by data-flint-id; null cases
+ *
+ * NOTE: shadowCommit stages only .flint/ files (not the full working tree) to
+ * avoid triggering Vite's config file watcher on source files.  Tests that
+ * exercise shadowCommit therefore write files under .flint/.  Tests that need
+ * source files committed (getGitNode) use gitCommitFile() to stage and commit
+ * an individual file directly.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
@@ -45,6 +51,18 @@ async function latestHash(dir: string): Promise<string> {
         { cwd: dir }
     )
     return stdout.trim()
+}
+
+/**
+ * Stages a single file path and creates a commit directly.
+ * Used in getGitNode tests where we need a specific source file committed.
+ * shadowCommit only stages .flint/ files, so getGitNode tests cannot rely on
+ * it to commit App.tsx or other source files.
+ */
+async function gitCommitFile(repoDir: string, filePath: string, message = 'test: commit file'): Promise<void> {
+    const rel = filePath.startsWith(repoDir) ? filePath.slice(repoDir.length + 1) : filePath
+    await execFileAsync('git', ['add', rel], { cwd: repoDir })
+    await execFileAsync('git', ['commit', '-m', message], { cwd: repoDir })
 }
 
 // ── Suite ─────────────────────────────────────────────────────────────────────
@@ -110,6 +128,9 @@ describe('GitManager', () => {
     })
 
     // ── shadowCommit ──────────────────────────────────────────────────────────
+    //
+    // shadowCommit stages only .flint/ files (not the full working tree).
+    // Tests write files under .flint/ to exercise the commit path.
 
     describe('shadowCommit', () => {
         beforeEach(async () => {
@@ -118,7 +139,10 @@ describe('GitManager', () => {
         })
 
         it('creates a flint:sync commit when files have changed', async () => {
-            await writeFile(join(dir, 'App.tsx'), 'const x = 1')
+            // shadowCommit only stages .flint/ — write there, not root App.tsx
+            const flintDir = join(dir, '.flint')
+            await mkdir(flintDir, { recursive: true })
+            await writeFile(join(flintDir, 'context.json'), JSON.stringify({ test: 1 }))
             await mgr.shadowCommit(dir)
             const { stdout } = await execFileAsync('git', ['log', '--oneline'], { cwd: dir })
             expect(stdout).toContain('flint:sync:')
@@ -126,7 +150,9 @@ describe('GitManager', () => {
         })
 
         it('uses the custom batchId in the commit message', async () => {
-            await writeFile(join(dir, 'App.tsx'), 'const y = 2')
+            const flintDir = join(dir, '.flint')
+            await mkdir(flintDir, { recursive: true })
+            await writeFile(join(flintDir, 'context.json'), JSON.stringify({ test: 2 }))
             await mgr.shadowCommit(dir, 'test-batch-abc')
             const { stdout } = await execFileAsync('git', ['log', '--oneline'], { cwd: dir })
             expect(stdout).toContain('flint:sync:test-batch-abc')
@@ -134,6 +160,7 @@ describe('GitManager', () => {
 
         it('is a no-op when the working tree is clean', async () => {
             const before = await commitCount(dir)
+            // No .flint/ files to stage — shadowCommit should be a no-op
             await mgr.shadowCommit(dir)
             expect(await commitCount(dir)).toBe(before)
         })
@@ -148,7 +175,10 @@ describe('GitManager', () => {
         it('accepts cwd pointing to a subdirectory of the project', async () => {
             const subdir = join(dir, 'src')
             await mkdir(subdir, { recursive: true })
-            await writeFile(join(dir, 'App.tsx'), 'const z = 3')
+            // Write a .flint/ file at the project root so there is something to stage
+            const flintDir = join(dir, '.flint')
+            await mkdir(flintDir, { recursive: true })
+            await writeFile(join(flintDir, 'context.json'), JSON.stringify({ test: 3 }))
             // Pass the subdirectory — GitManager resolves the git root automatically
             await mgr.shadowCommit(subdir)
             const { stdout } = await execFileAsync('git', ['log', '--oneline'], { cwd: dir })
@@ -157,6 +187,9 @@ describe('GitManager', () => {
     })
 
     // ── getGitNode ────────────────────────────────────────────────────────────
+    //
+    // getGitNode reads source files from git history.  Because shadowCommit only
+    // stages .flint/, these tests use gitCommitFile() to commit App.tsx directly.
 
     describe('getGitNode', () => {
         it('returns the source text of the JSXElement matching dataFlintId', async () => {
@@ -170,7 +203,7 @@ describe('GitManager', () => {
 }`
             const fp = join(dir, 'App.tsx')
             await writeFile(fp, src)
-            await mgr.shadowCommit(dir)
+            await gitCommitFile(dir, fp)
             const hash = await latestHash(dir)
 
             const result = await mgr.getGitNode(hash, fp, 'div:2:4')
@@ -191,7 +224,7 @@ describe('GitManager', () => {
 }`
             const fp = join(dir, 'App.tsx')
             await writeFile(fp, src)
-            await mgr.shadowCommit(dir)
+            await gitCommitFile(dir, fp)
             const hash = await latestHash(dir)
 
             const result = await mgr.getGitNode(hash, fp, 'span:3:6')
@@ -208,7 +241,7 @@ describe('GitManager', () => {
             await writeFile(fp, `export default function App() {
   return <div data-flint-id="div:1:0">hi</div>
 }`)
-            await mgr.shadowCommit(dir)
+            await gitCommitFile(dir, fp)
             const hash = await latestHash(dir)
 
             expect(await mgr.getGitNode(hash, fp, 'span:99:0')).toBeNull()
