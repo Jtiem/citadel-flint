@@ -106,9 +106,12 @@ jobs:
           npm test
 
       # ── 10. Build Vite + Electron ───────────────────────────────────────────
-      # electron-builder runs vite build internally via the "build" script,
-      # then packages the output into platform-specific installers.
-      - name: Build and publish
+      # First compile the Electron main process and Vite renderer bundle,
+      # then package the output into platform-specific installers.
+      - name: Build Vite + Electron
+        run: npm run build
+
+      - name: Package and publish
         run: npx electron-builder --publish always
         env:
           # GitHub token for uploading release artifacts
