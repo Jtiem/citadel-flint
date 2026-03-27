@@ -29,6 +29,16 @@ import {
     type RefinementResult,
 } from '../core/d2cRefinement.js'
 import {
+    enrichFromCodeConnect,
+    type CodeConnectSuggestion,
+} from '../core/codeConnectEnricher.js'
+import {
+    parseDesignSystemResponse,
+    buildDesignSystemContext,
+    filterDocsForComponent,
+    type DesignSystemDoc,
+} from '../core/designSystemContext.js'
+import {
     transformFigmaJsx,
     type SupportedLibrary,
     type TransformResult,
@@ -99,6 +109,20 @@ export const FLINT_DESIGN_TO_CODE_TOOL = {
                     'Base64-encoded screenshot from Figma get_design_context. ' +
                     'Passed to AI refinement for visual understanding. Optional.',
             },
+            designSystemDocs: {
+                type: 'string',
+                description:
+                    'JSON string of DesignSystemDoc[] or raw search_design_system response. ' +
+                    'When provided with aiRefine=true, injects component-specific design system ' +
+                    'guidelines into each refinement prompt for better library-idiomatic output.',
+            },
+            codeConnectSuggestions: {
+                type: 'string',
+                description:
+                    'JSON string of CodeConnectSuggestion[] from Figma MCP get_code_connect_suggestions. ' +
+                    'Designer-defined mappings between Figma components and code components. ' +
+                    'Takes highest classification priority (overrides heuristics and AI classification).',
+            },
         },
         required: [],
     },
@@ -121,6 +145,10 @@ export interface DesignToCodeArgs {
     aiRefine?: boolean
     /** D2C.5: Base64-encoded screenshot for AI refinement visual context. */
     screenshotBase64?: string
+    /** Design system docs (JSON string or raw search_design_system response) for AI refinement context. */
+    designSystemDocs?: string
+    /** JSON string of CodeConnectSuggestion[] from Figma MCP get_code_connect_suggestions. */
+    codeConnectSuggestions?: string
 }
 
 export interface ComponentResult {
@@ -164,6 +192,11 @@ export interface DesignToCodeResult {
         latencyMs: number
         reason?: string
     }>
+    /** Code Connect enrichment metadata (only present when codeConnectSuggestions provided) */
+    codeConnectEnrichment?: {
+        mappedCount: number
+        unmappedCount: number
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -359,6 +392,35 @@ export async function handleDesignToCode(
     }
 
     // ------------------------------------------------------------------
+    // Step 6d: Code Connect suggestions (highest classification priority)
+    // ------------------------------------------------------------------
+    let codeConnectMeta: DesignToCodeResult['codeConnectEnrichment']
+
+    if (args.codeConnectSuggestions && typeof args.codeConnectSuggestions === 'string') {
+        try {
+            const parsed = JSON.parse(args.codeConnectSuggestions) as CodeConnectSuggestion[]
+            const enrichResult = enrichFromCodeConnect(parsed, libraryTarget)
+
+            codeConnectMeta = {
+                mappedCount: enrichResult.mappedCount,
+                unmappedCount: enrichResult.unmappedCount,
+            }
+
+            if (enrichResult.overrides.size > 0) {
+                // Merge: Code Connect overrides take highest priority
+                if (!classificationOverrides) {
+                    classificationOverrides = new Map()
+                }
+                for (const [nodeId, componentType] of enrichResult.overrides) {
+                    classificationOverrides.set(nodeId, componentType)
+                }
+            }
+        } catch {
+            // Malformed JSON is non-fatal — continue without Code Connect enrichment
+        }
+    }
+
+    // ------------------------------------------------------------------
     // Step 7: Run ingestion (processPage handles both single + multi)
     // ------------------------------------------------------------------
     const engineOptions: { library: LibraryTarget; classificationOverrides?: Map<string, string> } = {
@@ -404,9 +466,27 @@ export async function handleDesignToCode(
         const idiomBlock = adapter.getIdiomBlock()
         const parsedTree = JSON.parse(enrichedPayload)
 
+        // Parse design system docs once for all components
+        let allDsDocs: DesignSystemDoc[] = []
+        if (args.designSystemDocs && args.designSystemDocs.trim().length > 0) {
+            allDsDocs = parseDesignSystemResponse(args.designSystemDocs)
+        }
+
         aiRefinementsMeta = []
 
         for (const comp of componentResults) {
+            // Build component-specific design system context
+            let dsContext: string | undefined
+            if (allDsDocs.length > 0) {
+                const relevantDocs = filterDocsForComponent(allDsDocs, comp.name)
+                // If no component-specific match, include all docs as general guidance
+                const docsToUse = relevantDocs.length > 0 ? relevantDocs : allDsDocs
+                const contextStr = buildDesignSystemContext(docsToUse)
+                if (contextStr.length > 0) {
+                    dsContext = contextStr
+                }
+            }
+
             const result = await refineComponent(
                 comp.code,
                 parsedTree,
@@ -414,6 +494,7 @@ export async function handleDesignToCode(
                 idiomBlock,
                 apiKey,
                 args.screenshotBase64,
+                dsContext,
             )
 
             aiRefinementsMeta.push({
@@ -495,6 +576,11 @@ export async function handleDesignToCode(
         const total = aiRefinementsMeta.length
         aiNotes.push(` AI refinement: ${refined}/${total} component(s) improved.`)
     }
+    if (codeConnectMeta) {
+        aiNotes.push(
+            ` Code Connect: ${codeConnectMeta.mappedCount} mapped, ${codeConnectMeta.unmappedCount} unmapped.`
+        )
+    }
 
     return {
         status: 'ok',
@@ -513,6 +599,7 @@ export async function handleDesignToCode(
         summary: summary + aiNotes.join(''),
         ...(aiClassificationMeta && { aiClassification: aiClassificationMeta }),
         ...(aiRefinementsMeta && { aiRefinements: aiRefinementsMeta }),
+        ...(codeConnectMeta && { codeConnectEnrichment: codeConnectMeta }),
     }
 }
 

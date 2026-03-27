@@ -127,6 +127,10 @@ import {
     handleCodeConnectSync,
     FLINT_CODE_CONNECT_SYNC_TOOL,
 } from "./tools/codeConnectSync.js";
+import {
+    handlePullVariables,
+    FLINT_PULL_VARIABLES_TOOL,
+} from "./tools/figmaVariables.js";
 
 // @ts-ignore
 const generate = _generate.default || _generate;
@@ -1115,6 +1119,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             FLINT_EXTRACT_TOKENS_TOOL,
             FLINT_APPROVE_TOKENS_TOOL,
             FLINT_CODE_CONNECT_SYNC_TOOL,
+            FLINT_PULL_VARIABLES_TOOL,
             FLINT_PACK_EXPORT_TOOL,
             FLINT_PACK_IMPORT_TOOL,
             FLINT_PACK_ROLLBACK_TOOL,
@@ -3670,6 +3675,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 projectRoot?: string;
                 writeThemeFile?: boolean;
                 figmaUrl?: string;
+                figmaCode?: string;
+                aiClassify?: boolean;
+                aiRefine?: boolean;
+                screenshotBase64?: string;
+                designSystemDocs?: string;
+                codeConnectSuggestions?: string;
             };
             const result = await handleDesignToCode(d2cArgs, flintConfig);
             return {
@@ -3766,6 +3777,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 projectRoot?: string;
             };
             return handleCodeConnectSync(ccArgs);
+        }
+
+        // -----------------------------------------------------------------
+        // Figma Variables → DesignToken conversion
+        // -----------------------------------------------------------------
+
+        case "flint_pull_variables": {
+            const pullArgs = request.params.arguments as {
+                variablesPayload: string;
+                fileKey?: string;
+                mode?: string;
+            };
+            return handlePullVariables(pullArgs);
         }
 
         default:
