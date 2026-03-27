@@ -94,12 +94,11 @@ mac:
   # Uncomment when you have an Apple Developer certificate:
   # identity: "Developer ID Application: Your Name (TEAM_ID)"
   #
-  # Notarization — active only when APPLE_TEAM_ID env var is set.
-  # electron-builder gracefully skips notarization when the value is empty.
-  # Required env vars: APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID
-  # Set these in GitHub Secrets for CI, or export locally for a signed build.
-  notarize:
-    teamId: ${env.APPLE_TEAM_ID}
+  # Notarization — electron-builder 26.8+ requires a boolean here.
+  # Set to true when APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD + APPLE_TEAM_ID
+  # are configured as env vars / GitHub Secrets. electron-builder reads the
+  # credentials from env automatically. Set to false to skip.
+  notarize: false
 
 # ── Windows ──────────────────────────────────────────────────────────────────
 win:
@@ -124,8 +123,7 @@ linux:
 
 # ── GitHub Releases publish ───────────────────────────────────────────────────
 # electron-updater reads this section to locate the update feed.
-# NOTE: electron-updater must be added to package.json dependencies before
-# auto-update can function at runtime (it is not yet present).
+# electron-updater is in package.json dependencies — auto-update is functional.
 publish:
   provider: github
   owner: Jtiem
