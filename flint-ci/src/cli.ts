@@ -11,6 +11,7 @@
  *   sync              -- Check token sync health
  *   dbom              -- Generate Design Bill of Materials
  *   fix   [paths...]  -- Auto-fix violations (dry-run by default)
+ *   init              -- Generate starter flint.config.yaml
  *
  * Exit codes:
  *   0 -- Pass
@@ -25,6 +26,7 @@ import { debtCommand } from './commands/debt.js'
 import { syncCheckCommand } from './commands/sync-check.js'
 import { dbomCommand } from './commands/dbom.js'
 import { fixCommand } from './commands/fix.js'
+import { initCommand } from './commands/init.js'
 
 const program = new Command()
 
@@ -39,8 +41,11 @@ program
     .command('audit [paths...]', { isDefault: true })
     .description('Scan source files for governance violations')
     .option('-c, --changed', 'Scan only git-changed files (vs merge base)')
+    .option('--fix', 'Auto-fix violations after audit (applies fixes in one pass)')
+    .option('--format <format>', 'Output format (terminal|json|sarif)', 'terminal')
     .option('--sarif <file>', 'Write SARIF 2.1.0 report to FILE')
     .option('--fail-on-warning', 'Exit 1 on amber-level violations too')
+    .option('--baseline', 'Suppress known violations from .flint/baseline.json')
     .option('--tokens <file>', 'Path to design tokens JSON', '.flint/design-tokens.json')
     .option('--policy <file>', 'Path to legacy policy JSON (overrides flint.config.yaml)')
     .option('--project-root <path>', 'Project root directory', process.cwd())
@@ -117,6 +122,23 @@ program
     .action(async (paths: string[], opts) => {
         try {
             const exitCode = await fixCommand(paths, opts)
+            process.exit(exitCode)
+        } catch (err) {
+            printError(err)
+            process.exit(3)
+        }
+    })
+
+// ── init ────────────────────────────────────────────────────────────────────
+
+program
+    .command('init')
+    .description('Generate a starter flint.config.yaml for your project')
+    .option('--force', 'Overwrite existing flint.config.yaml')
+    .option('--project-root <path>', 'Project root directory', process.cwd())
+    .action(async (opts) => {
+        try {
+            const exitCode = await initCommand(opts)
             process.exit(exitCode)
         } catch (err) {
             printError(err)

@@ -17,11 +17,46 @@ import {
     loadTokens,
     loadGovernanceConfig,
     buildSarifReport,
+    extractRuleId,
     DEFAULT_POLICY,
 } from '../engine.js'
 import type { AuditSummary, FlintPolicy } from '../engine.js'
 import { ANSI } from '../utils/ansi.js'
 import { isSourceFile, collectSourceFiles } from '../utils/files.js'
+
+// ── Error taxonomy (CX.3) — loaded once for explanation enrichment ───────────
+
+let errorTaxonomy: Map<string, { title: string; recovery: string }> | null = null
+
+async function loadErrorTaxonomy(): Promise<void> {
+    if (errorTaxonomy) return
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const mod: any = await import(
+            '../../../flint-mcp/src/core/errorTaxonomy.js'
+        )
+        if (typeof mod.getErrorEntryByRuleId === 'function') {
+            errorTaxonomy = new Map()
+            // Pre-cache lookups for known rule prefixes
+            for (const prefix of ['MITHRIL-COL', 'MITHRIL-TYP-', 'MITHRIL-SPC-', 'MITHRIL-SHD-', 'MITHRIL-OPC-', 'MITHRIL-IST-', 'MITHRIL-DTO-', 'A11Y-', 'SYNC-']) {
+                for (let i = 0; i < 60; i++) {
+                    const ruleId = prefix.endsWith('-') ? `${prefix}${String(i).padStart(3, '0')}` : prefix
+                    const entry = mod.getErrorEntryByRuleId(ruleId)
+                    if (entry) {
+                        errorTaxonomy.set(ruleId, { title: entry.title, recovery: entry.recovery })
+                    }
+                    if (!prefix.endsWith('-')) break
+                }
+            }
+        }
+    } catch {
+        // Taxonomy not available — output remains functional without it
+    }
+}
+
+function getExplanation(ruleId: string): { title: string; recovery: string } | null {
+    return errorTaxonomy?.get(ruleId) ?? null
+}
 
 /**
  * Gets git-changed source files relative to the merge base.
@@ -110,6 +145,13 @@ function printSummary(summary: AuditSummary, blocked: boolean): void {
             const color = w.severity === 'critical' ? ANSI.red : ANSI.yellow
             const badge = w.severity === 'critical' ? 'CRIT' : 'AMBR'
             console.log(`    ${color}[${badge}]${ANSI.reset} ${w.message}`)
+            // CX.3: append explanation + recovery from error taxonomy
+            const ruleId = extractRuleId(w.message)
+            const explain = getExplanation(ruleId)
+            if (explain) {
+                console.log(`           ${ANSI.dim}Why: ${explain.title}${ANSI.reset}`)
+                console.log(`           ${ANSI.dim}Fix: ${explain.recovery.split('.')[0]}.${ANSI.reset}`)
+            }
         }
 
         for (const [elemId, messages] of Object.entries(result.a11yViolations)) {
@@ -117,6 +159,12 @@ function printSummary(summary: AuditSummary, blocked: boolean): void {
                 console.log(
                     `    ${ANSI.red}[A11Y]${ANSI.reset} ${ANSI.dim}${elemId}:${ANSI.reset} ${msg}`,
                 )
+                const ruleId = extractRuleId(msg)
+                const explain = getExplanation(ruleId)
+                if (explain) {
+                    console.log(`           ${ANSI.dim}Why: ${explain.title}${ANSI.reset}`)
+                    console.log(`           ${ANSI.dim}Fix: ${explain.recovery.split('.')[0]}.${ANSI.reset}`)
+                }
             }
         }
         console.log()
@@ -138,9 +186,12 @@ export interface AuditOptions {
     changed?: boolean
     sarif?: string
     failOnWarning?: boolean
+    fix?: boolean
+    format?: 'terminal' | 'json' | 'sarif'
     tokens?: string
     policy?: string
     projectRoot?: string
+    baseline?: boolean
 }
 
 export async function auditCommand(
@@ -149,6 +200,10 @@ export async function auditCommand(
 ): Promise<number> {
     const projectRoot = path.resolve(opts.projectRoot ?? process.cwd())
     const useChanged = opts.changed ?? false
+    const format = opts.format ?? 'terminal'
+
+    // Load error taxonomy for enriched explanations (non-blocking)
+    await loadErrorTaxonomy()
 
     // Load governance config (YAML first, then legacy JSON, then defaults)
     let policy: FlintPolicy
@@ -241,15 +296,26 @@ export async function auditCommand(
     }
 
     // Run audit
-    const summary = auditFiles(files, tokens, policy)
+    let summary = auditFiles(files, tokens, policy)
+
+    // Baseline suppression: filter out known violations from .flint/baseline.json
+    if (opts.baseline) {
+        summary = applyBaseline(summary, projectRoot)
+    }
 
     // Generate SARIF if requested
-    if (opts.sarif) {
+    if (opts.sarif || format === 'sarif') {
         const sarif = buildSarifReport(summary)
-        fs.writeFileSync(opts.sarif, JSON.stringify(sarif, null, 2), 'utf-8')
-        console.log(
-            `${ANSI.dim}SARIF report written to ${opts.sarif}${ANSI.reset}`,
-        )
+        const sarifPath = opts.sarif ?? 'flint-results.sarif'
+        fs.writeFileSync(sarifPath, JSON.stringify(sarif, null, 2), 'utf-8')
+        if (format !== 'sarif') {
+            console.log(
+                `${ANSI.dim}SARIF report written to ${sarifPath}${ANSI.reset}`,
+            )
+        } else {
+            // SARIF-only mode: print to stdout
+            console.log(JSON.stringify(sarif, null, 2))
+        }
     }
 
     // Determine blocked status
@@ -259,8 +325,134 @@ export async function auditCommand(
         opts.failOnWarning ?? false,
     )
 
-    // Print summary
-    printSummary(summary, blocked)
+    // Output based on format
+    if (format === 'json') {
+        // Machine-readable JSON output to stdout
+        const jsonReport = {
+            version: '2.0.0',
+            verdict: blocked ? 'BLOCKED' : 'PASSED',
+            summary: {
+                totalFiles: summary.totalFiles,
+                filesWithViolations: summary.filesWithViolations,
+                totalMithrilWarnings: summary.totalMithrilWarnings,
+                totalA11yViolations: summary.totalA11yViolations,
+                criticalCount: summary.criticalCount,
+                amberCount: summary.amberCount,
+            },
+            files: summary.results
+                .filter(r => r.mithrilWarnings.length > 0 || Object.keys(r.a11yViolations).length > 0 || r.parseError)
+                .map(r => ({
+                    path: r.filePath,
+                    mithrilWarnings: r.mithrilWarnings.map(w => ({
+                        ruleId: extractRuleId(w.message),
+                        severity: w.severity,
+                        message: w.message,
+                        line: w.line,
+                        nearestToken: w.nearestToken,
+                    })),
+                    a11yViolations: r.a11yViolations,
+                    parseError: r.parseError,
+                })),
+        }
+        console.log(JSON.stringify(jsonReport, null, 2))
+    } else if (format === 'terminal') {
+        printSummary(summary, blocked)
+    }
+
+    // --fix: auto-fix after audit in one pass
+    if (opts.fix && (summary.totalMithrilWarnings > 0 || summary.totalA11yViolations > 0)) {
+        console.log()
+        console.log(`${ANSI.bold}  Auto-fixing violations...${ANSI.reset}`)
+        try {
+            const { fixCommand } = await import('./fix.js')
+            await fixCommand(paths.length > 0 ? paths : [projectRoot], {
+                dryRun: false,
+                tokens: opts.tokens,
+                projectRoot: opts.projectRoot,
+            })
+        } catch {
+            console.error(`${ANSI.yellow}Auto-fix unavailable. Run 'flint-gate fix' manually.${ANSI.reset}`)
+        }
+    }
 
     return blocked ? 1 : 0
+}
+
+// ── Baseline suppression ────────────────────────────────────────────────────
+
+/**
+ * Loads .flint/baseline.json and removes known violations from the summary.
+ * Baseline entries are keyed by filePath + ruleId. Only NEW violations block.
+ */
+function applyBaseline(summary: AuditSummary, projectRoot: string): AuditSummary {
+    const baselinePath = path.join(projectRoot, '.flint', 'baseline.json')
+    if (!fs.existsSync(baselinePath)) return summary
+
+    let baseline: Record<string, string[]>
+    try {
+        baseline = JSON.parse(fs.readFileSync(baselinePath, 'utf-8'))
+    } catch {
+        console.error(`${ANSI.yellow}Warning: Could not parse .flint/baseline.json — skipping baseline${ANSI.reset}`)
+        return summary
+    }
+
+    let suppressedCount = 0
+    const filteredResults = summary.results.map(result => {
+        const baselineRules = new Set(baseline[result.filePath] ?? [])
+        if (baselineRules.size === 0) return result
+
+        // Filter Mithril warnings
+        const filteredWarnings = result.mithrilWarnings.filter(w => {
+            const ruleId = extractRuleId(w.message)
+            if (baselineRules.has(ruleId)) { suppressedCount++; return false }
+            return true
+        })
+
+        // Filter A11y violations
+        const filteredA11y: Record<string, string[]> = {}
+        for (const [elemId, messages] of Object.entries(result.a11yViolations)) {
+            const kept = messages.filter(msg => {
+                const ruleId = extractRuleId(msg)
+                if (baselineRules.has(ruleId)) { suppressedCount++; return false }
+                return true
+            })
+            if (kept.length > 0) filteredA11y[elemId] = kept
+        }
+
+        return { ...result, mithrilWarnings: filteredWarnings, a11yViolations: filteredA11y }
+    })
+
+    if (suppressedCount > 0) {
+        console.log(`${ANSI.dim}Baseline: suppressed ${suppressedCount} known violation(s)${ANSI.reset}`)
+    }
+
+    // Recompute summary counts
+    let totalMithrilWarnings = 0
+    let totalA11yViolations = 0
+    let criticalCount = 0
+    let amberCount = 0
+    let filesWithViolations = 0
+
+    for (const r of filteredResults) {
+        const mCount = r.mithrilWarnings.length
+        const aCount = Object.values(r.a11yViolations).reduce((s, a) => s + a.length, 0)
+        if (mCount > 0 || aCount > 0 || r.parseError) filesWithViolations++
+        totalMithrilWarnings += mCount
+        totalA11yViolations += aCount
+        for (const w of r.mithrilWarnings) {
+            if (w.severity === 'critical') criticalCount++
+            else amberCount++
+        }
+        criticalCount += aCount
+    }
+
+    return {
+        totalFiles: summary.totalFiles,
+        filesWithViolations,
+        totalMithrilWarnings,
+        totalA11yViolations,
+        criticalCount,
+        amberCount,
+        results: filteredResults,
+    }
 }

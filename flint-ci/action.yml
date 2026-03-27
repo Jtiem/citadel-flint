@@ -1,0 +1,45 @@
+name: 'Flint Governance Gate'
+description: 'Enforce design system, accessibility, and brand compliance in CI'
+author: 'Justin Tiemann'
+
+inputs:
+  token_file:
+    description: 'Path to design tokens JSON file'
+    required: false
+    default: '.flint/design-tokens.json'
+  fail_on_warning:
+    description: 'Fail on amber-level (warning) violations'
+    required: false
+    default: 'false'
+  sarif_output:
+    description: 'Path to write SARIF report (enables GitHub Code Scanning)'
+    required: false
+    default: ''
+  project_root:
+    description: 'Project root directory'
+    required: false
+    default: '.'
+  github_token:
+    description: 'GitHub token for PR comments'
+    required: false
+    default: '${{ github.token }}'
+
+outputs:
+  total_violations:
+    description: 'Total number of violations found'
+  critical_count:
+    description: 'Number of critical violations'
+  amber_count:
+    description: 'Number of amber-level violations'
+  health_score:
+    description: 'Design health score (0-100)'
+  sarif_file:
+    description: 'Path to the generated SARIF file (if sarif_output was set)'
+
+runs:
+  using: 'node20'
+  main: 'dist/github-action.js'
+
+branding:
+  icon: 'shield'
+  color: 'blue'

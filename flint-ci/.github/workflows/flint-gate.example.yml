@@ -1,0 +1,47 @@
+# Example: Add this to your repository's .github/workflows/ directory
+# Rename to flint-gate.yml to activate
+
+name: Flint Governance Gate
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write  # Required for SARIF upload
+
+jobs:
+  governance:
+    name: Design System Compliance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Flint Governance Gate
+        uses: Jtiem/flint-gate@v2  # or: ./flint-ci (if vendored locally, run `npm run build` first)
+        with:
+          token_file: '.flint/design-tokens.json'
+          sarif_output: 'flint-results.sarif'
+          fail_on_warning: 'false'
+
+      - name: Upload SARIF to GitHub
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'flint-results.sarif'
+
+      - name: Design Debt Report
+        if: always()
+        run: npx flint-gate debt --format markdown

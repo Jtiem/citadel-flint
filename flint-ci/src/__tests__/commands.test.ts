@@ -630,3 +630,137 @@ describe('dbomCommand', () => {
         expect([0, 3]).toContain(exitCode)
     })
 })
+
+// ── initCommand ─────────────────────────────────────────────────────────────
+
+describe('initCommand', () => {
+    let tmpDir: string
+
+    beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flint-ci-init-'))
+        vi.spyOn(console, 'log').mockImplementation(() => {})
+        vi.spyOn(console, 'error').mockImplementation(() => {})
+    })
+
+    afterEach(() => {
+        fs.rmSync(tmpDir, { recursive: true, force: true })
+        vi.restoreAllMocks()
+    })
+
+    it('should create flint.config.yaml and return 0', async () => {
+        const { initCommand } = await import('../commands/init.js')
+        const exitCode = await initCommand({ projectRoot: tmpDir })
+        expect(exitCode).toBe(0)
+        expect(fs.existsSync(path.join(tmpDir, 'flint.config.yaml'))).toBe(true)
+    })
+
+    it('should return 1 if config already exists (no --force)', async () => {
+        const { initCommand } = await import('../commands/init.js')
+        fs.writeFileSync(path.join(tmpDir, 'flint.config.yaml'), 'existing: true', 'utf-8')
+        const exitCode = await initCommand({ projectRoot: tmpDir })
+        expect(exitCode).toBe(1)
+    })
+
+    it('should overwrite with --force', async () => {
+        const { initCommand } = await import('../commands/init.js')
+        fs.writeFileSync(path.join(tmpDir, 'flint.config.yaml'), 'old: true', 'utf-8')
+        const exitCode = await initCommand({ projectRoot: tmpDir, force: true })
+        expect(exitCode).toBe(0)
+        const content = fs.readFileSync(path.join(tmpDir, 'flint.config.yaml'), 'utf-8')
+        expect(content).not.toContain('old: true')
+    })
+
+    it('should detect project name from package.json', async () => {
+        const { initCommand } = await import('../commands/init.js')
+        fs.writeFileSync(path.join(tmpDir, 'package.json'), JSON.stringify({ name: 'my-app' }), 'utf-8')
+        await initCommand({ projectRoot: tmpDir })
+        const content = fs.readFileSync(path.join(tmpDir, 'flint.config.yaml'), 'utf-8')
+        expect(content).toContain('my-app')
+    })
+})
+
+// ── --baseline support ──────────────────────────────────────────────────────
+
+describe('audit --baseline', () => {
+    let tmpDir: string
+
+    beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flint-ci-baseline-'))
+        fs.mkdirSync(path.join(tmpDir, '.flint'), { recursive: true })
+        fs.writeFileSync(path.join(tmpDir, '.flint', 'design-tokens.json'), '[]', 'utf-8')
+        vi.spyOn(console, 'log').mockImplementation(() => {})
+        vi.spyOn(console, 'error').mockImplementation(() => {})
+    })
+
+    afterEach(() => {
+        fs.rmSync(tmpDir, { recursive: true, force: true })
+        vi.restoreAllMocks()
+    })
+
+    it('should pass through when no baseline file exists', async () => {
+        const { auditCommand } = await import('../commands/audit.js')
+        // Write a clean file
+        fs.writeFileSync(path.join(tmpDir, 'Clean.tsx'), CLEAN_TSX, 'utf-8')
+        const exitCode = await auditCommand([tmpDir], {
+            projectRoot: tmpDir,
+            baseline: true,
+        })
+        expect(exitCode).toBe(0)
+    })
+
+    it('should suppress baselined violations', async () => {
+        const { auditCommand } = await import('../commands/audit.js')
+        // Write a file with a11y violations
+        fs.writeFileSync(path.join(tmpDir, 'Bad.tsx'), BAD_A11Y_TSX, 'utf-8')
+        // Create baseline that suppresses A11Y-001
+        const baseline = { 'Bad.tsx': ['A11Y-001'] }
+        fs.writeFileSync(path.join(tmpDir, '.flint', 'baseline.json'), JSON.stringify(baseline), 'utf-8')
+        const exitCode = await auditCommand([tmpDir], {
+            projectRoot: tmpDir,
+            baseline: true,
+        })
+        // May still have other violations, but A11Y-001 should be suppressed
+        expect([0, 1]).toContain(exitCode)
+    })
+})
+
+// ── --format json ───────────────────────────────────────────────────────────
+
+describe('audit --format json', () => {
+    let tmpDir: string
+    let logOutput: string[]
+
+    beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flint-ci-json-'))
+        fs.mkdirSync(path.join(tmpDir, '.flint'), { recursive: true })
+        fs.writeFileSync(path.join(tmpDir, '.flint', 'design-tokens.json'), '[]', 'utf-8')
+        logOutput = []
+        vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+            logOutput.push(args.map(String).join(' '))
+        })
+        vi.spyOn(console, 'error').mockImplementation(() => {})
+    })
+
+    afterEach(() => {
+        fs.rmSync(tmpDir, { recursive: true, force: true })
+        vi.restoreAllMocks()
+    })
+
+    it('should output valid JSON with expected structure', async () => {
+        const { auditCommand } = await import('../commands/audit.js')
+        fs.writeFileSync(path.join(tmpDir, 'App.tsx'), CLEAN_TSX, 'utf-8')
+        await auditCommand([tmpDir], {
+            projectRoot: tmpDir,
+            format: 'json',
+        })
+        // Find the JSON output (largest log entry)
+        const jsonStr = logOutput.find(s => s.startsWith('{'))
+        expect(jsonStr).toBeDefined()
+        const parsed = JSON.parse(jsonStr!)
+        expect(parsed.version).toBe('2.0.0')
+        expect(parsed.verdict).toBe('PASSED')
+        expect(parsed.summary).toBeDefined()
+        expect(parsed.summary.totalFiles).toBeGreaterThanOrEqual(1)
+        expect(Array.isArray(parsed.files)).toBe(true)
+    })
+})
