@@ -29,8 +29,12 @@
 import { useMemo, useState, useEffect, useCallback } from 'react'
 import { useEditorStore } from '../../store/editorStore'
 import { useCanvasStore } from '../../store/canvasStore'
+import { useGovernanceStore } from '../../store/governanceStore'
 import type { LinterWarning, BaselineEntry } from '../../types/flint-api'
 import { auditDelta } from '../../utils/deltaAudit'
+import { CoverageBar } from './CoverageBar'
+import { InheritanceChain } from './InheritanceChain'
+import { useGovernanceConfig } from '../../hooks/useGovernanceConfig'
 
 // ── Score / grade helpers ─────────────────────────────────────────────────────
 
@@ -166,10 +170,15 @@ type BaselineStatus = 'idle' | 'setting' | 'clearing'
 
 export function GovernanceDashboard() {
     // Zustand selectors — one per slice to minimise re-renders.
-    const linterWarnings  = useEditorStore((s) => s.linterWarnings)
-    const a11yViolations  = useCanvasStore((s) => s.a11yViolations)
-    const overridesExist  = useCanvasStore((s) => s.overridesExist)
-    const activeFilePath  = useCanvasStore((s) => s.activeFilePath)
+    const linterWarnings       = useEditorStore((s) => s.linterWarnings)
+    const a11yViolations       = useCanvasStore((s) => s.a11yViolations)
+    const overridesExist       = useCanvasStore((s) => s.overridesExist)
+    const activeFilePath       = useCanvasStore((s) => s.activeFilePath)
+    const jurisdictionCoverage = useGovernanceStore((s) => s.jurisdictionCoverage)
+    const inheritanceChain     = useGovernanceStore((s) => s.inheritanceChain)
+
+    // ERM: load resolved config on mount and subscribe to changes
+    const { isLoading: isLoadingConfig } = useGovernanceConfig()
 
     // ── Delta Mode state ──────────────────────────────────────────────────────
     const [isBaselineSet, setIsBaselineSet] = useState(false)
@@ -500,6 +509,18 @@ export function GovernanceDashboard() {
                     <span className="flex-1 text-xs text-indigo-300">{confirmationMsg}</span>
                 </div>
             )}
+
+            {/* ── Compliance Coverage (ERM) ─────────────────────────────── */}
+            <CoverageBar
+                coverages={jurisdictionCoverage}
+                isLoading={isLoadingConfig}
+            />
+
+            {/* ── Config Inheritance (ERM) ──────────────────────────────── */}
+            <InheritanceChain
+                chain={inheritanceChain}
+                isLoading={isLoadingConfig}
+            />
 
             {/* ── Delta Mode footer controls ────────────────────────────── */}
             <div className="border-t border-zinc-800 px-3 py-3 flex items-center gap-2 mt-auto">

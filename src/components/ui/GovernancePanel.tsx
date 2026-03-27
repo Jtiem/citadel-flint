@@ -5,15 +5,18 @@
  * rules and overriding their severity, grouped by category.
  *
  * Architecture:
- *   GovernancePanel         — full-screen modal shell + category sidebar + rule list
- *   CategorySidebar         — left sidebar with category filter buttons
+ *   GovernancePanel         — full-screen modal shell + tab bar + tab content
+ *   CategorySidebar         — left sidebar with category filter buttons (Rules tab)
  *   RuleRow                 — single rule with toggle, ID, name, severity badge
  *   SeverityBadge           — color-coded severity display
+ *   RuleCatalogPanel        — Rule Packs tab (browsable pack catalog)
+ *   ComplianceProfileSelector — Profiles tab (jurisdiction checklist)
  *
  * State:
  *   - Reads rule definitions from GOVERNANCE_RULES_MANIFEST (static)
  *   - Reads/writes overrides via useGovernanceStore
  *   - Pending changes tracked locally; committed on Save, discarded on Reset/Close
+ *   - ERM: activePresets and togglePack via useGovernanceConfig hook
  *
  * Mithril Safety: all classes from Flint design token palette only.
  */
@@ -40,12 +43,19 @@ const PLANNED_BADGE = (
 )
 import { useGovernanceStore, type RuleOverride } from '../../store/governanceStore'
 import { useCanvasStore } from '../../store/canvasStore'
+import { RuleCatalogPanel } from './RuleCatalogPanel'
+import { ComplianceProfileSelector } from './ComplianceProfileSelector'
+import { useGovernanceConfig } from '../../hooks/useGovernanceConfig'
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 interface GovernancePanelProps {
     onClose: () => void
 }
+
+// ── Panel tab type ────────────────────────────────────────────────────────────
+
+type PanelTab = 'rules' | 'packs' | 'profiles'
 
 // ── SeverityBadge ─────────────────────────────────────────────────────────────
 
@@ -226,6 +236,11 @@ export function GovernancePanel({ onClose }: GovernancePanelProps) {
 
     const [activeCategory, setActiveCategory] = useState<GovernanceCategory | 'All'>('All')
     const [saving, setSaving] = useState(false)
+    const [activeTab, setActiveTab] = useState<PanelTab>('rules')
+    const [isToggling, setIsToggling] = useState(false)
+
+    // ERM: resolved config (activePresets) via the governance hook
+    const { activePresets, togglePack } = useGovernanceConfig()
 
     // Load persisted overrides on mount
     useEffect(() => {
@@ -302,6 +317,31 @@ export function GovernancePanel({ onClose }: GovernancePanelProps) {
         })
     }
 
+    // ERM: enable / disable a rule pack via IPC
+    const handleEnablePack = useCallback(
+        async (packId: string) => {
+            setIsToggling(true)
+            try {
+                await togglePack(packId, true)
+            } finally {
+                setIsToggling(false)
+            }
+        },
+        [togglePack],
+    )
+
+    const handleDisablePack = useCallback(
+        async (packId: string) => {
+            setIsToggling(true)
+            try {
+                await togglePack(packId, false)
+            } finally {
+                setIsToggling(false)
+            }
+        },
+        [togglePack],
+    )
+
     const modifiedCount = Object.keys(overrides).length
 
     return (
@@ -347,51 +387,106 @@ export function GovernancePanel({ onClose }: GovernancePanelProps) {
                     </button>
                 </div>
 
+                {/* ── Tab bar ── */}
+                <div className="shrink-0 flex items-center gap-0 border-b border-zinc-800 px-5">
+                    {(
+                        [
+                            { id: 'rules' as PanelTab, label: 'Rules' },
+                            { id: 'packs' as PanelTab, label: 'Rule Packs' },
+                            { id: 'profiles' as PanelTab, label: 'Profiles' },
+                        ] as const
+                    ).map((tab) => (
+                        <button
+                            key={tab.id}
+                            type="button"
+                            onClick={() => setActiveTab(tab.id)}
+                            className={`border-b-2 px-3 py-2 text-xs font-medium transition-colors ${
+                                activeTab === tab.id
+                                    ? 'border-indigo-500 text-indigo-300'
+                                    : 'border-transparent text-zinc-500 hover:text-zinc-300'
+                            }`}
+                        >
+                            {tab.label}
+                        </button>
+                    ))}
+                </div>
+
                 {/* ── Body ── */}
                 <div className="flex min-h-0 flex-1 overflow-hidden">
-                    {/* Category sidebar */}
-                    <CategorySidebar
-                        activeCategory={activeCategory}
-                        counts={categoryCounts}
-                        onChange={setActiveCategory}
-                    />
+                    {activeTab === 'rules' && (
+                        <>
+                            {/* Category sidebar */}
+                            <CategorySidebar
+                                activeCategory={activeCategory}
+                                counts={categoryCounts}
+                                onChange={setActiveCategory}
+                            />
 
-                    {/* Rule list */}
-                    <div className="flex-1 overflow-y-auto">
-                        {/* Section header */}
-                        <div className="sticky top-0 z-10 border-b border-zinc-800 bg-zinc-900/90 px-4 py-2 backdrop-blur-sm">
-                            <h3 className="text-xs font-medium uppercase tracking-wider text-zinc-400">
-                                {activeCategory} ({visibleRules.length})
-                            </h3>
-                        </div>
+                            {/* Rule list */}
+                            <div className="flex-1 overflow-y-auto">
+                                {/* Section header */}
+                                <div className="sticky top-0 z-10 border-b border-zinc-800 bg-zinc-900/90 px-4 py-2 backdrop-blur-sm">
+                                    <h3 className="text-xs font-medium uppercase tracking-wider text-zinc-400">
+                                        {activeCategory} ({visibleRules.length})
+                                    </h3>
+                                </div>
 
-                        {/* Rule rows */}
-                        <div className="divide-y divide-zinc-800/40">
-                            {visibleRules.map((rule) => (
-                                <RuleRow
-                                    key={rule.id}
-                                    rule={rule}
-                                    override={overrides[rule.id]}
-                                    onToggle={handleToggle}
-                                    onReset={handleResetRule}
-                                />
-                            ))}
+                                {/* Rule rows */}
+                                <div className="divide-y divide-zinc-800/40">
+                                    {visibleRules.map((rule) => (
+                                        <RuleRow
+                                            key={rule.id}
+                                            rule={rule}
+                                            override={overrides[rule.id]}
+                                            onToggle={handleToggle}
+                                            onReset={handleResetRule}
+                                        />
+                                    ))}
+                                </div>
+                            </div>
+                        </>
+                    )}
+
+                    {activeTab === 'packs' && (
+                        <div className="flex-1 overflow-y-auto">
+                            <RuleCatalogPanel
+                                activePresets={activePresets}
+                                onEnablePack={(packId) => void handleEnablePack(packId)}
+                                onDisablePack={(packId) => void handleDisablePack(packId)}
+                                isToggling={isToggling}
+                            />
                         </div>
-                    </div>
+                    )}
+
+                    {activeTab === 'profiles' && (
+                        <div className="flex-1 overflow-y-auto">
+                            <ComplianceProfileSelector
+                                activePresets={activePresets}
+                                onToggleJurisdiction={(packId, enabled) =>
+                                    void (enabled ? handleEnablePack(packId) : handleDisablePack(packId))
+                                }
+                                isToggling={isToggling}
+                            />
+                        </div>
+                    )}
                 </div>
 
                 {/* ── Footer ── */}
                 <div className="flex shrink-0 items-center justify-between gap-3 border-t border-zinc-800 px-5 py-3">
-                    {/* Reset button */}
-                    <button
-                        type="button"
-                        onClick={handleReset}
-                        disabled={modifiedCount === 0}
-                        className="flex items-center gap-1.5 rounded border border-zinc-700 px-3 py-1.5 text-xs text-zinc-400 transition-colors hover:border-zinc-600 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                        <RotateCcw className="h-3 w-3" />
-                        Reset All
-                    </button>
+                    {/* Reset button — only shown on Rules tab */}
+                    {activeTab === 'rules' ? (
+                        <button
+                            type="button"
+                            onClick={handleReset}
+                            disabled={modifiedCount === 0}
+                            className="flex items-center gap-1.5 rounded border border-zinc-700 px-3 py-1.5 text-xs text-zinc-400 transition-colors hover:border-zinc-600 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                            <RotateCcw className="h-3 w-3" />
+                            Reset All
+                        </button>
+                    ) : (
+                        <span />
+                    )}
 
                     <div className="flex items-center gap-2">
                         {/* Close / Cancel */}
@@ -403,16 +498,18 @@ export function GovernancePanel({ onClose }: GovernancePanelProps) {
                             Close
                         </button>
 
-                        {/* Save */}
-                        <button
-                            type="button"
-                            onClick={() => void handleSave()}
-                            disabled={saving}
-                            className="flex items-center gap-1.5 rounded bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-indigo-500 active:scale-95 disabled:opacity-60"
-                        >
-                            <Save className="h-3 w-3" />
-                            {saving ? 'Saving…' : 'Save'}
-                        </button>
+                        {/* Save — only on Rules tab */}
+                        {activeTab === 'rules' && (
+                            <button
+                                type="button"
+                                onClick={() => void handleSave()}
+                                disabled={saving}
+                                className="flex items-center gap-1.5 rounded bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-indigo-500 active:scale-95 disabled:opacity-60"
+                            >
+                                <Save className="h-3 w-3" />
+                                {saving ? 'Saving…' : 'Save'}
+                            </button>
+                        )}
                     </div>
                 </div>
             </div>

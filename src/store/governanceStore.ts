@@ -1,11 +1,12 @@
 /**
  * governanceStore.ts — src/store/governanceStore.ts
  *
- * Zustand v5 store for Governance Engine rule overrides.
+ * Zustand v5 store for Governance Engine rule overrides and ERM state.
  *
- * The store only holds *deltas* from the manifest defaults.
- * If a ruleId has no entry in `overrides`, the rule is considered
- * enabled at its defaultSeverity from GOVERNANCE_RULES_MANIFEST.
+ * The store holds:
+ *   - Rule override deltas (enabled/disabled/severity) from the manifest defaults.
+ *   - ERM fields (activePresets, inheritanceChain, jurisdictionCoverage, isLoadingConfig)
+ *     populated by useGovernanceConfig on mount.
  *
  * Persistence falls back to localStorage when the IPC governance
  * channel is not yet wired in the main process.
@@ -23,12 +24,31 @@ export interface RuleOverride {
 }
 
 interface GovernanceState {
+    // ── Original override fields ────────────────────────────────────────────
     overrides: Record<string, RuleOverride>
     setOverride: (ruleId: string, override: RuleOverride) => void
     resetOverride: (ruleId: string) => void
     resetAll: () => void
     saveToFile: () => Promise<void>
     loadFromFile: () => Promise<void>
+
+    // ── ERM fields (Phase ERM) ──────────────────────────────────────────────
+    /** Currently active @flint/ preset refs from the extends[] chain. */
+    activePresets: string[]
+    /** Full extends[] chain including local path refs. */
+    inheritanceChain: string[]
+    /**
+     * Per-jurisdiction coverage derived from the active presets.
+     * null when no project is open or coverage hasn't been computed yet.
+     */
+    jurisdictionCoverage: Record<string, { covered: number; total: number }> | null
+    /** True while useGovernanceConfig is fetching resolved config from IPC. */
+    isLoadingConfig: boolean
+
+    setActivePresets: (presets: string[]) => void
+    setInheritanceChain: (chain: string[]) => void
+    setJurisdictionCoverage: (coverage: Record<string, { covered: number; total: number }> | null) => void
+    setIsLoadingConfig: (loading: boolean) => void
 }
 
 const STORAGE_KEY = `${BRAND.productLower}:governance:overrides`
@@ -36,6 +56,7 @@ const STORAGE_KEY = `${BRAND.productLower}:governance:overrides`
 // ── Store ─────────────────────────────────────────────────────────────────────
 
 export const useGovernanceStore = create<GovernanceState>((set, get) => ({
+    // ── Override state ─────────────────────────────────────────────────────
     overrides: {},
 
     setOverride(ruleId, override) {
@@ -55,6 +76,7 @@ export const useGovernanceStore = create<GovernanceState>((set, get) => ({
         })
     },
 
+    // resetAll only clears overrides — ERM fields survive reset
     resetAll() {
         set({ overrides: {} })
     },
@@ -87,5 +109,27 @@ export const useGovernanceStore = create<GovernanceState>((set, get) => ({
         } catch {
             // Corrupt storage — silently ignore
         }
+    },
+
+    // ── ERM state ─────────────────────────────────────────────────────────
+    activePresets: [],
+    inheritanceChain: [],
+    jurisdictionCoverage: null,
+    isLoadingConfig: false,
+
+    setActivePresets(presets) {
+        set({ activePresets: presets })
+    },
+
+    setInheritanceChain(chain) {
+        set({ inheritanceChain: chain })
+    },
+
+    setJurisdictionCoverage(coverage) {
+        set({ jurisdictionCoverage: coverage })
+    },
+
+    setIsLoadingConfig(loading) {
+        set({ isLoadingConfig: loading })
     },
 }))

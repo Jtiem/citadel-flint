@@ -138,6 +138,10 @@ export function createMockFlintAPI() {
                 generatedAt: new Date().toISOString(),
             }),
             onOverrideRecorded: vi.fn().mockReturnValue(() => {}),
+            // ERM IPC surface (Phase ERM)
+            getResolvedConfig: vi.fn().mockResolvedValue(null),
+            togglePack: vi.fn().mockResolvedValue({ success: true, extends: [] }),
+            onConfigChanged: vi.fn().mockReturnValue(() => {}),
         },
         figma: {
             status: vi.fn().mockResolvedValue({ running: false, lastWebhookAt: null, tokenCount: 0, port: 4545 }),
@@ -250,8 +254,14 @@ export function resetAllStores() {
         commandPaletteOpen: false,
     })
 
-    // ACX.5: reset governance and import summary stores
-    useGovernanceStore.setState({ overrides: {} })
+    // ACX.5: reset governance and import summary stores (includes ERM fields)
+    useGovernanceStore.setState({
+        overrides: {},
+        activePresets: [],
+        inheritanceChain: [],
+        jurisdictionCoverage: null,
+        isLoadingConfig: false,
+    })
     useImportSummaryStore.setState({ summary: null, isVisible: false, isPanelMode: false })
 
     // CV2.3: reset component card store
