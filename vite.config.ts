@@ -5,8 +5,6 @@ import electron from 'vite-plugin-electron'
 import renderer from 'vite-plugin-electron-renderer'
 import path from 'path'
 
-const isProduction = process.env.NODE_ENV === 'production'
-
 const electronExternalMatcher = (id: string) => {
   if (
     id === 'vite' ||
@@ -43,75 +41,80 @@ const watchExclude = [
   '**/*.db-wal',
 ]
 
-export default defineConfig({
-  define: {
-    'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
-  },
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
+export default defineConfig(({ mode }) => {
+  const isProduction = mode === 'production'
+
+  return {
+    define: {
+      'process.env.NODE_ENV': JSON.stringify(isProduction ? 'production' : 'development'),
     },
-  },
-  server: {
-    watch: {
-      // Prevent the CLIENT Vite dev server from triggering HMR when
-      // Electron writes .flint/context.json, .flint/mcp-events.jsonl, etc.
-      ignored: watchExclude,
-      // Use polling instead of native fsevents to prevent SIGABRT crash
-      // during Electron environment teardown on macOS 26.
-      usePolling: true,
-      interval: 1000,
+    resolve: {
+      alias: {
+        '@': path.resolve(__dirname, './src'),
+      },
     },
-  },
-  plugins: [
-    react(),
-    tailwindcss(),
-    electron([
-      {
-        entry: 'electron/main.ts',
-        vite: {
-          build: {
-            outDir: 'dist-electron',
-            watch: isProduction ? null : { exclude: watchExclude },
-            rollupOptions: {
-              external: electronExternalMatcher,
+    server: {
+      watch: {
+        // Prevent the CLIENT Vite dev server from triggering HMR when
+        // Electron writes .flint/context.json, .flint/mcp-events.jsonl, etc.
+        ignored: watchExclude,
+        // Use polling instead of native fsevents to prevent SIGABRT crash
+        // during Electron environment teardown on macOS 26.
+        usePolling: true,
+        interval: 1000,
+      },
+    },
+    plugins: [
+      react(),
+      tailwindcss(),
+      electron([
+        {
+          entry: 'electron/main.ts',
+          vite: {
+            build: {
+              outDir: 'dist-electron',
+              watch: isProduction ? null : { exclude: watchExclude },
+              rollupOptions: {
+                external: electronExternalMatcher,
+              },
             },
           },
         },
-      },
-      {
-        entry: 'electron/preload.ts',
-        onstart(args) {
-          args.reload()
-        },
-        vite: {
-          build: {
-            outDir: 'dist-electron',
-            watch: isProduction ? null : { exclude: watchExclude },
-            rollupOptions: {
-              external: ['better-sqlite3', 'fsevents'],
+        {
+          entry: 'electron/preload.ts',
+          onstart(args) {
+            args.reload()
+          },
+          vite: {
+            build: {
+              outDir: 'dist-electron',
+              watch: isProduction ? null : { exclude: watchExclude },
+              rollupOptions: {
+                external: ['better-sqlite3', 'fsevents'],
+              },
             },
           },
         },
-      },
-      {
-        entry: 'electron/powersync.worker.ts',
-        vite: {
-          build: {
-            outDir: 'dist-electron',
-            watch: isProduction ? null : { exclude: watchExclude },
-            rollupOptions: {
-              external: electronExternalMatcher,
+        {
+          entry: 'electron/powersync.worker.ts',
+          vite: {
+            build: {
+              outDir: 'dist-electron',
+              watch: isProduction ? null : { exclude: watchExclude },
+              rollupOptions: {
+                external: electronExternalMatcher,
+              },
             },
           },
         },
+      ]),
+      renderer(),
+    ],
+    build: {
+      watch: null, // Never watch during vite build
+      rollupOptions: {
+        external: ['better-sqlite3', 'fsevents'],
       },
-    ]),
-    renderer(),
-  ],
-  build: {
-    rollupOptions: {
-      external: ['better-sqlite3', 'fsevents'],
     },
-  },
+  }
 })

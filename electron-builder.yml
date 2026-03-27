@@ -8,10 +8,12 @@ directories:
 
 # ── Source exclusions ────────────────────────────────────────────────────────
 # Only compiled output ships. All TypeScript source is excluded.
+# electron-builder automatically resolves only production dependencies from
+# package.json when node_modules is NOT listed explicitly here — dev deps
+# (vite, tailwindcss, typescript, eslint, vitest, etc.) are excluded by default.
 files:
   - dist/**/*
   - dist-electron/**/*
-  - node_modules/**/*
   - flint-mcp/dist/**/*
   - flint-mcp/package.json
   # flint-mcp is spawned as a child process (ELECTRON_RUN_AS_NODE=1) which
@@ -19,31 +21,10 @@ files:
   # unpacked alongside the server code.
   - flint-mcp/node_modules/**/*
   - package.json
+  # onnxruntime-web (91MB WebAssembly) is a transitive dep of @huggingface/transformers
+  # but is never used in Electron's Node.js process. Exclude it explicitly.
+  - "!node_modules/onnxruntime-web/**"
   # Exclude source code — testers get compiled JS only
-  # Exclude build-time / dev-only dependencies from the ASAR.
-  # These are in `dependencies` for Vite dev-server compatibility but
-  # must NOT ship in the production Electron bundle.
-  - "!node_modules/rollup/**"
-  - "!node_modules/@rollup/**"
-  - "!node_modules/vite/**"
-  - "!node_modules/@vitejs/**"
-  - "!node_modules/vite-plugin-electron/**"
-  - "!node_modules/vite-plugin-electron-renderer/**"
-  - "!node_modules/@tailwindcss/vite/**"
-  - "!node_modules/typescript/**"
-  - "!node_modules/vitest/**"
-  - "!node_modules/@testing-library/**"
-  - "!node_modules/eslint/**"
-  - "!node_modules/@eslint/**"
-  - "!node_modules/tailwindcss/**"
-  - "!node_modules/@codesandbox/**"
-  - "!node_modules/@monaco-editor/**"
-  - "!node_modules/@huggingface/**"
-  - "!node_modules/onnxruntime-*/**"
-  - "!node_modules/@google/**"
-  - "!node_modules/openai/**"
-  - "!node_modules/@anthropic-ai/**"
-  - "!node_modules/@powersync/**"
   - "!src/**"
   - "!electron/**"
   - "!flint-mcp/src/**"
