@@ -764,3 +764,77 @@ describe('audit --format json', () => {
         expect(Array.isArray(parsed.files)).toBe(true)
     })
 })
+
+// ── baselineCommand ─────────────────────────────────────────────────────────
+
+describe('baselineCommand', () => {
+    let tmpDir: string
+
+    beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flint-ci-baseline-gen-'))
+        fs.mkdirSync(path.join(tmpDir, '.flint'), { recursive: true })
+        fs.writeFileSync(path.join(tmpDir, '.flint', 'design-tokens.json'), '[]', 'utf-8')
+        vi.spyOn(console, 'log').mockImplementation(() => {})
+        vi.spyOn(console, 'error').mockImplementation(() => {})
+    })
+
+    afterEach(() => {
+        fs.rmSync(tmpDir, { recursive: true, force: true })
+        vi.restoreAllMocks()
+    })
+
+    it('should generate baseline.json from violations', async () => {
+        const { baselineCommand } = await import('../commands/baseline.js')
+        fs.writeFileSync(path.join(tmpDir, 'Bad.tsx'), BAD_A11Y_TSX, 'utf-8')
+        const exitCode = await baselineCommand([tmpDir], { projectRoot: tmpDir })
+        // Should write baseline
+        const baselinePath = path.join(tmpDir, '.flint', 'baseline.json')
+        expect(fs.existsSync(baselinePath)).toBe(true)
+        const baseline = JSON.parse(fs.readFileSync(baselinePath, 'utf-8'))
+        // Should contain at least one file with rule IDs
+        const files = Object.keys(baseline)
+        expect(files.length).toBeGreaterThanOrEqual(1)
+        // Exit 0 = violations found and baselined
+        expect(exitCode).toBe(0)
+    })
+
+    it('should return 1 when no violations exist (empty baseline)', async () => {
+        const { baselineCommand } = await import('../commands/baseline.js')
+        fs.writeFileSync(path.join(tmpDir, 'Clean.tsx'), CLEAN_TSX, 'utf-8')
+        const exitCode = await baselineCommand([tmpDir], { projectRoot: tmpDir })
+        expect(exitCode).toBe(1)
+    })
+
+    it('should merge with existing baseline when --update is set', async () => {
+        const { baselineCommand } = await import('../commands/baseline.js')
+        // Create existing baseline with a different file
+        const existing = { 'OtherFile.tsx': ['MITHRIL-COL'] }
+        fs.writeFileSync(
+            path.join(tmpDir, '.flint', 'baseline.json'),
+            JSON.stringify(existing),
+            'utf-8',
+        )
+        // Add a bad file
+        fs.writeFileSync(path.join(tmpDir, 'Bad.tsx'), BAD_A11Y_TSX, 'utf-8')
+        const exitCode = await baselineCommand([tmpDir], {
+            projectRoot: tmpDir,
+            update: true,
+        })
+        expect(exitCode).toBe(0)
+        const baseline = JSON.parse(
+            fs.readFileSync(path.join(tmpDir, '.flint', 'baseline.json'), 'utf-8'),
+        )
+        // Should still contain the old entry
+        expect(baseline['OtherFile.tsx']).toContain('MITHRIL-COL')
+    })
+
+    it('should create .flint directory if it does not exist', async () => {
+        const { baselineCommand } = await import('../commands/baseline.js')
+        // Remove .flint dir
+        fs.rmSync(path.join(tmpDir, '.flint'), { recursive: true })
+        fs.writeFileSync(path.join(tmpDir, 'Bad.tsx'), BAD_A11Y_TSX, 'utf-8')
+        const exitCode = await baselineCommand([tmpDir], { projectRoot: tmpDir })
+        expect([0, 1]).toContain(exitCode)
+        expect(fs.existsSync(path.join(tmpDir, '.flint', 'baseline.json'))).toBe(true)
+    })
+})

@@ -27,6 +27,7 @@ import { syncCheckCommand } from './commands/sync-check.js'
 import { dbomCommand } from './commands/dbom.js'
 import { fixCommand } from './commands/fix.js'
 import { initCommand } from './commands/init.js'
+import { baselineCommand } from './commands/baseline.js'
 
 const program = new Command()
 
@@ -122,6 +123,24 @@ program
     .action(async (paths: string[], opts) => {
         try {
             const exitCode = await fixCommand(paths, opts)
+            process.exit(exitCode)
+        } catch (err) {
+            printError(err)
+            process.exit(3)
+        }
+    })
+
+// ── baseline ────────────────────────────────────────────────────────────────
+
+program
+    .command('baseline [paths...]')
+    .description('Generate .flint/baseline.json from current violations (enables incremental adoption)')
+    .option('--update', 'Merge with existing baseline instead of replacing')
+    .option('--tokens <file>', 'Path to design tokens JSON', '.flint/design-tokens.json')
+    .option('--project-root <path>', 'Project root directory', process.cwd())
+    .action(async (paths: string[], opts) => {
+        try {
+            const exitCode = await baselineCommand(paths, opts)
             process.exit(exitCode)
         } catch (err) {
             printError(err)
