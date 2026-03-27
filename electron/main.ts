@@ -626,6 +626,7 @@ ipcMain.handle('preview:start', async (_event, projectRoot: unknown): Promise<{ 
     }
     try {
         const url = await startViteServer(projectRoot)
+        if (!url) return { error: 'Vite not available in packaged build — using srcdoc preview' }
         return { url }
     } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)

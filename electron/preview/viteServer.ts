@@ -28,7 +28,8 @@ import net from 'node:net'
 // In packaged builds, startViteServer() returns null and the app falls back to
 // the srcdoc preview path.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type ViteDevServer = { close: () => Promise<void>; listen: () => Promise<void>; config: { server: { port?: number } } }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type ViteDevServer = { close: () => Promise<void>; listen: () => Promise<any>; config: { server: { port?: number } } }
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Plugin = { name: string; transformIndexHtml?: (html: string) => string; configureServer?: (server: any) => void }
 
@@ -250,7 +251,7 @@ export async function startViteServer(projectRoot: string): Promise<string | nul
     configFile: false,
   })
 
-  await _server.listen()
+  await _server!.listen()
   const url = `http://127.0.0.1:${_port}`
   console.info(`[Flint] Preview engine (Vite N.4) listening at ${url}`)
   return url
