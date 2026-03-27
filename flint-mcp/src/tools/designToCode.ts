@@ -28,6 +28,11 @@ import {
     type ClassificationResult,
     type RefinementResult,
 } from '../core/d2cRefinement.js'
+import {
+    transformFigmaJsx,
+    type SupportedLibrary,
+    type TransformResult,
+} from '../core/figmaJsxTransformer.js'
 
 // ---------------------------------------------------------------------------
 // Tool definition (MCP ListTools schema)
@@ -45,7 +50,9 @@ export const FLINT_DESIGN_TO_CODE_TOOL = {
         properties: {
             figmaPayload: {
                 type: 'string',
-                description: 'JSON string of the Figma AST payload.',
+                description:
+                    'JSON string of the Figma AST payload. Not required when figmaCode ' +
+                    'is provided (D2C.6 JSX transform pipeline).',
             },
             library: {
                 type: 'string',
@@ -68,7 +75,11 @@ export const FLINT_DESIGN_TO_CODE_TOOL = {
             },
             figmaCode: {
                 type: 'string',
-                description: 'Raw JSX from Figma MCP get_design_context. When provided, enriches component recognition using data-name attributes.',
+                description:
+                    'Raw JSX from Figma MCP get_design_context. When provided WITHOUT ' +
+                    'figmaPayload, uses the D2C.6 JSX transform pipeline (Option B) ' +
+                    'which directly transforms Figma JSX into library components. ' +
+                    'When provided WITH figmaPayload, enriches component recognition.',
             },
             aiClassify: {
                 type: 'boolean',
@@ -89,7 +100,7 @@ export const FLINT_DESIGN_TO_CODE_TOOL = {
                     'Passed to AI refinement for visual understanding. Optional.',
             },
         },
-        required: ['figmaPayload'],
+        required: [],
     },
 } as const
 
@@ -98,7 +109,7 @@ export const FLINT_DESIGN_TO_CODE_TOOL = {
 // ---------------------------------------------------------------------------
 
 export interface DesignToCodeArgs {
-    figmaPayload: string
+    figmaPayload?: string
     library?: string
     projectRoot?: string
     writeThemeFile?: boolean
@@ -166,7 +177,22 @@ export async function handleDesignToCode(
     const projectRoot = args.projectRoot ?? config.projectRoot ?? process.cwd()
 
     // ------------------------------------------------------------------
-    // Step 1: Validate required param
+    // Step 0: D2C.6 — JSX Transform Pipeline (Option B)
+    // When figmaCode is provided WITHOUT figmaPayload, use the direct
+    // JSX transform pipeline instead of the HydroPaste engine.
+    // ------------------------------------------------------------------
+    const useFigmaJsxPipeline =
+        args.figmaCode &&
+        typeof args.figmaCode === 'string' &&
+        args.figmaCode.trim().length > 0 &&
+        (!args.figmaPayload || args.figmaPayload.trim().length === 0)
+
+    if (useFigmaJsxPipeline) {
+        return handleFigmaJsxTransform(args, config, projectRoot)
+    }
+
+    // ------------------------------------------------------------------
+    // Step 1: Validate required param (HydroPaste pipeline)
     // ------------------------------------------------------------------
     if (!args.figmaPayload || typeof args.figmaPayload !== 'string') {
         return {
@@ -175,8 +201,8 @@ export async function handleDesignToCode(
             component: { name: '', code: '', imports: [], tokenRefs: [] },
             components: [],
             tokenMappings: {},
-            summary: 'Missing required parameter: figmaPayload',
-            error: 'figmaPayload is required and must be a non-empty string.',
+            summary: 'Missing required parameter: figmaPayload (or provide figmaCode for D2C.6 JSX transform).',
+            error: 'Either figmaPayload or figmaCode must be provided.',
         }
     }
 
@@ -487,5 +513,160 @@ export async function handleDesignToCode(
         summary: summary + aiNotes.join(''),
         ...(aiClassificationMeta && { aiClassification: aiClassificationMeta }),
         ...(aiRefinementsMeta && { aiRefinements: aiRefinementsMeta }),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// D2C.6 — Figma JSX Transform Pipeline (Option B)
+// ---------------------------------------------------------------------------
+
+async function handleFigmaJsxTransform(
+    args: DesignToCodeArgs,
+    config: FlintConfig,
+    projectRoot: string,
+): Promise<DesignToCodeResult> {
+    // Read design tokens
+    let tokens: DesignToken[] = []
+    const tokensPath = path.join(projectRoot, configPath('design-tokens.json'))
+    if (fs.existsSync(tokensPath)) {
+        try {
+            const raw = JSON.parse(fs.readFileSync(tokensPath, 'utf-8'))
+            tokens = Array.isArray(raw) ? raw : []
+        } catch {
+            // Continue with empty tokens
+        }
+    }
+
+    if (tokens.length === 0) {
+        return {
+            status: 'ok',
+            library: 'none',
+            component: { name: '', code: '', imports: [], tokenRefs: [] },
+            components: [],
+            tokenMappings: {},
+            summary:
+                'No design tokens found. Import tokens via flint_sync_pull or flint_ingest_figma ' +
+                'before using flint_design_to_code.',
+        }
+    }
+
+    // Resolve library
+    let resolvedLibrary: string | undefined = args.library
+
+    if (!resolvedLibrary) {
+        const policyPath = path.join(projectRoot, configPath('policy.json'))
+        try {
+            if (fs.existsSync(policyPath)) {
+                const policy = JSON.parse(fs.readFileSync(policyPath, 'utf-8'))
+                if (typeof policy.selectedLibrary === 'string') {
+                    resolvedLibrary = policy.selectedLibrary
+                }
+            }
+        } catch {
+            // fall through to auto-detect
+        }
+    }
+
+    if (!resolvedLibrary || resolvedLibrary === 'auto') {
+        const detection = detectLibraryFromTokens(tokens)
+        if (detection.library) {
+            resolvedLibrary = detection.library
+        } else {
+            return {
+                status: 'error',
+                library: 'unknown',
+                component: { name: '', code: '', imports: [], tokenRefs: [] },
+                components: [],
+                tokenMappings: {},
+                summary:
+                    'Could not determine target library. Pass library="shadcn|mui|primeng|tailwind" ' +
+                    'or run flint_set_library to set a project-level default.',
+                error: 'Library auto-detection inconclusive. No library selected in policy.json.',
+            }
+        }
+    }
+
+    const libraryTarget = resolvedLibrary as LibraryTarget
+    if (!hasAdapter(libraryTarget)) {
+        return {
+            status: 'error',
+            library: resolvedLibrary,
+            component: { name: '', code: '', imports: [], tokenRefs: [] },
+            components: [],
+            tokenMappings: {},
+            summary: `Unknown library: "${resolvedLibrary}". Supported: shadcn, mui, primeng, tailwind.`,
+            error: `No adapter registered for library: "${resolvedLibrary}".`,
+        }
+    }
+
+    // Transform tokens to the format the transformer expects
+    const transformTokens = tokens
+        .filter(t => t.token_type === 'color')
+        .map(t => ({ name: t.token_path, value: t.token_value, type: t.token_type }))
+
+    // Run the JSX transform pipeline
+    const transformResult = transformFigmaJsx(args.figmaCode!, {
+        library: libraryTarget as SupportedLibrary,
+        tokens: transformTokens,
+    })
+
+    // Build the component result
+    const component: ComponentResult = {
+        name: 'FigmaComponent',
+        code: transformResult.code,
+        imports: transformResult.imports,
+        tokenRefs: Object.values(transformResult.tokenMappings),
+    }
+
+    // Generate theme file
+    const adapter = getAdapter(libraryTarget)
+    const themeOutput = adapter.mapTokens(tokens)
+
+    const themeFileResult: DesignToCodeResult['themeFile'] = {
+        filename: themeOutput.filename,
+        code: themeOutput.code,
+        tokenCount: themeOutput.tokenCount,
+    }
+
+    // Write theme file if requested
+    if (args.writeThemeFile) {
+        const writePath = path.join(projectRoot, themeOutput.filename)
+        try {
+            fs.writeFileSync(writePath, themeOutput.code, 'utf-8')
+        } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : String(e)
+            return {
+                status: 'error',
+                library: libraryTarget,
+                component,
+                components: [component],
+                themeFile: themeFileResult,
+                tokenMappings: transformResult.tokenMappings,
+                summary: `Components generated but theme file write failed: ${msg}`,
+                error: msg,
+            }
+        }
+    }
+
+    const figmaUrlNote = args.figmaUrl ? ` (source: ${args.figmaUrl})` : ''
+    const writeNote = args.writeThemeFile
+        ? ` Theme file written to: ${path.join(projectRoot, themeOutput.filename)}.`
+        : ' Theme file generated (dry run).'
+
+    const summary =
+        `D2C.6 JSX Transform Pipeline. Library: ${adapter.displayName} (${libraryTarget}).` +
+        ` ${transformResult.componentCount} component(s) transformed${figmaUrlNote}.` +
+        ` ${Object.keys(transformResult.tokenMappings).length} token(s) mapped.` +
+        ` ${transformResult.transformations.length} element(s) replaced.` +
+        writeNote
+
+    return {
+        status: 'ok',
+        library: libraryTarget,
+        component,
+        components: [component],
+        themeFile: themeFileResult,
+        tokenMappings: transformResult.tokenMappings,
+        summary,
     }
 }
