@@ -25,6 +25,11 @@ import { BRAND } from '../../../shared/brand'
 import reactUMD from '../../preview-vendor/react.prod.js?raw'
 import reactDOMUMD from '../../preview-vendor/react-dom.prod.js?raw'
 import tailwindCDN from '../../preview-vendor/tailwind-cdn.js?raw'
+import vueUMD from '../../preview-vendor/vue.global.prod.js?raw'
+import {
+  FLINT_INTERACTION_SCRIPT,
+  FLINT_INTERACTION_STYLES,
+} from '../../preview-vendor/flint-interaction'
 import {
   getLibraryShims,
   getGenericShims,
@@ -45,6 +50,7 @@ import {
   generateCodeFromAST,
 } from '../../core/ast-parser'
 import { LanguageRegistry } from '../../core/adapters/types'
+import { vueAdapter } from '../../core/adapters/VueAdapter'
 import {
   publishPresence,
   publishPresenceImmediate,
@@ -92,17 +98,7 @@ export function buildSrcdoc(
   <script>${tailwindCDN}<\/script>
   <script>tailwind.config = ${tailwindConfigJson};<\/script>
   ${libraryShims ? `<style>${libraryShims.cssVars}<\/style>` : ''}
-  <style>
-    *, *::before, *::after { box-sizing: border-box; }
-    body { margin: 0; padding: 1rem; background: #111827; color: #f9fafb; font-family: system-ui, sans-serif; }
-    pre { margin: 0; white-space: pre-wrap; word-break: break-all; }
-    .flint-selected { outline: 2px solid #3b82f6 !important; background-color: rgba(59,130,246,0.1) !important; }
-    .flint-drop-before { box-shadow: 0 -3px 0 0 #3b82f6 !important; z-index: 50; }
-    .flint-drop-after { box-shadow: 0 3px 0 0 #3b82f6 !important; z-index: 50; }
-    .flint-drop-inside { outline: 2px solid #3b82f6 !important; background: rgba(59, 130, 246, 0.2) !important; }
-    .flint-hovered { outline: 2px dashed #94a3b8 !important; background: rgba(148, 163, 184, 0.1) !important; cursor: default; z-index: 40; transition: all 0.1s; }
-    #flint-ghost { position: fixed; pointer-events: none; border: 2px solid #3b82f6; background: rgba(59,130,246,0.12); border-radius: 4px; z-index: 9999; display: none; width: 80px; height: 40px; }
-  </style>
+  <style>${FLINT_INTERACTION_STYLES}<\/style>
 </head>
 <body>
   <div id="root"></div>
@@ -144,169 +140,7 @@ export function buildSrcdoc(
       }
     })();
   <\/script>
-  <script>
-    // Flint: bi-directional Layer Tree \u2194 Preview selection + drag indicators
-    // __flintInteractMode: when true, all IDE intercepts (selection, drag, hover)
-    // are disabled so native React events in the iframe fire unobstructed.
-    window.__flintInteractMode = false;
-    window.addEventListener('message', function (e) {
-      if (!e.data) return;
-      var type = e.data.type;
-      if (type === 'SET_INTERACT_MODE') {
-        window.__flintInteractMode = !!e.data.enabled;
-        return;
-      }
-      if (type === 'CLEAR_PREVIEW') {
-        var root = document.getElementById('root');
-        if (root) root.innerHTML = '';
-        return;
-      }
-      if (type === 'HIGHLIGHT') {
-        var prev = document.querySelector('.flint-selected');
-        if (prev) prev.classList.remove('flint-selected');
-        if (e.data.id) {
-          var target = document.querySelector('[data-flint-id="' + e.data.id + '"]');
-          if (target) target.classList.add('flint-selected');
-        }
-        return;
-      }
-      if (type === 'DRAG_OVER') {
-        document.querySelectorAll('.flint-drop-before, .flint-drop-after, .flint-drop-inside').forEach(function(el) {
-          el.classList.remove('flint-drop-before', 'flint-drop-after', 'flint-drop-inside');
-        });
-        if (e.data.targetId) {
-          var dropEl = document.querySelector('[data-flint-id="' + e.data.targetId + '"]');
-          if (dropEl) dropEl.classList.add('flint-drop-' + e.data.position);
-        }
-        return;
-      }
-      if (type === 'DRAG_CLEAR') {
-        var ghostEl = document.getElementById('flint-ghost');
-        if (ghostEl) ghostEl.style.display = 'none';
-        document.querySelectorAll('.flint-drop-before, .flint-drop-after, .flint-drop-inside').forEach(function(el) {
-          el.classList.remove('flint-drop-before', 'flint-drop-after', 'flint-drop-inside');
-        });
-        return;
-      }
-      if (type === 'HOVER') {
-        document.querySelectorAll('.flint-hovered').forEach(function(el) {
-          el.classList.remove('flint-hovered');
-        });
-        if (e.data.id) {
-          var hoverEl = document.querySelector('[data-flint-id="' + e.data.id + '"]');
-          if (hoverEl) hoverEl.classList.add('flint-hovered');
-        }
-        return;
-      }
-      if (type === 'CLEAR_HOVER') {
-        document.querySelectorAll('.flint-hovered').forEach(function(el) {
-          el.classList.remove('flint-hovered');
-        });
-        return;
-      }
-      if (type === 'DRAG_MOVE') {
-        var ghost = document.getElementById('flint-ghost');
-        if (ghost) {
-          ghost.style.display = 'block';
-          ghost.style.left = (e.data.x - 40) + 'px';
-          ghost.style.top  = (e.data.y - 20) + 'px';
-        }
-        document.querySelectorAll('.flint-drop-before, .flint-drop-after, .flint-drop-inside').forEach(function(n) {
-          n.classList.remove('flint-drop-before', 'flint-drop-after', 'flint-drop-inside');
-        });
-        var dmEl = document.elementFromPoint(e.data.x, e.data.y);
-        var dmTarget = dmEl ? dmEl.closest('[data-flint-id]') : null;
-        if (dmTarget) {
-          var r = dmTarget.getBoundingClientRect();
-          var pct = (e.data.y - r.top) / r.height;
-          dmTarget.classList.add('flint-drop-' + (pct < 0.25 ? 'before' : pct > 0.75 ? 'after' : 'inside'));
-        }
-        return;
-      }
-      if (type === 'DRAG_END') {
-        var ghost2 = document.getElementById('flint-ghost');
-        if (ghost2) ghost2.style.display = 'none';
-        document.querySelectorAll('.flint-drop-before, .flint-drop-after, .flint-drop-inside').forEach(function(n) {
-          n.classList.remove('flint-drop-before', 'flint-drop-after', 'flint-drop-inside');
-        });
-        var deEl = document.elementFromPoint(e.data.x, e.data.y);
-        var deTarget = deEl ? deEl.closest('[data-flint-id]') : null;
-        var dePos = 'inside';
-        if (deTarget) {
-          var dr = deTarget.getBoundingClientRect();
-          var dp = (e.data.y - dr.top) / dr.height;
-          dePos = dp < 0.25 ? 'before' : dp > 0.75 ? 'after' : 'inside';
-        }
-        window.parent.postMessage({
-          type: 'HIT_TEST_RESULT',
-          targetId: deTarget ? deTarget.getAttribute('data-flint-id') : null,
-          position: dePos,
-        }, '*');
-        return;
-      }
-    });
-    document.addEventListener('click', function (e) {
-      if (window.__flintInteractMode) return;
-      var el = e.target.closest('[data-flint-id]');
-      if (el) {
-        window.parent.postMessage({ type: 'CANVAS_CLICK', id: el.getAttribute('data-flint-id') }, '*');
-      }
-    });
-    var _flintHoverId = null;
-    document.body.addEventListener('mouseover', function (e) {
-      if (window.__flintInteractMode) return;
-      var el = e.target.closest('[data-flint-id]');
-      var id = el ? el.getAttribute('data-flint-id') : null;
-      if (id !== _flintHoverId) {
-        _flintHoverId = id;
-        window.parent.postMessage(
-          id ? { type: 'CANVAS_HOVER', id: id } : { type: 'CANVAS_HOVER_CLEAR' },
-          '*'
-        );
-      }
-    });
-    document.body.addEventListener('mouseleave', function () {
-      if (window.__flintInteractMode) return;
-      if (_flintHoverId !== null) {
-        _flintHoverId = null;
-        window.parent.postMessage({ type: 'CANVAS_HOVER_CLEAR' }, '*');
-      }
-    });
-    // ── Ghost Proxy: initiation ───────────────────────────────────────────────
-    // Create the ghost element once; it is shown/hidden by DRAG_MOVE / DRAG_END.
-    var _flintGhost = document.createElement('div');
-    _flintGhost.id = 'flint-ghost';
-    document.body.appendChild(_flintGhost);
-    // Drag requires the pointer to move ≥5 px before CANVAS_DRAG_START is sent.
-    // A plain click (no movement) is handled by the separate 'click' listener above.
-    (function () {
-      var _pendingDrag = null;
-      var DRAG_THRESHOLD = 5;
-      document.body.addEventListener('mousedown', function (e) {
-        if (window.__flintInteractMode) return;
-        var el = e.target.closest('[data-flint-id]');
-        if (!el) return;
-        _pendingDrag = { el: el, startX: e.clientX, startY: e.clientY };
-      });
-      document.addEventListener('mousemove', function (e) {
-        if (!_pendingDrag) return;
-        var dx = e.clientX - _pendingDrag.startX;
-        var dy = e.clientY - _pendingDrag.startY;
-        if (Math.sqrt(dx * dx + dy * dy) >= DRAG_THRESHOLD) {
-          var id = _pendingDrag.el.getAttribute('data-flint-id');
-          _pendingDrag = null;
-          e.preventDefault();
-          window.parent.postMessage({
-            type: 'CANVAS_DRAG_START',
-            id: id,
-            x: e.clientX,
-            y: e.clientY,
-          }, '*');
-        }
-      });
-      document.addEventListener('mouseup', function () { _pendingDrag = null; });
-    })();
-  <\/script>
+  <script>${FLINT_INTERACTION_SCRIPT}<\/script>
 </body>
 </html>`
 }
@@ -315,10 +149,13 @@ export function buildSrcdoc(
 
 /**
  * Wraps a raw HTML string (with data-flint-id attributes pre-injected)
- * in a minimal srcdoc document that includes the Tailwind CDN and the
- * full Flint interaction proxy script (click-to-select, hover, drag).
+ * in a minimal srcdoc document that includes the vendored Tailwind CDN and the
+ * shared Flint interaction proxy script (click-to-select, hover, drag).
+ *
+ * MFP.1: Fixed Commandment 4 violation — replaced cdn.tailwindcss.com external
+ * URL with the locally-vendored tailwind-cdn.js (same as buildSrcdoc does).
  */
-function buildHtmlSrcdoc(htmlCode: string, tailwindConfigJson: string): string {
+export function buildHtmlSrcdoc(htmlCode: string, tailwindConfigJson: string): string {
   // Extract <body> inner content to avoid duplicating the outer <html>/<head>.
   const bodyMatch = htmlCode.match(/<body[^>]*>([\u200b\s\S]*?)<\/body>/i)
   const bodyContent = bodyMatch ? bodyMatch[1] : htmlCode
@@ -328,79 +165,164 @@ function buildHtmlSrcdoc(htmlCode: string, tailwindConfigJson: string): string {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <script src="https://cdn.tailwindcss.com"><\/script>
+  <script>${tailwindCDN}<\/script>
   <script>tailwind.config = ${tailwindConfigJson};<\/script>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; }
-    body { margin: 0; padding: 1rem; background: #111827; color: #f9fafb; font-family: system-ui, sans-serif; }
-    .flint-selected { outline: 2px solid #3b82f6 !important; background-color: rgba(59,130,246,0.1) !important; }
-    .flint-hovered { outline: 2px dashed #94a3b8 !important; background: rgba(148,163,184,0.1) !important; cursor: default; z-index: 40; transition: all 0.1s; }
-    .flint-drop-before { box-shadow: 0 -3px 0 0 #3b82f6 !important; z-index: 50; }
-    .flint-drop-after  { box-shadow: 0 3px 0 0 #3b82f6 !important; z-index: 50; }
-    .flint-drop-inside { outline: 2px solid #3b82f6 !important; background: rgba(59,130,246,0.2) !important; }
-    #flint-ghost { position: fixed; pointer-events: none; border: 2px solid #3b82f6; background: rgba(59,130,246,0.12); border-radius: 4px; z-index: 9999; display: none; width: 80px; height: 40px; }
-  <\/style>
+  <style>${FLINT_INTERACTION_STYLES}<\/style>
 <\/head>
 <body>
   ${bodyContent}
+  <script>${FLINT_INTERACTION_SCRIPT}<\/script>
+<\/body>
+<\/html>`
+}
+
+// ── Vue 3 srcdoc builder (MFP.2) ─────────────────────────────────────────────
+
+/**
+ * Wraps compiled Vue 3 component JS in a sandboxed srcdoc document that:
+ *  - Inlines the vendored Vue 3 UMD production runtime (`vue.global.prod.js`).
+ *  - Injects Tailwind CSS via the vendored CDN build.
+ *  - Applies the design-token-derived Tailwind config (same as React path).
+ *  - Injects extracted <style> block CSS.
+ *  - Executes the compiled component with `new Function()` and mounts via
+ *    `Vue.createApp(window.__VueComponent).mount('#app')`.
+ *  - Appends the shared Flint interaction proxy script last.
+ *
+ * @param js                Compiled Vue component JS from `code:transform-vue` IPC.
+ * @param css               Extracted <style> block CSS, or empty string.
+ * @param tailwindConfigJson  JSON string produced by `generateTailwindConfig`.
+ */
+export function buildVueSrcdoc(
+  js: string,
+  css: string,
+  tailwindConfigJson: string,
+): string {
+  // JSON-safe embedding: escape </script> sequences and bare `<` chars so that
+  // `</script>` inside the compiled code cannot terminate the enclosing script.
+  const safeJson = JSON.stringify(js).replace(/</g, '\\u003c')
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script>${vueUMD}<\/script>
+  <script>${tailwindCDN}<\/script>
+  <script>tailwind.config = ${tailwindConfigJson};<\/script>
+  <style>${FLINT_INTERACTION_STYLES}<\/style>
+  ${css ? `<style>${css}<\/style>` : ''}
+<\/head>
+<body>
+  <div id="app"></div>
+  <script id="__vue_code" type="application/json">${safeJson}<\/script>
   <script>
-    window.__flintInteractMode = false;
-    window.addEventListener('message', function(e) {
-      if (!e.data) return; var t = e.data.type;
-      if (t === 'SET_INTERACT_MODE') { window.__flintInteractMode = !!e.data.enabled; return; }
-      if (t === 'CLEAR_PREVIEW') { document.body.innerHTML = ''; return; }
-      if (t === 'HIGHLIGHT') {
-        document.querySelectorAll('.flint-selected').forEach(function(el){el.classList.remove('flint-selected');});
-        if (e.data.id) { var s=document.querySelector('[data-flint-id="'+e.data.id+'"]'); if(s)s.classList.add('flint-selected'); }
-        return;
+    (function () {
+      var appEl = document.getElementById('app');
+      try {
+        var code = JSON.parse(document.getElementById('__vue_code').textContent || '');
+        // eslint-disable-next-line no-new-func
+        (new Function(code))();
+        if (typeof window.__VueComponent !== 'undefined' && typeof Vue !== 'undefined') {
+          Vue.createApp(window.__VueComponent).mount('#app');
+        } else if (typeof Vue === 'undefined') {
+          appEl.innerHTML = '<pre style="color:#f87171;font-size:12px">Vue runtime not loaded.<\/pre>';
+        } else {
+          appEl.innerHTML = '<p style="color:#94a3b8;font-size:12px">No Vue component exported.<\/p>';
+        }
+      } catch (e) {
+        appEl.innerHTML = '<pre style="color:#f87171;font-size:12px">' + String(e) + '<\/pre>';
       }
-      if (t === 'HOVER') {
-        document.querySelectorAll('.flint-hovered').forEach(function(el){el.classList.remove('flint-hovered');});
-        if (e.data.id) { var h=document.querySelector('[data-flint-id="'+e.data.id+'"]'); if(h)h.classList.add('flint-hovered'); }
-        return;
-      }
-      if (t === 'CLEAR_HOVER') { document.querySelectorAll('.flint-hovered').forEach(function(el){el.classList.remove('flint-hovered');}); return; }
-      if (t === 'DRAG_OVER') {
-        document.querySelectorAll('.flint-drop-before,.flint-drop-after,.flint-drop-inside').forEach(function(n){n.classList.remove('flint-drop-before','flint-drop-after','flint-drop-inside');});
-        if (e.data.targetId){var d=document.querySelector('[data-flint-id="'+e.data.targetId+'"]');if(d)d.classList.add('flint-drop-'+e.data.position);}
-        return;
-      }
-      if (t === 'DRAG_CLEAR') {
-        var g=document.getElementById('flint-ghost');if(g)g.style.display='none';
-        document.querySelectorAll('.flint-drop-before,.flint-drop-after,.flint-drop-inside').forEach(function(n){n.classList.remove('flint-drop-before','flint-drop-after','flint-drop-inside');});
-        return;
-      }
-      if (t === 'DRAG_MOVE') {
-        var gm=document.getElementById('flint-ghost');if(gm){gm.style.display='block';gm.style.left=(e.data.x-40)+'px';gm.style.top=(e.data.y-20)+'px';}
-        document.querySelectorAll('.flint-drop-before,.flint-drop-after,.flint-drop-inside').forEach(function(n){n.classList.remove('flint-drop-before','flint-drop-after','flint-drop-inside');});
-        var dme=document.elementFromPoint(e.data.x,e.data.y);var dmt=dme?dme.closest('[data-flint-id]'):null;
-        if(dmt){var r=dmt.getBoundingClientRect();var pct=(e.data.y-r.top)/r.height;dmt.classList.add('flint-drop-'+(pct<0.25?'before':pct>0.75?'after':'inside'));}
-        return;
-      }
-      if (t === 'DRAG_END') {
-        var ge=document.getElementById('flint-ghost');if(ge)ge.style.display='none';
-        document.querySelectorAll('.flint-drop-before,.flint-drop-after,.flint-drop-inside').forEach(function(n){n.classList.remove('flint-drop-before','flint-drop-after','flint-drop-inside');});
-        var de=document.elementFromPoint(e.data.x,e.data.y);var dt=de?de.closest('[data-flint-id]'):null;
-        var dp='inside';if(dt){var dr=dt.getBoundingClientRect();var dpp=(e.data.y-dr.top)/dr.height;dp=dpp<0.25?'before':dpp>0.75?'after':'inside';}
-        window.parent.postMessage({type:'HIT_TEST_RESULT',targetId:dt?dt.getAttribute('data-flint-id'):null,position:dp},'*');
-        return;
-      }
-    });
-    document.addEventListener('click', function(e) {
-      if (window.__flintInteractMode) return;
-      var el=e.target.closest('[data-flint-id]');
-      if(el) window.parent.postMessage({type:'CANVAS_CLICK',id:el.getAttribute('data-flint-id')},'*');
-    });
-    var _hid=null;
-    document.body.addEventListener('mouseover',function(e){
-      if(window.__flintInteractMode)return;
-      var el=e.target.closest('[data-flint-id]');var id=el?el.getAttribute('data-flint-id'):null;
-      if(id!==_hid){_hid=id;window.parent.postMessage(id?{type:'CANVAS_HOVER',id:id}:{type:'CANVAS_HOVER_CLEAR'},'*');}
-    });
-    document.body.addEventListener('mouseleave',function(){if(_hid!==null){_hid=null;window.parent.postMessage({type:'CANVAS_HOVER_CLEAR'},'*');}});
-    var _bg=document.createElement('div');_bg.id='flint-ghost';document.body.appendChild(_bg);
-    (function(){var _pd=null,_DT=5;document.body.addEventListener('mousedown',function(e){if(window.__flintInteractMode)return;var el=e.target.closest('[data-flint-id]');if(!el)return;_pd={el:el,sx:e.clientX,sy:e.clientY};});document.addEventListener('mousemove',function(e){if(!_pd)return;var dx=e.clientX-_pd.sx,dy=e.clientY-_pd.sy;if(Math.sqrt(dx*dx+dy*dy)>=_DT){var id=_pd.el.getAttribute('data-flint-id');_pd=null;e.preventDefault();window.parent.postMessage({type:'CANVAS_DRAG_START',id:id,x:e.clientX,y:e.clientY},'*');}});document.addEventListener('mouseup',function(){_pd=null;});})();
+    })();
   <\/script>
+  <script>${FLINT_INTERACTION_SCRIPT}<\/script>
+<\/body>
+<\/html>`
+}
+
+// ── Svelte srcdoc builder (MFP.3) ────────────────────────────────────────────
+
+/**
+ * Wraps compiled Svelte component JS in a sandboxed srcdoc document that:
+ *  - Does NOT include any Svelte runtime — Svelte compiles to vanilla JS.
+ *  - Injects Tailwind CSS via the vendored CDN build.
+ *  - Applies the design-token-derived Tailwind config (same as React/Vue paths).
+ *  - Injects extracted <style> block CSS.
+ *  - Executes the compiled component JS (which assigns `window.__SvelteComponent`)
+ *    and mounts via the constructor call appended by svelteCompiler.ts.
+ *  - Appends the shared Flint interaction proxy script last.
+ *
+ * Key advantage over Vue: no runtime script tag is needed. The iframe is smaller
+ * and faster to initialize because the compiled output is pure DOM API calls.
+ *
+ * @param js                Compiled Svelte component JS from `code:transform-svelte` IPC.
+ *                          Already contains the mount call; just needs to execute.
+ * @param css               Extracted <style> block CSS, or empty string.
+ * @param tailwindConfigJson  JSON string produced by `generateTailwindConfig`.
+ */
+export function buildSvelteSrcdoc(
+  js: string,
+  css: string,
+  tailwindConfigJson: string,
+): string {
+  // JSON-safe embedding: escape </script> sequences and bare `<` chars so that
+  // `</script>` inside the compiled code cannot terminate the enclosing script.
+  const safeJson = JSON.stringify(js).replace(/</g, '\\u003c')
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script>${tailwindCDN}<\/script>
+  <script>tailwind.config = ${tailwindConfigJson};<\/script>
+  <style>${FLINT_INTERACTION_STYLES}<\/style>
+  ${css ? `<style>${css}<\/style>` : ''}
+<\/head>
+<body>
+  <div id="app"></div>
+  <script id="__svelte_code" type="application/json">${safeJson}<\/script>
+  <script>
+    (function () {
+      var appEl = document.getElementById('app');
+      try {
+        var code = JSON.parse(document.getElementById('__svelte_code').textContent || '');
+        // Execute the compiled Svelte component (sets window.__SvelteComponent
+        // and runs the inline mount call appended by svelteCompiler.ts).
+        // eslint-disable-next-line no-new-func
+        (new Function(code))();
+      } catch (e) {
+        if (appEl) appEl.innerHTML = '<pre style="color:#f87171;font-size:12px">' + String(e) + '<\/pre>';
+      }
+    })();
+  <\/script>
+  <script>${FLINT_INTERACTION_SCRIPT}<\/script>
+<\/body>
+<\/html>`
+}
+
+// ── Placeholder srcdoc builder (MFP.1) ────────────────────────────────────────
+
+/**
+ * Renders a "framework not yet available" message for preview paths that are
+ * not yet implemented (Vue — MFP.2, Svelte — MFP.3).
+ *
+ * @param framework  Human-readable framework name, e.g. "Vue" or "Svelte".
+ */
+export function buildPlaceholderSrcdoc(framework: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; background: #111827; color: #f9fafb; font-family: system-ui, sans-serif; }
+  <\/style>
+<\/head>
+<body>
+  <div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#9ca3af;font-family:system-ui">
+    <p>${framework} preview \u2014 install @vue/compiler-sfc or svelte to enable</p>
+  <\/div>
 <\/body>
 <\/html>`
 }
@@ -579,54 +501,118 @@ export function LivePreview() {
   useEffect(() => {
     let cancelled = false
 
-    // ── Phase N.2: HTML native preview ────────────────────────────────────
-    // Bypass Babel/IPC entirely for raw .html files. The HtmlAdapter
-    // injects flint IDs and generates the final source; we wrap it in
-    // a Tailwind + Flint-script srcdoc and set it directly.
+    // ── MFP.1: Framework dispatch — route by file extension ───────────────
     const activeFilePath = useCanvasStore.getState().activeFilePath ?? ''
-    if (activeFilePath.endsWith('.html')) {
-      const adapter = LanguageRegistry.getAdapter(activeFilePath)
-      const ast = adapter.parse(previewCode)
-      if (ast !== null) {
-        adapter.injectFlintIds(ast)
-        const injectedHtml = adapter.generate(ast)
-        if (!cancelled && iframeRef.current !== null) {
-          setTransformError(null)
-          iframeRef.current.srcdoc = buildHtmlSrcdoc(injectedHtml, tailwindConfigJson)
+    const ext = activeFilePath.split('.').pop()?.toLowerCase() ?? ''
+
+    switch (ext) {
+      // ── .html: Phase N.2 HTML native preview ──────────────────────────
+      // Bypass Babel/IPC entirely. The HtmlAdapter injects flint IDs and
+      // generates the final source; wrap in vendored Tailwind + Flint script.
+      case 'html': {
+        const adapter = LanguageRegistry.getAdapter(activeFilePath)
+        const ast = adapter.parse(previewCode)
+        if (ast !== null) {
+          adapter.injectFlintIds(ast)
+          const injectedHtml = adapter.generate(ast)
+          if (!cancelled && iframeRef.current !== null) {
+            setTransformError(null)
+            iframeRef.current.srcdoc = buildHtmlSrcdoc(injectedHtml, tailwindConfigJson)
+          }
+        }
+        return () => { cancelled = true }
+      }
+
+      // ── .vue: MFP.2 — Vue 3 SFC preview ──────────────────────────────
+      // Inject data-flint-id attributes into the template section before IPC,
+      // then compile the SFC in the main process via @vue/compiler-sfc.
+      case 'vue': {
+        const codeWithIds = vueAdapter.injectFlintIdsIntoSource(previewCode)
+        window.flintAPI
+          .transformVue(codeWithIds)
+          .then(({ js, css, error }) => {
+            if (cancelled) return
+            if (error !== null || js === null) {
+              setTransformError(error ?? 'Vue compilation failed')
+              return
+            }
+            setTransformError(null)
+            if (iframeRef.current !== null) {
+              iframeRef.current.srcdoc = buildVueSrcdoc(js, css ?? '', tailwindConfigJson)
+            }
+          })
+          .catch((err: unknown) => {
+            if (!cancelled) setTransformError(String(err))
+          })
+        return () => { cancelled = true }
+      }
+
+      // ── .svelte: MFP.3 — full Svelte preview via code:transform-svelte IPC ──
+      case 'svelte': {
+        // Inject data-flint-id into the markup section before compilation.
+        // The SvelteAdapter handles markup-section extraction and ID injection.
+        const svelteAdapter = LanguageRegistry.hasAdapter('svelte')
+          ? LanguageRegistry.getAdapter('fake.svelte')
+          : null
+        let codeToTransform = previewCode
+        if (svelteAdapter !== null) {
+          const parsed = svelteAdapter.parse(previewCode)
+          if (parsed !== null) {
+            svelteAdapter.injectFlintIds(parsed)
+            codeToTransform = svelteAdapter.generate(parsed)
+          }
+        }
+
+        window.flintAPI.transformSvelte(codeToTransform)
+          .then(({ js, css, error }: { js: string | null; css: string; error: string | null }) => {
+            if (cancelled) return
+            if (error !== null || js === null) {
+              setTransformError(error ?? 'Svelte compilation failed')
+              return
+            }
+            setTransformError(null)
+            if (iframeRef.current !== null) {
+              iframeRef.current.srcdoc = buildSvelteSrcdoc(js, css ?? '', tailwindConfigJson)
+            }
+          })
+          .catch((err: unknown) => {
+            if (!cancelled) setTransformError(String(err))
+          })
+        return () => { cancelled = true }
+      }
+
+      // ── default: React/TSX path (Phase E.1, unchanged) ────────────────
+      default: {
+        // Inject data-flint-id attributes in renderer before IPC transform.
+        const freshAst = parseCodeToAST(previewCode)
+        const codeToTransform =
+          freshAst !== null
+            ? (() => { injectFlintIds(freshAst); return generateCodeFromAST(freshAst) })()
+            : previewCode
+
+        window.flintAPI
+          .transformCode(codeToTransform)
+          .then(({ js, error }) => {
+            if (cancelled) return
+            if (error !== null || js === null) {
+              setTransformError(error ?? 'Transform failed')
+              return
+            }
+            setTransformError(null)
+            if (iframeRef.current !== null) {
+              const executeCode = js.replace(/import\s+.*?from\s+['"].*?['"];?/g, '')
+              const libraryShims = getLibraryShims(activeLibrary)
+              iframeRef.current.srcdoc = buildSrcdoc(executeCode, tailwindConfigJson, libraryShims)
+            }
+          })
+          .catch((err: unknown) => {
+            if (!cancelled) setTransformError(String(err))
+          })
+
+        return () => {
+          cancelled = true
         }
       }
-      return () => { cancelled = true }
-    }
-
-    // ── Phase E.1: React/TSX path (unchanged) ───────────────────────────
-    // Inject data-flint-id attributes in renderer before IPC transform.
-    const freshAst = parseCodeToAST(previewCode)
-    const codeToTransform =
-      freshAst !== null
-        ? (() => { injectFlintIds(freshAst); return generateCodeFromAST(freshAst) })()
-        : previewCode
-
-    window.flintAPI
-      .transformCode(codeToTransform)
-      .then(({ js, error }) => {
-        if (cancelled) return
-        if (error !== null || js === null) {
-          setTransformError(error ?? 'Transform failed')
-          return
-        }
-        setTransformError(null)
-        if (iframeRef.current !== null) {
-          const executeCode = js.replace(/import\s+.*?from\s+['"].*?['"];?/g, '')
-          const libraryShims = getLibraryShims(activeLibrary)
-          iframeRef.current.srcdoc = buildSrcdoc(executeCode, tailwindConfigJson, libraryShims)
-        }
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setTransformError(String(err))
-      })
-
-    return () => {
-      cancelled = true
     }
   }, [previewCode, tailwindConfigJson, activeLibrary])
 

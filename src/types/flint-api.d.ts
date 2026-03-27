@@ -1401,6 +1401,20 @@ export interface FlintAPI {
     transformCode: (code: string) => Promise<{ js: string | null; error: string | null }>
 
     /**
+     * MFP.2: Compiles a Vue 3 SFC (.vue) source string into preview-ready JS.
+     * Runs in the Electron main process via @vue/compiler-sfc.
+     * Returns `{ js, css, error: null }` on success, `{ js: null, css: '', error }` on failure.
+     */
+    transformVue: (code: string) => Promise<{ js: string | null; css: string; error: string | null }>
+
+    /**
+     * MFP.3: Compiles a Svelte (.svelte) source string into self-contained vanilla JS.
+     * Runs in the Electron main process via svelte/compiler.
+     * Returns `{ js, css, error: null }` on success, `{ js: null, css: '', error }` on failure.
+     */
+    transformSvelte: (code: string) => Promise<{ js: string | null; css: string; error: string | null }>
+
+    /**
      * Queries the Main Process for the current ingestion server state.
      * Call this before instructing the Figma plugin to begin sending assets.
      *

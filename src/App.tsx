@@ -6,9 +6,11 @@ import { LanguageRegistry } from './core/adapters/types'
 import { reactAdapter } from './core/adapters/ReactAdapter'
 import { htmlAdapter } from './core/adapters/HtmlAdapter'
 import { vueAdapter } from './core/adapters/VueAdapter'
+import { svelteAdapter } from './core/adapters/SvelteAdapter'
 LanguageRegistry.register(['ts', 'tsx', 'js', 'jsx'], reactAdapter)
 LanguageRegistry.register(['html'], htmlAdapter)
 LanguageRegistry.register(['vue'], vueAdapter)
+LanguageRegistry.register(['svelte'], svelteAdapter)
 // ─────────────────────────────────────────────────────────────────────────────
 import { XYCanvas } from './components/editor/XYCanvas'
 import { LayerTree } from './components/ui/LayerTree'

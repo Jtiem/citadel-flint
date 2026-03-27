@@ -557,6 +557,43 @@ ipcMain.handle('code:transform', (_event, code: unknown): { js: string | null; e
     }
 })
 
+// ── MFP.2: Vue Transform Handler ──────────────────────────────────────────────
+// Compiles a Vue 3 SFC (.vue) source string into browser-ready JS using
+// @vue/compiler-sfc. Dynamic import ensures a graceful fallback when the
+// package is not installed.
+ipcMain.handle(
+    'code:transform-vue',
+    async (_event, code: unknown): Promise<{ js: string | null; css: string; error: string | null }> => {
+        if (typeof code !== 'string') {
+            return { js: null, css: '', error: 'code must be a string' }
+        }
+        try {
+            const { compileVueSFC } = await import('./vueCompiler.js')
+            return await compileVueSFC(code)
+        } catch (err) {
+            return { js: null, css: '', error: `Vue compiler not available: ${String(err)}` }
+        }
+    }
+)
+
+// ── MFP.3: Svelte Transform Handler ──────────────────────────────────────────
+// Compiles a .svelte source string into self-contained vanilla JS + extracted CSS.
+// Uses svelte/compiler (dynamic import — graceful no-op if svelte is not installed).
+ipcMain.handle(
+    'code:transform-svelte',
+    async (_event, code: unknown): Promise<{ js: string | null; css: string; error: string | null }> => {
+        if (typeof code !== 'string') {
+            return { js: null, css: '', error: 'code must be a string' }
+        }
+        try {
+            const { compileSvelteComponent } = await import('./svelteCompiler.js')
+            return await compileSvelteComponent(code)
+        } catch (err) {
+            return { js: null, css: '', error: `Svelte compiler not available: ${String(err)}` }
+        }
+    }
+)
+
 // ── Preview Server IPC (Phase N.4) ───────────────────────────────────────────
 
 /**

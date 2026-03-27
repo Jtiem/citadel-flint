@@ -179,6 +179,22 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
         ipcRenderer.invoke('code:transform', code),
 
     /**
+     * MFP.2: Compiles a Vue 3 SFC (.vue) source string into preview-ready JS
+     * and extracts <style> block CSS. Runs in the main process via @vue/compiler-sfc.
+     * Returns { js, css, error: null } on success, { js: null, css: '', error } on failure.
+     */
+    transformVue: (code: string): Promise<{ js: string | null; css: string; error: string | null }> =>
+        ipcRenderer.invoke('code:transform-vue', code),
+
+    /**
+     * MFP.3: Compiles a Svelte (.svelte) source string into self-contained vanilla JS
+     * and extracts <style> block CSS. Runs in the main process via svelte/compiler.
+     * Returns { js, css, error: null } on success, { js: null, css: '', error } on failure.
+     */
+    transformSvelte: (code: string): Promise<{ js: string | null; css: string; error: string | null }> =>
+        ipcRenderer.invoke('code:transform-svelte', code),
+
+    /**
      * Registers a callback that fires whenever the ingestion server writes new
      * tokens to the database (i.e. after a successful POST /ingest from the
      * Figma plugin). The renderer uses this to trigger an automatic re-fetch
