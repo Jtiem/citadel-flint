@@ -1,0 +1,728 @@
+{
+  "id": "4007:1808",
+  "name": "AccountSettings",
+  "type": "FRAME",
+  "width": 640,
+  "height": 920,
+  "fills": [
+    { "type": "SOLID", "color": { "r": 1, "g": 1, "b": 1, "a": 1 } }
+  ],
+  "strokes": [],
+  "effects": [],
+  "layoutMode": "VERTICAL",
+  "primaryAxisAlignItems": "MIN",
+  "counterAxisAlignItems": "MIN",
+  "paddingTop": 32,
+  "paddingBottom": 32,
+  "paddingLeft": 0,
+  "paddingRight": 0,
+  "itemSpacing": 24,
+  "children": [
+    {
+      "id": "4007:1809",
+      "name": "PageTitle",
+      "type": "TEXT",
+      "characters": "Account Settings",
+      "style": {
+        "fontFamily": "Inter",
+        "fontWeight": 800,
+        "fontSize": 24,
+        "fills": [
+          { "type": "SOLID", "color": { "r": 0.035, "g": 0.035, "b": 0.043, "a": 1 } }
+        ]
+      }
+    },
+    {
+      "id": "4007:1810",
+      "name": "ProfileCard",
+      "type": "FRAME",
+      "width": 640,
+      "height": 104,
+      "fills": [
+        { "type": "SOLID", "color": { "r": 1, "g": 1, "b": 1, "a": 1 } }
+      ],
+      "strokes": [
+        { "type": "SOLID", "color": { "r": 0.894, "g": 0.894, "b": 0.898, "a": 1 } }
+      ],
+      "effects": [
+        {
+          "type": "DROP_SHADOW",
+          "color": { "r": 0, "g": 0, "b": 0, "a": 0.06 },
+          "offset": { "x": 0, "y": 1 },
+          "radius": 3,
+          "spread": 0
+        }
+      ],
+      "cornerRadius": 8,
+      "layoutMode": "HORIZONTAL",
+      "primaryAxisAlignItems": "MIN",
+      "counterAxisAlignItems": "CENTER",
+      "paddingTop": 20,
+      "paddingBottom": 20,
+      "paddingLeft": 24,
+      "paddingRight": 24,
+      "itemSpacing": 16,
+      "children": [
+        {
+          "id": "4007:1811",
+          "name": "Avatar",
+          "type": "FRAME",
+          "width": 64,
+          "height": 64,
+          "fills": [
+            { "type": "SOLID", "color": { "r": 0.145, "g": 0.216, "b": 0.871, "a": 0.1 } }
+          ],
+          "strokes": [
+            { "type": "SOLID", "color": { "r": 0.145, "g": 0.216, "b": 0.871, "a": 1 } }
+          ],
+          "cornerRadius": 32,
+          "children": [
+            {
+              "id": "4007:1812",
+              "name": "AvatarFallback",
+              "type": "TEXT",
+              "characters": "JT",
+              "style": {
+                "fontFamily": "Inter",
+                "fontWeight": 600,
+                "fontSize": 20,
+                "fills": [
+                  { "type": "SOLID", "color": { "r": 0.145, "g": 0.216, "b": 0.871, "a": 1 } }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "id": "4007:1813",
+          "name": "ProfileInfo",
+          "type": "FRAME",
+          "width": 280,
+          "height": 44,
+          "fills": [],
+          "strokes": [],
+          "effects": [],
+          "layoutMode": "VERTICAL",
+          "primaryAxisAlignItems": "MIN",
+          "counterAxisAlignItems": "MIN",
+          "itemSpacing": 2,
+          "children": [
+            {
+              "id": "4007:1814",
+              "name": "DisplayName",
+              "type": "TEXT",
+              "characters": "Justin Tiemann",
+              "style": {
+                "fontFamily": "Inter",
+                "fontWeight": 600,
+                "fontSize": 16,
+                "fills": [
+                  { "type": "SOLID", "color": { "r": 0.035, "g": 0.035, "b": 0.043, "a": 1 } }
+                ]
+              }
+            },
+            {
+              "id": "4007:1815",
+              "name": "EmailAddress",
+              "type": "TEXT",
+              "characters": "justin@example.com",
+              "style": {
+                "fontFamily": "Inter",
+                "fontWeight": 500,
+                "fontSize": 14,
+                "fills": [
+                  { "type": "SOLID", "color": { "r": 0.443, "g": 0.443, "b": 0.467, "a": 1 } }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "id": "4007:1816",
+          "name": "Badge",
+          "type": "FRAME",
+          "width": 40,
+          "height": 22,
+          "fills": [
+            { "type": "SOLID", "color": { "r": 0.067, "g": 0.82, "b": 0.373, "a": 0.12 } }
+          ],
+          "strokes": [],
+          "cornerRadius": 4,
+          "children": [
+            {
+              "id": "4007:1817",
+              "name": "BadgeLabel",
+              "type": "TEXT",
+              "characters": "Pro",
+              "style": {
+                "fontFamily": "Inter",
+                "fontWeight": 500,
+                "fontSize": 12,
+                "fills": [
+                  { "type": "SOLID", "color": { "r": 0.031, "g": 0.533, "b": 0.235, "a": 1 } }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "4007:1820",
+      "name": "Tabs",
+      "type": "FRAME",
+      "width": 640,
+      "height": 40,
+      "fills": [
+        { "type": "SOLID", "color": { "r": 0.957, "g": 0.957, "b": 0.961, "a": 1 } }
+      ],
+      "strokes": [],
+      "cornerRadius": 6,
+      "layoutMode": "HORIZONTAL",
+      "primaryAxisAlignItems": "MIN",
+      "counterAxisAlignItems": "CENTER",
+      "paddingTop": 4,
+      "paddingBottom": 4,
+      "paddingLeft": 4,
+      "paddingRight": 4,
+      "itemSpacing": 2,
+      "children": [
+        {
+          "id": "4007:1821",
+          "name": "TabProfile",
+          "type": "TEXT",
+          "characters": "Profile",
+          "style": {
+            "fontFamily": "Inter",
+            "fontWeight": 500,
+            "fontSize": 14,
+            "fills": [
+              { "type": "SOLID", "color": { "r": 0.035, "g": 0.035, "b": 0.043, "a": 1 } }
+            ]
+          }
+        },
+        {
+          "id": "4007:1822",
+          "name": "TabSecurity",
+          "type": "TEXT",
+          "characters": "Security",
+          "style": {
+            "fontFamily": "Inter",
+            "fontWeight": 500,
+            "fontSize": 14,
+            "fills": [
+              { "type": "SOLID", "color": { "r": 0.443, "g": 0.443, "b": 0.467, "a": 1 } }
+            ]
+          }
+        },
+        {
+          "id": "4007:1823",
+          "name": "TabNotifications",
+          "type": "TEXT",
+          "characters": "Notifications",
+          "style": {
+            "fontFamily": "Inter",
+            "fontWeight": 500,
+            "fontSize": 14,
+            "fills": [
+              { "type": "SOLID", "color": { "r": 0.443, "g": 0.443, "b": 0.467, "a": 1 } }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "4007:1830",
+      "name": "ProfileInfoCard",
+      "type": "FRAME",
+      "width": 640,
+      "height": 440,
+      "fills": [
+        { "type": "SOLID", "color": { "r": 1, "g": 1, "b": 1, "a": 1 } }
+      ],
+      "strokes": [
+        { "type": "SOLID", "color": { "r": 0.894, "g": 0.894, "b": 0.898, "a": 1 } }
+      ],
+      "effects": [
+        {
+          "type": "DROP_SHADOW",
+          "color": { "r": 0, "g": 0, "b": 0, "a": 0.06 },
+          "offset": { "x": 0, "y": 1 },
+          "radius": 3,
+          "spread": 0
+        }
+      ],
+      "cornerRadius": 8,
+      "layoutMode": "VERTICAL",
+      "primaryAxisAlignItems": "MIN",
+      "counterAxisAlignItems": "MIN",
+      "paddingTop": 24,
+      "paddingBottom": 24,
+      "paddingLeft": 24,
+      "paddingRight": 24,
+      "itemSpacing": 24,
+      "children": [
+        {
+          "id": "4007:1831",
+          "name": "CardTitle",
+          "type": "TEXT",
+          "characters": "Profile Information",
+          "style": {
+            "fontFamily": "Inter",
+            "fontWeight": 600,
+            "fontSize": 16,
+            "fills": [
+              { "type": "SOLID", "color": { "r": 0.035, "g": 0.035, "b": 0.043, "a": 1 } }
+            ]
+          }
+        },
+        {
+          "id": "4007:1832",
+          "name": "NameEmailRow",
+          "type": "FRAME",
+          "width": 592,
+          "height": 72,
+          "fills": [],
+          "strokes": [],
+          "effects": [],
+          "layoutMode": "HORIZONTAL",
+          "primaryAxisAlignItems": "MIN",
+          "counterAxisAlignItems": "MIN",
+          "itemSpacing": 16,
+          "children": [
+            {
+              "id": "4007:1833",
+              "name": "DisplayNameField",
+              "type": "FRAME",
+              "width": 288,
+              "height": 72,
+              "fills": [],
+              "strokes": [],
+              "effects": [],
+              "layoutMode": "VERTICAL",
+              "itemSpacing": 4,
+              "children": [
+                {
+                  "id": "4007:1834",
+                  "name": "DisplayNameLabel",
+                  "type": "TEXT",
+                  "characters": "Display Name",
+                  "style": {
+                    "fontFamily": "Inter",
+                    "fontWeight": 500,
+                    "fontSize": 14,
+                    "fills": [
+                      { "type": "SOLID", "color": { "r": 0.035, "g": 0.035, "b": 0.043, "a": 1 } }
+                    ]
+                  }
+                },
+                {
+                  "id": "4007:1835",
+                  "name": "Input",
+                  "type": "FRAME",
+                  "width": 288,
+                  "height": 40,
+                  "fills": [
+                    { "type": "SOLID", "color": { "r": 1, "g": 1, "b": 1, "a": 1 } }
+                  ],
+                  "strokes": [
+                    { "type": "SOLID", "color": { "r": 0.894, "g": 0.894, "b": 0.898, "a": 1 } }
+                  ],
+                  "cornerRadius": 6,
+                  "children": [
+                    {
+                      "id": "4007:1836",
+                      "name": "InputPlaceholder",
+                      "type": "TEXT",
+                      "characters": "Justin Tiemann",
+                      "style": {
+                        "fontFamily": "Inter",
+                        "fontWeight": 400,
+                        "fontSize": 14,
+                        "fills": [
+                          { "type": "SOLID", "color": { "r": 0.639, "g": 0.639, "b": 0.663, "a": 1 } }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "4007:1840",
+              "name": "EmailField",
+              "type": "FRAME",
+              "width": 288,
+              "height": 72,
+              "fills": [],
+              "strokes": [],
+              "effects": [],
+              "layoutMode": "VERTICAL",
+              "itemSpacing": 4,
+              "children": [
+                {
+                  "id": "4007:1841",
+                  "name": "EmailLabel",
+                  "type": "TEXT",
+                  "characters": "Email Address",
+                  "style": {
+                    "fontFamily": "Inter",
+                    "fontWeight": 500,
+                    "fontSize": 14,
+                    "fills": [
+                      { "type": "SOLID", "color": { "r": 0.035, "g": 0.035, "b": 0.043, "a": 1 } }
+                    ]
+                  }
+                },
+                {
+                  "id": "4007:1842",
+                  "name": "Input",
+                  "type": "FRAME",
+                  "width": 288,
+                  "height": 40,
+                  "fills": [
+                    { "type": "SOLID", "color": { "r": 1, "g": 1, "b": 1, "a": 1 } }
+                  ],
+                  "strokes": [
+                    { "type": "SOLID", "color": { "r": 0.894, "g": 0.894, "b": 0.898, "a": 1 } }
+                  ],
+                  "cornerRadius": 6,
+                  "children": [
+                    {
+                      "id": "4007:1843",
+                      "name": "InputPlaceholder",
+                      "type": "TEXT",
+                      "characters": "justin@example.com",
+                      "style": {
+                        "fontFamily": "Inter",
+                        "fontWeight": 400,
+                        "fontSize": 14,
+                        "fills": [
+                          { "type": "SOLID", "color": { "r": 0.639, "g": 0.639, "b": 0.663, "a": 1 } }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "4007:1850",
+          "name": "BioField",
+          "type": "FRAME",
+          "width": 592,
+          "height": 120,
+          "fills": [],
+          "strokes": [],
+          "effects": [],
+          "layoutMode": "VERTICAL",
+          "itemSpacing": 4,
+          "children": [
+            {
+              "id": "4007:1851",
+              "name": "BioLabel",
+              "type": "TEXT",
+              "characters": "Bio",
+              "style": {
+                "fontFamily": "Inter",
+                "fontWeight": 500,
+                "fontSize": 14,
+                "fills": [
+                  { "type": "SOLID", "color": { "r": 0.035, "g": 0.035, "b": 0.043, "a": 1 } }
+                ]
+              }
+            },
+            {
+              "id": "4007:1852",
+              "name": "Textarea",
+              "type": "FRAME",
+              "width": 592,
+              "height": 100,
+              "fills": [
+                { "type": "SOLID", "color": { "r": 1, "g": 1, "b": 1, "a": 1 } }
+              ],
+              "strokes": [
+                { "type": "SOLID", "color": { "r": 0.894, "g": 0.894, "b": 0.898, "a": 1 } }
+              ],
+              "cornerRadius": 6,
+              "children": [
+                {
+                  "id": "4007:1853",
+                  "name": "TextareaPlaceholder",
+                  "type": "TEXT",
+                  "characters": "UX designer building the future of agentic design tools.",
+                  "style": {
+                    "fontFamily": "Inter",
+                    "fontWeight": 400,
+                    "fontSize": 14,
+                    "fills": [
+                      { "type": "SOLID", "color": { "r": 0.639, "g": 0.639, "b": 0.663, "a": 1 } }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "4007:1860",
+          "name": "Separator",
+          "type": "FRAME",
+          "width": 592,
+          "height": 1,
+          "fills": [
+            { "type": "SOLID", "color": { "r": 0.894, "g": 0.894, "b": 0.898, "a": 1 } }
+          ],
+          "strokes": [],
+          "effects": [],
+          "children": []
+        },
+        {
+          "id": "4007:1861",
+          "name": "LocaleRow",
+          "type": "FRAME",
+          "width": 592,
+          "height": 72,
+          "fills": [],
+          "strokes": [],
+          "effects": [],
+          "layoutMode": "HORIZONTAL",
+          "primaryAxisAlignItems": "MIN",
+          "counterAxisAlignItems": "MIN",
+          "itemSpacing": 16,
+          "children": [
+            {
+              "id": "4007:1862",
+              "name": "TimezoneField",
+              "type": "FRAME",
+              "width": 288,
+              "height": 72,
+              "fills": [],
+              "strokes": [],
+              "effects": [],
+              "layoutMode": "VERTICAL",
+              "itemSpacing": 4,
+              "children": [
+                {
+                  "id": "4007:1863",
+                  "name": "TimezoneLabel",
+                  "type": "TEXT",
+                  "characters": "Timezone",
+                  "style": {
+                    "fontFamily": "Inter",
+                    "fontWeight": 500,
+                    "fontSize": 14,
+                    "fills": [
+                      { "type": "SOLID", "color": { "r": 0.035, "g": 0.035, "b": 0.043, "a": 1 } }
+                    ]
+                  }
+                },
+                {
+                  "id": "4007:1864",
+                  "name": "Select",
+                  "type": "FRAME",
+                  "width": 288,
+                  "height": 40,
+                  "fills": [
+                    { "type": "SOLID", "color": { "r": 1, "g": 1, "b": 1, "a": 1 } }
+                  ],
+                  "strokes": [
+                    { "type": "SOLID", "color": { "r": 0.894, "g": 0.894, "b": 0.898, "a": 1 } }
+                  ],
+                  "cornerRadius": 6,
+                  "children": [
+                    {
+                      "id": "4007:1865",
+                      "name": "SelectValue",
+                      "type": "TEXT",
+                      "characters": "Central (CT)",
+                      "style": {
+                        "fontFamily": "Inter",
+                        "fontWeight": 400,
+                        "fontSize": 14,
+                        "fills": [
+                          { "type": "SOLID", "color": { "r": 0.035, "g": 0.035, "b": 0.043, "a": 1 } }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "4007:1870",
+              "name": "LanguageField",
+              "type": "FRAME",
+              "width": 288,
+              "height": 72,
+              "fills": [],
+              "strokes": [],
+              "effects": [],
+              "layoutMode": "VERTICAL",
+              "itemSpacing": 4,
+              "children": [
+                {
+                  "id": "4007:1871",
+                  "name": "LanguageLabel",
+                  "type": "TEXT",
+                  "characters": "Language",
+                  "style": {
+                    "fontFamily": "Inter",
+                    "fontWeight": 500,
+                    "fontSize": 14,
+                    "fills": [
+                      { "type": "SOLID", "color": { "r": 0.035, "g": 0.035, "b": 0.043, "a": 1 } }
+                    ]
+                  }
+                },
+                {
+                  "id": "4007:1872",
+                  "name": "Select",
+                  "type": "FRAME",
+                  "width": 288,
+                  "height": 40,
+                  "fills": [
+                    { "type": "SOLID", "color": { "r": 1, "g": 1, "b": 1, "a": 1 } }
+                  ],
+                  "strokes": [
+                    { "type": "SOLID", "color": { "r": 0.894, "g": 0.894, "b": 0.898, "a": 1 } }
+                  ],
+                  "cornerRadius": 6,
+                  "children": [
+                    {
+                      "id": "4007:1873",
+                      "name": "SelectValue",
+                      "type": "TEXT",
+                      "characters": "English",
+                      "style": {
+                        "fontFamily": "Inter",
+                        "fontWeight": 400,
+                        "fontSize": 14,
+                        "fills": [
+                          { "type": "SOLID", "color": { "r": 0.035, "g": 0.035, "b": 0.043, "a": 1 } }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "4007:1880",
+      "name": "ActionButtons",
+      "type": "FRAME",
+      "width": 640,
+      "height": 48,
+      "fills": [],
+      "strokes": [],
+      "effects": [],
+      "layoutMode": "HORIZONTAL",
+      "primaryAxisAlignItems": "MIN",
+      "counterAxisAlignItems": "CENTER",
+      "itemSpacing": 16,
+      "children": [
+        {
+          "id": "4007:1881",
+          "name": "DeleteButton",
+          "type": "FRAME",
+          "width": 148,
+          "height": 40,
+          "fills": [
+            { "type": "SOLID", "color": { "r": 0.863, "g": 0.149, "b": 0.149, "a": 1 } }
+          ],
+          "strokes": [],
+          "cornerRadius": 6,
+          "children": [
+            {
+              "id": "4007:1882",
+              "name": "DeleteButtonLabel",
+              "type": "TEXT",
+              "characters": "Delete Account",
+              "style": {
+                "fontFamily": "Inter",
+                "fontWeight": 500,
+                "fontSize": 14,
+                "fills": [
+                  { "type": "SOLID", "color": { "r": 1, "g": 1, "b": 1, "a": 1 } }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "id": "4007:1883",
+          "name": "Spacer",
+          "type": "FRAME",
+          "width": 340,
+          "height": 40,
+          "fills": [],
+          "strokes": [],
+          "effects": [],
+          "children": []
+        },
+        {
+          "id": "4007:1884",
+          "name": "CancelButton",
+          "type": "FRAME",
+          "width": 80,
+          "height": 40,
+          "fills": [],
+          "strokes": [
+            { "type": "SOLID", "color": { "r": 0.894, "g": 0.894, "b": 0.898, "a": 1 } }
+          ],
+          "cornerRadius": 6,
+          "children": [
+            {
+              "id": "4007:1885",
+              "name": "CancelButtonLabel",
+              "type": "TEXT",
+              "characters": "Cancel",
+              "style": {
+                "fontFamily": "Inter",
+                "fontWeight": 500,
+                "fontSize": 14,
+                "fills": [
+                  { "type": "SOLID", "color": { "r": 0.035, "g": 0.035, "b": 0.043, "a": 1 } }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "id": "4007:1886",
+          "name": "SaveButton",
+          "type": "FRAME",
+          "width": 116,
+          "height": 40,
+          "fills": [
+            { "type": "SOLID", "color": { "r": 0.035, "g": 0.035, "b": 0.043, "a": 1 } }
+          ],
+          "strokes": [],
+          "cornerRadius": 6,
+          "children": [
+            {
+              "id": "4007:1887",
+              "name": "SaveButtonLabel",
+              "type": "TEXT",
+              "characters": "Save Changes",
+              "style": {
+                "fontFamily": "Inter",
+                "fontWeight": 500,
+                "fontSize": 14,
+                "fills": [
+                  { "type": "SOLID", "color": { "r": 1, "g": 1, "b": 1, "a": 1 } }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

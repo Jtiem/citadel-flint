@@ -1,0 +1,187 @@
+{
+  "id": "1:100",
+  "name": "HeroBanner",
+  "type": "FRAME",
+  "width": 1280,
+  "height": 480,
+  "fills": [
+    { "type": "SOLID", "color": { "r": 0.035, "g": 0.035, "b": 0.043, "a": 1 } }
+  ],
+  "strokes": [],
+  "effects": [],
+  "layoutMode": "VERTICAL",
+  "primaryAxisAlignItems": "CENTER",
+  "counterAxisAlignItems": "CENTER",
+  "paddingTop": 96,
+  "paddingBottom": 96,
+  "paddingLeft": 80,
+  "paddingRight": 80,
+  "itemSpacing": 24,
+  "children": [
+    {
+      "id": "1:101",
+      "name": "Badge",
+      "type": "FRAME",
+      "width": 180,
+      "height": 28,
+      "fills": [
+        { "type": "SOLID", "color": { "r": 0.145, "g": 0.216, "b": 0.871, "a": 0.15 } }
+      ],
+      "strokes": [
+        { "type": "SOLID", "color": { "r": 0.145, "g": 0.216, "b": 0.871, "a": 0.4 } }
+      ],
+      "effects": [],
+      "layoutMode": "HORIZONTAL",
+      "primaryAxisAlignItems": "CENTER",
+      "counterAxisAlignItems": "CENTER",
+      "paddingTop": 4,
+      "paddingBottom": 4,
+      "paddingLeft": 12,
+      "paddingRight": 12,
+      "cornerRadius": 14,
+      "children": [
+        {
+          "id": "1:102",
+          "name": "Badge Label",
+          "type": "TEXT",
+          "characters": "Now in public beta",
+          "style": {
+            "fontFamily": "Inter",
+            "fontWeight": 500,
+            "fontSize": 12,
+            "fills": [
+              { "type": "SOLID", "color": { "r": 0.145, "g": 0.216, "b": 0.871, "a": 1 } }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "1:103",
+      "name": "Headline",
+      "type": "TEXT",
+      "characters": "Ship production-ready UI\nwithout the guesswork",
+      "style": {
+        "fontFamily": "Inter",
+        "fontWeight": 800,
+        "fontSize": 56,
+        "lineHeightPx": 64,
+        "textAlignHorizontal": "CENTER",
+        "fills": [
+          { "type": "SOLID", "color": { "r": 0.98, "g": 0.98, "b": 0.98, "a": 1 } }
+        ]
+      }
+    },
+    {
+      "id": "1:104",
+      "name": "Description",
+      "type": "TEXT",
+      "characters": "Flint enforces your design system at the AST level — before code reaches production. Every token, every component, every brand rule. Deterministically.",
+      "style": {
+        "fontFamily": "Inter",
+        "fontWeight": 400,
+        "fontSize": 18,
+        "lineHeightPx": 28,
+        "textAlignHorizontal": "CENTER",
+        "fills": [
+          { "type": "SOLID", "color": { "r": 0.631, "g": 0.631, "b": 0.655, "a": 1 } }
+        ]
+      }
+    },
+    {
+      "id": "1:105",
+      "name": "CTAGroup",
+      "type": "FRAME",
+      "width": 380,
+      "height": 48,
+      "fills": [],
+      "strokes": [],
+      "effects": [],
+      "layoutMode": "HORIZONTAL",
+      "primaryAxisAlignItems": "CENTER",
+      "counterAxisAlignItems": "CENTER",
+      "itemSpacing": 12,
+      "children": [
+        {
+          "id": "1:106",
+          "name": "PrimaryCTA",
+          "type": "FRAME",
+          "width": 176,
+          "height": 48,
+          "fills": [
+            { "type": "SOLID", "color": { "r": 0.145, "g": 0.216, "b": 0.871, "a": 1 } }
+          ],
+          "strokes": [],
+          "effects": [],
+          "layoutMode": "HORIZONTAL",
+          "primaryAxisAlignItems": "CENTER",
+          "counterAxisAlignItems": "CENTER",
+          "cornerRadius": 8,
+          "children": [
+            {
+              "id": "1:107",
+              "name": "PrimaryCTA Label",
+              "type": "TEXT",
+              "characters": "Get started free",
+              "style": {
+                "fontFamily": "Inter",
+                "fontWeight": 600,
+                "fontSize": 15,
+                "fills": [
+                  { "type": "SOLID", "color": { "r": 1, "g": 1, "b": 1, "a": 1 } }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "id": "1:108",
+          "name": "SecondaryCTA",
+          "type": "FRAME",
+          "width": 160,
+          "height": 48,
+          "fills": [],
+          "strokes": [
+            { "type": "SOLID", "color": { "r": 0.227, "g": 0.227, "b": 0.247, "a": 1 } }
+          ],
+          "effects": [],
+          "layoutMode": "HORIZONTAL",
+          "primaryAxisAlignItems": "CENTER",
+          "counterAxisAlignItems": "CENTER",
+          "cornerRadius": 8,
+          "children": [
+            {
+              "id": "1:109",
+              "name": "SecondaryCTA Label",
+              "type": "TEXT",
+              "characters": "View docs",
+              "style": {
+                "fontFamily": "Inter",
+                "fontWeight": 500,
+                "fontSize": 15,
+                "fills": [
+                  { "type": "SOLID", "color": { "r": 0.98, "g": 0.98, "b": 0.98, "a": 1 } }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "1:110",
+      "name": "TrustLine",
+      "type": "TEXT",
+      "characters": "Trusted by design teams at Vercel, Linear, and Notion.",
+      "style": {
+        "fontFamily": "Inter",
+        "fontWeight": 400,
+        "fontSize": 13,
+        "textAlignHorizontal": "CENTER",
+        "fills": [
+          { "type": "SOLID", "color": { "r": 0.443, "g": 0.443, "b": 0.467, "a": 1 } }
+        ]
+      }
+    }
+  ]
+}

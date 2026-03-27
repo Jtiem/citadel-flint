@@ -1,0 +1,669 @@
+{
+  "id": "2:1",
+  "name": "LandingPage",
+  "type": "FRAME",
+  "width": 1280,
+  "height": 2400,
+  "fills": [
+    { "type": "SOLID", "color": { "r": 1, "g": 1, "b": 1, "a": 1 } }
+  ],
+  "strokes": [],
+  "effects": [],
+  "layoutMode": "VERTICAL",
+  "primaryAxisAlignItems": "MIN",
+  "counterAxisAlignItems": "MIN",
+  "paddingTop": 0,
+  "paddingBottom": 0,
+  "paddingLeft": 0,
+  "paddingRight": 0,
+  "itemSpacing": 0,
+  "children": [
+    {
+      "id": "2:10",
+      "name": "NavBar",
+      "type": "FRAME",
+      "width": 1280,
+      "height": 64,
+      "fills": [
+        { "type": "SOLID", "color": { "r": 1, "g": 1, "b": 1, "a": 1 } }
+      ],
+      "strokes": [
+        { "type": "SOLID", "color": { "r": 0.894, "g": 0.894, "b": 0.898, "a": 1 } }
+      ],
+      "effects": [],
+      "layoutMode": "HORIZONTAL",
+      "primaryAxisAlignItems": "SPACE_BETWEEN",
+      "counterAxisAlignItems": "CENTER",
+      "paddingTop": 0,
+      "paddingBottom": 0,
+      "paddingLeft": 80,
+      "paddingRight": 80,
+      "itemSpacing": 0,
+      "children": [
+        {
+          "id": "2:11",
+          "name": "NavLogo",
+          "type": "TEXT",
+          "characters": "Flint",
+          "style": {
+            "fontFamily": "Inter",
+            "fontWeight": 700,
+            "fontSize": 20,
+            "fills": [
+              { "type": "SOLID", "color": { "r": 0.035, "g": 0.035, "b": 0.043, "a": 1 } }
+            ]
+          }
+        },
+        {
+          "id": "2:12",
+          "name": "NavLinks",
+          "type": "FRAME",
+          "width": 320,
+          "height": 64,
+          "fills": [],
+          "strokes": [],
+          "effects": [],
+          "layoutMode": "HORIZONTAL",
+          "primaryAxisAlignItems": "CENTER",
+          "counterAxisAlignItems": "CENTER",
+          "itemSpacing": 32,
+          "children": [
+            {
+              "id": "2:13",
+              "name": "NavLinkProduct",
+              "type": "TEXT",
+              "characters": "Product",
+              "style": {
+                "fontFamily": "Inter",
+                "fontWeight": 500,
+                "fontSize": 14,
+                "fills": [
+                  { "type": "SOLID", "color": { "r": 0.443, "g": 0.443, "b": 0.467, "a": 1 } }
+                ]
+              }
+            },
+            {
+              "id": "2:14",
+              "name": "NavLinkDocs",
+              "type": "TEXT",
+              "characters": "Docs",
+              "style": {
+                "fontFamily": "Inter",
+                "fontWeight": 500,
+                "fontSize": 14,
+                "fills": [
+                  { "type": "SOLID", "color": { "r": 0.443, "g": 0.443, "b": 0.467, "a": 1 } }
+                ]
+              }
+            },
+            {
+              "id": "2:15",
+              "name": "NavLinkPricing",
+              "type": "TEXT",
+              "characters": "Pricing",
+              "style": {
+                "fontFamily": "Inter",
+                "fontWeight": 500,
+                "fontSize": 14,
+                "fills": [
+                  { "type": "SOLID", "color": { "r": 0.443, "g": 0.443, "b": 0.467, "a": 1 } }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "id": "2:16",
+          "name": "NavActions",
+          "type": "FRAME",
+          "width": 200,
+          "height": 64,
+          "fills": [],
+          "strokes": [],
+          "effects": [],
+          "layoutMode": "HORIZONTAL",
+          "primaryAxisAlignItems": "CENTER",
+          "counterAxisAlignItems": "CENTER",
+          "itemSpacing": 12,
+          "children": [
+            {
+              "id": "2:17",
+              "name": "SignInButton",
+              "type": "FRAME",
+              "width": 72,
+              "height": 36,
+              "fills": [],
+              "strokes": [
+                { "type": "SOLID", "color": { "r": 0.894, "g": 0.894, "b": 0.898, "a": 1 } }
+              ],
+              "cornerRadius": 6,
+              "children": [
+                {
+                  "id": "2:18",
+                  "name": "SignInLabel",
+                  "type": "TEXT",
+                  "characters": "Sign in",
+                  "style": {
+                    "fontFamily": "Inter",
+                    "fontWeight": 500,
+                    "fontSize": 14,
+                    "fills": [
+                      { "type": "SOLID", "color": { "r": 0.035, "g": 0.035, "b": 0.043, "a": 1 } }
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "id": "2:19",
+              "name": "GetStartedButton",
+              "type": "FRAME",
+              "width": 116,
+              "height": 36,
+              "fills": [
+                { "type": "SOLID", "color": { "r": 0.035, "g": 0.035, "b": 0.043, "a": 1 } }
+              ],
+              "strokes": [],
+              "cornerRadius": 6,
+              "children": [
+                {
+                  "id": "2:20",
+                  "name": "GetStartedLabel",
+                  "type": "TEXT",
+                  "characters": "Get started",
+                  "style": {
+                    "fontFamily": "Inter",
+                    "fontWeight": 600,
+                    "fontSize": 14,
+                    "fills": [
+                      { "type": "SOLID", "color": { "r": 1, "g": 1, "b": 1, "a": 1 } }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "2:50",
+      "name": "Hero",
+      "type": "FRAME",
+      "width": 1280,
+      "height": 600,
+      "fills": [
+        { "type": "SOLID", "color": { "r": 0.035, "g": 0.035, "b": 0.043, "a": 1 } }
+      ],
+      "strokes": [],
+      "effects": [],
+      "layoutMode": "VERTICAL",
+      "primaryAxisAlignItems": "CENTER",
+      "counterAxisAlignItems": "CENTER",
+      "paddingTop": 120,
+      "paddingBottom": 120,
+      "paddingLeft": 80,
+      "paddingRight": 80,
+      "itemSpacing": 24,
+      "children": [
+        {
+          "id": "2:51",
+          "name": "HeroHeadline",
+          "type": "TEXT",
+          "characters": "Design systems that actually ship",
+          "style": {
+            "fontFamily": "Inter",
+            "fontWeight": 800,
+            "fontSize": 64,
+            "lineHeightPx": 72,
+            "textAlignHorizontal": "CENTER",
+            "fills": [
+              { "type": "SOLID", "color": { "r": 0.98, "g": 0.98, "b": 0.98, "a": 1 } }
+            ]
+          }
+        },
+        {
+          "id": "2:52",
+          "name": "HeroSubhead",
+          "type": "TEXT",
+          "characters": "Flint enforces your design system at the AST level. Every color, every spacing value, every component — validated before it reaches production.",
+          "style": {
+            "fontFamily": "Inter",
+            "fontWeight": 400,
+            "fontSize": 20,
+            "lineHeightPx": 30,
+            "textAlignHorizontal": "CENTER",
+            "fills": [
+              { "type": "SOLID", "color": { "r": 0.631, "g": 0.631, "b": 0.655, "a": 1 } }
+            ]
+          }
+        },
+        {
+          "id": "2:53",
+          "name": "HeroCTARow",
+          "type": "FRAME",
+          "width": 300,
+          "height": 48,
+          "fills": [],
+          "strokes": [],
+          "effects": [],
+          "layoutMode": "HORIZONTAL",
+          "primaryAxisAlignItems": "CENTER",
+          "counterAxisAlignItems": "CENTER",
+          "itemSpacing": 12,
+          "children": [
+            {
+              "id": "2:54",
+              "name": "HeroPrimaryCTA",
+              "type": "FRAME",
+              "width": 156,
+              "height": 48,
+              "fills": [
+                { "type": "SOLID", "color": { "r": 0.145, "g": 0.216, "b": 0.871, "a": 1 } }
+              ],
+              "strokes": [],
+              "cornerRadius": 8,
+              "children": [
+                {
+                  "id": "2:55",
+                  "name": "HeroPrimaryCTALabel",
+                  "type": "TEXT",
+                  "characters": "Start for free",
+                  "style": {
+                    "fontFamily": "Inter",
+                    "fontWeight": 600,
+                    "fontSize": 15,
+                    "fills": [
+                      { "type": "SOLID", "color": { "r": 1, "g": 1, "b": 1, "a": 1 } }
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "id": "2:56",
+              "name": "HeroSecondaryCTA",
+              "type": "FRAME",
+              "width": 132,
+              "height": 48,
+              "fills": [],
+              "strokes": [
+                { "type": "SOLID", "color": { "r": 0.227, "g": 0.227, "b": 0.247, "a": 1 } }
+              ],
+              "cornerRadius": 8,
+              "children": [
+                {
+                  "id": "2:57",
+                  "name": "HeroSecondaryCTALabel",
+                  "type": "TEXT",
+                  "characters": "View demo",
+                  "style": {
+                    "fontFamily": "Inter",
+                    "fontWeight": 500,
+                    "fontSize": 15,
+                    "fills": [
+                      { "type": "SOLID", "color": { "r": 0.98, "g": 0.98, "b": 0.98, "a": 1 } }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "2:100",
+      "name": "FeaturesSection",
+      "type": "FRAME",
+      "width": 1280,
+      "height": 640,
+      "fills": [
+        { "type": "SOLID", "color": { "r": 0.984, "g": 0.984, "b": 0.988, "a": 1 } }
+      ],
+      "strokes": [],
+      "effects": [],
+      "layoutMode": "VERTICAL",
+      "primaryAxisAlignItems": "MIN",
+      "counterAxisAlignItems": "CENTER",
+      "paddingTop": 96,
+      "paddingBottom": 96,
+      "paddingLeft": 80,
+      "paddingRight": 80,
+      "itemSpacing": 48,
+      "children": [
+        {
+          "id": "2:101",
+          "name": "FeaturesHeading",
+          "type": "TEXT",
+          "characters": "Everything you need to ship with confidence",
+          "style": {
+            "fontFamily": "Inter",
+            "fontWeight": 700,
+            "fontSize": 36,
+            "textAlignHorizontal": "CENTER",
+            "fills": [
+              { "type": "SOLID", "color": { "r": 0.035, "g": 0.035, "b": 0.043, "a": 1 } }
+            ]
+          }
+        },
+        {
+          "id": "2:102",
+          "name": "FeaturesGrid",
+          "type": "FRAME",
+          "width": 1120,
+          "height": 340,
+          "fills": [],
+          "strokes": [],
+          "effects": [],
+          "layoutMode": "HORIZONTAL",
+          "primaryAxisAlignItems": "MIN",
+          "counterAxisAlignItems": "MIN",
+          "itemSpacing": 24,
+          "children": [
+            {
+              "id": "2:103",
+              "name": "FeatureCard",
+              "type": "FRAME",
+              "width": 352,
+              "height": 340,
+              "fills": [
+                { "type": "SOLID", "color": { "r": 1, "g": 1, "b": 1, "a": 1 } }
+              ],
+              "strokes": [
+                { "type": "SOLID", "color": { "r": 0.894, "g": 0.894, "b": 0.898, "a": 1 } }
+              ],
+              "effects": [
+                {
+                  "type": "DROP_SHADOW",
+                  "color": { "r": 0, "g": 0, "b": 0, "a": 0.05 },
+                  "offset": { "x": 0, "y": 1 },
+                  "radius": 4,
+                  "spread": 0
+                }
+              ],
+              "cornerRadius": 12,
+              "layoutMode": "VERTICAL",
+              "primaryAxisAlignItems": "MIN",
+              "counterAxisAlignItems": "MIN",
+              "paddingTop": 32,
+              "paddingBottom": 32,
+              "paddingLeft": 28,
+              "paddingRight": 28,
+              "itemSpacing": 16,
+              "children": [
+                {
+                  "id": "2:104",
+                  "name": "FeatureIconBadge",
+                  "type": "FRAME",
+                  "width": 48,
+                  "height": 48,
+                  "fills": [
+                    { "type": "SOLID", "color": { "r": 0.145, "g": 0.216, "b": 0.871, "a": 0.1 } }
+                  ],
+                  "cornerRadius": 12,
+                  "children": []
+                },
+                {
+                  "id": "2:105",
+                  "name": "FeatureTitle",
+                  "type": "TEXT",
+                  "characters": "AST-Level Enforcement",
+                  "style": {
+                    "fontFamily": "Inter",
+                    "fontWeight": 600,
+                    "fontSize": 18,
+                    "fills": [
+                      { "type": "SOLID", "color": { "r": 0.035, "g": 0.035, "b": 0.043, "a": 1 } }
+                    ]
+                  }
+                },
+                {
+                  "id": "2:106",
+                  "name": "FeatureDescription",
+                  "type": "TEXT",
+                  "characters": "Violations are caught at parse time via Babel traversal — not at review, not in production. Every token reference validated deterministically.",
+                  "style": {
+                    "fontFamily": "Inter",
+                    "fontWeight": 400,
+                    "fontSize": 15,
+                    "lineHeightPx": 24,
+                    "fills": [
+                      { "type": "SOLID", "color": { "r": 0.443, "g": 0.443, "b": 0.467, "a": 1 } }
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "id": "2:110",
+              "name": "FeatureCard",
+              "type": "FRAME",
+              "width": 352,
+              "height": 340,
+              "fills": [
+                { "type": "SOLID", "color": { "r": 1, "g": 1, "b": 1, "a": 1 } }
+              ],
+              "strokes": [
+                { "type": "SOLID", "color": { "r": 0.894, "g": 0.894, "b": 0.898, "a": 1 } }
+              ],
+              "effects": [
+                {
+                  "type": "DROP_SHADOW",
+                  "color": { "r": 0, "g": 0, "b": 0, "a": 0.05 },
+                  "offset": { "x": 0, "y": 1 },
+                  "radius": 4,
+                  "spread": 0
+                }
+              ],
+              "cornerRadius": 12,
+              "layoutMode": "VERTICAL",
+              "primaryAxisAlignItems": "MIN",
+              "counterAxisAlignItems": "MIN",
+              "paddingTop": 32,
+              "paddingBottom": 32,
+              "paddingLeft": 28,
+              "paddingRight": 28,
+              "itemSpacing": 16,
+              "children": [
+                {
+                  "id": "2:111",
+                  "name": "FeatureIconBadge",
+                  "type": "FRAME",
+                  "width": 48,
+                  "height": 48,
+                  "fills": [
+                    { "type": "SOLID", "color": { "r": 0.067, "g": 0.82, "b": 0.373, "a": 0.1 } }
+                  ],
+                  "cornerRadius": 12,
+                  "children": []
+                },
+                {
+                  "id": "2:112",
+                  "name": "FeatureTitle",
+                  "type": "TEXT",
+                  "characters": "Figma Design to Code",
+                  "style": {
+                    "fontFamily": "Inter",
+                    "fontWeight": 600,
+                    "fontSize": 18,
+                    "fills": [
+                      { "type": "SOLID", "color": { "r": 0.035, "g": 0.035, "b": 0.043, "a": 1 } }
+                    ]
+                  }
+                },
+                {
+                  "id": "2:113",
+                  "name": "FeatureDescription",
+                  "type": "TEXT",
+                  "characters": "Paste a Figma URL. Select your library. Get production-ready components with proper token references, a11y attributes, and semantic HTML.",
+                  "style": {
+                    "fontFamily": "Inter",
+                    "fontWeight": 400,
+                    "fontSize": 15,
+                    "lineHeightPx": 24,
+                    "fills": [
+                      { "type": "SOLID", "color": { "r": 0.443, "g": 0.443, "b": 0.467, "a": 1 } }
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "id": "2:120",
+              "name": "FeatureCard",
+              "type": "FRAME",
+              "width": 352,
+              "height": 340,
+              "fills": [
+                { "type": "SOLID", "color": { "r": 1, "g": 1, "b": 1, "a": 1 } }
+              ],
+              "strokes": [
+                { "type": "SOLID", "color": { "r": 0.894, "g": 0.894, "b": 0.898, "a": 1 } }
+              ],
+              "effects": [
+                {
+                  "type": "DROP_SHADOW",
+                  "color": { "r": 0, "g": 0, "b": 0, "a": 0.05 },
+                  "offset": { "x": 0, "y": 1 },
+                  "radius": 4,
+                  "spread": 0
+                }
+              ],
+              "cornerRadius": 12,
+              "layoutMode": "VERTICAL",
+              "primaryAxisAlignItems": "MIN",
+              "counterAxisAlignItems": "MIN",
+              "paddingTop": 32,
+              "paddingBottom": 32,
+              "paddingLeft": 28,
+              "paddingRight": 28,
+              "itemSpacing": 16,
+              "children": [
+                {
+                  "id": "2:121",
+                  "name": "FeatureIconBadge",
+                  "type": "FRAME",
+                  "width": 48,
+                  "height": 48,
+                  "fills": [
+                    { "type": "SOLID", "color": { "r": 0.863, "g": 0.149, "b": 0.149, "a": 0.08 } }
+                  ],
+                  "cornerRadius": 12,
+                  "children": []
+                },
+                {
+                  "id": "2:122",
+                  "name": "FeatureTitle",
+                  "type": "TEXT",
+                  "characters": "Multi-Library Support",
+                  "style": {
+                    "fontFamily": "Inter",
+                    "fontWeight": 600,
+                    "fontSize": 18,
+                    "fills": [
+                      { "type": "SOLID", "color": { "r": 0.035, "g": 0.035, "b": 0.043, "a": 1 } }
+                    ]
+                  }
+                },
+                {
+                  "id": "2:123",
+                  "name": "FeatureDescription",
+                  "type": "TEXT",
+                  "characters": "shadcn/ui, MUI, PrimeReact, and pure Tailwind. One pipeline, four output formats. Your tokens, mapped to whichever library your team runs.",
+                  "style": {
+                    "fontFamily": "Inter",
+                    "fontWeight": 400,
+                    "fontSize": 15,
+                    "lineHeightPx": 24,
+                    "fills": [
+                      { "type": "SOLID", "color": { "r": 0.443, "g": 0.443, "b": 0.467, "a": 1 } }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "2:200",
+      "name": "Footer",
+      "type": "FRAME",
+      "width": 1280,
+      "height": 160,
+      "fills": [
+        { "type": "SOLID", "color": { "r": 0.035, "g": 0.035, "b": 0.043, "a": 1 } }
+      ],
+      "strokes": [],
+      "effects": [],
+      "layoutMode": "HORIZONTAL",
+      "primaryAxisAlignItems": "SPACE_BETWEEN",
+      "counterAxisAlignItems": "CENTER",
+      "paddingTop": 48,
+      "paddingBottom": 48,
+      "paddingLeft": 80,
+      "paddingRight": 80,
+      "itemSpacing": 0,
+      "children": [
+        {
+          "id": "2:201",
+          "name": "FooterBrand",
+          "type": "FRAME",
+          "width": 240,
+          "height": 64,
+          "fills": [],
+          "strokes": [],
+          "effects": [],
+          "layoutMode": "VERTICAL",
+          "itemSpacing": 8,
+          "children": [
+            {
+              "id": "2:202",
+              "name": "FooterLogo",
+              "type": "TEXT",
+              "characters": "Flint",
+              "style": {
+                "fontFamily": "Inter",
+                "fontWeight": 700,
+                "fontSize": 18,
+                "fills": [
+                  { "type": "SOLID", "color": { "r": 0.98, "g": 0.98, "b": 0.98, "a": 1 } }
+                ]
+              }
+            },
+            {
+              "id": "2:203",
+              "name": "FooterTagline",
+              "type": "TEXT",
+              "characters": "Design governance infrastructure.",
+              "style": {
+                "fontFamily": "Inter",
+                "fontWeight": 400,
+                "fontSize": 13,
+                "fills": [
+                  { "type": "SOLID", "color": { "r": 0.443, "g": 0.443, "b": 0.467, "a": 1 } }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "id": "2:204",
+          "name": "FooterCopyright",
+          "type": "TEXT",
+          "characters": "2026 Flint. All rights reserved.",
+          "style": {
+            "fontFamily": "Inter",
+            "fontWeight": 400,
+            "fontSize": 13,
+            "fills": [
+              { "type": "SOLID", "color": { "r": 0.443, "g": 0.443, "b": 0.467, "a": 1 } }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
