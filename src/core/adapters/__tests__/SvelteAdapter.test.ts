@@ -51,12 +51,6 @@ const TEMPLATE_ONLY = `<div class="container">
   <p>Welcome to Svelte</p>
 </div>`
 
-const SCRIPT_ONLY = `<script>
-  const greeting = 'Hello';
-  export let name = 'World';
-</script>
-<span>{greeting}, {name}!</span>`
-
 // ── SA-01 through SA-07: parse() ─────────────────────────────────────────────
 
 describe('SvelteAdapter.parse()', () => {

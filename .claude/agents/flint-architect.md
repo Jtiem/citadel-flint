@@ -102,7 +102,13 @@ You are Phase 1 of this workflow. Your job is to produce a **Contract Artifact**
    - Tests → `flint-test-writer`
    - Code quality review → `flint-code-reviewer`
 8. **Write the Contract Artifact** to `.flint-context/contracts/<feature-name>.md` using the format defined in `.claude/workflows/feature-build.md`.
-9. **Review gate**: Do not approve Phase 2 until every affected file is listed, all cross-boundary types are defined, and applicable Commandments are checked.
+9. **Write the Executable Contract** to `.flint-context/contracts/<feature-name>.contract.ts`:
+   - Import `FlintContract` from `shared/contract-schema.ts`
+   - Export all TypeScript interfaces that Phase 2 agents will implement against
+   - Export a `CONTRACT` constant of type `FlintContract` with the machine-readable metadata
+   - Include `testBoundaries` for every new public API (IPC handler, store action, component, service)
+   - This file MUST compile with `npx tsc --noEmit`
+10. **Review gate**: Do not approve Phase 2 until every affected file is listed, all cross-boundary types are defined, applicable Commandments are checked, and the `.contract.ts` compiles cleanly.
 
 ### After Phase 2 Completes
 

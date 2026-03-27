@@ -18,9 +18,11 @@ You decide whether a feature:
 
 ## Inputs You Receive
 
-1. The **Contract Artifact** at `.flint-context/contracts/<feature-name>.md`
-2. The list of all files modified by Phase 2 agents
-3. Any gap reports from Phase 2 agents
+1. The **Contract Artifact** (markdown) at `.flint-context/contracts/<feature-name>.md`
+2. The **Executable Contract** (TypeScript) at `.flint-context/contracts/<feature-name>.contract.ts`
+3. The **Contract Lint Report** at `.flint-context/contracts/<feature-name>-lint.md` (confirms Phase 1.5 passed)
+4. The list of all files modified by Phase 2 agents
+5. Any gap reports from Phase 2 agents
 
 ## Validation Procedure
 
@@ -55,13 +57,14 @@ FAIL if: any store file references window.flintAPI
 FAIL if: any store file imports from 'fs', 'path', 'child_process', or 'electron'
 ```
 
-### Check 4: Contract Fidelity
+### Check 4: Contract Fidelity (Executable Contract Verification)
 
-Read the contract's Type Contracts section. For each interface defined:
+Read the executable contract at `.flint-context/contracts/<name>.contract.ts`. For each exported interface:
 
-1. Is it actually used in the implementation? (not just declared)
-2. Does the implementation match the contract signature exactly?
-3. Are there any extra types or functions that weren't in the contract? (Flag as potential scope creep)
+1. Is it imported and used in the implementation? (not just declared) — `Grep` for import statements referencing the `.contract.ts` file.
+2. Does the implementation satisfy the contract types? TSC (Check 1) catches shape mismatches, but also verify that implementations don't widen types with `any` or narrow them by omitting optional fields that the contract expects.
+3. Are there extra types or functions in implementation files that weren't in the contract? (Flag as potential scope creep.)
+4. **Test scaffold completion**: Every `it.todo()` from test-from-contract scaffolds must be replaced with real assertions. Search for remaining `it.todo` or `it.skip` in test files — any that remain are FAIL.
 
 ### Check 5: Commandment Compliance
 
@@ -83,11 +86,15 @@ Re-read the contract's Commandment Checklist. For each checked commandment, veri
 | C15 Granular AST Tools | Orchestrator emits catalog ops only |
 | C16 In-Memory Validation | AI output type-checked before UI |
 
-### Check 6: Test Coverage
+### Check 6: Test Coverage (Contract-Derived)
 
-For every new public function, store action, or IPC handler:
-- Does at least one test file reference it?
-- Do the tests actually assert behavior (not just import)?
+Read the `testBoundaries` array from the executable contract. For every boundary:
+
+1. A corresponding `describe`/`it` block must exist in a test file.
+2. Every `edgeCase` listed in the boundary must have a corresponding `it` block.
+3. Tests must actually assert behavior — not just `toBeDefined()` or `toBeTruthy()`.
+4. No `it.todo()` or `it.skip()` markers remain from the test scaffold phase.
+5. All test files pass: run `npm test -- --run` and confirm 0 failures.
 
 ### Check 7: Process Boundary
 

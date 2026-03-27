@@ -36,10 +36,7 @@ const OAUTH_SCOPE = 'files:read,file_variables:read,file_variables:write'
 const CALLBACK_PATH = '/oauth/callback'
 const FLOW_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
 
-// safeStorage key names for the encrypted secrets
-const SS_KEY_CLIENT_SECRET = 'flint:figma-client-secret'
-const SS_KEY_ACCESS_TOKEN = 'flint:figma-access-token'
-const SS_KEY_REFRESH_TOKEN = 'flint:figma-refresh-token'
+// safeStorage key names for encrypted secrets (reserved for future secure storage integration)
 
 // ---------------------------------------------------------------------------
 // PKCE helpers
@@ -374,7 +371,7 @@ export class FigmaOAuthService {
     private _runCallbackServer(
         state: string,
         codeChallenge: string,
-        codeVerifier: string,
+        _codeVerifier: string,
     ): Promise<{ port: number; code: string }> {
         return new Promise((resolve, reject) => {
             let settled = false

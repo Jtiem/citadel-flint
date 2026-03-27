@@ -1,0 +1,12 @@
+[
+  {"id":1,"token_path":"color.background","token_value":"#171719","token_type":"color","mode":"Light","collection_name":"semantic"},
+  {"id":2,"token_path":"color.foreground","token_value":"#FFFFFF","token_type":"color","mode":"Light","collection_name":"semantic"},
+  {"id":3,"token_path":"color.primary","token_value":"#3B82F6","token_type":"color","mode":"Light","collection_name":"semantic"},
+  {"id":4,"token_path":"color.muted","token_value":"#A1A1B0","token_type":"color","mode":"Light","collection_name":"semantic"},
+  {"id":5,"token_path":"color.muted-foreground","token_value":"#71717A","token_type":"color","mode":"Light","collection_name":"semantic"},
+  {"id":6,"token_path":"color.destructive","token_value":"#EF4444","token_type":"color","mode":"Light","collection_name":"semantic"},
+  {"id":7,"token_path":"color.border","token_value":"#27272A","token_type":"color","mode":"Light","collection_name":"semantic"},
+  {"id":8,"token_path":"color.ring","token_value":"#3B82F6","token_type":"color","mode":"Light","collection_name":"semantic"},
+  {"id":9,"token_path":"spacing.sm","token_value":"8px","token_type":"dimension","mode":"Light","collection_name":"spacing"},
+  {"id":10,"token_path":"spacing.md","token_value":"16px","token_type":"dimension","mode":"Light","collection_name":"spacing"}
+]

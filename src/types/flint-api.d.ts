@@ -1921,7 +1921,7 @@ export interface ComplianceSummary {
 }
 
 /**
- * IPC surface for governance telemetry operations (GOV.1 + GOV.2).
+ * IPC surface for governance telemetry operations (GOV.1 + GOV.2 + ERM-2).
  * Exposed as window.flintAPI.governance.
  */
 export interface GovernanceAPI {
@@ -1964,6 +1964,38 @@ export interface GovernanceAPI {
      * Returns an unsubscribe function — pass it to useEffect cleanup.
      */
     onOverrideRecorded: (cb: () => void) => () => void
+
+    // ── ERM-2: Enterprise Rule Management ────────────────────────────────────
+
+    /**
+     * Returns the resolved governance configuration for the active project.
+     * Merges flint.config.yaml extends chain into a single config object.
+     * Returns null when no project is open.
+     */
+    getResolvedConfig: () => Promise<{
+        config: Record<string, unknown>
+        extendsChain: string[]
+        activePresets: string[]
+        projectRoot: string
+    } | null>
+
+    /**
+     * Adds or removes a governance pack from flint.config.yaml's extends array.
+     * Returns the updated extends chain so callers can optimistically update the store.
+     */
+    togglePack: (packId: string, enable: boolean) => Promise<{
+        success: boolean
+        extends?: string[]
+        error?: string
+    }>
+
+    /**
+     * Subscribes to 'flint:governance-config-changed' push events fired by
+     * the main process whenever flint.config.yaml is written.
+     *
+     * Returns an unsubscribe function — pass it to useEffect cleanup.
+     */
+    onConfigChanged: (cb: () => void) => () => void
 }
 
 // ── Delta Mode: Baseline Types (Gap 6) ───────────────────────────────────────
@@ -2100,6 +2132,16 @@ export interface AutoUpdateAPI {
     onUpdateDownloaded: (cb: (info: UpdateInfo) => void) => () => void
     /** Subscribes to update error push events. Returns unsubscribe fn. */
     onError: (cb: (error: string) => void) => () => void
+    /**
+     * Alias for downloadUpdate() — used by StatusBar's "Download" button.
+     * Begins downloading the available update.
+     */
+    download: () => Promise<void>
+    /**
+     * Alias for quitAndInstall() — used by StatusBar's "Install" button.
+     * Quits the app and installs the downloaded update.
+     */
+    install: () => void
 }
 
 // ── Beta Distribution ────────────────────────────────────────────────────────

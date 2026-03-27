@@ -22,7 +22,6 @@ import { buildSrcdoc } from '../LivePreview'
 import {
   getLibraryShims,
   getGenericShims,
-  type LibraryShimBundle,
 } from '../../../preview-vendor/shims/index'
 
 // ── Shared fixtures ────────────────────────────────────────────────────────────

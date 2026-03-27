@@ -24,11 +24,6 @@ const FONT_SIZE_PATH_HINTS = new Set([
     'fontsize', 'font-size', 'size', 'text',
 ])
 
-/** Path segments that indicate a dimension token belongs in spacing. */
-const SPACING_PATH_HINTS = new Set([
-    'spacing', 'space', 'padding', 'margin', 'gap', 'inset',
-])
-
 // -- Helpers ------------------------------------------------------------------
 
 /**

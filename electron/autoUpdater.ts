@@ -45,9 +45,9 @@ function send(channel: string, payload: unknown): void {
     }
 }
 
-function normalizeReleaseNotes(notes: string | Array<{ note: string }> | null | undefined): string | null {
+function normalizeReleaseNotes(notes: string | Array<{ note: string | null }> | null | undefined): string | null {
     if (typeof notes === 'string') return notes
-    if (Array.isArray(notes)) return notes.map((n) => n.note).join('\n')
+    if (Array.isArray(notes)) return notes.map((n) => n.note ?? '').join('\n')
     return null
 }
 

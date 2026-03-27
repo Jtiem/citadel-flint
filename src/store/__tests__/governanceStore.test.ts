@@ -211,10 +211,10 @@ describe('governanceStore — setIsLoadingConfig', () => {
 
 describe('governanceStore — backward compatibility', () => {
     it('GS-ERM-17: setOverride still updates overrides correctly', () => {
-        useGovernanceStore.getState().setOverride('A11Y-001', { enabled: false, severity: 'amber' })
+        useGovernanceStore.getState().setOverride('A11Y-001', { enabled: false, severity: 'warning' })
 
         const { overrides } = useGovernanceStore.getState()
-        expect(overrides['A11Y-001']).toEqual({ enabled: false, severity: 'amber' })
+        expect(overrides['A11Y-001']).toEqual({ enabled: false, severity: 'warning' })
     })
 
     it('GS-ERM-18: resetAll clears overrides but does not touch ERM fields', () => {

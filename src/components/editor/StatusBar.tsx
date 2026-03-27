@@ -319,7 +319,7 @@ export function StatusBar() {
     }, [])
 
     const handleUpdateInstall = useCallback(() => {
-        window.flintAPI.autoUpdate?.install().catch(() => {/* terminates process */})
+        window.flintAPI.autoUpdate?.install() // terminates process — no catch needed
     }, [])
 
     // ── Autopilot: apply governed code to the active file ────────────────────

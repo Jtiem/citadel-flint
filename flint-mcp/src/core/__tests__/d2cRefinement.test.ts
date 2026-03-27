@@ -129,6 +129,47 @@ describe('classifyWithAI', () => {
         expect(result.latencyMs).toBeGreaterThanOrEqual(0)
     })
 
+    it('returns per-node confidence scores alongside classifications', async () => {
+        const responseJson = JSON.stringify({
+            classifications: [
+                { nodeId: 'EmailField', componentType: 'input', confidence: 0.9 },
+                { nodeId: 'SubmitButton', componentType: 'button', confidence: 0.65 },
+            ],
+        })
+
+        vi.stubGlobal('fetch', mockFetchResponse(anthropicResponse(responseJson)))
+
+        const result = await classifyWithAI(sampleNodeTree, 'shadcn', 'sk-test-key')
+
+        expect(result.confidences.size).toBe(2)
+        expect(result.confidences.get('EmailField')).toBe(0.9)
+        expect(result.confidences.get('SubmitButton')).toBe(0.65)
+    })
+
+    it('returns empty confidences map on fallback', async () => {
+        const result = await classifyWithAI(sampleNodeTree, 'shadcn', null)
+
+        expect(result.confidences).toBeDefined()
+        expect(result.confidences.size).toBe(0)
+    })
+
+    it('excludes low-confidence entries from both classifications and confidences', async () => {
+        const responseJson = JSON.stringify({
+            classifications: [
+                { nodeId: 'EmailField', componentType: 'input', confidence: 0.9 },
+                { nodeId: 'SubmitButton', componentType: 'button', confidence: 0.3 },
+            ],
+        })
+
+        vi.stubGlobal('fetch', mockFetchResponse(anthropicResponse(responseJson)))
+
+        const result = await classifyWithAI(sampleNodeTree, 'shadcn', 'sk-test-key')
+
+        expect(result.classifications.size).toBe(1)
+        expect(result.confidences.size).toBe(1)
+        expect(result.confidences.has('SubmitButton')).toBe(false)
+    })
+
     it('returns empty map when no API key', async () => {
         const result = await classifyWithAI(sampleNodeTree, 'shadcn', null)
 
@@ -240,6 +281,142 @@ describe('classifyWithAI', () => {
 
         expect(result.source).toBe('fallback')
         expect(result.classifications.size).toBe(0)
+    })
+
+    it('confidence exactly at 0.6 threshold is included', async () => {
+        const responseJson = JSON.stringify({
+            classifications: [
+                { nodeId: 'EmailField', componentType: 'input', confidence: 0.6 },
+            ],
+        })
+
+        vi.stubGlobal('fetch', mockFetchResponse(anthropicResponse(responseJson)))
+
+        const result = await classifyWithAI(sampleNodeTree, 'shadcn', 'sk-test-key')
+
+        expect(result.classifications.size).toBe(1)
+        expect(result.classifications.get('EmailField')).toBe('input')
+    })
+
+    it('confidence just below 0.6 threshold is excluded', async () => {
+        const responseJson = JSON.stringify({
+            classifications: [
+                { nodeId: 'EmailField', componentType: 'input', confidence: 0.59 },
+            ],
+        })
+
+        vi.stubGlobal('fetch', mockFetchResponse(anthropicResponse(responseJson)))
+
+        const result = await classifyWithAI(sampleNodeTree, 'shadcn', 'sk-test-key')
+
+        expect(result.classifications.size).toBe(0)
+    })
+
+    it('sends library name in the API request body', async () => {
+        const fetchMock = mockFetchResponse(anthropicResponse(JSON.stringify({ classifications: [] })))
+        vi.stubGlobal('fetch', fetchMock)
+
+        await classifyWithAI(sampleNodeTree, 'mui', 'sk-test-key')
+
+        expect(fetchMock).toHaveBeenCalledTimes(1)
+        const callBody = JSON.parse(fetchMock.mock.calls[0][1].body)
+        // The system prompt should mention the library
+        expect(callBody.system).toContain('mui')
+    })
+
+    it('prompt builder includes valid component types list', async () => {
+        const fetchMock = mockFetchResponse(anthropicResponse(JSON.stringify({ classifications: [] })))
+        vi.stubGlobal('fetch', fetchMock)
+
+        await classifyWithAI(sampleNodeTree, 'shadcn', 'sk-test-key')
+
+        const callBody = JSON.parse(fetchMock.mock.calls[0][1].body)
+        // The system prompt should list valid component types
+        expect(callBody.system).toContain('button')
+        expect(callBody.system).toContain('input')
+        expect(callBody.system).toContain('card')
+        expect(callBody.system).toContain('form')
+        expect(callBody.system).toContain('nav')
+    })
+
+    it('sends Figma node tree in user message', async () => {
+        const fetchMock = mockFetchResponse(anthropicResponse(JSON.stringify({ classifications: [] })))
+        vi.stubGlobal('fetch', fetchMock)
+
+        await classifyWithAI(sampleNodeTree, 'shadcn', 'sk-test-key')
+
+        const callBody = JSON.parse(fetchMock.mock.calls[0][1].body)
+        const userMessage = callBody.messages[0].content
+        expect(userMessage).toContain('ContactForm')
+        expect(userMessage).toContain('EmailField')
+    })
+
+    it('skips entries with missing nodeId field', async () => {
+        const responseJson = JSON.stringify({
+            classifications: [
+                { componentType: 'input', confidence: 0.9 }, // missing nodeId
+                { nodeId: 'SubmitButton', componentType: 'button', confidence: 0.85 },
+            ],
+        })
+
+        vi.stubGlobal('fetch', mockFetchResponse(anthropicResponse(responseJson)))
+
+        const result = await classifyWithAI(sampleNodeTree, 'shadcn', 'sk-test-key')
+
+        expect(result.classifications.size).toBe(1)
+        expect(result.classifications.has('SubmitButton')).toBe(true)
+    })
+
+    it('skips entries with missing confidence field', async () => {
+        const responseJson = JSON.stringify({
+            classifications: [
+                { nodeId: 'EmailField', componentType: 'input' }, // missing confidence
+            ],
+        })
+
+        vi.stubGlobal('fetch', mockFetchResponse(anthropicResponse(responseJson)))
+
+        const result = await classifyWithAI(sampleNodeTree, 'shadcn', 'sk-test-key')
+
+        expect(result.classifications.size).toBe(0)
+    })
+
+    it('returns source=ai when classifications array is present (even if empty)', async () => {
+        const responseJson = JSON.stringify({ classifications: [] })
+        vi.stubGlobal('fetch', mockFetchResponse(anthropicResponse(responseJson)))
+
+        const result = await classifyWithAI(sampleNodeTree, 'shadcn', 'sk-test-key')
+
+        expect(result.source).toBe('ai')
+    })
+
+    it('handles response with no content array', async () => {
+        vi.stubGlobal('fetch', mockFetchResponse({}))
+
+        const result = await classifyWithAI(sampleNodeTree, 'shadcn', 'sk-test-key')
+
+        expect(result.source).toBe('fallback')
+        expect(result.classifications.size).toBe(0)
+    })
+
+    it('uses correct model (claude-3-5-haiku-latest)', async () => {
+        const fetchMock = mockFetchResponse(anthropicResponse(JSON.stringify({ classifications: [] })))
+        vi.stubGlobal('fetch', fetchMock)
+
+        await classifyWithAI(sampleNodeTree, 'shadcn', 'sk-test-key')
+
+        const callBody = JSON.parse(fetchMock.mock.calls[0][1].body)
+        expect(callBody.model).toContain('haiku')
+    })
+
+    it('sends correct API key in headers', async () => {
+        const fetchMock = mockFetchResponse(anthropicResponse(JSON.stringify({ classifications: [] })))
+        vi.stubGlobal('fetch', fetchMock)
+
+        await classifyWithAI(sampleNodeTree, 'shadcn', 'sk-my-special-key')
+
+        const callHeaders = fetchMock.mock.calls[0][1].headers
+        expect(callHeaders['x-api-key']).toBe('sk-my-special-key')
     })
 })
 
@@ -425,5 +602,196 @@ describe('refineComponent', () => {
         expect(result.status).toBe('fallback')
         expect(result.code).toBe(validScaffold)
         expect(result.reason).toContain('Request failed')
+    })
+
+    it('preserves original scaffold on Babel parse failure (fallback safety)', async () => {
+        const complexScaffold = [
+            'import React from "react";',
+            'import { Input } from "@/components/ui/input";',
+            '',
+            'export function SearchForm() {',
+            '  return (',
+            '    <form className="flex gap-4">',
+            '      <Input placeholder="Search..." />',
+            '      <button type="submit">Go</button>',
+            '    </form>',
+            '  );',
+            '}',
+        ].join('\n')
+
+        // AI returns garbage that fails Babel parse
+        vi.stubGlobal('fetch', mockFetchResponse(anthropicResponse('const x = {{{invalid')))
+
+        const result = await refineComponent(
+            complexScaffold, figmaSubtree, 'shadcn', '', 'sk-test-key'
+        )
+
+        expect(result.status).toBe('fallback')
+        // Original scaffold must be preserved exactly
+        expect(result.code).toBe(complexScaffold)
+    })
+
+    it('preserves original scaffold on API timeout (fallback safety)', async () => {
+        vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new DOMException('Aborted', 'AbortError')))
+
+        const result = await refineComponent(
+            validScaffold, figmaSubtree, 'shadcn', '', 'sk-test-key'
+        )
+
+        // Original scaffold must be preserved exactly
+        expect(result.code).toBe(validScaffold)
+    })
+
+    it('preserves original scaffold on empty API key (fallback safety)', async () => {
+        const result = await refineComponent(
+            validScaffold, figmaSubtree, 'shadcn', '', null
+        )
+
+        // Original scaffold must be preserved exactly
+        expect(result.code).toBe(validScaffold)
+    })
+
+    it('includes library name in system prompt', async () => {
+        const fetchMock = mockFetchResponse(anthropicResponse(validScaffold))
+        vi.stubGlobal('fetch', fetchMock)
+
+        await refineComponent(
+            validScaffold, figmaSubtree, 'mui', 'MUI idioms here', 'sk-test-key'
+        )
+
+        const callBody = JSON.parse(fetchMock.mock.calls[0][1].body)
+        expect(callBody.system).toContain('mui')
+    })
+
+    it('includes idiom block in system prompt', async () => {
+        const idiomBlock = 'Use MUI Box for layouts. Use Typography for text.'
+        const fetchMock = mockFetchResponse(anthropicResponse(validScaffold))
+        vi.stubGlobal('fetch', fetchMock)
+
+        await refineComponent(
+            validScaffold, figmaSubtree, 'mui', idiomBlock, 'sk-test-key'
+        )
+
+        const callBody = JSON.parse(fetchMock.mock.calls[0][1].body)
+        expect(callBody.system).toContain(idiomBlock)
+    })
+
+    it('includes design system context in system prompt when provided', async () => {
+        const dsContext = 'Primary color is blue-600. Use rounded-lg for all cards.'
+        const fetchMock = mockFetchResponse(anthropicResponse(validScaffold))
+        vi.stubGlobal('fetch', fetchMock)
+
+        await refineComponent(
+            validScaffold, figmaSubtree, 'shadcn', '', 'sk-test-key', undefined, dsContext
+        )
+
+        const callBody = JSON.parse(fetchMock.mock.calls[0][1].body)
+        expect(callBody.system).toContain(dsContext)
+        expect(callBody.system).toContain('Design System Guidelines')
+    })
+
+    it('omits design system context block when not provided', async () => {
+        const fetchMock = mockFetchResponse(anthropicResponse(validScaffold))
+        vi.stubGlobal('fetch', fetchMock)
+
+        await refineComponent(
+            validScaffold, figmaSubtree, 'shadcn', '', 'sk-test-key'
+        )
+
+        const callBody = JSON.parse(fetchMock.mock.calls[0][1].body)
+        expect(callBody.system).not.toContain('Design System Guidelines')
+    })
+
+    it('omits design system context block when empty string', async () => {
+        const fetchMock = mockFetchResponse(anthropicResponse(validScaffold))
+        vi.stubGlobal('fetch', fetchMock)
+
+        await refineComponent(
+            validScaffold, figmaSubtree, 'shadcn', '', 'sk-test-key', undefined, '   '
+        )
+
+        const callBody = JSON.parse(fetchMock.mock.calls[0][1].body)
+        expect(callBody.system).not.toContain('Design System Guidelines')
+    })
+
+    it('uses correct model (sonnet)', async () => {
+        const fetchMock = mockFetchResponse(anthropicResponse(validScaffold))
+        vi.stubGlobal('fetch', fetchMock)
+
+        await refineComponent(
+            validScaffold, figmaSubtree, 'shadcn', '', 'sk-test-key'
+        )
+
+        const callBody = JSON.parse(fetchMock.mock.calls[0][1].body)
+        expect(callBody.model).toContain('sonnet')
+    })
+
+    it('sends correct API key in headers', async () => {
+        const fetchMock = mockFetchResponse(anthropicResponse(validScaffold))
+        vi.stubGlobal('fetch', fetchMock)
+
+        await refineComponent(
+            validScaffold, figmaSubtree, 'shadcn', '', 'sk-refine-key-42'
+        )
+
+        const callHeaders = fetchMock.mock.calls[0][1].headers
+        expect(callHeaders['x-api-key']).toBe('sk-refine-key-42')
+    })
+
+    it('includes scaffold JSX in user message', async () => {
+        const fetchMock = mockFetchResponse(anthropicResponse(validScaffold))
+        vi.stubGlobal('fetch', fetchMock)
+
+        await refineComponent(
+            validScaffold, figmaSubtree, 'shadcn', '', 'sk-test-key'
+        )
+
+        const callBody = JSON.parse(fetchMock.mock.calls[0][1].body)
+        const textBlock = callBody.messages[0].content.find((b: { type: string }) => b.type === 'text')
+        expect(textBlock.text).toContain('flex flex-col')
+        expect(textBlock.text).toContain('ContactForm')
+    })
+
+    it('includes Figma subtree in user message', async () => {
+        const fetchMock = mockFetchResponse(anthropicResponse(validScaffold))
+        vi.stubGlobal('fetch', fetchMock)
+
+        const subtree = { name: 'HeroSection', type: 'FRAME', children: [{ name: 'Title', type: 'TEXT' }] }
+
+        await refineComponent(
+            validScaffold, subtree, 'shadcn', '', 'sk-test-key'
+        )
+
+        const callBody = JSON.parse(fetchMock.mock.calls[0][1].body)
+        const textBlock = callBody.messages[0].content.find((b: { type: string }) => b.type === 'text')
+        expect(textBlock.text).toContain('HeroSection')
+    })
+
+    it('screenshot section includes base64 image block with correct media type', async () => {
+        const fetchMock = mockFetchResponse(anthropicResponse(validScaffold))
+        vi.stubGlobal('fetch', fetchMock)
+
+        await refineComponent(
+            validScaffold, figmaSubtree, 'shadcn', '', 'sk-test-key', 'iVBORw0KGgoAAAANSUhEUgA='
+        )
+
+        const callBody = JSON.parse(fetchMock.mock.calls[0][1].body)
+        const imageBlock = callBody.messages[0].content.find((b: { type: string }) => b.type === 'image')
+        expect(imageBlock).toBeDefined()
+        expect(imageBlock.source.type).toBe('base64')
+        expect(imageBlock.source.media_type).toBe('image/png')
+        expect(imageBlock.source.data).toBe('iVBORw0KGgoAAAANSUhEUgA=')
+    })
+
+    it('returns fallback with reason on 429 rate limit', async () => {
+        vi.stubGlobal('fetch', mockFetchResponse({}, 429, 'Too Many Requests'))
+
+        const result = await refineComponent(
+            validScaffold, figmaSubtree, 'shadcn', '', 'sk-test-key'
+        )
+
+        expect(result.status).toBe('fallback')
+        expect(result.code).toBe(validScaffold)
+        expect(result.reason).toContain('API error: 429')
     })
 })

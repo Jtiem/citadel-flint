@@ -94,7 +94,6 @@ export async function compileVueSFC(code: string): Promise<VueCompileResult> {
         // ── Step 3: Compile <script>/<script setup> ───────────────────────────
         const SFC_ID = 'flint-vue-preview'
         let scriptContent = ''
-        let hasSetup = false
 
         if (descriptor.script || descriptor.scriptSetup) {
             try {
@@ -104,7 +103,6 @@ export async function compileVueSFC(code: string): Promise<VueCompileResult> {
                     inlineTemplate: false,
                 })
                 scriptContent = compiledScript.content ?? ''
-                hasSetup = !!(descriptor.scriptSetup)
             } catch (scriptErr) {
                 return {
                     js: null,

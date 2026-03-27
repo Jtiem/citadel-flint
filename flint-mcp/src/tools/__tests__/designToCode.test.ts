@@ -12,7 +12,7 @@
  *  8. writeThemeFile=true → writes file to tmp dir
  */
 
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -835,6 +835,279 @@ describe('multi-component page generation', () => {
             expect(result.summary).toContain('3 component(s)')
             expect(result.summary).toContain('Page compositor')
             expect(result.summary).toContain('LandingPage')
+        } finally {
+            rmTmpDir(tmpDir)
+        }
+    })
+})
+
+// ---------------------------------------------------------------------------
+// D2C.5 — AI classification and refinement integration tests
+// ---------------------------------------------------------------------------
+
+describe('handleDesignToCode — D2C.5 AI classification (aiClassify)', () => {
+    // We mock globalThis.fetch for AI calls while keeping real file system for tokens/config
+    let originalFetch: typeof globalThis.fetch
+
+    beforeEach(() => {
+        originalFetch = globalThis.fetch
+    })
+
+    afterEach(() => {
+        globalThis.fetch = originalFetch
+    })
+
+    it('backward compatibility: result is identical when aiClassify/aiRefine are omitted', async () => {
+        const { config, tmpDir } = makeConfig(SAMPLE_TOKENS)
+        try {
+            const result = await handleDesignToCode(
+                { figmaPayload: MINIMAL_FIGMA_PAYLOAD, library: 'shadcn' },
+                config,
+            )
+
+            expect(result.status).toBe('ok')
+            // No AI metadata when flags are not set
+            expect(result.aiClassification).toBeUndefined()
+            expect(result.aiRefinements).toBeUndefined()
+        } finally {
+            rmTmpDir(tmpDir)
+        }
+    })
+
+    it('includes aiClassification metadata when aiClassify=true', async () => {
+        // Mock the fetch for AI classification to return empty classifications
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            json: () => Promise.resolve({
+                content: [{ type: 'text', text: JSON.stringify({ classifications: [] }) }],
+            }),
+        }))
+
+        const { config, tmpDir } = makeConfig(SAMPLE_TOKENS)
+        // Set env key for AI classification to work
+        const origKey = process.env.ANTHROPIC_API_KEY
+        process.env.ANTHROPIC_API_KEY = 'sk-test-classify'
+        try {
+            const result = await handleDesignToCode(
+                { figmaPayload: MINIMAL_FIGMA_PAYLOAD, library: 'shadcn', aiClassify: true },
+                config,
+            )
+
+            expect(result.status).toBe('ok')
+            expect(result.aiClassification).toBeDefined()
+            expect(result.aiClassification!.source).toBeDefined()
+            expect(typeof result.aiClassification!.classificationCount).toBe('number')
+            expect(typeof result.aiClassification!.latencyMs).toBe('number')
+        } finally {
+            if (origKey !== undefined) {
+                process.env.ANTHROPIC_API_KEY = origKey
+            } else {
+                delete process.env.ANTHROPIC_API_KEY
+            }
+            rmTmpDir(tmpDir)
+        }
+    })
+
+    it('aiClassification shows source=fallback when no API key', async () => {
+        const { config, tmpDir } = makeConfig(SAMPLE_TOKENS)
+        const origKey = process.env.ANTHROPIC_API_KEY
+        delete process.env.ANTHROPIC_API_KEY
+        try {
+            const result = await handleDesignToCode(
+                { figmaPayload: MINIMAL_FIGMA_PAYLOAD, library: 'shadcn', aiClassify: true },
+                config,
+            )
+
+            expect(result.status).toBe('ok')
+            expect(result.aiClassification).toBeDefined()
+            expect(result.aiClassification!.source).toBe('fallback')
+            expect(result.aiClassification!.classificationCount).toBe(0)
+        } finally {
+            if (origKey !== undefined) {
+                process.env.ANTHROPIC_API_KEY = origKey
+            } else {
+                delete process.env.ANTHROPIC_API_KEY
+            }
+            rmTmpDir(tmpDir)
+        }
+    })
+})
+
+describe('handleDesignToCode — D2C.5 AI refinement (aiRefine)', () => {
+    let originalFetch: typeof globalThis.fetch
+
+    beforeEach(() => {
+        originalFetch = globalThis.fetch
+    })
+
+    afterEach(() => {
+        globalThis.fetch = originalFetch
+    })
+
+    it('includes aiRefinements metadata when aiRefine=true', async () => {
+        // Mock fetch to return valid refined JSX
+        const validJsx = [
+            'import React from "react";',
+            'export function MyButton() {',
+            '  return <button>Click me</button>;',
+            '}',
+        ].join('\n')
+
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            json: () => Promise.resolve({
+                content: [{ type: 'text', text: validJsx }],
+            }),
+        }))
+
+        const { config, tmpDir } = makeConfig(SAMPLE_TOKENS)
+        const origKey = process.env.ANTHROPIC_API_KEY
+        process.env.ANTHROPIC_API_KEY = 'sk-test-refine'
+        try {
+            const result = await handleDesignToCode(
+                {
+                    figmaPayload: MINIMAL_FIGMA_PAYLOAD,
+                    library: 'shadcn',
+                    aiRefine: true,
+                },
+                config,
+            )
+
+            expect(result.status).toBe('ok')
+            expect(result.aiRefinements).toBeDefined()
+            expect(result.aiRefinements!.length).toBeGreaterThan(0)
+            expect(result.aiRefinements![0].componentName).toBeTruthy()
+            expect(['refined', 'fallback']).toContain(result.aiRefinements![0].status)
+            expect(typeof result.aiRefinements![0].latencyMs).toBe('number')
+        } finally {
+            if (origKey !== undefined) {
+                process.env.ANTHROPIC_API_KEY = origKey
+            } else {
+                delete process.env.ANTHROPIC_API_KEY
+            }
+            rmTmpDir(tmpDir)
+        }
+    })
+
+    it('aiRefinements show fallback when no API key', async () => {
+        const { config, tmpDir } = makeConfig(SAMPLE_TOKENS)
+        const origKey = process.env.ANTHROPIC_API_KEY
+        delete process.env.ANTHROPIC_API_KEY
+        try {
+            const result = await handleDesignToCode(
+                {
+                    figmaPayload: MINIMAL_FIGMA_PAYLOAD,
+                    library: 'shadcn',
+                    aiRefine: true,
+                },
+                config,
+            )
+
+            expect(result.status).toBe('ok')
+            expect(result.aiRefinements).toBeDefined()
+            // All refinements should be fallback since no API key
+            for (const r of result.aiRefinements!) {
+                expect(r.status).toBe('fallback')
+                expect(r.reason).toContain('No API key')
+            }
+        } finally {
+            if (origKey !== undefined) {
+                process.env.ANTHROPIC_API_KEY = origKey
+            } else {
+                delete process.env.ANTHROPIC_API_KEY
+            }
+            rmTmpDir(tmpDir)
+        }
+    })
+
+    it('screenshotBase64 is passed through to refinement', async () => {
+        const fetchMock = vi.fn().mockResolvedValue({
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            json: () => Promise.resolve({
+                content: [{ type: 'text', text: 'export function X() { return <div />; }' }],
+            }),
+        })
+        vi.stubGlobal('fetch', fetchMock)
+
+        const { config, tmpDir } = makeConfig(SAMPLE_TOKENS)
+        const origKey = process.env.ANTHROPIC_API_KEY
+        process.env.ANTHROPIC_API_KEY = 'sk-test-screenshot'
+        try {
+            await handleDesignToCode(
+                {
+                    figmaPayload: MINIMAL_FIGMA_PAYLOAD,
+                    library: 'shadcn',
+                    aiRefine: true,
+                    screenshotBase64: 'test-screenshot-base64',
+                },
+                config,
+            )
+
+            // The fetch mock should have been called for refinement
+            expect(fetchMock).toHaveBeenCalled()
+            // Find the refinement call (not classification call)
+            const calls = fetchMock.mock.calls
+            const refinementCall = calls.find((call: unknown[]) => {
+                const body = JSON.parse((call[1] as { body: string }).body)
+                return body.model && body.model.includes('sonnet')
+            })
+            if (refinementCall) {
+                const body = JSON.parse((refinementCall[1] as { body: string }).body)
+                const imageBlock = body.messages[0].content.find(
+                    (b: { type: string }) => b.type === 'image'
+                )
+                expect(imageBlock).toBeDefined()
+                expect(imageBlock.source.data).toBe('test-screenshot-base64')
+            }
+        } finally {
+            if (origKey !== undefined) {
+                process.env.ANTHROPIC_API_KEY = origKey
+            } else {
+                delete process.env.ANTHROPIC_API_KEY
+            }
+            rmTmpDir(tmpDir)
+        }
+    })
+
+    it('no aiRefinements metadata when aiRefine is false', async () => {
+        const { config, tmpDir } = makeConfig(SAMPLE_TOKENS)
+        try {
+            const result = await handleDesignToCode(
+                {
+                    figmaPayload: MINIMAL_FIGMA_PAYLOAD,
+                    library: 'shadcn',
+                    aiRefine: false,
+                },
+                config,
+            )
+
+            expect(result.status).toBe('ok')
+            expect(result.aiRefinements).toBeUndefined()
+        } finally {
+            rmTmpDir(tmpDir)
+        }
+    })
+
+    it('no aiClassification metadata when aiClassify is false', async () => {
+        const { config, tmpDir } = makeConfig(SAMPLE_TOKENS)
+        try {
+            const result = await handleDesignToCode(
+                {
+                    figmaPayload: MINIMAL_FIGMA_PAYLOAD,
+                    library: 'shadcn',
+                    aiClassify: false,
+                },
+                config,
+            )
+
+            expect(result.status).toBe('ok')
+            expect(result.aiClassification).toBeUndefined()
         } finally {
             rmTmpDir(tmpDir)
         }

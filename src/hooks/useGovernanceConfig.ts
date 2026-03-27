@@ -123,7 +123,7 @@ export function useGovernanceConfig(): UseGovernanceConfigReturn {
             // Optimistically update the store so the UI reflects the change
             // before the config-changed event fires.
             if (result.success && result.extends) {
-                const newPresets = result.extends.filter((e) => e.startsWith('@flint/'))
+                const newPresets = result.extends.filter((e: string) => e.startsWith('@flint/'))
                 if (typeof setActivePresets === 'function') setActivePresets(newPresets)
                 if (typeof setInheritanceChain === 'function') setInheritanceChain(result.extends)
                 if (typeof setJurisdictionCoverage === 'function') {

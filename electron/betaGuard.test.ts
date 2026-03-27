@@ -49,8 +49,6 @@ vi.mock('../shared/brand.js', () => ({
 
 // ── Import helpers ─────────────────────────────────────────────────────────────
 
-import { app, dialog } from 'electron'
-
 // ── ISO date helpers ───────────────────────────────────────────────────────────
 
 /** Returns an ISO date string N days from now (positive = future, negative = past). */

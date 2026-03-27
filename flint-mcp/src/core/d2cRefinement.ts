@@ -20,6 +20,8 @@ import path from 'node:path'
 
 export interface ClassificationResult {
     classifications: Map<string, string> // nodeId → componentType
+    /** Per-node confidence scores from the AI classification (0.0-1.0) */
+    confidences: Map<string, number> // nodeId → confidence
     source: 'ai' | 'fallback'
     latencyMs: number
 }
@@ -94,6 +96,7 @@ export async function classifyWithAI(
     if (!apiKey) {
         return {
             classifications: new Map(),
+            confidences: new Map(),
             source: 'fallback',
             latencyMs: Date.now() - start,
         }
@@ -147,6 +150,7 @@ export async function classifyWithAI(
         if (!response.ok) {
             return {
                 classifications: new Map(),
+                confidences: new Map(),
                 source: 'fallback',
                 latencyMs: Date.now() - start,
             }
@@ -163,6 +167,7 @@ export async function classifyWithAI(
         if (!jsonMatch) {
             return {
                 classifications: new Map(),
+                confidences: new Map(),
                 source: 'fallback',
                 latencyMs: Date.now() - start,
             }
@@ -177,6 +182,7 @@ export async function classifyWithAI(
         }
 
         const classifications = new Map<string, string>()
+        const confidences = new Map<string, number>()
         const validTypesSet = new Set(validTypes)
 
         if (Array.isArray(parsed.classifications)) {
@@ -189,12 +195,14 @@ export async function classifyWithAI(
                     validTypesSet.has(entry.componentType)
                 ) {
                     classifications.set(entry.nodeId, entry.componentType)
+                    confidences.set(entry.nodeId, entry.confidence)
                 }
             }
         }
 
         return {
             classifications,
+            confidences,
             source: 'ai',
             latencyMs: Date.now() - start,
         }
@@ -202,6 +210,7 @@ export async function classifyWithAI(
         // Timeout, network error, parse error — all safe fallback
         return {
             classifications: new Map(),
+            confidences: new Map(),
             source: 'fallback',
             latencyMs: Date.now() - start,
         }

@@ -17,7 +17,7 @@
  *   - captureScreenshot hidden when undefined (graceful degradation)
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { BetaFeedbackModal } from '../BetaFeedbackModal'
 
@@ -125,12 +125,12 @@ describe('BetaFeedbackModal', () => {
             await act(async () => {
                 fireEvent.click(screen.getByLabelText('Attach screenshot'))
             })
-            expect(window.flintAPI.beta.captureScreenshot).toHaveBeenCalledOnce()
+            expect(window.flintAPI.beta!.captureScreenshot).toHaveBeenCalledOnce()
         })
 
         it('shows thumbnail when captureScreenshot returns a base64 string', async () => {
             const fakeBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
-            ;(window.flintAPI.beta.captureScreenshot as ReturnType<typeof vi.fn>)
+            ;(window.flintAPI.beta!.captureScreenshot as ReturnType<typeof vi.fn>)
                 .mockResolvedValueOnce(fakeBase64)
 
             renderOpen()
@@ -145,7 +145,7 @@ describe('BetaFeedbackModal', () => {
         })
 
         it('does not show thumbnail when captureScreenshot returns null', async () => {
-            ;(window.flintAPI.beta.captureScreenshot as ReturnType<typeof vi.fn>)
+            ;(window.flintAPI.beta!.captureScreenshot as ReturnType<typeof vi.fn>)
                 .mockResolvedValueOnce(null)
 
             renderOpen()
@@ -160,7 +160,7 @@ describe('BetaFeedbackModal', () => {
 
         it('clicking "Remove" clears the screenshot thumbnail', async () => {
             const fakeBase64 = 'abc123'
-            ;(window.flintAPI.beta.captureScreenshot as ReturnType<typeof vi.fn>)
+            ;(window.flintAPI.beta!.captureScreenshot as ReturnType<typeof vi.fn>)
                 .mockResolvedValueOnce(fakeBase64)
 
             renderOpen()
@@ -174,7 +174,7 @@ describe('BetaFeedbackModal', () => {
         })
 
         it('modal is still usable when captureScreenshot throws', async () => {
-            ;(window.flintAPI.beta.captureScreenshot as ReturnType<typeof vi.fn>)
+            ;(window.flintAPI.beta!.captureScreenshot as ReturnType<typeof vi.fn>)
                 .mockRejectedValueOnce(new Error('IPC failed'))
 
             renderOpen()
@@ -231,7 +231,7 @@ describe('BetaFeedbackModal', () => {
             })
 
             await waitFor(() => {
-                expect(window.flintAPI.beta.submitFeedback).toHaveBeenCalledWith(
+                expect(window.flintAPI.beta!.submitFeedback).toHaveBeenCalledWith(
                     expect.objectContaining({
                         category: 'bug',
                         severity: 'annoying',
@@ -243,7 +243,7 @@ describe('BetaFeedbackModal', () => {
 
         it('includes screenshot in the payload when captured', async () => {
             const fakeBase64 = 'screenshot-data'
-            ;(window.flintAPI.beta.captureScreenshot as ReturnType<typeof vi.fn>)
+            ;(window.flintAPI.beta!.captureScreenshot as ReturnType<typeof vi.fn>)
                 .mockResolvedValueOnce(fakeBase64)
 
             renderOpen()
@@ -258,7 +258,7 @@ describe('BetaFeedbackModal', () => {
             })
 
             await waitFor(() => {
-                expect(window.flintAPI.beta.submitFeedback).toHaveBeenCalledWith(
+                expect(window.flintAPI.beta!.submitFeedback).toHaveBeenCalledWith(
                     expect.objectContaining({
                         screenshot: fakeBase64,
                     })
@@ -275,7 +275,7 @@ describe('BetaFeedbackModal', () => {
             })
 
             await waitFor(() => {
-                expect(window.flintAPI.beta.submitFeedback).toHaveBeenCalledWith(
+                expect(window.flintAPI.beta!.submitFeedback).toHaveBeenCalledWith(
                     expect.objectContaining({
                         system: expect.objectContaining({
                             screenWidth: expect.any(Number),
@@ -296,7 +296,7 @@ describe('BetaFeedbackModal', () => {
             })
 
             await waitFor(() => {
-                expect(window.flintAPI.beta.submitFeedback).toHaveBeenCalledWith(
+                expect(window.flintAPI.beta!.submitFeedback).toHaveBeenCalledWith(
                     expect.objectContaining({
                         screenshot: null,
                     })
@@ -320,7 +320,7 @@ describe('BetaFeedbackModal', () => {
         it('button shows "Saving..." while submitting', async () => {
             // Make submitFeedback hang so we can observe the transient state
             let resolve!: (v: { saved: boolean }) => void
-            ;(window.flintAPI.beta.submitFeedback as ReturnType<typeof vi.fn>)
+            ;(window.flintAPI.beta!.submitFeedback as ReturnType<typeof vi.fn>)
                 .mockReturnValueOnce(new Promise<{ saved: boolean }>(r => { resolve = r }))
 
             renderOpen()
@@ -340,7 +340,7 @@ describe('BetaFeedbackModal', () => {
         })
 
         it('form stays open when submitFeedback throws', async () => {
-            ;(window.flintAPI.beta.submitFeedback as ReturnType<typeof vi.fn>)
+            ;(window.flintAPI.beta!.submitFeedback as ReturnType<typeof vi.fn>)
                 .mockRejectedValueOnce(new Error('disk full'))
 
             renderOpen()
@@ -366,7 +366,7 @@ describe('BetaFeedbackModal', () => {
         })
 
         it('shows banner when daysRemaining is set', async () => {
-            ;(window.flintAPI.beta.getInfo as ReturnType<typeof vi.fn>)
+            ;(window.flintAPI.beta!.getInfo as ReturnType<typeof vi.fn>)
                 .mockResolvedValueOnce({
                     buildId: 'beta-0.1.0-20260327',
                     expiryDate: '2026-04-26T00:00:00Z',
@@ -398,7 +398,7 @@ describe('BetaFeedbackModal', () => {
 
         it('clears screenshot when modal is reopened', async () => {
             const fakeBase64 = 'img-data'
-            ;(window.flintAPI.beta.captureScreenshot as ReturnType<typeof vi.fn>)
+            ;(window.flintAPI.beta!.captureScreenshot as ReturnType<typeof vi.fn>)
                 .mockResolvedValueOnce(fakeBase64)
 
             const onClose = vi.fn()

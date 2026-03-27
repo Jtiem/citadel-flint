@@ -252,19 +252,59 @@ export interface ComponentClassification {
 }
 
 /**
+ * Combined classification result from classifyFrame.
+ * Includes both the HTML element classification and optional component classification
+ * when the node name matches a recognized UI component type.
+ *
+ * This interface is the contract-specified return shape (D2C.4). The internal
+ * classifyFrame() returns a simple FrameClassification string for efficiency;
+ * this richer shape is available for callers that need the full context.
+ */
+export interface FrameClassificationResult {
+    classification: FrameClassification
+    /** When the node matches a classifyComponent entry, this holds the type */
+    componentType?: ComponentType
+    /** Confidence score 0-1 for debugging/logging */
+    confidence: number
+}
+
+/**
+ * Build a full FrameClassificationResult by running both classifyComponent
+ * and classifyFrame on a node. This is the contract-specified entry point
+ * that combines both heuristics into a single result.
+ */
+export function classifyFrameFull(node: { name?: string; type?: string; fills?: unknown[]; children?: unknown[]; [key: string]: unknown }, depth: number): FrameClassificationResult {
+    const name = node.name ?? ''
+
+    // Step 1: check for component classification
+    const comp = classifyComponent(name)
+    if (comp !== null) {
+        return { classification: 'div', componentType: comp.type, confidence: 0.8 }
+    }
+
+    // Step 2: structural/semantic frame classification
+    const classification = classifyFrame(node as FigmaNode, depth)
+
+    // Confidence heuristic: keyword matches score higher than depth-based fallbacks
+    const confidence = classification === 'div' ? 0.5 : 0.85
+
+    return { classification, confidence }
+}
+
+/**
  * Classify a Figma FRAME node by name and depth into a semantic HTML wrapper type.
  *
  * Decision tree (priority order, first match wins):
- *  1. Name contains "card" or "panel"           → 'card'
- *  2. Name contains "form"                      → 'form'
- *  3. Name contains "nav", "navbar", "navigation" → 'nav'
- *  4. Name contains "header"                    → 'header'
- *  5. Name contains "footer"                    → 'footer'
- *  6. Name contains "section", "hero", "banner" → 'section'
- *  7. Depth <= 1                                → 'div'  (top-level layout)
- *  8. Has fill + visual cue keywords in name   → 'card'
- *  9. Layout/wrapper keyword names             → 'div'
- * 10. Default                                  → 'div'
+ *  1. Name contains "card" or "panel"                          → 'card'
+ *  2. Name contains "form"                                     → 'form'
+ *  3. Name contains "nav", "navbar", "navigation", "menu", "sidebar" → 'nav'
+ *  4. Name contains "header"                                   → 'header'
+ *  5. Name contains "footer"                                   → 'footer'
+ *  6. Name contains "section", "hero", "banner"                → 'section'
+ *  7. Depth <= 1                                               → 'div'  (top-level layout)
+ *  8. Has fill + visual cue keywords in name                   → 'card'
+ *  9. Layout/wrapper keyword names                             → 'div'
+ * 10. Default                                                  → 'div'
  */
 export function classifyFrame(node: FigmaNode, depth: number): FrameClassification {
     const name = (node.name ?? '').toLowerCase()
@@ -275,8 +315,8 @@ export function classifyFrame(node: FigmaNode, depth: number): FrameClassificati
     // 2. Form keyword
     if (name.includes('form')) return 'form'
 
-    // 3. Nav keywords
-    if (name.includes('nav') || name.includes('navbar') || name.includes('navigation')) return 'nav'
+    // 3. Nav keywords (includes menu/sidebar per D2C.4 contract)
+    if (name.includes('nav') || name.includes('navbar') || name.includes('navigation') || name.includes('menu') || name.includes('sidebar')) return 'nav'
 
     // 4. Header keyword
     if (name.includes('header')) return 'header'
@@ -396,11 +436,12 @@ export function classifyComponent(name: string, componentType?: string): Compone
         return { type: 'separator', matchedKeywords: matched }
     }
 
-    // alert / message / toast (but not "notification" inside "notifications list")
-    if (lower.includes('alert') || lower.includes('message') || lower.includes('toast')) {
+    // alert / message / notification / toast (per D2C.4 contract)
+    if (lower.includes('alert') || lower.includes('message') || lower.includes('notification') || lower.includes('toast')) {
         const matched: string[] = []
         if (lower.includes('alert')) matched.push('alert')
         if (lower.includes('message')) matched.push('message')
+        if (lower.includes('notification')) matched.push('notification')
         if (lower.includes('toast')) matched.push('toast')
         return { type: 'alert', matchedKeywords: matched }
     }

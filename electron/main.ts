@@ -2580,7 +2580,7 @@ app.whenReady().then(async () => {
          ORDER BY deferred_at DESC`
     )
 
-    const deferViolationResolve = db.prepare<[string, string, string | null]>(`
+    const deferViolationResolve = db.prepare<[string, string, string | null, string | null]>(`
         UPDATE deferred_violations
         SET resolved_at = datetime('now')
         WHERE file_path = ? AND rule_id = ? AND (node_id = ? OR (node_id IS NULL AND ? IS NULL)) AND resolved_at IS NULL

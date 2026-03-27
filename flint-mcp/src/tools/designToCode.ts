@@ -103,6 +103,12 @@ export const FLINT_DESIGN_TO_CODE_TOOL = {
                     'Run AI refinement on generated components. ' +
                     'Adds 3-8s per component. Default: false.',
             },
+            aiRefineThreshold: {
+                type: 'number',
+                description:
+                    'Confidence threshold below which components trigger AI refinement. ' +
+                    'Range 0.0-1.0. Default: 0.7. Only used when aiRefine=true.',
+            },
             screenshotBase64: {
                 type: 'string',
                 description:
@@ -143,6 +149,8 @@ export interface DesignToCodeArgs {
     aiClassify?: boolean
     /** D2C.5: Run AI refinement on generated components. */
     aiRefine?: boolean
+    /** D2C.5: Confidence threshold below which components trigger AI refinement. Default: 0.7. */
+    aiRefineThreshold?: number
     /** D2C.5: Base64-encoded screenshot for AI refinement visual context. */
     screenshotBase64?: string
     /** Design system docs (JSON string or raw search_design_system response) for AI refinement context. */
@@ -374,6 +382,8 @@ export async function handleDesignToCode(
     // ------------------------------------------------------------------
     let aiClassificationMeta: DesignToCodeResult['aiClassification']
     let classificationOverrides: Map<string, string> | undefined
+    /** Per-node confidence scores from AI classification — used by refinement threshold */
+    let classificationConfidences: Map<string, number> | undefined
 
     if (args.aiClassify) {
         const apiKey = resolveApiKey(projectRoot)
@@ -388,6 +398,7 @@ export async function handleDesignToCode(
 
         if (classResult.classifications.size > 0) {
             classificationOverrides = classResult.classifications
+            classificationConfidences = classResult.confidences
         }
     }
 
@@ -465,6 +476,9 @@ export async function handleDesignToCode(
         const adapter = getAdapter(libraryTarget)
         const idiomBlock = adapter.getIdiomBlock()
         const parsedTree = JSON.parse(enrichedPayload)
+        const refineThreshold = typeof args.aiRefineThreshold === 'number'
+            ? Math.max(0, Math.min(1, args.aiRefineThreshold))
+            : 0.7
 
         // Parse design system docs once for all components
         let allDsDocs: DesignSystemDoc[] = []
@@ -475,6 +489,17 @@ export async function handleDesignToCode(
         aiRefinementsMeta = []
 
         for (const comp of componentResults) {
+            // D2C.5: Only refine components whose classification confidence is
+            // below the threshold. When no classification was run (no confidences
+            // available), refine all components.
+            if (classificationConfidences) {
+                const confidence = classificationConfidences.get(comp.name)
+                if (confidence !== undefined && confidence >= refineThreshold) {
+                    // High-confidence classification — skip refinement
+                    continue
+                }
+            }
+
             // Build component-specific design system context
             let dsContext: string | undefined
             if (allDsDocs.length > 0) {

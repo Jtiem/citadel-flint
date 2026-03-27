@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { HydroPasteEngine, classifyFrame, classifyComponent } from '../hydroPaste.js';
+import { HydroPasteEngine, classifyFrame, classifyComponent, classifyFrameFull } from '../hydroPaste.js';
 import {
     ShadcnEmitter,
     MuiEmitter,
@@ -646,6 +646,14 @@ describe('classifyFrame — nav keywords', () => {
     it('returns "nav" for name "NavigationBar"', () => {
         expect(classifyFrame({ name: 'NavigationBar', type: 'FRAME' }, 1)).toBe('nav');
     });
+
+    it('returns "nav" for name "SideMenu" (menu keyword)', () => {
+        expect(classifyFrame({ name: 'SideMenu', type: 'FRAME' }, 2)).toBe('nav');
+    });
+
+    it('returns "nav" for name "LeftSidebar" (sidebar keyword)', () => {
+        expect(classifyFrame({ name: 'LeftSidebar', type: 'FRAME' }, 2)).toBe('nav');
+    });
 });
 
 describe('classifyFrame — header / footer', () => {
@@ -850,6 +858,13 @@ describe('classifyComponent — separator / alert', () => {
         const result = classifyComponent('SuccessToast');
         expect(result).not.toBeNull();
         expect(result!.type).toBe('alert');
+    });
+
+    it('returns "alert" for "PushNotification" (notification keyword)', () => {
+        const result = classifyComponent('PushNotification');
+        expect(result).not.toBeNull();
+        expect(result!.type).toBe('alert');
+        expect(result!.matchedKeywords).toContain('notification');
     });
 });
 
@@ -1735,5 +1750,193 @@ describe('TailwindLibEmitter.emitHeading', () => {
         const output = emitter.emitHeading('Title', '', 0);
         expect(output).toContain('text-2xl');
         expect(output).toContain('font-bold');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// D2C.5 — classificationOverrides integration tests
+// ---------------------------------------------------------------------------
+
+describe('HydroPasteEngine — classificationOverrides parameter', () => {
+    it('applies AI classification overrides to processPayload result', async () => {
+        const overrides = new Map<string, string>();
+        overrides.set('SubmitButton', 'button');
+
+        const overrideEngine = new HydroPasteEngine(
+            { components: {} },
+            tokens,
+            { library: 'shadcn', classificationOverrides: overrides },
+        );
+
+        const payload = {
+            name: 'ContactForm',
+            type: 'FRAME',
+            children: [
+                { name: 'SubmitButton', type: 'FRAME', children: [{ name: 'Label', type: 'TEXT', characters: 'Submit' }] },
+            ],
+        };
+
+        const result = await overrideEngine.processPayload(JSON.stringify(payload));
+        expect(result.components).toHaveLength(1);
+        // The override should influence generation — the node should be recognized as button
+        expect(result.components[0].jsx).toBeTruthy();
+    });
+
+    it('unknown node names in overrides are skipped silently', async () => {
+        const overrides = new Map<string, string>();
+        overrides.set('NonExistentNode', 'button');
+        overrides.set('AnotherFakeNode', 'input');
+
+        const overrideEngine = new HydroPasteEngine(
+            { components: {} },
+            tokens,
+            { library: 'shadcn', classificationOverrides: overrides },
+        );
+
+        const payload = {
+            name: 'Card',
+            type: 'FRAME',
+            children: [{ name: 'Title', type: 'TEXT', characters: 'Hello' }],
+        };
+
+        // Should not crash — unknown overrides are simply ignored
+        const result = await overrideEngine.processPayload(JSON.stringify(payload));
+        expect(result.components).toHaveLength(1);
+        expect(result.components[0].jsx).toBeTruthy();
+    });
+
+    it('behavior is identical to current when classificationOverrides is undefined', async () => {
+        // Engine without overrides
+        const baseEngine = new HydroPasteEngine(
+            { components: {} },
+            tokens,
+            { library: 'shadcn' },
+        );
+
+        // Engine with undefined overrides (explicit)
+        const noOverrideEngine = new HydroPasteEngine(
+            { components: {} },
+            tokens,
+            { library: 'shadcn', classificationOverrides: undefined },
+        );
+
+        const payload = JSON.stringify({
+            name: 'Card',
+            type: 'FRAME',
+            children: [{ name: 'Title', type: 'TEXT', characters: 'Hello' }],
+        });
+
+        const baseResult = await baseEngine.processPayload(payload);
+        const noOverrideResult = await noOverrideEngine.processPayload(payload);
+
+        // Both results should be structurally identical
+        expect(baseResult.components.length).toBe(noOverrideResult.components.length);
+        expect(baseResult.components[0].jsx).toBe(noOverrideResult.components[0].jsx);
+        expect(baseResult.library).toBe(noOverrideResult.library);
+    });
+
+    it('applies overrides recursively to nested children', async () => {
+        const overrides = new Map<string, string>();
+        overrides.set('EmailInput', 'input');
+
+        const overrideEngine = new HydroPasteEngine(
+            { components: {} },
+            tokens,
+            { library: 'shadcn', classificationOverrides: overrides },
+        );
+
+        const payload = {
+            name: 'Form',
+            type: 'FRAME',
+            children: [
+                {
+                    name: 'FieldGroup',
+                    type: 'FRAME',
+                    children: [
+                        { name: 'EmailInput', type: 'FRAME' },
+                    ],
+                },
+            ],
+        };
+
+        // Should not crash and should process nested nodes
+        const result = await overrideEngine.processPayload(JSON.stringify(payload));
+        expect(result.components).toHaveLength(1);
+        expect(result.components[0].jsx).toBeTruthy();
+    });
+
+    it('empty overrides map behaves same as no overrides', async () => {
+        const emptyOverrides = new Map<string, string>();
+
+        const emptyOverrideEngine = new HydroPasteEngine(
+            { components: {} },
+            tokens,
+            { library: 'shadcn', classificationOverrides: emptyOverrides },
+        );
+
+        const baseEngine = new HydroPasteEngine(
+            { components: {} },
+            tokens,
+            { library: 'shadcn' },
+        );
+
+        const payload = JSON.stringify({
+            name: 'Banner',
+            type: 'FRAME',
+            children: [{ name: 'Text', type: 'TEXT', characters: 'Hello' }],
+        });
+
+        const emptyResult = await emptyOverrideEngine.processPayload(payload);
+        const baseResult = await baseEngine.processPayload(payload);
+
+        expect(emptyResult.components[0].jsx).toBe(baseResult.components[0].jsx);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// D2C.4 Feature 1 — classifyFrameFull (contract-specified combined entry point)
+// ---------------------------------------------------------------------------
+
+describe('classifyFrameFull — component classification path', () => {
+    it('detects Input component and returns componentType', () => {
+        const result = classifyFrameFull({ name: 'EmailInput', type: 'FRAME' }, 2);
+        expect(result.componentType).toBe('input');
+        expect(result.confidence).toBeGreaterThan(0);
+    });
+
+    it('detects Avatar component', () => {
+        const result = classifyFrameFull({ name: 'UserAvatar', type: 'FRAME' }, 3);
+        expect(result.componentType).toBe('avatar');
+    });
+});
+
+describe('classifyFrameFull — structural classification path', () => {
+    it('classifies a form frame', () => {
+        const result = classifyFrameFull({ name: 'ContactForm', type: 'FRAME' }, 2);
+        expect(result.classification).toBe('form');
+        expect(result.componentType).toBeUndefined();
+        expect(result.confidence).toBeGreaterThanOrEqual(0.5);
+    });
+
+    it('classifies a nav frame with menu keyword', () => {
+        const result = classifyFrameFull({ name: 'MainMenu', type: 'FRAME' }, 2);
+        expect(result.classification).toBe('nav');
+    });
+
+    it('classifies a nav frame with sidebar keyword', () => {
+        const result = classifyFrameFull({ name: 'AppSidebar', type: 'FRAME' }, 2);
+        expect(result.classification).toBe('nav');
+    });
+
+    it('returns div for generic frame with lower confidence', () => {
+        const result = classifyFrameFull({ name: 'RandomFrame', type: 'FRAME' }, 2);
+        expect(result.classification).toBe('div');
+        expect(result.confidence).toBe(0.5);
+    });
+
+    it('returns higher confidence for keyword-matched frames', () => {
+        const result = classifyFrameFull({ name: 'PageHeader', type: 'FRAME' }, 2);
+        expect(result.classification).toBe('header');
+        expect(result.confidence).toBe(0.85);
     });
 });
