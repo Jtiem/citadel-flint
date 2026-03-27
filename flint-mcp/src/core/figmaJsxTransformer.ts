@@ -385,22 +385,129 @@ function buildTokenLookup(
  *   bg-[rgba(0,0,0,0.5)]
  *   text-[var(--foreground/muted,#71717a)]
  */
+// ---------------------------------------------------------------------------
+// CSS Variable → semantic Tailwind class mapping (D2C.11)
+// ---------------------------------------------------------------------------
+// Figma designs using Variables emit var(--name, #hex) in classNames.
+// The variable name IS the designer's semantic intent — more accurate than
+// CIEDE2000 matching on the hex fallback.
+// ---------------------------------------------------------------------------
+
+const FIGMA_VAR_TO_SHADCN: Record<string, string> = {
+    // foreground family
+    'foreground': 'foreground',
+    'foreground/default': 'foreground',
+    'foreground/muted': 'muted-foreground',
+    'foreground/accent': 'accent-foreground',
+    'foreground/primary': 'primary-foreground',
+    'foreground/primary/default': 'primary-foreground',
+    'foreground/secondary': 'secondary-foreground',
+    'foreground/destructive': 'destructive-foreground',
+    'foreground/card': 'card-foreground',
+    'foreground/popover': 'popover-foreground',
+    'foreground/success/default': 'emerald-700',
+    // background family
+    'background': 'background',
+    'background/default': 'background',
+    'background/card': 'card',
+    'background/popover': 'popover',
+    'background/destructive/default': 'destructive',
+    'background/success/light-hover': 'emerald-500/12',
+    // border family
+    'border': 'border',
+    'border/default': 'border',
+    'border/input': 'input',
+    // direct semantic tokens
+    'primary': 'primary',
+    'primary/foreground': 'primary-foreground',
+    'secondary': 'secondary',
+    'secondary/foreground': 'secondary-foreground',
+    'muted': 'muted',
+    'muted/foreground': 'muted-foreground',
+    'accent': 'accent',
+    'accent/foreground': 'accent-foreground',
+    'destructive': 'destructive',
+    'destructive/foreground': 'destructive-foreground',
+    'card': 'card',
+    'card/foreground': 'card-foreground',
+    'popover': 'popover',
+    'popover/foreground': 'popover-foreground',
+    'ring': 'ring',
+    'input': 'input',
+    'white': 'white',
+}
+
+// Remap table for cases where Figma's category/qualifier order differs from shadcn
+const SHADCN_REMAP: Record<string, string> = {
+    'foreground-muted': 'muted-foreground',
+    'foreground-accent': 'accent-foreground',
+    'foreground-card': 'card-foreground',
+    'foreground-popover': 'popover-foreground',
+    'foreground-primary': 'primary-foreground',
+    'foreground-secondary': 'secondary-foreground',
+    'foreground-destructive': 'destructive-foreground',
+    'background-card': 'card',
+    'background-popover': 'popover',
+    'border-input': 'input',
+}
+
+/**
+ * Resolve a Figma CSS variable name to a shadcn semantic Tailwind class.
+ * Returns null if no mapping exists (caller should fall back to CIEDE2000).
+ */
+export function resolveVarToSemantic(varName: string, library: SupportedLibrary): string | null {
+    if (library !== 'shadcn') return null  // MUI/PrimeNG use different systems
+
+    // 1. Exact match
+    const exact = FIGMA_VAR_TO_SHADCN[varName]
+    if (exact) return exact
+
+    // 2. Strip /default suffix and retry
+    const stripped = varName.replace(/\/default$/, '')
+    const strippedMatch = FIGMA_VAR_TO_SHADCN[stripped]
+    if (strippedMatch) return strippedMatch
+
+    // 3. Slash-to-dash normalization + remap
+    const dashed = stripped.replace(/\//g, '-')
+    const remapped = SHADCN_REMAP[dashed]
+    if (remapped) return remapped
+
+    // 4. Check if dashed form is a known value
+    const knownValues = new Set(Object.values(FIGMA_VAR_TO_SHADCN))
+    if (knownValues.has(dashed)) return dashed
+
+    return null
+}
+
 function mapClassTokens(
     className: string,
     tokenLookup: TokenLookupResult,
     tokenMappings: Record<string, string>,
+    library: SupportedLibrary = 'shadcn',
 ): string {
     let result = className
 
-    // Pattern 1: utility-[color:var(--name,#hex)] or utility-[var(--name,#hex)]
+    // Pattern 1: utility-[color:var(--name,#hex)] or utility-[var(--name,fallback)]
+    // Try CSS variable name resolution FIRST, fall back to CIEDE2000 on hex
     result = result.replace(
-        /((?:text|bg|border|ring|fill|stroke|shadow|accent|caret|outline|decoration)-)\[(?:color:)?var\(--([^,)]+),\s*#([0-9a-fA-F]{3,8})\)\]/g,
-        (match, prefix, varName, hex) => {
-            const fullHex = `#${hex.toUpperCase()}`
-            const tokenMatch = findNearestToken(fullHex, tokenLookup.exactMap, tokenLookup.labTokens, TIER2_DELTA_E)
-            if (tokenMatch) {
-                tokenMappings[fullHex] = tokenMatch.className
-                return `${prefix}${tokenMatch.className}`
+        /((?:text|bg|border|ring|fill|stroke|shadow|accent|caret|outline|decoration)-)\[(?:color:)?var\(--([^,)]+),\s*([^)]+)\)\]/g,
+        (match, prefix, varName, fallback) => {
+            // D2C.11: Try semantic variable name resolution first
+            const semantic = resolveVarToSemantic(varName, library)
+            if (semantic) {
+                tokenMappings[`var(--${varName})`] = semantic
+                return `${prefix}${semantic}`
+            }
+
+            // Fallback: CIEDE2000 on the hex value
+            const hexMatch = (fallback as string).match(/#([0-9a-fA-F]{3,8})/)
+            if (hexMatch) {
+                const fullHex = `#${hexMatch[1].toUpperCase()}`
+                const tokenMatch = findNearestToken(fullHex, tokenLookup.exactMap, tokenLookup.labTokens, TIER2_DELTA_E)
+                if (tokenMatch) {
+                    tokenMappings[fullHex] = tokenMatch.className
+                    return `${prefix}${tokenMatch.className}`
+                }
             }
             return match
         },
@@ -1212,7 +1319,7 @@ export function transformFigmaJsx(
                 className = cleanFigmaArtifacts(className)
 
                 // Map tokens
-                className = mapClassTokens(className, tokenLookup, tokenMappings)
+                className = mapClassTokens(className, tokenLookup, tokenMappings, options.library)
 
                 path.node.value = t.stringLiteral(className)
             }
