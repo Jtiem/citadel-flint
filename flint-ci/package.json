@@ -1,0 +1,30 @@
+{
+  "name": "flint-ci",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Flint Governance Gate -- CI/CD interface powered by the Flint MCP engine",
+  "main": "dist/cli.js",
+  "bin": {
+    "flint-gate": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@actions/core": "^1.11.1",
+    "@actions/github": "^6.0.0",
+    "@babel/parser": "^7.29.0",
+    "@babel/traverse": "^7.29.0",
+    "@babel/types": "^7.29.0",
+    "commander": "^14.0.3",
+    "yaml": "^2.7.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "~5.9.3",
+    "vitest": "^4.0.18"
+  }
+}
