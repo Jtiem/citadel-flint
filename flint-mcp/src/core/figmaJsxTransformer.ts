@@ -749,6 +749,275 @@ function classifyName(dataName: string): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// D2C.12: Label-Input A11y Association helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Convert label text to a camelCase ID for htmlFor/id association.
+ * "Display Name" → "displayName", "Email Address" → "emailAddress", "Bio" → "bio"
+ */
+function toCamelCaseId(text: string): string {
+    return text.trim()
+        .replace(/[^a-zA-Z0-9\s]/g, '')
+        .split(/\s+/)
+        .map((w, i) => i === 0 ? w.toLowerCase() : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+        .join('')
+}
+
+// ---------------------------------------------------------------------------
+// D2C.13: Placeholder vs DefaultValue discrimination helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Check if a className string indicates a muted/placeholder color.
+ * Returns 'placeholder' if muted, 'defaultValue' if foreground/dark, or null if indeterminate.
+ */
+function inferInputTextRole(className: string): 'placeholder' | 'defaultValue' | null {
+    if (!className) return null
+    // Muted patterns → placeholder
+    if (/foreground\/muted|muted-foreground|text-muted|\/muted/i.test(className)) return 'placeholder'
+    if (/#(71717a|9ca3af|a1a1aa|6b7280)/i.test(className)) return 'placeholder'
+    // Foreground/default patterns → defaultValue
+    if (/foreground\/default|foreground[^/]|text-foreground/i.test(className)) return 'defaultValue'
+    if (/#(09090b|0a0a0a|000000|1a1a1a|18181b|171717|020617)/i.test(className)) return 'defaultValue'
+    return null
+}
+
+// ---------------------------------------------------------------------------
+// D2C.14: Button variant inference helper
+// ---------------------------------------------------------------------------
+
+/** Check the original element's className and data-name for button variant cues. */
+function inferButtonVariant(element: t.JSXElement): string | null {
+    const dataName = getDataName(element)
+    const className = getClassNameValue(element)
+
+    // Name-based detection (highest priority — designer intent)
+    if (dataName) {
+        const lower = dataName.toLowerCase()
+        if (/destructive|danger|delete|remove/.test(lower)) return 'destructive'
+        if (/outline/.test(lower)) return 'outline'
+        if (/ghost/.test(lower)) return 'ghost'
+        if (/secondary/.test(lower)) return 'secondary'
+    }
+
+    // className-based detection
+    if (className) {
+        // Destructive: red backgrounds
+        if (/bg-\[?(?:var\(--(?:background\/)?destructive|#(?:dc2626|ef4444|b91c1c|f87171))/i.test(className)) return 'destructive'
+        if (/bg-destructive/i.test(className)) return 'destructive'
+        // Outline: has border but transparent/white bg
+        if (/\bborder\b/.test(className) && (/bg-(?:white|transparent|\[(?:var\(--background\/default|white|transparent))/.test(className) || !/\bbg-/.test(className))) return 'outline'
+        // Ghost: no background, no border
+        if (!/\bbg-/.test(className) && !/\bborder\b/.test(className)) return 'ghost'
+        // Primary bg → default (no prop)
+        if (/bg-\[?(?:var\(--primary|#(?:2563eb|3b82f6))/i.test(className)) return null
+        if (/bg-primary/i.test(className)) return null
+    }
+
+    return null
+}
+
+/** Extract the className string value from a JSX element. */
+function getClassNameValue(element: t.JSXElement): string | null {
+    for (const attr of element.openingElement.attributes) {
+        if (
+            t.isJSXAttribute(attr) &&
+            t.isJSXIdentifier(attr.name) &&
+            attr.name.name === 'className' &&
+            t.isStringLiteral(attr.value)
+        ) {
+            return attr.value.value
+        }
+    }
+    return null
+}
+
+// ---------------------------------------------------------------------------
+// D2C.15: Card structural analysis helpers
+// ---------------------------------------------------------------------------
+
+interface CardStructure {
+    headerChildren: t.JSXElement[]
+    contentChildren: (t.JSXElement | t.JSXText | t.JSXExpressionContainer | t.JSXFragment | t.JSXSpreadChild)[]
+    footerChildren: t.JSXElement[]
+    hasTitle: boolean
+    hasDescription: boolean
+}
+
+type ValidJSXChild = t.JSXElement | t.JSXText | t.JSXExpressionContainer | t.JSXFragment | t.JSXSpreadChild
+
+function isValidJSXChild(node: t.Node): node is ValidJSXChild {
+    return t.isJSXElement(node) || t.isJSXText(node) || t.isJSXExpressionContainer(node) || t.isJSXFragment(node) || t.isJSXSpreadChild(node)
+}
+
+/** Check if an element is a heading (h1-h6) or has font-semibold/font-bold class. */
+function isHeadingLike(element: t.JSXElement): boolean {
+    const tag = t.isJSXIdentifier(element.openingElement.name) ? element.openingElement.name.name : ''
+    if (/^h[1-6]$/.test(tag)) return true
+    const cn = getClassNameValue(element)
+    if (cn && /\bfont-(semibold|bold)\b/.test(cn)) return true
+    return false
+}
+
+/** Check if an element has muted text styling (description-like). */
+function isMutedText(element: t.JSXElement): boolean {
+    const cn = getClassNameValue(element)
+    if (!cn) return false
+    return /\btext-muted\b|\bmuted-foreground\b|foreground\/muted|text-sm\b.*\btext-muted/.test(cn)
+        || /text-\[color:var\(--foreground\/muted/.test(cn)
+        || /\btext-gray-\d+\b/.test(cn)
+}
+
+/** Check if an element is or contains a Button. */
+function isButtonLike(element: t.JSXElement): boolean {
+    const tag = t.isJSXIdentifier(element.openingElement.name) ? element.openingElement.name.name : ''
+    if (tag === 'Button' || tag === 'button') return true
+    const dataName = getDataName(element)
+    if (dataName) {
+        const lower = dataName.toLowerCase()
+        if (lower.includes('button') || lower.includes('btn')) return true
+    }
+    return false
+}
+
+/** Analyze card children into header/content/footer sections. */
+function analyzeCardStructure(children: t.Node[]): CardStructure {
+    const elements = children.filter((c): c is t.JSXElement => t.isJSXElement(c))
+    const structure: CardStructure = {
+        headerChildren: [],
+        contentChildren: [],
+        footerChildren: [],
+        hasTitle: false,
+        hasDescription: false,
+    }
+
+    if (elements.length === 0) {
+        structure.contentChildren = children.filter(isValidJSXChild)
+        return structure
+    }
+
+    let idx = 0
+
+    // Check first element for title
+    if (idx < elements.length && isHeadingLike(elements[idx])) {
+        structure.headerChildren.push(elements[idx])
+        structure.hasTitle = true
+        idx++
+
+        // Check next element for description
+        if (idx < elements.length && isMutedText(elements[idx])) {
+            structure.headerChildren.push(elements[idx])
+            structure.hasDescription = true
+            idx++
+        }
+    }
+
+    // Check trailing buttons for footer
+    let footerStart = elements.length
+    for (let i = elements.length - 1; i >= idx; i--) {
+        if (isButtonLike(elements[i])) {
+            footerStart = i
+        } else {
+            break
+        }
+    }
+
+    // Remaining → content
+    for (let i = idx; i < footerStart; i++) {
+        structure.contentChildren.push(elements[i])
+    }
+
+    // Footer
+    for (let i = footerStart; i < elements.length; i++) {
+        structure.footerChildren.push(elements[i])
+    }
+
+    // If no header and no footer, fall back: all children go into content
+    if (!structure.hasTitle && structure.footerChildren.length === 0) {
+        structure.contentChildren = children.filter(isValidJSXChild)
+    }
+
+    return structure
+}
+
+// ---------------------------------------------------------------------------
+// D2C.16: Active tab detection helper
+// ---------------------------------------------------------------------------
+
+/** Examine a .Tab Item child's className to determine if it's the active tab. */
+function isActiveTab(element: t.JSXElement): boolean {
+    // Look for text children with foreground/primary (active) vs muted (inactive) color
+    for (const child of element.children) {
+        if (t.isJSXElement(child)) {
+            const cn = getClassNameValue(child)
+            if (cn && isActiveColor(cn)) return true
+        }
+    }
+    // Also check the element's own className
+    const ownCn = getClassNameValue(element)
+    if (ownCn && isActiveColor(ownCn)) return true
+    return false
+}
+
+/** Check if a className indicates an active/primary color (not muted). */
+function isActiveColor(cn: string): boolean {
+    // Exclude muted patterns first
+    if (/muted/i.test(cn)) return false
+    // Active: --primary variable
+    if (/text-\[color:var\(--primary/.test(cn)) return true
+    // Active: --foreground/default or --foreground (not followed by /muted)
+    if (/text-\[color:var\(--foreground\/default/.test(cn)) return true
+    if (/text-\[color:var\(--foreground[,)]/.test(cn)) return true
+    // Active: dark hex colors
+    if (/#(?:09090b|0a0a0a|000000|18181b|020617)/i.test(cn)) return true
+    // Active: Tailwind utility classes
+    if (/\btext-primary\b/.test(cn)) return true
+    if (/\btext-foreground\b/.test(cn)) return true
+    return false
+}
+
+// ---------------------------------------------------------------------------
+// D2C.13: Extract input text with role inference
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract text from an input element's children, inferring whether it's a
+ * placeholder or defaultValue based on color styling of the <p> elements.
+ */
+function extractInputTextWithRole(element: t.JSXElement): { text: string; role: 'placeholder' | 'defaultValue' } {
+    // Look for the inner Input frame's text children (the actual input field, not the label)
+    // In Figma MCP output, the structure is:
+    //   div[data-name="Input"] > div[data-name="Label"] + div[data-name="Input"] > p
+    // We want the text inside the inner Input div's <p> elements
+    for (const child of element.children) {
+        if (!t.isJSXElement(child)) continue
+        const childName = getDataName(child)
+        // Look at the inner Input frame (not the Label)
+        if (childName && classifyName(childName) === 'input') {
+            // Found the inner input frame — check its <p> children for color cues
+            for (const grandchild of child.children) {
+                if (t.isJSXElement(grandchild)) {
+                    const cn = getClassNameValue(grandchild)
+                    const text = extractTextFromChildren([grandchild])
+                    if (text && cn) {
+                        const role = inferInputTextRole(cn)
+                        if (role) return { text, role }
+                    }
+                }
+            }
+            // Fallback: extract text without role determination
+            const text = extractTextFromChildren(child.children)
+            if (text) return { text, role: 'placeholder' }
+        }
+    }
+
+    // Fallback: just extract any text
+    const text = extractTextFromChildren(element.children)
+    return { text, role: 'placeholder' }
+}
+
+// ---------------------------------------------------------------------------
 // Component replacement builders (per-library compound structures)
 // ---------------------------------------------------------------------------
 
@@ -782,16 +1051,90 @@ function buildShadcnSelect(text: string): t.JSXElement {
     )
 }
 
-function buildShadcnCard(children: t.Node[]): t.JSXElement {
-    const cardContent = t.jsxElement(
-        t.jsxOpeningElement(t.jsxIdentifier('CardContent'), []),
-        t.jsxClosingElement(t.jsxIdentifier('CardContent')),
-        children.filter((c): c is t.JSXElement | t.JSXText | t.JSXExpressionContainer | t.JSXFragment | t.JSXSpreadChild => t.isJSXElement(c) || t.isJSXText(c) || t.isJSXExpressionContainer(c) || t.isJSXFragment(c) || t.isJSXSpreadChild(c)),
-    )
+function buildShadcnCard(children: t.Node[], usedImports: Map<string, Set<string>>): t.JSXElement {
+    const structure = analyzeCardStructure(children)
+    const cardChildren: ValidJSXChild[] = []
+
+    // D2C.15: Build CardHeader with CardTitle and optional CardDescription
+    if (structure.hasTitle) {
+        const headerInner: ValidJSXChild[] = []
+
+        // CardTitle from first heading-like element
+        const titleEl = structure.headerChildren[0]
+        const titleText = extractTextFromChildren(titleEl.children)
+        const cardTitle = t.jsxElement(
+            t.jsxOpeningElement(t.jsxIdentifier('CardTitle'), []),
+            t.jsxClosingElement(t.jsxIdentifier('CardTitle')),
+            [t.jsxText(titleText || 'Title')],
+        )
+        headerInner.push(cardTitle)
+
+        // Track additional imports
+        const cardImports = usedImports.get('@/components/ui/card') ?? new Set()
+        cardImports.add('CardHeader')
+        cardImports.add('CardTitle')
+
+        // CardDescription if present
+        if (structure.hasDescription && structure.headerChildren.length > 1) {
+            const descEl = structure.headerChildren[1]
+            const descText = extractTextFromChildren(descEl.children)
+            const cardDescription = t.jsxElement(
+                t.jsxOpeningElement(t.jsxIdentifier('CardDescription'), []),
+                t.jsxClosingElement(t.jsxIdentifier('CardDescription')),
+                [t.jsxText(descText || '')],
+            )
+            headerInner.push(cardDescription)
+            cardImports.add('CardDescription')
+        }
+
+        usedImports.set('@/components/ui/card', cardImports)
+
+        const cardHeader = t.jsxElement(
+            t.jsxOpeningElement(t.jsxIdentifier('CardHeader'), []),
+            t.jsxClosingElement(t.jsxIdentifier('CardHeader')),
+            headerInner,
+        )
+        cardChildren.push(cardHeader)
+    }
+
+    // CardContent for remaining children
+    if (structure.contentChildren.length > 0) {
+        const cardContent = t.jsxElement(
+            t.jsxOpeningElement(t.jsxIdentifier('CardContent'), []),
+            t.jsxClosingElement(t.jsxIdentifier('CardContent')),
+            structure.contentChildren,
+        )
+        cardChildren.push(cardContent)
+    }
+
+    // D2C.15: CardFooter for trailing buttons
+    if (structure.footerChildren.length > 0) {
+        const cardImports = usedImports.get('@/components/ui/card') ?? new Set()
+        cardImports.add('CardFooter')
+        usedImports.set('@/components/ui/card', cardImports)
+
+        const cardFooter = t.jsxElement(
+            t.jsxOpeningElement(t.jsxIdentifier('CardFooter'), []),
+            t.jsxClosingElement(t.jsxIdentifier('CardFooter')),
+            structure.footerChildren,
+        )
+        cardChildren.push(cardFooter)
+    }
+
+    // Fallback: if nothing was structured, wrap all in CardContent
+    if (cardChildren.length === 0) {
+        const cardContent = t.jsxElement(
+            t.jsxOpeningElement(t.jsxIdentifier('CardContent'), []),
+            t.jsxClosingElement(t.jsxIdentifier('CardContent')),
+            children.filter(isValidJSXChild),
+        )
+        cardChildren.push(cardContent)
+    }
+
     return t.jsxElement(
         t.jsxOpeningElement(t.jsxIdentifier('Card'), []),
         t.jsxClosingElement(t.jsxIdentifier('Card')),
-        [cardContent],
+        cardChildren,
     )
 }
 
@@ -816,27 +1159,37 @@ function buildShadcnAvatar(text: string): t.JSXElement {
     )
 }
 
-function buildShadcnTabs(children: t.Node[]): t.JSXElement {
+function buildShadcnTabs(children: t.Node[], activeTabText?: string): t.JSXElement {
     // Extract tab items from children
-    const tabTexts: string[] = []
+    const tabEntries: Array<{ text: string; active: boolean }> = []
     for (const child of children) {
         if (t.isJSXElement(child)) {
             const childName = getDataName(child)
             if (childName) {
                 const text = extractTextFromChildren(child.children)
-                if (text) tabTexts.push(text)
+                if (text) {
+                    // D2C.16: Detect active tab by color (from pre-scan or inline)
+                    const active = activeTabText ? (text === activeTabText) : isActiveTab(child)
+                    tabEntries.push({ text, active })
+                }
             }
         }
     }
-    if (tabTexts.length === 0) tabTexts.push('Tab 1', 'Tab 2')
+    if (tabEntries.length === 0) tabEntries.push({ text: 'Tab 1', active: true }, { text: 'Tab 2', active: false })
 
-    const triggers = tabTexts.map(text =>
+    // D2C.16: Determine defaultValue from active tab detection
+    const activeEntry = tabEntries.find(e => e.active)
+    const defaultSlug = activeEntry
+        ? activeEntry.text.toLowerCase().replace(/\s+/g, '-')
+        : tabEntries[0].text.toLowerCase().replace(/\s+/g, '-')
+
+    const triggers = tabEntries.map(entry =>
         t.jsxElement(
             t.jsxOpeningElement(t.jsxIdentifier('TabsTrigger'), [
-                t.jsxAttribute(t.jsxIdentifier('value'), t.stringLiteral(text.toLowerCase().replace(/\s+/g, '-'))),
+                t.jsxAttribute(t.jsxIdentifier('value'), t.stringLiteral(entry.text.toLowerCase().replace(/\s+/g, '-'))),
             ]),
             t.jsxClosingElement(t.jsxIdentifier('TabsTrigger')),
-            [t.jsxText(text)],
+            [t.jsxText(entry.text)],
         ),
     )
 
@@ -848,7 +1201,7 @@ function buildShadcnTabs(children: t.Node[]): t.JSXElement {
 
     return t.jsxElement(
         t.jsxOpeningElement(t.jsxIdentifier('Tabs'), [
-            t.jsxAttribute(t.jsxIdentifier('defaultValue'), t.stringLiteral(tabTexts[0].toLowerCase().replace(/\s+/g, '-'))),
+            t.jsxAttribute(t.jsxIdentifier('defaultValue'), t.stringLiteral(defaultSlug)),
         ]),
         t.jsxClosingElement(t.jsxIdentifier('Tabs')),
         [tabsList],
@@ -977,6 +1330,54 @@ export function transformFigmaJsx(
     let rootDataName: string | null = null
 
     // -----------------------------------------------------------------------
+    // Pass 0: Pre-scan to collect metadata before bottom-up transforms
+    //   - D2C.13: Input text roles (placeholder vs defaultValue)
+    //   - D2C.16: Active tab detection per Tabs container
+    // -----------------------------------------------------------------------
+    const inputTextRoles = new Map<string, { text: string; role: 'placeholder' | 'defaultValue' }>()
+    const tabActiveMap = new Map<string, string>() // Tabs nodeId → active tab text
+
+    traverse(ast, {
+        JSXElement(path) {
+            const element = path.node
+            const dataName = getDataName(element)
+            if (!dataName) return
+            const nodeId = getDataNodeId(element) ?? ''
+            const componentType = classifyName(dataName)
+
+            // D2C.13: Pre-scan input elements for text role
+            if (componentType === 'input') {
+                const result = extractInputTextWithRole(element)
+                if (result.text && nodeId) {
+                    inputTextRoles.set(nodeId, result)
+                }
+            }
+
+            // D2C.16: Pre-scan Tabs for active tab detection
+            if (componentType === 'tabs' && dataName.toLowerCase() !== '.tab item') {
+                const tabEntries: Array<{ text: string; active: boolean }> = []
+                for (const child of element.children) {
+                    if (t.isJSXElement(child)) {
+                        const childName = getDataName(child)
+                        if (childName) {
+                            const text = extractTextFromChildren(child.children)
+                            if (text) {
+                                tabEntries.push({ text, active: isActiveTab(child) })
+                            }
+                        }
+                    }
+                }
+                if (tabEntries.length > 0 && nodeId) {
+                    const activeEntry = tabEntries.find(e => e.active)
+                    if (activeEntry) {
+                        tabActiveMap.set(nodeId, activeEntry.text)
+                    }
+                }
+            }
+        },
+    })
+
+    // -----------------------------------------------------------------------
     // Pass 1: Component replacement (bottom-up via exit visitor)
     // -----------------------------------------------------------------------
     traverse(ast, {
@@ -993,6 +1394,10 @@ export function transformFigmaJsx(
 
                 const componentType = classifyName(dataName)
                 if (!componentType) return
+
+                // Skip .Tab Item sub-components — they're consumed by the parent Tabs builder
+                const lowerName = dataName.toLowerCase().trim()
+                if (lowerName === '.tab item' || lowerName === 'tab item') return
 
                 const mapping = libraryMap[componentType]
                 if (!mapping) return
@@ -1019,8 +1424,13 @@ export function transformFigmaJsx(
                 if (options.library === 'shadcn') {
                     switch (componentType) {
                         case 'input': {
+                            // D2C.13: Use pre-scanned text role data
                             const attrs: t.JSXAttribute[] = []
-                            if (text) {
+                            const preScanned = inputTextRoles.get(nodeId)
+                            if (preScanned && preScanned.text) {
+                                const propName = preScanned.role === 'defaultValue' ? 'defaultValue' : 'placeholder'
+                                attrs.push(t.jsxAttribute(t.jsxIdentifier(propName), t.stringLiteral(preScanned.text)))
+                            } else if (text) {
                                 attrs.push(t.jsxAttribute(t.jsxIdentifier('placeholder'), t.stringLiteral(text)))
                             }
                             replacement = t.jsxElement(
@@ -1030,15 +1440,21 @@ export function transformFigmaJsx(
                             break
                         }
                         case 'button': {
+                            // D2C.14: Infer button variant from className/data-name
+                            const buttonAttrs: t.JSXAttribute[] = []
+                            const variant = inferButtonVariant(element)
+                            if (variant) {
+                                buttonAttrs.push(t.jsxAttribute(t.jsxIdentifier('variant'), t.stringLiteral(variant)))
+                            }
                             replacement = t.jsxElement(
-                                t.jsxOpeningElement(t.jsxIdentifier('Button'), []),
+                                t.jsxOpeningElement(t.jsxIdentifier('Button'), buttonAttrs),
                                 t.jsxClosingElement(t.jsxIdentifier('Button')),
                                 [t.jsxText(text || 'Button')],
                             )
                             break
                         }
                         case 'card':
-                            replacement = buildShadcnCard(element.children)
+                            replacement = buildShadcnCard(element.children, usedImports)
                             break
                         case 'select':
                             replacement = buildShadcnSelect(text)
@@ -1060,7 +1476,7 @@ export function transformFigmaJsx(
                             )
                             break
                         case 'tabs':
-                            replacement = buildShadcnTabs(element.children)
+                            replacement = buildShadcnTabs(element.children, tabActiveMap.get(nodeId))
                             break
                         case 'label':
                             replacement = t.jsxElement(
@@ -1295,6 +1711,53 @@ export function transformFigmaJsx(
             },
         },
     })
+
+    // -----------------------------------------------------------------------
+    // Pass 1b (D2C.12): Label-Input A11y Association
+    // Scan sibling elements for Label followed by Input/Select/Textarea,
+    // then add htmlFor/id props for accessibility.
+    // -----------------------------------------------------------------------
+    if (options.library === 'shadcn') {
+        traverse(ast, {
+            JSXElement(path) {
+                // Collect only JSXElement children (skip whitespace text nodes)
+                const jsxChildren = path.node.children.filter(
+                    (c): c is t.JSXElement => t.isJSXElement(c),
+                )
+
+                for (let i = 0; i < jsxChildren.length - 1; i++) {
+                    const current = jsxChildren[i]
+                    const next = jsxChildren[i + 1]
+
+                    // Check if current is a Label
+                    const currentTag = t.isJSXIdentifier(current.openingElement.name) ? current.openingElement.name.name : ''
+                    if (currentTag !== 'Label') continue
+
+                    // Check if next is an Input, Select, or Textarea
+                    const nextTag = t.isJSXIdentifier(next.openingElement.name) ? next.openingElement.name.name : ''
+                    const inputTypes = ['Input', 'Select', 'Textarea']
+                    if (!inputTypes.includes(nextTag)) continue
+
+                    // Extract the label text
+                    const labelText = extractTextFromChildren(current.children)
+                    if (!labelText) continue
+
+                    const id = toCamelCaseId(labelText)
+                    if (!id) continue
+
+                    // Add htmlFor to the Label
+                    current.openingElement.attributes.push(
+                        t.jsxAttribute(t.jsxIdentifier('htmlFor'), t.stringLiteral(id)),
+                    )
+
+                    // Add id to the input element
+                    next.openingElement.attributes.push(
+                        t.jsxAttribute(t.jsxIdentifier('id'), t.stringLiteral(id)),
+                    )
+                }
+            },
+        })
+    }
 
     // -----------------------------------------------------------------------
     // Pass 2: Token mapping + Figma artifact cleanup on classNames
