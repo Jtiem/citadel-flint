@@ -6,6 +6,40 @@
 
 ---
 
+## Session: 2026-03-26 D2C.5 -- AI Refinement Pass (CONTRACT COMPLETE)
+
+**Goal:** Design the AI refinement step that takes deterministic D2C scaffold output and improves it using AI vision + library idioms. Produce a binding contract artifact before any implementation.
+
+**Architecture decision:** Option C -- Hybrid (AI Classification + Targeted Refinement). Phase 1 is a fast Haiku classification pass that overrides heuristics with structured JSON (no code generation). Phase 2 is an opt-in per-component Sonnet refinement with Commandment 16 TSC validation and safe fallback to the deterministic scaffold.
+
+**Key design choices:**
+
+- All code lives in `flint-mcp/` (MCP engine). No IPC, no Glass changes, no store changes.
+- Default behavior is unchanged (`aiClassify=false`). AI features are opt-in tool params.
+- Phase 1 adds <2s latency (Haiku). Phase 2 adds 3-8s per component (Sonnet, opt-in).
+- Screenshot pass-through from Figma MCP `get_design_context` to Phase 2 (optional).
+- API key resolved from env var or `.flint/config.json` (MCP is headless, no safeStorage).
+
+**Contract artifact:** `.flint-context/contracts/D2C-5-ai-refinement-pass.md`
+
+**Files to create during implementation:**
+
+| File | Purpose |
+|------|---------|
+| `flint-mcp/src/core/d2cRefinement.ts` | `classifyWithAI()`, `refineComponent()`, types, prompt builders |
+| `flint-mcp/src/core/__tests__/d2cRefinement.test.ts` | Unit tests for classification, refinement, fallback |
+
+**Files to modify during implementation:**
+
+| File | Change |
+|------|--------|
+| `flint-mcp/src/tools/designToCode.ts` | Add `aiClassify`, `aiRefine`, `screenshotBase64` params |
+| `flint-mcp/src/core/hydroPaste.ts` | Accept `ClassificationMap` overrides |
+| `flint-mcp/src/tools/__tests__/designToCode.test.ts` | Integration tests for new params |
+| `flint-mcp/src/core/__tests__/hydroPaste.test.ts` | Tests for classification override injection |
+
+---
+
 ## Session: 2026-03-26 UCFG.5-7 + ERM — Unified Config Wiring + Enterprise Rule Management (COMPLETE)
 
 **Goal:** Close the gap between config spec and runtime reality. Wire all YAML config fields into the enforcement pipeline, then build enterprise rule management UI.
