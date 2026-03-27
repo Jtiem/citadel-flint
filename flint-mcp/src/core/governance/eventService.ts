@@ -37,7 +37,7 @@ const DDL = `
 CREATE TABLE IF NOT EXISTS governance_events (
     id          TEXT    PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
     timestamp   TEXT    NOT NULL    DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    event_type  TEXT    NOT NULL    CHECK (event_type IN ('violation', 'override', 'export_block', 'auto_fix', 'rule_change')),
+    event_type  TEXT    NOT NULL    CHECK (event_type IN ('violation', 'override', 'export_block', 'auto_fix', 'rule_change', 'token_extraction')),
     rule_id     TEXT    NOT NULL,
     severity    TEXT    NOT NULL    CHECK (severity IN ('critical', 'warning', 'info')),
     node_id     TEXT,

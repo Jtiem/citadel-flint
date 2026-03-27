@@ -12,8 +12,13 @@ import { type LabTokenEntry, findNearestToken } from './colorDistance.js'
  * Each method receives pre-resolved context and returns a JSX string fragment.
  */
 export interface LibraryCodeEmitter {
-    /** Map a Figma FRAME node to a library container component. */
-    wrapContainer(className: string, children: string, depth: number): string
+    /**
+     * Map a Figma FRAME node to a library container component.
+     * The optional `element` param overrides the default wrapper element type.
+     * Supported values: 'div' | 'form' | 'nav' | 'section' | 'main' | 'article' | 'header' | 'footer'
+     * Defaults to 'div' (or the library's default container) when omitted.
+     */
+    wrapContainer(className: string, children: string, depth: number, element?: 'div' | 'form' | 'nav' | 'section' | 'main' | 'article' | 'header' | 'footer'): string
     /** Map a Figma TEXT node to a library text component. */
     emitText(text: string, colorClass: string, depth: number): string
     /** Map a Figma COMPONENT or INSTANCE node to a library component. */
@@ -23,6 +28,17 @@ export interface LibraryCodeEmitter {
      * colorClass is a fully-prefixed Tailwind class (e.g. "text-foreground").
      */
     emitHeading(text: string, colorClass: string, depth: number): string
+    /**
+     * Emit a recognized semantic component type (Input, Select, Textarea, etc.)
+     * with library-idiomatic markup.
+     * componentType is a value from the ComponentType union produced by classifyComponent.
+     */
+    emitNamedComponent(
+        componentType: string,
+        props: Record<string, string>,
+        children: string,
+        depth: number,
+    ): string
     /** Return all required import statements for components emitted so far. */
     getImports(): string[]
     /**
@@ -45,8 +61,20 @@ export interface LibraryCodeEmitter {
 export class ShadcnEmitter implements LibraryCodeEmitter {
     private readonly usedComponents = new Set<string>()
 
-    wrapContainer(className: string, children: string, depth: number): string {
+    wrapContainer(className: string, children: string, depth: number, element?: 'div' | 'form' | 'nav' | 'section' | 'main' | 'article' | 'header' | 'footer'): string {
         const indent = '  '.repeat(depth)
+        // Semantic HTML elements bypass the Card wrapper and emit native elements.
+        // This ensures a Figma "ContactForm" frame becomes <form>, not <Card>.
+        if (element && element !== 'div') {
+            if (!children.trim()) {
+                return `${indent}<${element} className="${className}" />`
+            }
+            return [
+                `${indent}<${element} className="${className}">`,
+                children,
+                `${indent}</${element}>`,
+            ].join('\n')
+        }
         this.usedComponents.add('Card')
         this.usedComponents.add('CardContent')
         if (!children.trim()) {
@@ -59,6 +87,75 @@ export class ShadcnEmitter implements LibraryCodeEmitter {
             `${indent}  </CardContent>`,
             `${indent}</Card>`,
         ].join('\n')
+    }
+
+    emitNamedComponent(componentType: string, props: Record<string, string>, children: string, depth: number): string {
+        const indent = '  '.repeat(depth)
+        const propStr = Object.entries(props)
+            .map(([k, v]) => ` ${k}="${v}"`)
+            .join('')
+        switch (componentType.toLowerCase()) {
+            case 'input':
+                this.usedComponents.add('Input')
+                return `${indent}<Input${propStr} />`
+            case 'textarea':
+                this.usedComponents.add('Textarea')
+                return `${indent}<Textarea${propStr}>${children}</Textarea>`
+            case 'select':
+                this.usedComponents.add('Select')
+                this.usedComponents.add('SelectTrigger')
+                this.usedComponents.add('SelectContent')
+                return [
+                    `${indent}<Select${propStr}>`,
+                    `${indent}  <SelectTrigger />`,
+                    `${indent}  <SelectContent>${children}</SelectContent>`,
+                    `${indent}</Select>`,
+                ].join('\n')
+            case 'checkbox':
+                this.usedComponents.add('Checkbox')
+                return `${indent}<Checkbox${propStr} />`
+            case 'switch':
+                this.usedComponents.add('Switch')
+                return `${indent}<Switch${propStr} />`
+            case 'avatar':
+                this.usedComponents.add('Avatar')
+                this.usedComponents.add('AvatarImage')
+                this.usedComponents.add('AvatarFallback')
+                return [
+                    `${indent}<Avatar${propStr}>`,
+                    `${indent}  <AvatarImage />`,
+                    `${indent}  <AvatarFallback />`,
+                    `${indent}</Avatar>`,
+                ].join('\n')
+            case 'badge':
+                this.usedComponents.add('Badge')
+                return `${indent}<Badge${propStr}>${children}</Badge>`
+            case 'tabs':
+                this.usedComponents.add('Tabs')
+                this.usedComponents.add('TabsList')
+                this.usedComponents.add('TabsTrigger')
+                return [
+                    `${indent}<Tabs${propStr}>`,
+                    `${indent}  <TabsList>`,
+                    `${indent}    <TabsTrigger value="">${children}</TabsTrigger>`,
+                    `${indent}  </TabsList>`,
+                    `${indent}</Tabs>`,
+                ].join('\n')
+            case 'separator':
+                this.usedComponents.add('Separator')
+                return `${indent}<Separator${propStr} />`
+            case 'alert':
+                this.usedComponents.add('Alert')
+                this.usedComponents.add('AlertDescription')
+                return [
+                    `${indent}<Alert${propStr}>`,
+                    `${indent}  <AlertDescription>${children}</AlertDescription>`,
+                    `${indent}</Alert>`,
+                ].join('\n')
+            default:
+                // Unknown component type — fall back to generic emitComponent
+                return this.emitComponent(componentType, props, children, depth)
+        }
     }
 
     emitText(text: string, colorClass: string, depth: number): string {
@@ -91,20 +188,35 @@ export class ShadcnEmitter implements LibraryCodeEmitter {
 
     getImports(): string[] {
         const imports: string[] = []
-        const uiComponents = [...this.usedComponents].filter(c =>
-            ['Card', 'CardContent', 'CardHeader', 'CardTitle', 'Button'].includes(c)
-        )
-        if (uiComponents.length > 0) {
-            // Group shadcn imports by file
-            const cardComps = uiComponents.filter(c => c.startsWith('Card'))
-            const buttonComps = uiComponents.filter(c => c === 'Button')
-            if (cardComps.length > 0) {
-                imports.push(`import { ${cardComps.join(', ')} } from "@/components/ui/card"`)
-            }
-            if (buttonComps.length > 0) {
-                imports.push(`import { Button } from "@/components/ui/button"`)
-            }
-        }
+        const used = this.usedComponents
+
+        // Group shadcn imports by their source file
+        const cardComps = [...used].filter(c => ['Card', 'CardContent', 'CardHeader', 'CardTitle'].includes(c))
+        if (cardComps.length > 0) imports.push(`import { ${cardComps.join(', ')} } from "@/components/ui/card"`)
+
+        if (used.has('Button')) imports.push(`import { Button } from "@/components/ui/button"`)
+        if (used.has('Input')) imports.push(`import { Input } from "@/components/ui/input"`)
+        if (used.has('Textarea')) imports.push(`import { Textarea } from "@/components/ui/textarea"`)
+
+        const selectComps = [...used].filter(c => ['Select', 'SelectTrigger', 'SelectContent', 'SelectItem'].includes(c))
+        if (selectComps.length > 0) imports.push(`import { ${selectComps.join(', ')} } from "@/components/ui/select"`)
+
+        if (used.has('Checkbox')) imports.push(`import { Checkbox } from "@/components/ui/checkbox"`)
+        if (used.has('Switch')) imports.push(`import { Switch } from "@/components/ui/switch"`)
+
+        const avatarComps = [...used].filter(c => ['Avatar', 'AvatarImage', 'AvatarFallback'].includes(c))
+        if (avatarComps.length > 0) imports.push(`import { ${avatarComps.join(', ')} } from "@/components/ui/avatar"`)
+
+        if (used.has('Badge')) imports.push(`import { Badge } from "@/components/ui/badge"`)
+
+        const tabsComps = [...used].filter(c => ['Tabs', 'TabsList', 'TabsTrigger', 'TabsContent'].includes(c))
+        if (tabsComps.length > 0) imports.push(`import { ${tabsComps.join(', ')} } from "@/components/ui/tabs"`)
+
+        if (used.has('Separator')) imports.push(`import { Separator } from "@/components/ui/separator"`)
+
+        const alertComps = [...used].filter(c => ['Alert', 'AlertDescription', 'AlertTitle'].includes(c))
+        if (alertComps.length > 0) imports.push(`import { ${alertComps.join(', ')} } from "@/components/ui/alert"`)
+
         return imports
     }
 
@@ -132,8 +244,21 @@ export class ShadcnEmitter implements LibraryCodeEmitter {
 export class MuiEmitter implements LibraryCodeEmitter {
     private readonly usedComponents = new Set<string>()
 
-    wrapContainer(className: string, children: string, depth: number): string {
+    wrapContainer(className: string, children: string, depth: number, element?: 'div' | 'form' | 'nav' | 'section' | 'main' | 'article' | 'header' | 'footer'): string {
         const indent = '  '.repeat(depth)
+        // Semantic HTML elements emit as MUI Box with the `component` prop override
+        if (element && element !== 'div') {
+            this.usedComponents.add('Box')
+            const sxHint = className ? ` /* ${className} */` : ''
+            if (!children.trim()) {
+                return `${indent}<Box component="${element}" sx={{ display: 'flex', flexDirection: 'column' }}${sxHint} />`
+            }
+            return [
+                `${indent}<Box component="${element}" sx={{ display: 'flex', flexDirection: 'column' }}${sxHint}>`,
+                children,
+                `${indent}</Box>`,
+            ].join('\n')
+        }
         this.usedComponents.add('Box')
         // Convert className to an sx comment — MUI uses sx prop not className
         const sxHint = className ? ` /* ${className} */` : ''
@@ -145,6 +270,52 @@ export class MuiEmitter implements LibraryCodeEmitter {
             children,
             `${indent}</Box>`,
         ].join('\n')
+    }
+
+    emitNamedComponent(componentType: string, props: Record<string, string>, children: string, depth: number): string {
+        const indent = '  '.repeat(depth)
+        const propStr = Object.entries(props)
+            .map(([k, v]) => ` ${k}="${v}"`)
+            .join('')
+        switch (componentType.toLowerCase()) {
+            case 'input':
+                this.usedComponents.add('TextField')
+                return `${indent}<TextField${propStr} />`
+            case 'textarea':
+                this.usedComponents.add('TextField')
+                return `${indent}<TextField multiline${propStr} />`
+            case 'select':
+                this.usedComponents.add('Select')
+                return `${indent}<Select${propStr}>${children}</Select>`
+            case 'checkbox':
+                this.usedComponents.add('Checkbox')
+                return `${indent}<Checkbox${propStr} />`
+            case 'switch':
+                this.usedComponents.add('Switch')
+                return `${indent}<Switch${propStr} />`
+            case 'avatar':
+                this.usedComponents.add('Avatar')
+                return `${indent}<Avatar${propStr} />`
+            case 'badge':
+                this.usedComponents.add('Chip')
+                return `${indent}<Chip${propStr} />`
+            case 'tabs':
+                this.usedComponents.add('Tabs')
+                this.usedComponents.add('Tab')
+                return [
+                    `${indent}<Tabs${propStr}>`,
+                    `${indent}  <Tab label="${children || 'Tab'}" />`,
+                    `${indent}</Tabs>`,
+                ].join('\n')
+            case 'separator':
+                this.usedComponents.add('Divider')
+                return `${indent}<Divider${propStr} />`
+            case 'alert':
+                this.usedComponents.add('Alert')
+                return `${indent}<Alert${propStr}>${children}</Alert>`
+            default:
+                return this.emitComponent(componentType, props, children, depth)
+        }
     }
 
     emitText(text: string, colorClass: string, depth: number): string {
@@ -178,9 +349,12 @@ export class MuiEmitter implements LibraryCodeEmitter {
     }
 
     getImports(): string[] {
-        const muiCore = [...this.usedComponents].filter(c =>
-            ['Box', 'Stack', 'Typography', 'Paper', 'Button'].includes(c)
-        )
+        const knownMuiComponents = new Set([
+            'Box', 'Stack', 'Typography', 'Paper', 'Button',
+            'TextField', 'Select', 'Checkbox', 'Switch',
+            'Avatar', 'Chip', 'Tabs', 'Tab', 'Divider', 'Alert',
+        ])
+        const muiCore = [...this.usedComponents].filter(c => knownMuiComponents.has(c))
         if (muiCore.length === 0) return []
         return [`import { ${muiCore.join(', ')} } from "@mui/material"`]
     }
@@ -210,8 +384,19 @@ export class MuiEmitter implements LibraryCodeEmitter {
 export class PrimeEmitter implements LibraryCodeEmitter {
     private readonly usedComponents = new Set<string>()
 
-    wrapContainer(className: string, children: string, depth: number): string {
+    wrapContainer(className: string, children: string, depth: number, element?: 'div' | 'form' | 'nav' | 'section' | 'main' | 'article' | 'header' | 'footer'): string {
         const indent = '  '.repeat(depth)
+        // Semantic HTML elements bypass the Card wrapper and emit native elements
+        if (element && element !== 'div') {
+            if (!children.trim()) {
+                return `${indent}<${element} className="${className}" />`
+            }
+            return [
+                `${indent}<${element} className="${className}">`,
+                children,
+                `${indent}</${element}>`,
+            ].join('\n')
+        }
         this.usedComponents.add('Card')
         const titleAttr = className ? ` title=""` : ''
         if (!children.trim()) {
@@ -222,6 +407,52 @@ export class PrimeEmitter implements LibraryCodeEmitter {
             children,
             `${indent}</Card>`,
         ].join('\n')
+    }
+
+    emitNamedComponent(componentType: string, props: Record<string, string>, children: string, depth: number): string {
+        const indent = '  '.repeat(depth)
+        const propStr = Object.entries(props)
+            .map(([k, v]) => ` ${k}="${v}"`)
+            .join('')
+        switch (componentType.toLowerCase()) {
+            case 'input':
+                this.usedComponents.add('InputText')
+                return `${indent}<InputText${propStr} />`
+            case 'textarea':
+                this.usedComponents.add('InputTextarea')
+                return `${indent}<InputTextarea${propStr} />`
+            case 'select':
+                this.usedComponents.add('Dropdown')
+                return `${indent}<Dropdown${propStr} />`
+            case 'checkbox':
+                this.usedComponents.add('Checkbox')
+                return `${indent}<Checkbox${propStr} />`
+            case 'switch':
+                this.usedComponents.add('InputSwitch')
+                return `${indent}<InputSwitch${propStr} />`
+            case 'avatar':
+                this.usedComponents.add('Avatar')
+                return `${indent}<Avatar${propStr} />`
+            case 'badge':
+                this.usedComponents.add('Badge')
+                return `${indent}<Badge${propStr} />`
+            case 'tabs':
+                this.usedComponents.add('TabView')
+                this.usedComponents.add('TabPanel')
+                return [
+                    `${indent}<TabView${propStr}>`,
+                    `${indent}  <TabPanel header="${children || 'Tab'}" />`,
+                    `${indent}</TabView>`,
+                ].join('\n')
+            case 'separator':
+                this.usedComponents.add('Divider')
+                return `${indent}<Divider${propStr} />`
+            case 'alert':
+                this.usedComponents.add('Message')
+                return `${indent}<Message${propStr} />`
+            default:
+                return this.emitComponent(componentType, props, children, depth)
+        }
     }
 
     emitText(text: string, colorClass: string, depth: number): string {
@@ -254,15 +485,24 @@ export class PrimeEmitter implements LibraryCodeEmitter {
 
     getImports(): string[] {
         const imports: string[] = []
-        if (this.usedComponents.has('Card')) {
-            imports.push(`import { Card } from "primereact/card"`)
+        const used = this.usedComponents
+
+        if (used.has('Card')) imports.push(`import { Card } from "primereact/card"`)
+        if (used.has('Button')) imports.push(`import { Button } from "primereact/button"`)
+        if (used.has('Panel')) imports.push(`import { Panel } from "primereact/panel"`)
+        if (used.has('InputText')) imports.push(`import { InputText } from "primereact/inputtext"`)
+        if (used.has('InputTextarea')) imports.push(`import { InputTextarea } from "primereact/inputtextarea"`)
+        if (used.has('Dropdown')) imports.push(`import { Dropdown } from "primereact/dropdown"`)
+        if (used.has('Checkbox')) imports.push(`import { Checkbox } from "primereact/checkbox"`)
+        if (used.has('InputSwitch')) imports.push(`import { InputSwitch } from "primereact/inputswitch"`)
+        if (used.has('Avatar')) imports.push(`import { Avatar } from "primereact/avatar"`)
+        if (used.has('Badge')) imports.push(`import { Badge } from "primereact/badge"`)
+        if (used.has('TabView') || used.has('TabPanel')) {
+            imports.push(`import { TabView, TabPanel } from "primereact/tabview"`)
         }
-        if (this.usedComponents.has('Button')) {
-            imports.push(`import { Button } from "primereact/button"`)
-        }
-        if (this.usedComponents.has('Panel')) {
-            imports.push(`import { Panel } from "primereact/panel"`)
-        }
+        if (used.has('Divider')) imports.push(`import { Divider } from "primereact/divider"`)
+        if (used.has('Message')) imports.push(`import { Message } from "primereact/message"`)
+
         return imports
     }
 
@@ -290,16 +530,48 @@ export class PrimeEmitter implements LibraryCodeEmitter {
 // ---------------------------------------------------------------------------
 
 export class TailwindLibEmitter implements LibraryCodeEmitter {
-    wrapContainer(className: string, children: string, depth: number): string {
+    wrapContainer(className: string, children: string, depth: number, element?: 'div' | 'form' | 'nav' | 'section' | 'main' | 'article' | 'header' | 'footer'): string {
         const indent = '  '.repeat(depth)
+        const tag = element ?? 'div'
         if (!children.trim()) {
-            return `${indent}<div className="${className}" />`
+            return `${indent}<${tag} className="${className}" />`
         }
         return [
-            `${indent}<div className="${className}">`,
+            `${indent}<${tag} className="${className}">`,
             children,
-            `${indent}</div>`,
+            `${indent}</${tag}>`,
         ].join('\n')
+    }
+
+    emitNamedComponent(componentType: string, props: Record<string, string>, children: string, depth: number): string {
+        const indent = '  '.repeat(depth)
+        const propStr = Object.entries(props)
+            .map(([k, v]) => ` ${k}="${v}"`)
+            .join('')
+        switch (componentType.toLowerCase()) {
+            case 'input':
+                return `${indent}<input${propStr} />`
+            case 'textarea':
+                return `${indent}<textarea${propStr}>${children}</textarea>`
+            case 'select':
+                return `${indent}<select${propStr}>${children}</select>`
+            case 'checkbox':
+                return `${indent}<input type="checkbox"${propStr} />`
+            case 'switch':
+                return `${indent}<input type="checkbox" role="switch"${propStr} />`
+            case 'avatar':
+                return `${indent}<div className="avatar"${propStr}>${children}</div>`
+            case 'badge':
+                return `${indent}<span className="badge"${propStr}>${children}</span>`
+            case 'tabs':
+                return `${indent}<div role="tablist"${propStr}>${children}</div>`
+            case 'separator':
+                return `${indent}<hr${propStr} />`
+            case 'alert':
+                return `${indent}<div role="alert"${propStr}>${children}</div>`
+            default:
+                return this.emitComponent(componentType, props, children, depth)
+        }
     }
 
     emitText(text: string, colorClass: string, depth: number): string {

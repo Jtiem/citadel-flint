@@ -40,6 +40,32 @@
 
 ---
 
+## Swarm: Phase D2C.4 -- Quality & Intelligence Upgrade (Feature 2 COMPLETE)
+
+**Status:** Feature 2 (Token Extraction) SHIPPED. Features 1, 3, 4 still pending.
+
+### Files CREATED (Feature 2)
+| File | Purpose |
+| `flint-mcp/src/core/figmaTokenExtractor.ts` | DONE — Pure token extraction engine |
+| `flint-mcp/src/tools/extractTokens.ts` | DONE — flint_extract_tokens + flint_approve_tokens handlers |
+| `flint-mcp/src/core/__tests__/figmaTokenExtractor.test.ts` | DONE — 29 tests |
+| `flint-mcp/src/tools/__tests__/extractTokens.test.ts` | DONE — 14 tests |
+
+### Files MODIFIED (Feature 2)
+| File | What changed |
+| `flint-mcp/src/server.ts` | Registered flint_extract_tokens + flint_approve_tokens |
+| `flint-mcp/src/core/governance/types.ts` | Added token_extraction to eventType union |
+| `flint-mcp/src/core/governance/eventService.ts` | Updated DDL CHECK constraint for token_extraction |
+
+### Still pending in D2C.4
+| File | What changes |
+| `flint-mcp/src/core/hydroPaste.ts` | Feature 1: classifyFrame + classifyComponent |
+| `flint-mcp/src/core/hydroPaste-emitters.ts` | Feature 1: emitNamedComponent + wrapContainer element param |
+| `flint-mcp/src/core/__tests__/classifyFrame.test.ts` | Feature 1: tests |
+| `src/App.tsx` | Feature 4: mount GovernanceOverlay in properties tab |
+
+---
+
 ## Template for new swarm entry
 
 ```markdown

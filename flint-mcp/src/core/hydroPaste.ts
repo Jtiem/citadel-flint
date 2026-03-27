@@ -188,6 +188,199 @@ export function resolveColorClass(
 }
 
 // ---------------------------------------------------------------------------
+// Frame / Component classifiers — D2C.4 Feature 1
+// ---------------------------------------------------------------------------
+
+/**
+ * Semantic element type returned by classifyFrame.
+ * Matches the element values accepted by LibraryCodeEmitter.wrapContainer.
+ */
+export type FrameClassification =
+    | 'card'
+    | 'div'
+    | 'form'
+    | 'nav'
+    | 'section'
+    | 'article'
+    | 'header'
+    | 'footer'
+
+/**
+ * Library-agnostic component type returned by classifyComponent.
+ * Maps to library-specific markup via emitNamedComponent.
+ */
+export type ComponentType =
+    | 'input'
+    | 'textarea'
+    | 'select'
+    | 'checkbox'
+    | 'switch'
+    | 'avatar'
+    | 'badge'
+    | 'tabs'
+    | 'separator'
+    | 'alert'
+
+/** Full result from classifyComponent — null when no keyword matched. */
+export interface ComponentClassification {
+    type: ComponentType
+    /** Keywords that triggered this match */
+    matchedKeywords: string[]
+}
+
+/**
+ * Classify a Figma FRAME node by name and depth into a semantic HTML wrapper type.
+ *
+ * Decision tree (priority order, first match wins):
+ *  1. Name contains "card" or "panel"           → 'card'
+ *  2. Name contains "form"                      → 'form'
+ *  3. Name contains "nav", "navbar", "navigation" → 'nav'
+ *  4. Name contains "header"                    → 'header'
+ *  5. Name contains "footer"                    → 'footer'
+ *  6. Name contains "section", "hero", "banner" → 'section'
+ *  7. Depth <= 1                                → 'div'  (top-level layout)
+ *  8. Has fill + visual cue keywords in name   → 'card'
+ *  9. Layout/wrapper keyword names             → 'div'
+ * 10. Default                                  → 'div'
+ */
+export function classifyFrame(node: FigmaNode, depth: number): FrameClassification {
+    const name = (node.name ?? '').toLowerCase()
+
+    // 1. Card / panel keyword
+    if (name.includes('card') || name.includes('panel')) return 'card'
+
+    // 2. Form keyword
+    if (name.includes('form')) return 'form'
+
+    // 3. Nav keywords
+    if (name.includes('nav') || name.includes('navbar') || name.includes('navigation')) return 'nav'
+
+    // 4. Header keyword
+    if (name.includes('header')) return 'header'
+
+    // 5. Footer keyword
+    if (name.includes('footer')) return 'footer'
+
+    // 6. Section / hero / banner
+    if (name.includes('section') || name.includes('hero') || name.includes('banner')) return 'section'
+
+    // 7. Shallow depth → generic div layout container
+    if (depth <= 1) return 'div'
+
+    // 8. Has a solid fill + visual cue in node name → treat as card
+    const hasSolidFill = Array.isArray(node.fills) &&
+        (node.fills as FigmaFill[]).some((f) => f.type === 'SOLID')
+    const hasVisualCue = ['shadow', 'border', 'stroke', 'surface', 'tile'].some(kw => name.includes(kw))
+    if (hasSolidFill && hasVisualCue) return 'card'
+
+    // 9. Layout / wrapper keywords → generic div
+    const layoutKeywords = ['row', 'col', 'group', 'wrapper', 'block', 'container', 'content', 'layout', 'frame']
+    if (layoutKeywords.some(kw => name.includes(kw))) return 'div'
+
+    // 10. Default
+    return 'div'
+}
+
+/**
+ * Classify a Figma node name into a recognized UI component type.
+ *
+ * Returns null when no keyword matches.
+ * Evaluated in order — first match wins.
+ */
+export function classifyComponent(name: string): ComponentClassification | null {
+    const lower = name.toLowerCase()
+
+    // textarea before input — "text-field" contains "field" but "text-area" / "textarea" is more specific
+    if (lower.includes('textarea') || lower.includes('text-area') || lower.includes('multiline')) {
+        const matched: string[] = []
+        if (lower.includes('textarea')) matched.push('textarea')
+        if (lower.includes('text-area')) matched.push('text-area')
+        if (lower.includes('multiline')) matched.push('multiline')
+        return { type: 'textarea', matchedKeywords: matched }
+    }
+
+    // input — "input" or "field" (but not preceded by "text-" which was caught above)
+    if (lower.includes('input') || lower.includes('field') || lower.includes('textfield') || lower.includes('text-field')) {
+        const matched: string[] = []
+        if (lower.includes('input')) matched.push('input')
+        if (lower.includes('field')) matched.push('field')
+        if (lower.includes('textfield')) matched.push('textfield')
+        if (lower.includes('text-field')) matched.push('text-field')
+        return { type: 'input', matchedKeywords: matched }
+    }
+
+    // select / dropdown / combobox
+    if (lower.includes('select') || lower.includes('dropdown') || lower.includes('combobox')) {
+        const matched: string[] = []
+        if (lower.includes('select')) matched.push('select')
+        if (lower.includes('dropdown')) matched.push('dropdown')
+        if (lower.includes('combobox')) matched.push('combobox')
+        return { type: 'select', matchedKeywords: matched }
+    }
+
+    // checkbox / check-box
+    if (lower.includes('checkbox') || lower.includes('check-box')) {
+        const matched: string[] = []
+        if (lower.includes('checkbox')) matched.push('checkbox')
+        if (lower.includes('check-box')) matched.push('check-box')
+        return { type: 'checkbox', matchedKeywords: matched }
+    }
+
+    // switch / toggle
+    if (lower.includes('switch') || lower.includes('toggle')) {
+        const matched: string[] = []
+        if (lower.includes('switch')) matched.push('switch')
+        if (lower.includes('toggle')) matched.push('toggle')
+        return { type: 'switch', matchedKeywords: matched }
+    }
+
+    // avatar / profile-pic
+    if (lower.includes('avatar') || lower.includes('profile-pic')) {
+        const matched: string[] = []
+        if (lower.includes('avatar')) matched.push('avatar')
+        if (lower.includes('profile-pic')) matched.push('profile-pic')
+        return { type: 'avatar', matchedKeywords: matched }
+    }
+
+    // badge / tag / chip
+    if (lower.includes('badge') || lower.includes('tag') || lower.includes('chip')) {
+        const matched: string[] = []
+        if (lower.includes('badge')) matched.push('badge')
+        if (lower.includes('tag')) matched.push('tag')
+        if (lower.includes('chip')) matched.push('chip')
+        return { type: 'badge', matchedKeywords: matched }
+    }
+
+    // tabs — but NOT "table"
+    // Guard: "table" contains "tab" so we must exclude it explicitly
+    if ((lower.includes('tab') && !lower.includes('table')) || lower === 'tabs') {
+        const matched: string[] = []
+        if (lower.includes('tab')) matched.push('tab')
+        return { type: 'tabs', matchedKeywords: matched }
+    }
+
+    // separator / divider / hr
+    if (lower.includes('separator') || lower.includes('divider') || lower === 'hr') {
+        const matched: string[] = []
+        if (lower.includes('separator')) matched.push('separator')
+        if (lower.includes('divider')) matched.push('divider')
+        if (lower === 'hr') matched.push('hr')
+        return { type: 'separator', matchedKeywords: matched }
+    }
+
+    // alert / message / toast (but not "notification" inside "notifications list")
+    if (lower.includes('alert') || lower.includes('message') || lower.includes('toast')) {
+        const matched: string[] = []
+        if (lower.includes('alert')) matched.push('alert')
+        if (lower.includes('message')) matched.push('message')
+        if (lower.includes('toast')) matched.push('toast')
+        return { type: 'alert', matchedKeywords: matched }
+    }
+
+    return null
+}
+
+// ---------------------------------------------------------------------------
 // JSX generation helpers
 // ---------------------------------------------------------------------------
 
@@ -220,10 +413,14 @@ function isLikelyButton(node: FigmaNode): boolean {
 
     // Text-content heuristic — only when the frame name doesn't look like a
     // known container (banner, card, section, header, hero, layout, panel, etc.)
+    // Also exclude semantic frame types that classifyFrame will handle:
+    // form, nav, navbar, navigation, footer, section, hero, banner, header
     const containerKeywords = [
         "banner", "card", "section", "header", "hero", "layout",
         "panel", "container", "wrapper", "frame", "group", "row", "col",
         "heading", "headline", "title", "label", "element",
+        // Semantic frame types — should fall through to classifyFrame, not become buttons
+        "form", "nav", "navbar", "navigation", "footer",
     ];
     if (containerKeywords.some((kw) => name.includes(kw))) return false;
 
@@ -399,6 +596,33 @@ function generateJSXWithEmitter(
             .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
             .join("");
         return emitter.emitComponent(compName, {}, childrenJSX, depth);
+    }
+
+    // D2C.4 Feature 1: classify the frame before falling back to generic container.
+    // Step 1: Check whether this node looks like a named component (Input, Select, etc.)
+    const componentClassification = classifyComponent(nodeName);
+    if (componentClassification !== null) {
+        return emitter.emitNamedComponent(componentClassification.type, {}, childrenJSX, depth);
+    }
+
+    // Step 2: Classify as a semantic HTML container element
+    const frameClassification = classifyFrame(node, depth);
+
+    // 'card' and 'div' fall through to the default wrapContainer (library default)
+    if (frameClassification === 'form') {
+        return emitter.wrapContainer(className.replace('flex flex-col', '').trim(), childrenJSX, depth, 'form');
+    }
+    if (frameClassification === 'nav') {
+        return emitter.wrapContainer(className, childrenJSX, depth, 'nav');
+    }
+    if (frameClassification === 'section') {
+        return emitter.wrapContainer(className, childrenJSX, depth, 'section');
+    }
+    if (frameClassification === 'header') {
+        return emitter.wrapContainer(className, childrenJSX, depth, 'header');
+    }
+    if (frameClassification === 'footer') {
+        return emitter.wrapContainer(className, childrenJSX, depth, 'footer');
     }
 
     return emitter.wrapContainer(className, childrenJSX, depth);

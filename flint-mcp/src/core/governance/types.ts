@@ -115,7 +115,7 @@ export interface AuditReport {
 export interface GovernanceEvent {
     id: string
     timestamp: string
-    eventType: 'violation' | 'override' | 'export_block' | 'auto_fix' | 'rule_change'
+    eventType: 'violation' | 'override' | 'export_block' | 'auto_fix' | 'rule_change' | 'token_extraction'
     ruleId: string
     severity: 'critical' | 'warning' | 'info'
     nodeId?: string

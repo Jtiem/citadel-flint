@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { HydroPasteEngine } from '../hydroPaste.js';
+import { HydroPasteEngine, classifyFrame, classifyComponent } from '../hydroPaste.js';
 import {
     ShadcnEmitter,
     MuiEmitter,
@@ -258,10 +258,11 @@ describe('HydroPasteEngine — unknown library falls back to generic', () => {
 // ---------------------------------------------------------------------------
 
 describe('HydroPasteEngine — shadcn library', () => {
-    it('uses Card components for FRAME nodes', async () => {
+    it('uses Card components for FRAME nodes with card/panel names', async () => {
+        // Use a plain card-named FRAME that classifyFrame maps to 'card' (falls to wrapContainer default)
         const shadcnEngine = new HydroPasteEngine({ components: {} }, tokens, { library: 'shadcn' });
         const payload = {
-            name: 'Banner',
+            name: 'ProfileCard',
             type: 'FRAME',
             children: [{ name: 'Heading', type: 'TEXT', characters: 'Hello' }],
         };
@@ -273,7 +274,8 @@ describe('HydroPasteEngine — shadcn library', () => {
 
     it('includes shadcn card import in imports array', async () => {
         const shadcnEngine = new HydroPasteEngine({ components: {} }, tokens, { library: 'shadcn' });
-        const payload = { name: 'Banner', type: 'FRAME' };
+        // Use a card-named FRAME so the Card emitter is triggered
+        const payload = { name: 'UserCard', type: 'FRAME' };
         const result = await shadcnEngine.processPayload(JSON.stringify(payload));
         const cardImport = result.imports.find((i) => i.includes('@/components/ui/card'));
         expect(cardImport).toBeDefined();
@@ -346,9 +348,10 @@ describe('HydroPasteEngine — primeng library', () => {
 // ---------------------------------------------------------------------------
 
 describe('HydroPasteEngine — tailwind library', () => {
-    it('uses div-based JSX (consistent with Tailwind patterns)', async () => {
+    it('uses div-based JSX for generic container names (consistent with Tailwind patterns)', async () => {
+        // Use a layout-keyword FRAME name that classifyFrame maps to 'div'
         const twEngine = new HydroPasteEngine({ components: {} }, tokens, { library: 'tailwind' });
-        const payload = { name: 'Section', type: 'FRAME' };
+        const payload = { name: 'ContentWrapper', type: 'FRAME' };
         const result = await twEngine.processPayload(JSON.stringify(payload));
         expect(result.library).toBe('tailwind');
         expect(result.components[0].jsx).toContain('<div');
@@ -594,6 +597,667 @@ describe('getEmitterForLibrary', () => {
     it('is case-insensitive', () => {
         expect(getEmitterForLibrary('SHADCN')).toBeInstanceOf(ShadcnEmitter);
         expect(getEmitterForLibrary('MUI')).toBeInstanceOf(MuiEmitter);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// D2C.4 Feature 1 — classifyFrame unit tests
+// ---------------------------------------------------------------------------
+
+describe('classifyFrame — card keywords', () => {
+    it('returns "card" for name "ProfileCard"', () => {
+        expect(classifyFrame({ name: 'ProfileCard', type: 'FRAME' }, 2)).toBe('card');
+    });
+
+    it('returns "card" for name "DashboardPanel"', () => {
+        expect(classifyFrame({ name: 'DashboardPanel', type: 'FRAME' }, 3)).toBe('card');
+    });
+});
+
+describe('classifyFrame — layout keywords', () => {
+    it('returns "div" for name "ContentRow"', () => {
+        expect(classifyFrame({ name: 'ContentRow', type: 'FRAME' }, 2)).toBe('div');
+    });
+
+    it('returns "div" for name "WrapperBlock"', () => {
+        expect(classifyFrame({ name: 'WrapperBlock', type: 'FRAME' }, 3)).toBe('div');
+    });
+});
+
+describe('classifyFrame — form keyword', () => {
+    it('returns "form" for name "ContactForm"', () => {
+        expect(classifyFrame({ name: 'ContactForm', type: 'FRAME' }, 2)).toBe('form');
+    });
+
+    it('returns "form" for name "RegistrationForm"', () => {
+        expect(classifyFrame({ name: 'RegistrationForm', type: 'FRAME' }, 3)).toBe('form');
+    });
+});
+
+describe('classifyFrame — nav keywords', () => {
+    it('returns "nav" for name "SiteNav"', () => {
+        expect(classifyFrame({ name: 'SiteNav', type: 'FRAME' }, 2)).toBe('nav');
+    });
+
+    it('returns "nav" for name "MainNavbar"', () => {
+        expect(classifyFrame({ name: 'MainNavbar', type: 'FRAME' }, 1)).toBe('nav');
+    });
+
+    it('returns "nav" for name "NavigationBar"', () => {
+        expect(classifyFrame({ name: 'NavigationBar', type: 'FRAME' }, 1)).toBe('nav');
+    });
+});
+
+describe('classifyFrame — header / footer', () => {
+    it('returns "header" for name "PageHeader"', () => {
+        expect(classifyFrame({ name: 'PageHeader', type: 'FRAME' }, 1)).toBe('header');
+    });
+
+    it('returns "footer" for name "SiteFooter"', () => {
+        expect(classifyFrame({ name: 'SiteFooter', type: 'FRAME' }, 1)).toBe('footer');
+    });
+});
+
+describe('classifyFrame — section keywords', () => {
+    it('returns "section" for name "HeroSection"', () => {
+        expect(classifyFrame({ name: 'HeroSection', type: 'FRAME' }, 2)).toBe('section');
+    });
+
+    it('returns "section" for name "PromoBanner"', () => {
+        expect(classifyFrame({ name: 'PromoBanner', type: 'FRAME' }, 2)).toBe('section');
+    });
+});
+
+describe('classifyFrame — depth-based fallback', () => {
+    it('returns "div" for depth 0 regardless of generic name', () => {
+        expect(classifyFrame({ name: 'RootContainer', type: 'FRAME' }, 0)).toBe('div');
+    });
+
+    it('returns "div" for depth 1 regardless of generic name', () => {
+        expect(classifyFrame({ name: 'LayoutBlock', type: 'FRAME' }, 1)).toBe('div');
+    });
+});
+
+describe('classifyFrame — visual cue card detection', () => {
+    it('returns "card" at depth >= 2 when node has solid fill and shadow keyword in name', () => {
+        const node = {
+            name: 'ProductShadowTile',
+            type: 'FRAME',
+            fills: [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }],
+        };
+        expect(classifyFrame(node, 3)).toBe('card');
+    });
+
+    it('does not upgrade to card at depth >= 2 when fill is present but no visual cue keyword', () => {
+        const node = {
+            name: 'ContentArea',
+            type: 'FRAME',
+            fills: [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }],
+        };
+        // Falls to layout keyword or default div
+        const result = classifyFrame(node, 3);
+        expect(result).toBe('div');
+    });
+});
+
+describe('classifyFrame — default fallback', () => {
+    it('returns "div" for a completely unrecognized name at depth 2', () => {
+        expect(classifyFrame({ name: 'XyzAbc123', type: 'FRAME' }, 2)).toBe('div');
+    });
+
+    it('returns "div" for an empty name at depth 2', () => {
+        expect(classifyFrame({ name: '', type: 'FRAME' }, 2)).toBe('div');
+    });
+
+    it('returns "div" for node with no name', () => {
+        expect(classifyFrame({ type: 'FRAME' }, 2)).toBe('div');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// D2C.4 Feature 1 — classifyComponent unit tests
+// ---------------------------------------------------------------------------
+
+describe('classifyComponent — input classification', () => {
+    it('returns "input" for "DisplayNameInput"', () => {
+        const result = classifyComponent('DisplayNameInput');
+        expect(result).not.toBeNull();
+        expect(result!.type).toBe('input');
+        expect(result!.matchedKeywords).toContain('input');
+    });
+
+    it('returns "input" for "EmailField"', () => {
+        const result = classifyComponent('EmailField');
+        expect(result).not.toBeNull();
+        expect(result!.type).toBe('input');
+    });
+
+    it('returns "input" for "UserTextField" (text-field maps to input not textarea)', () => {
+        const result = classifyComponent('UserTextField');
+        expect(result).not.toBeNull();
+        expect(result!.type).toBe('input');
+    });
+});
+
+describe('classifyComponent — textarea classification', () => {
+    it('returns "textarea" for "BioTextarea"', () => {
+        const result = classifyComponent('BioTextarea');
+        expect(result).not.toBeNull();
+        expect(result!.type).toBe('textarea');
+    });
+
+    it('returns "textarea" for "CommentText-Area"', () => {
+        const result = classifyComponent('CommentText-Area');
+        expect(result).not.toBeNull();
+        expect(result!.type).toBe('textarea');
+    });
+
+    it('returns "textarea" for "MultilineInput"', () => {
+        const result = classifyComponent('MultilineInput');
+        expect(result).not.toBeNull();
+        expect(result!.type).toBe('textarea');
+    });
+});
+
+describe('classifyComponent — select classification', () => {
+    it('returns "select" for "TimezoneDropdown"', () => {
+        const result = classifyComponent('TimezoneDropdown');
+        expect(result).not.toBeNull();
+        expect(result!.type).toBe('select');
+        expect(result!.matchedKeywords).toContain('dropdown');
+    });
+
+    it('returns "select" for "CountrySelect"', () => {
+        const result = classifyComponent('CountrySelect');
+        expect(result).not.toBeNull();
+        expect(result!.type).toBe('select');
+    });
+
+    it('returns "select" for "RoleCombobox"', () => {
+        const result = classifyComponent('RoleCombobox');
+        expect(result).not.toBeNull();
+        expect(result!.type).toBe('select');
+    });
+});
+
+describe('classifyComponent — checkbox / switch', () => {
+    it('returns "checkbox" for "RememberCheckbox"', () => {
+        const result = classifyComponent('RememberCheckbox');
+        expect(result).not.toBeNull();
+        expect(result!.type).toBe('checkbox');
+    });
+
+    it('returns "switch" for "DarkModeToggle"', () => {
+        const result = classifyComponent('DarkModeToggle');
+        expect(result).not.toBeNull();
+        expect(result!.type).toBe('switch');
+    });
+});
+
+describe('classifyComponent — avatar / badge', () => {
+    it('returns "avatar" for "UserAvatar"', () => {
+        const result = classifyComponent('UserAvatar');
+        expect(result).not.toBeNull();
+        expect(result!.type).toBe('avatar');
+    });
+
+    it('returns "badge" for "StatusBadge"', () => {
+        const result = classifyComponent('StatusBadge');
+        expect(result).not.toBeNull();
+        expect(result!.type).toBe('badge');
+    });
+
+    it('returns "badge" for "CategoryTag"', () => {
+        const result = classifyComponent('CategoryTag');
+        expect(result).not.toBeNull();
+        expect(result!.type).toBe('badge');
+    });
+
+    it('returns "badge" for "FilterChip"', () => {
+        const result = classifyComponent('FilterChip');
+        expect(result).not.toBeNull();
+        expect(result!.type).toBe('badge');
+    });
+});
+
+describe('classifyComponent — tabs', () => {
+    it('returns "tabs" for "SettingsTab"', () => {
+        const result = classifyComponent('SettingsTab');
+        expect(result).not.toBeNull();
+        expect(result!.type).toBe('tabs');
+    });
+
+    it('does NOT return "tabs" for "DataTable" (table is excluded)', () => {
+        const result = classifyComponent('DataTable');
+        expect(result).toBeNull();
+    });
+});
+
+describe('classifyComponent — separator / alert', () => {
+    it('returns "separator" for "SectionDivider"', () => {
+        const result = classifyComponent('SectionDivider');
+        expect(result).not.toBeNull();
+        expect(result!.type).toBe('separator');
+    });
+
+    it('returns "alert" for "ErrorMessage"', () => {
+        const result = classifyComponent('ErrorMessage');
+        expect(result).not.toBeNull();
+        expect(result!.type).toBe('alert');
+    });
+
+    it('returns "alert" for "SuccessToast"', () => {
+        const result = classifyComponent('SuccessToast');
+        expect(result).not.toBeNull();
+        expect(result!.type).toBe('alert');
+    });
+});
+
+describe('classifyComponent — null results', () => {
+    it('returns null for "HeroSection"', () => {
+        expect(classifyComponent('HeroSection')).toBeNull();
+    });
+
+    it('returns null for "MainContainer"', () => {
+        expect(classifyComponent('MainContainer')).toBeNull();
+    });
+
+    it('returns null for "ProfileCard"', () => {
+        expect(classifyComponent('ProfileCard')).toBeNull();
+    });
+
+    it('returns null for empty string', () => {
+        expect(classifyComponent('')).toBeNull();
+    });
+
+    it('is case-insensitive — "EMAILINPUT" still returns input', () => {
+        const result = classifyComponent('EMAILINPUT');
+        expect(result).not.toBeNull();
+        expect(result!.type).toBe('input');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// D2C.4 Feature 1 — emitNamedComponent tests for all 4 emitters
+// ---------------------------------------------------------------------------
+
+describe('ShadcnEmitter.emitNamedComponent', () => {
+    it('emits <Input /> for "input" type', () => {
+        const emitter = new ShadcnEmitter();
+        const output = emitter.emitNamedComponent('input', {}, '', 1);
+        expect(output).toContain('<Input');
+    });
+
+    it('emits <Textarea> for "textarea" type', () => {
+        const emitter = new ShadcnEmitter();
+        const output = emitter.emitNamedComponent('textarea', {}, '', 1);
+        expect(output).toContain('<Textarea');
+    });
+
+    it('emits <Select> compound for "select" type', () => {
+        const emitter = new ShadcnEmitter();
+        const output = emitter.emitNamedComponent('select', {}, '', 1);
+        expect(output).toContain('<Select');
+        expect(output).toContain('<SelectTrigger');
+        expect(output).toContain('<SelectContent');
+    });
+
+    it('emits <Checkbox /> for "checkbox" type', () => {
+        const emitter = new ShadcnEmitter();
+        const output = emitter.emitNamedComponent('checkbox', {}, '', 1);
+        expect(output).toContain('<Checkbox');
+    });
+
+    it('emits <Switch /> for "switch" type', () => {
+        const emitter = new ShadcnEmitter();
+        const output = emitter.emitNamedComponent('switch', {}, '', 1);
+        expect(output).toContain('<Switch');
+    });
+
+    it('emits <Avatar> compound for "avatar" type', () => {
+        const emitter = new ShadcnEmitter();
+        const output = emitter.emitNamedComponent('avatar', {}, '', 1);
+        expect(output).toContain('<Avatar');
+        expect(output).toContain('<AvatarImage');
+        expect(output).toContain('<AvatarFallback');
+    });
+
+    it('emits <Badge> for "badge" type', () => {
+        const emitter = new ShadcnEmitter();
+        const output = emitter.emitNamedComponent('badge', {}, '', 1);
+        expect(output).toContain('<Badge');
+    });
+
+    it('emits <Tabs> compound for "tabs" type', () => {
+        const emitter = new ShadcnEmitter();
+        const output = emitter.emitNamedComponent('tabs', {}, '', 1);
+        expect(output).toContain('<Tabs');
+        expect(output).toContain('<TabsList');
+        expect(output).toContain('<TabsTrigger');
+    });
+
+    it('emits <Separator /> for "separator" type', () => {
+        const emitter = new ShadcnEmitter();
+        const output = emitter.emitNamedComponent('separator', {}, '', 1);
+        expect(output).toContain('<Separator');
+    });
+
+    it('emits <Alert> compound for "alert" type', () => {
+        const emitter = new ShadcnEmitter();
+        const output = emitter.emitNamedComponent('alert', {}, '', 1);
+        expect(output).toContain('<Alert');
+        expect(output).toContain('<AlertDescription');
+    });
+
+    it('getImports includes input import after emitNamedComponent("input")', () => {
+        const emitter = new ShadcnEmitter();
+        emitter.emitNamedComponent('input', {}, '', 1);
+        const imports = emitter.getImports();
+        expect(imports.some((i) => i.includes('@/components/ui/input'))).toBe(true);
+    });
+
+    it('getImports includes separator import after emitNamedComponent("separator")', () => {
+        const emitter = new ShadcnEmitter();
+        emitter.emitNamedComponent('separator', {}, '', 1);
+        const imports = emitter.getImports();
+        expect(imports.some((i) => i.includes('@/components/ui/separator'))).toBe(true);
+    });
+
+    it('falls back to emitComponent for unknown type', () => {
+        const emitter = new ShadcnEmitter();
+        const output = emitter.emitNamedComponent('UnknownWidget', {}, '', 1);
+        expect(output).toContain('<UnknownWidget');
+    });
+});
+
+describe('MuiEmitter.emitNamedComponent', () => {
+    it('emits <TextField /> for "input" type', () => {
+        const emitter = new MuiEmitter();
+        const output = emitter.emitNamedComponent('input', {}, '', 1);
+        expect(output).toContain('<TextField');
+    });
+
+    it('emits <TextField multiline /> for "textarea" type', () => {
+        const emitter = new MuiEmitter();
+        const output = emitter.emitNamedComponent('textarea', {}, '', 1);
+        expect(output).toContain('multiline');
+    });
+
+    it('emits <Select> for "select" type', () => {
+        const emitter = new MuiEmitter();
+        const output = emitter.emitNamedComponent('select', {}, '', 1);
+        expect(output).toContain('<Select');
+    });
+
+    it('emits <Chip /> for "badge" type', () => {
+        const emitter = new MuiEmitter();
+        const output = emitter.emitNamedComponent('badge', {}, '', 1);
+        expect(output).toContain('<Chip');
+    });
+
+    it('emits <Divider /> for "separator" type', () => {
+        const emitter = new MuiEmitter();
+        const output = emitter.emitNamedComponent('separator', {}, '', 1);
+        expect(output).toContain('<Divider');
+    });
+
+    it('getImports includes @mui/material after emitNamedComponent("input")', () => {
+        const emitter = new MuiEmitter();
+        emitter.emitNamedComponent('input', {}, '', 1);
+        expect(emitter.getImports().some((i) => i.includes('@mui/material'))).toBe(true);
+    });
+});
+
+describe('PrimeEmitter.emitNamedComponent', () => {
+    it('emits <InputText /> for "input" type', () => {
+        const emitter = new PrimeEmitter();
+        const output = emitter.emitNamedComponent('input', {}, '', 1);
+        expect(output).toContain('<InputText');
+    });
+
+    it('emits <Dropdown /> for "select" type', () => {
+        const emitter = new PrimeEmitter();
+        const output = emitter.emitNamedComponent('select', {}, '', 1);
+        expect(output).toContain('<Dropdown');
+    });
+
+    it('emits <InputSwitch /> for "switch" type', () => {
+        const emitter = new PrimeEmitter();
+        const output = emitter.emitNamedComponent('switch', {}, '', 1);
+        expect(output).toContain('<InputSwitch');
+    });
+
+    it('emits <TabView> compound for "tabs" type', () => {
+        const emitter = new PrimeEmitter();
+        const output = emitter.emitNamedComponent('tabs', {}, '', 1);
+        expect(output).toContain('<TabView');
+        expect(output).toContain('<TabPanel');
+    });
+
+    it('emits <Message /> for "alert" type', () => {
+        const emitter = new PrimeEmitter();
+        const output = emitter.emitNamedComponent('alert', {}, '', 1);
+        expect(output).toContain('<Message');
+    });
+
+    it('getImports includes primereact/inputtext after emitNamedComponent("input")', () => {
+        const emitter = new PrimeEmitter();
+        emitter.emitNamedComponent('input', {}, '', 1);
+        expect(emitter.getImports().some((i) => i.includes('primereact/inputtext'))).toBe(true);
+    });
+});
+
+describe('TailwindLibEmitter.emitNamedComponent', () => {
+    it('emits <input /> for "input" type', () => {
+        const emitter = new TailwindLibEmitter();
+        const output = emitter.emitNamedComponent('input', {}, '', 1);
+        expect(output).toContain('<input');
+    });
+
+    it('emits <textarea> for "textarea" type', () => {
+        const emitter = new TailwindLibEmitter();
+        const output = emitter.emitNamedComponent('textarea', {}, '', 1);
+        expect(output).toContain('<textarea');
+    });
+
+    it('emits <select> for "select" type', () => {
+        const emitter = new TailwindLibEmitter();
+        const output = emitter.emitNamedComponent('select', {}, '', 1);
+        expect(output).toContain('<select');
+    });
+
+    it('emits <input type="checkbox"> for "checkbox" type', () => {
+        const emitter = new TailwindLibEmitter();
+        const output = emitter.emitNamedComponent('checkbox', {}, '', 1);
+        expect(output).toContain('type="checkbox"');
+    });
+
+    it('emits <input type="checkbox" role="switch"> for "switch" type', () => {
+        const emitter = new TailwindLibEmitter();
+        const output = emitter.emitNamedComponent('switch', {}, '', 1);
+        expect(output).toContain('role="switch"');
+    });
+
+    it('emits <hr /> for "separator" type', () => {
+        const emitter = new TailwindLibEmitter();
+        const output = emitter.emitNamedComponent('separator', {}, '', 1);
+        expect(output).toContain('<hr');
+    });
+
+    it('emits <div role="alert"> for "alert" type', () => {
+        const emitter = new TailwindLibEmitter();
+        const output = emitter.emitNamedComponent('alert', {}, '', 1);
+        expect(output).toContain('role="alert"');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// D2C.4 Feature 1 — wrapContainer element param tests
+// ---------------------------------------------------------------------------
+
+describe('ShadcnEmitter.wrapContainer with element param', () => {
+    it('emits <form> wrapper when element is "form"', () => {
+        const emitter = new ShadcnEmitter();
+        const output = emitter.wrapContainer('flex flex-col', '<p>field</p>', 1, 'form');
+        expect(output).toContain('<form');
+        expect(output).not.toContain('<Card');
+    });
+
+    it('emits <nav> wrapper when element is "nav"', () => {
+        const emitter = new ShadcnEmitter();
+        const output = emitter.wrapContainer('flex', '<a>link</a>', 1, 'nav');
+        expect(output).toContain('<nav');
+    });
+
+    it('emits <section> wrapper when element is "section"', () => {
+        const emitter = new ShadcnEmitter();
+        const output = emitter.wrapContainer('flex', '<p>body</p>', 1, 'section');
+        expect(output).toContain('<section');
+    });
+
+    it('emits <header> wrapper when element is "header"', () => {
+        const emitter = new ShadcnEmitter();
+        const output = emitter.wrapContainer('flex', '<h1>Title</h1>', 1, 'header');
+        expect(output).toContain('<header');
+    });
+
+    it('emits <footer> wrapper when element is "footer"', () => {
+        const emitter = new ShadcnEmitter();
+        const output = emitter.wrapContainer('flex', '<p>foot</p>', 1, 'footer');
+        expect(output).toContain('<footer');
+    });
+
+    it('falls back to Card when element is "div"', () => {
+        const emitter = new ShadcnEmitter();
+        const output = emitter.wrapContainer('flex', '<p>child</p>', 1, 'div');
+        expect(output).toContain('<Card');
+    });
+
+    it('falls back to Card when element is omitted', () => {
+        const emitter = new ShadcnEmitter();
+        const output = emitter.wrapContainer('flex', '<p>child</p>', 1);
+        expect(output).toContain('<Card');
+    });
+});
+
+describe('MuiEmitter.wrapContainer with element param', () => {
+    it('emits Box with component="form" when element is "form"', () => {
+        const emitter = new MuiEmitter();
+        const output = emitter.wrapContainer('flex', '<p>field</p>', 1, 'form');
+        expect(output).toContain('component="form"');
+    });
+
+    it('emits plain Box (no component prop) when element is "div"', () => {
+        const emitter = new MuiEmitter();
+        const output = emitter.wrapContainer('flex', '<p>child</p>', 1, 'div');
+        expect(output).toContain('<Box');
+        expect(output).not.toContain('component=');
+    });
+});
+
+describe('TailwindLibEmitter.wrapContainer with element param', () => {
+    it('emits <form> when element is "form"', () => {
+        const emitter = new TailwindLibEmitter();
+        const output = emitter.wrapContainer('flex', '<p>field</p>', 1, 'form');
+        expect(output).toContain('<form');
+        expect(output).not.toContain('<div');
+    });
+
+    it('emits <section> when element is "section"', () => {
+        const emitter = new TailwindLibEmitter();
+        const output = emitter.wrapContainer('flex', '<p>body</p>', 1, 'section');
+        expect(output).toContain('<section');
+    });
+
+    it('emits <div> when element is omitted', () => {
+        const emitter = new TailwindLibEmitter();
+        const output = emitter.wrapContainer('flex', '<p>child</p>', 1);
+        expect(output).toContain('<div');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// D2C.4 Feature 1 — Integration tests via HydroPasteEngine
+// ---------------------------------------------------------------------------
+
+describe('Integration: ContactForm frame emits <form> not <Card>', () => {
+    it('shadcn: "ContactForm" FRAME generates <form> wrapper', async () => {
+        const shadcnEngine = new HydroPasteEngine({ components: {} }, [], { library: 'shadcn' });
+        const payload = {
+            name: 'ContactForm',
+            type: 'FRAME',
+            children: [{ name: 'NameField', type: 'TEXT', characters: 'Your Name' }],
+        };
+        const result = await shadcnEngine.processPayload(JSON.stringify(payload));
+        const jsx = result.components[0].jsx;
+        expect(jsx).toContain('<form');
+        expect(jsx).not.toContain('<Card');
+    });
+
+    it('tailwind: "ContactForm" FRAME generates <form> wrapper', async () => {
+        const twEngine = new HydroPasteEngine({ components: {} }, [], { library: 'tailwind' });
+        const payload = { name: 'ContactForm', type: 'FRAME' };
+        const result = await twEngine.processPayload(JSON.stringify(payload));
+        const jsx = result.components[0].jsx;
+        expect(jsx).toContain('<form');
+        expect(jsx).not.toContain('<div');
+    });
+});
+
+describe('Integration: EmailInput frame emits <Input> not <p>', () => {
+    it('shadcn: "EmailInput" FRAME generates <Input> component', async () => {
+        const shadcnEngine = new HydroPasteEngine({ components: {} }, [], { library: 'shadcn' });
+        const payload = { name: 'EmailInput', type: 'FRAME' };
+        const result = await shadcnEngine.processPayload(JSON.stringify(payload));
+        const jsx = result.components[0].jsx;
+        expect(jsx).toContain('<Input');
+        expect(jsx).not.toContain('<p');
+    });
+
+    it('mui: "EmailInput" FRAME generates <TextField>', async () => {
+        const muiEngine = new HydroPasteEngine({ components: {} }, [], { library: 'mui' });
+        const payload = { name: 'EmailInput', type: 'FRAME' };
+        const result = await muiEngine.processPayload(JSON.stringify(payload));
+        const jsx = result.components[0].jsx;
+        expect(jsx).toContain('<TextField');
+    });
+
+    it('primeng: "EmailInput" FRAME generates <InputText>', async () => {
+        const primeEngine = new HydroPasteEngine({ components: {} }, [], { library: 'primeng' });
+        const payload = { name: 'EmailInput', type: 'FRAME' };
+        const result = await primeEngine.processPayload(JSON.stringify(payload));
+        const jsx = result.components[0].jsx;
+        expect(jsx).toContain('<InputText');
+    });
+
+    it('tailwind: "EmailInput" FRAME generates <input>', async () => {
+        const twEngine = new HydroPasteEngine({ components: {} }, [], { library: 'tailwind' });
+        const payload = { name: 'EmailInput', type: 'FRAME' };
+        const result = await twEngine.processPayload(JSON.stringify(payload));
+        const jsx = result.components[0].jsx;
+        expect(jsx).toContain('<input');
+    });
+});
+
+describe('Integration: NavBar frame emits <nav> wrapper', () => {
+    it('shadcn: "MainNavbar" FRAME generates <nav>', async () => {
+        const shadcnEngine = new HydroPasteEngine({ components: {} }, [], { library: 'shadcn' });
+        const payload = {
+            name: 'MainNavbar',
+            type: 'FRAME',
+            children: [{ name: 'Home', type: 'TEXT', characters: 'Home' }],
+        };
+        const result = await shadcnEngine.processPayload(JSON.stringify(payload));
+        expect(result.components[0].jsx).toContain('<nav');
+    });
+});
+
+describe('Integration: generic path uses div for unknown frames', () => {
+    it('generic path: unrecognized name at depth 1 still produces div', async () => {
+        const noLibEngine = new HydroPasteEngine({ components: {} }, []);
+        const payload = { name: 'XyzWidget', type: 'FRAME' };
+        const result = await noLibEngine.processPayload(JSON.stringify(payload));
+        expect(result.components[0].jsx).toContain('<div');
     });
 });
 
@@ -864,7 +1528,7 @@ describe('HydroPasteEngine — button heuristic', () => {
         expect(result.components[0].jsx).not.toContain('<Button');
     });
 
-    it('FRAME named "banner" with single short TEXT is NOT a button', async () => {
+    it('FRAME named "banner" with single short TEXT is NOT a button (D2C.4: now emits section)', async () => {
         const e = new HydroPasteEngine({}, [], { library: 'shadcn' });
         const payload = {
             name: 'banner',
@@ -873,7 +1537,8 @@ describe('HydroPasteEngine — button heuristic', () => {
         };
         const result = await e.processPayload(JSON.stringify(payload));
         expect(result.components[0].jsx).not.toContain('<Button');
-        expect(result.components[0].jsx).toContain('<Card');
+        // D2C.4: classifyFrame maps "banner" to 'section' → emits <section> not <Card>
+        expect(result.components[0].jsx).toContain('<section');
     });
 
     it('FRAME named "card" with single short TEXT is NOT a button', async () => {

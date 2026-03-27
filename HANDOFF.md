@@ -6,6 +6,36 @@
 
 ---
 
+## Session: 2026-03-26 D2C.4 Feature 2 -- Token Extraction from Figma (COMPLETE)
+
+**Goal:** Implement Feature 2 (Token Extraction) from the D2C.4 contract. Mandatory two-step approval gateway for extracting design tokens from Figma payloads.
+
+**What shipped:**
+
+| File | Change |
+|------|--------|
+| `flint-mcp/src/core/figmaTokenExtractor.ts` | NEW — Pure stateless extractor. Walks Figma node tree, collects colors/spacing/typography/radii/opacity/effects. Deduplicates by value, scores confidence (frequency + semantic name + common-value + novelty), detects near-duplicates via CIEDE2000 (deltaE < 2.0 threshold). |
+| `flint-mcp/src/tools/extractTokens.ts` | NEW — Two MCP tools: `flint_extract_tokens` (READ-ONLY, returns proposals) + `flint_approve_tokens` (writes approved tokens, records governance event). |
+| `flint-mcp/src/server.ts` | MODIFIED — Registered `flint_extract_tokens` + `flint_approve_tokens` in ListTools and CallTool handlers. |
+| `flint-mcp/src/core/governance/types.ts` | MODIFIED — Added `token_extraction` to `GovernanceEvent.eventType` union. |
+| `flint-mcp/src/core/governance/eventService.ts` | MODIFIED — Updated DDL CHECK constraint to allow `token_extraction` event type. |
+| `flint-mcp/src/core/__tests__/figmaTokenExtractor.test.ts` | NEW — 29 tests: color extraction, stroke/effect colors, typography, spacing, radii, deduplication, exact match, near-match, confidence scoring, filters, empty/null payloads, naming. |
+| `flint-mcp/src/tools/__tests__/extractTokens.test.ts` | NEW — 14 tests: no-write verification, JSON error handling, reviewInstructions, filter pass-through, approve writes, preserve-existing, governance event, empty array rejection, skip/reject counts, round-trip. |
+
+**Architecture decisions:**
+
+- `flint_extract_tokens` is strictly read-only — no file I/O whatsoever. This is enforced at the handler level.
+- `flint_approve_tokens` uses the same merge-with-preserve semantics as `flint_set_library` (existing paths at the same token path are never overwritten).
+- Governance events for `token_extraction` are written to `.flint/governance.db` (separate from the audit events db). Event failure is swallowed — it never blocks the token write.
+- CIEDE2000 near-match threshold is 2.0 (matching the Mithril safety threshold from Commandment 9).
+- The DDL CHECK constraint in `eventService.ts` was extended — existing tables created with the old constraint will continue working (SQLite CHECK constraints are evaluated at row insert time, not retrospectively).
+
+**Test results:** MCP: 3554/3554 passing (43 new). TSC: 0 errors.
+
+**Next:** D2C.4 Features 1 (classifyFrame/classifyComponent), 3 (Code Connect sync), 4 (GovernanceOverlay mount). Feature 4 is a trivial single-line mount of an existing component in App.tsx.
+
+---
+
 ## Session: 2026-03-26 D2C.4 -- Quality & Intelligence Upgrade (CONTRACT)
 
 **Goal:** Design contracts for 4 features upgrading the D2C pipeline to production quality.

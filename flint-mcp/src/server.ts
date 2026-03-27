@@ -117,6 +117,16 @@ import {
     handleDesignToCode,
     FLINT_DESIGN_TO_CODE_TOOL,
 } from "./tools/designToCode.js";
+import {
+    handleExtractTokens,
+    handleApproveTokens,
+    FLINT_EXTRACT_TOKENS_TOOL,
+    FLINT_APPROVE_TOKENS_TOOL,
+} from "./tools/extractTokens.js";
+import {
+    handleCodeConnectSync,
+    FLINT_CODE_CONNECT_SYNC_TOOL,
+} from "./tools/codeConnectSync.js";
 
 // @ts-ignore
 const generate = _generate.default || _generate;
@@ -1102,6 +1112,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             FLINT_MAP_TOKENS_TOOL,
             FLINT_SET_LIBRARY_TOOL,
             FLINT_DESIGN_TO_CODE_TOOL,
+            FLINT_EXTRACT_TOKENS_TOOL,
+            FLINT_APPROVE_TOKENS_TOOL,
+            FLINT_CODE_CONNECT_SYNC_TOOL,
             FLINT_PACK_EXPORT_TOOL,
             FLINT_PACK_IMPORT_TOOL,
             FLINT_PACK_ROLLBACK_TOOL,
@@ -3716,6 +3729,43 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 projectRoot: string;
             };
             return handleDeferViolation(deferArgs);
+        }
+
+        // -----------------------------------------------------------------
+        // D2C.4 Feature 2 -- Token Extraction from Figma (approval gateway)
+        // -----------------------------------------------------------------
+
+        case "flint_extract_tokens": {
+            const extractArgs = request.params.arguments as {
+                figmaPayload: string;
+                projectRoot?: string;
+                minUsageCount?: number;
+                minConfidence?: number;
+            };
+            return handleExtractTokens(extractArgs);
+        }
+
+        case "flint_approve_tokens": {
+            const approveArgs = request.params.arguments as {
+                tokens: Array<{ path: string; value: string; type: string }>;
+                source?: string;
+                projectRoot?: string;
+                sessionId?: string;
+            };
+            return handleApproveTokens(approveArgs);
+        }
+
+        // -----------------------------------------------------------------
+        // D2C.4 Feature 3 -- Code Connect Auto-Registration
+        // -----------------------------------------------------------------
+
+        case "flint_code_connect_sync": {
+            const ccArgs = request.params.arguments as {
+                library?: string;
+                action?: "generate" | "write";
+                projectRoot?: string;
+            };
+            return handleCodeConnectSync(ccArgs);
         }
 
         default:
