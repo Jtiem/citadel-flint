@@ -6,7 +6,7 @@
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "unset ELECTRON_RUN_AS_NODE && vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && NODE_ENV=production vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "postinstall": "electron-rebuild -f -w better-sqlite3",

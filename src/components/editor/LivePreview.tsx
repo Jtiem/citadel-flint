@@ -25,7 +25,7 @@ import { BRAND } from '../../../shared/brand'
 import reactUMD from '../../preview-vendor/react.prod.js?raw'
 import reactDOMUMD from '../../preview-vendor/react-dom.prod.js?raw'
 import tailwindCDN from '../../preview-vendor/tailwind-cdn.js?raw'
-import vueUMD from '../../preview-vendor/vue.global.prod.js?raw'
+import vueUMD from '../../preview-vendor/vue.global.prod.txt?raw'
 import {
   FLINT_INTERACTION_SCRIPT,
   FLINT_INTERACTION_STYLES,

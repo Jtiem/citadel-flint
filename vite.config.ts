@@ -5,6 +5,8 @@ import electron from 'vite-plugin-electron'
 import renderer from 'vite-plugin-electron-renderer'
 import path from 'path'
 
+const isProduction = process.env.NODE_ENV === 'production'
+
 const electronExternalMatcher = (id: string) => {
   if (
     id === 'vite' ||
@@ -70,7 +72,7 @@ export default defineConfig({
         vite: {
           build: {
             outDir: 'dist-electron',
-            watch: { exclude: watchExclude },
+            watch: isProduction ? null : { exclude: watchExclude },
             rollupOptions: {
               external: electronExternalMatcher,
             },
@@ -85,7 +87,7 @@ export default defineConfig({
         vite: {
           build: {
             outDir: 'dist-electron',
-            watch: { exclude: watchExclude },
+            watch: isProduction ? null : { exclude: watchExclude },
             rollupOptions: {
               external: ['better-sqlite3', 'fsevents'],
             },
@@ -97,7 +99,7 @@ export default defineConfig({
         vite: {
           build: {
             outDir: 'dist-electron',
-            watch: { exclude: watchExclude },
+            watch: isProduction ? null : { exclude: watchExclude },
             rollupOptions: {
               external: electronExternalMatcher,
             },
