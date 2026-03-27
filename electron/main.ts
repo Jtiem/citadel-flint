@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, safeStorage, session } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, net, safeStorage, session } from 'electron'
 import type { MenuItemConstructorOptions } from 'electron'
 import path from 'node:path'
 import { BRAND, ipcChannel, logTag } from '../shared/brand.ts'
@@ -11,6 +11,15 @@ import os from 'node:os'
 import { snapToToken } from './ingestion/index.js'
 import { loadAgentPolicy } from './agentPolicy.js'
 import { checkBetaExpiry, startVersionCheck, stopVersionCheck, getBetaInfo } from './betaGuard.js'
+import {
+    initAutoUpdater,
+    checkForUpdates as autoUpdateCheck,
+    downloadUpdate as autoUpdateDownload,
+    quitAndInstall as autoUpdateInstall,
+    getUpdateChannel,
+    setUpdateChannel,
+    stopAutoUpdater,
+} from './autoUpdater.js'
 import { ThumbnailGenerator } from './thumbnailGenerator.js'
 import type { ThumbnailOptions } from './thumbnailGenerator.js'
 
@@ -382,6 +391,11 @@ function createWindow(): void {
     // Non-blocking periodic check for newer beta builds. Safe no-op when
     // FLINT_BETA_VERSION_URL is not set (dev builds).
     startVersionCheck(mainWindow)
+
+    // ── BETA.3: electron-updater auto-update ──────────────────────────────
+    // Registers update lifecycle event handlers and schedules the first check.
+    // autoDownload = false — the user must confirm before anything downloads.
+    initAutoUpdater(mainWindow)
 }
 
 // ── Self-hosting guard ────────────────────────────────────────────────────────
@@ -3692,6 +3706,14 @@ ipcMain.handle('beta:submit-feedback', async (_event, feedback: unknown) => {
         description: string
         severity: string
         context?: string
+        screenshot?: string | null
+        system?: {
+            os: string
+            osVersion: string
+            screenWidth: number
+            screenHeight: number
+            devicePixelRatio: number
+        }
     }
 
     // Validate enum values (defense-in-depth)
@@ -3737,10 +3759,66 @@ ipcMain.handle('beta:submit-feedback', async (_event, feedback: unknown) => {
         existing.push(entry)
         writeFileSync(feedbackPath, JSON.stringify(existing, null, 2))
 
+        // Optional GitHub Issue submission (best-effort, never blocks local save).
+        // Only active when FLINT_FEEDBACK_GITHUB_TOKEN is set at build/runtime.
+        // Respects Commandment 4 (Local-First): local save is the primary path.
+        const ghToken = process.env.FLINT_FEEDBACK_GITHUB_TOKEN
+        if (ghToken) {
+            try {
+                const issueBody = [
+                    `**Category:** ${fb.category}`,
+                    `**Severity:** ${fb.severity}`,
+                    `**Build:** ${getBetaInfo().buildId}`,
+                    `**Platform:** ${process.platform}-${process.arch}`,
+                    fb.system ? `**Screen:** ${fb.system.screenWidth}x${fb.system.screenHeight} @${fb.system.devicePixelRatio}x` : null,
+                    '',
+                    fb.description,
+                ].filter(Boolean).join('\n')
+
+                const issuePayload = JSON.stringify({
+                    title: `[Beta Feedback] ${fb.category} / ${fb.severity}: ${fb.description.slice(0, 60)}`,
+                    body: issueBody,
+                    labels: ['beta-feedback', fb.severity],
+                })
+
+                await net.fetch('https://api.github.com/repos/Jtiem/lunar-elevator-flint/issues', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${ghToken}`,
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/vnd.github.v3+json',
+                    },
+                    body: issuePayload,
+                })
+            } catch {
+                // GitHub submission failed. Local save already succeeded. Silent.
+            }
+        }
+
         return { saved: true }
     } catch (err) {
         console.error(`${logTag('Beta')} Failed to save feedback:`, err)
         return { saved: false }
+    }
+})
+
+// ── BETA.4: Screenshot capture ────────────────────────────────────────────────
+//
+// Uses BrowserWindow.capturePage() to take a PNG screenshot.
+// Resized to max 1200px wide to keep file size reasonable.
+// User-initiated only — never called automatically.
+
+ipcMain.handle('beta:capture-screenshot', async () => {
+    try {
+        const win = BrowserWindow.getFocusedWindow()
+        if (!win) return null
+        const image = await win.capturePage()
+        const { width } = image.getSize()
+        const resized = width > 1200 ? image.resize({ width: 1200 }) : image
+        return resized.toPNG().toString('base64')
+    } catch (err) {
+        console.warn(`${logTag('Beta')} Screenshot capture failed:`, err)
+        return null
     }
 })
 
@@ -4059,6 +4137,46 @@ ipcMain.handle('beta:load-demo-project', async () => {
         console.error(`${logTag('Beta')} Failed to create demo project:`, err)
         return { error: 'Failed to create demo project.' }
     }
+})
+
+// ── BETA.3: Auto-Update IPC ───────────────────────────────────────────────────
+//
+// Five handlers expose electron-updater's lifecycle to the renderer through the
+// contextBridge surface (window.flintAPI.autoUpdate.*).
+// Push events are forwarded from autoUpdater.ts via BrowserWindow.webContents.send().
+
+ipcMain.handle('auto-update:check', async () => {
+    try {
+        const result = await autoUpdateCheck()
+        if (!result?.updateInfo) return null
+        const info = result.updateInfo
+        return {
+            version: info.version,
+            releaseNotes: typeof info.releaseNotes === 'string' ? info.releaseNotes : null,
+            releaseDate: info.releaseDate,
+            isBeta: info.version.includes('beta'),
+        }
+    } catch {
+        // Offline or no releases — return null so the renderer shows nothing.
+        return null
+    }
+})
+
+ipcMain.handle('auto-update:download', () => autoUpdateDownload())
+
+ipcMain.handle('auto-update:install', () => {
+    // quitAndInstall is synchronous and terminates the process — no return value.
+    autoUpdateInstall()
+})
+
+ipcMain.handle('auto-update:get-channel', () => getUpdateChannel())
+
+ipcMain.handle('auto-update:set-channel', (_event, payload: unknown) => {
+    const { channel } = payload as { channel: string }
+    if (channel !== 'stable' && channel !== 'beta') {
+        throw new Error('auto-update:set-channel — invalid channel; must be "stable" or "beta"')
+    }
+    setUpdateChannel(channel)
 })
 
 // ── CR.4: Component Scope Management IPC ─────────────────────────────────────
@@ -4780,6 +4898,9 @@ ipcMain.handle('d2c:apply', async (_event, request: unknown): Promise<{
 app.on('will-quit', () => {
     // Stop beta version check polling
     stopVersionCheck()
+
+    // Stop auto-update periodic checks and release the window reference.
+    stopAutoUpdater()
 
     // Close the ingestion server gracefully before the process exits so the
     // OS port is released immediately. This prevents EADDRINUSE on fast

@@ -914,6 +914,14 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
         loadDemoProject: (): Promise<{ projectPath: string } | { error: string }> =>
             ipcRenderer.invoke('beta:load-demo-project'),
 
+        /**
+         * Captures a screenshot of the focused BrowserWindow via capturePage().
+         * Returns a base64-encoded PNG string, or null if capture failed.
+         * The screenshot is user-initiated and previewed before submission.
+         */
+        captureScreenshot: (): Promise<string | null> =>
+            ipcRenderer.invoke('beta:capture-screenshot'),
+
         onUpdateAvailable: (callback: (event: {
             version: string
             downloadUrl: string
@@ -933,6 +941,62 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
         removeListeners: (): void => {
             ipcRenderer.removeAllListeners(ipcChannel('beta:update-available'))
             ipcRenderer.removeAllListeners(ipcChannel('beta:expired-remote'))
+        },
+    },
+
+    // ── BETA.3: Auto-Update IPC ───────────────────────────────────────────────
+    //
+    // Exposes electron-updater's update lifecycle to the renderer.
+    // Push events arrive via BrowserWindow.webContents.send() from autoUpdater.ts.
+    // All subscriber methods return an unsubscribe function for useEffect cleanup.
+
+    autoUpdate: {
+        /** Manually trigger an update check. Returns UpdateInfo or null if up-to-date. */
+        check: (): Promise<unknown> =>
+            ipcRenderer.invoke('auto-update:check'),
+
+        /** Begin downloading the available update. Progress arrives via onDownloadProgress. */
+        download: (): Promise<void> =>
+            ipcRenderer.invoke('auto-update:download'),
+
+        /** Quit the app and apply the downloaded update. Terminates the process. */
+        install: (): Promise<void> =>
+            ipcRenderer.invoke('auto-update:install'),
+
+        /** Returns the current update channel ('stable' | 'beta'). */
+        getChannel: (): Promise<'stable' | 'beta'> =>
+            ipcRenderer.invoke('auto-update:get-channel'),
+
+        /** Sets the update channel. Takes effect on the next check. */
+        setChannel: (channel: string): Promise<void> =>
+            ipcRenderer.invoke('auto-update:set-channel', { channel }),
+
+        /** Subscribes to update-available push events. Returns unsubscribe fn. */
+        onUpdateAvailable: (cb: (info: unknown) => void): (() => void) => {
+            const listener = (_e: Electron.IpcRendererEvent, info: unknown) => cb(info)
+            ipcRenderer.on(ipcChannel('auto-update:available'), listener)
+            return () => { ipcRenderer.removeListener(ipcChannel('auto-update:available'), listener) }
+        },
+
+        /** Subscribes to download-progress push events. Returns unsubscribe fn. */
+        onDownloadProgress: (cb: (progress: unknown) => void): (() => void) => {
+            const listener = (_e: Electron.IpcRendererEvent, progress: unknown) => cb(progress)
+            ipcRenderer.on(ipcChannel('auto-update:progress'), listener)
+            return () => { ipcRenderer.removeListener(ipcChannel('auto-update:progress'), listener) }
+        },
+
+        /** Subscribes to update-downloaded (ready to install) push events. Returns unsubscribe fn. */
+        onUpdateDownloaded: (cb: (info: unknown) => void): (() => void) => {
+            const listener = (_e: Electron.IpcRendererEvent, info: unknown) => cb(info)
+            ipcRenderer.on(ipcChannel('auto-update:downloaded'), listener)
+            return () => { ipcRenderer.removeListener(ipcChannel('auto-update:downloaded'), listener) }
+        },
+
+        /** Subscribes to update error push events. Returns unsubscribe fn. */
+        onError: (cb: (error: string) => void): (() => void) => {
+            const listener = (_e: Electron.IpcRendererEvent, payload: { message: string }) => cb(payload.message)
+            ipcRenderer.on(ipcChannel('auto-update:error'), listener)
+            return () => { ipcRenderer.removeListener(ipcChannel('auto-update:error'), listener) }
         },
     },
 

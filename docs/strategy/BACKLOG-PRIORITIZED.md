@@ -1,9 +1,9 @@
 # Flint — Prioritized Product Backlog
-**Date:** 2026-03-21
+**Date:** 2026-03-27
 **Author:** flint-product-planner
 **Sources:** CLAUDE.md, HANDOFF.md, FLINT-MASTER-PLAN.md, FLINT-GAP-REMEDIATION-PLAN.md, FLINT-EXPANSION-PLAN.md, FLINT-FUTURE-SPRINTS.md, FLINT-GLASS-PIVOT.md, JOURNEY-MAPS.md, JourneyMap-TestAudit.md, JTBD-GapFill-Plan.md, Snyk-Competitive-Analysis.md, INVESTOR-BRIEF-2026.md
 **Current JTBD score:** 8.4/10 (target: 9.0)
-**Test baseline:** MCP: 2165/2165 | Glass: 975/983 | Core: 1005/1005 — TSC 0 errors (updated 2026-03-21)
+**Test baseline:** MCP: 3,612/3,612 | Glass: 1,322/1,322 | Core: 1,146/1,146 | CI: 56/56 — TSC 0 errors
 
 ---
 
@@ -11,6 +11,7 @@
 
 | Section | What to find |
 |---------|-------------|
+| [Completed Since Last Update](#completed-since-last-update) | Everything that shipped since the backlog was written |
 | [Sprint 1 — Immediate (Weeks 1–2)](#sprint-1--immediate-weeks-12) | Items unblocked right now, highest impact |
 | [Sprint 2 — Foundation (Weeks 2–4)](#sprint-2--foundation-weeks-24) | Core infrastructure, unblocks downstream |
 | [Sprint 3 — Risk + Chat Quality (Weeks 4–6)](#sprint-3--risk--chat-quality-weeks-46) | Risk scoring, MRS, CX baseline |
@@ -18,9 +19,105 @@
 | [Sprint 5 — Market Expansion (Weeks 8–12)](#sprint-5--market-expansion-weeks-812) | Migration tools, multi-brand, a11y depth |
 | [Sprint 6 — Platform Moat (Weeks 12–18)](#sprint-6--platform-moat-weeks-1218) | Domain abstraction, consensus gate, DBOM |
 | [Sprint 7 — Enterprise Sync (Weeks 18–26)](#sprint-7--enterprise-sync-weeks-1826) | Bidirectional Figma token sync |
-| [Agent-Aware Governance Track](#agent-aware-governance-track-agv) | AGV.1–4 (new) |
+| [Sprint 8 — Next Wave](#sprint-8--next-wave) | WCAG 2.2, COGA, Beta, GPX Marketplace, Autopilot |
+| [Agent-Aware Governance Track](#agent-aware-governance-track-agv) | AGV.1–4 (all ONLINE) |
 | [Do NOT Build](#do-not-build) | Scope creep catalog |
 | [Deferred Decisions](#deferred-decisions) | Open questions |
+
+---
+
+## Completed Since Last Update
+
+The backlog was originally authored with a test baseline of 2,165 MCP tests. The following items shipped across three sessions on 2026-03-26, pushing the baseline to 3,612 MCP / 1,322 Glass / 1,146 Core / 56 CI. All items below are now ONLINE.
+
+### Sprint 1 completions
+
+| ID | Name |
+|----|------|
+| SEC.4 | API Key Safe Storage — `safeStorage.encryptString` wrapping macOS Keychain / DPAPI |
+| CX.1 | Response Quality Baseline — `ResponseMeta` helper, `summary` field, `dry_run` flag |
+| CX.2 | `flint_plan` Wire-Up — registered in `server.ts`, 64 tests |
+| ING.3 | MCP `healOnAudit` Integration Tests — `healOnAudit.test.ts`, `import:snap-to-token` IPC |
+| SEC.5 | Terminal API Hardening — `cwd` validation, 8KB input guard |
+| SEC.6 | Ingestion Rate Limiting — token-bucket, 429 on breach |
+
+### Sprint 2 completions
+
+| ID | Name |
+|----|------|
+| V.1-rs-wire | Risk Scoring Registration — `flint_risk_score` registered in `server.ts` |
+| GOV.3 | Session-Level Mutation Validation — uniqueness + orphan checks, ledger storage |
+| CX.3 | Error Taxonomy + Rule Explanations — 50 entries, `explanation` field on every rule |
+| GOV.1 | Rule Provenance — `sourceAuthority`, `regulatoryReference`, audit report export |
+| GOV.2 | Override Telemetry — `override_events` table, StatusBar badge |
+| U.3 | Immersive Canvas — bottom split removed, full-height XYCanvas |
+
+### Sprint 3 completions
+
+| ID | Name |
+|----|------|
+| V.1 | Probabilistic Risk Scoring (full) — Green/Amber/Red tiers, MRS 0–100, `flint_risk_score` |
+| AGV.1 | Per-Agent Tool ACL — 4 trust tiers, `.flint/agent-policy.json` |
+| AGV.2 | Agent Risk Dashboard — `flint://agent-dashboard` resource, Glass "agents" tab |
+| MDA.1 | Mithril Delta Mode — baseline snapshots, delta-only audit, "Set Baseline" |
+
+### Sprint 4 completions
+
+| ID | Name |
+|----|------|
+| U.4 | Ghost Code Snippets — `GhostCodeSnippet.tsx`, Hover-to-Source, `react-syntax-highlighter` |
+| W.1 | MCP Push Channel — `mcp-events.jsonl`, `useMCPEventListener`, `fs.watch` tail |
+| W.3 | Bidirectional Action Flint — `mcpClient.ts`, Glass-initiated MCP tool calls |
+
+### Sprint 5 completions
+
+| ID | Name |
+|----|------|
+| EXP.3 | Tailwind v3→v4 Migration — `flint_migrate_tw`, AST class transform, post-migration audit |
+| EXP.4 | Multi-Brand Theme Validation — `flint_validate_themes`, cross-theme matrix |
+| POL.1 | Configurable Policy Engine — ΔE threshold, per-rule modes, team overlays, Glass UI |
+| IDE.1 | VS Code / Cursor Extension — diagnostics, quick fixes, status bar, MCP client |
+| ONBOARD.1 | First-Launch Setup Wizard — IDE detection, MCP snippet, connection test, first-launch flag |
+
+### Sprint 6 completions
+
+| ID | Name |
+|----|------|
+| EXP.6a-ext | Accessibility Expansion (50 WCAG 2.1 AA rules) — live regions, motion, forms, 9 rule modules |
+| DBOM.1 | Design Bill of Materials — JSON/Markdown/CycloneDX, `flint_generate_dbom` |
+| V.3 | Universal AST Abstraction — `FlintNode`, JSX + JSON Schema adapters, `PluginRegistry` |
+| V.4 | Multi-Agent Epistemic Consensus Gate — secondary agent eval, `flint_consensus_report` |
+| GOV.4 | Statistical Anomaly Detection — 3σ threshold, baseline/detect/history |
+| EXP.5 | Design System Version Migration — token diff, AST rename, ΔE scoring |
+| AGV.3 | Auto-Escalation Rules — 4 default rules, session-scoped |
+| AGV.4 | Agent Trust Tiers — behavioral promotion/demotion, SQLite-backed |
+
+### Sprint 7 completions
+
+| ID | Name |
+|----|------|
+| SYNC.1 | Database Schema + OAuth + Figma API Service — 4 tables, PKCE flow, `figmaApiService.ts` |
+| SYNC.2 | Three-Way Diff Sync Engine — 7 diff categories, pull/push/conflict resolution |
+| SYNC.3 | MithrilLinter SYNC Violation Types — SYNC-001 token drift, SYNC-002 orphaned token |
+| SYNC.4 | CI Sync Gate + Offline Queue + History Export + Dashboard Integration |
+| EXP.7 | Cross-Platform Token Sync — DTCG → Tailwind/CSS/React Native/Swift/Kotlin |
+
+### Additional completions (shipped alongside or after Sprints 1–7)
+
+| Phase | Name |
+|-------|------|
+| ERM | Enterprise Rule Management — catalog, profiles, coverage, inheritance, 5 MCP tools, Glass UI |
+| UCFG.5–7 | Unified Config Wiring — approval gates, scoring weights, classification, PDP/PEP enforcement, presets |
+| CI.2 | CI/CD Parity Rewrite — `flint-ci/` thin CLI shell, 56 tests, SARIF, GitHub Actions wrapper |
+| D2C.4 | Design-to-Code Quality — heuristics, token extraction, Code Connect, GovernanceOverlay mount |
+| OAUTH.1 | Figma OAuth Flow — one-click Connect Figma from Glass |
+| CR.1–4 | Constrained Registry — system prompt injection, registry gate, Scope panel |
+| CK.1–4 | RAG Auto-Seeding — sqlite-vec, manifest + tokens + docs, constrained plan intent |
+| EN.1–4 | Registry Enrichment — MCP tools, draft staging, Scope panel review UI, JSDoc extraction |
+| CV2.2–7 | Component Canvas — thumbnail generator, cards, health grades, drag-to-insert, categories, search |
+| VIS.1–7 | Visual Intelligence — variant preview, responsive snapping, live diff, coverage map, recipes, stickers, smart insert |
+| GPX.1–2 | Governance Pack Exchange — export (security scanner, SHA-256), import (merge strategies, snapshot rollback) |
+| LIB.1 | Bidirectional Library Workflow — set/detect/seed/push/pull, adapter tokens |
 
 ---
 
@@ -770,6 +867,104 @@ Bidirectional Figma token sync. This is the longest sprint window and the most c
 
 ---
 
+## Sprint 8 — Next Wave
+
+Sprints 1–7 are fully ONLINE. Sprint 8 defines the next wave of work. All items below are in BACKLOG status — defined but not yet specced to implementation depth.
+
+---
+
+### Beta Distribution Infrastructure
+
+| Field | Value |
+|-------|-------|
+| **ID** | BETA.1 |
+| **Priority** | P0 |
+| **Effort** | L |
+| **Dependencies** | None |
+| **Status** | BACKLOG |
+
+**What:** electron-builder production config, self-expiring `.dmg` builds for evaluations, in-app feedback widget (embedded form, no external service dependency), update channel wired to a static file host. Covers: code signing config (requires Apple Developer Program enrollment), notarization, auto-updater via `electron-updater`.
+
+**Why this priority:** Every other Sprint 8 item depends on having real users. Without a distribution mechanism, Flint has no feedback loop and no trial pipeline. The signing and notarization infrastructure is the prerequisite for any Mac App Store or direct-download distribution. This is the gating constraint on user acquisition.
+
+**Dependencies note:** Requires Apple Developer Program enrollment and Azure Code Signing certificate for Windows. Those are business/credential decisions, not engineering decisions. Engineering can build the config and stub the signing step before credentials are available.
+
+**Journey impact:** Journey 1 (New User / First Install) — currently has no happy path for users who did not build Flint from source.
+
+---
+
+### WCAG 2.2 Rule Pack
+
+| Field | Value |
+|-------|-------|
+| **ID** | EXP.8 |
+| **Priority** | P1 |
+| **Effort** | M |
+| **Dependencies** | EXP.6a-ext (ONLINE — 50 WCAG 2.1 AA rules, A11yLinter architecture) |
+| **Status** | BACKLOG |
+
+**What:** 8 new success criteria from WCAG 2.2: Focus Appearance (2.4.11, 2.4.12), Dragging Movements (2.5.7), Target Size Minimum (2.5.8), Consistent Help (3.2.6), Redundant Entry (3.3.7), Accessible Authentication (3.3.8, 3.3.9). Each rule needs: detector, auto-fix where applicable, explanation string, SARIF rule entry. Fills the "coming soon" slot in the Rule Catalog (ERM) and surfaces in the WCAG 2.2 compliance profile.
+
+**Why this priority:** WCAG 2.2 became a W3C Recommendation in October 2023. EN 301 549 (the EU accessibility standard) references WCAG 2.2 as of 2024. The EU Accessibility Act enforcement timeline puts WCAG 2.2 conformance on the procurement checklist for public-sector buyers. Flint's current WCAG 2.1 AA coverage misses 8 criteria that are already legally relevant in the EU. The A11yLinter architecture (9 rule modules, 50 rules) makes adding a bounded new rule pack low-risk.
+
+**Journey impact:** Journey 3 (Governance Audit Loop) — adds 8 new audit findings that currently produce no output despite being legally required for EU contracts.
+
+---
+
+### COGA Cognitive Accessibility Pack
+
+| Field | Value |
+|-------|-------|
+| **ID** | EXP.9 |
+| **Priority** | P2 |
+| **Effort** | M |
+| **Dependencies** | EXP.8 (WCAG 2.2 rule pack, for rule authoring patterns) |
+| **Status** | BACKLOG |
+
+**What:** 8 cognitive accessibility patterns from the W3C COGA (Cognitive and Learning Disabilities Accessibility) Task Force guidance: clear language (reading level detection), predictable navigation (consistent menu placement), error prevention (confirmation dialogs for destructive actions), redundant cues (icons + text labels), timeouts (warning before session expiry), distracting content (autoplay detection), complex authentication, memory-dependent tasks. New rule domain `coga` in the ERM registry.
+
+**Why this priority:** WCAG 2.1/2.2 has limited COGA coverage. The W3C COGA guidance is the reference standard for cognitive accessibility and is increasingly cited in US federal procurement. Adding COGA as a named domain positions Flint in the cognitive accessibility market, which no design governance tool currently addresses. P2 because the legal mandate is softer than WCAG 2.2 — COGA is guidance, not a normative standard — but enterprise buyers in healthcare and government actively request it.
+
+**New domain note:** This requires adding `coga` as a new rule domain in `rulePackRegistry.ts` and updating the `ComplianceProfileSelector` in Glass to expose the COGA profile.
+
+---
+
+### GPX Marketplace (Registry Resolution)
+
+| Field | Value |
+|-------|-------|
+| **ID** | GPX.3 |
+| **Priority** | P1 |
+| **Effort** | L |
+| **Dependencies** | GPX.1 (ONLINE — pack export), GPX.2 (ONLINE — pack import), registryResolver.ts (ONLINE — org/pack-name extends resolution) |
+| **Status** | BACKLOG |
+
+**What:** A hosted registry where governance packs can be published, discovered, and installed by pack name. `registryResolver.ts` (ONLINE) already resolves `org/pack-name` extends refs — GPX.3 provides the network backend that resolver points at. Scope: a static JSON registry file (initially), a `flint pack search <query>` CLI command, a `flint pack install <org/name>` command, and a browsable panel in Glass. Pack publishing is authenticated (API key per org); pack discovery is public.
+
+**Why this priority:** GPX.1 and GPX.2 let teams share governance packs point-to-point. GPX.3 makes packs discoverable without direct coordination — the difference between emailing a zip file and npm install. The platform moat story: Flint governs AI-generated UI, and the governance rules live in a distributed, community-maintained registry. Competitors cannot replicate this network effect without building the same ecosystem. The `registryResolver.ts` infrastructure already exists and is waiting for a registry URL to resolve against.
+
+**Effort note:** L effort assumes a static-hosted JSON registry (no server-side code). A dynamic registry with search indexing moves this to XL.
+
+---
+
+### Flint Autopilot (Nightly Governance)
+
+| Field | Value |
+|-------|-------|
+| **ID** | AUTO.1 |
+| **Priority** | P2 |
+| **Effort** | XL |
+| **Dependencies** | DBOM.1 (ONLINE), GOV.4 anomaly detection (ONLINE), EXP.2 debt report (ONLINE), BETA.1 (distribution — notifications need a running app) |
+| **Status** | BACKLOG |
+
+**What:** A scheduled governance scan that runs on a configurable cadence (nightly by default). Each run: generates a DBOM snapshot, diffs against the previous snapshot, risk-scores any regressions using MRS, flags anomalies using GOV.4's 3σ detector, and produces a digest. Digest delivery: in-app notification on next Glass open, optional email (configurable SMTP), optional Slack webhook. Escalation path: if a regression scores Red, it creates a governance annotation on the offending component.
+
+**Why this priority:** The "set it and forget it" enterprise story. Enterprise buyers do not want to manually run `flint audit` — they want Flint to tell them when something changed. All the underlying infrastructure (DBOM, anomaly detection, debt report, annotation engine) is ONLINE. Autopilot is the scheduled orchestration layer on top of existing capabilities. P2 because it requires BETA.1 distribution to be meaningful — notifications sent to a desktop app the user never opens are useless. XL effort due to scheduling, state management across runs, and notification delivery.
+
+**Deferred decision resolved:** This item was previously listed under Deferred Decisions as "Flint Autopilot / OODA Loop Governance." The dependencies (DBOM.1, GOV.4) are now ONLINE, making it implementable. Promoting to Sprint 8 BACKLOG.
+
+---
+
 ## Agent-Aware Governance Track (AGV)
 
 This track applies Flint's existing governance model to the AI agents themselves. Flint governs what agents can do to code — it does not control agent lifecycle, orchestration, or model selection.
@@ -798,11 +993,13 @@ AGV.1 and AGV.2 are detailed in Sprint 3 above. AGV.3 and AGV.4 are detailed in 
 | Sprint 5 | 8–12 | EXP.3, EXP.4, POL.1, IDE.1, ONBOARD.1 | Market Expansion | Yes — migration, multi-brand, first-run wizard |
 | Sprint 6 | 12–18 | EXP.6a-ext, DBOM.1, V.3, V.4, GOV.4, EXP.5, AGV.3 | Platform Moat | Yes — compliance, domain abstraction |
 | Sprint 7 | 18–26 | SYNC.1–4, EXP.7, AGV.4 | Enterprise Sync | Yes — bidirectional Figma sync |
+| Sprint 8 | 26+ | BETA.1, EXP.8, EXP.9, GPX.3, AUTO.1 | Next Wave | Yes — distribution, WCAG 2.2, marketplace |
 
 **Parallelization opportunities within each sprint:**
 - Sprint 1: SEC.4 + CX.1 + ING.3 are independent, can run simultaneously
 - Sprint 2: GOV.1 + GOV.2 + U.3 are independent; GOV.3 depends on INFRA.2 (ONLINE)
 - Sprint 5: EXP.3 + POL.1 are independent; IDE.1 can start in parallel
+- Sprint 8: BETA.1 + EXP.8 are independent; GPX.3 depends on BETA.1 for meaningful discovery
 
 ---
 
@@ -842,26 +1039,28 @@ These items require more information, user feedback, or a business decision befo
 
 **Automated Fix PRs.** Deferred per the Do NOT Build section. Revisit after EXP.1 CI gate has demonstrated adoption and there is clear user demand for automated PR opening.
 
-**"Flint Autopilot" / OODA Loop Governance.** The Snyk Competitive Analysis (§4.5) suggests a formalized OODA governance loop: nightly scan → diff against yesterday → risk-score regressions → act (annotations + Fix PRs + dashboard updates). This is a compelling long-term product direction but requires: DBOM.1, GOV.4 (anomaly detection), and Fix PRs to all exist first. Deferred to Sprint 7+ planning.
-
-**VS Code / Cursor Extension packaging.** IDE.1 is in the backlog (Sprint 5, P2) but the distribution model is unresolved: publish to VS Code Marketplace under Flint branding, or integrate into the Claude Code MCP auto-discovery flow. The latter is lower friction but less visible. Decision needed before IDE.1 implementation begins. Note: ONBOARD.1 (First-Launch Setup Wizard) is the primary distribution UX for Glass users; IDE.1 packaging is a secondary channel for IDE-only users.
+**VS Code / Cursor Extension packaging.** IDE.1 is ONLINE, but the distribution model remains unresolved: publish to VS Code Marketplace under Flint branding, or integrate into the Claude Code MCP auto-discovery flow. The latter is lower friction but less visible. Decision needed before marketplace submission begins. Note: ONBOARD.1 (First-Launch Setup Wizard) is the primary distribution UX for Glass users; IDE.1 marketplace packaging is a secondary channel for IDE-only users.
 
 **Per-agent identity protocol.** AGV.1-4 depend on `agent_id` being a reliable identifier in MCP session metadata. The MCP spec does not currently standardize agent identity. Decision needed: do we use a custom `x-flint-agent-id` header convention, the `clientInfo.name` field from the MCP `initialize` request, or something else? This affects AGV.1 database schema.
 
 **EXP.6 full WCAG 2.1 AA (50 rules) scope vs. WCAG 3.0 (APCA).** The EXP.6 plan targets ~50 rules for full WCAG 2.1 AA coverage. APCA contrast is included for WCAG 3.0 readiness. However, WCAG 3.0 is still in draft. The APCA implementation adds effort; the benefit depends on how quickly the target market moves to WCAG 3.0. Decision: ship APCA alongside WCAG 2.1 AA completion, or defer APCA to a separate sprint? Recommend shipping APCA with EXP.6a-ext for demo differentiation.
 
+**GPX Marketplace hosting model.** GPX.3 can ship as a static JSON file (low cost, low ops burden) or a dynamic API (search indexing, version resolution, auth). Static is faster to ship and sufficient for early adoption. Dynamic is required for community scale. Decision needed before GPX.3 implementation begins.
+
 ---
 
 ## Backlog Metrics Summary
 
-| Priority | Count | Notes |
-|----------|:-----:|-------|
-| P0 | 4 | SEC.4, CX.1, CX.2 wire-up, V.1 |
-| P1 | 16 | Core market + safety |
-| P2 | 11 | Important but not blocking |
-| P3 | 3 | Nice-to-have |
-| **Total** | **34** | Across 7 sprints (~26 weeks) |
+| Priority | Count | Status breakdown |
+|----------|:-----:|-----------------|
+| P0 | 1 | BETA.1 (Sprint 8) |
+| P1 | 2 | EXP.8, GPX.3 (Sprint 8) |
+| P2 | 2 | EXP.9, AUTO.1 (Sprint 8) |
+| P3 | 0 | — |
+| **Total active** | **5** | All in Sprint 8 — Sprints 1–7 fully ONLINE |
 
-**Items already ONLINE (not in backlog):** All modules listed in CLAUDE.md Module Status are confirmed ONLINE and excluded. This backlog contains only items in PLANNED, IN-FLIGHT, or BACKLOG status.
+**Sprints 1–7 status:** All 34 items originally tracked across Sprints 1–7 are ONLINE. The backlog above preserves their full specs for reference and dependency tracing.
 
-**In-flight clearance required first:** CX.2 wire-up and V.1-rs wire-up are blocked by ING.3's territory claim on `server.ts`. ING.3 should be the first item cleared in Sprint 1 to unblock the chain.
+**Sprint 8 items:** 5 new items added 2026-03-27. None are blocked — all dependencies are ONLINE.
+
+**Test baseline at time of update:** MCP: 3,612/3,612 | Glass: 1,322/1,322 | Core: 1,146/1,146 | CI: 56/56 — TSC 0 errors

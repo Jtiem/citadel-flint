@@ -93,8 +93,13 @@ mac:
   entitlementsInherit: build-resources/entitlements.mac.plist
   # Uncomment when you have an Apple Developer certificate:
   # identity: "Developer ID Application: Your Name (TEAM_ID)"
-  # notarize:
-  #   teamId: ${env.APPLE_TEAM_ID}
+  #
+  # Notarization — active only when APPLE_TEAM_ID env var is set.
+  # electron-builder gracefully skips notarization when the value is empty.
+  # Required env vars: APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID
+  # Set these in GitHub Secrets for CI, or export locally for a signed build.
+  notarize:
+    teamId: ${env.APPLE_TEAM_ID}
 
 # ── Windows ──────────────────────────────────────────────────────────────────
 win:

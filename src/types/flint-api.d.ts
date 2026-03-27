@@ -1683,6 +1683,14 @@ export interface FlintAPI {
      */
     beta?: BetaAPI
 
+    // ── BETA.3: Auto-Update ───────────────────────────────────────────────────
+
+    /**
+     * electron-updater auto-update surface — check, download, install, channel management.
+     * Optional-chained by callers so Vitest / headless environments degrade gracefully.
+     */
+    autoUpdate?: AutoUpdateAPI
+
     // ── ONBOARD.1: First-Launch Setup Wizard ─────────────────────────────────
 
     /**
@@ -2043,6 +2051,57 @@ export interface FlintPolicy {
     }
 }
 
+// ── BETA.3: Auto-Update ───────────────────────────────────────────────────────
+
+/** Progress info pushed to the renderer during an update download. */
+export interface UpdateDownloadProgress {
+    /** Bytes downloaded per second. */
+    bytesPerSecond: number
+    /** Download percentage (0–100). */
+    percent: number
+    /** Total bytes in the update package. */
+    total: number
+    /** Bytes transferred so far. */
+    transferred: number
+}
+
+/** Update metadata returned by checkForUpdates and pushed via onUpdateAvailable. */
+export interface UpdateInfo {
+    /** Version string of the available update (e.g. "0.2.0-beta.1"). */
+    version: string
+    /** Release notes as a markdown string, or null if not provided. */
+    releaseNotes: string | null
+    /** ISO 8601 release date string. */
+    releaseDate: string
+    /** True when the version string contains "beta". */
+    isBeta: boolean
+}
+
+/**
+ * Auto-update IPC surface.
+ * Exposed as `window.flintAPI.autoUpdate`.
+ */
+export interface AutoUpdateAPI {
+    /** Manually trigger an update check. Returns UpdateInfo or null if already up-to-date. */
+    checkForUpdates: () => Promise<UpdateInfo | null>
+    /** Begin downloading the available update. Progress arrives via onDownloadProgress. */
+    downloadUpdate: () => Promise<void>
+    /** Quit the app and install the downloaded update. Terminates the process. */
+    quitAndInstall: () => void
+    /** Returns the current update channel. */
+    getChannel: () => Promise<'stable' | 'beta'>
+    /** Sets the update channel. Takes effect on the next check. */
+    setChannel: (channel: 'stable' | 'beta') => Promise<void>
+    /** Subscribes to update-available push events. Returns unsubscribe fn. */
+    onUpdateAvailable: (cb: (info: UpdateInfo) => void) => () => void
+    /** Subscribes to download-progress push events. Returns unsubscribe fn. */
+    onDownloadProgress: (cb: (progress: UpdateDownloadProgress) => void) => () => void
+    /** Subscribes to update-downloaded push events. Returns unsubscribe fn. */
+    onUpdateDownloaded: (cb: (info: UpdateInfo) => void) => () => void
+    /** Subscribes to update error push events. Returns unsubscribe fn. */
+    onError: (cb: (error: string) => void) => () => void
+}
+
 // ── Beta Distribution ────────────────────────────────────────────────────────
 
 /** Feedback category for beta testers. */
@@ -2058,6 +2117,18 @@ export interface BetaFeedback {
     severity: BetaFeedbackSeverity
     /** Optional context (active file path, current panel, etc.) */
     context?: string
+    /** Base64-encoded PNG screenshot, or null if user declined. */
+    screenshot?: string | null
+    /** System metadata auto-collected at submission time. */
+    system?: {
+        /** e.g. "MacIntel", "Win32", "Linux x86_64" */
+        os: string
+        /** From navigator.userAgent */
+        osVersion: string
+        screenWidth: number
+        screenHeight: number
+        devicePixelRatio: number
+    }
 }
 
 /** Beta build metadata returned by getInfo(). */
@@ -2086,6 +2157,11 @@ export interface BetaAPI {
     submitFeedback: (feedback: BetaFeedback) => Promise<{ saved: boolean }>
     /** Copies the bundled demo project to a temp dir and returns the path. */
     loadDemoProject: () => Promise<{ projectPath: string } | { error: string }>
+    /**
+     * Captures a screenshot of the focused window using BrowserWindow.capturePage().
+     * Returns a base64-encoded PNG string, or null if capture failed.
+     */
+    captureScreenshot: () => Promise<string | null>
     /** Subscribes to update-available push events. Returns unsubscribe fn. */
     onUpdateAvailable: (callback: (event: BetaUpdateEvent) => void) => () => void
     /** Subscribes to remote expiry push events. Returns unsubscribe fn. */

@@ -30,7 +30,7 @@ case "$ARCH" in
 esac
 
 BUILD_ID="beta-${VERSION}-${DATE}"
-EXPIRY=$(node -p "new Date(Date.now()+30*864e5).toISOString().split('T')[0]+'T00:00:00Z'")
+EXPIRY=$(node -p "new Date(Date.now()+(${FLINT_BETA_DAYS:-90})*864e5).toISOString().split('T')[0]+'T00:00:00Z'")
 STAGE_DIR="release/_stage/Flint-${VERSION}"
 ZIP_NAME="Flint-${VERSION}-${DATE}-${ARCH_LABEL}.zip"
 
@@ -182,7 +182,7 @@ STEP 4 — Set Up Governance in Your Project (optional)
 
 NOTES
 ─────
-  - This is a beta build. It expires in 30 days.
+  - This is a beta build. It expires in ${FLINT_BETA_DAYS:-90} days.
   - No internet connection required — Flint runs 100% offline.
   - Node.js 20+ is required for the MCP server.
   - Questions? Contact the Flint team.

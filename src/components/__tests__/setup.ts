@@ -207,6 +207,7 @@ export function createMockFlintAPI() {
             getInfo: vi.fn().mockResolvedValue({ buildId: 'dev-local', expiryDate: null, daysRemaining: null, isBeta: false }),
             submitFeedback: vi.fn().mockResolvedValue({ saved: true }),
             loadDemoProject: vi.fn().mockResolvedValue({ error: 'not available in test' }),
+            captureScreenshot: vi.fn().mockResolvedValue(null),
             onUpdateAvailable: vi.fn().mockReturnValue(() => {}),
             onExpiredRemote: vi.fn().mockReturnValue(() => {}),
             removeListeners: vi.fn(),

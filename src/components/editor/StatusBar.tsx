@@ -20,14 +20,14 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { BRAND } from '../../../shared/brand'
-import { ShieldCheck, ShieldAlert, X, Copy, Check, RefreshCw, Unplug, FolderInput, MessageSquare, Tablet, Smartphone } from 'lucide-react'
+import { ShieldCheck, ShieldAlert, X, Copy, Check, RefreshCw, Unplug, FolderInput, MessageSquare, Tablet, Smartphone, Download, RotateCcw } from 'lucide-react'
 import { useCanvasStore } from '../../store/canvasStore'
 import { BREAKPOINT_LABELS } from '../../store/canvasStore'
 import { useEditorStore } from '../../store/editorStore'
 import { useNotificationStore } from '../../store/notificationStore'
 import { SyncStatus } from '../ui/SyncStatus'
 import { BetaFeedbackModal } from '../ui/BetaFeedbackModal'
-import type { FigmaStatus, BetaInfo } from '../../types/flint-api'
+import type { FigmaStatus, BetaInfo, UpdateInfo, UpdateDownloadProgress } from '../../types/flint-api'
 
 // ── Scratchpad detection ───────────────────────────────────────────────────────
 
@@ -280,6 +280,47 @@ export function StatusBar() {
             unsubExpired?.()
         }
     }, [push])
+
+    // ── BETA.3: electron-updater auto-update state ────────────────────────────
+    type UpdateState = 'idle' | 'available' | 'downloading' | 'ready'
+    const [updateState, setUpdateState] = useState<UpdateState>('idle')
+    const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null)
+    const [downloadProgress, setDownloadProgress] = useState<UpdateDownloadProgress | null>(null)
+
+    useEffect(() => {
+        const unsubAvailable = window.flintAPI.autoUpdate?.onUpdateAvailable((info) => {
+            setUpdateInfo(info as UpdateInfo)
+            setUpdateState('available')
+        })
+
+        const unsubProgress = window.flintAPI.autoUpdate?.onDownloadProgress((progress) => {
+            setDownloadProgress(progress as UpdateDownloadProgress)
+            setUpdateState('downloading')
+        })
+
+        const unsubDownloaded = window.flintAPI.autoUpdate?.onUpdateDownloaded((info) => {
+            setUpdateInfo(info as UpdateInfo)
+            setDownloadProgress(null)
+            setUpdateState('ready')
+        })
+
+        return () => {
+            unsubAvailable?.()
+            unsubProgress?.()
+            unsubDownloaded?.()
+        }
+    }, [])
+
+    const handleUpdateDownload = useCallback(() => {
+        setUpdateState('downloading')
+        window.flintAPI.autoUpdate?.download().catch(() => {
+            setUpdateState('available') // revert on error
+        })
+    }, [])
+
+    const handleUpdateInstall = useCallback(() => {
+        window.flintAPI.autoUpdate?.install().catch(() => {/* terminates process */})
+    }, [])
 
     // ── Autopilot: apply governed code to the active file ────────────────────
     const applyGovernedCode = useCallback(() => {
@@ -596,7 +637,53 @@ export function StatusBar() {
                 </button>
             )}
 
-            <span className={betaInfo ? '' : 'ml-auto'}>
+            {/* ── BETA.3: Auto-update indicator ─────────────────────────── */}
+            {updateState === 'available' && updateInfo && (
+                <button
+                    type="button"
+                    onClick={handleUpdateDownload}
+                    className={`${betaInfo ? '' : 'ml-auto'} flex items-center gap-1.5 rounded border border-emerald-700/50 bg-emerald-900/10 px-2 py-0.5 text-xs text-emerald-400 transition-colors hover:border-emerald-600/60 hover:bg-emerald-900/20 hover:text-emerald-300`}
+                    title={`Update available: v${updateInfo.version} — click to download`}
+                >
+                    <Download className="h-3 w-3" />
+                    Update v{updateInfo.version}
+                </button>
+            )}
+
+            {updateState === 'downloading' && (
+                <span
+                    className={`${betaInfo ? '' : 'ml-auto'} flex items-center gap-1.5 rounded border border-blue-700/40 bg-blue-900/10 px-2 py-0.5 text-xs text-blue-400`}
+                    title={`Downloading update… ${downloadProgress ? `${Math.round(downloadProgress.percent)}%` : ''}`}
+                >
+                    <Download className="h-3 w-3 animate-pulse" />
+                    {downloadProgress ? `${Math.round(downloadProgress.percent)}%` : 'Downloading…'}
+                    {downloadProgress && (
+                        <span
+                            className="ml-1 inline-block h-1 w-12 overflow-hidden rounded bg-blue-900/40"
+                            aria-hidden="true"
+                        >
+                            <span
+                                className="block h-full bg-blue-400 transition-all"
+                                style={{ width: `${downloadProgress.percent}%` }}
+                            />
+                        </span>
+                    )}
+                </span>
+            )}
+
+            {updateState === 'ready' && updateInfo && (
+                <button
+                    type="button"
+                    onClick={handleUpdateInstall}
+                    className={`${betaInfo ? '' : 'ml-auto'} flex items-center gap-1.5 rounded border border-violet-700/50 bg-violet-900/10 px-2 py-0.5 text-xs text-violet-400 transition-colors hover:border-violet-600/60 hover:bg-violet-900/20 hover:text-violet-300`}
+                    title={`v${updateInfo.version} downloaded — click to restart and install`}
+                >
+                    <RotateCcw className="h-3 w-3" />
+                    Restart to update
+                </button>
+            )}
+
+            <span className={betaInfo || updateState !== 'idle' ? '' : 'ml-auto'}>
                 <SyncStatus />
             </span>
 

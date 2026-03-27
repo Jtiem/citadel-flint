@@ -16,10 +16,15 @@
     "test:changed:react": "vitest run --changed --config vitest.config.react.ts",
     "test:all": "vitest run --config vitest.config.ts && vitest run --config vitest.config.react.ts",
     "flint-clean": "npx tsx scripts/flint-clean.ts",
-    "build:beta": "npm run build && FLINT_BETA_EXPIRY=$(node -p \"new Date(Date.now()+30*864e5).toISOString().split('T')[0]+'T00:00:00Z'\") FLINT_BETA_BUILD_ID=beta-$(node -p \"require('./package.json').version\")-$(node -p \"new Date().toISOString().split('T')[0].replace(/-/g,'')\") electron-builder --config electron-builder.yml",
-    "build:beta:mac": "npm run build && FLINT_BETA_EXPIRY=$(node -p \"new Date(Date.now()+30*864e5).toISOString().split('T')[0]+'T00:00:00Z'\") FLINT_BETA_BUILD_ID=beta-$(node -p \"require('./package.json').version\")-$(node -p \"new Date().toISOString().split('T')[0].replace(/-/g,'')\") electron-builder --mac --config electron-builder.yml",
-    "build:beta:quick": "npm run build && FLINT_BETA_EXPIRY=$(node -p \"new Date(Date.now()+30*864e5).toISOString().split('T')[0]+'T00:00:00Z'\") FLINT_BETA_BUILD_ID=beta-$(node -p \"require('./package.json').version\")-$(node -p \"new Date().toISOString().split('T')[0].replace(/-/g,'')\") electron-builder --mac --dir --config electron-builder.yml && codesign --deep --force --sign - --entitlements build-resources/entitlements.mac.plist 'release/mac-arm64/Flint Glass.app'",
-    "build:zip": "bash scripts/build-zip.sh"
+    "build:beta": "npm run build && FLINT_BETA_EXPIRY=$(node -p \"new Date(Date.now()+(${FLINT_BETA_DAYS:-90})*864e5).toISOString().split('T')[0]+'T00:00:00Z'\") FLINT_BETA_BUILD_ID=beta-$(node -p \"require('./package.json').version\")-$(node -p \"new Date().toISOString().split('T')[0].replace(/-/g,'')\") electron-builder --config electron-builder.yml",
+    "build:beta:mac": "npm run build && FLINT_BETA_EXPIRY=$(node -p \"new Date(Date.now()+(${FLINT_BETA_DAYS:-90})*864e5).toISOString().split('T')[0]+'T00:00:00Z'\") FLINT_BETA_BUILD_ID=beta-$(node -p \"require('./package.json').version\")-$(node -p \"new Date().toISOString().split('T')[0].replace(/-/g,'')\") electron-builder --mac --config electron-builder.yml",
+    "build:beta:quick": "npm run build && FLINT_BETA_EXPIRY=$(node -p \"new Date(Date.now()+(${FLINT_BETA_DAYS:-90})*864e5).toISOString().split('T')[0]+'T00:00:00Z'\") FLINT_BETA_BUILD_ID=beta-$(node -p \"require('./package.json').version\")-$(node -p \"new Date().toISOString().split('T')[0].replace(/-/g,'')\") electron-builder --mac --dir --config electron-builder.yml && codesign --deep --force --sign - --entitlements build-resources/entitlements.mac.plist 'release/mac-arm64/Flint Glass.app'",
+    "build:zip": "bash scripts/build-zip.sh",
+    "build:mac": "npm run build && npx electron-builder --mac --config electron-builder.yml",
+    "build:win": "npm run build && npx electron-builder --win --config electron-builder.yml",
+    "build:linux": "npm run build && npx electron-builder --linux --config electron-builder.yml",
+    "build:all": "npm run build && npx electron-builder -mwl --config electron-builder.yml",
+    "release:beta": "npm run build && FLINT_BETA_EXPIRY=$(node -p \"new Date(Date.now()+(${FLINT_BETA_DAYS:-90})*864e5).toISOString().split('T')[0]+'T00:00:00Z'\") FLINT_BETA_BUILD_ID=beta-$(node -p \"require('./package.json').version\")-$(date +%Y%m%d) npx electron-builder --publish always --config electron-builder.yml"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",

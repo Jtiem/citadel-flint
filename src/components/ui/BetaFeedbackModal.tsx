@@ -4,11 +4,28 @@
  * In-app feedback form for beta testers. Collects structured feedback
  * (category, severity, description) and saves it locally via IPC.
  *
+ * BETA.4 enhancements:
+ *   - Screenshot capture via BrowserWindow.capturePage() IPC
+ *   - Thumbnail preview + remove button
+ *   - System metadata auto-collected at submit time
+ *   - Collapsible "System Info" disclosure at the bottom
+ *   - Optional GitHub Issue submission when FLINT_FEEDBACK_GITHUB_TOKEN
+ *     is present at build time (handled in main process)
+ *
  * Triggered from the StatusBar "Beta" chip or via Cmd+Shift+F.
  */
 
 import { useState, useEffect, useCallback } from 'react'
-import { X, Send, MessageSquare, AlertTriangle, CheckCircle } from 'lucide-react'
+import {
+    X,
+    Send,
+    MessageSquare,
+    AlertTriangle,
+    CheckCircle,
+    Camera,
+    ChevronDown,
+    ChevronRight,
+} from 'lucide-react'
 import type { BetaFeedbackCategory, BetaFeedbackSeverity } from '../../types/flint-api'
 
 interface BetaFeedbackModalProps {
@@ -29,16 +46,32 @@ const SEVERITIES: { value: BetaFeedbackSeverity; label: string; color: string }[
     { value: 'blocker', label: 'Blocker', color: 'text-red-400 border-red-600' },
 ]
 
+/** Collect system metadata from renderer globals — no IPC needed. */
+function collectSystemMetadata() {
+    return {
+        os: navigator.platform,
+        osVersion: navigator.userAgent,
+        screenWidth: screen.width,
+        screenHeight: screen.height,
+        devicePixelRatio: window.devicePixelRatio,
+    }
+}
+
 export function BetaFeedbackModal({ open, onClose }: BetaFeedbackModalProps) {
     const [category, setCategory] = useState<BetaFeedbackCategory>('bug')
     const [severity, setSeverity] = useState<BetaFeedbackSeverity>('annoying')
     const [description, setDescription] = useState('')
     const [submitting, setSubmitting] = useState(false)
     const [submitted, setSubmitted] = useState(false)
+    const [screenshot, setScreenshot] = useState<string | null>(null)
+    const [capturingScreenshot, setCapturingScreenshot] = useState(false)
+    const [systemInfoExpanded, setSystemInfoExpanded] = useState(false)
     const [betaInfo, setBetaInfo] = useState<{
         buildId: string
         daysRemaining: number | null
     } | null>(null)
+
+    const systemMeta = collectSystemMetadata()
 
     // Fetch beta info on mount
     useEffect(() => {
@@ -53,6 +86,8 @@ export function BetaFeedbackModal({ open, onClose }: BetaFeedbackModalProps) {
         if (open) {
             setDescription('')
             setSubmitted(false)
+            setScreenshot(null)
+            setSystemInfoExpanded(false)
         }
     }, [open])
 
@@ -66,6 +101,22 @@ export function BetaFeedbackModal({ open, onClose }: BetaFeedbackModalProps) {
         return () => document.removeEventListener('keydown', handler)
     }, [open, onClose])
 
+    const handleCaptureScreenshot = useCallback(async () => {
+        setCapturingScreenshot(true)
+        try {
+            const base64 = await window.flintAPI.beta?.captureScreenshot()
+            setScreenshot(base64 ?? null)
+        } catch {
+            // Capture failed — silent, screenshot stays null
+        } finally {
+            setCapturingScreenshot(false)
+        }
+    }, [])
+
+    const handleRemoveScreenshot = useCallback(() => {
+        setScreenshot(null)
+    }, [])
+
     const handleSubmit = useCallback(async () => {
         if (!description.trim() || submitting) return
         setSubmitting(true)
@@ -76,6 +127,8 @@ export function BetaFeedbackModal({ open, onClose }: BetaFeedbackModalProps) {
                 description: description.trim(),
                 severity,
                 context: `Build: ${betaInfo?.buildId || 'unknown'}`,
+                screenshot: screenshot ?? null,
+                system: systemMeta,
             })
 
             if (result?.saved) {
@@ -87,7 +140,7 @@ export function BetaFeedbackModal({ open, onClose }: BetaFeedbackModalProps) {
         } finally {
             setSubmitting(false)
         }
-    }, [category, severity, description, betaInfo, submitting, onClose])
+    }, [category, severity, description, betaInfo, screenshot, systemMeta, submitting, onClose])
 
     if (!open) return null
 
@@ -193,6 +246,85 @@ export function BetaFeedbackModal({ open, onClose }: BetaFeedbackModalProps) {
                             />
                         </div>
 
+                        {/* Screenshot capture */}
+                        <div>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => void handleCaptureScreenshot()}
+                                    disabled={capturingScreenshot}
+                                    className="flex items-center gap-1.5 rounded-md border border-zinc-700 px-3 py-1.5 text-xs text-zinc-400 transition-colors hover:border-zinc-600 hover:text-zinc-300 disabled:cursor-not-allowed disabled:opacity-40"
+                                    aria-label="Attach screenshot"
+                                >
+                                    <Camera className="h-3.5 w-3.5" />
+                                    {capturingScreenshot ? 'Capturing...' : 'Attach Screenshot'}
+                                </button>
+                                {screenshot && (
+                                    <button
+                                        type="button"
+                                        onClick={handleRemoveScreenshot}
+                                        className="flex items-center gap-1 rounded-md border border-zinc-700 px-2 py-1.5 text-xs text-zinc-500 transition-colors hover:border-red-700/40 hover:text-red-400"
+                                        aria-label="Remove screenshot"
+                                    >
+                                        <X className="h-3 w-3" />
+                                        Remove
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Screenshot thumbnail */}
+                            {screenshot && (
+                                <div className="mt-2 overflow-hidden rounded-lg border border-zinc-700">
+                                    <img
+                                        src={`data:image/png;base64,${screenshot}`}
+                                        alt="Screenshot preview"
+                                        className="w-full object-cover"
+                                        style={{ maxHeight: '120px' }}
+                                    />
+                                </div>
+                            )}
+                        </div>
+
+                        {/* System info — collapsible */}
+                        <div className="rounded-lg border border-zinc-800 bg-zinc-950">
+                            <button
+                                type="button"
+                                onClick={() => setSystemInfoExpanded((v) => !v)}
+                                className="flex w-full items-center gap-1.5 px-3 py-2 text-xs text-zinc-500 transition-colors hover:text-zinc-400"
+                                aria-expanded={systemInfoExpanded}
+                                aria-controls="system-info-panel"
+                            >
+                                {systemInfoExpanded
+                                    ? <ChevronDown className="h-3 w-3 shrink-0" />
+                                    : <ChevronRight className="h-3 w-3 shrink-0" />
+                                }
+                                System Info (sent with feedback)
+                            </button>
+                            {systemInfoExpanded && (
+                                <div
+                                    id="system-info-panel"
+                                    className="border-t border-zinc-800 px-3 pb-2 pt-1.5"
+                                >
+                                    <dl className="space-y-1 text-xs">
+                                        <div className="flex gap-2">
+                                            <dt className="w-24 shrink-0 text-zinc-600">Platform</dt>
+                                            <dd className="font-mono text-zinc-400">{systemMeta.os}</dd>
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <dt className="w-24 shrink-0 text-zinc-600">Screen</dt>
+                                            <dd className="font-mono text-zinc-400">
+                                                {systemMeta.screenWidth}&times;{systemMeta.screenHeight} @{systemMeta.devicePixelRatio}x
+                                            </dd>
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <dt className="w-24 shrink-0 text-zinc-600">Build</dt>
+                                            <dd className="font-mono text-zinc-400">{betaInfo?.buildId ?? 'unknown'}</dd>
+                                        </div>
+                                    </dl>
+                                </div>
+                            )}
+                        </div>
+
                         {/* Submit */}
                         <div className="flex justify-end gap-2 pt-1">
                             <button
@@ -209,7 +341,7 @@ export function BetaFeedbackModal({ open, onClose }: BetaFeedbackModalProps) {
                                 className="flex items-center gap-1.5 rounded-lg border border-indigo-500 bg-indigo-500/10 px-4 py-2 text-xs text-indigo-300 transition-colors hover:bg-indigo-500/20 disabled:cursor-not-allowed disabled:opacity-40"
                             >
                                 <Send className="h-3 w-3" />
-                                {submitting ? 'Sending...' : 'Send Feedback'}
+                                {submitting ? 'Saving...' : 'Save Feedback'}
                             </button>
                         </div>
                     </div>
