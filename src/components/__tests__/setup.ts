@@ -8,6 +8,15 @@
  */
 
 import { beforeEach, vi } from 'vitest'
+import { LanguageRegistry } from '../../core/adapters/types'
+import { ReactAdapter } from '../../core/adapters/ReactAdapter'
+
+// ── Language Registry ────────────────────────────────────────────────────────
+// Ensure the ReactAdapter is registered globally so any test that triggers
+// setCode → editorStore → LanguageRegistry.getAdapter() doesn't throw.
+// In the app, App.tsx handles this; in tests, setup.ts must do it.
+const reactAdapter = new ReactAdapter()
+LanguageRegistry.register(['ts', 'tsx', 'js', 'jsx'], reactAdapter)
 
 // ── Polyfills ────────────────────────────────────────────────────────────────
 
