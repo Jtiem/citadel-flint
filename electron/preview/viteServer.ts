@@ -22,8 +22,21 @@
  * Main process only — never imported by the renderer.
  */
 
-import { createServer, type ViteDevServer, type Plugin } from 'vite'
 import net from 'node:net'
+
+// Dynamic import — vite is a dev-time dependency excluded from the production ASAR.
+// In packaged builds, startViteServer() returns null and the app falls back to
+// the srcdoc preview path.
+type ViteDevServer = { close: () => Promise<void>; config: { server: { port?: number } } }
+type Plugin = { name: string; transformIndexHtml?: (html: string) => string }
+
+async function loadVite(): Promise<typeof import('vite') | null> {
+    try {
+        return await import('vite')
+    } catch {
+        return null
+    }
+}
 
 // ── Port utilities ─────────────────────────────────────────────────────────────
 
@@ -207,7 +220,13 @@ export async function startViteServer(projectRoot: string): Promise<string> {
   // Instead, let Vite auto-detect the user's config via configFile (default).
   // We only override server settings and append our interaction plugin.
 
-  _server = await createServer({
+  const vite = await loadVite()
+  if (!vite) {
+    console.warn('[Flint] Vite not available — using srcdoc preview fallback')
+    return null
+  }
+
+  _server = await vite.createServer({
     root: projectRoot,
     base: '/',
     server: {
