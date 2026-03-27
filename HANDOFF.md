@@ -6,6 +6,31 @@
 
 ---
 
+## Session: 2026-03-26 D2C.4 -- Quality & Intelligence Upgrade (CONTRACT)
+
+**Goal:** Design contracts for 4 features upgrading the D2C pipeline to production quality.
+
+**What shipped:**
+
+| File | Change |
+|------|--------|
+| `.flint-context/contracts/D2C-4-quality-intelligence.md` | Full contract artifact: 4 features, type contracts, implementation order, test plans |
+| `.flint-context/ACTIVE-SWARM-TERRITORY.md` | Territory claimed for D2C.4 |
+
+**Architecture decisions:**
+
+1. **classifyFrame + classifyComponent** -- Two pure heuristic functions in `hydroPaste.ts`. `classifyFrame` uses depth/fill/stroke/name signals to produce `card|form|nav|section|container|component`. `classifyComponent` maps name keywords to 10 component types (Input, Textarea, Select, Checkbox, Switch, Avatar, Badge, Tabs, Separator, Alert). `LibraryCodeEmitter` gets `emitNamedComponent(type, props, children, depth)` -- one generic method instead of 10 specific ones. `wrapContainer` gets optional `element` param for form/nav/section semantics.
+
+2. **Token Extraction from Figma** -- Pure extractor (`figmaTokenExtractor.ts`) walks Figma node tree, collects every visual property value, deduplicates, scores confidence. Returns `ProposedToken[]` with usage counts. APPROVAL GATEWAY is mandatory -- `flint_extract_tokens` returns proposals, `flint_approve_tokens` writes approved subset. Governance events table gets `token_extraction` event type for full provenance.
+
+3. **Code Connect Auto-Registration** -- `flint_code_connect_sync` tool generates Code Connect mappings from Flint's library registry + adapter import conventions. Tries Figma MCP tools (`send_code_connect_mappings`) first, falls back to generating `.figma/code-connect.json` config file for manual import. dry_run mode for review.
+
+4. **Governance Overlay on Generated Code** -- RESEARCH COMPLETE: The entire audit pipeline already works (MithrilProvider fires on AST change, populates linterWarnings, Export Gate reads them). The ONLY gap is `GovernanceOverlay` component exists but is NOT MOUNTED anywhere in App.tsx. Fix is a single import + mount in the `rightTab === 'properties'` branch, above PropertiesPanel.
+
+**Next:** Phase 2 implementation. Feature 4 (GovernanceOverlay mount) can ship immediately -- zero risk, zero new code beyond import+mount. Features 1-2 are parallelizable. Feature 3 depends on Feature 1 completing (needs the component type vocabulary).
+
+---
+
 ## Session: 2026-03-26 D2C.3b -- LivePreview Shim Wiring (COMPLETE)
 
 **Goal:** Wire the library shim registry into `buildSrcdoc` so the srcdoc preview injects library-specific components (shadcn, MUI, PrimeNG) when a library is active.

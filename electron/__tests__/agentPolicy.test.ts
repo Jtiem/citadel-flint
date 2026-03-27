@@ -30,6 +30,7 @@ import {
     resetMutationCounters,
     resetAgentRegistry,
     loadAgentPolicy,
+    _loadTrustFromYaml,
 } from '../agentPolicy'
 import type { AgentTier } from '../agentPolicy'
 import { checkToolAccess, RENDERER_ALLOWED_MCP_TOOLS } from '../mcp-policy'
@@ -647,5 +648,225 @@ describe('AGV1-15 — resetAgentRegistry', () => {
 
         resetAgentRegistry()
         expect(getMutationCount('temp-agent')).toBe(0)
+    })
+})
+
+// ── AGV1-16: YAML trust profiles from flint.config.yaml ─────────────────────
+// Tests for _loadTrustFromYaml (Gap 1 — Phase 1A)
+
+describe('AGV1-16 — YAML trust profiles (flint.config.yaml)', () => {
+    const tmpDir = path.join(os.tmpdir(), `flint-agv1-yaml-test-${Date.now()}`)
+    const yamlPath = path.join(tmpDir, 'flint.config.yaml')
+
+    beforeEach(async () => {
+        await mkdir(tmpDir, { recursive: true })
+        resetAgentRegistry()
+    })
+
+    afterEach(async () => {
+        resetAgentRegistry()
+        await rm(tmpDir, { recursive: true, force: true })
+    })
+
+    it('missing flint.config.yaml is gracefully handled — no error, JSON-only behavior', () => {
+        // Should not throw when YAML file is absent
+        expect(() => _loadTrustFromYaml(tmpDir + '-nonexistent')).not.toThrow()
+        // Default tier remains untrusted
+        expect(getAgentPermission('any-agent').tier).toBe('untrusted')
+    })
+
+    it('loads agents from YAML profiles with new CSA tier names', async () => {
+        const yaml = `
+project: test-project
+trust:
+  profiles:
+    - id: claude-yaml
+      tier: senior
+      name: Claude YAML Agent
+`
+        await writeFile(yamlPath, yaml)
+        _loadTrustFromYaml(tmpDir)
+
+        const perm = getAgentPermission('claude-yaml')
+        // senior → elevated
+        expect(perm.tier).toBe('elevated')
+        expect(perm.displayName).toBe('Claude YAML Agent')
+    })
+
+    it('maps new tier names correctly: intern → untrusted', async () => {
+        const yaml = `
+project: test-project
+trust:
+  profiles:
+    - id: agent-intern
+      tier: intern
+`
+        await writeFile(yamlPath, yaml)
+        _loadTrustFromYaml(tmpDir)
+        expect(getAgentPermission('agent-intern').tier).toBe('untrusted')
+    })
+
+    it('maps new tier names correctly: junior → standard', async () => {
+        const yaml = `
+project: test-project
+trust:
+  profiles:
+    - id: agent-junior
+      tier: junior
+`
+        await writeFile(yamlPath, yaml)
+        _loadTrustFromYaml(tmpDir)
+        expect(getAgentPermission('agent-junior').tier).toBe('standard')
+    })
+
+    it('maps new tier names correctly: senior → elevated', async () => {
+        const yaml = `
+project: test-project
+trust:
+  profiles:
+    - id: agent-senior
+      tier: senior
+`
+        await writeFile(yamlPath, yaml)
+        _loadTrustFromYaml(tmpDir)
+        expect(getAgentPermission('agent-senior').tier).toBe('elevated')
+    })
+
+    it('maps new tier names correctly: principal → admin', async () => {
+        const yaml = `
+project: test-project
+trust:
+  profiles:
+    - id: agent-principal
+      tier: principal
+`
+        await writeFile(yamlPath, yaml)
+        _loadTrustFromYaml(tmpDir)
+        expect(getAgentPermission('agent-principal').tier).toBe('admin')
+    })
+
+    it('maps legacy tier names correctly: untrusted → untrusted', async () => {
+        const yaml = `
+project: test-project
+trust:
+  profiles:
+    - id: legacy-agent
+      tier: untrusted
+`
+        await writeFile(yamlPath, yaml)
+        _loadTrustFromYaml(tmpDir)
+        expect(getAgentPermission('legacy-agent').tier).toBe('untrusted')
+    })
+
+    it('maps legacy tier names correctly: admin → admin', async () => {
+        const yaml = `
+project: test-project
+trust:
+  profiles:
+    - id: legacy-admin
+      tier: admin
+`
+        await writeFile(yamlPath, yaml)
+        _loadTrustFromYaml(tmpDir)
+        expect(getAgentPermission('legacy-admin').tier).toBe('admin')
+    })
+
+    it('sets default_tier from YAML trust section', async () => {
+        const yaml = `
+project: test-project
+trust:
+  default_tier: junior
+  profiles: []
+`
+        await writeFile(yamlPath, yaml)
+        _loadTrustFromYaml(tmpDir)
+        // Unknown agents should now use standard (junior → standard)
+        expect(getAgentPermission('unknown-agent').tier).toBe('standard')
+    })
+
+    it('YAML profiles override JSON profiles for duplicate agent IDs', async () => {
+        // Register via JSON first (simulates JSON having been loaded before YAML)
+        registerAgent('shared-agent', 'untrusted')
+        expect(getAgentPermission('shared-agent').tier).toBe('untrusted')
+
+        // YAML has a higher tier for the same agent ID
+        const yaml = `
+project: test-project
+trust:
+  profiles:
+    - id: shared-agent
+      tier: principal
+`
+        await writeFile(yamlPath, yaml)
+        _loadTrustFromYaml(tmpDir)
+
+        // YAML wins — tier should be admin (principal → admin)
+        expect(getAgentPermission('shared-agent').tier).toBe('admin')
+    })
+
+    it('loads max_mutations and require_review from YAML profiles', async () => {
+        const yaml = `
+project: test-project
+trust:
+  profiles:
+    - id: constrained-agent
+      tier: senior
+      max_mutations: 10
+      require_review: true
+`
+        await writeFile(yamlPath, yaml)
+        _loadTrustFromYaml(tmpDir)
+
+        const perm = getAgentPermission('constrained-agent')
+        expect(perm.maxMutationsPerSession).toBe(10)
+        expect(perm.requireManualReview).toBe(true)
+    })
+
+    it('YAML loaded via loadAgentPolicy supplements JSON profiles', async () => {
+        const flintDir = path.join(tmpDir, '.flint')
+        await mkdir(flintDir, { recursive: true })
+
+        // Write JSON policy
+        const jsonPolicy = {
+            version: 1,
+            agents: [{ agentId: 'json-only', tier: 'standard' }],
+        }
+        await writeFile(path.join(flintDir, 'agent-policy.json'), JSON.stringify(jsonPolicy))
+
+        // Write YAML config with a different agent
+        const yaml = `
+project: test-project
+trust:
+  profiles:
+    - id: yaml-only
+      tier: principal
+`
+        await writeFile(yamlPath, yaml)
+
+        await loadAgentPolicy(tmpDir)
+
+        // Both agents should be registered
+        expect(getAgentPermission('json-only').tier).toBe('standard')
+        expect(getAgentPermission('yaml-only').tier).toBe('admin')
+    })
+
+    it('malformed YAML is gracefully handled — no error thrown', async () => {
+        await writeFile(yamlPath, 'trust: [\n  invalid yaml: {\n')
+        // Should not throw
+        expect(() => _loadTrustFromYaml(tmpDir)).not.toThrow()
+        // Default behavior unchanged
+        expect(getAgentPermission('any-agent').tier).toBe('untrusted')
+    })
+
+    it('YAML without trust section is handled gracefully', async () => {
+        const yaml = `
+project: test-project
+rules:
+  mithril:
+    mode: coercive
+`
+        await writeFile(yamlPath, yaml)
+        expect(() => _loadTrustFromYaml(tmpDir)).not.toThrow()
+        expect(getAgentPermission('any-agent').tier).toBe('untrusted')
     })
 })

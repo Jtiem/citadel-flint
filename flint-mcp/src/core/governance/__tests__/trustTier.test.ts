@@ -18,6 +18,7 @@ import BetterSqlite3 from 'better-sqlite3'
 import type Database from 'better-sqlite3'
 import { TrustTierService } from '../trustTierService.js'
 import type { SessionStats } from '../trustTierService.js'
+import type { PromotionGates } from '../../config.js'
 
 let db: Database.Database
 let svc: TrustTierService
@@ -236,5 +237,95 @@ describe('TrustTierService', () => {
         expect(profile.sessionCount).toBe(2)
         expect(profile.redMutationCount).toBe(2)
         expect(profile.overrideCount).toBe(3)
+    })
+
+    // ── PromotionGates — Gap 4 ────────────────────────────────────────────────
+
+    describe('PromotionGates (Gap 4)', () => {
+        const clean: SessionStats = { redMutationCount: 0, overrideCount: 0, escalationTriggered: false }
+
+        it('uses default threshold (3) when no gates provided for restricted→standard', () => {
+            for (let i = 0; i < 3; i++) svc.recordSessionEnd('agent-001', clean)
+            expect(svc.getAgentTrustProfile('agent-001').currentTier).toBe('standard')
+        })
+
+        it('custom clean_sessions threshold is respected for restricted→standard', () => {
+            const gates: PromotionGates = { clean_sessions: 5 }
+            // 3 sessions with gates requiring 5 — should NOT promote
+            for (let i = 0; i < 3; i++) svc.recordSessionEnd('agent-001', clean, gates)
+            expect(svc.getAgentTrustProfile('agent-001').currentTier).toBe('restricted')
+
+            // 2 more — now at 5 — should promote
+            for (let i = 0; i < 2; i++) svc.recordSessionEnd('agent-001', clean, gates)
+            expect(svc.getAgentTrustProfile('agent-001').currentTier).toBe('standard')
+        })
+
+        it('custom clean_sessions = 1 promotes after just 1 clean session', () => {
+            const gates: PromotionGates = { clean_sessions: 1 }
+            svc.recordSessionEnd('agent-001', clean, gates)
+            expect(svc.getAgentTrustProfile('agent-001').currentTier).toBe('standard')
+        })
+
+        it('custom clean_sessions threshold is respected for standard→elevated', () => {
+            // Manually promote to standard first
+            svc.manualPromote('agent-001', 'standard')
+            const gates: PromotionGates = { clean_sessions: 5 }
+
+            // 4 sessions — should NOT promote (need 5)
+            for (let i = 0; i < 4; i++) svc.recordSessionEnd('agent-001', clean, gates)
+            expect(svc.getAgentTrustProfile('agent-001').currentTier).toBe('standard')
+
+            // 1 more — now at 5 total sessions — should promote
+            svc.recordSessionEnd('agent-001', clean, gates)
+            expect(svc.getAgentTrustProfile('agent-001').currentTier).toBe('elevated')
+        })
+
+        it('default threshold (10) used for standard→elevated when no gates provided', () => {
+            // Get to standard first
+            for (let i = 0; i < 3; i++) svc.recordSessionEnd('agent-001', clean)
+            expect(svc.getAgentTrustProfile('agent-001').currentTier).toBe('standard')
+
+            // 6 more sessions (9 total) — should NOT promote (need 10)
+            for (let i = 0; i < 6; i++) svc.recordSessionEnd('agent-001', clean)
+            expect(svc.getAgentTrustProfile('agent-001').currentTier).toBe('standard')
+
+            // 1 more (10 total) — should promote
+            svc.recordSessionEnd('agent-001', clean)
+            expect(svc.getAgentTrustProfile('agent-001').currentTier).toBe('elevated')
+        })
+
+        it('security_validation: true is a no-op placeholder (promotion proceeds normally)', () => {
+            const gates: PromotionGates = { security_validation: true, clean_sessions: 3 }
+            for (let i = 0; i < 3; i++) svc.recordSessionEnd('agent-001', clean, gates)
+            // Should still promote — security_validation is a no-op pending real implementation
+            expect(svc.getAgentTrustProfile('agent-001').currentTier).toBe('standard')
+        })
+
+        it('governance_signoff: true is a no-op placeholder (promotion proceeds normally)', () => {
+            const gates: PromotionGates = { governance_signoff: true, clean_sessions: 3 }
+            for (let i = 0; i < 3; i++) svc.recordSessionEnd('agent-001', clean, gates)
+            // Should still promote — governance_signoff is a no-op pending real implementation
+            expect(svc.getAgentTrustProfile('agent-001').currentTier).toBe('standard')
+        })
+
+        it('evaluatePromotion directly with custom gates respects threshold', () => {
+            // Manually get 3 sessions recorded without promotion
+            // (by adding overrides so auto-promotion is blocked)
+            const withOverride: SessionStats = { redMutationCount: 0, overrideCount: 1, escalationTriggered: false }
+            for (let i = 0; i < 3; i++) svc.recordSessionEnd('agent-001', withOverride)
+            // Override count is non-zero — no promotion regardless of sessions
+            expect(svc.getAgentTrustProfile('agent-001').currentTier).toBe('restricted')
+
+            // Call evaluatePromotion directly — still restricted because overrideCount > 0
+            const gates: PromotionGates = { clean_sessions: 3 }
+            const tier = svc.evaluatePromotion('agent-001', gates)
+            expect(tier).toBe('restricted')
+        })
+
+        it('evaluatePromotion with no gates returns current tier when not yet eligible', () => {
+            svc.getAgentTrustProfile('agent-001')
+            // 0 sessions — not eligible even with no gates (default is 3)
+            expect(svc.evaluatePromotion('agent-001')).toBe('restricted')
+        })
     })
 })

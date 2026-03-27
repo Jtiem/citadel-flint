@@ -1883,10 +1883,28 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 if (yamlConfig?.trust?.approval && yamlConfig.trust.approval.length > 0) {
                     const { evaluateApprovalGates } = await import('./core/governance/approvalGateService.js');
 
-                    // Build context: prefer a rough per-mutation risk estimate (mutation_count * 10)
-                    // so the gate fires before MRS runs (MRS comes after the write block).
+                    // Build context: compute a type-weighted risk score rather than a flat
+                    // batch-size heuristic. Structural ops (insertNode, deleteNode, etc.) carry
+                    // more inherent risk than property ops. Cap at 100.
+                    const STRUCTURAL_OP_SCORE = 20; // move, inject, delete, wrap, assembleLayout
+                    const PROPERTY_OP_SCORE = 8;    // updateProp, updateClassName, updateTextContent, fixToken
+                    const DEFAULT_OP_SCORE = 12;    // emit*, composeSlot, and any unknown types
+
+                    const STRUCTURAL_OPS = new Set(['move', 'inject', 'delete', 'wrap', 'assembleLayout']);
+                    const PROPERTY_OPS = new Set(['updateProp', 'updateClassName', 'updateTextContent', 'fixToken']);
+
+                    const weightedRiskScore = Math.min(
+                        mutations.reduce((sum, m) => {
+                            const opType = (m as Record<string, unknown>).type as string;
+                            if (STRUCTURAL_OPS.has(opType)) return sum + STRUCTURAL_OP_SCORE;
+                            if (PROPERTY_OPS.has(opType)) return sum + PROPERTY_OP_SCORE;
+                            return sum + DEFAULT_OP_SCORE;
+                        }, 0),
+                        100
+                    );
+
                     const gateContext: Record<string, number> = {
-                        risk_score: mutations.length * 10,
+                        risk_score: weightedRiskScore,
                         mutation_count: mutations.length,
                     };
 
@@ -3119,6 +3137,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                         return {
                             isError: true,
                             content: [{ type: "text", text: "flint_agent_trust: action='promote' requires 'agentId' and 'targetTier'." }],
+                        };
+                    }
+                    // Load YAML config promotion gates and pass them to evaluatePromotion.
+                    // If the behavioral evaluation already qualifies the agent, use that result;
+                    // otherwise fall through to manualPromote (override).
+                    const trustYamlConfig = loadProjectConfig(trustArgs.projectRoot);
+                    const promotionGates = trustYamlConfig?.trust?.promotion;
+                    const autoPromotedTier = trustSvc.evaluatePromotion(trustArgs.agentId, promotionGates);
+                    // If behavioral promotion reached or exceeded target, return that result.
+                    // Otherwise apply the manual override.
+                    const autoRecord = trustSvc.getAgentTrustProfile(trustArgs.agentId);
+                    if (autoRecord.currentTier === autoPromotedTier && autoPromotedTier === trustArgs.targetTier) {
+                        return {
+                            content: [{ type: "text", text: JSON.stringify(autoRecord, null, 2) }],
                         };
                     }
                     const promoted = trustSvc.manualPromote(trustArgs.agentId, trustArgs.targetTier);

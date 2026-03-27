@@ -28,6 +28,7 @@ import os from 'node:os'
 import {
     EscalationEngine,
     loadEscalationRules,
+    loadEscalationRulesFromYaml,
 } from '../agentEscalation'
 import type {
     EscalationRule,
@@ -579,5 +580,307 @@ describe('AGV3-16 — getActiveEscalations accumulates escalations', () => {
     it('returns empty array for agent with no escalations', () => {
         const engine = new EscalationEngine()
         expect(engine.getActiveEscalations('nobody')).toHaveLength(0)
+    })
+})
+
+// ── AGV3-17: loadEscalationRulesFromYaml ───────────────────────────────────
+// Tests for YAML escalation rule loading (Gap 2 — Phase 1A)
+
+describe('AGV3-17 — loadEscalationRulesFromYaml', () => {
+    const tmpDir = path.join(os.tmpdir(), `flint-agv3-yaml-test-${Date.now()}`)
+    const yamlPath = path.join(tmpDir, 'flint.config.yaml')
+
+    beforeEach(async () => {
+        await mkdir(tmpDir, { recursive: true })
+    })
+
+    afterEach(async () => {
+        await rm(tmpDir, { recursive: true, force: true })
+    })
+
+    it('returns undefined when flint.config.yaml does not exist', () => {
+        const result = loadEscalationRulesFromYaml(tmpDir + '-nonexistent')
+        expect(result).toBeUndefined()
+    })
+
+    it('returns undefined when yaml has no trust section', async () => {
+        await writeFile(yamlPath, `
+project: test-project
+rules:
+  mithril:
+    mode: coercive
+`)
+        const result = loadEscalationRulesFromYaml(tmpDir)
+        expect(result).toBeUndefined()
+    })
+
+    it('returns undefined when trust has no escalation section', async () => {
+        await writeFile(yamlPath, `
+project: test-project
+trust:
+  default_tier: junior
+  profiles: []
+`)
+        const result = loadEscalationRulesFromYaml(tmpDir)
+        expect(result).toBeUndefined()
+    })
+
+    it('parses require_review action correctly', async () => {
+        await writeFile(yamlPath, `
+project: test-project
+trust:
+  escalation:
+    - when:
+        red_count: ">= 3"
+        window: session
+      then: require_review
+`)
+        const result = loadEscalationRulesFromYaml(tmpDir)
+        expect(result).toBeDefined()
+        expect(result).toHaveLength(1)
+        expect(result![0].ruleId).toBe('YAML-ESC-001')
+        expect(result![0].trigger.type).toBe('red_count')
+        expect(result![0].trigger.threshold).toBe(3)
+        expect(result![0].trigger.window).toBe('session')
+        expect(result![0].action.type).toBe('require_review')
+    })
+
+    it('parses alert action with message correctly', async () => {
+        await writeFile(yamlPath, `
+project: test-project
+trust:
+  escalation:
+    - when:
+        amber_count: ">= 5"
+        window: "1h"
+      then: alert
+      message: Too many amber mutations
+`)
+        const result = loadEscalationRulesFromYaml(tmpDir)
+        expect(result).toBeDefined()
+        expect(result![0].action.type).toBe('alert')
+        if (result![0].action.type === 'alert') {
+            expect(result![0].action.message).toBe('Too many amber mutations')
+        }
+        expect(result![0].trigger.window).toBe('hour')
+    })
+
+    it('parses downgrade action with target tier correctly', async () => {
+        await writeFile(yamlPath, `
+project: test-project
+trust:
+  escalation:
+    - when:
+        session_risk_avg: "> 0.6"
+      then: downgrade
+      to: standard
+`)
+        const result = loadEscalationRulesFromYaml(tmpDir)
+        expect(result).toBeDefined()
+        expect(result![0].trigger.type).toBe('session_risk_avg')
+        expect(result![0].trigger.threshold).toBe(0.6)
+        expect(result![0].action.type).toBe('downgrade_tier')
+        if (result![0].action.type === 'downgrade_tier') {
+            expect(result![0].action.to).toBe('standard')
+        }
+    })
+
+    it('parses block action correctly', async () => {
+        await writeFile(yamlPath, `
+project: test-project
+trust:
+  escalation:
+    - when:
+        mutation_velocity: ">= 20"
+        window: "5m"
+      then: block
+`)
+        const result = loadEscalationRulesFromYaml(tmpDir)
+        expect(result).toBeDefined()
+        expect(result![0].trigger.type).toBe('mutation_velocity')
+        expect(result![0].trigger.threshold).toBe(20)
+        expect(result![0].trigger.window).toBe('session')
+        expect(result![0].action.type).toBe('block_mutations')
+    })
+
+    it('parses numeric threshold from plain number value', async () => {
+        await writeFile(yamlPath, `
+project: test-project
+trust:
+  escalation:
+    - when:
+        red_count: 5
+      then: require_review
+`)
+        const result = loadEscalationRulesFromYaml(tmpDir)
+        expect(result).toBeDefined()
+        expect(result![0].trigger.threshold).toBe(5)
+    })
+
+    it('parses ">" condition operator — threshold excludes the operator', async () => {
+        await writeFile(yamlPath, `
+project: test-project
+trust:
+  escalation:
+    - when:
+        session_risk_avg: "> 0.6"
+      then: require_review
+`)
+        const result = loadEscalationRulesFromYaml(tmpDir)
+        expect(result).toBeDefined()
+        expect(result![0].trigger.threshold).toBe(0.6)
+    })
+
+    it('maps window "5m" to session', async () => {
+        await writeFile(yamlPath, `
+project: test-project
+trust:
+  escalation:
+    - when:
+        mutation_velocity: ">= 10"
+        window: "5m"
+      then: block
+`)
+        const result = loadEscalationRulesFromYaml(tmpDir)
+        expect(result![0].trigger.window).toBe('session')
+    })
+
+    it('maps window "1h" to hour', async () => {
+        await writeFile(yamlPath, `
+project: test-project
+trust:
+  escalation:
+    - when:
+        amber_count: ">= 3"
+        window: "1h"
+      then: alert
+      message: test
+`)
+        const result = loadEscalationRulesFromYaml(tmpDir)
+        expect(result![0].trigger.window).toBe('hour')
+    })
+
+    it('maps window "1d" to day', async () => {
+        await writeFile(yamlPath, `
+project: test-project
+trust:
+  escalation:
+    - when:
+        red_count: ">= 10"
+        window: "1d"
+      then: block
+`)
+        const result = loadEscalationRulesFromYaml(tmpDir)
+        expect(result![0].trigger.window).toBe('day')
+    })
+
+    it('maps window "session" to session', async () => {
+        await writeFile(yamlPath, `
+project: test-project
+trust:
+  escalation:
+    - when:
+        red_count: ">= 3"
+        window: session
+      then: require_review
+`)
+        const result = loadEscalationRulesFromYaml(tmpDir)
+        expect(result![0].trigger.window).toBe('session')
+    })
+
+    it('generates sequential YAML-ESC-NNN rule IDs', async () => {
+        await writeFile(yamlPath, `
+project: test-project
+trust:
+  escalation:
+    - when:
+        red_count: ">= 3"
+      then: require_review
+    - when:
+        amber_count: ">= 5"
+      then: alert
+      message: test
+    - when:
+        session_risk_avg: "> 0.6"
+      then: block
+`)
+        const result = loadEscalationRulesFromYaml(tmpDir)
+        expect(result).toHaveLength(3)
+        expect(result![0].ruleId).toBe('YAML-ESC-001')
+        expect(result![1].ruleId).toBe('YAML-ESC-002')
+        expect(result![2].ruleId).toBe('YAML-ESC-003')
+    })
+
+    it('skips entries missing required when or then fields', async () => {
+        await writeFile(yamlPath, `
+project: test-project
+trust:
+  escalation:
+    - when:
+        red_count: ">= 3"
+      then: require_review
+    - then: block
+    - when:
+        red_count: ">= 5"
+`)
+        const result = loadEscalationRulesFromYaml(tmpDir)
+        // Only the first entry is valid
+        expect(result).toHaveLength(1)
+        expect(result![0].ruleId).toBe('YAML-ESC-001')
+    })
+
+    it('YAML rules are merged with JSON rules by loadEscalationRules', async () => {
+        const flintDir = path.join(tmpDir, '.flint')
+        await mkdir(flintDir, { recursive: true })
+
+        // Write JSON escalation rules
+        const jsonRules = {
+            version: 1,
+            rules: [{
+                ruleId: 'JSON-001',
+                description: 'JSON rule',
+                trigger: { type: 'red_count', threshold: 10, window: 'session' },
+                action: { type: 'require_review' },
+            }],
+        }
+        await writeFile(path.join(flintDir, 'escalation-rules.json'), JSON.stringify(jsonRules))
+
+        // Write YAML escalation rules
+        await writeFile(yamlPath, `
+project: test-project
+trust:
+  escalation:
+    - when:
+        amber_count: ">= 3"
+      then: alert
+      message: YAML alert
+`)
+
+        const result = await loadEscalationRules(tmpDir)
+        expect(result).toBeDefined()
+        expect(result!.some(r => r.ruleId === 'JSON-001')).toBe(true)
+        expect(result!.some(r => r.ruleId === 'YAML-ESC-001')).toBe(true)
+        expect(result!).toHaveLength(2)
+    })
+
+    it('loadEscalationRules returns YAML rules alone when no JSON file exists', async () => {
+        await writeFile(yamlPath, `
+project: test-project
+trust:
+  escalation:
+    - when:
+        red_count: ">= 2"
+      then: block
+`)
+        const result = await loadEscalationRules(tmpDir)
+        expect(result).toBeDefined()
+        expect(result![0].ruleId).toBe('YAML-ESC-001')
+        expect(result![0].action.type).toBe('block_mutations')
+    })
+
+    it('malformed YAML file is handled gracefully — returns undefined', async () => {
+        await writeFile(yamlPath, 'trust:\n  escalation: [{\n  invalid')
+        const result = loadEscalationRulesFromYaml(tmpDir)
+        expect(result).toBeUndefined()
     })
 })

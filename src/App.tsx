@@ -20,6 +20,7 @@ import { ActivityFeed } from './components/ui/ActivityFeed'
 import { RecoveryPanel } from './components/ui/RecoveryPanel'
 import { ExportModal } from './components/ui/ExportModal'
 import { GovernancePanel } from './components/ui/GovernancePanel'
+import { GovernanceOverlay } from './components/editor/GovernanceOverlay'
 import { GovernanceDashboard } from './components/ui/GovernanceDashboard'
 import { AgentDashboard } from './components/ui/AgentDashboard'
 import { ComponentScopePanel } from './components/ui/ComponentScopePanel'
@@ -542,16 +543,6 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [setupComplete, betaWelcomeDone])
 
-    // Loading project — show a neutral screen instead of flashing white
-    if (isLoadingProject) {
-        return (
-            <div className="flex h-screen flex-col items-center justify-center bg-gray-950 gap-3">
-                <div className="h-8 w-8 animate-spin rounded-full border-2 border-gray-700 border-t-indigo-500" />
-                <p className="text-xs text-gray-500 tracking-wide">Opening project…</p>
-            </div>
-        )
-    }
-
     // While checking first-launch status, render nothing (avoids flash)
     if (setupComplete === null) return null
 
@@ -597,6 +588,15 @@ function App() {
 
     return (
         <div className="flex h-screen flex-col bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950">
+            {/* ── Project loading overlay (non-destructive — keeps workspace mounted) */}
+            {isLoadingProject && (
+                <div className="absolute inset-0 z-[100] flex items-center justify-center bg-gray-950/60 backdrop-blur-sm">
+                    <div className="flex items-center gap-3 rounded-lg border border-gray-800 bg-gray-900/95 px-5 py-3 shadow-2xl">
+                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-700 border-t-indigo-500" />
+                        <p className="text-xs text-gray-400">Opening project…</p>
+                    </div>
+                </div>
+            )}
             {/* ── Top bar ────────────────────────────────────────────────── */}
             <header className="flex shrink-0 items-center justify-between border-b border-gray-800 px-6 py-3">
                 <div className="flex flex-col">
@@ -785,7 +785,12 @@ function App() {
                             <ImportSummaryPanelView />
                         ) : (
                             <>
-                                {rightTab === 'properties' && <PropertiesPanel />}
+                                {rightTab === 'properties' && (
+                                    <>
+                                        <GovernanceOverlay />
+                                        <PropertiesPanel />
+                                    </>
+                                )}
                                 {rightTab === 'tokens' && <TokenManager />}
                                 {rightTab === 'activity' && <ActivityFeed />}
                                 {rightTab === 'health' && <GovernanceDashboard />}

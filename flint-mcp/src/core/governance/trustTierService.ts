@@ -13,6 +13,7 @@
  */
 
 import type Database from 'better-sqlite3'
+import type { PromotionGates } from '../config.js'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -139,21 +140,45 @@ export class TrustTierService {
 
     /**
      * Evaluate whether an agent qualifies for promotion.
-     * - restricted -> standard: 3+ sessions, 0 red mutations, 0 overrides
-     * - standard -> elevated: 10+ sessions, 0 red mutations, 0 escalations
+     * - restricted -> standard: clean_sessions (default 3), 0 red mutations, 0 overrides
+     * - standard -> elevated: clean_sessions (default 10), 0 red mutations, 0 escalations
      * - elevated -> admin: NEVER automatic (manual only)
+     *
+     * Accepts optional PromotionGates from flint.config.yaml trust.promotion.
+     * When gates are omitted, hardcoded defaults apply.
      *
      * Returns the new tier if promoted, or the current tier if no change.
      */
-    evaluatePromotion(agentId: string): TrustTier {
+    evaluatePromotion(agentId: string, gates?: PromotionGates): TrustTier {
         const record = this.getAgentTrustProfile(agentId)
 
+        // security_validation and governance_signoff gates are always satisfied for now.
+        // Future: check agent record for securityValidated / governanceApproved flags.
+        const securityOk = gates?.security_validation !== true || true  // no-op placeholder
+        const govOk = gates?.governance_signoff !== true || true        // no-op placeholder
+
+        if (!securityOk || !govOk) {
+            // Gates not satisfied — no promotion
+            return record.currentTier
+        }
+
+        const cleanSessionsForStandard = gates?.clean_sessions ?? 3
+        const cleanSessionsForElevated = gates?.clean_sessions ?? 10
+
         if (record.currentTier === 'restricted') {
-            if (record.sessionCount >= 3 && record.redMutationCount === 0 && record.overrideCount === 0) {
+            if (
+                record.sessionCount >= cleanSessionsForStandard &&
+                record.redMutationCount === 0 &&
+                record.overrideCount === 0
+            ) {
                 return this.setTier(agentId, 'standard', 'promotion')
             }
         } else if (record.currentTier === 'standard') {
-            if (record.sessionCount >= 10 && record.redMutationCount === 0 && record.escalationCount === 0) {
+            if (
+                record.sessionCount >= cleanSessionsForElevated &&
+                record.redMutationCount === 0 &&
+                record.escalationCount === 0
+            ) {
                 return this.setTier(agentId, 'elevated', 'promotion')
             }
         }
@@ -194,9 +219,10 @@ export class TrustTierService {
 
     /**
      * Called at session end. Updates counters and evaluates promotion/demotion.
+     * Accepts optional PromotionGates to forward to evaluatePromotion().
      * Returns the updated trust record.
      */
-    recordSessionEnd(agentId: string, sessionStats: SessionStats): AgentTrustRecord {
+    recordSessionEnd(agentId: string, sessionStats: SessionStats, gates?: PromotionGates): AgentTrustRecord {
         this.ensureAgent(agentId)
         const ts = this.now()
 
@@ -227,7 +253,7 @@ export class TrustTierService {
 
         // Only evaluate promotion if no demotion occurred this session
         if (beforeDemotion === afterDemotion) {
-            this.evaluatePromotion(agentId)
+            this.evaluatePromotion(agentId, gates)
         }
 
         return this.getAgentTrustProfile(agentId)

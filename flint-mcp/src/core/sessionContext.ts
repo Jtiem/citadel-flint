@@ -21,10 +21,14 @@ import type {
     MutationEntry,
     CanvasState,
     SessionContext,
+    SessionSummary,
+    SessionPersona,
 } from '../types.js'
+import { loadProjectConfig } from './config-loader.js'
+import { resolveStyleGuide } from './styleGuideService.js'
 
 // Re-export for consumers that import from this module
-export type { ViolationSummary, TokenSummary, MutationEntry, CanvasState, SessionContext }
+export type { ViolationSummary, TokenSummary, MutationEntry, CanvasState, SessionContext, SessionSummary, SessionPersona }
 
 // ── Cache ────────────────────────────────────────────────────────────────────
 
@@ -268,6 +272,75 @@ function assembleHealth(debtHistoryJson: DebtHistory | null): { score: number | 
     }
 }
 
+// ── Session summary assembly ────────────────────────────────────────────
+
+interface DeferredViolationEntry {
+    file: string
+    ruleId: string
+    nodeId: string | null
+    reason: string | null
+    deferredAt: string
+}
+
+function assembleDeferredViolations(flintDir: string): DeferredViolationEntry[] {
+    const deferredPath = path.join(flintDir, 'deferred-violations.json')
+    const raw = safeReadJson<DeferredViolationEntry[]>(deferredPath)
+    if (!Array.isArray(raw)) return []
+
+    return raw.filter((entry): entry is DeferredViolationEntry => {
+        return (
+            typeof entry === 'object' &&
+            entry !== null &&
+            typeof entry.file === 'string' &&
+            typeof entry.ruleId === 'string'
+        )
+    })
+}
+
+function assembleSessionSummary(
+    flintDir: string,
+    recentMutations: MutationEntry[],
+): SessionSummary {
+    const empty: SessionSummary = {
+        lastSessionDate: null,
+        fixedFiles: [],
+        fixedViolationCount: 0,
+        openFromLastSession: [],
+        deferredViolations: [],
+    }
+
+    // Derive last session date from recent mutations
+    const lastMutation = recentMutations.length > 0
+        ? recentMutations[recentMutations.length - 1]
+        : null
+    const lastSessionDate = lastMutation?.timestamp ?? null
+
+    // Derive fixed files from mutations that used flint_fix
+    const fixMutations = recentMutations.filter(m => m.tool === 'flint_fix')
+    const fixedFiles = [...new Set(fixMutations.map(m => m.filePath).filter(Boolean))]
+    const fixedViolationCount = fixMutations.reduce((acc, m) => acc + m.mutationCount, 0)
+
+    // Read deferred violations from .flint/deferred-violations.json
+    const deferredViolations = assembleDeferredViolations(flintDir)
+
+    return {
+        lastSessionDate,
+        fixedFiles,
+        fixedViolationCount,
+        openFromLastSession: [], // Populated by MCP prompt layer from live audit
+        deferredViolations,
+    }
+}
+
+// ── Session persona assembly ────────────────────────────────────────────
+
+function assembleSessionPersona(contextJson: Record<string, unknown> | null): SessionPersona {
+    if (!contextJson) return null
+    const persona = contextJson['sessionPersona']
+    if (persona === 'designer' || persona === 'developer') return persona
+    return null
+}
+
 // ── Main assembly function ───────────────────────────────────────────────────
 
 /**
@@ -325,6 +398,23 @@ export async function assembleSessionContext(projectRoot: string): Promise<Sessi
     // Assemble health score
     const { score: healthScore, grade: healthGrade } = assembleHealth(debtHistoryJson)
 
+    // Assemble session summary (Strategy 4: Context-First Briefing)
+    const sessionSummary = assembleSessionSummary(flintDir, recentMutations)
+
+    // Assemble session persona (Strategy 2: Persona Handshake)
+    const sessionPersona = assembleSessionPersona(contextJson)
+
+    // Resolve style guide from flint.config.yaml content.style_guide (Gap 5)
+    let styleGuide: string | null = null
+    try {
+        const projectConfig = loadProjectConfig(projectRoot)
+        if (projectConfig?.content?.style_guide) {
+            styleGuide = resolveStyleGuide(projectConfig.content.style_guide, projectRoot)
+        }
+    } catch {
+        // Non-fatal — graceful degradation
+    }
+
     const context: SessionContext = {
         assembledAt: new Date().toISOString(),
         projectRoot,
@@ -337,6 +427,9 @@ export async function assembleSessionContext(projectRoot: string): Promise<Sessi
         healthScore,
         healthGrade,
         partial,
+        sessionSummary,
+        sessionPersona,
+        styleGuide,
     }
 
     setCached(projectRoot, context)

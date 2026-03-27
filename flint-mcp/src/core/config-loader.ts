@@ -25,6 +25,7 @@ import { parse as parseYaml } from 'yaml'
 import type { FlintConfig, FlintPolicy, FlintProjectConfig, RuleMode } from './config.js'
 import { DEFAULT_POLICY, projectConfigToPolicy } from './config.js'
 import { validateProjectConfig } from './configValidator.js'
+import { resolveRegistryRef } from './registryResolver.js'
 
 // ── Presets directory resolution ────────────────────────────────────────────
 // Works from both src/ (dev/vitest) and dist/ (production).
@@ -353,12 +354,8 @@ function resolveExtendsRef(ref: string, projectRoot: string): string | null {
         return ref
     }
 
-    // org/pack-name — reserved for GPX registry (UCFG.6)
-    console.info(
-        `[Flint Config] extends ref "${ref}" looks like a registry pack — ` +
-            'registry resolution not yet available (UCFG.6). Skipping.'
-    )
-    return null
+    // org/pack-name — attempt local pack cache resolution (UCFG.6 / GPX registry)
+    return resolveRegistryRef(ref, projectRoot)
 }
 
 /**

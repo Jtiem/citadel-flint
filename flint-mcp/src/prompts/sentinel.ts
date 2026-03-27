@@ -13,6 +13,8 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
+import { loadProjectConfig } from '../core/config-loader.js'
+import { resolveStyleGuide } from '../core/styleGuideService.js'
 
 // ── Domain type ──────────────────────────────────────────────────────────────
 
@@ -441,17 +443,57 @@ function resolveDomain(domain: string | undefined, projectRoot: string | undefin
 // ── Public API ───────────────────────────────────────────────────────────────
 
 /**
+ * Build the Content Standards block from resolved style guide content.
+ * Returns an empty string when no guide is available.
+ */
+function buildContentStandardsBlock(guideContent: string): string {
+    return [
+        '## Content Standards',
+        '',
+        'Follow this style guide for all generated UI text, labels, error messages, and documentation:',
+        '',
+        guideContent,
+    ].join('\n')
+}
+
+/**
  * Assemble the full Flint Sentinel prompt string for the resolved governance domain.
  *
  * @param domain      - Explicit domain override. If undefined, reads from policy.json.
  * @param projectRoot - Project root path used to read .flint/policy.json when domain is undefined.
+ *                      When provided, also reads content.style_guide from flint.config.yaml.
+ * @param styleGuide  - Explicit style guide content override. When provided, skips auto-resolution
+ *                      from flint.config.yaml. Pass null to suppress style guide injection entirely.
  * @returns           - The complete prompt string ready for injection as a system prompt.
  */
-export function getFlintSentinelContent(domain?: string, projectRoot?: string): string {
+export function getFlintSentinelContent(
+    domain?: string,
+    projectRoot?: string,
+    styleGuide?: string | null,
+): string {
     const resolved = resolveDomain(domain, projectRoot)
     const blocks = DOMAIN_BLOCKS[resolved]
 
-    return [
+    // Resolve style guide content
+    // Priority: explicit styleGuide param → flint.config.yaml → none
+    let resolvedGuide: string | null = null
+
+    if (styleGuide !== undefined) {
+        // Explicit override provided (including null to suppress)
+        resolvedGuide = styleGuide ?? null
+    } else if (projectRoot) {
+        // Auto-resolve from config
+        try {
+            const projectConfig = loadProjectConfig(projectRoot)
+            if (projectConfig?.content?.style_guide) {
+                resolvedGuide = resolveStyleGuide(projectConfig.content.style_guide, projectRoot)
+            }
+        } catch {
+            // Non-fatal — graceful degradation, no style guide injected
+        }
+    }
+
+    const parts = [
         BASE_BLOCK,
         '',
         blocks.identity,
@@ -461,7 +503,15 @@ export function getFlintSentinelContent(domain?: string, projectRoot?: string): 
         blocks.required,
         '',
         blocks.halt,
-        '',
-        buildWorkflowFooter(resolved),
-    ].join('\n')
+    ]
+
+    if (resolvedGuide) {
+        parts.push('')
+        parts.push(buildContentStandardsBlock(resolvedGuide))
+    }
+
+    parts.push('')
+    parts.push(buildWorkflowFooter(resolved))
+
+    return parts.join('\n')
 }

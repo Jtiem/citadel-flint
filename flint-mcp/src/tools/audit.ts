@@ -20,6 +20,11 @@ import type { RuleProvenance } from '../core/governance/types.js'
 import { toolName, configPath, logTag } from '../brand.js'
 import { loadProjectConfig } from '../core/config-loader.js'
 import { getClassificationProfile } from '../core/governance/classificationService.js'
+import {
+    resolveEnforcement,
+    getEnforcementAction,
+} from '../core/governance/enforcementService.js'
+import type { ResolvedEnforcement } from '../core/governance/enforcementService.js'
 
 export type { ProjectContext }
 
@@ -97,6 +102,14 @@ export interface AuditResult {
         recovery?: string
         /** GOV.1: Rule provenance metadata — sourceAuthority, regulatoryReference, rationale. */
         provenance?: RuleProvenance
+        /**
+         * Gap 7 — PEP enforcement action at the export_gate point.
+         * 'block'    — this violation blocks export
+         * 'warn'     — violation is reported but does not block export
+         * 'auto_fix' — violation is eligible for automatic remediation
+         * 'pass'     — violation is inactive (rule mode is 'off')
+         */
+        enforcementAction?: 'block' | 'warn' | 'auto_fix' | 'pass'
     }>
     mithrilCount: number
     a11yCount: number
@@ -112,6 +125,16 @@ export interface AuditResult {
     project_context?: ProjectContext
     /** Phase 1: Token coverage stats — distinguishes checked+passed from unchecked. */
     coverage?: TokenCoverage
+    /**
+     * Gap 7 — Resolved enforcement configuration used for this audit.
+     * Tells callers how violations are classified at each enforcement point.
+     */
+    enforcement?: ResolvedEnforcement
+    /**
+     * Gap 7 — Whether the export gate would block based on enforcement config.
+     * True when any violation has enforcementAction === 'block' at the export_gate point.
+     */
+    exportBlocked?: boolean
 }
 
 export interface BatchFileResult {
@@ -279,6 +302,21 @@ export async function handleFlintAudit(
     const adjustedDeltaE = policy.mithril.deltaE_threshold * classProfile.deltaEMultiplier
     const adjustedDeltaECritical = policy.mithril.deltaE_critical_threshold * classProfile.deltaEMultiplier
 
+    // Gap 7: Resolve PDP/PEP enforcement configuration.
+    // Uses the enforcement section of flint.config.yaml when present.
+    // Falls back to defaults that match pre-UCFG hardcoded behaviour exactly.
+    const enforcement = resolveEnforcement(yamlConfig ?? undefined)
+
+    // Derive the violation rule mode from the policy mode.
+    // Mithril: 'blocking' → coercive, 'normative' → normative, 'advisory' → advisory
+    // A11y: same mapping — both linters use PolicyMode which maps 1:1 to RuleMode.
+    const policyModeToRuleMode = (mode: string): 'coercive' | 'normative' | 'advisory' | 'off' => {
+        if (mode === 'blocking') return 'coercive'
+        if (mode === 'normative') return 'normative'
+        if (mode === 'advisory') return 'advisory'
+        return 'off'
+    }
+
     const ast = parse(source, {
         sourceType: 'module',
         plugins: ['jsx', 'typescript'],
@@ -328,6 +366,12 @@ export async function handleFlintAudit(
             if (recovery !== undefined) violation.recovery = recovery
             // GOV.1: attach provenance metadata
             violation.provenance = resolveProvenance(w.ruleId ?? 'MITHRIL-UNKNOWN')
+            // Gap 7: PEP enforcement action — what should happen at the export gate?
+            violation.enforcementAction = getEnforcementAction(
+                enforcement,
+                'export_gate',
+                policyModeToRuleMode(policy.mithril.mode),
+            )
             violations.push(violation)
         }
     }
@@ -361,12 +405,23 @@ export async function handleFlintAudit(
                 }
                 // GOV.1: attach provenance metadata
                 a11yViolation.provenance = resolveProvenance(ruleId)
+                // Gap 7: PEP enforcement action — what should happen at the export gate?
+                a11yViolation.enforcementAction = getEnforcementAction(
+                    enforcement,
+                    'export_gate',
+                    policyModeToRuleMode(policy.a11y.mode),
+                )
                 violations.push(a11yViolation)
             }
         }
     }
 
     const summary = generateAuditSummary(filePath, violations, mithrilCount, a11yCount, coverage)
+
+    // Gap 7: Derive exportBlocked from the resolved enforcement config.
+    // A violation blocks export when its enforcementAction is 'block'.
+    // This replaces the former hardcoded policy.export_gate.block_on_mithril check.
+    const exportBlocked = violations.some((v) => v.enforcementAction === 'block')
 
     const result: AuditResult = {
         violations,
@@ -378,6 +433,8 @@ export async function handleFlintAudit(
         },
         summary,
         coverage,
+        enforcement,
+        exportBlocked,
     }
 
     // CX.1: Attach project_context footer (best-effort, never blocks audit)

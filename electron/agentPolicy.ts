@@ -20,8 +20,14 @@
  */
 
 import { readFile } from 'node:fs/promises'
-import { existsSync, watchFile, unwatchFile } from 'node:fs'
+import { existsSync, readFileSync, watchFile, unwatchFile } from 'node:fs'
 import path from 'node:path'
+import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
+
+const _require = createRequire(import.meta.url)
+/** Absolute path to the directory containing this file (electron/). */
+const _dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -115,6 +121,9 @@ let defaultTier: AgentTier = 'untrusted'
 
 /** Path being watched for policy file changes. */
 let watchedPolicyPath: string | null = null
+
+/** Path being watched for YAML config changes. */
+let watchedYamlPath: string | null = null
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
@@ -277,6 +286,7 @@ export function resetMutationCounters(): void {
  */
 export async function loadAgentPolicy(projectRoot: string): Promise<void> {
     const policyPath = path.join(projectRoot, '.flint', 'agent-policy.json')
+    const yamlPath = path.join(projectRoot, 'flint.config.yaml')
 
     // Stop watching previous policy file
     if (watchedPolicyPath !== null) {
@@ -288,13 +298,35 @@ export async function loadAgentPolicy(projectRoot: string): Promise<void> {
         watchedPolicyPath = null
     }
 
+    // Stop watching previous YAML file
+    if (watchedYamlPath !== null) {
+        try {
+            unwatchFile(watchedYamlPath)
+        } catch {
+            // Ignore errors on unwatch
+        }
+        watchedYamlPath = null
+    }
+
+    // 1. Load JSON policy first
     await _loadPolicyFromDisk(policyPath)
+
+    // 2. Load YAML trust profiles — YAML wins for duplicate agent IDs
+    _loadTrustFromYaml(projectRoot)
 
     // Watch for changes (fs.watchFile is more reliable than fs.watch for JSON files)
     if (existsSync(policyPath)) {
         watchedPolicyPath = policyPath
         watchFile(policyPath, { interval: 2000 }, () => {
             void _loadPolicyFromDisk(policyPath)
+        })
+    }
+
+    // Watch YAML for changes too
+    if (existsSync(yamlPath)) {
+        watchedYamlPath = yamlPath
+        watchFile(yamlPath, { interval: 2000 }, () => {
+            _loadTrustFromYaml(projectRoot)
         })
     }
 }
@@ -314,6 +346,14 @@ export function resetAgentRegistry(): void {
             // Ignore
         }
         watchedPolicyPath = null
+    }
+    if (watchedYamlPath !== null) {
+        try {
+            unwatchFile(watchedYamlPath)
+        } catch {
+            // Ignore
+        }
+        watchedYamlPath = null
     }
 }
 
@@ -377,4 +417,121 @@ const VALID_TIERS = new Set<string>(['untrusted', 'standard', 'elevated', 'admin
 
 function isValidTier(value: string): value is AgentTier {
     return VALID_TIERS.has(value)
+}
+
+/**
+ * Maps YAML trust tier names (new CSA-style) and legacy names to the AgentTier
+ * values used internally by agentPolicy.
+ *
+ *   intern    → untrusted
+ *   junior    → standard
+ *   senior    → elevated
+ *   principal → admin
+ *
+ * Legacy names (untrusted/standard/elevated/admin) pass through unchanged.
+ */
+const YAML_TIER_MAP: Record<string, AgentTier> = {
+    // New CSA-style names
+    intern: 'untrusted',
+    junior: 'standard',
+    senior: 'elevated',
+    principal: 'admin',
+    // Legacy names — accepted for migration compatibility
+    untrusted: 'untrusted',
+    standard: 'standard',
+    elevated: 'elevated',
+    admin: 'admin',
+}
+
+/**
+ * Resolves the `yaml` package from flint-mcp's node_modules (primary location)
+ * or the root node_modules (if installed there). Returns null if unavailable.
+ */
+function _resolveYaml(): { parse: (src: string) => unknown } | null {
+    // Try root node_modules first (if yaml was added as a root dependency)
+    try {
+        return _require('yaml') as { parse: (src: string) => unknown }
+    } catch {
+        // Not in root node_modules — try flint-mcp's bundled copy
+    }
+    try {
+        const flintMcpYaml = path.resolve(_dirname, '..', 'flint-mcp', 'node_modules', 'yaml', 'dist', 'index.js')
+        return _require(flintMcpYaml) as { parse: (src: string) => unknown }
+    } catch {
+        return null
+    }
+}
+
+/**
+ * Reads trust profiles from `flint.config.yaml` and registers them into the
+ * in-memory agent registry.
+ *
+ * Supplements (does not replace) JSON profiles — YAML wins for duplicate IDs
+ * because this is called AFTER `_loadPolicyFromDisk`.
+ *
+ * Fails silently if:
+ *   - The yaml package is unavailable (falls back to no-op)
+ *   - The file does not exist
+ *   - The file is malformed YAML
+ *   - The trust section is absent
+ */
+export function _loadTrustFromYaml(projectRoot: string): void {
+    const yamlPath = path.join(projectRoot, 'flint.config.yaml')
+
+    if (!existsSync(yamlPath)) {
+        return
+    }
+
+    try {
+        // Resolve yaml from the flint-mcp package where it is a direct dependency.
+        // Falls back to root node_modules if yaml is installed there.
+        const yamlPkg = _resolveYaml()
+        if (!yamlPkg) {
+            console.warn('[Flint] agentPolicy: yaml package not found — skipping YAML trust config')
+            return
+        }
+        const { parse: parseYaml } = yamlPkg
+        const raw = readFileSync(yamlPath, 'utf-8')
+        const config = parseYaml(raw) as Record<string, unknown>
+
+        if (!config || typeof config !== 'object') return
+
+        const trust = config['trust'] as Record<string, unknown> | undefined
+        if (!trust || typeof trust !== 'object') return
+
+        // Apply default_tier if specified
+        const rawDefaultTier = trust['default_tier']
+        if (typeof rawDefaultTier === 'string' && rawDefaultTier in YAML_TIER_MAP) {
+            defaultTier = YAML_TIER_MAP[rawDefaultTier]!
+        }
+
+        // Register each profile
+        const profiles = trust['profiles']
+        if (!Array.isArray(profiles)) return
+
+        let registered = 0
+        for (const profile of profiles) {
+            if (!profile || typeof profile !== 'object') continue
+
+            const p = profile as Record<string, unknown>
+            const agentId = typeof p['id'] === 'string' ? p['id'] : undefined
+            if (!agentId) continue
+
+            const rawTier = typeof p['tier'] === 'string' ? p['tier'] : undefined
+            const tier: AgentTier = (rawTier && rawTier in YAML_TIER_MAP)
+                ? YAML_TIER_MAP[rawTier]!
+                : defaultTier
+
+            registerAgent(agentId, tier, {
+                displayName: typeof p['name'] === 'string' ? p['name'] : undefined,
+                maxMutationsPerSession: typeof p['max_mutations'] === 'number' ? p['max_mutations'] : undefined,
+                requireManualReview: typeof p['require_review'] === 'boolean' ? p['require_review'] : undefined,
+            })
+            registered++
+        }
+
+        console.log('[Flint] agentPolicy: loaded %d trust profiles from flint.config.yaml', registered)
+    } catch (err) {
+        console.warn('[Flint] agentPolicy: failed to load trust profiles from flint.config.yaml:', err)
+    }
 }

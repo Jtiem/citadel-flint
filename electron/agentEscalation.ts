@@ -20,8 +20,31 @@
  */
 
 import { readFile } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
+import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
+
+const _require = createRequire(import.meta.url)
+const _dirname = path.dirname(fileURLToPath(import.meta.url))
+
+/**
+ * Resolves the `yaml` package from root node_modules or flint-mcp's bundled copy.
+ * Returns null if unavailable in both locations.
+ */
+function _resolveYaml(): { parse: (src: string) => unknown } | null {
+    try {
+        return _require('yaml') as { parse: (src: string) => unknown }
+    } catch {
+        // Not in root — try flint-mcp bundled copy
+    }
+    try {
+        const flintMcpYaml = path.resolve(_dirname, '..', 'flint-mcp', 'node_modules', 'yaml', 'dist', 'index.js')
+        return _require(flintMcpYaml) as { parse: (src: string) => unknown }
+    } catch {
+        return null
+    }
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -349,41 +372,257 @@ function mergeRules(customRules?: EscalationRule[]): EscalationRule[] {
 
 /**
  * Loads custom escalation rules from `.flint/escalation-rules.json`.
- * Returns the parsed rules array, or undefined if the file does not exist
- * or is invalid.
+ * If `flint.config.yaml` also has `trust.escalation` rules, those are merged in.
+ * YAML rules supplement JSON rules — both sources are combined.
+ *
+ * Returns the combined rules array, or undefined if neither source exists or
+ * both are invalid.
  */
 export async function loadEscalationRules(
     projectRoot: string,
 ): Promise<EscalationRule[] | undefined> {
     const rulesPath = path.join(projectRoot, '.flint', 'escalation-rules.json')
 
-    if (!existsSync(rulesPath)) {
+    let jsonRules: EscalationRule[] | undefined
+
+    if (existsSync(rulesPath)) {
+        try {
+            const raw = await readFile(rulesPath, 'utf-8')
+            const data = JSON.parse(raw) as EscalationRulesFile
+
+            if (!Array.isArray(data.rules)) {
+                console.warn('[Flint AGV] escalation-rules.json: "rules" is not an array, skipping JSON rules')
+            } else {
+                // Basic validation: each rule must have ruleId, trigger, and action
+                jsonRules = data.rules.filter(rule => {
+                    if (!rule.ruleId || !rule.trigger || !rule.action) {
+                        console.warn(`[Flint AGV] Skipping invalid rule (missing ruleId, trigger, or action): ${JSON.stringify(rule)}`)
+                        return false
+                    }
+                    return true
+                })
+                console.log(`[Flint AGV] Loaded ${jsonRules.length} custom escalation rules from ${rulesPath}`)
+            }
+        } catch (err) {
+            console.warn('[Flint AGV] Failed to load escalation-rules.json:', err)
+        }
+    }
+
+    // Also check flint.config.yaml for trust.escalation rules
+    const yamlRules = loadEscalationRulesFromYaml(projectRoot)
+
+    // Merge: JSON rules first, then YAML rules (YAML supplements)
+    const combined = [...(jsonRules ?? []), ...(yamlRules ?? [])]
+
+    return combined.length > 0 ? combined : undefined
+}
+
+/**
+ * Reads `trust.escalation` from `flint.config.yaml` and converts each
+ * `YamlEscalationRule` to an `EscalationRule`.
+ *
+ * Condition string format:  ">= 3"  |  "> 0.6"  |  "5"
+ * Comparison operators supported: >=, >, <=, <, =, ==
+ * The threshold is the numeric part after the operator.
+ *
+ * Window string mapping:
+ *   "session"      → "session"
+ *   "1h" | "hour"  → "hour"
+ *   "1d" | "day"   → "day"
+ *   "5m" | "5min"  → "session"  (minute windows treated as session-scoped)
+ *   <anything else> → "session"
+ *
+ * Action string mapping:
+ *   "require_review"  → { type: 'require_review' }
+ *   "alert"           → { type: 'alert', message: rule.message ?? '' }
+ *   "downgrade"       → { type: 'downgrade_tier', to: rule.to ?? 'standard' }
+ *   "block"           → { type: 'block_mutations' }
+ *
+ * Rule IDs are generated as "YAML-ESC-001", "YAML-ESC-002", etc.
+ *
+ * Returns undefined if the YAML file does not exist, has no trust.escalation
+ * section, or cannot be parsed.
+ */
+export function loadEscalationRulesFromYaml(projectRoot: string): EscalationRule[] | undefined {
+    const yamlPath = path.join(projectRoot, 'flint.config.yaml')
+
+    if (!existsSync(yamlPath)) {
         return undefined
     }
 
     try {
-        const raw = await readFile(rulesPath, 'utf-8')
-        const data = JSON.parse(raw) as EscalationRulesFile
-
-        if (!Array.isArray(data.rules)) {
-            console.warn('[Flint AGV] escalation-rules.json: "rules" is not an array, using defaults')
+        const yamlPkg = _resolveYaml()
+        if (!yamlPkg) {
+            console.warn('[Flint AGV] yaml package not found — skipping YAML escalation rules')
             return undefined
         }
+        const { parse: parseYaml } = yamlPkg
+        const raw = readFileSync(yamlPath, 'utf-8')
+        const config = parseYaml(raw) as Record<string, unknown>
 
-        // Basic validation: each rule must have ruleId, trigger, and action
-        const valid = data.rules.filter(rule => {
-            if (!rule.ruleId || !rule.trigger || !rule.action) {
-                console.warn(`[Flint AGV] Skipping invalid rule (missing ruleId, trigger, or action): ${JSON.stringify(rule)}`)
-                return false
+        if (!config || typeof config !== 'object') return undefined
+
+        const trust = config['trust'] as Record<string, unknown> | undefined
+        if (!trust || typeof trust !== 'object') return undefined
+
+        const escalation = trust['escalation']
+        if (!Array.isArray(escalation) || escalation.length === 0) return undefined
+
+        const rules: EscalationRule[] = []
+
+        for (let i = 0; i < escalation.length; i++) {
+            const entry = escalation[i] as Record<string, unknown>
+            if (!entry || typeof entry !== 'object') continue
+
+            const when = entry['when'] as Record<string, string | number> | undefined
+            const thenStr = typeof entry['then'] === 'string' ? entry['then'] : undefined
+
+            if (!when || !thenStr) {
+                console.warn(`[Flint AGV] Skipping YAML escalation rule at index ${i}: missing 'when' or 'then'`)
+                continue
             }
-            return true
-        })
 
-        console.log(`[Flint AGV] Loaded ${valid.length} custom escalation rules from ${rulesPath}`)
-        return valid
+            const trigger = parseYamlTrigger(when)
+            if (!trigger) {
+                console.warn(`[Flint AGV] Skipping YAML escalation rule at index ${i}: unrecognized condition keys or format`)
+                continue
+            }
+
+            const action = parseYamlAction(thenStr, entry)
+            if (!action) {
+                console.warn(`[Flint AGV] Skipping YAML escalation rule at index ${i}: unrecognized action "${thenStr}"`)
+                continue
+            }
+
+            const ruleId = `YAML-ESC-${String(i + 1).padStart(3, '0')}`
+            rules.push({
+                ruleId,
+                description: typeof entry['description'] === 'string'
+                    ? entry['description']
+                    : `YAML escalation rule ${ruleId}`,
+                trigger,
+                action,
+            })
+        }
+
+        if (rules.length > 0) {
+            console.log(`[Flint AGV] Loaded ${rules.length} escalation rules from flint.config.yaml`)
+        }
+
+        return rules.length > 0 ? rules : undefined
     } catch (err) {
-        console.warn('[Flint AGV] Failed to load escalation-rules.json:', err)
+        console.warn('[Flint AGV] Failed to load escalation rules from flint.config.yaml:', err)
         return undefined
+    }
+}
+
+// ── YAML Condition/Action Parsers ─────────────────────────────────────────────
+
+/**
+ * Parses a YAML `when` map into an EscalationTrigger.
+ *
+ * Each key in the map maps to an EscalationTriggerType.
+ * The value is a condition string like ">= 3" or a plain number.
+ * A "window" key specifies the time window.
+ *
+ * Examples:
+ *   { red_count: ">= 3", window: "session" }
+ *   { session_risk_avg: "> 0.6" }
+ *   { mutation_velocity: ">= 20", window: "5m" }
+ */
+function parseYamlTrigger(
+    when: Record<string, string | number>,
+): EscalationTrigger | null {
+    const TRIGGER_KEYS: EscalationTriggerType[] = [
+        'red_count',
+        'amber_count',
+        'session_risk_avg',
+        'mutation_velocity',
+    ]
+
+    let triggerType: EscalationTriggerType | undefined
+    let conditionStr: string | number | undefined
+
+    for (const key of TRIGGER_KEYS) {
+        if (key in when) {
+            triggerType = key
+            conditionStr = when[key]
+            break
+        }
+    }
+
+    if (!triggerType || conditionStr === undefined) return null
+
+    const threshold = parseConditionThreshold(conditionStr)
+    if (threshold === null) return null
+
+    const rawWindow = when['window']
+    const window = parseTimeWindow(typeof rawWindow === 'string' ? rawWindow : 'session')
+
+    return { type: triggerType, threshold, window }
+}
+
+/**
+ * Parses a condition string like ">= 3", "> 0.6", "5" into a numeric threshold.
+ * Returns null if the value cannot be parsed.
+ */
+function parseConditionThreshold(value: string | number): number | null {
+    if (typeof value === 'number') return value
+
+    // Strip comparison operator prefix: >=, >, <=, <, ==, =
+    const stripped = value.replace(/^(>=|<=|>|<|==|=)\s*/, '').trim()
+    const parsed = parseFloat(stripped)
+
+    return Number.isNaN(parsed) ? null : parsed
+}
+
+/**
+ * Maps a YAML window string to an EscalationTimeWindow.
+ *
+ *   "session"            → "session"
+ *   "1h" | "hour"        → "hour"
+ *   "1d" | "day"         → "day"
+ *   "5m" | "5min" | etc. → "session"  (minute windows collapse to session)
+ */
+function parseTimeWindow(raw: string): EscalationTimeWindow {
+    const normalized = raw.toLowerCase().trim()
+    if (normalized === 'session') return 'session'
+    if (normalized === '1h' || normalized === 'hour') return 'hour'
+    if (normalized === '1d' || normalized === 'day') return 'day'
+    // Minute windows (5m, 10m, etc.) — fall back to session
+    return 'session'
+}
+
+/**
+ * Converts a YAML `then` string to an EscalationAction.
+ *
+ * Supported values:
+ *   "require_review"  → { type: 'require_review' }
+ *   "alert"           → { type: 'alert', message: entry.message ?? '' }
+ *   "downgrade"       → { type: 'downgrade_tier', to: entry.to ?? 'standard' }
+ *   "block"           → { type: 'block_mutations' }
+ */
+function parseYamlAction(
+    then: string,
+    entry: Record<string, unknown>,
+): EscalationAction | null {
+    switch (then) {
+        case 'require_review':
+            return { type: 'require_review' }
+        case 'alert':
+            return {
+                type: 'alert',
+                message: typeof entry['message'] === 'string' ? entry['message'] : '',
+            }
+        case 'downgrade':
+            return {
+                type: 'downgrade_tier',
+                to: typeof entry['to'] === 'string' ? entry['to'] : 'standard',
+            }
+        case 'block':
+            return { type: 'block_mutations' }
+        default:
+            return null
     }
 }
 

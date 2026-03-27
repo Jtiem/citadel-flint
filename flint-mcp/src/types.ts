@@ -256,6 +256,12 @@ export interface SessionContext {
     healthGrade: string | null
     /** Whether all source files were readable */
     partial: boolean
+    /** Session summary from last session (Strategy 4: Context-First Briefing) */
+    sessionSummary: SessionSummary | null
+    /** Persona inferred from user's first message (Strategy 2: Persona Handshake) */
+    sessionPersona: SessionPersona
+    /** Resolved style guide content from content.style_guide in flint.config.yaml, or null */
+    styleGuide?: string | null
 }
 
 // ── Phase ACX: ComplexityAssessment ─────────────────────────────────────────
@@ -329,6 +335,43 @@ export interface DomainRule {
     severity: 'critical' | 'warning' | 'info'
     category: string
 }
+
+// ── Phase IDO.4: Session Summary types ────────────────────────────────────
+
+/**
+ * Summary of the previous session's activity.
+ * Populated by `assembleSessionContext` from the mutations ledger
+ * and the `deferred_violations` table. Used by the Context-First
+ * Briefing (Strategy 4) and Breadcrumb Trail (Strategy 7).
+ */
+export interface SessionSummary {
+    /** ISO date of the last session */
+    lastSessionDate: string | null
+    /** Files that had violations fixed in the last session */
+    fixedFiles: string[]
+    /** Total violations fixed last session */
+    fixedViolationCount: number
+    /** Violations still open from the last session */
+    openFromLastSession: Array<{
+        file: string
+        ruleId: string
+        description: string
+    }>
+    /** Violations the user explicitly deferred */
+    deferredViolations: Array<{
+        file: string
+        ruleId: string
+        nodeId: string | null
+        reason: string | null
+        deferredAt: string
+    }>
+}
+
+/**
+ * Persona type for the session — inferred from the user's first message
+ * (Strategy 2: Persona Handshake). Written to context.json by Glass.
+ */
+export type SessionPersona = 'designer' | 'developer' | null
 
 // ── Phase CX.1: Response Quality Baseline ────────────────────────────────────
 
