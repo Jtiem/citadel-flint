@@ -132,8 +132,8 @@ linux:
 # electron-updater is in package.json dependencies — auto-update is functional.
 publish:
   provider: github
-  owner: Jtiem
-  repo: lunar-elevator-flint
+  owner: jtiem
+  repo: citadel-flint
 
 # ── DMG layout ───────────────────────────────────────────────────────────────
 dmg:
