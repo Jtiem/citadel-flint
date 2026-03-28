@@ -117,6 +117,10 @@ jobs:
           # GitHub token for uploading release artifacts
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
+          # Skip code signing when certificates are not configured.
+          # Set CSC_LINK in GitHub Secrets to enable signing.
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.CSC_LINK != '' && 'true' || 'false' }}
+
           # ── macOS code signing + notarization ─────────────────────────────
           # These are only needed on the macOS runner.
           CSC_LINK: ${{ matrix.platform == 'mac' && secrets.CSC_LINK || '' }}
