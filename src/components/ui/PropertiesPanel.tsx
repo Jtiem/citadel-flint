@@ -27,7 +27,7 @@
  */
 
 import { useState, useCallback, startTransition } from 'react'
-import { Layers, AlertTriangle, Lock, Type, Image as ImageIcon, Box, LayoutTemplate } from 'lucide-react'
+import { AlertTriangle, Lock, Type, Image as ImageIcon, Box, LayoutTemplate, SlidersHorizontal } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
 import { useCanvasStore } from '../../store/canvasStore'
 import { useTokenStore } from '../../store/tokenStore'
@@ -567,11 +567,11 @@ export function PropertiesPanel() {
 
     if (effectiveId === null || selectedLayer === undefined) {
         return (
-            <div className="flex h-full flex-col items-center justify-center gap-3 px-4">
-                <Layers className="h-8 w-8 text-zinc-600" />
-                <span className="text-center text-xs text-zinc-500">
-                    Select a layer to inspect its properties
-                </span>
+            <div className="flex flex-col items-center justify-center px-6 py-12 text-center">
+                <SlidersHorizontal className="h-8 w-8 text-zinc-600 mb-3" />
+                <p className="text-sm text-zinc-400 leading-relaxed max-w-[240px]">
+                    Click any element in the preview to inspect it.
+                </p>
             </div>
         )
     }

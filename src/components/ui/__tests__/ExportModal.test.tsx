@@ -70,8 +70,11 @@ describe('ExportModal', () => {
             useCanvasStore.setState({ mithrilViolations: ['node-abc'] })
 
             render(<ExportModal onClose={() => undefined} />)
+            // The header h2 contains "Blocked". The body may also contain "blocked"
+            // (lower-case) in an explanation message — use the h2 specifically.
             await waitFor(() => {
-                expect(screen.getByText(/Blocked/i)).toBeDefined()
+                const h2 = document.querySelector('h2')
+                expect(h2?.textContent).toMatch(/Blocked/i)
             })
         })
 
@@ -100,8 +103,10 @@ describe('ExportModal', () => {
             useCanvasStore.setState({ mithrilViolations: ['node-abc'] })
 
             render(<ExportModal onClose={() => undefined} />)
+            // Use the h2 element specifically — body also contains "blocked" in explanation text.
             await waitFor(() => {
-                expect(screen.getByText(/Blocked/i)).toBeDefined()
+                const h2 = document.querySelector('h2')
+                expect(h2?.textContent).toMatch(/Blocked/i)
             })
         })
     })
@@ -121,11 +126,15 @@ describe('ExportModal', () => {
 
             render(<ExportModal onClose={() => undefined} />)
             // Each violation type renders its own section header with a count.
-            // Total = 1 mithril + 1 a11y + 1 override, shown as separate section headers.
+            // Total = 1 design-system + 1 a11y + 1 override, shown as separate section headers.
+            // Section headers were renamed by EDU-12:
+            //   "Mithril Violations"      → "Design System Violations"
+            //   "Accessibility Violations" → "Accessibility Issues"
+            //   "Property Overrides"       → "Unapplied Style Changes"
             await waitFor(() => {
-                expect(screen.getByText(/Mithril Violations \(1\)/i)).toBeDefined()
-                expect(screen.getByText(/Accessibility Violations \(1\)/i)).toBeDefined()
-                expect(screen.getByText(/Property Overrides \(1\)/i)).toBeDefined()
+                expect(screen.getByText(/Design System Violations \(1\)/i)).toBeDefined()
+                expect(screen.getByText(/Accessibility Issues \(1\)/i)).toBeDefined()
+                expect(screen.getByText(/Unapplied Style Changes \(1\)/i)).toBeDefined()
             })
         })
     })

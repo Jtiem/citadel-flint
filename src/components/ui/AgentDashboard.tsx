@@ -1,3 +1,4 @@
+// TODO: GLASS.1 — relocated from right sidebar. Agent telemetry belongs in IDE extension.
 /**
  * AgentDashboard.tsx — Phase AGV.2: Agent Risk Dashboard
  *
@@ -13,6 +14,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react'
+import { Bot } from 'lucide-react'
 
 // ── Types (mirror of flint-mcp AgentRiskProfile / AgentRiskSummary) ────────
 
@@ -104,16 +106,19 @@ function ConsensusGateSection({ summary, onViewDisagreements }: ConsensusGateSec
 
     return (
         <div className="border-t border-zinc-800">
-            {/* Section header */}
+            {/* Section header — EDU-14: "AI Second Opinion" is clearer than "Consensus Gate" */}
             <div className="flex items-center justify-between px-3 py-2">
-                <h3 className="text-xs font-medium uppercase tracking-wider text-zinc-400">
-                    Consensus Gate
+                <h3
+                    className="text-xs font-medium uppercase tracking-wider text-zinc-400"
+                    title="A second AI independently reviews high-risk code changes. When it disagrees with the first AI, a human review is requested."
+                >
+                    AI Second Opinion
                 </h3>
                 <button
                     type="button"
                     onClick={onViewDisagreements}
                     className="rounded px-1.5 py-0.5 text-[10px] text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
-                    title="View disagreements"
+                    title="View cases where the second AI disagreed with the first"
                 >
                     View disagreements
                 </button>
@@ -129,7 +134,8 @@ function ConsensusGateSection({ summary, onViewDisagreements }: ConsensusGateSec
                     <span className={`text-lg font-bold ${rateClass}`}>
                         {formatRate(disagreementRate)}
                     </span>
-                    <span className="text-[10px] text-zinc-500">Disagreement</span>
+                    {/* EDU-14: "AI disagreement rate" is clearer than bare "Disagreement" */}
+                    <span className="text-[10px] text-zinc-500">AI disagreement rate</span>
                 </div>
                 <div className="flex flex-col items-center rounded bg-zinc-800/50 px-2 py-2">
                     <span className="text-lg font-bold text-zinc-100">{last24hCount}</span>
@@ -277,9 +283,10 @@ export function AgentDashboard() {
                     <span className="text-lg font-bold text-zinc-100">{agents.length}</span>
                     <span className="text-[10px] text-zinc-500">Agents</span>
                 </div>
+                {/* EDU-14: "Code changes" instead of "Mutations" */}
                 <div className="flex flex-col items-center rounded bg-zinc-800/50 px-2 py-2">
                     <span className="text-lg font-bold text-zinc-100">{totalMutations}</span>
-                    <span className="text-[10px] text-zinc-500">Mutations</span>
+                    <span className="text-[10px] text-zinc-500">Code changes</span>
                 </div>
                 <div className="flex flex-col items-center rounded bg-zinc-800/50 px-2 py-2">
                     <span className={`text-lg font-bold ${escalatedCount > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
@@ -297,9 +304,12 @@ export function AgentDashboard() {
             </div>
 
             {agents.length === 0 ? (
-                <p className="py-8 text-center text-xs text-zinc-600">
-                    No agent activity recorded
-                </p>
+                <div className="flex flex-col items-center justify-center px-6 py-12 text-center">
+                    <Bot className="h-8 w-8 text-zinc-600 mb-3" />
+                    <p className="text-sm text-zinc-400 leading-relaxed max-w-[240px]">
+                        No AI agents connected this session. When Claude Code, Cursor, or another MCP client calls Flint tools, their trust profile and risk posture appear here.
+                    </p>
+                </div>
             ) : (
                 <div className="space-y-1 px-2 py-2">
                     {agents.map((agent) => (
@@ -324,30 +334,49 @@ export function AgentDashboard() {
                                 <span className="truncate font-mono text-xs text-zinc-200" title={agent.agentId}>
                                     {agent.agentId}
                                 </span>
+                                {/* EDU-14: "code changes" instead of "mutations" */}
                                 <span className="text-[10px] text-zinc-600">
-                                    {formatLastActive(agent.lastActive)} · {agent.mutationCount} mutations
+                                    {formatLastActive(agent.lastActive)} · {agent.mutationCount} code changes
                                 </span>
                             </div>
 
-                            {/* Risk badge */}
-                            <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${riskBadgeClass(agent.avgRiskScore)}`}>
+                            {/* EDU-14: Risk badge with tooltip explaining what the tier means */}
+                            <span
+                                className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${riskBadgeClass(agent.avgRiskScore)}`}
+                                title={
+                                    agent.avgRiskScore >= 76
+                                        ? 'High risk — manual approval required before changes are applied.'
+                                        : agent.avgRiskScore >= 51
+                                        ? 'Medium risk — review recommended before changes are applied.'
+                                        : 'Low risk — routine changes within safe parameters.'
+                                }
+                            >
                                 {riskLabel(agent.avgRiskScore)}
                             </span>
 
-                            {/* Tier breakdown */}
+                            {/* EDU-14: Tier breakdown chips with tooltips */}
                             <div className="flex shrink-0 items-center gap-0.5">
                                 {agent.redCount > 0 && (
-                                    <span className="rounded bg-red-900/30 px-1 py-0.5 font-mono text-[9px] text-red-400">
+                                    <span
+                                        className="rounded bg-red-900/30 px-1 py-0.5 font-mono text-[9px] text-red-400"
+                                        title={`${agent.redCount} high-risk code change${agent.redCount !== 1 ? 's' : ''}`}
+                                    >
                                         {agent.redCount}
                                     </span>
                                 )}
                                 {agent.amberCount > 0 && (
-                                    <span className="rounded bg-amber-900/20 px-1 py-0.5 font-mono text-[9px] text-amber-400">
+                                    <span
+                                        className="rounded bg-amber-900/20 px-1 py-0.5 font-mono text-[9px] text-amber-400"
+                                        title={`${agent.amberCount} medium-risk code change${agent.amberCount !== 1 ? 's' : ''}`}
+                                    >
                                         {agent.amberCount}
                                     </span>
                                 )}
                                 {agent.greenCount > 0 && (
-                                    <span className="rounded bg-emerald-900/20 px-1 py-0.5 font-mono text-[9px] text-emerald-400">
+                                    <span
+                                        className="rounded bg-emerald-900/20 px-1 py-0.5 font-mono text-[9px] text-emerald-400"
+                                        title={`${agent.greenCount} low-risk code change${agent.greenCount !== 1 ? 's' : ''}`}
+                                    >
                                         {agent.greenCount}
                                     </span>
                                 )}
@@ -357,7 +386,7 @@ export function AgentDashboard() {
                             {agent.overrideCount > 0 && (
                                 <span
                                     className="shrink-0 rounded border border-amber-500/30 bg-amber-900/20 px-1 py-0.5 font-mono text-[9px] text-amber-400"
-                                    title={`${agent.overrideCount} governance override(s)`}
+                                    title={`${agent.overrideCount} governance rule override(s) by this agent`}
                                 >
                                     OVR {agent.overrideCount}
                                 </span>

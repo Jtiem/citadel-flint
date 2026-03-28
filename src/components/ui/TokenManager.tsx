@@ -18,7 +18,7 @@
  */
 
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { Upload, Trash2, X, Search } from 'lucide-react'
+import { Upload, Trash2, X, Search, Palette } from 'lucide-react'
 import { useTokenStore } from '../../store/tokenStore'
 import type { DesignToken, TokenType } from '../../types/flint-api'
 
@@ -443,19 +443,18 @@ export function TokenManager() {
                 )}
 
                 {!isLoading && tokens.length === 0 && (
-                    <div className="flex flex-col items-center gap-3 px-4 py-8 text-center">
-                        <Upload className="h-6 w-6 text-zinc-600" />
-                        <p className="text-xs text-zinc-500">
-                            No tokens yet.{' '}
-                            <button
-                                type="button"
-                                onClick={() => setShowImport(true)}
-                                className="text-indigo-400 hover:underline"
-                            >
-                                Import DTCG JSON
-                            </button>{' '}
-                            to get started.
+                    <div className="flex flex-col items-center justify-center px-6 py-12 text-center">
+                        <Palette className="h-8 w-8 text-zinc-600 mb-3" />
+                        <p className="text-sm text-zinc-400 leading-relaxed max-w-[240px]">
+                            No design tokens loaded. Connect Figma to sync your design system, or import a tokens JSON file.
                         </p>
+                        <button
+                            type="button"
+                            onClick={() => setShowImport(true)}
+                            className="mt-4 rounded border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs text-zinc-300 transition-colors hover:border-indigo-500/40 hover:bg-indigo-900/20 hover:text-indigo-300"
+                        >
+                            Import JSON
+                        </button>
                     </div>
                 )}
 

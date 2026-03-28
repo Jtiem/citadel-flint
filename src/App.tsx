@@ -18,14 +18,11 @@ import { AssetsPanel } from './components/editor/AssetsPanel'
 import { FileExplorer } from './components/ui/FileExplorer'
 import { PropertiesPanel } from './components/ui/PropertiesPanel'
 import { TokenManager } from './components/ui/TokenManager'
-import { ActivityFeed } from './components/ui/ActivityFeed'
-import { RecoveryPanel } from './components/ui/RecoveryPanel'
 import { ExportModal } from './components/ui/ExportModal'
 import { GovernancePanel } from './components/ui/GovernancePanel'
 import { GovernanceOverlay } from './components/editor/GovernanceOverlay'
 import { GovernanceDashboard } from './components/ui/GovernanceDashboard'
-import { AgentDashboard } from './components/ui/AgentDashboard'
-import { ComponentScopePanel } from './components/ui/ComponentScopePanel'
+import { PanelErrorBoundary } from './components/ui/PanelErrorBoundary'
 import { NotificationCenter } from './components/ui/NotificationCenter'
 import { OnboardingOverlay } from './components/ui/OnboardingOverlay'
 // Phase ING.2: Import Summary toast + panel
@@ -39,19 +36,22 @@ import { useCanvasStore } from './store/canvasStore'
 import { useEditorStore } from './store/editorStore'
 import { useAnnotationStore } from './store/annotationStore'
 import { useComponentCardStore } from './store/componentCardStore'
+import { useOrchestratorStore } from './store/orchestratorStore'
 import type { FileTreeNode } from './types/flint-api'
 import { applyUndo, applyRedo } from './core/recoveryController'
 import { MithrilProvider } from './components/mithril/MithrilProvider'
 import { LaunchScreen } from './components/ui/LaunchScreen'
 import { SetupWizard } from './components/ui/SetupWizard'
 import { BetaWelcome, shouldShowBetaWelcome } from './components/ui/BetaWelcome'
+import { FocusTrap } from './components/ui/FocusTrap'
 import { useContextSync } from './hooks/useContextSync'
 import { useMCPEventListener } from './hooks/useMCPEventListener'
 import { useAutopilot } from './hooks/useAutopilot'
 import { useIDEFileSync } from './hooks/useIDEFileSync'
-import { ShieldAlert, ShieldCheck, Settings2, SlidersHorizontal, Palette, Activity, Bot, History, Layers, MoreHorizontal } from 'lucide-react'
+import { ShieldAlert, ShieldCheck, Settings2, SlidersHorizontal, Palette, Layers, BarChart2, MoreHorizontal, ChevronLeft, ChevronRight } from 'lucide-react'
 import { OnboardingNudge } from './components/ui/OnboardingNudge'
 import { CommandPalette } from './components/ui/CommandPalette'
+import { ComponentPanel } from './components/ui/ComponentPanel'
 
 // ── Panel width constraints ───────────────────────────────────────────────────
 const PANEL_MIN = 160
@@ -76,18 +76,24 @@ function findPrimaryFile(tree: FileTreeNode): string | null {
 // ── App ───────────────────────────────────────────────────────────────────────
 
 function App() {
-    const [leftTab, setLeftTab] = useState<'layers' | 'assets' | 'files'>('layers')
+    const [leftTab, setLeftTab] = useState<'layers' | 'components' | 'assets' | 'files'>('layers')
     const rightTab    = useCanvasStore((s) => s.rightTab)
     const setRightTab = useCanvasStore((s) => s.setRightTab)
     const [ipcStatus, setIpcStatus] = useState<string>('Connecting…')
     const [ipcOk, setIpcOk] = useState<boolean>(false)
     const [showExportModal, setShowExportModal] = useState(false)
     const [showGovernancePanel, setShowGovernancePanel] = useState(false)
+    // OPP-15: rule ID to focus when GovernancePanel opens via "Configure rule" link
+    const [governanceFocusRuleId, setGovernanceFocusRuleId] = useState<string | undefined>(undefined)
     const [showProjectMenu, setShowProjectMenu] = useState(false)
     const [isLoadingProject, setIsLoadingProject] = useState(false)
 
-    // ── Setup Wizard gate (ONBOARD.1) ─────────────────────────────────────────
+    // ── Setup Wizard gate (ONBOARD.1 / WS1 demo-first) ────────────────────────
     const [setupComplete, setSetupComplete] = useState<boolean | null>(null)
+    // WS1: When true, the first-launch path auto-loaded a demo project
+    const [demoAutoLoaded, setDemoAutoLoaded] = useState(false)
+    // WS1: SetupWizard as a modal (deferred, not blocking)
+    const [showSetupWizardModal, setShowSetupWizardModal] = useState(false)
     // ── Beta Welcome gate ──────────────────────────────────────────────────────
     // Default to done (no blank flash). The useEffect below flips this to false
     // only when we confirm this is a beta build AND the welcome hasn't been shown.
@@ -100,16 +106,31 @@ function App() {
     // Phase ING.2: true when Import Summary panel takes over the right sidebar
     const importSummaryPanelMode = useImportSummaryStore((s) => s.isPanelMode)
 
-    // ── Resizable panel widths ────────────────────────────────────────────────
-    const [leftWidth, setLeftWidth] = useState(224)   // w-56 default
-    const [rightWidth, setRightWidth] = useState(288) // w-72 default
+    // ── GLASS.3.2: Resizable + collapsible panel widths (from canvasStore) ──
+    const leftWidth          = useCanvasStore((s) => s.leftPanelWidth)
+    const rightWidth         = useCanvasStore((s) => s.rightPanelWidth)
+    const leftCollapsed      = useCanvasStore((s) => s.leftPanelCollapsed)
+    const rightCollapsed     = useCanvasStore((s) => s.rightPanelCollapsed)
+    const setLeftPanelWidth  = useCanvasStore((s) => s.setLeftPanelWidth)
+    const setRightPanelWidth = useCanvasStore((s) => s.setRightPanelWidth)
+    const toggleLeftPanel    = useCanvasStore((s) => s.toggleLeftPanel)
+    const toggleRightPanel   = useCanvasStore((s) => s.toggleRightPanel)
 
     const handleLeftDrag = useCallback((delta: number) => {
-        setLeftWidth((w) => Math.max(PANEL_MIN, Math.min(PANEL_MAX, w + delta)))
-    }, [])
+        const next = Math.max(PANEL_MIN, Math.min(PANEL_MAX, leftWidth + delta))
+        setLeftPanelWidth(next)
+    }, [leftWidth, setLeftPanelWidth])
 
     const handleRightDrag = useCallback((delta: number) => {
-        setRightWidth((w) => Math.max(PANEL_MIN, Math.min(PANEL_MAX, w - delta)))
+        const next = Math.max(PANEL_MIN, Math.min(PANEL_MAX, rightWidth - delta))
+        setRightPanelWidth(next)
+    }, [rightWidth, setRightPanelWidth])
+
+    // OPP-15: Opens GovernancePanel focused on a specific rule ID.
+    // Called by GovernanceOverlay's "Configure rule" gear button.
+    const handleConfigureRule = useCallback((ruleId: string) => {
+        setGovernanceFocusRuleId(ruleId)
+        setShowGovernancePanel(true)
     }, [])
 
     const fetchTokens = useTokenStore((s) => s.fetchTokens)
@@ -124,6 +145,41 @@ function App() {
     const activeFilePath = useCanvasStore((s) => s.activeFilePath)
     const closeWorkspace = useCanvasStore((s) => s.closeWorkspace)
     const canExport = useCanvasStore((s) => s.canExport)
+
+    // ── OPP-10/11: Progressive disclosure selectors ───────────────────────────
+    const unlockTab        = useCanvasStore((s) => s.unlockTab)
+    const markTabSeen      = useCanvasStore((s) => s.markTabSeen)
+    const unlockLeftTab    = useCanvasStore((s) => s.unlockLeftTab)
+    const mithrilViolations = useCanvasStore((s) => s.mithrilViolations)
+    // Subscribe to the Sets directly. Zustand v5 uses Object.is comparison, so
+    // a new Set reference (from unlockTab / markTabSeen) correctly triggers a
+    // re-render. Derive the tab-level predicates from these subscribed values
+    // so we never read stale store state in JSX.
+    const unlockedTabs     = useCanvasStore((s) => s.unlockedTabs)
+    const seenTabs         = useCanvasStore((s) => s.seenTabs)
+    const unlockedLeftTabs = useCanvasStore((s) => s.unlockedLeftTabs)
+
+    // Stable predicate helpers derived from the subscribed Sets
+    const isTabUnlocked    = useCallback((tab: string) => unlockedTabs.has(tab),    [unlockedTabs])
+    const isTabNew         = useCallback((tab: string) => unlockedTabs.has(tab) && !seenTabs.has(tab), [unlockedTabs, seenTabs])
+    const isLeftTabUnlocked = useCallback((tab: string) => unlockedLeftTabs.has(tab), [unlockedLeftTabs])
+
+    // OPP-10 unlock trigger data — subscribe to each source store
+    const tokenCount           = useTokenStore((s) => s.tokens.length)
+    const registryCards        = useComponentCardStore((s) => s.cards)
+
+    // OPP-16: Selection-based right panel auto-switch
+    const activeSelection = useCanvasStore((s) => s.activeSelection)
+    // Timestamp of the last manual tab click. Auto-switch is suppressed for
+    // 3 s after the user has deliberately chosen a tab.
+    const lastManualTabSwitchRef = useRef<number>(0)
+
+    // Wrap setRightTab so manual tab clicks record the timestamp and mark seen.
+    const handleSetRightTab = useCallback((tab: typeof rightTab) => {
+        lastManualTabSwitchRef.current = Date.now()
+        markTabSeen(tab)
+        setRightTab(tab)
+    }, [markTabSeen, setRightTab])
 
     const activeFileName = activeFilePath ? activeFilePath.split('/').pop() ?? null : null
 
@@ -140,6 +196,51 @@ function App() {
     // Must be called once at App root so the effect is tied to workspace lifetime.
     useAutopilot()
     useIDEFileSync()
+
+    // ── OPP-10: Right panel tab unlock triggers ───────────────────────────────
+    // Each effect watches a single data source and unlocks the appropriate tab
+    // when the threshold is met. Effects fire on every dependency change but
+    // unlockTab is a no-op when the tab is already unlocked, so there is no
+    // churn after the first trigger.
+
+    // tokens tab — unlocks when the project has at least one design token
+    useEffect(() => {
+        if (tokenCount > 0) unlockTab('tokens')
+    }, [tokenCount, unlockTab])
+
+    // ── OPP-11: Left panel tab unlock triggers ────────────────────────────────
+
+    // assets tab — unlocks when registry has ≥ 1 entry
+    useEffect(() => {
+        if (registryCards.length >= 1) unlockLeftTab('assets')
+    }, [registryCards.length, unlockLeftTab])
+
+    // GLASS.1b: components tab — unlocks when registry has ≥ 1 card
+    useEffect(() => {
+        if (registryCards.length >= 1) unlockLeftTab('components')
+    }, [registryCards.length, unlockLeftTab])
+
+    // files tab — unlocks when MCP is connected (polled in StatusBar; here we
+    // use the orchestratorStore hasConfig flag as a proxy for MCP availability)
+    useEffect(() => {
+        if (useOrchestratorStore.getState().hasConfig) unlockLeftTab('files')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [unlockLeftTab])
+
+    // ── OPP-16: Selection-based right panel auto-switch ───────────────────────
+    useEffect(() => {
+        const MANUAL_LOCK_MS = 3000
+        const timeSinceManual = Date.now() - lastManualTabSwitchRef.current
+        if (timeSinceManual < MANUAL_LOCK_MS) return
+
+        if (activeSelection && isTabUnlocked('properties')) {
+            setRightTab('properties')
+        } else if (!activeSelection && isTabUnlocked('governance')) {
+            setRightTab('governance')
+        }
+    // setRightTab is stable; isTabUnlocked reads from the store ref inline
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeSelection])
 
     // ── Shared hydrate helper ─────────────────────────────────────────────────
     const hydrateWorkspace = async (tree: FileTreeNode) => {
@@ -367,25 +468,6 @@ function App() {
             const meta = e.metaKey || e.ctrlKey
             if (!meta) return
 
-            // ── CV2.1: Canvas View shortcuts ─────────────────────────────────
-            if (!e.shiftKey) {
-                if (e.key === '1') {
-                    e.preventDefault()
-                    useCanvasStore.getState().setCanvasView('preview')
-                    return
-                }
-                if (e.key === '2') {
-                    e.preventDefault()
-                    useCanvasStore.getState().setCanvasView('build')
-                    return
-                }
-                if (e.key === '3') {
-                    e.preventDefault()
-                    useCanvasStore.getState().setCanvasView('govern')
-                    return
-                }
-            }
-
             // Cmd/Ctrl+Shift+G — Apply Governed Version (Autopilot)
             if (e.shiftKey && (e.key === 'g' || e.key === 'G')) {
                 e.preventDefault()
@@ -482,19 +564,51 @@ function App() {
         return () => { document.removeEventListener('mousedown', handler) }
     }, [showProjectMenu])
 
-    // ── Setup Wizard first-launch check (ONBOARD.1) ──────────────────────────
+    // ── WS1: Demo-first onboarding (replaces ONBOARD.1 blocking wizard) ──────
+    // When isFirstLaunch is true AND no project was specified via CLI, auto-load
+    // the demo project. The wizard is accessible later via "Connect to IDE."
+    //
+    // Fix #1: If --project was passed (detected via URL param or global), skip demo.
+    // Fix #3: Don't call completeFirstLaunch() until the user's first auto-fix.
     useEffect(() => {
-        // 3-second timeout fallback — if the IPC call hangs, skip the wizard
+        // 3-second timeout fallback — if the IPC call hangs, skip to LaunchScreen
         const timer = setTimeout(() => setSetupComplete(true), 3000)
+
+        // Check if a project was explicitly specified (CLI --project flag)
+        const projectSpecified = typeof (globalThis as Record<string, unknown>).__FLINT_PROJECT__ === 'string'
+            || new URLSearchParams(window.location.search).has('project')
+
         window.flintAPI.setup
             ?.checkFirstLaunch()
-            .then(({ isFirstLaunch }: { isFirstLaunch: boolean }) => {
+            .then(async ({ isFirstLaunch }: { isFirstLaunch: boolean }) => {
                 clearTimeout(timer)
-                setSetupComplete(!isFirstLaunch)
+                if (!isFirstLaunch) {
+                    setSetupComplete(true)
+                    return
+                }
+                // First launch + no explicit project: auto-load demo for instant value
+                if (!projectSpecified) {
+                    try {
+                        const result = await window.flintAPI.beta?.loadDemoProject()
+                        if (result && 'projectPath' in result) {
+                            const tree = await window.flintAPI.project.openPath(result.projectPath)
+                            if (tree) {
+                                await hydrateWorkspace(tree as FileTreeNode)
+                                setDemoAutoLoaded(true)
+                            }
+                        }
+                    } catch {
+                        // Demo load failed — fall through to LaunchScreen gracefully
+                    }
+                }
+                // Don't call completeFirstLaunch() here — defer until first meaningful
+                // action (auto-fix, overlay dismiss, or 60s engagement). This ensures
+                // users who close immediately get the demo again on next launch.
+                setSetupComplete(true)
             })
             .catch(() => {
                 clearTimeout(timer)
-                // On IPC failure skip the wizard so the app isn't blocked
+                // On IPC failure skip to LaunchScreen so the app isn't blocked
                 setSetupComplete(true)
             })
         return () => clearTimeout(timer)
@@ -548,9 +662,15 @@ function App() {
     // While checking first-launch status, render nothing (avoids flash)
     if (setupComplete === null) return null
 
-    // If first launch, show the wizard instead of LaunchScreen
+    // WS1: The blocking SetupWizard gate is removed. First launch now auto-loads
+    // the demo project (handled in the useEffect above). If setupComplete is false
+    // but the demo auto-load already set workspaceFiles, we proceed to the canvas.
+    // The SetupWizard is still accessible via "Connect to IDE" in the StatusBar
+    // and LaunchScreen (rendered as a non-blocking modal).
     if (!setupComplete) {
-        return <SetupWizard onComplete={() => setSetupComplete(true)} />
+        // Safety fallback: if setupComplete is false but we somehow get here,
+        // treat it as complete rather than blocking on the wizard.
+        setSetupComplete(true)
     }
 
     // ── Beta Welcome gate ─────────────────────────────────────────────────────
@@ -579,17 +699,30 @@ function App() {
     // ── LaunchScreen gate ─────────────────────────────────────────────────────
     if (!workspaceFiles) {
         return (
-            <LaunchScreen
-                onOpenFolder={() => handleOpenFolder()}
-                onNewProject={() => handleNewProject()}
-                onOpenRecent={(p) => handleOpenRecent(p)}
-                onLoadDemo={() => handleLoadDemo()}
-            />
+            <>
+                <LaunchScreen
+                    onOpenFolder={() => handleOpenFolder()}
+                    onNewProject={() => handleNewProject()}
+                    onOpenRecent={(p) => handleOpenRecent(p)}
+                    onLoadDemo={() => handleLoadDemo()}
+                    onConnectIDE={() => setShowSetupWizardModal(true)}
+                />
+                {/* SetupWizard modal is rendered once at the App root (below) to avoid duplication */}
+            </>
         )
     }
 
+    // GLASS.2.2: When any modal is open, the main app content is aria-hidden
+    // so screen readers focus on the dialog. Modals render as siblings outside
+    // the aria-hidden wrapper via a React Fragment.
+    const isAnyModalOpen = showExportModal || showGovernancePanel || showSetupWizardModal
+
     return (
-        <div className="flex h-screen flex-col bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950">
+        <>
+        <div
+            className="flex h-screen flex-col bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950"
+            aria-hidden={isAnyModalOpen || undefined}
+        >
             {/* ── Project loading overlay (non-destructive — keeps workspace mounted) */}
             {isLoadingProject && (
                 <div className="absolute inset-0 z-[100] flex items-center justify-center bg-gray-950/60 backdrop-blur-sm">
@@ -615,7 +748,8 @@ function App() {
                     )}
                 </div>
 
-                {/* IPC health pill */}
+                {/* IPC health pill — dev-only debug telemetry (GLASS.3.4-A) */}
+                {import.meta.env.DEV && (
                 <div className="flex items-center gap-3 rounded-xl border border-gray-800 bg-gray-900/60 px-4 py-2">
                     <span
                         className={`inline-block h-2.5 w-2.5 rounded-full ${ipcOk
@@ -627,6 +761,7 @@ function App() {
                         {ipcStatus}
                     </span>
                 </div>
+                )}
 
                 <div className="flex items-center gap-2">
                     {saveState !== 'idle' && (
@@ -660,7 +795,7 @@ function App() {
 
                     <button
                         type="button"
-                        onClick={() => setShowGovernancePanel(true)}
+                        onClick={() => { setGovernanceFocusRuleId(undefined); setShowGovernancePanel(true) }}
                         title="Governance Rules"
                         aria-label="Governance Rules"
                         className="flex items-center rounded border border-gray-700 bg-gray-800 px-2 py-1 text-gray-300 transition-colors hover:border-indigo-500/50 hover:bg-gray-700 hover:text-white"
@@ -706,121 +841,223 @@ function App() {
             </header>
 
             {/* ── Three-panel Glass workspace ────────────────────────────── */}
-            {/*  [Left: Layers/Assets]  [Center: Canvas]  [Right: Properties/Tokens/Activity]  */}
+            {/*  [Left: Layers/Assets]  [Center: Canvas]  [Right: Governance/Properties/Tokens]  */}
             <main className="flex min-h-0 flex-1">
-                {/* Left panel: Navigation (Layers / Assets) */}
-                <section
-                    style={{ width: leftWidth, minWidth: PANEL_MIN, maxWidth: PANEL_MAX }}
-                    className="flex min-h-0 shrink-0 flex-col border-r border-gray-800"
-                >
-                    <div className="flex shrink-0 border-b border-gray-800">
-                        {(['layers', 'assets', 'files'] as const).map((tab) => (
-                            <button
-                                key={tab}
-                                type="button"
-                                onClick={() => setLeftTab(tab)}
-                                className={`flex-1 py-2 text-[10px] font-medium uppercase tracking-wider transition-colors ${leftTab === tab
-                                    ? 'border-b-2 border-indigo-500 text-indigo-400'
-                                    : 'text-zinc-500 hover:text-zinc-300'
-                                    }`}
-                            >
-                                {tab}
-                            </button>
-                        ))}
+                {/* GLASS.3.2: Left panel collapse rail */}
+                {leftCollapsed ? (
+                    <div
+                        role="button"
+                        tabIndex={0}
+                        aria-label="Expand left panel"
+                        onClick={toggleLeftPanel}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleLeftPanel() }}
+                        className="flex w-1.5 shrink-0 cursor-pointer items-center justify-center border-r border-zinc-800 bg-zinc-900 hover:bg-zinc-800 transition-colors"
+                    >
+                        <ChevronRight size={10} className="text-zinc-500" />
                     </div>
-                    <div className="min-h-0 flex-1 overflow-y-auto">
-                        {leftTab === 'layers' && <LayerTree />}
-                        {leftTab === 'assets' && <AssetsPanel />}
-                        {leftTab === 'files' && <FileExplorer />}
-                    </div>
-                </section>
+                ) : (
+                    <>
+                        {/* Left panel: Navigation (Layers / Assets) */}
+                        <section
+                            style={{ width: leftWidth, minWidth: PANEL_MIN, maxWidth: PANEL_MAX }}
+                            className="flex min-h-0 shrink-0 flex-col border-r border-gray-800"
+                        >
+                            <div className="flex shrink-0 border-b border-gray-800">
+                                {/* OPP-11: Left panel progressive tabs — filter by unlocked set */}
+                                {/* GLASS.1b: Components tab added between Layers and Assets */}
+                                {(['layers', 'components', 'assets', 'files'] as const)
+                                    .filter((tab) => isLeftTabUnlocked(tab))
+                                    .map((tab) => (
+                                        <button
+                                            key={tab}
+                                            type="button"
+                                            onClick={() => setLeftTab(tab)}
+                                            className={`flex-1 py-2 text-[10px] font-medium uppercase tracking-wider transition-colors ${leftTab === tab
+                                                ? 'border-b-2 border-indigo-500 text-indigo-400'
+                                                : 'text-zinc-500 hover:text-zinc-300'
+                                                }`}
+                                        >
+                                            {tab}
+                                        </button>
+                                    ))}
+                            </div>
+                            <div className="min-h-0 flex-1 overflow-y-auto">
+                                {leftTab === 'layers' && (
+                                    <PanelErrorBoundary panelName="Layers">
+                                        <LayerTree />
+                                    </PanelErrorBoundary>
+                                )}
+                                {leftTab === 'components' && (
+                                    <PanelErrorBoundary panelName="Components">
+                                        <ComponentPanel />
+                                    </PanelErrorBoundary>
+                                )}
+                                {leftTab === 'assets' && (
+                                    <PanelErrorBoundary panelName="Assets">
+                                        <AssetsPanel />
+                                    </PanelErrorBoundary>
+                                )}
+                                {leftTab === 'files' && <FileExplorer />}
+                            </div>
+                        </section>
 
-                <ResizeHandle onDrag={handleLeftDrag} />
+                        <ResizeHandle onDrag={handleLeftDrag} onDoubleClick={toggleLeftPanel} />
+                    </>
+                )}
 
                 {/* Center: Infinite canvas */}
                 <section className="flex min-h-0 flex-1 flex-col">
-                    <MithrilProvider>
-                        <XYCanvas />
-                    </MithrilProvider>
+                    <PanelErrorBoundary panelName="Canvas">
+                        <MithrilProvider>
+                            <XYCanvas />
+                        </MithrilProvider>
+                    </PanelErrorBoundary>
                 </section>
 
-                <ResizeHandle onDrag={handleRightDrag} />
-
-                {/* Right panel: Inspection (Properties / Tokens / Activity) */}
-                <section
-                    style={{ width: rightWidth, minWidth: PANEL_MIN, maxWidth: PANEL_MAX }}
-                    className="flex min-h-0 shrink-0 flex-col border-l border-gray-800"
-                >
-                    {/* Onboarding nudge — shown above the tab bar for fresh projects */}
-                    <OnboardingNudge
-                        onConnectFigma={() => setRightTab('tokens')}
-                        onStartEditing={() => setRightTab('properties')}
-                    />
-
-                    <div className="flex shrink-0 border-b border-gray-800">
-                        {([
-                            { tab: 'properties', Icon: SlidersHorizontal, label: 'Properties' },
-                            { tab: 'tokens',     Icon: Palette,           label: 'Tokens'     },
-                            { tab: 'activity',   Icon: Activity,          label: 'Activity'   },
-                            { tab: 'health',     Icon: ShieldCheck,       label: 'Health'     },
-                            { tab: 'agents',     Icon: Bot,               label: 'Agents'     },
-                            { tab: 'scope',      Icon: Layers,            label: 'Scope'      },
-                            { tab: 'recovery',   Icon: History,           label: 'Recovery'   },
-                        ] as const).map(({ tab, Icon, label }) => (
-                            <button
-                                key={tab}
-                                type="button"
-                                onClick={() => setRightTab(tab)}
-                                title={label}
-                                className={`py-2 px-3 transition-colors ${rightTab === tab
-                                    ? 'border-b-2 border-indigo-500 text-indigo-400'
-                                    : 'text-zinc-500 hover:text-zinc-300'
-                                    }`}
-                            >
-                                <Icon size={14} />
-                            </button>
-                        ))}
+                {/* GLASS.3.2: Right panel collapse rail or full panel */}
+                {rightCollapsed ? (
+                    <div
+                        role="button"
+                        tabIndex={0}
+                        aria-label="Expand right panel"
+                        onClick={toggleRightPanel}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleRightPanel() }}
+                        className="flex w-1.5 shrink-0 cursor-pointer items-center justify-center border-l border-zinc-800 bg-zinc-900 hover:bg-zinc-800 transition-colors"
+                    >
+                        <ChevronLeft size={10} className="text-zinc-500" />
                     </div>
-                    <div className="min-h-0 flex-1 overflow-y-auto">
-                        {/* Phase ING.2: Import Summary panel takes priority */}
-                        {importSummaryPanelMode ? (
-                            <ImportSummaryPanelView />
-                        ) : (
-                            <>
-                                {rightTab === 'properties' && (
+                ) : (
+                    <>
+                        <ResizeHandle onDrag={handleRightDrag} onDoubleClick={toggleRightPanel} />
+
+                        {/* Right panel: Inspection (Governance / Properties / Tokens) */}
+                        <section
+                            style={{ width: rightWidth, minWidth: PANEL_MIN, maxWidth: PANEL_MAX }}
+                            className="flex min-h-0 shrink-0 flex-col border-l border-gray-800"
+                        >
+                            {/* Onboarding nudge — shown above the tab bar for fresh projects */}
+                            <OnboardingNudge
+                                onConnectFigma={() => handleSetRightTab('tokens')}
+                                onStartEditing={() => handleSetRightTab('properties')}
+                            />
+
+                            <div className="flex shrink-0 border-b border-gray-800">
+                                {/* OPP-10: Right panel progressive tabs — filter by unlocked set,
+                                    show one-time indigo dot on newly-unlocked tabs */}
+                                {([
+                                    /* GLASS.1a: Consolidated right sidebar — 3 tabs only */
+                                    { tab: 'governance',  Icon: BarChart2,         label: 'Governance' },
+                                    { tab: 'properties',  Icon: SlidersHorizontal, label: 'Properties' },
+                                    { tab: 'tokens',      Icon: Palette,           label: 'Tokens'     },
+                                ] as const)
+                                    .filter(({ tab }) => isTabUnlocked(tab))
+                                    .map(({ tab, Icon, label }) => (
+                                        <button
+                                            key={tab}
+                                            type="button"
+                                            onClick={() => handleSetRightTab(tab)}
+                                            title={label}
+                                            className={`relative py-2 px-3 transition-colors ${rightTab === tab
+                                                ? 'border-b-2 border-indigo-500 text-indigo-400'
+                                                : 'text-zinc-500 hover:text-zinc-300'
+                                                }`}
+                                        >
+                                            <Icon size={14} />
+                                            {/* OPP-10: One-time "new" dot — indigo, 4px, top-right of icon */}
+                                            {isTabNew(tab) && (
+                                                <span
+                                                    className="absolute right-1.5 top-1.5 h-1 w-1 rounded-full bg-indigo-500"
+                                                    aria-hidden="true"
+                                                />
+                                            )}
+                                        </button>
+                                    ))}
+                            </div>
+                            <div className="min-h-0 flex-1 overflow-y-auto">
+                                {/* Phase ING.2: Import Summary panel takes priority */}
+                                {importSummaryPanelMode ? (
+                                    <ImportSummaryPanelView />
+                                ) : (
                                     <>
-                                        <GovernanceOverlay />
-                                        <PropertiesPanel />
+                                        {rightTab === 'properties' && (
+                                            <PanelErrorBoundary panelName="Properties">
+                                                <GovernanceOverlay onConfigureRule={handleConfigureRule} />
+                                                <PropertiesPanel />
+                                            </PanelErrorBoundary>
+                                        )}
+                                        {rightTab === 'tokens' && (
+                                            <PanelErrorBoundary panelName="Tokens">
+                                                <TokenManager />
+                                            </PanelErrorBoundary>
+                                        )}
+                                        {rightTab === 'governance' && (
+                                            <PanelErrorBoundary panelName="Governance">
+                                                <GovernanceDashboard />
+                                            </PanelErrorBoundary>
+                                        )}
                                     </>
                                 )}
-                                {rightTab === 'tokens' && <TokenManager />}
-                                {rightTab === 'activity' && <ActivityFeed />}
-                                {rightTab === 'health' && <GovernanceDashboard />}
-                                {rightTab === 'agents' && <AgentDashboard />}
-                                {rightTab === 'scope' && <ComponentScopePanel />}
-                                {rightTab === 'recovery' && <RecoveryPanel />}
-                            </>
-                        )}
-                    </div>
-                </section>
+                            </div>
+                        </section>
+                    </>
+                )}
             </main>
 
-            <StatusBar />
+            <StatusBar
+                onConnectIDE={() => setShowSetupWizardModal(true)}
+                isDemo={demoAutoLoaded}
+                onOpenOwnProject={() => {
+                    // Complete first launch and show LaunchScreen
+                    void window.flintAPI.setup?.completeFirstLaunch()
+                    setDemoAutoLoaded(false)
+                    setWorkspaceFiles(null)
+                }}
+            />
 
             {/* Phase ING.2: Import Summary toast (fixed bottom-right, above StatusBar) */}
             <ImportSummaryToastMount />
 
-            {/* Overlays */}
-            <OnboardingOverlay />
-            {showExportModal && <ExportModal onClose={() => setShowExportModal(false)} />}
-            {showGovernancePanel && <GovernancePanel onClose={() => setShowGovernancePanel(false)} />}
+            {/* Non-modal overlays (inside the aria-hidden wrapper) */}
+            <OnboardingOverlay onDismiss={() => {
+                // Fix #3: Complete first launch when user finishes the onboarding tour.
+                // Users who close before finishing get the demo again on next launch.
+                void window.flintAPI.setup?.completeFirstLaunch()
+            }} />
             {/* CP.1 — ⌘K Command Palette */}
             <CommandPalette
                 onOpenExportModal={() => setShowExportModal(true)}
-                onOpenGovernancePanel={() => setShowGovernancePanel(true)}
+                onOpenGovernancePanel={() => { setGovernanceFocusRuleId(undefined); setShowGovernancePanel(true) }}
             />
             <NotificationCenter />
         </div>
+
+        {/* GLASS.2.2: Modal dialogs render outside the aria-hidden wrapper */}
+        {showExportModal && <ExportModal onClose={() => setShowExportModal(false)} />}
+        {showGovernancePanel && (
+            <GovernancePanel
+                onClose={() => {
+                    setShowGovernancePanel(false)
+                    setGovernanceFocusRuleId(undefined)
+                }}
+                focusRuleId={governanceFocusRuleId}
+            />
+        )}
+        {/* WS1: SetupWizard as non-blocking modal, triggered from StatusBar "Connect IDE" */}
+        {showSetupWizardModal && (
+            <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+                <FocusTrap>
+                <div
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="setup-wizard-title"
+                    className="relative max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl"
+                >
+                    <SetupWizard onComplete={() => setShowSetupWizardModal(false)} />
+                </div>
+                </FocusTrap>
+            </div>
+        )}
+        </>
     )
 }
 

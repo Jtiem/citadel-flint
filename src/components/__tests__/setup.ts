@@ -109,6 +109,7 @@ export function createMockFlintAPI() {
             openPath: vi.fn().mockResolvedValue(null),
             resetToDemo: vi.fn().mockResolvedValue({ name: 'demo', path: '/tmp/demo', type: 'directory', children: [] }),
             createScratchpad: vi.fn().mockResolvedValue({ name: 'scratchpad', path: '/tmp/scratchpad', type: 'directory', children: [] }),
+            reindex: vi.fn().mockResolvedValue(undefined),
         },
         menu: {
             onNewProject: vi.fn(),
@@ -262,6 +263,11 @@ export function resetAllStores() {
         governedFixCount: 0,
         governedTimestamp: null,
         commandPaletteOpen: false,
+        // OPP-10/11/12: Reset progressive disclosure state between tests
+        unlockedTabs: new Set(['governance', 'properties']),
+        seenTabs: new Set(['governance', 'properties']),
+        unlockedLeftTabs: new Set(['layers']),
+        hasUsedBreakpoint: false,
     })
 
     // ACX.5: reset governance and import summary stores (includes ERM fields)

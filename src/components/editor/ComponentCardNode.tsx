@@ -1,4 +1,6 @@
 /**
+ * @deprecated GLASS.1c — component cards moved to ComponentPanel
+ *
  * ComponentCardNode — src/components/editor/ComponentCardNode.tsx
  *
  * Phase CV2.3: Custom React Flow node type for component cards on the canvas.

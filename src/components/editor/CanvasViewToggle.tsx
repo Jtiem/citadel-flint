@@ -1,4 +1,6 @@
 /**
+ * @deprecated GLASS.1c — canvas modes removed. Will be deleted in cleanup pass.
+ *
  * CanvasViewToggle — src/components/editor/CanvasViewToggle.tsx
  *
  * CV2.1 — Segmented control that switches the canvas between Preview,
@@ -94,6 +96,7 @@ export function CanvasViewToggle() {
                     >
                         <Icon className="h-3.5 w-3.5" />
                         {label}
+                        <kbd className="ml-1 text-[9px] opacity-40 font-mono">{view === 'preview' ? '⌘1' : view === 'build' ? '⌘2' : '⌘3'}</kbd>
                     </button>
                 )
             })}

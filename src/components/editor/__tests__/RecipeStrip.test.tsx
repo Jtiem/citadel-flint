@@ -1,4 +1,6 @@
 /**
+ * @deprecated GLASS.1c — recipes moved to ComponentPanel
+ *
  * RecipeStrip.test.tsx
  *
  * Unit tests for the RecipeStrip component and the builtinRecipes data model.
@@ -234,28 +236,11 @@ describe('RecipeStrip', () => {
     })
 })
 
-// ── Tests: RecipeStrip visibility via XYCanvas ────────────────────────────────
+// ── GLASS.1c: Canvas modes removed — RecipeStrip no longer rendered in XYCanvas ──
 
-describe('RecipeStrip in XYCanvas', () => {
-    // RS-09: strip does NOT render in preview mode
-    it('RS-09: recipe strip is absent in preview mode', () => {
-        useCanvasStore.setState({ canvasView: 'preview' })
-        render(<XYCanvas />)
-        expect(screen.queryByTestId('recipe-strip-wrapper')).toBeNull()
-        expect(screen.queryByTestId('recipe-strip')).toBeNull()
-    })
-
-    // RS-10: strip DOES render in build mode
-    it('RS-10: recipe strip renders in build mode', () => {
-        useCanvasStore.setState({ canvasView: 'build' })
-        render(<XYCanvas />)
-        expect(screen.getByTestId('recipe-strip-wrapper')).toBeDefined()
-        expect(screen.getByTestId('recipe-strip')).toBeDefined()
-    })
-
-    // RS-11: strip does NOT render in govern mode
-    it('RS-11: recipe strip is absent in govern mode', () => {
-        useCanvasStore.setState({ canvasView: 'govern' })
+describe('RecipeStrip in XYCanvas (GLASS.1c — deprecated)', () => {
+    // RS-09: GLASS.1c — canvas is always preview mode, no Build/Govern
+    it('RS-09: recipe strip is absent from XYCanvas (canvas modes removed)', () => {
         render(<XYCanvas />)
         expect(screen.queryByTestId('recipe-strip-wrapper')).toBeNull()
         expect(screen.queryByTestId('recipe-strip')).toBeNull()

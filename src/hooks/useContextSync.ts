@@ -77,6 +77,7 @@ export function useContextSync(): void {
             const mithrilTypes = new Set([
                 'color-drift', 'typography-drift', 'spacing-drift',
                 'shadow-drift', 'opacity-drift', 'semantic-drift',
+                'sync', 'inline-style-drift', 'registry',
             ])
             const a11yTypes = new Set(['a11y'])
 

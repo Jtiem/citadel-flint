@@ -43,13 +43,16 @@ export interface ViolationTooltipProps {
 /** Stable label shown for each LinterWarning type. */
 function typeLabel(type: LinterWarning['type']): string {
     switch (type) {
-        case 'color-drift':      return 'Color Drift'
-        case 'typography-drift': return 'Typography Drift'
-        case 'spacing-drift':    return 'Spacing Drift'
-        case 'shadow-drift':     return 'Shadow Drift'
-        case 'opacity-drift':    return 'Opacity Drift'
-        case 'a11y':             return 'Accessibility'
-        case 'semantic-drift':   return 'Semantic Drift'
+        case 'color-drift':        return 'Color Drift'
+        case 'typography-drift':   return 'Typography Drift'
+        case 'spacing-drift':      return 'Spacing Drift'
+        case 'shadow-drift':       return 'Shadow Drift'
+        case 'opacity-drift':      return 'Opacity Drift'
+        case 'a11y':               return 'Accessibility'
+        case 'semantic-drift':     return 'Semantic Drift'
+        case 'sync':               return 'Token Sync'
+        case 'inline-style-drift': return 'Inline Style'
+        case 'registry':           return 'Registry'
     }
 }
 
@@ -152,20 +155,34 @@ export function ViolationTooltip({
                                     >
                                         {extractRuleId(w.message)}
                                     </span>
+                                    {/* EDU-02: severity badge tooltip */}
                                     <span
                                         className={`text-xs px-1 py-0.5 rounded ${
                                             w.severity === 'critical'
                                                 ? 'bg-red-900/30 text-red-400'
                                                 : 'bg-amber-900/30 text-amber-400'
                                         }`}
+                                        title={
+                                            w.severity === 'critical'
+                                                ? 'Blocks export — must be fixed or overridden before you can export.'
+                                                : 'Warning — does not match your design tokens. Will not block export unless escalated.'
+                                        }
                                     >
                                         {w.severity}
                                     </span>
                                 </div>
                                 <p className="text-xs text-zinc-400">{typeLabel(w.type)}</p>
                                 {w.value > 0 && w.type === 'color-drift' && (
+                                    // EDU-10: plain-language framing — "Color distance" instead of raw "ΔE"
                                     <p className="text-xs text-zinc-500 mt-0.5">
-                                        ΔE {w.value.toFixed(1)} (limit: 2.0) — {w.value > 10 ? 'very different from token' : w.value > 5 ? 'noticeably different' : 'slightly off'}
+                                        {w.value > 10
+                                            ? 'Very different from your token'
+                                            : w.value > 5
+                                            ? 'Noticeably different from your token'
+                                            : 'Slightly off from your token'}{' '}
+                                        <span className="text-zinc-600" title="Color distance score (ΔE). Values above 2.0 are flagged.">
+                                            (color distance: {w.value.toFixed(1)}, threshold: 2.0)
+                                        </span>
                                     </p>
                                 )}
                                 {w.nearestToken && (

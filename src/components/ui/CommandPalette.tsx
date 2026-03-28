@@ -16,11 +16,9 @@ import { createPortal } from 'react-dom'
 import {
     Search,
     Shield,
-    Layers,
     GitBranch,
     Settings,
     Loader2,
-    Eye,
     LayoutGrid,
     Zap,
     RotateCcw,
@@ -98,7 +96,6 @@ export interface CommandPaletteProps {
 export function CommandPalette({ onOpenExportModal, onOpenGovernancePanel }: CommandPaletteProps) {
     const isOpen = useCanvasStore((s) => s.commandPaletteOpen)
     const setOpen = useCanvasStore((s) => s.setCommandPaletteOpen)
-    const setCanvasView = useCanvasStore((s) => s.setCanvasView)
     const setRightTab = useCanvasStore((s) => s.setRightTab)
     const autopilotEnabled = useCanvasStore((s) => s.autopilotEnabled)
     const setAutopilotEnabled = useCanvasStore((s) => s.setAutopilotEnabled)
@@ -182,7 +179,20 @@ export function CommandPalette({ onOpenExportModal, onOpenGovernancePanel }: Com
                         pushNotification({ type: 'info', severity: 'warning', title: 'No file open', message: 'Open a component first', autoDismissMs: 3000 })
                         return
                     }
-                    await callMcp('flint_fix', { file: activeFilePath }, 'Violations auto-fixed')
+                    // Use applyBatch for auto-fix (flint_fix is not in SEC.3 renderer allowlist)
+                    const warnings = useEditorStore.getState().linterWarnings
+                    const fixOps: Array<{ op: string; nodeId: string; hardcodedClass: string; tokenClass: string }> = []
+                    for (const [nodeId, w] of warnings) {
+                        if (!w.nearestToken) continue
+                        const m = w.message.match(/`([^`]+)`/)
+                        if (m?.[1]) fixOps.push({ op: 'applyTokenFix', nodeId, hardcodedClass: m[1], tokenClass: w.nearestToken })
+                    }
+                    if (fixOps.length === 0) {
+                        pushNotification({ type: 'info', severity: 'info', title: 'Nothing to fix', message: 'No auto-fixable violations found', autoDismissMs: 3000 })
+                        return
+                    }
+                    await useEditorStore.getState().applyBatch(fixOps)
+                    pushNotification({ type: 'info', severity: 'success', title: `Fixed ${fixOps.length} violations`, message: 'Auto-fixable token drifts resolved', autoDismissMs: 4000 })
                 }),
             },
             {
@@ -197,7 +207,7 @@ export function CommandPalette({ onOpenExportModal, onOpenGovernancePanel }: Com
                 label: 'View Health Score',
                 category: 'governance',
                 icon: <Shield className="h-4 w-4" />,
-                action: () => closeAndRun(() => setRightTab('health')),
+                action: () => closeAndRun(() => setRightTab('governance')),
             },
             {
                 id: 'gov-autopilot',
@@ -215,39 +225,13 @@ export function CommandPalette({ onOpenExportModal, onOpenGovernancePanel }: Com
                 action: () => closeAndRun(onOpenGovernancePanel),
             },
 
-            // ── Canvas ───────────────────────────────────────────────────────
-            {
-                id: 'canvas-preview',
-                label: 'Switch to Preview Mode',
-                category: 'canvas',
-                kbd: '⌘1',
-                icon: <Eye className="h-4 w-4" />,
-                action: () => closeAndRun(() => setCanvasView('preview')),
-            },
-            {
-                id: 'canvas-build',
-                label: 'Switch to Build View',
-                category: 'canvas',
-                kbd: '⌘2',
-                icon: <LayoutGrid className="h-4 w-4" />,
-                action: () => closeAndRun(() => setCanvasView('build')),
-            },
-            {
-                id: 'canvas-govern',
-                label: 'Switch to Govern View',
-                category: 'canvas',
-                kbd: '⌘3',
-                icon: <Layers className="h-4 w-4" />,
-                action: () => closeAndRun(() => setCanvasView('govern')),
-            },
-
             // ── Git / Recovery ───────────────────────────────────────────────
             {
                 id: 'git-recovery',
                 label: 'Open Git Time Machine',
                 category: 'git',
                 icon: <History className="h-4 w-4" />,
-                action: () => closeAndRun(() => setRightTab('recovery')),
+                action: () => closeAndRun(() => setRightTab('governance')),
             },
             {
                 id: 'git-undo',
@@ -273,7 +257,7 @@ export function CommandPalette({ onOpenExportModal, onOpenGovernancePanel }: Com
                 label: 'View Mutation History',
                 category: 'git',
                 icon: <GitBranch className="h-4 w-4" />,
-                action: () => closeAndRun(() => setRightTab('activity')),
+                action: () => closeAndRun(() => setRightTab('governance')),
             },
 
             // ── Settings / Tools ─────────────────────────────────────────────
@@ -282,7 +266,7 @@ export function CommandPalette({ onOpenExportModal, onOpenGovernancePanel }: Com
                 label: 'Open Agent Dashboard',
                 category: 'settings',
                 icon: <Bot className="h-4 w-4" />,
-                action: () => closeAndRun(() => setRightTab('agents')),
+                action: () => closeAndRun(() => setRightTab('governance')),
             },
             {
                 id: 'settings-sync-tokens',

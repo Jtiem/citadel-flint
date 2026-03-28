@@ -79,15 +79,24 @@ function relativeTime(ts: number | null): string {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function StatusBar() {
+interface StatusBarProps {
+    /** WS1: Opens the SetupWizard as a non-blocking modal for IDE/MCP configuration */
+    onConnectIDE?: () => void
+    /** True when the current project is the auto-loaded demo */
+    isDemo?: boolean
+    /** Navigate away from the demo to the user's real project */
+    onOpenOwnProject?: () => void
+}
+
+export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject }: StatusBarProps = {}) {
     const mithrilViolations = useCanvasStore((s) => s.mithrilViolations)
     const overridesExist = useCanvasStore((s) => s.overridesExist)
     const activeFilePath = useCanvasStore((s) => s.activeFilePath)
-    const canExport = mithrilViolations.length === 0 && !overridesExist
+    const setRightTab = useCanvasStore((s) => s.setRightTab)
+    const a11yViolations = useCanvasStore((s) => s.a11yViolations)
+    const canExport = mithrilViolations.length === 0 && !overridesExist && Object.keys(a11yViolations).length === 0
     const push = useNotificationStore((s) => s.push)
 
-    // ── CV2.1: Canvas View Mode indicator ────────────────────────────────────
-    const canvasView = useCanvasStore((s) => s.canvasView)
 
     // ── Responsive breakpoint chip ────────────────────────────────────────────
     const previewBreakpoint = useCanvasStore((s) => s.previewBreakpoint)
@@ -99,6 +108,16 @@ export function StatusBar() {
     const governedFixCount = useCanvasStore((s) => s.governedFixCount)
     const setAutopilotEnabled = useCanvasStore((s) => s.setAutopilotEnabled)
     const clearGovernedResult = useCanvasStore((s) => s.clearGovernedResult)
+    // OPP-12: Progressive status bar elements
+    const hasUsedBreakpoint = useCanvasStore((s) => s.hasUsedBreakpoint)
+
+    // ── OPP-12: Autopilot toggle progressive visibility ───────────────────────
+    // The Autopilot button is hidden until the user has seen at least one
+    // Mithril violation. Once revealed it stays visible for the session.
+    const [hasSeenViolation, setHasSeenViolation] = useState(false)
+    useEffect(() => {
+        if (mithrilViolations.length > 0) setHasSeenViolation(true)
+    }, [mithrilViolations.length])
 
     // ── Scratchpad indicator ──────────────────────────────────────────────────
     const isScratchpad = isScratchpadPath(activeFilePath)
@@ -106,27 +125,14 @@ export function StatusBar() {
     const gateLabel = (() => {
         if (canExport) return null
         if (mithrilViolations.length > 0) {
-            return `${mithrilViolations.length} Mithril Violation${mithrilViolations.length > 1 ? 's' : ''}`
+            // EDU-01: plain-language label — "Design drift" instead of "Mithril"
+            return `${mithrilViolations.length} Design Drift ${mithrilViolations.length > 1 ? 'Issues' : 'Issue'}`
         }
-        return 'Overrides Active'
+        // EDU-01: plain-language label — clarify what "overrides" means for export
+        return 'Unapplied Style Changes'
     })()
 
-    // ── Override count state (GOV.2) ──────────────────────────────────────────
-    const [overrideCount, setOverrideCount] = useState<number>(0)
-
-    const fetchOverrideCount = useCallback(() => {
-        window.flintAPI.governance.getOverrideCount()
-            .then(setOverrideCount)
-            .catch(() => { /* governance IPC may not be ready on first paint */ })
-    }, [])
-
-    useEffect(() => {
-        fetchOverrideCount()
-        const unsubscribe = window.flintAPI.governance.onOverrideRecorded(() => {
-            fetchOverrideCount()
-        })
-        return unsubscribe
-    }, [fetchOverrideCount])
+    // GOV.2 override badge relocated to GovernanceDashboard (GLASS.3.4-B)
 
     // ── MCP connection status ─────────────────────────────────────────────────
     const [mcpConnected, setMcpConnected] = useState<boolean | null>(null)
@@ -360,7 +366,17 @@ export function StatusBar() {
     return (
         <footer className="relative flex shrink-0 items-center gap-6 border-t border-gray-800 bg-gray-950 px-4 py-[3px]">
             {/* MCP Connection Indicator */}
-            <div className="flex items-center gap-1.5 px-2 py-0.5">
+            <div
+                className="flex items-center gap-1.5 px-2 py-0.5"
+                title={
+                    mcpConnected === null
+                        ? 'Governance engine — connecting…'
+                        : mcpConnected
+                        // EDU-13: plain-language tooltip explaining what MCP is
+                        ? 'Governance engine — connected. Flint is actively checking your code.'
+                        : 'Governance engine — not connected. Audits and fixes are unavailable.'
+                }
+            >
                 <span
                     className={[
                         'inline-block w-2 h-2 rounded-full',
@@ -386,29 +402,43 @@ export function StatusBar() {
                 )}
             </div>
 
-            <span className="text-xs text-gray-500">
-                Local SQLite (better-sqlite3)
-            </span>
-            <span className="text-xs text-gray-500">
-                Babel AST Parser Active
-            </span>
-            <span className="text-xs text-gray-500">
-                Electron IPC {BRAND.product}
-            </span>
-
-            {/* ── CV2.1: Canvas View Mode indicator ────────────────────────── */}
-            {canvasView !== 'preview' && (
-                <span
-                    className="flex items-center gap-1 text-xs text-indigo-400"
-                    data-testid="statusbar-canvas-view"
+            {/* WS1: "Connect IDE" chip — shown when MCP is disconnected and the callback is provided */}
+            {mcpConnected === false && onConnectIDE && (
+                <button
+                    type="button"
+                    onClick={onConnectIDE}
+                    className="flex items-center gap-1 rounded border border-indigo-700/40 bg-indigo-900/10 px-1.5 py-0.5 text-xs text-indigo-400 transition-colors hover:border-indigo-600/60 hover:bg-indigo-900/20 hover:text-indigo-300"
+                    title="Open IDE setup wizard to configure MCP connection"
+                    data-testid="statusbar-connect-ide"
                 >
-                    <span className="h-1.5 w-1.5 rounded-full bg-indigo-400" />
-                    {canvasView === 'build' ? 'Build View' : 'Govern View'}
-                </span>
+                    Connect IDE
+                </button>
             )}
 
-            {/* ── Responsive breakpoint chip (preview mode only, non-desktop) ── */}
-            {canvasView === 'preview' && previewBreakpoint !== 'desktop' && (
+            {/* Demo project indicator — shows when viewing the auto-loaded demo */}
+            {isDemo && (
+                <div className="flex items-center gap-1.5">
+                    <span className="rounded border border-amber-700/40 bg-amber-900/10 px-1.5 py-0.5 text-xs text-amber-400">
+                        Demo Project
+                    </span>
+                    {onOpenOwnProject && (
+                        <button
+                            type="button"
+                            onClick={onOpenOwnProject}
+                            className="text-xs text-zinc-400 underline decoration-zinc-600 underline-offset-2 transition-colors hover:text-zinc-200"
+                        >
+                            Open your project
+                        </button>
+                    )}
+                </div>
+            )}
+
+            {/* OPP-1: Debug strings removed — implementation details don't belong in the status bar */}
+
+            {/* ── Responsive breakpoint chip (non-desktop) ──
+                OPP-12: Also hidden until the user has activated a non-desktop
+                breakpoint at least once (hasUsedBreakpoint tracks this). */}
+            {hasUsedBreakpoint && previewBreakpoint !== 'desktop' && (
                 <button
                     type="button"
                     onClick={() => { cyclePreviewBreakpoint('up') }}
@@ -561,27 +591,23 @@ export function StatusBar() {
                 )}
             </div>
 
-            {/* Overrides badge (GOV.2) — only visible when count > 0 */}
-            {overrideCount > 0 && (
-                <span
-                    className="text-xs text-amber-500"
-                    title={`${overrideCount} governance rule override${overrideCount === 1 ? '' : 's'} recorded this session`}
+            {/* GOV.2 override badge relocated to GovernanceDashboard (GLASS.3.4-B) */}
+
+            {/* ── Governance Autopilot (Phase REM.2.2) ──────────────────────
+                OPP-12: Hidden until the first Mithril violation is observed.
+                Once revealed it stays visible for the session. */}
+            {hasSeenViolation && (
+                <button
+                    type="button"
+                    onClick={() => { setAutopilotEnabled(!autopilotEnabled) }}
+                    className={`text-xs px-2 py-0.5 rounded transition-colors ${autopilotEnabled ? 'bg-emerald-600/20 text-emerald-400' : 'text-zinc-500 hover:text-zinc-300'}`}
+                    title="Toggle Governance Autopilot (Cmd+Shift+G to apply fixes)"
                 >
-                    Overrides ({overrideCount})
-                </span>
+                    Autopilot
+                </button>
             )}
 
-            {/* ── Governance Autopilot (Phase REM.2.2) ──────────────────── */}
-            <button
-                type="button"
-                onClick={() => { setAutopilotEnabled(!autopilotEnabled) }}
-                className={`text-xs px-2 py-0.5 rounded transition-colors ${autopilotEnabled ? 'bg-emerald-600/20 text-emerald-400' : 'text-zinc-500 hover:text-zinc-300'}`}
-                title="Toggle Governance Autopilot (Cmd+Shift+G to apply fixes)"
-            >
-                Autopilot
-            </button>
-
-            {autopilotEnabled && (
+            {hasSeenViolation && autopilotEnabled && (
                 <div
                     className="flex cursor-pointer items-center gap-1.5 rounded px-2 py-0.5 text-xs transition-colors hover:bg-zinc-700"
                     onClick={() => { if (governedCode && activeFilePath) { applyGovernedCode() } }}
@@ -594,11 +620,17 @@ export function StatusBar() {
                 </div>
             )}
 
-            {/* Export Gate — Commandment 6 (The Gatekeeper Rule) */}
+            {/* Export Gate — Commandment 6 (The Gatekeeper Rule)
+                GLASS.1d: When violations exist, clicking opens the Governance tab
+                so the user can see and fix them. When clean, opens the export panel. */}
             <button
                 type="button"
                 onClick={() => {
-                    window.dispatchEvent(new CustomEvent(`${BRAND.productLower}:open-export`))
+                    if (canExport) {
+                        window.dispatchEvent(new CustomEvent(`${BRAND.productLower}:open-export`))
+                    } else {
+                        setRightTab('properties')
+                    }
                 }}
                 className={`flex items-center gap-1.5 text-xs transition-colors ${
                     canExport
@@ -607,8 +639,9 @@ export function StatusBar() {
                 }`}
                 title={
                     canExport
-                        ? 'No Mithril violations or overrides — file is export-ready'
-                        : `Export blocked: ${gateLabel} — click to open Export modal`
+                        // EDU-01: explain what "export ready" means
+                        ? 'All design system checks pass — your file is ready to export. Click to open the Export panel.'
+                        : `Export blocked: ${gateLabel}. Click to see violations and fix options.`
                 }
             >
                 {canExport ? (

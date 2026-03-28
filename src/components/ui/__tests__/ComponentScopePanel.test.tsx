@@ -145,9 +145,24 @@ describe('ComponentScopePanel', () => {
         mockScope(EMPTY_REGISTRY)
         render(<ComponentScopePanel />)
         await waitFor(() => {
-            expect(screen.getByText('No component registry found.')).toBeDefined()
+            expect(screen.getByText(/No components indexed yet/)).toBeDefined()
         })
-        expect(screen.getByText('flint-manifest.json')).toBeDefined()
+        expect(screen.getByText('Reindex')).toBeDefined()
+    })
+
+    // ── Case 11b: Reindex button calls window.flintAPI.project.reindex ───────
+    it('Reindex button in empty state calls project.reindex', async () => {
+        mockScope(EMPTY_REGISTRY)
+        render(<ComponentScopePanel />)
+        await waitFor(() => {
+            expect(screen.getByText('Reindex')).toBeDefined()
+        })
+        fireEvent.click(screen.getByText('Reindex'))
+        expect(window.flintAPI.project?.reindex).toBeDefined()
+        // Verify the mock was invoked
+        await waitFor(() => {
+            expect(window.flintAPI.project!.reindex as ReturnType<typeof vi.fn>).toHaveBeenCalled()
+        })
     })
 
     // ── Case 12: Toggle checkbox calls setScope with updated array ───────────

@@ -12,6 +12,8 @@
  *   - Selected-row indigo styling on the inner <button>
  *   - Jump-to-line button (Code2 icon) interaction
  *   - Layer rows for nodes at any nesting depth
+ *   - GLASS.2.1: WAI-ARIA tree semantics (role, aria-level, aria-selected, aria-expanded)
+ *   - GLASS.2.1: Keyboard navigation (ArrowDown, ArrowUp, ArrowLeft, ArrowRight, Home, End, Enter)
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
@@ -51,10 +53,11 @@ const mockTree: VisualLayer[] = [
 
 describe('LayerTree', () => {
     describe('empty state', () => {
-        it('shows "No JSX found" when visualTree is empty', () => {
+        it('shows empty state with icon and guidance when visualTree is empty', () => {
             useEditorStore.setState({ visualTree: [] })
             render(<LayerTree />)
-            expect(screen.getByText(/No JSX found/i)).toBeDefined()
+            expect(screen.getByText(/No component layers/i)).toBeDefined()
+            expect(screen.getByText(/Open a \.tsx file to see its layer structure/i)).toBeDefined()
         })
     })
 
@@ -231,6 +234,220 @@ describe('LayerTree', () => {
             // mockTree has 2 nodes (root div + nested button) → 2 jump buttons
             const jumpButtons = screen.getAllByTitle(/^Jump to line \d+$/)
             expect(jumpButtons.length).toBeGreaterThanOrEqual(1)
+        })
+    })
+
+    // ── GLASS.2.1: WAI-ARIA tree semantics ──────────────────────────────────
+
+    describe('ARIA tree semantics', () => {
+        beforeEach(() => {
+            useEditorStore.setState({ visualTree: mockTree, selectedNodeId: null })
+        })
+
+        it('root container has role="tree" and aria-label', () => {
+            render(<LayerTree />)
+            const tree = screen.getByRole('tree')
+            expect(tree).toBeDefined()
+            expect(tree.getAttribute('aria-label')).toBe('Component layer tree')
+        })
+
+        it('each row has role="treeitem"', () => {
+            render(<LayerTree />)
+            const items = screen.getAllByRole('treeitem')
+            // mockTree has 2 visible nodes (root div + nested button)
+            expect(items.length).toBe(2)
+        })
+
+        it('root row has aria-level=1, nested row has aria-level=2', () => {
+            render(<LayerTree />)
+            const items = screen.getAllByRole('treeitem')
+            expect(items[0].getAttribute('aria-level')).toBe('1')
+            expect(items[1].getAttribute('aria-level')).toBe('2')
+        })
+
+        it('selected row has aria-selected=true, others false', () => {
+            useEditorStore.setState({ selectedNodeId: 'abc12345-full-id' })
+            render(<LayerTree />)
+            const items = screen.getAllByRole('treeitem')
+            expect(items[0].getAttribute('aria-selected')).toBe('true')
+            expect(items[1].getAttribute('aria-selected')).toBe('false')
+        })
+
+        it('collapsible nodes have aria-expanded, leaf nodes do not', () => {
+            render(<LayerTree />)
+            const items = screen.getAllByRole('treeitem')
+            // Root div has children → aria-expanded should be "true" (expanded by default)
+            expect(items[0].getAttribute('aria-expanded')).toBe('true')
+            // Nested button is a leaf → no aria-expanded attribute
+            expect(items[1].hasAttribute('aria-expanded')).toBe(false)
+        })
+    })
+
+    // ── GLASS.2.1: Keyboard navigation ──────────────────────────────────────
+
+    describe('keyboard navigation', () => {
+        const treeWithChildren: VisualLayer[] = [
+            {
+                id: 'root-nav-1',
+                tagName: 'div',
+                line: 1,
+                children: [
+                    {
+                        id: 'child-nav-1',
+                        tagName: 'span',
+                        line: 2,
+                        children: [],
+                    },
+                    {
+                        id: 'child-nav-2',
+                        tagName: 'p',
+                        line: 3,
+                        children: [],
+                    },
+                ],
+            },
+            {
+                id: 'root-nav-2',
+                tagName: 'section',
+                line: 4,
+                children: [],
+            },
+        ]
+
+        beforeEach(() => {
+            useEditorStore.setState({ visualTree: treeWithChildren, selectedNodeId: null })
+        })
+
+        it('ArrowDown moves focus to the next visible treeitem', () => {
+            render(<LayerTree />)
+            const tree = screen.getByRole('tree')
+            const items = screen.getAllByRole('treeitem')
+
+            // Focus the first item
+            fireEvent.focus(items[0])
+            // Press ArrowDown
+            fireEvent.keyDown(tree, { key: 'ArrowDown' })
+
+            // The second item should now be focused (data-layer-id check)
+            expect(items[1].getAttribute('data-layer-id')).toBe('child-nav-1')
+            expect(items[1].tabIndex).toBe(0)
+        })
+
+        it('ArrowUp moves focus to the previous visible treeitem', () => {
+            render(<LayerTree />)
+            const tree = screen.getByRole('tree')
+            const items = screen.getAllByRole('treeitem')
+
+            // Focus the second item
+            fireEvent.focus(items[1])
+            // Press ArrowUp
+            fireEvent.keyDown(tree, { key: 'ArrowUp' })
+
+            // The first item should now be focused
+            expect(items[0].tabIndex).toBe(0)
+        })
+
+        it('Home moves focus to the first treeitem', () => {
+            render(<LayerTree />)
+            const tree = screen.getByRole('tree')
+            const items = screen.getAllByRole('treeitem')
+
+            // Focus the last item
+            fireEvent.focus(items[items.length - 1])
+            // Press Home
+            fireEvent.keyDown(tree, { key: 'Home' })
+
+            expect(items[0].tabIndex).toBe(0)
+        })
+
+        it('End moves focus to the last visible treeitem', () => {
+            render(<LayerTree />)
+            const tree = screen.getByRole('tree')
+            const items = screen.getAllByRole('treeitem')
+
+            // Focus the first item
+            fireEvent.focus(items[0])
+            // Press End
+            fireEvent.keyDown(tree, { key: 'End' })
+
+            // The last visible item should have tabIndex=0
+            const lastItem = items[items.length - 1]
+            expect(lastItem.tabIndex).toBe(0)
+        })
+
+        it('Enter selects the focused node', () => {
+            const setSelectedNode = vi.fn()
+            useEditorStore.setState({ setSelectedNode })
+
+            render(<LayerTree />)
+            const tree = screen.getByRole('tree')
+            const items = screen.getAllByRole('treeitem')
+
+            // Focus the first item
+            fireEvent.focus(items[0])
+            // Press Enter
+            fireEvent.keyDown(tree, { key: 'Enter' })
+
+            expect(setSelectedNode).toHaveBeenCalledWith('root-nav-1')
+        })
+
+        it('Space selects the focused node', () => {
+            const setSelectedNode = vi.fn()
+            useEditorStore.setState({ setSelectedNode })
+
+            render(<LayerTree />)
+            const tree = screen.getByRole('tree')
+            const items = screen.getAllByRole('treeitem')
+
+            // Focus the first item
+            fireEvent.focus(items[0])
+            // Press Space
+            fireEvent.keyDown(tree, { key: ' ' })
+
+            expect(setSelectedNode).toHaveBeenCalledWith('root-nav-1')
+        })
+
+        it('ArrowLeft on an expanded node collapses it', () => {
+            render(<LayerTree />)
+            const tree = screen.getByRole('tree')
+            const items = screen.getAllByRole('treeitem')
+
+            // Root node is expanded (has children, default state)
+            expect(items[0].getAttribute('aria-expanded')).toBe('true')
+
+            // Focus root node
+            fireEvent.focus(items[0])
+            // Press ArrowLeft to collapse
+            fireEvent.keyDown(tree, { key: 'ArrowLeft' })
+
+            // After collapse, root should have aria-expanded=false
+            // Re-query since the DOM was updated
+            const updatedItems = screen.getAllByRole('treeitem')
+            expect(updatedItems[0].getAttribute('aria-expanded')).toBe('false')
+            // Children should no longer be visible (only 2 items: root-nav-1 + root-nav-2)
+            expect(updatedItems.length).toBe(2)
+        })
+
+        it('ArrowRight on a collapsed node expands it', () => {
+            render(<LayerTree />)
+            const tree = screen.getByRole('tree')
+            const items = screen.getAllByRole('treeitem')
+
+            // First collapse the root node
+            fireEvent.focus(items[0])
+            fireEvent.keyDown(tree, { key: 'ArrowLeft' })
+
+            // Verify collapsed
+            let updatedItems = screen.getAllByRole('treeitem')
+            expect(updatedItems[0].getAttribute('aria-expanded')).toBe('false')
+
+            // Now press ArrowRight to expand
+            fireEvent.keyDown(tree, { key: 'ArrowRight' })
+
+            updatedItems = screen.getAllByRole('treeitem')
+            expect(updatedItems[0].getAttribute('aria-expanded')).toBe('true')
+            // Children should be visible again (4 items total)
+            expect(updatedItems.length).toBe(4)
         })
     })
 })

@@ -35,9 +35,9 @@
  * Renderer Process only — no Node.js imports.
  */
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useCallback, useMemo } from 'react'
 import { BRAND } from '../../../shared/brand'
-import { Diamond, Hash, Type, Code2, ChevronRight, ChevronDown, AlertTriangle, Lock } from 'lucide-react'
+import { Diamond, Hash, Type, Code2, ChevronRight, ChevronDown, AlertTriangle, Lock, Layers } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
 import { useCanvasStore } from '../../store/canvasStore'
 import { useLockedNodeIds } from '../../hooks/useRemotePresence'
@@ -46,6 +46,54 @@ import type { VisualLayer } from '../../core/ast-parser'
 import { getLayerName } from '../../utils/layerNaming'
 import type { LayerType } from '../../utils/layerNaming'
 import type { DropPosition } from '../../utils/astModifier'
+
+// ── Tree traversal helpers ────────────────────────────────────────────────────
+
+/**
+ * Flattens the visible portion of a VisualLayer tree into an ordered list.
+ * Collapsed nodes' children are excluded since they are not rendered.
+ */
+function flattenVisibleTree(
+    layers: VisualLayer[],
+    collapsedIds: Set<string>,
+): VisualLayer[] {
+    const result: VisualLayer[] = []
+    for (const layer of layers) {
+        result.push(layer)
+        if (layer.children.length > 0 && !collapsedIds.has(layer.id)) {
+            result.push(...flattenVisibleTree(layer.children, collapsedIds))
+        }
+    }
+    return result
+}
+
+/**
+ * Builds a map from child ID to parent layer. Top-level nodes have no parent.
+ */
+function buildParentMap(
+    layers: VisualLayer[],
+    parentMap: Map<string, VisualLayer> = new Map(),
+    parent?: VisualLayer,
+): Map<string, VisualLayer> {
+    for (const layer of layers) {
+        if (parent) parentMap.set(layer.id, parent)
+        buildParentMap(layer.children, parentMap, layer)
+    }
+    return parentMap
+}
+
+/**
+ * Computes the depth of a node in the tree by walking the parent map.
+ */
+function getDepth(id: string, parentMap: Map<string, VisualLayer>): number {
+    let depth = 0
+    let current = parentMap.get(id)
+    while (current) {
+        depth++
+        current = parentMap.get(current.id)
+    }
+    return depth
+}
 
 // ── Icon map ───────────────────────────────────────────────────────────────────
 
@@ -67,9 +115,13 @@ interface LayerRowProps {
     onToggleCollapsed: (id: string) => void
     /** Set of node IDs actively locked by remote users (Phase C.2). */
     lockedIds: Set<string>
+    /** The ID of the node that currently holds roving tabindex focus. */
+    focusedId: string | null
+    /** Setter to update the roving tabindex focus target. */
+    setFocusedId: (id: string) => void
 }
 
-function LayerRow({ layer, depth, collapsedIds, onToggleCollapsed, lockedIds }: LayerRowProps) {
+function LayerRow({ layer, depth, collapsedIds, onToggleCollapsed, lockedIds, focusedId, setFocusedId }: LayerRowProps) {
     const selectedNodeId = useEditorStore((state) => state.selectedNodeId)
     const setSelectedNode = useEditorStore((state) => state.setSelectedNode)
     const setJumpToLine = useEditorStore((state) => state.setJumpToLine)
@@ -184,11 +236,18 @@ function LayerRow({ layer, depth, collapsedIds, onToggleCollapsed, lockedIds }: 
              */}
             <div
                 ref={rowRef}
+                role="treeitem"
+                aria-level={depth + 1}
+                aria-selected={isSelected}
+                aria-expanded={hasChildren ? !isCollapsed : undefined}
+                tabIndex={focusedId === layer.id ? 0 : -1}
+                data-layer-id={layer.id}
                 draggable={!isLocked}
                 className={`group relative flex w-full transition-opacity ${isDragging ? 'opacity-40' : ''
                     } ${isLocked ? 'cursor-not-allowed' : ''}`}
                 onMouseEnter={() => setHoveredId(layer.id)}
                 onMouseLeave={() => setHoveredId(null)}
+                onFocus={() => setFocusedId(layer.id)}
                 onDragStart={isLocked ? undefined : handleDragStart}
                 onDragEnd={isLocked ? undefined : handleDragEnd}
                 onDragOver={handleDragOver}
@@ -302,6 +361,8 @@ function LayerRow({ layer, depth, collapsedIds, onToggleCollapsed, lockedIds }: 
                         collapsedIds={collapsedIds}
                         onToggleCollapsed={onToggleCollapsed}
                         lockedIds={lockedIds}
+                        focusedId={focusedId}
+                        setFocusedId={setFocusedId}
                     />
                 ))}
         </>
@@ -312,9 +373,22 @@ function LayerRow({ layer, depth, collapsedIds, onToggleCollapsed, lockedIds }: 
 
 export function LayerTree() {
     const visualTree = useEditorStore((state) => state.visualTree)
+    const setSelectedNode = useEditorStore((state) => state.setSelectedNode)
     const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set())
+    const [focusedId, setFocusedId] = useState<string | null>(null)
     // Phase C.2: derive locked node IDs from the 5Hz presence poll.
     const lockedIds = useLockedNodeIds()
+    const treeRef = useRef<HTMLDivElement>(null)
+
+    // Memoize the flattened visible tree and parent map for keyboard navigation.
+    const flatVisible = useMemo(
+        () => flattenVisibleTree(visualTree, collapsedIds),
+        [visualTree, collapsedIds],
+    )
+    const parentMap = useMemo(
+        () => buildParentMap(visualTree),
+        [visualTree],
+    )
 
     function toggleCollapsed(id: string): void {
         setCollapsedIds((prev) => {
@@ -325,16 +399,111 @@ export function LayerTree() {
         })
     }
 
+    /**
+     * Moves roving tabindex focus to the given node ID and scrolls it into view.
+     */
+    const moveFocus = useCallback((id: string) => {
+        setFocusedId(id)
+        // After React re-renders with the new tabIndex=0, focus the element.
+        requestAnimationFrame(() => {
+            const el = treeRef.current?.querySelector(`[data-layer-id="${id}"]`) as HTMLElement | null
+            el?.focus()
+        })
+    }, [])
+
+    /**
+     * WAI-ARIA TreeView keyboard navigation handler.
+     * Operates on the flattened visible list for ArrowDown/Up/Home/End,
+     * and on the tree structure for ArrowLeft/Right.
+     */
+    const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+        if (flatVisible.length === 0) return
+
+        // Determine the currently focused node's index in the flat list.
+        const currentIndex = focusedId !== null
+            ? flatVisible.findIndex((l) => l.id === focusedId)
+            : -1
+        const currentLayer = currentIndex >= 0 ? flatVisible[currentIndex] : null
+
+        switch (e.key) {
+            case 'ArrowDown': {
+                e.preventDefault()
+                const nextIndex = currentIndex < flatVisible.length - 1 ? currentIndex + 1 : currentIndex
+                moveFocus(flatVisible[nextIndex >= 0 ? nextIndex : 0].id)
+                break
+            }
+            case 'ArrowUp': {
+                e.preventDefault()
+                const prevIndex = currentIndex > 0 ? currentIndex - 1 : 0
+                moveFocus(flatVisible[prevIndex].id)
+                break
+            }
+            case 'ArrowRight': {
+                e.preventDefault()
+                if (!currentLayer) break
+                if (currentLayer.children.length > 0 && collapsedIds.has(currentLayer.id)) {
+                    // Expand the collapsed node.
+                    toggleCollapsed(currentLayer.id)
+                } else if (currentLayer.children.length > 0) {
+                    // Move to first child.
+                    moveFocus(currentLayer.children[0].id)
+                }
+                break
+            }
+            case 'ArrowLeft': {
+                e.preventDefault()
+                if (!currentLayer) break
+                if (currentLayer.children.length > 0 && !collapsedIds.has(currentLayer.id)) {
+                    // Collapse the expanded node.
+                    toggleCollapsed(currentLayer.id)
+                } else {
+                    // Move to parent.
+                    const parent = parentMap.get(currentLayer.id)
+                    if (parent) moveFocus(parent.id)
+                }
+                break
+            }
+            case 'Home': {
+                e.preventDefault()
+                if (flatVisible.length > 0) moveFocus(flatVisible[0].id)
+                break
+            }
+            case 'End': {
+                e.preventDefault()
+                if (flatVisible.length > 0) moveFocus(flatVisible[flatVisible.length - 1].id)
+                break
+            }
+            case 'Enter':
+            case ' ': {
+                e.preventDefault()
+                if (currentLayer) setSelectedNode(currentLayer.id)
+                break
+            }
+            default:
+                // Do not preventDefault — let other keys propagate normally.
+                break
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [flatVisible, focusedId, collapsedIds, parentMap, moveFocus, setSelectedNode])
+
     if (visualTree.length === 0) {
         return (
-            <div className="flex h-full items-center justify-center">
-                <span className="text-xs text-zinc-500">No JSX found</span>
+            <div className="flex flex-col items-center justify-center gap-2 px-4 py-8 text-center h-full">
+                <Layers className="h-6 w-6 text-zinc-600" />
+                <p className="text-sm text-zinc-400">No component layers</p>
+                <p className="text-xs text-zinc-500 max-w-[240px]">Open a .tsx file to see its layer structure</p>
             </div>
         )
     }
 
     return (
-        <div className="h-full overflow-y-auto py-2">
+        <div
+            ref={treeRef}
+            role="tree"
+            aria-label="Component layer tree"
+            className="h-full overflow-y-auto py-2"
+            onKeyDown={handleKeyDown}
+        >
             {visualTree.map((layer) => (
                 <LayerRow
                     key={layer.id}
@@ -343,6 +512,8 @@ export function LayerTree() {
                     collapsedIds={collapsedIds}
                     onToggleCollapsed={toggleCollapsed}
                     lockedIds={lockedIds}
+                    focusedId={focusedId}
+                    setFocusedId={setFocusedId}
                 />
             ))}
         </div>

@@ -2,7 +2,7 @@
  * LaunchScreen.test.tsx
  *
  * Tests for the LAUNCH.2 context-aware entry system. Covers:
- *   - Primary CTA "Open Canvas"
+ *   - Primary CTA "New Project"
  *   - "Or connect something" section label
  *   - All four compact tiles
  *   - Inline expanded flows (folder step, Figma step)
@@ -41,11 +41,11 @@ function defaultProps() {
 describe('LaunchScreen', () => {
     // ── Primary CTA ──────────────────────────────────────────────────────────
 
-    it('renders the "Open Canvas" primary CTA button', async () => {
+    it('renders the "New Project" primary CTA button', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
         render(<LaunchScreen {...defaultProps()} />)
         await waitFor(() => {
-            expect(screen.getByText('Open Canvas')).toBeDefined()
+            expect(screen.getByText('New Project')).toBeDefined()
         })
     })
 
@@ -57,12 +57,12 @@ describe('LaunchScreen', () => {
         })
     })
 
-    it('calls onNewProject when "Open Canvas" is clicked', async () => {
+    it('calls onNewProject when "New Project" is clicked', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
         const props = defaultProps()
         render(<LaunchScreen {...props} />)
-        await waitFor(() => screen.getByText('Open Canvas'))
-        fireEvent.click(screen.getByText('Open Canvas'))
+        await waitFor(() => screen.getByText('New Project'))
+        fireEvent.click(screen.getByText('New Project'))
         await waitFor(() => {
             expect(props.onNewProject).toHaveBeenCalled()
         })
@@ -91,11 +91,11 @@ describe('LaunchScreen', () => {
         })
     })
 
-    it('renders the tagline "Design System Governance" in the header', async () => {
+    it('renders the tagline "AI governance for your design system" in the header', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
         render(<LaunchScreen {...defaultProps()} />)
         await waitFor(() => {
-            expect(screen.getByText('Design System Governance')).toBeDefined()
+            expect(screen.getByText('AI governance for your design system')).toBeDefined()
         })
     })
 

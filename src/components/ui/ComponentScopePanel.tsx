@@ -1,3 +1,4 @@
+// TODO: GLASS.1 — relocated from right sidebar. Will move to settings modal.
 /**
  * ComponentScopePanel.tsx — Phase CR.4 + EN.3 + EN.4
  *
@@ -29,7 +30,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Copy, X } from 'lucide-react'
+import { Copy, X, Package } from 'lucide-react'
 import { useNotificationStore } from '../../store/notificationStore'
 import type {
     ComponentScopeData,
@@ -697,12 +698,18 @@ export function ComponentScopePanel() {
 
             {showEmptyState ? (
                 /* ── Empty state ─────────────────────────────────────────── */
-                <div className="flex flex-col items-center justify-center px-4 py-10">
-                    <span className="text-xs font-medium text-zinc-400">No component registry found.</span>
-                    <span className="mt-1.5 text-center text-[10px] text-zinc-600">
-                        Create a <span className="font-mono text-zinc-500">flint-manifest.json</span> in your
-                        project root to define available components.
-                    </span>
+                <div className="flex flex-col items-center justify-center px-6 py-12 text-center">
+                    <Package className="h-8 w-8 text-zinc-600 mb-3" />
+                    <p className="text-sm text-zinc-400 leading-relaxed max-w-[240px]">
+                        No components indexed yet. Open a project with React, Vue, or Svelte components to populate the registry.
+                    </p>
+                    <button
+                        type="button"
+                        onClick={() => void window.flintAPI.project?.reindex()}
+                        className="mt-4 rounded border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs text-zinc-300 transition-colors hover:border-indigo-500/40 hover:bg-indigo-900/20 hover:text-indigo-300"
+                    >
+                        Reindex
+                    </button>
                 </div>
             ) : (
                 <>

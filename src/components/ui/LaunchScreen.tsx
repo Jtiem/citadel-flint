@@ -29,6 +29,7 @@ import {
     CheckCircle,
     ChevronRight,
     Zap,
+    Link2,
 } from 'lucide-react'
 import type { RecentProject } from '../../types/flint-api'
 import { FigmaSetupWizard } from './FigmaSetupWizard'
@@ -43,6 +44,8 @@ interface LaunchScreenProps {
     onNewProject: () => Promise<void>
     onOpenRecent: (projectPath: string) => Promise<void>
     onLoadDemo: () => Promise<void>
+    /** WS1: Opens the SetupWizard as a non-blocking modal for IDE/MCP configuration */
+    onConnectIDE?: () => void
 }
 
 // ── Tile definitions ──────────────────────────────────────────────────────────
@@ -76,7 +79,10 @@ const TILES = [
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadDemo: _onLoadDemo }: LaunchScreenProps) {
+// Detect web mode — true when running in browser via Express server
+const isWebMode = typeof (globalThis as Record<string, unknown>).__FLINT_WEB__ !== 'undefined'
+
+export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadDemo: _onLoadDemo, onConnectIDE }: LaunchScreenProps) {
     const [selectedPath, setSelectedPath] = useState<JTBDPath>(null)
     const [flowStep, setFlowStep] = useState<FlowStep>('choose')
     const [recentProjects, setRecentProjects] = useState<RecentProject[]>([])
@@ -85,6 +91,10 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
     const [figmaSetupOpen, setFigmaSetupOpen] = useState(false)
     const [progressMessage, setProgressMessage] = useState('')
     const [mcpConnected, setMcpConnected] = useState(false)
+    // Web mode: text input for project path (no native file dialog available)
+    const [webPathInput, setWebPathInput] = useState('')
+    const [webPathError, setWebPathError] = useState<string | null>(null)
+    const [showWebPathInput, setShowWebPathInput] = useState(false)
 
     // ── Context detection — runs once on mount ────────────────────────────────
     useEffect(() => {
@@ -154,6 +164,11 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
     }
 
     const handleFolderStep = async () => {
+        if (isWebMode) {
+            // In web mode, show the path input instead of triggering the native dialog
+            setShowWebPathInput(true)
+            return
+        }
         setFlowStep('progress')
         setProgressMessage('Setting up your project...')
         try {
@@ -161,6 +176,34 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
         } catch {
             setFlowStep('folder')
         }
+    }
+
+    const handleWebPathSubmit = async () => {
+        const trimmed = webPathInput.trim()
+        if (!trimmed) {
+            setWebPathError('Please enter a project path')
+            return
+        }
+        setWebPathError(null)
+        setFlowStep('progress')
+        setProgressMessage('Opening project...')
+        setShowWebPathInput(false)
+        try {
+            await onOpenRecent(trimmed)
+        } catch {
+            setWebPathError('Could not open that path. Check that it exists and try again.')
+            setFlowStep('folder')
+            setShowWebPathInput(true)
+        }
+    }
+
+    const handleOpenFolderFooter = async () => {
+        if (isWebMode) {
+            setShowWebPathInput(true)
+            // Scroll to visible area
+            return
+        }
+        await onOpenFolder()
     }
 
     const handleFigmaDone = () => {
@@ -237,7 +280,7 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
                     <h1 className="bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-2xl font-bold tracking-tight text-transparent">
                         {BRAND.product}
                     </h1>
-                    <p className="mt-0.5 text-xs text-zinc-500">Design System Governance</p>
+                    <p className="mt-0.5 text-xs text-zinc-500">AI governance for your design system</p>
                 </div>
             </header>
 
@@ -276,14 +319,14 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
                     <button
                         type="button"
                         onClick={() => { void onNewProject() }}
-                        aria-label="Open a blank canvas"
+                        aria-label="Start a new project"
                         className="group mb-6 flex w-full items-center gap-3 rounded-xl border border-indigo-500/30 bg-gradient-to-r from-indigo-600/20 to-indigo-500/10 px-5 py-4 text-left transition-all hover:border-indigo-500/50 hover:from-indigo-600/30 hover:to-indigo-500/20"
                     >
                         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-600/30 text-indigo-300 transition-colors group-hover:bg-indigo-600/40">
                             <Zap size={18} />
                         </div>
                         <div className="flex-1">
-                            <p className="text-sm font-semibold text-zinc-100">Open Canvas</p>
+                            <p className="text-sm font-semibold text-zinc-100">New Project</p>
                             <p className="text-xs text-zinc-400">Start building immediately. No setup required.</p>
                         </div>
                         <ChevronRight size={16} className="shrink-0 text-zinc-600 transition-transform group-hover:translate-x-0.5" />
@@ -389,13 +432,43 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
                                             ))}
                                         </ul>
                                     </div>
+                                    {/* Web mode: path text input (no native file dialog) */}
+                                    {showWebPathInput && (
+                                        <div className="mb-3">
+                                            <label htmlFor="web-project-path" className="mb-1.5 block text-xs font-medium text-zinc-400">
+                                                Project path (absolute)
+                                            </label>
+                                            <div className="flex gap-2">
+                                                <input
+                                                    id="web-project-path"
+                                                    type="text"
+                                                    value={webPathInput}
+                                                    onChange={(e) => { setWebPathInput(e.target.value); setWebPathError(null) }}
+                                                    onKeyDown={(e) => { if (e.key === 'Enter') void handleWebPathSubmit() }}
+                                                    placeholder="/Users/you/my-project"
+                                                    autoFocus
+                                                    className="flex-1 rounded-lg border border-zinc-700 bg-zinc-900/80 px-3 py-2.5 text-xs text-zinc-200 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500/50"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => { void handleWebPathSubmit() }}
+                                                    className="shrink-0 rounded-lg border border-indigo-500/40 bg-indigo-600/20 px-4 py-2.5 text-xs font-medium text-indigo-300 transition-colors hover:border-indigo-500/60 hover:bg-indigo-600/30"
+                                                >
+                                                    Open
+                                                </button>
+                                            </div>
+                                            {webPathError && (
+                                                <p className="mt-1.5 text-[11px] text-red-400">{webPathError}</p>
+                                            )}
+                                        </div>
+                                    )}
                                     <button
                                         type="button"
                                         onClick={() => { void handleFolderStep() }}
                                         className="flex w-full items-center justify-center gap-2 rounded-xl border border-indigo-500/40 bg-indigo-600/20 px-6 py-3.5 text-sm font-medium text-indigo-300 transition-colors hover:border-indigo-500/60 hover:bg-indigo-600/30"
                                     >
                                         <FolderOpen size={16} />
-                                        Choose folder
+                                        {isWebMode ? 'Enter project path' : 'Choose folder'}
                                     </button>
                                     <SkipLink onClick={handleSkip} />
                                 </div>
@@ -473,15 +546,57 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
                         </div>
                     )}
 
-                    {/* 8. Footer escape hatch */}
-                    <div className="mt-6 flex justify-center">
-                        <button
-                            type="button"
-                            onClick={() => { void onOpenFolder() }}
-                            className="text-xs text-zinc-600 transition-colors hover:text-zinc-400"
-                        >
-                            Open any folder...
-                        </button>
+                    {/* 8. Footer actions */}
+                    <div className="mt-6 flex flex-col items-center gap-3">
+                        {/* Web mode: standalone path input when no tile is expanded */}
+                        {isWebMode && !selectedPath && (
+                            <div className="w-full">
+                                <div className="flex gap-2">
+                                    <input
+                                        type="text"
+                                        value={webPathInput}
+                                        onChange={(e) => { setWebPathInput(e.target.value); setWebPathError(null) }}
+                                        onKeyDown={(e) => { if (e.key === 'Enter') void handleWebPathSubmit() }}
+                                        placeholder="Enter project path..."
+                                        className="flex-1 rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-xs text-zinc-300 placeholder-zinc-600 outline-none transition-colors focus:border-indigo-500/40"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => { void handleWebPathSubmit() }}
+                                        className="shrink-0 rounded-lg border border-zinc-700 bg-zinc-800/40 px-3 py-2 text-xs text-zinc-400 transition-colors hover:text-zinc-300"
+                                    >
+                                        Open
+                                    </button>
+                                </div>
+                                {webPathError && !selectedPath && (
+                                    <p className="mt-1 text-center text-[11px] text-red-400">{webPathError}</p>
+                                )}
+                            </div>
+                        )}
+                        <div className="flex items-center gap-3">
+                            {!isWebMode && (
+                                <button
+                                    type="button"
+                                    onClick={() => { void handleOpenFolderFooter() }}
+                                    className="text-xs text-zinc-600 transition-colors hover:text-zinc-400"
+                                >
+                                    Open any folder...
+                                </button>
+                            )}
+                            {onConnectIDE && (
+                                <>
+                                    {!isWebMode && <span className="text-zinc-700" aria-hidden="true">|</span>}
+                                    <button
+                                        type="button"
+                                        onClick={onConnectIDE}
+                                        className="flex items-center gap-1 text-xs text-zinc-600 transition-colors hover:text-indigo-400"
+                                    >
+                                        <Link2 size={11} />
+                                        Connect to IDE
+                                    </button>
+                                </>
+                            )}
+                        </div>
                     </div>
 
                 </div>

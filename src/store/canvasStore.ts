@@ -22,13 +22,26 @@
  */
 
 import { create } from 'zustand'
-import type { FileTreeNode, FlintPolicy } from '../types/flint-api'
+import type { FileTreeNode, FlintPolicy, LinterWarning } from '../types/flint-api'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 export type SaveState = 'idle' | 'editing' | 'saving' | 'saved'
 export type CanvasMode = 'design' | 'interact'
-export type RightTab = 'properties' | 'tokens' | 'activity' | 'health' | 'agents' | 'scope' | 'recovery'
+export type RightTab = 'governance' | 'properties' | 'tokens'
+
+/**
+ * Tabs that are always visible regardless of workspace activity.
+ * All other tabs unlock progressively as the user's workflow earns them.
+ * See OPP-10 in UX-OPPORTUNITIES.md.
+ */
+export const DEFAULT_UNLOCKED_TABS: ReadonlySet<string> = new Set(['governance', 'properties'])
+
+/** Left panel tabs that are always visible. */
+export type LeftTab = 'layers' | 'assets' | 'files'
+
+/** Left panel tabs that are always visible. */
+export const DEFAULT_UNLOCKED_LEFT_TABS: ReadonlySet<string> = new Set(['layers'])
 
 /**
  * Responsive preview breakpoint for the LivePreview container.
@@ -59,16 +72,9 @@ export const BREAKPOINT_LABELS: Record<PreviewBreakpoint, string> = {
 const BREAKPOINT_CYCLE: PreviewBreakpoint[] = ['mobile', 'tablet', 'desktop']
 
 /**
- * The three canvas view modes. Only 'preview' is functional in CV2.1.
- * 'build' and 'govern' render placeholder panels until CV2.3/CV2.4.
- *
- *   preview — current behavior: single LivePreview iframe node on the canvas
- *   build   — component library cards (CV2.3 will implement)
- *   govern  — compliance map cards (CV2.4 will implement)
- *
- * Note: do not confuse with `canvasMode` ('design' | 'interact'), which controls
- * pointer-event behavior within the LivePreview iframe. `canvasView` controls
- * which top-level content the canvas area shows — these are orthogonal concerns.
+ * @deprecated GLASS.1c — Canvas view modes removed. The canvas is always the canvas.
+ * Kept temporarily for backward compatibility with ComponentCardNode and ComponentCardStore.
+ * Will be deleted in cleanup pass.
  */
 export type CanvasView = 'preview' | 'build' | 'govern'
 
@@ -142,17 +148,6 @@ interface CanvasState {
      */
     canvasMode: CanvasMode
     /**
-     * Current canvas view mode (CV2.1).
-     *   'preview' — Live Preview iframe (default, current behavior).
-     *   'build'   — Component library cards (CV2.3 placeholder).
-     *   'govern'  — Compliance map cards (CV2.4 placeholder).
-     *
-     * Resets to 'preview' on closeWorkspace so view state never bleeds
-     * across projects. This field is renderer-only — not written to
-     * .flint/context.json (the MCP server does not need to know the view).
-     */
-    canvasView: CanvasView
-    /**
      * Bounding boxes for every flint node that has reported a NODE_LAYOUT
      * postMessage from the iframe. Keyed by data-flint-id.
      * Used by ShieldOverlay to position governance badges and heat tints.
@@ -175,11 +170,64 @@ interface CanvasState {
     /**
      * Current responsive breakpoint for the Live Preview container.
      * Controls the maxWidth applied to the preview iframe wrapper.
-     * Only meaningful when canvasView === 'preview'.
      *
      * Resets to 'desktop' on closeWorkspace.
      */
     previewBreakpoint: PreviewBreakpoint
+    /**
+     * Set of right-panel tab keys that have been unlocked via progressive
+     * disclosure (OPP-10). Tabs not in this set are hidden from the tab bar.
+     * Defaults to `DEFAULT_UNLOCKED_TABS` ('governance', 'properties').
+     * Persists for the lifetime of the workspace — does NOT reset on closeWorkspace
+     * because the user has earned those tabs.
+     */
+    unlockedTabs: Set<string>
+    /**
+     * Set of right-panel tab keys the user has already clicked at least once
+     * since they were unlocked. Used to suppress the one-time "new" indicator
+     * dot once a tab has been visited. Persists for the lifetime of the workspace.
+     */
+    seenTabs: Set<string>
+    /**
+     * Set of left-panel tab keys that have been unlocked via progressive
+     * disclosure (OPP-11). Defaults to `DEFAULT_UNLOCKED_LEFT_TABS` ('layers').
+     */
+    unlockedLeftTabs: Set<string>
+    /**
+     * True once the user has activated a non-desktop preview breakpoint at
+     * least once this session. Used by OPP-12 to gate the breakpoint chip.
+     */
+    hasUsedBreakpoint: boolean
+
+    // ── GLASS.1d: Violation scroll target ────────────────────────────────────
+    /**
+     * When non-null, GovernanceOverlay scrolls to the violation row for this
+     * flint ID and resets the value to null. Set by ShieldOverlay badge click
+     * to link the canvas badge to the authoritative violation list.
+     */
+    scrollToViolationId: string | null
+
+    // ── GLASS.1e: Governance rule filter ──────────────────────────────────────
+    /**
+     * When non-null, GovernanceOverlay filters its violation list to only show
+     * violations matching this type. Set by GovernanceDashboard when the user
+     * clicks a top-violated-rules row. Cleared by setting to null.
+     */
+    governanceRuleFilter: LinterWarning['type'] | null
+
+    // ── GLASS.3.2: Panel collapse/expand state ──────────────────────────────
+    /** Current width of the left panel. Default: 224 (w-56). */
+    leftPanelWidth: number
+    /** Current width of the right panel. Default: 288 (w-72). */
+    rightPanelWidth: number
+    /** True when the left panel is collapsed (width forced to 0). */
+    leftPanelCollapsed: boolean
+    /** True when the right panel is collapsed (width forced to 0). */
+    rightPanelCollapsed: boolean
+    /** Stored width to restore when expanding the left panel. */
+    _leftPanelSavedWidth: number
+    /** Stored width to restore when expanding the right panel. */
+    _rightPanelSavedWidth: number
 }
 
 interface CanvasActions {
@@ -244,12 +292,6 @@ interface CanvasActions {
      */
     setCanvasMode: (mode: CanvasMode) => void
     /**
-     * Switches the canvas view mode (CV2.1). Called by:
-     *   - CanvasViewToggle segmented control clicks
-     *   - Cmd+1/2/3 keyboard shortcuts in App.tsx
-     */
-    setCanvasView: (view: CanvasView) => void
-    /**
      * Records a single node's bounding box as reported by the iframe.
      * Called from ShieldOverlay when a NODE_LAYOUT postMessage arrives.
      */
@@ -277,7 +319,6 @@ interface CanvasActions {
      * Cycles the preview breakpoint in the requested direction.
      *   'up'   — mobile → tablet → desktop → mobile (forward cycle)
      *   'down' — desktop → tablet → mobile → desktop (reverse cycle)
-     * No-op when canvasView !== 'preview'.
      */
     cyclePreviewBreakpoint: (direction: 'up' | 'down') => void
     /**
@@ -296,6 +337,61 @@ interface CanvasActions {
     clearGovernedResult: () => void
     /** Opens or closes the ⌘K command palette. */
     setCommandPaletteOpen: (open: boolean) => void
+    /**
+     * Unlocks a right-panel tab, adding it to `unlockedTabs`.
+     * No-op if the tab is already unlocked.
+     */
+    unlockTab: (tab: string) => void
+    /**
+     * Records that a tab has been seen (clicked) by the user.
+     * Clears the "new" dot for that tab.
+     */
+    markTabSeen: (tab: string) => void
+    /**
+     * Returns true when the tab is present in `unlockedTabs`.
+     */
+    isTabUnlocked: (tab: string) => boolean
+    /**
+     * Returns true when the tab has been unlocked but not yet seen (clicked).
+     * Used to render the one-time "new" indigo dot indicator.
+     */
+    isTabNew: (tab: string) => boolean
+    /**
+     * Unlocks a left-panel tab, adding it to `unlockedLeftTabs`.
+     */
+    unlockLeftTab: (tab: string) => void
+    /**
+     * Returns true when the left-panel tab is present in `unlockedLeftTabs`.
+     */
+    isLeftTabUnlocked: (tab: string) => boolean
+    /**
+     * Records that the user has used a non-desktop breakpoint at least once.
+     * Called by cyclePreviewBreakpoint and setPreviewBreakpoint when the
+     * resulting breakpoint is not 'desktop'.
+     */
+    markBreakpointUsed: () => void
+    // ── GLASS.1d: Violation scroll target ────────────────────────────────────
+    /**
+     * Sets the flint ID that GovernanceOverlay should scroll to.
+     * Pass null to clear after the scroll completes.
+     */
+    setScrollToViolationId: (id: string | null) => void
+    // ── GLASS.1e: Governance rule filter ──────────────────────────────────────
+    /**
+     * Filters the GovernanceOverlay violation list to a specific violation type.
+     * Pass null to clear the filter and show all violations.
+     */
+    setGovernanceRuleFilter: (type: LinterWarning['type'] | null) => void
+    // ── GLASS.3.2: Panel collapse/expand actions ──────────────────────────────
+    /** Sets the left panel width explicitly (e.g. from a resize drag). */
+    setLeftPanelWidth: (w: number) => void
+    /** Sets the right panel width explicitly (e.g. from a resize drag). */
+    setRightPanelWidth: (w: number) => void
+    /** Toggles the left panel between collapsed and expanded. */
+    toggleLeftPanel: () => void
+    /** Toggles the right panel between collapsed and expanded. */
+    toggleRightPanel: () => void
+
     /**
      * Returns to the Launch Screen by nullifying all workspace state.
      * Cancels any pending auto-save timer before clearing state.
@@ -331,7 +427,6 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     workspaceFiles: null,
     expandedFolders: new Set<string>(),
     canvasMode: 'design' as CanvasMode,
-    canvasView: 'preview' as CanvasView,
     nodeLayouts: {},
     rightTab: 'properties' as RightTab,
     cachedPolicy: null,
@@ -341,6 +436,24 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     governedTimestamp: null,
     commandPaletteOpen: false,
     previewBreakpoint: 'desktop' as PreviewBreakpoint,
+    unlockedTabs: new Set<string>(DEFAULT_UNLOCKED_TABS),
+    seenTabs: new Set<string>(DEFAULT_UNLOCKED_TABS), // default tabs are pre-seen
+    unlockedLeftTabs: new Set<string>(DEFAULT_UNLOCKED_LEFT_TABS),
+    hasUsedBreakpoint: false,
+
+    // GLASS.1d: Violation scroll target
+    scrollToViolationId: null,
+
+    // GLASS.1e: Governance rule filter
+    governanceRuleFilter: null,
+
+    // GLASS.3.2: Panel collapse/expand defaults
+    leftPanelWidth: 224,
+    rightPanelWidth: 288,
+    leftPanelCollapsed: false,
+    rightPanelCollapsed: false,
+    _leftPanelSavedWidth: 224,
+    _rightPanelSavedWidth: 288,
 
     startDrag: (sourceId) => set({ dragSourceId: sourceId }),
     endDrag: () => set({ dragSourceId: null }),
@@ -408,8 +521,10 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     setOverridesExist: (exists) => set({ overridesExist: exists }),
     setA11yViolations: (violations) => set({ a11yViolations: violations }),
     setCanvasMode: (mode) => set({ canvasMode: mode }),
-    setCanvasView: (view) => set({ canvasView: view }),
-    setPreviewBreakpoint: (breakpoint) => set({ previewBreakpoint: breakpoint }),
+    setPreviewBreakpoint: (breakpoint) => {
+        set({ previewBreakpoint: breakpoint })
+        if (breakpoint !== 'desktop') get().markBreakpointUsed()
+    },
     cyclePreviewBreakpoint: (direction) => {
         const { previewBreakpoint } = get()
         const currentIndex = BREAKPOINT_CYCLE.indexOf(previewBreakpoint)
@@ -418,7 +533,9 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
             direction === 'up'
                 ? (currentIndex + 1) % len
                 : (currentIndex - 1 + len) % len
-        set({ previewBreakpoint: BREAKPOINT_CYCLE[nextIndex] })
+        const next = BREAKPOINT_CYCLE[nextIndex]
+        set({ previewBreakpoint: next })
+        if (next !== 'desktop') get().markBreakpointUsed()
     },
     setNodeLayout: (id, layout) =>
         set((state) => ({ nodeLayouts: { ...state.nodeLayouts, [id]: layout } })),
@@ -447,6 +564,76 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
 
     setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
 
+    unlockTab: (tab) =>
+        set((state) => {
+            if (state.unlockedTabs.has(tab)) return state
+            return { unlockedTabs: new Set([...state.unlockedTabs, tab]) }
+        }),
+
+    markTabSeen: (tab) =>
+        set((state) => {
+            if (state.seenTabs.has(tab)) return state
+            return { seenTabs: new Set([...state.seenTabs, tab]) }
+        }),
+
+    isTabUnlocked: (tab) => get().unlockedTabs.has(tab),
+
+    isTabNew: (tab) => get().unlockedTabs.has(tab) && !get().seenTabs.has(tab),
+
+    unlockLeftTab: (tab) =>
+        set((state) => {
+            if (state.unlockedLeftTabs.has(tab)) return state
+            return { unlockedLeftTabs: new Set([...state.unlockedLeftTabs, tab]) }
+        }),
+
+    isLeftTabUnlocked: (tab) => get().unlockedLeftTabs.has(tab),
+
+    markBreakpointUsed: () => set({ hasUsedBreakpoint: true }),
+
+    // GLASS.1d: Violation scroll target
+    setScrollToViolationId: (id) => set({ scrollToViolationId: id }),
+
+    // GLASS.1e: Governance rule filter
+    setGovernanceRuleFilter: (type) => set({ governanceRuleFilter: type }),
+
+    // ── GLASS.3.2: Panel collapse/expand ────────────────────────────────────
+    setLeftPanelWidth: (w) => set({ leftPanelWidth: w }),
+    setRightPanelWidth: (w) => set({ rightPanelWidth: w }),
+
+    toggleLeftPanel: () =>
+        set((state) => {
+            if (state.leftPanelCollapsed) {
+                // Expand: restore saved width
+                return {
+                    leftPanelCollapsed: false,
+                    leftPanelWidth: state._leftPanelSavedWidth,
+                }
+            }
+            // Collapse: save current width, set to 0
+            return {
+                _leftPanelSavedWidth: state.leftPanelWidth,
+                leftPanelCollapsed: true,
+                leftPanelWidth: 0,
+            }
+        }),
+
+    toggleRightPanel: () =>
+        set((state) => {
+            if (state.rightPanelCollapsed) {
+                // Expand: restore saved width
+                return {
+                    rightPanelCollapsed: false,
+                    rightPanelWidth: state._rightPanelSavedWidth,
+                }
+            }
+            // Collapse: save current width, set to 0
+            return {
+                _rightPanelSavedWidth: state.rightPanelWidth,
+                rightPanelCollapsed: true,
+                rightPanelWidth: 0,
+            }
+        }),
+
     closeWorkspace: () => {
         if (_saveTimer !== null) {
             clearTimeout(_saveTimer)
@@ -463,7 +650,6 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
             saveState: 'idle',
             expandedFolders: new Set<string>(),
             canvasMode: 'design',
-            canvasView: 'preview',
             nodeLayouts: {},
             rightTab: 'properties',
             commandPaletteOpen: false,
@@ -473,6 +659,15 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
             governedFixCount: 0,
             governedTimestamp: null,
             previewBreakpoint: 'desktop',
+            scrollToViolationId: null,
+            governanceRuleFilter: null,
+            // GLASS.3.2: Reset panel collapse state
+            leftPanelWidth: 224,
+            rightPanelWidth: 288,
+            leftPanelCollapsed: false,
+            rightPanelCollapsed: false,
+            _leftPanelSavedWidth: 224,
+            _rightPanelSavedWidth: 288,
         })
     },
 

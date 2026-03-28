@@ -59,7 +59,8 @@ describe('CommandPalette', () => {
         useCanvasStore.setState({ commandPaletteOpen: true })
         renderPalette()
         expect(screen.getByText('Governance')).toBeDefined()
-        expect(screen.getByText('Canvas')).toBeDefined()
+        // GLASS.1c: Canvas commands removed — section heading no longer rendered
+        expect(screen.getByText('Git / Recovery')).toBeDefined()
     })
 
     // 5. Escape key closes the palette
@@ -95,8 +96,8 @@ describe('CommandPalette', () => {
         useCanvasStore.setState({ commandPaletteOpen: true })
         renderPalette()
         const input = screen.getByRole('textbox')
-        fireEvent.change(input, { target: { value: 'preview' } })
-        expect(screen.getByText('Switch to Preview Mode')).toBeDefined()
+        fireEvent.change(input, { target: { value: 'audit' } })
+        expect(screen.getByText('Run Audit on Current File')).toBeDefined()
         // Non-matching commands should be absent
         expect(screen.queryByText('Open Git Time Machine')).toBeNull()
     })
@@ -133,23 +134,7 @@ describe('CommandPalette', () => {
         expect(allOptions()[0].getAttribute('aria-selected')).toBe('true')
     })
 
-    // 12. Enter activates the selected command (canvas view switch)
-    it('activates the selected command on Enter — canvas view switch', () => {
-        useCanvasStore.setState({ commandPaletteOpen: true })
-        renderPalette()
-        const input = screen.getByRole('textbox')
-        // Filter to only the "Build View" command
-        fireEvent.change(input, { target: { value: 'Build View' } })
-        // "Switch to Build View" should now be the first (only) item
-        fireEvent.keyDown(window, { key: 'Enter' })
-        // After 60ms delay the store should update
-        return new Promise<void>((resolve) => {
-            setTimeout(() => {
-                expect(useCanvasStore.getState().canvasView).toBe('build')
-                resolve()
-            }, 100)
-        })
-    })
+    // 12. (Removed — GLASS.1c: canvas view switch commands removed)
 
     // 13. Governance action: no-file guard shows warning notification
     it('shows a warning notification when audit is triggered with no active file', async () => {

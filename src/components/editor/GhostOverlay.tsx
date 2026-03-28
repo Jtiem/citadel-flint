@@ -29,7 +29,7 @@
 
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
-import { AlertTriangle, X } from 'lucide-react'
+import { AlertTriangle, Wrench, X } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
 import { useTokenStore } from '../../store/tokenStore'
 import type { DesignToken, TokenType } from '../../types/flint-api'
@@ -270,6 +270,20 @@ export function GhostOverlay() {
     const entries = findHardcodedClasses(className, tokens)
     if (entries.length === 0) return null
 
+    // GLASS.1d: Auto-fix handler — deterministic token replacement, same
+    // pattern as GovernanceOverlay. Only fires when a suggestion is available.
+    const handleAutoFix = (hardcodedClass: string, tokenClass: string) => {
+        if (!selectedNodeId) return
+        useEditorStore.getState().applyBatch([
+            {
+                op: 'applyTokenFix',
+                nodeId: selectedNodeId,
+                hardcodedClass,
+                tokenClass,
+            },
+        ])
+    }
+
     return createPortal(
         // Backdrop: pointer-events none so drag interactions pass through.
         <div
@@ -286,8 +300,9 @@ export function GhostOverlay() {
                 <div className="flex items-center justify-between border-b border-zinc-800 px-3 py-2">
                     <div className="flex items-center gap-1.5">
                         <AlertTriangle size={12} className="text-amber-400 shrink-0" />
+                        {/* EDU-03: "Values outside your design system" is clearer than "Hardcoded Values" */}
                         <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-400">
-                            Hardcoded Values
+                            Outside Design System
                         </span>
                     </div>
                     <button
@@ -300,9 +315,9 @@ export function GhostOverlay() {
                     </button>
                 </div>
 
-                {/* Node badge */}
+                {/* Node badge — EDU-03: "Selected element" instead of raw "Node: id" */}
                 <div className="border-b border-zinc-800 px-3 py-1.5">
-                    <span className="text-[10px] text-zinc-500">Node: </span>
+                    <span className="text-[10px] text-zinc-500">Selected element: </span>
                     <span className="font-mono text-[10px] text-zinc-400">{selectedNodeId}</span>
                 </div>
 
@@ -325,6 +340,22 @@ export function GhostOverlay() {
                                     <span className="font-mono text-[10px] text-indigo-400 bg-zinc-800 rounded px-1 py-0.5">
                                         {entry.suggestion}
                                     </span>
+                                    {/* GLASS.1d: Auto-Fix button with hover preview */}
+                                    <button
+                                        type="button"
+                                        onClick={() => handleAutoFix(entry.hardcoded, entry.suggestion!)}
+                                        className="group/fix flex items-center gap-0.5 text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+                                        title={`Replace ${entry.hardcoded} with ${entry.suggestion}`}
+                                    >
+                                        <Wrench size={9} />
+                                        <span className="text-[10px]">Fix</span>
+                                        {/* Hover preview: before→after diff */}
+                                        <span className="hidden group-hover/fix:inline-flex items-center gap-1 ml-1 text-[9px]">
+                                            <span className="line-through text-red-400/70">{entry.hardcoded}</span>
+                                            <span className="text-zinc-600">→</span>
+                                            <span className="text-emerald-400/70">{entry.suggestion}</span>
+                                        </span>
+                                    </button>
                                 </>
                             )}
 
@@ -337,10 +368,10 @@ export function GhostOverlay() {
                     ))}
                 </ul>
 
-                {/* Footer hint */}
+                {/* Footer hint — EDU-03: plain language, no "Mithril gate" jargon */}
                 <div className="border-t border-zinc-800 px-3 py-1.5">
                     <p className="text-[10px] text-zinc-500 leading-tight">
-                        Replace with the nearest token class to pass the Mithril gate.
+                        Replace these values with design tokens to pass the design system check.
                     </p>
                 </div>
             </div>

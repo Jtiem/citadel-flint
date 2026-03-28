@@ -164,6 +164,10 @@ vi.mock('../../hooks/useAutopilot', () => ({
     useAutopilot: vi.fn(),
 }))
 
+vi.mock('../../hooks/useIDEFileSync', () => ({
+    useIDEFileSync: vi.fn(),
+}))
+
 // Silence seedTokens dynamic import
 vi.mock('../../core/seedTokens', () => ({
     seedTokens: vi.fn(),
@@ -205,8 +209,8 @@ describe('App — LaunchScreen mount gate (Journey 1, Step 1.1)', () => {
             render(<App />)
         })
 
-        // LaunchScreen always shows "Design System Governance" in its header
-        expect(screen.getByText('Design System Governance')).toBeInTheDocument()
+        // LaunchScreen always shows the subtitle "AI governance for your design system"
+        expect(screen.getByText('AI governance for your design system')).toBeInTheDocument()
 
         // Workspace panels must NOT be present
         expect(screen.queryByTestId('xy-canvas')).not.toBeInTheDocument()
@@ -230,7 +234,7 @@ describe('App — LaunchScreen mount gate (Journey 1, Step 1.1)', () => {
         expect(screen.getByTestId('layer-tree')).toBeInTheDocument()
 
         // LaunchScreen must NOT appear
-        expect(screen.queryByText('Design System Governance')).not.toBeInTheDocument()
+        expect(screen.queryByText('AI governance for your design system')).not.toBeInTheDocument()
 
         // The workspace header always shows "Flint Glass"
         expect(screen.getByRole('heading', { name: /flint glass/i })).toBeInTheDocument()
@@ -274,7 +278,7 @@ describe('App — LaunchScreen mount gate (Journey 1, Step 1.1)', () => {
 
         // Workspace is visible
         expect(screen.getByTestId('xy-canvas')).toBeInTheDocument()
-        expect(screen.queryByText('Design System Governance')).not.toBeInTheDocument()
+        expect(screen.queryByText('AI governance for your design system')).not.toBeInTheDocument()
 
         // Simulate closing the project (equivalent to clicking "Close Project"
         // or the native menu event triggering closeWorkspace())
@@ -283,7 +287,7 @@ describe('App — LaunchScreen mount gate (Journey 1, Step 1.1)', () => {
         })
 
         // LaunchScreen must reappear
-        expect(screen.getByText('Design System Governance')).toBeInTheDocument()
+        expect(screen.getByText('AI governance for your design system')).toBeInTheDocument()
 
         // Workspace panels must be gone
         expect(screen.queryByTestId('xy-canvas')).not.toBeInTheDocument()
@@ -292,36 +296,77 @@ describe('App — LaunchScreen mount gate (Journey 1, Step 1.1)', () => {
     })
 })
 
-// ── ONBOARD.1: Setup Wizard gate in App.tsx ───────────────────────────────────
+// ── WS1: Demo-first onboarding gate in App.tsx ────────────────────────────────
 //
-// The wizard gate sits BEFORE the LaunchScreen gate. When checkFirstLaunch
-// returns isFirstLaunch: true, the app renders SetupWizard. When it returns
-// isFirstLaunch: false, the app proceeds past the wizard to LaunchScreen or
-// the workspace. While waiting for checkFirstLaunch to resolve, the app
-// renders null (no flash of content).
+// The blocking SetupWizard gate is replaced by demo-first onboarding. When
+// checkFirstLaunch returns isFirstLaunch: true, the app auto-loads the demo
+// project and marks first launch complete. The SetupWizard is no longer shown
+// as a blocking gate — it's available later as a non-blocking modal.
 
-describe('App — Setup Wizard gate (ONBOARD.1)', () => {
+describe('App — Demo-first onboarding gate (WS1)', () => {
     beforeEach(() => {
         resetAllStores()
         ;(window as any).flintAPI = createMockFlintAPI()
     })
 
-    // ── Wizard gate test 1 ────────────────────────────────────────────────────
-    it('renders SetupWizard when checkFirstLaunch returns { isFirstLaunch: true }', async () => {
-        ;(window.flintAPI.setup!.checkFirstLaunch as ReturnType<typeof vi.fn>).mockResolvedValue({
+    // ── WS1 test 1 ────────────────────────────────────────────────────────────
+    it('auto-loads demo project on first launch instead of showing SetupWizard', async () => {
+        const demoTree = {
+            name: 'demo-project',
+            path: '/tmp/flint-demo-123',
+            type: 'directory' as const,
+            children: [
+                { name: 'DemoCard.tsx', path: '/tmp/flint-demo-123/DemoCard.tsx', type: 'file' as const, children: [] },
+            ],
+        }
+
+        const api = window.flintAPI as ReturnType<typeof createMockFlintAPI>
+        ;(api.setup!.checkFirstLaunch as ReturnType<typeof vi.fn>).mockResolvedValue({
             isFirstLaunch: true,
+        })
+        ;(api.beta!.loadDemoProject as ReturnType<typeof vi.fn>).mockResolvedValue({
+            projectPath: '/tmp/flint-demo-123',
+        })
+        ;(api.project.openPath as ReturnType<typeof vi.fn>).mockResolvedValue(demoTree)
+        ;(api.readFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+            'export default function DemoCard() { return <div /> }'
+        )
+
+        await act(async () => {
+            render(<App />)
+        })
+
+        // SetupWizard must NOT appear — demo-first replaces the blocking gate
+        expect(screen.queryByTestId('setup-wizard')).not.toBeInTheDocument()
+        // Demo project auto-loaded — workspace canvas is visible
+        expect(screen.getByTestId('xy-canvas')).toBeInTheDocument()
+        // completeFirstLaunch is NOT called during demo load — it's deferred
+        // until the user dismisses the OnboardingOverlay (first meaningful action)
+        expect(api.setup!.completeFirstLaunch).not.toHaveBeenCalled()
+    })
+
+    // ── WS1 test 2 ────────────────────────────────────────────────────────────
+    it('falls through to LaunchScreen when demo load fails on first launch', async () => {
+        const api = window.flintAPI as ReturnType<typeof createMockFlintAPI>
+        ;(api.setup!.checkFirstLaunch as ReturnType<typeof vi.fn>).mockResolvedValue({
+            isFirstLaunch: true,
+        })
+        // Demo load returns an error
+        ;(api.beta!.loadDemoProject as ReturnType<typeof vi.fn>).mockResolvedValue({
+            error: 'demo not available',
         })
 
         await act(async () => {
             render(<App />)
         })
 
-        expect(screen.getByTestId('setup-wizard')).toBeInTheDocument()
-        // LaunchScreen must NOT appear while wizard is shown
-        expect(screen.queryByText('Design System Governance')).not.toBeInTheDocument()
+        // Should fall through to LaunchScreen gracefully
+        expect(screen.getByText('AI governance for your design system')).toBeInTheDocument()
+        // SetupWizard must NOT appear as a blocker
+        expect(screen.queryByTestId('setup-wizard')).not.toBeInTheDocument()
     })
 
-    // ── Wizard gate test 2 ────────────────────────────────────────────────────
+    // ── WS1 test 3 (unchanged) ───────────────────────────────────────────────
     it('renders LaunchScreen (not wizard) when checkFirstLaunch returns { isFirstLaunch: false }', async () => {
         ;(window.flintAPI.setup!.checkFirstLaunch as ReturnType<typeof vi.fn>).mockResolvedValue({
             isFirstLaunch: false,
@@ -333,11 +378,11 @@ describe('App — Setup Wizard gate (ONBOARD.1)', () => {
             render(<App />)
         })
 
-        expect(screen.getByText('Design System Governance')).toBeInTheDocument()
+        expect(screen.getByText('AI governance for your design system')).toBeInTheDocument()
         expect(screen.queryByTestId('setup-wizard')).not.toBeInTheDocument()
     })
 
-    // ── Wizard gate test 3 ────────────────────────────────────────────────────
+    // ── WS1 test 4 (unchanged) ───────────────────────────────────────────────
     it('renders null while waiting for checkFirstLaunch to resolve', async () => {
         // Never resolve — the promise hangs so setupComplete stays null
         ;(window.flintAPI.setup!.checkFirstLaunch as ReturnType<typeof vi.fn>).mockReturnValue(
@@ -353,6 +398,114 @@ describe('App — Setup Wizard gate (ONBOARD.1)', () => {
         expect(container.firstChild).toBeNull()
         // Neither wizard nor LaunchScreen should be present
         expect(screen.queryByTestId('setup-wizard')).not.toBeInTheDocument()
-        expect(screen.queryByText('Design System Governance')).not.toBeInTheDocument()
+        expect(screen.queryByText('AI governance for your design system')).not.toBeInTheDocument()
+    })
+})
+
+// ── LAUNCH.2 regression: LaunchScreen loop bug ────────────────────────────────
+//
+// Root cause: server/index.ts `project:get-last-session` returned activeProjectRoot
+// (the CLI default) unconditionally. App.tsx auto-resume called project.openPath()
+// concurrently with any user-triggered open (e.g. createScratchpad). The two async
+// hydrateWorkspace calls raced: one set workspaceFiles to the scratchpad tree, the
+// other overwrote it with the CLI root tree. If openPath took longer than
+// createScratchpad, the final workspaceFiles value oscillated — LaunchScreen loop.
+//
+// Fix: server returns null from project:get-last-session until a project has been
+// explicitly opened (sessionExplicitlyOpened flag). The React side is validated here:
+// when getLastSession returns null, auto-resume does nothing and LaunchScreen stays.
+
+describe('App — auto-resume LaunchScreen loop regression (LAUNCH.2)', () => {
+    beforeEach(() => {
+        resetAllStores()
+        ;(window as any).flintAPI = createMockFlintAPI()
+    })
+
+    // ── Regression test 1 ─────────────────────────────────────────────────────
+    // When getLastSession returns null (the corrected server behaviour on fresh
+    // load), auto-resume must NOT call project.openPath and must NOT change
+    // workspaceFiles — the app stays on LaunchScreen.
+    it('stays on LaunchScreen when getLastSession returns null (no previous session)', async () => {
+        // getLastSession already returns null in the default createMockFlintAPI()
+        // (see setup.ts line ~105). Confirm this is the case.
+        const api = window.flintAPI as ReturnType<typeof createMockFlintAPI>
+        expect(api.session.getLastSession).toBeDefined()
+
+        await act(async () => {
+            render(<App />)
+        })
+
+        // LaunchScreen must be showing
+        expect(screen.getByText('AI governance for your design system')).toBeInTheDocument()
+
+        // project.openPath must NOT have been called — auto-resume skipped
+        expect((api.project.openPath as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0)
+
+        // workspaceFiles must still be null
+        expect(useCanvasStore.getState().workspaceFiles).toBeNull()
+    })
+
+    // ── Regression test 2 ─────────────────────────────────────────────────────
+    // When getLastSession returns a real session, auto-resume calls openPath.
+    // If openPath succeeds, the workspace is hydrated and the canvas shows.
+    // This verifies the happy path is NOT broken by the fix.
+    it('hydrates workspace when getLastSession returns a non-scratchpad session', async () => {
+        const sessionTree: FileTreeNode = {
+            name: 'my-app',
+            path: '/tmp/my-app',
+            type: 'directory',
+            children: [
+                { name: 'App.tsx', path: '/tmp/my-app/App.tsx', type: 'file', children: [] },
+            ],
+        }
+
+        const api = window.flintAPI as ReturnType<typeof createMockFlintAPI>
+        // Override getLastSession to return a real non-scratchpad session
+        ;(api.session.getLastSession as ReturnType<typeof vi.fn>).mockResolvedValue({
+            path: '/tmp/my-app',
+            name: 'my-app',
+            isScratchpad: false,
+        })
+        // openPath returns the tree
+        ;(api.project.openPath as ReturnType<typeof vi.fn>).mockResolvedValue(sessionTree)
+        // readFile returns stub content so setActiveFile doesn't throw
+        ;(api.readFile as ReturnType<typeof vi.fn>).mockResolvedValue(
+            'export default function App() { return <div /> }'
+        )
+
+        await act(async () => {
+            render(<App />)
+        })
+
+        // project.openPath must have been called with the session path
+        expect((api.project.openPath as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]).toBe('/tmp/my-app')
+
+        // workspaceFiles should be populated — workspace canvas shows
+        expect(useCanvasStore.getState().workspaceFiles).toEqual(sessionTree)
+        expect(screen.getByTestId('xy-canvas')).toBeInTheDocument()
+        expect(screen.queryByText('AI governance for your design system')).not.toBeInTheDocument()
+    })
+
+    // ── Regression test 3 ─────────────────────────────────────────────────────
+    // When getLastSession returns a scratchpad session, auto-resume must skip it
+    // (the guard `if (session.isScratchpad) return`). LaunchScreen stays.
+    it('stays on LaunchScreen when getLastSession returns a scratchpad session', async () => {
+        const api = window.flintAPI as ReturnType<typeof createMockFlintAPI>
+        ;(api.session.getLastSession as ReturnType<typeof vi.fn>).mockResolvedValue({
+            path: '/Users/test/Flint Projects/Untitled-1',
+            name: 'Untitled-1',
+            isScratchpad: true,
+        })
+
+        await act(async () => {
+            render(<App />)
+        })
+
+        // Scratchpad sessions are skipped — openPath must NOT be called
+        expect((api.project.openPath as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0)
+
+        // LaunchScreen stays
+        expect(screen.getByText('AI governance for your design system')).toBeInTheDocument()
+        expect(useCanvasStore.getState().workspaceFiles).toBeNull()
     })
 })

@@ -1,4 +1,6 @@
 /**
+ * @deprecated GLASS.1c — recipes moved to ComponentPanel
+ *
  * RecipeStrip — src/components/editor/RecipeStrip.tsx
  *
  * A horizontally-scrollable strip of pre-composed recipe chips rendered

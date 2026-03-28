@@ -88,7 +88,6 @@ beforeEach(() => {
     // Reset stores to known state before each test.
     useCanvasStore.setState({
         workspaceFiles: null,
-        canvasView: 'preview',
         activeFilePath: null,
         saveState: 'idle',
     })
@@ -130,18 +129,6 @@ describe('useDesignToCodeApply', () => {
         })
 
         expect(useCanvasStore.getState().workspaceFiles).toEqual(tree)
-    })
-
-    it('sets canvasView to preview on success', async () => {
-        useCanvasStore.setState({ canvasView: 'build' })
-
-        const { result } = renderHook(() => useDesignToCodeApply())
-
-        await act(async () => {
-            await result.current.applyDesignToCode(makeRequest())
-        })
-
-        expect(useCanvasStore.getState().canvasView).toBe('preview')
     })
 
     it('sets activeFilePath to the page compositor path on success', async () => {
@@ -288,7 +275,7 @@ describe('useDesignToCodeApply', () => {
 
     it('does not update stores when result.ok is false', async () => {
         const originalTree = makeWorkspaceTree()
-        useCanvasStore.setState({ workspaceFiles: originalTree, canvasView: 'build' })
+        useCanvasStore.setState({ workspaceFiles: originalTree })
 
         applyFn.mockResolvedValue({ ok: false, error: 'No project open', pageFilePath: '', componentFilePaths: [], workspaceTree: makeWorkspaceTree() })
 
@@ -300,8 +287,6 @@ describe('useDesignToCodeApply', () => {
 
         // workspaceFiles should not have been updated
         expect(useCanvasStore.getState().workspaceFiles).toEqual(originalTree)
-        // canvasView should not have been changed to 'preview'
-        expect(useCanvasStore.getState().canvasView).toBe('build')
     })
 
     it('handles missing window.flintAPI gracefully (no crash, returns false)', async () => {

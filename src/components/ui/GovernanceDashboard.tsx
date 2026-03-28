@@ -27,9 +27,11 @@
  */
 
 import { useMemo, useState, useEffect, useCallback } from 'react'
+import { ChevronDown, ChevronRight, Loader2, Play, ShieldOff, ShieldCheck } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
 import { useCanvasStore } from '../../store/canvasStore'
 import { useGovernanceStore } from '../../store/governanceStore'
+import { useTokenStore } from '../../store/tokenStore'
 import type { LinterWarning, BaselineEntry } from '../../types/flint-api'
 import { auditDelta } from '../../utils/deltaAudit'
 import { CoverageBar } from './CoverageBar'
@@ -76,23 +78,28 @@ const GRADE_RING: Record<string, string> = {
 const SEVERITY_DOT: Record<LinterWarning['severity'], string> = {
     critical: 'bg-red-400',
     amber: 'bg-amber-400',
+    advisory: 'bg-indigo-400',
 }
 
 const SEVERITY_BADGE: Record<LinterWarning['severity'], string> = {
     critical: 'bg-red-900/30 text-red-400 border border-red-700/40',
     amber: 'bg-amber-900/20 text-amber-400 border border-amber-500/30',
+    advisory: 'bg-indigo-900/20 text-indigo-400 border border-indigo-500/30',
 }
 
 // ── Violation type → short label ─────────────────────────────────────────────
 
 const TYPE_LABEL: Record<LinterWarning['type'], string> = {
-    'color-drift':      'Color Drift',
-    'typography-drift': 'Typography',
-    'spacing-drift':    'Spacing',
-    'shadow-drift':     'Shadow',
-    'opacity-drift':    'Opacity',
-    'a11y':             'A11y',
-    'semantic-drift':   'Semantic',
+    'color-drift':        'Color Drift',
+    'typography-drift':   'Typography',
+    'spacing-drift':      'Spacing',
+    'shadow-drift':       'Shadow',
+    'opacity-drift':      'Opacity',
+    'a11y':               'A11y',
+    'semantic-drift':     'Semantic',
+    'sync':               'Token Sync',
+    'inline-style-drift': 'Inline Style',
+    'registry':           'Registry',
 }
 
 // ── Score ring (SVG) ──────────────────────────────────────────────────────────
@@ -176,9 +183,36 @@ export function GovernanceDashboard() {
     const activeFilePath       = useCanvasStore((s) => s.activeFilePath)
     const jurisdictionCoverage = useGovernanceStore((s) => s.jurisdictionCoverage)
     const inheritanceChain     = useGovernanceStore((s) => s.inheritanceChain)
+    const tokenCount           = useTokenStore((s) => s.tokens.length)
+    const setRightTab          = useCanvasStore((s) => s.setRightTab)
+    const unlockTab            = useCanvasStore((s) => s.unlockTab)
+
+    // GLASS.1e: Rule filter and audit state
+    const setGovernanceRuleFilter = useCanvasStore((s) => s.setGovernanceRuleFilter)
+    const [isAuditing, setIsAuditing] = useState(false)
 
     // ERM: load resolved config on mount and subscribe to changes
     const { isLoading: isLoadingConfig } = useGovernanceConfig()
+
+    // ── GOV.2: Override count (relocated from StatusBar — GLASS.3.4-B) ──────
+    const [govOverrideCount, setGovOverrideCount] = useState<number>(0)
+
+    const fetchOverrideCount = useCallback(() => {
+        window.flintAPI.governance.getOverrideCount()
+            .then(setGovOverrideCount)
+            .catch(() => { /* governance IPC may not be ready on first paint */ })
+    }, [])
+
+    useEffect(() => {
+        fetchOverrideCount()
+        const unsubscribe = window.flintAPI.governance.onOverrideRecorded(() => {
+            fetchOverrideCount()
+        })
+        return unsubscribe
+    }, [fetchOverrideCount])
+
+    // EDU-08: "How is this calculated?" collapsible — collapsed by default
+    const [isScoreExpanded, setIsScoreExpanded] = useState(false)
 
     // ── Delta Mode state ──────────────────────────────────────────────────────
     const [isBaselineSet, setIsBaselineSet] = useState(false)
@@ -329,6 +363,40 @@ export function GovernanceDashboard() {
         setTimeout(() => setConfirmationMsg(null), 4000)
     }, [])
 
+    // ── GLASS.1e: Run Audit handler ────────────────────────────────────────
+    const handleRunAudit = useCallback(async () => {
+        if (!activeFilePath) return
+        setIsAuditing(true)
+        try {
+            await window.flintAPI.mcp?.callTool('flint_audit', { file: activeFilePath })
+        } catch (err) {
+            console.error('[GovernanceDashboard] Run Audit failed:', err)
+        } finally {
+            setIsAuditing(false)
+        }
+    }, [activeFilePath])
+
+    // ── GLASS.1e: Score trend hint — most impactful fix category ─────────
+    const scoreTrendHint = useMemo<string | null>(() => {
+        if (topRules.length === 0) return null
+        const top = topRules[0]
+        const label = TYPE_LABEL[top.type]
+        // Compute what the next grade would be if those violations were fixed
+        const pointsBack = top.type === 'a11y' ? top.count * 10 : top.count * 5
+        const projectedScore = Math.min(100, score + pointsBack)
+        const projectedGrade = gradeFromScore(projectedScore)
+        if (projectedGrade === grade) {
+            return `Fix ${top.count} ${label} issue${top.count !== 1 ? 's' : ''} to improve your score by ${pointsBack} points`
+        }
+        return `Fix ${top.count} ${label} issue${top.count !== 1 ? 's' : ''} to reach grade ${projectedGrade}`
+    }, [topRules, score, grade])
+
+    // ── GLASS.1e: Handle rule row click → filter GovernanceOverlay ───────
+    const handleRuleRowClick = useCallback((type: LinterWarning['type']) => {
+        setGovernanceRuleFilter(type)
+        setRightTab('properties')
+    }, [setGovernanceRuleFilter, setRightTab])
+
     // ── Render ────────────────────────────────────────────────────────────────
     return (
         <div className="flex flex-col">
@@ -339,108 +407,256 @@ export function GovernanceDashboard() {
                     Governance Health
                 </h3>
 
-                {/* Delta Mode badge */}
-                {isBaselineSet && (
-                    <span
-                        className="inline-flex items-center gap-1 rounded border border-indigo-500/40 bg-indigo-900/20 px-1.5 py-0.5 text-[10px] font-medium text-indigo-400"
-                        title="Delta Mode — only new violations since the baseline are counted. Click 'Clear Baseline' below to show all violations again."
+                <div className="flex items-center gap-1.5">
+                    {/* GLASS.1e: Run Audit button */}
+                    <button
+                        type="button"
+                        onClick={() => void handleRunAudit()}
+                        disabled={isAuditing || !activeFilePath}
+                        className="flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 transition-colors disabled:text-zinc-600 disabled:cursor-not-allowed"
+                        data-testid="run-audit-button"
                     >
-                        <span className="h-1.5 w-1.5 rounded-full bg-indigo-400" aria-hidden="true" />
-                        Delta Mode
-                    </span>
-                )}
-            </div>
+                        {isAuditing ? (
+                            <Loader2 size={10} className="animate-spin" />
+                        ) : (
+                            <Play size={10} />
+                        )}
+                        {isAuditing ? 'Auditing...' : 'Run Audit'}
+                    </button>
 
-            {/* ── Score hero ───────────────────────────────────────────── */}
-            <div className="flex items-center gap-4 px-4 py-5">
-                <ScoreRing score={score} grade={grade} />
-
-                <div className="flex flex-col gap-0.5">
-                    <span
-                        className={`text-6xl font-bold leading-none ${GRADE_TEXT[grade]}`}
-                        aria-label={`Grade ${grade}`}
-                    >
-                        {grade}
-                    </span>
-                    <span className="text-xs text-zinc-500">
-                        {isBaselineSet ? 'Delta Score (new issues only)' : 'Governance Health'}
-                    </span>
-                </div>
-            </div>
-
-            {/* ── Penalty breakdown ────────────────────────────────────── */}
-            <div className="border-b border-zinc-800 px-3 py-2">
-                <h3 className="text-xs font-medium uppercase tracking-wider text-zinc-400">
-                    Penalty Breakdown
-                </h3>
-            </div>
-            <div className="px-3 py-2 space-y-1.5">
-                <div className="flex items-center justify-between">
-                    <span className="text-xs text-zinc-400">Mithril violations</span>
-                    <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-mono text-zinc-100">{mithrilCount}</span>
-                        <span className="text-xs text-zinc-600">× 5 pts</span>
-                    </div>
-                </div>
-                <div className="flex items-center justify-between">
-                    <span className="text-xs text-zinc-400">Accessibility violations</span>
-                    <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-mono text-zinc-100">{a11yCount}</span>
-                        <span className="text-xs text-zinc-600">× 10 pts</span>
-                    </div>
-                </div>
-                <div className="flex items-center justify-between">
-                    <span className="text-xs text-zinc-400">Active overrides</span>
-                    <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-mono text-zinc-100">{overrideCount}</span>
-                        <span className="text-xs text-zinc-600">× 3 pts</span>
-                    </div>
-                </div>
-            </div>
-
-            {/* ── Top violated rules ───────────────────────────────────── */}
-            <div className="border-b border-t border-zinc-800 px-3 py-2">
-                <h3 className="text-xs font-medium uppercase tracking-wider text-zinc-400">
-                    Top Violated Rules
+                    {/* Delta Mode badge */}
                     {isBaselineSet && (
-                        <span className="ml-1.5 text-indigo-400">(new only)</span>
-                    )}
-                </h3>
-            </div>
-            <div className="px-3 py-2 space-y-1">
-                {topRules.length === 0 ? (
-                    <p className="py-3 text-center text-xs text-zinc-600">
-                        {isBaselineSet
-                            ? 'No new violations since baseline'
-                            : 'No violations — clean file'}
-                    </p>
-                ) : (
-                    topRules.map((row) => (
-                        <div
-                            key={`${row.type}-${row.severity}`}
-                            className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-zinc-800/50 transition-colors"
+                        <span
+                            className="inline-flex items-center gap-1 rounded border border-indigo-500/40 bg-indigo-900/20 px-1.5 py-0.5 text-[10px] font-medium text-indigo-400"
+                            title="Delta Mode — only new violations since the baseline are counted. Click 'Clear Baseline' below to show all violations again."
                         >
-                            {/* Severity dot */}
-                            <span
-                                className={`h-1.5 w-1.5 shrink-0 rounded-full ${SEVERITY_DOT[row.severity]}`}
-                                aria-hidden="true"
-                            />
-                            {/* Rule type label */}
-                            <span className="flex-1 truncate text-xs text-zinc-300">
-                                {TYPE_LABEL[row.type]}
-                            </span>
-                            {/* Severity badge */}
-                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${SEVERITY_BADGE[row.severity]}`}>
-                                {row.severity}
-                            </span>
-                            {/* Count chip */}
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 font-mono">
-                                {row.count}
-                            </span>
-                        </div>
-                    ))
-                )}
+                            <span className="h-1.5 w-1.5 rounded-full bg-indigo-400" aria-hidden="true" />
+                            Delta Mode
+                        </span>
+                    )}
+
+                    {/* GOV.2 override count — relocated from StatusBar (GLASS.3.4-B) */}
+                    {govOverrideCount > 0 && (
+                        <span
+                            className="text-xs text-amber-400"
+                            title={`${govOverrideCount} governance rule override${govOverrideCount === 1 ? '' : 's'} recorded this session`}
+                        >
+                            {govOverrideCount} {govOverrideCount === 1 ? 'override' : 'overrides'}
+                        </span>
+                    )}
+                </div>
             </div>
+
+            {/* ── No design system state ───────────────────────────────── */}
+            {tokenCount === 0 && (
+                <div className="flex flex-col items-center justify-center px-6 py-12 text-center border-b border-zinc-800">
+                    <ShieldOff className="h-8 w-8 text-zinc-600 mb-3" />
+                    <p className="text-sm text-zinc-400 leading-relaxed max-w-[240px]">
+                        No design system connected. Health score measures against your design tokens — connect Figma or import tokens to start.
+                    </p>
+                    <button
+                        type="button"
+                        onClick={() => { unlockTab('tokens'); setRightTab('tokens') }}
+                        className="mt-4 rounded border border-indigo-500/40 bg-indigo-900/20 px-3 py-1.5 text-xs text-indigo-400 transition-colors hover:bg-indigo-900/40 hover:text-indigo-300"
+                    >
+                        Import Tokens
+                    </button>
+                </div>
+            )}
+
+            {/* ── Score hero — only when a design system is connected ──── */}
+            {tokenCount > 0 && (
+                <div
+                    className="flex items-center gap-4 px-4 py-5"
+                    title={scoreTrendHint ?? undefined}
+                >
+                    <ScoreRing score={score} grade={grade} />
+
+                    <div className="flex flex-col gap-0.5">
+                        <span
+                            className={`text-6xl font-bold leading-none ${GRADE_TEXT[grade]}`}
+                            aria-label={`Grade ${grade}`}
+                        >
+                            {grade}
+                        </span>
+                        <span className="text-xs text-zinc-500">
+                            {isBaselineSet ? 'Delta Score (new issues only)' : 'Governance Health'}
+                        </span>
+                        {/* GLASS.1e: Score trend hint — actionable guidance */}
+                        {scoreTrendHint && (
+                            <span className="text-[10px] text-zinc-600 mt-0.5" data-testid="score-trend-hint">
+                                {scoreTrendHint}
+                            </span>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* ── GLASS.1e: Delta Mode toggle — promoted from footer ──────── */}
+            {tokenCount > 0 && (
+                <div className="border-b border-zinc-800 px-3 py-2 flex items-center gap-2" data-testid="delta-mode-section">
+                    {!isBaselineSet ? (
+                        <button
+                            type="button"
+                            onClick={() => void handleSetBaseline()}
+                            disabled={baselineStatus !== 'idle' || !activeFilePath}
+                            className="flex-1 rounded border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs text-zinc-300 transition-colors hover:border-indigo-500/60 hover:bg-indigo-900/20 hover:text-indigo-300 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                            {baselineStatus === 'setting'
+                                ? 'Setting baseline...'
+                                : `Show only new violations${totalRaw > 0 ? ` (${totalRaw} baselined)` : ''}`}
+                        </button>
+                    ) : (
+                        <>
+                            <span className="flex-1 text-xs text-indigo-400">
+                                Showing new violations only ({baselineEntries.length} baselined)
+                            </span>
+                            <button
+                                type="button"
+                                onClick={() => void handleClearBaseline()}
+                                disabled={baselineStatus !== 'idle'}
+                                className="rounded border border-zinc-700 bg-zinc-800 px-2.5 py-1 text-[10px] text-zinc-400 transition-colors hover:border-red-500/40 hover:bg-red-900/10 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                                {baselineStatus === 'clearing' ? 'Clearing...' : 'Show All'}
+                            </button>
+                        </>
+                    )}
+                </div>
+            )}
+
+            {/* ── EDU-09: Action-framed issues (replaces penalty breakdown) ── */}
+            {tokenCount > 0 && (mithrilCount > 0 || a11yCount > 0 || overrideCount > 0) && (
+                <div className="px-3 py-2 space-y-1.5">
+                    {mithrilCount > 0 && (
+                        <div className="flex items-center gap-2 text-xs text-zinc-400">
+                            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" aria-hidden="true" />
+                            <span className="flex-1">
+                                {mithrilCount} design system {mithrilCount !== 1 ? 'issues' : 'issue'} — fix to gain {mithrilCount * 5} points
+                            </span>
+                            <span className="text-[10px] text-amber-400 font-mono">−{mithrilCount * 5} pts</span>
+                        </div>
+                    )}
+                    {a11yCount > 0 && (
+                        <div className="flex items-center gap-2 text-xs text-zinc-400">
+                            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-400" aria-hidden="true" />
+                            <span className="flex-1">
+                                {a11yCount} accessibility {a11yCount !== 1 ? 'issues' : 'issue'} blocking export — fix to unblock
+                            </span>
+                            <span className="text-[10px] text-red-400 font-mono">−{a11yCount * 10} pts</span>
+                        </div>
+                    )}
+                    {overrideCount > 0 && (
+                        <div className="flex items-center gap-2 text-xs text-zinc-400">
+                            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" aria-hidden="true" />
+                            <span className="flex-1">Unapplied style changes blocking export</span>
+                            <span className="text-[10px] text-amber-400 font-mono">−{overrideCount * 3} pts</span>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* ── EDU-08: "How is this calculated?" collapsible ────────────── */}
+            {tokenCount > 0 && (
+                <div className="px-3 pb-2">
+                    <button
+                        type="button"
+                        onClick={() => setIsScoreExpanded((v) => !v)}
+                        className="flex items-center gap-1 text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors"
+                        aria-expanded={isScoreExpanded}
+                    >
+                        {isScoreExpanded ? (
+                            <ChevronDown className="h-3 w-3" />
+                        ) : (
+                            <ChevronRight className="h-3 w-3" />
+                        )}
+                        How is this score calculated?
+                    </button>
+                    {isScoreExpanded && (
+                        <div className="mt-2 rounded border border-zinc-800 bg-zinc-950 px-3 py-2.5 space-y-1.5">
+                            <p className="text-[10px] text-zinc-400 leading-relaxed">
+                                Score starts at <span className="text-zinc-100 font-medium">100</span> and
+                                loses points for each issue found:
+                            </p>
+                            <ul className="space-y-1 text-[10px] text-zinc-500">
+                                <li className="flex items-center justify-between">
+                                    <span>Design system drift (color, spacing, type)</span>
+                                    <span className="font-mono text-amber-400">−5 per issue</span>
+                                </li>
+                                <li className="flex items-center justify-between">
+                                    <span>Accessibility violations</span>
+                                    <span className="font-mono text-red-400">−10 per issue</span>
+                                </li>
+                                <li className="flex items-center justify-between">
+                                    <span>Unapplied style changes</span>
+                                    <span className="font-mono text-amber-400">−3 per change</span>
+                                </li>
+                            </ul>
+                            <div className="border-t border-zinc-800 pt-1.5 space-y-0.5">
+                                <p className="text-[10px] text-zinc-600">Grade thresholds:</p>
+                                <p className="text-[10px] font-mono text-zinc-500">
+                                    A (90–100) · B (80–89) · C (70–79) · D (60–69) · F (&lt;60)
+                                </p>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* ── Top violated rules — only when measurable ────────────── */}
+            {tokenCount > 0 && (
+                <>
+                    <div className="border-b border-t border-zinc-800 px-3 py-2">
+                        <h3 className="text-xs font-medium uppercase tracking-wider text-zinc-400">
+                            Top Violated Rules
+                            {isBaselineSet && (
+                                <span className="ml-1.5 text-indigo-400">(new only)</span>
+                            )}
+                        </h3>
+                    </div>
+                    <div className="px-3 py-2 space-y-1">
+                        {topRules.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center gap-2 px-4 py-8 text-center">
+                                <ShieldCheck className="h-6 w-6 text-emerald-400" />
+                                <p className="text-sm text-emerald-400">All clear</p>
+                                <p className="text-xs text-zinc-500 max-w-[240px]">
+                                    {isBaselineSet
+                                        ? 'No new violations since baseline. Your component is production-ready.'
+                                        : 'Zero governance violations. Your component is production-ready.'}
+                                </p>
+                            </div>
+                        ) : (
+                            topRules.map((row) => (
+                                <button
+                                    key={`${row.type}-${row.severity}`}
+                                    type="button"
+                                    onClick={() => handleRuleRowClick(row.type)}
+                                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 cursor-pointer hover:bg-zinc-800/50 transition-colors text-left"
+                                    data-testid={`rule-row-${row.type}`}
+                                    title={`Filter violations to ${TYPE_LABEL[row.type]}`}
+                                >
+                                    {/* Severity dot */}
+                                    <span
+                                        className={`h-1.5 w-1.5 shrink-0 rounded-full ${SEVERITY_DOT[row.severity]}`}
+                                        aria-hidden="true"
+                                    />
+                                    {/* Rule type label */}
+                                    <span className="flex-1 truncate text-xs text-zinc-300">
+                                        {TYPE_LABEL[row.type]}
+                                    </span>
+                                    {/* Severity badge */}
+                                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${SEVERITY_BADGE[row.severity]}`}>
+                                        {row.severity}
+                                    </span>
+                                    {/* Count chip */}
+                                    <span className="text-xs px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 font-mono">
+                                        {row.count}
+                                    </span>
+                                </button>
+                            ))
+                        )}
+                    </div>
+                </>
+            )}
 
             {/* ── Active file ──────────────────────────────────────────── */}
             <div className="border-b border-t border-zinc-800 px-3 py-2">
@@ -492,9 +708,10 @@ export function GovernanceDashboard() {
                 </>
             )}
 
-            {/* ── Clean state ──────────────────────────────────────────── */}
-            {score === 100 && (
+            {/* ── Clean state — only meaningful when tokens are connected ── */}
+            {tokenCount > 0 && score === 100 && (
                 <div className="mx-3 mt-2 flex items-center gap-2 rounded border border-emerald-500/30 bg-emerald-900/10 px-3 py-2.5">
+                    <ShieldCheck className="h-4 w-4 shrink-0 text-emerald-400" />
                     <span className="text-xs text-emerald-400">
                         {isBaselineSet
                             ? 'No new violations since baseline. File is export-ready.'
@@ -522,35 +739,7 @@ export function GovernanceDashboard() {
                 isLoading={isLoadingConfig}
             />
 
-            {/* ── Delta Mode footer controls ────────────────────────────── */}
-            <div className="border-t border-zinc-800 px-3 py-3 flex items-center gap-2 mt-auto">
-                {!isBaselineSet ? (
-                    <button
-                        type="button"
-                        onClick={() => void handleSetBaseline()}
-                        disabled={baselineStatus !== 'idle' || !activeFilePath}
-                        className="flex-1 rounded border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs text-zinc-300 transition-colors hover:border-indigo-500/60 hover:bg-indigo-900/20 hover:text-indigo-300 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                        {baselineStatus === 'setting'
-                            ? 'Setting baseline…'
-                            : `Set Baseline${totalRaw > 0 ? ` (${totalRaw})` : ''}`}
-                    </button>
-                ) : (
-                    <>
-                        <span className="flex-1 text-[10px] text-zinc-600">
-                            {baselineEntries.length} violation{baselineEntries.length !== 1 ? 's' : ''} baselined
-                        </span>
-                        <button
-                            type="button"
-                            onClick={() => void handleClearBaseline()}
-                            disabled={baselineStatus !== 'idle'}
-                            className="rounded border border-zinc-700 bg-zinc-800 px-2.5 py-1 text-[10px] text-zinc-400 transition-colors hover:border-red-500/40 hover:bg-red-900/10 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                            {baselineStatus === 'clearing' ? 'Clearing…' : 'Clear Baseline'}
-                        </button>
-                    </>
-                )}
-            </div>
+            {/* Delta Mode controls are now promoted to near the score hero (GLASS.1e) */}
         </div>
     )
 }

@@ -306,7 +306,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                 {step === 'welcome' && (
                     <div className="flex flex-col gap-6">
                         <div className="flex flex-col gap-2">
-                            <h1 className="text-2xl font-bold text-zinc-100">
+                            <h1 id="setup-wizard-title" className="text-2xl font-bold text-zinc-100">
                                 Get {BRAND.product} running in 2 minutes
                             </h1>
                             <p className="text-sm text-zinc-400">

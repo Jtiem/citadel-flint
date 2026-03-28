@@ -72,11 +72,11 @@ describe('StatusBar', () => {
     // 4. Shows violation count text via Export Gate chip
     it('renders violation count text in the center section', async () => {
         // StatusBar reads canvasStore.mithrilViolations, not editorStore.linterWarnings.
-        // When 1 violation is present the Export Gate renders "1 Mithril Violation".
+        // EDU-01 renamed "1 Mithril Violation" to "1 Design Drift Issue".
         useCanvasStore.setState({ mithrilViolations: ['node-1'], overridesExist: false })
         render(<StatusBar />)
         await waitFor(() => {
-            expect(screen.getByText('1 Mithril Violation')).toBeDefined()
+            expect(screen.getByText('1 Design Drift Issue')).toBeDefined()
         })
     })
 
@@ -117,25 +117,22 @@ describe('StatusBar', () => {
         })
     })
 
-    // 8. Overrides badge appears when overrideCount > 0
-    it('renders a badge with the notification count when notifications are present', async () => {
-        // StatusBar has no notification bell. The closest badge surface is the
-        // Overrides chip rendered when overrideCount > 0 (GOV.2 feature).
+    // 8. Override badge relocated to GovernanceDashboard (GLASS.3.4-B)
+    it('does not render the overrides badge in StatusBar (relocated to GovernanceDashboard)', async () => {
         ;(window.flintAPI.governance.getOverrideCount as ReturnType<typeof vi.fn>).mockResolvedValue(2)
         render(<StatusBar />)
+        // Allow any async effects to settle
         await waitFor(() => {
-            expect(screen.getByText('Overrides (2)')).toBeDefined()
+            expect(screen.queryByText(/Overrides/i)).toBeNull()
         })
     })
 
-    // 9. Overrides chip correctly pluralises its count for values > 9
-    it('renders "9+" in the badge when there are more than 9 notifications', async () => {
-        // StatusBar has no notification bell or bg-indigo-600 badge.
-        // Map to the Overrides chip: when overrideCount > 9 the chip shows "Overrides (10)".
+    // 9. Confirm override badge is fully removed regardless of count
+    it('does not render override text even with high override count', async () => {
         ;(window.flintAPI.governance.getOverrideCount as ReturnType<typeof vi.fn>).mockResolvedValue(10)
         render(<StatusBar />)
         await waitFor(() => {
-            expect(screen.getByText('Overrides (10)')).toBeDefined()
+            expect(screen.queryByText(/Overrides/i)).toBeNull()
         })
     })
 

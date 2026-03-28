@@ -13,7 +13,7 @@
  *   BP-STORE-07: cyclePreviewBreakpoint('down') cycles mobile → desktop
  *   BP-STORE-08: closeWorkspace resets previewBreakpoint to 'desktop'
  *   BP-STORE-09: setPreviewBreakpoint sets the breakpoint explicitly
- *   BP-STORE-10: cyclePreviewBreakpoint does not modify canvasView or canvasMode
+ *   BP-STORE-10: cyclePreviewBreakpoint does not modify canvasMode
  */
 
 import { describe, it, expect, beforeEach } from 'vitest'
@@ -25,7 +25,6 @@ import type { PreviewBreakpoint } from '../canvasStore'
 beforeEach(() => {
     useCanvasStore.setState({
         previewBreakpoint: 'desktop',
-        canvasView: 'preview',
         canvasMode: 'design',
         activeFilePath: null,
     })
@@ -155,14 +154,7 @@ describe("canvasStore — setPreviewBreakpoint (BP-STORE-09)", () => {
 
 // ── BP-STORE-10 ────────────────────────────────────────────────────────────────
 
-describe("canvasStore — cyclePreviewBreakpoint is orthogonal to canvasView/canvasMode (BP-STORE-10)", () => {
-    it("cyclePreviewBreakpoint does not change canvasView", () => {
-        useCanvasStore.setState({ canvasView: 'preview', previewBreakpoint: 'desktop' })
-        useCanvasStore.getState().cyclePreviewBreakpoint('up')
-
-        expect(useCanvasStore.getState().canvasView).toBe('preview')
-    })
-
+describe("canvasStore — cyclePreviewBreakpoint is orthogonal to canvasMode (BP-STORE-10)", () => {
     it("cyclePreviewBreakpoint does not change canvasMode", () => {
         useCanvasStore.setState({ canvasMode: 'interact', previewBreakpoint: 'mobile' })
         useCanvasStore.getState().cyclePreviewBreakpoint('up')

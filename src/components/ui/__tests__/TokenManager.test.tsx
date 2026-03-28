@@ -58,7 +58,7 @@ describe('TokenManager', () => {
         ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue([])
         render(<TokenManager />)
         await waitFor(() => {
-            expect(screen.getByText('Import DTCG JSON')).toBeDefined()
+            expect(screen.getByText('No design tokens loaded. Connect Figma to sync your design system, or import a tokens JSON file.')).toBeDefined()
         })
     })
 

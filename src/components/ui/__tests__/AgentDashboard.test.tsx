@@ -101,7 +101,14 @@ describe('AgentDashboard', () => {
     it('shows empty state when no agents exist', async () => {
         render(<AgentDashboard />)
         await waitFor(() => {
-            expect(screen.getByText('No agent activity recorded')).toBeDefined()
+            expect(screen.getByText(/No AI agents connected this session/)).toBeDefined()
+        })
+    })
+
+    it('empty state mentions MCP client names', async () => {
+        render(<AgentDashboard />)
+        await waitFor(() => {
+            expect(screen.getByText(/Claude Code, Cursor/)).toBeDefined()
         })
     })
 
@@ -136,11 +143,12 @@ describe('AgentDashboard', () => {
     })
 
     it('shows total mutations in summary', async () => {
+        // EDU-14 renamed "Mutations" to "Code changes"
         mockResource(TWO_AGENTS)
         render(<AgentDashboard />)
         await waitFor(() => {
             expect(screen.getByText('17')).toBeDefined() // 12 + 5
-            expect(screen.getByText('Mutations')).toBeDefined()
+            expect(screen.getByText('Code changes')).toBeDefined()
         })
     })
 
@@ -181,14 +189,16 @@ describe('AgentDashboard', () => {
     })
 
     it('does not render consensus section when callTool returns no content', async () => {
+        // EDU-14 renamed "Consensus Gate" to "AI Second Opinion"
         render(<AgentDashboard />)
         await waitFor(() => {
-            expect(screen.queryByText('Consensus Gate')).toBeNull()
+            expect(screen.queryByText('AI Second Opinion')).toBeNull()
         })
     })
 })
 
 // ── Consensus Gate section ───────────────────────────────────────────────────
+// Note: EDU-14 renamed "Consensus Gate" to "AI Second Opinion" in the component.
 
 describe('AgentDashboard — Consensus Gate section', () => {
     beforeEach(() => {
@@ -197,9 +207,10 @@ describe('AgentDashboard — Consensus Gate section', () => {
     })
 
     it('renders the Consensus Gate heading when summary is available', async () => {
+        // EDU-14: section heading is now "AI Second Opinion"
         render(<AgentDashboard />)
         await waitFor(() => {
-            expect(screen.getByText('Consensus Gate')).toBeDefined()
+            expect(screen.getByText('AI Second Opinion')).toBeDefined()
         })
     })
 
@@ -262,12 +273,13 @@ describe('AgentDashboard — Consensus Gate section', () => {
     })
 
     it('hides consensus section when callTool throws', async () => {
+        // EDU-14: section heading is now "AI Second Opinion"
         ;(window.flintAPI.mcp!.callTool as ReturnType<typeof vi.fn>).mockRejectedValue(
             new Error('tool not found'),
         )
         render(<AgentDashboard />)
         await waitFor(() => {
-            expect(screen.queryByText('Consensus Gate')).toBeNull()
+            expect(screen.queryByText('AI Second Opinion')).toBeNull()
         })
     })
 

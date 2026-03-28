@@ -14,9 +14,11 @@ import { useRef, useCallback } from 'react'
 interface ResizeHandleProps {
     /** Called with the signed pixel delta on every animation frame during drag. */
     onDrag: (delta: number) => void
+    /** Called on double-click — used for panel collapse/expand toggle (GLASS.3.2). */
+    onDoubleClick?: () => void
 }
 
-export function ResizeHandle({ onDrag }: ResizeHandleProps) {
+export function ResizeHandle({ onDrag, onDoubleClick }: ResizeHandleProps) {
     const isDragging = useRef(false)
     const lastX = useRef(0)
     const rafId = useRef<number | null>(null)
@@ -86,6 +88,7 @@ export function ResizeHandle({ onDrag }: ResizeHandleProps) {
         <div
             ref={barRef}
             onMouseDown={onMouseDown}
+            onDoubleClick={onDoubleClick}
             role="separator"
             aria-orientation="vertical"
             aria-label="Resize panel"

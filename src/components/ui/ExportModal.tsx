@@ -23,9 +23,10 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ShieldAlert, ShieldCheck, X, Copy, Check, AlertTriangle, FileDown, Download, Wrench } from 'lucide-react'
+import { ShieldAlert, ShieldCheck, X, Copy, Check, AlertTriangle, FileDown, Download, Wrench, Loader2 } from 'lucide-react'
 import { useCanvasStore } from '../../store/canvasStore'
 import { useEditorStore } from '../../store/editorStore'
+import { FocusTrap } from './FocusTrap'
 import type { LinterWarning, OverrideRow, ComplianceSummary } from '../../types/flint-api'
 
 // ── Props ──────────────────────────────────────────────────────────────────────
@@ -40,7 +41,9 @@ export function ExportModal({ onClose }: ExportModalProps) {
     const mithrilViolations = useCanvasStore((s) => s.mithrilViolations)
     const a11yViolations = useCanvasStore((s) => s.a11yViolations)
     const setActiveSelection = useCanvasStore((s) => s.setActiveSelection)
+    const activeFilePath = useCanvasStore((s) => s.activeFilePath)
     const setSelectedNode = useEditorStore((s) => s.setSelectedNode)
+    const syncCode = useEditorStore((s) => s.syncCode)
     const rawCode = useEditorStore((s) => s.rawCode)
     const linterWarnings = useEditorStore((s) => s.linterWarnings)
 
@@ -51,6 +54,9 @@ export function ExportModal({ onClose }: ExportModalProps) {
     const [reportCopied, setReportCopied] = useState(false)
     const [dbomDownloading, setDbomDownloading] = useState(false)
     const [dbomError, setDbomError] = useState<string | null>(null)
+    // GOV-FIX-2: per-node fix state — tracks which violation IDs are mid-fix
+    const [fixingIds, setFixingIds] = useState<Set<string>>(new Set())
+    const [fixError, setFixError] = useState<string | null>(null)
 
     // OPP-11: Audit progress — tracked across the two async phases (overrides + summary).
     // Total steps = 2 (overrides fetch is step 1, compliance summary is step 2).
@@ -151,6 +157,74 @@ export function ExportModal({ onClose }: ExportModalProps) {
         onClose()
     }, [setSelectedNode, setActiveSelection, onClose])
 
+    // ── Re-fetch overrides so the modal reflects post-fix state ───────────────
+    const refreshOverrides = useCallback(async () => {
+        const readOverrides = window.flintAPI.tokens.readOverrides
+        if (!readOverrides) return
+        const rows = await readOverrides()
+        setOverrideRows(rows)
+    }, [])
+
+    // ── GOV-FIX-2: attempt auto-fix for a fixable Mithril violation ──────────
+    // For auto-fixable violations (nearestToken is set): apply the token fix via
+    // editorStore.applyBatch (same pattern as GovernanceOverlay). This avoids
+    // the SEC.3 allowlist restriction on flint_fix MCP calls from the renderer.
+    // For non-fixable violations: fall through to select the node for manual fix.
+    const applyBatch = useEditorStore((s) => s.applyBatch)
+
+    const handleFix = useCallback(async (id: string, isFixable: boolean) => {
+        if (!isFixable) {
+            // Not auto-fixable — navigate to the node so the user can fix manually.
+            handleSelectNode(id)
+            return
+        }
+
+        if (!activeFilePath) {
+            handleSelectNode(id)
+            return
+        }
+
+        setFixError(null)
+        setFixingIds((prev) => new Set([...prev, id]))
+
+        try {
+            // Find the violation details from linterWarnings
+            const warnings = useEditorStore.getState().linterWarnings
+            const warning = warnings.get(id)
+            if (!warning?.nearestToken) {
+                throw new Error('No auto-fix available for this violation')
+            }
+
+            // Extract the hardcoded class from the message
+            const classMatch = warning.message.match(/`([^`]+)`/)
+            const hardcodedClass = classMatch?.[1]
+            if (!hardcodedClass) {
+                throw new Error('Could not determine hardcoded class from violation')
+            }
+
+            // Apply the token fix via applyBatch (Commandment 12: atomic batching)
+            await applyBatch([{
+                op: 'applyTokenFix',
+                nodeId: id,
+                hardcodedClass,
+                tokenClass: warning.nearestToken,
+            }])
+
+            // Refresh overrides in case the fix also cleared any override rows.
+            await refreshOverrides()
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : 'Unknown error'
+            setFixError(`Fix failed: ${msg}`)
+            console.error('[ExportModal] auto-fix error:', msg)
+        } finally {
+            setFixingIds((prev) => {
+                const next = new Set(prev)
+                next.delete(id)
+                return next
+            })
+        }
+    }, [activeFilePath, handleSelectNode, applyBatch, refreshOverrides])
+
     // ── Copy source to clipboard ───────────────────────────────────────────────
     const handleCopy = useCallback(async () => {
         await navigator.clipboard.writeText(rawCode)
@@ -212,8 +286,14 @@ export function ExportModal({ onClose }: ExportModalProps) {
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
             onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
         >
+            <FocusTrap>
             {/* Modal */}
-            <div className="relative flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-xl border border-gray-700 bg-gray-900 shadow-2xl">
+            <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="export-modal-title"
+                className="relative flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-xl border border-gray-700 bg-gray-900 shadow-2xl"
+            >
                 {/* Header */}
                 <div className={`flex shrink-0 items-center gap-3 border-b px-5 py-4 ${loading
                     ? 'border-gray-700'
@@ -232,7 +312,7 @@ export function ExportModal({ onClose }: ExportModalProps) {
                     ) : (
                         <ShieldAlert className="h-5 w-5 text-amber-400" />
                     )}
-                    <h2 className="flex-1 text-sm font-semibold text-gray-100">
+                    <h2 id="export-modal-title" className="flex-1 text-sm font-semibold text-gray-100">
                         {loading
                             ? 'Running pre-flight audit…'
                             : canExport
@@ -280,8 +360,9 @@ export function ExportModal({ onClose }: ExportModalProps) {
 
                     {!loading && canExport && (
                         <div className="space-y-4">
+                            {/* EDU-12: plain language — no "Mithril" jargon */}
                             <p className="text-xs text-emerald-300">
-                                No Mithril violations or property overrides detected.
+                                No design system violations or unapplied style changes detected.
                                 This file is fully export-ready.
                             </p>
                             {/* Source preview */}
@@ -309,17 +390,33 @@ export function ExportModal({ onClose }: ExportModalProps) {
 
                     {!loading && !canExport && (
                         <div className="space-y-4">
-                            <p className="text-xs text-amber-300">
-                                The following issues must be resolved before exporting.
+                            {/* EDU-11: "Why is export blocked?" explanation */}
+                            {(() => {
+                                const totalBlocking =
+                                    overrideRows.length +
+                                    Object.keys(a11yViolations).length +
+                                    mithrilViolations.length
+                                return (
+                                    <div className="rounded border border-amber-500/30 bg-amber-900/10 px-3 py-2.5">
+                                        <p className="text-xs text-amber-300 leading-relaxed">
+                                            Export is blocked because{' '}
+                                            <span className="font-medium">{totalBlocking} {totalBlocking !== 1 ? 'issues' : 'issue'}</span>{' '}
+                                            must be resolved first. Fix them below, or override if you have reviewed and accepted the risk.
+                                        </p>
+                                    </div>
+                                )
+                            })()}
+
+                            <p className="text-xs text-zinc-400">
                                 Click a node ID to navigate directly to it.
                             </p>
 
-                            {/* Property overrides */}
+                            {/* EDU-12: "Unapplied Style Changes" instead of "Property Overrides" */}
                             {overrideRows.length > 0 && (
                                 <div>
                                     <h3 className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-amber-400">
                                         <AlertTriangle className="h-3 w-3" />
-                                        Property Overrides ({overrideRows.length})
+                                        Unapplied Style Changes ({overrideRows.length})
                                     </h3>
                                     <p className="mb-2 text-[11px] text-gray-400">
                                         Values you manually changed that differ from the design system. Reset them in the Properties panel or apply the design token to clear.
@@ -353,12 +450,12 @@ export function ExportModal({ onClose }: ExportModalProps) {
                                 </div>
                             )}
 
-                            {/* Accessibility violations — A11Y rules (Commandment 5) */}
+                            {/* Accessibility Issues — EDU-12: "Accessibility Issues" not "A11y Violations" */}
                             {Object.keys(a11yViolations).length > 0 && (
                                 <div>
                                     <h3 className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-red-400">
                                         <AlertTriangle className="h-3 w-3" />
-                                        Accessibility Violations ({Object.keys(a11yViolations).length})
+                                        Accessibility Issues ({Object.keys(a11yViolations).length})
                                     </h3>
                                     <ul className="space-y-1.5">
                                         {Object.entries(a11yViolations).map(([flintId, messages]) =>
@@ -421,20 +518,29 @@ export function ExportModal({ onClose }: ExportModalProps) {
                                                 >
                                                     {id}
                                                 </button>
+                                                {/* EDU-02: severity badge tooltip */}
                                                 {isCritical && (
-                                                    <span className="shrink-0 rounded bg-red-900/60 px-1 py-0.5 text-[10px] font-bold uppercase text-red-300">
+                                                    <span
+                                                        className="shrink-0 rounded bg-red-900/60 px-1 py-0.5 text-[10px] font-bold uppercase text-red-300"
+                                                        title="Blocks export — must be fixed or overridden before you can export."
+                                                    >
                                                         Critical
                                                     </span>
                                                 )}
                                                 {isFixable ? (
                                                     <button
                                                         type="button"
-                                                        onClick={() => handleSelectNode(id)}
-                                                        className="shrink-0 flex items-center gap-1 rounded border border-indigo-500/30 bg-indigo-900/10 px-1.5 py-0.5 text-[10px] text-indigo-400 transition-colors hover:bg-indigo-900/30 hover:text-indigo-300"
+                                                        onClick={() => { void handleFix(id, true) }}
+                                                        disabled={fixingIds.has(id)}
+                                                        className="shrink-0 flex items-center gap-1 rounded border border-indigo-500/30 bg-indigo-900/10 px-1.5 py-0.5 text-[10px] text-indigo-400 transition-colors hover:bg-indigo-900/30 hover:text-indigo-300 disabled:cursor-not-allowed disabled:opacity-50"
                                                         title={`Auto-fix: apply token ${warning?.nearestToken ?? ''}`}
                                                     >
-                                                        <Wrench className="h-2.5 w-2.5" />
-                                                        Fix
+                                                        {fixingIds.has(id) ? (
+                                                            <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                                                        ) : (
+                                                            <Wrench className="h-2.5 w-2.5" />
+                                                        )}
+                                                        {fixingIds.has(id) ? 'Fixing…' : 'Fix'}
                                                     </button>
                                                 ) : (
                                                     <span className="shrink-0 rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-500">
@@ -456,9 +562,10 @@ export function ExportModal({ onClose }: ExportModalProps) {
 
                                 return (
                                     <div>
+                                        {/* EDU-12: "Design System Violations" instead of "Mithril Violations" */}
                                         <h3 className={`mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider ${hasCriticalMithril ? 'text-red-400' : 'text-amber-400'}`}>
                                             <ShieldAlert className="h-3 w-3" />
-                                            Mithril Violations ({mithrilViolations.length})
+                                            Design System Violations ({mithrilViolations.length})
                                             {hasCriticalMithril && (
                                                 <span className="rounded bg-red-900/60 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-red-300">
                                                     Critical
@@ -498,6 +605,13 @@ export function ExportModal({ onClose }: ExportModalProps) {
                                     </div>
                                 )
                             })()}
+
+                            {/* ── GOV-FIX-2: Fix error banner ─────────────────────── */}
+                            {fixError !== null && (
+                                <div className="rounded border border-red-700/40 bg-red-900/10 px-3 py-2">
+                                    <p className="text-[10px] text-red-400">{fixError}</p>
+                                </div>
+                            )}
 
                             {/* ── Compliance Summary (GOV.1) ─────────────────────── */}
                             {complianceSummary !== null && (
@@ -611,6 +725,7 @@ export function ExportModal({ onClose }: ExportModalProps) {
                     </div>
                 )}
             </div>
+            </FocusTrap>
         </div>
     )
 }

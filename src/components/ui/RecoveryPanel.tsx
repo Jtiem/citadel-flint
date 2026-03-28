@@ -1,3 +1,4 @@
+// TODO: GLASS.1 — relocated from right sidebar. Will move to Command Palette action.
 /**
  * RecoveryPanel — src/components/ui/RecoveryPanel.tsx
  *
@@ -21,6 +22,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
+import { FolderOpen, Clock, Loader2, CheckCircle, XCircle } from 'lucide-react'
 import type { GitLogEntry } from '../../types/flint-api'
 import { useEditorStore } from '../../store/editorStore'
 import { useCanvasStore } from '../../store/canvasStore'
@@ -102,7 +104,7 @@ export function RecoveryPanel() {
     if (!activeFilePath) {
         return (
             <div className="flex flex-col items-center justify-center gap-2 p-4 text-center text-xs text-gray-500">
-                <span className="text-lg">🗂</span>
+                <FolderOpen className="h-6 w-6 text-zinc-600" />
                 <span>Open a project file to view its recovery timeline.</span>
             </div>
         )
@@ -111,7 +113,7 @@ export function RecoveryPanel() {
     if (status === 'loading') {
         return (
             <div className="flex items-center justify-center gap-2 p-4 text-xs text-gray-400">
-                <span className="animate-spin">⟳</span>
+                <Loader2 className="h-5 w-5 text-zinc-500 animate-spin" />
                 <span>Loading history…</span>
             </div>
         )
@@ -120,7 +122,7 @@ export function RecoveryPanel() {
     if (log.length === 0) {
         return (
             <div className="flex flex-col items-center justify-center gap-2 p-4 text-center text-xs text-gray-500">
-                <span className="text-lg">⏳</span>
+                <Clock className="h-6 w-6 text-zinc-600" />
                 <span>No shadow commits yet.</span>
                 <span className="text-[10px] text-zinc-500">
                     History will appear here after the first auto-save.
@@ -148,12 +150,12 @@ export function RecoveryPanel() {
             {/* Status feedback */}
             {status === 'done' && (
                 <div className="mb-1 rounded border border-green-700 bg-green-900/30 px-2 py-1 text-[10px] text-green-300">
-                    ✓ Transplant successful. Press Cmd+Z to undo.
+                    <CheckCircle className="h-4 w-4 inline text-emerald-400" /> Transplant successful. Press Cmd+Z to undo.
                 </div>
             )}
             {status === 'error' && errorMsg && (
                 <div className="mb-1 rounded border border-red-700 bg-red-900/30 px-2 py-1 text-[10px] text-red-300">
-                    ✗ Transplant failed: {errorMsg}
+                    <XCircle className="h-4 w-4 inline text-red-400" /> Transplant failed: {errorMsg}
                 </div>
             )}
 

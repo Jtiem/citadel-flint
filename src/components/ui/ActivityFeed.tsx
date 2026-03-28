@@ -1,3 +1,4 @@
+// TODO: GLASS.1 — relocated from right sidebar. Will move to StatusBar popover or be removed.
 /**
  * ActivityFeed — src/components/ui/ActivityFeed.tsx
  *
@@ -428,12 +429,10 @@ export function ActivityFeed() {
             {/* ── Entry list ── */}
             <div className="flex-1 overflow-y-auto">
                 {entries.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-10 px-4 text-center">
-                        <Activity size={20} className="mb-2 text-zinc-800" />
-                        <p className="text-xs text-zinc-600">No activity yet</p>
-                        <p className="mt-1 text-[10px] text-zinc-700">
-                            Audits, fixes, imports, and other actions will appear here as you work
-                        </p>
+                    <div className="flex flex-col items-center justify-center gap-2 px-4 py-8 text-center">
+                        <Activity className="h-6 w-6 text-zinc-600" />
+                        <p className="text-sm text-zinc-400">No activity yet</p>
+                        <p className="text-xs text-zinc-500 max-w-[240px]">MCP tool invocations will appear here</p>
                     </div>
                 ) : visibleEntries.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-10 px-4 text-center">

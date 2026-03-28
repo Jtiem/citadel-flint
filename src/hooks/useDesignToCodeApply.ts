@@ -82,10 +82,6 @@ export function useDesignToCodeApply(): UseDesignToCodeApplyReturn {
             // Use getState() for imperative store updates — not a subscription.
             useCanvasStore.getState().setWorkspaceFiles(result.workspaceTree)
 
-            // Switch the canvas to preview mode so the page compositor renders
-            // in the LivePreview iframe immediately on file open.
-            useCanvasStore.getState().setCanvasView('preview')
-
             // Open the page compositor. This triggers the Clean Slate Protocol
             // (clearAST → readFile → setCode) which causes LivePreview to render.
             await useCanvasStore.getState().setActiveFile(result.pageFilePath)

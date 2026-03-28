@@ -21,8 +21,9 @@
  * Mithril Safety: all classes from Flint design token palette only.
  */
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { X, Save, RotateCcw, ShieldCheck } from 'lucide-react'
+import { FocusTrap } from './FocusTrap'
 import {
     GOVERNANCE_RULES_MANIFEST,
     GOVERNANCE_CATEGORIES,
@@ -51,6 +52,11 @@ import { useGovernanceConfig } from '../../hooks/useGovernanceConfig'
 
 interface GovernancePanelProps {
     onClose: () => void
+    /**
+     * OPP-15: When provided, the panel opens to the Rules tab, navigates to the
+     * category containing this rule ID, and scrolls to + highlights that row.
+     */
+    focusRuleId?: string
 }
 
 // ── Panel tab type ────────────────────────────────────────────────────────────
@@ -123,19 +129,67 @@ interface RuleRowProps {
     override: RuleOverride | undefined
     onToggle: (ruleId: string, enabled: boolean) => void
     onReset: (ruleId: string) => void
+    /** OPP-15: When true, applies a highlight ring to draw the eye to this row. */
+    isFocused?: boolean
+    /** OPP-15: Ref forwarded to the row element for programmatic scroll. */
+    rowRef?: React.RefObject<HTMLDivElement | null>
 }
 
-function RuleRow({ rule, override, onToggle, onReset }: RuleRowProps) {
+// ── EDU-04: Taxonomy lookup (renderer-side copy; no cross-package import) ────
+
+/**
+ * One-line descriptions for each rule, sourced from errorTaxonomy titles.
+ * Keyed by rule ID (exact or prefix match).
+ */
+const RULE_DESCRIPTIONS: Record<string, string> = {
+    'A11Y-001': 'Images need alt text so screen readers can describe them.',
+    'A11Y-002': 'Buttons need a visible or accessible label so users know what they do.',
+    'A11Y-003': 'Links need descriptive text — "click here" is not meaningful.',
+    'A11Y-004': 'Form inputs need labels so screen readers can announce them.',
+    'A11Y-005': 'Select dropdowns need labels so screen readers can announce them.',
+    'A11Y-006': 'Textareas need labels so screen readers can announce them.',
+    'A11Y-007': 'Positive tabIndex values disrupt natural keyboard navigation order.',
+    'A11Y-008': 'Tables need a summary or caption to explain their structure.',
+    'A11Y-009': 'The HTML lang attribute tells screen readers which language to use.',
+    'A11Y-010': 'Heading levels should not skip (e.g. h1 → h3) — this breaks document structure.',
+    'MITHRIL-COL':     'Colors not in your token set drift from your design system.',
+    'MITHRIL-TYP-001': 'Font families not in your token set drift from your brand.',
+    'MITHRIL-TYP-002': 'Font sizes not in your token set break the type scale.',
+    'MITHRIL-TYP-003': 'Font weights not in your token set disrupt visual hierarchy.',
+    'MITHRIL-TYP-004': 'Line heights not in your token set break vertical rhythm.',
+    'MITHRIL-TYP-005': 'Letter spacing not in your token set creates micro-inconsistencies.',
+    'MITHRIL-SPC-001': 'Spacing not in your token set breaks the layout grid.',
+    'MITHRIL-SHD-001': 'Shadows not in your token set break the depth system.',
+    'MITHRIL-OPC-001': 'Opacity values not in your token set create inconsistent transparency.',
+}
+
+function getRuleDescription(ruleId: string): string | null {
+    if (RULE_DESCRIPTIONS[ruleId]) return RULE_DESCRIPTIONS[ruleId]
+    // Prefix match (e.g. MITHRIL-TYP-001 could also match MITHRIL-TYP if no exact entry)
+    for (const key of Object.keys(RULE_DESCRIPTIONS)) {
+        if (ruleId.startsWith(key) && key !== ruleId) return RULE_DESCRIPTIONS[key]
+    }
+    return null
+}
+
+// ── RuleRow ───────────────────────────────────────────────────────────────────
+
+function RuleRow({ rule, override, onToggle, onReset, isFocused, rowRef }: RuleRowProps) {
     const isPlanned = rule.status === 'planned'
     const isEnabled = override?.enabled !== false
     const effectiveSeverity: RuleSeverity = override?.severity ?? rule.defaultSeverity
     const isModified = override !== undefined
+    // EDU-04: one-line description from taxonomy
+    const description = getRuleDescription(rule.id)
 
     return (
         <div
+            ref={rowRef}
             className={`flex items-center gap-3 px-4 py-2.5 hover:bg-zinc-800/30 transition-colors ${
                 isModified ? 'border-l-2 border-indigo-500/40' : 'border-l-2 border-transparent'
-            } ${isPlanned ? 'opacity-50' : ''}`}
+            } ${isPlanned ? 'opacity-50' : ''} ${
+                isFocused ? 'ring-1 ring-inset ring-indigo-500/40 bg-indigo-900/10' : ''
+            }`}
         >
             <Toggle
                 enabled={isEnabled}
@@ -164,6 +218,12 @@ function RuleRow({ rule, override, onToggle, onReset }: RuleRowProps) {
                 >
                     {rule.name}
                 </p>
+                {/* EDU-04: one-line description surfaces taxonomy content inline */}
+                {description && (
+                    <p className="mt-0.5 text-[10px] text-zinc-600 leading-snug">
+                        {description}
+                    </p>
+                )}
             </div>
 
             {isPlanned ? PLANNED_BADGE : <SeverityBadge severity={effectiveSeverity} />}
@@ -225,7 +285,7 @@ function CategorySidebar({ activeCategory, counts, onChange }: CategorySidebarPr
 
 // ── GovernancePanel ───────────────────────────────────────────────────────────
 
-export function GovernancePanel({ onClose }: GovernancePanelProps) {
+export function GovernancePanel({ onClose, focusRuleId }: GovernancePanelProps) {
     const overrides = useGovernanceStore((s) => s.overrides)
     const setOverride = useGovernanceStore((s) => s.setOverride)
     const resetOverride = useGovernanceStore((s) => s.resetOverride)
@@ -239,6 +299,9 @@ export function GovernancePanel({ onClose }: GovernancePanelProps) {
     const [activeTab, setActiveTab] = useState<PanelTab>('rules')
     const [isToggling, setIsToggling] = useState(false)
 
+    // OPP-15: ref for the focused rule row, used to scroll it into view
+    const focusedRowRef = useRef<HTMLDivElement | null>(null)
+
     // ERM: resolved config (activePresets) via the governance hook
     const { activePresets, togglePack } = useGovernanceConfig()
 
@@ -246,6 +309,26 @@ export function GovernancePanel({ onClose }: GovernancePanelProps) {
     useEffect(() => {
         void loadFromFile()
     }, [loadFromFile])
+
+    // OPP-15: When focusRuleId is provided, switch to Rules tab and navigate to
+    // the category that contains this rule so it becomes visible.
+    useEffect(() => {
+        if (!focusRuleId) return
+
+        setActiveTab('rules')
+
+        const targetRule = GOVERNANCE_RULES_MANIFEST.find((r) => r.id === focusRuleId)
+        if (targetRule) {
+            setActiveCategory(targetRule.category)
+        }
+        // Scroll into view after the DOM updates — one microtask delay is enough
+        // because setActiveCategory triggers a synchronous React re-render before
+        // the browser paints.
+        const id = setTimeout(() => {
+            focusedRowRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+        }, 50)
+        return () => clearTimeout(id)
+    }, [focusRuleId])
 
     // Escape key to close
     useEffect(() => {
@@ -350,11 +433,12 @@ export function GovernancePanel({ onClose }: GovernancePanelProps) {
             onClick={(e) => {
                 if (e.target === e.currentTarget) onClose()
             }}
-            aria-modal="true"
-            role="dialog"
-            aria-labelledby="governance-panel-title"
         >
+            <FocusTrap>
             <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="governance-panel-title"
                 className="flex h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl"
                 onClick={(e) => e.stopPropagation()}
             >
@@ -391,15 +475,30 @@ export function GovernancePanel({ onClose }: GovernancePanelProps) {
                 <div className="shrink-0 flex items-center gap-0 border-b border-zinc-800 px-5">
                     {(
                         [
-                            { id: 'rules' as PanelTab, label: 'Rules' },
-                            { id: 'packs' as PanelTab, label: 'Rule Packs' },
-                            { id: 'profiles' as PanelTab, label: 'Profiles' },
+                            {
+                                id: 'rules' as PanelTab,
+                                label: 'Rules',
+                                // EDU-07: subtitle explaining each tab's purpose
+                                subtitle: 'Individual checks that run on your code',
+                            },
+                            {
+                                id: 'packs' as PanelTab,
+                                label: 'Rule Packs',
+                                subtitle: 'Pre-built rule sets for common standards',
+                            },
+                            {
+                                id: 'profiles' as PanelTab,
+                                label: 'Profiles',
+                                subtitle: 'Saved configurations for different projects',
+                            },
                         ] as const
                     ).map((tab) => (
                         <button
                             key={tab.id}
                             type="button"
                             onClick={() => setActiveTab(tab.id)}
+                            // EDU-07: subtitle shown as tooltip on each tab
+                            title={tab.subtitle}
                             className={`border-b-2 px-3 py-2 text-xs font-medium transition-colors ${
                                 activeTab === tab.id
                                     ? 'border-indigo-500 text-indigo-300'
@@ -410,6 +509,23 @@ export function GovernancePanel({ onClose }: GovernancePanelProps) {
                         </button>
                     ))}
                 </div>
+
+                {/* EDU-07: Active tab subtitle — shown below the tab bar */}
+                {activeTab === 'rules' && (
+                    <p className="shrink-0 px-5 py-1.5 text-[10px] text-zinc-600 border-b border-zinc-800/50">
+                        Individual checks that run on your code
+                    </p>
+                )}
+                {activeTab === 'packs' && (
+                    <p className="shrink-0 px-5 py-1.5 text-[10px] text-zinc-600 border-b border-zinc-800/50">
+                        Pre-built rule sets for common standards — enabling a pack activates all its rules
+                    </p>
+                )}
+                {activeTab === 'profiles' && (
+                    <p className="shrink-0 px-5 py-1.5 text-[10px] text-zinc-600 border-b border-zinc-800/50">
+                        Saved configurations for different projects — enabling a profile activates its packs and rules
+                    </p>
+                )}
 
                 {/* ── Body ── */}
                 <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -433,15 +549,20 @@ export function GovernancePanel({ onClose }: GovernancePanelProps) {
 
                                 {/* Rule rows */}
                                 <div className="divide-y divide-zinc-800/40">
-                                    {visibleRules.map((rule) => (
-                                        <RuleRow
-                                            key={rule.id}
-                                            rule={rule}
-                                            override={overrides[rule.id]}
-                                            onToggle={handleToggle}
-                                            onReset={handleResetRule}
-                                        />
-                                    ))}
+                                    {visibleRules.map((rule) => {
+                                        const isFocused = rule.id === focusRuleId
+                                        return (
+                                            <RuleRow
+                                                key={rule.id}
+                                                rule={rule}
+                                                override={overrides[rule.id]}
+                                                onToggle={handleToggle}
+                                                onReset={handleResetRule}
+                                                isFocused={isFocused}
+                                                rowRef={isFocused ? focusedRowRef : undefined}
+                                            />
+                                        )
+                                    })}
                                 </div>
                             </div>
                         </>
@@ -513,6 +634,7 @@ export function GovernancePanel({ onClose }: GovernancePanelProps) {
                     </div>
                 </div>
             </div>
+            </FocusTrap>
         </div>
     )
 }

@@ -34,7 +34,8 @@ describe('ActivityFeed', () => {
         ;(window.flintAPI.readFile as ReturnType<typeof vi.fn>).mockResolvedValue('')
         render(<ActivityFeed />)
         await waitFor(() => {
-            expect(screen.getByText('No activity yet')).toBeDefined()
+            expect(screen.getByText(/No activity yet/)).toBeDefined()
+            expect(screen.getByText(/MCP tool invocations will appear here/)).toBeDefined()
         })
     })
 
@@ -134,7 +135,16 @@ describe('ActivityFeed', () => {
         })
     })
 
-    // 10. Shows formatted timestamp
+    // 10. Empty state copy references MCP tool invocations
+    it('empty state copy mentions MCP tool invocations', async () => {
+        ;(window.flintAPI.readFile as ReturnType<typeof vi.fn>).mockResolvedValue('')
+        render(<ActivityFeed />)
+        await waitFor(() => {
+            expect(screen.getByText(/MCP tool invocations/)).toBeDefined()
+        })
+    })
+
+    // 11. Shows formatted timestamp
     it('renders a formatted timestamp string for each entry', async () => {
         const ts = new Date('2026-03-14T10:30:45Z').toISOString()
         const raw = makeJSONL([makeEntry({ tool: 'timestamped_tool', timestamp: ts })])

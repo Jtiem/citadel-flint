@@ -14,7 +14,7 @@
  * Phase U.1 additions:
  *   - Severity heat tint — semi-transparent color overlay on violating nodes
  *   - Hover tooltip — ViolationTooltip popover on badge hover
- *   - Click-to-properties — badge click selects node + switches to properties tab
+ *   - Click-to-health — badge click selects node + switches to Health tab
  *   - Viewport culling — badges only rendered for nodes within visible area
  *   - Badge cap — max 50 badges, sorted criticals first
  *
@@ -23,11 +23,12 @@
  */
 
 import { useEffect, useRef, useCallback, useState } from 'react'
-import { AlertTriangle, Lock } from 'lucide-react'
+import { AlertTriangle, Lock, X } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
 import { useCanvasStore } from '../../store/canvasStore'
 import { useNotificationStore } from '../../store/notificationStore'
 import { ViolationTooltip } from './ViolationTooltip'
+import { useOnboardingTooltip } from '../../hooks/useOnboardingTooltip'
 import type { LinterWarning } from '../../types/flint-api'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -100,6 +101,7 @@ export function ShieldOverlay({ iframeRef }: ShieldOverlayProps) {
     const setNodeLayout      = useCanvasStore((s) => s.setNodeLayout)
     const setActiveSelection = useCanvasStore((s) => s.setActiveSelection)
     const setRightTab        = useCanvasStore((s) => s.setRightTab)
+    const setScrollToViolationId = useCanvasStore((s) => s.setScrollToViolationId)
     const mithrilViolations  = useCanvasStore((s) => s.mithrilViolations)
     const a11yViolations     = useCanvasStore((s) => s.a11yViolations)
     const canvasMode         = useCanvasStore((s) => s.canvasMode)
@@ -127,6 +129,12 @@ export function ShieldOverlay({ iframeRef }: ShieldOverlayProps) {
         }
         prevViolationCount.current = totalViolations
     }, [totalViolations])
+
+    // ── EDU-15: First-occurrence onboarding tooltip ──────────────────────────
+    // Shown once when the first governance badge appears on the canvas so
+    // designers know what the badge means without needing a tutorial.
+    const { shouldShow: showBadgeOnboarding, dismiss: dismissBadgeOnboarding } =
+        useOnboardingTooltip('first-violation')
 
     // ── Local UI state ───────────────────────────────────────────────────────
     /** The nodeId of the badge currently showing a tooltip, or null. */
@@ -346,7 +354,7 @@ export function ShieldOverlay({ iframeRef }: ShieldOverlayProps) {
         <div
             ref={overlayRef}
             className="absolute inset-0 z-10 cursor-crosshair"
-            aria-hidden="true"
+            aria-label="Governance violation badges"
             onPointerDown={handleOverlayPointerDown}
         >
             {/* ── Phase U.1: Severity heat tints ──────────────────────────── */}
@@ -394,10 +402,16 @@ export function ShieldOverlay({ iframeRef }: ShieldOverlayProps) {
                         />
 
                         {/* Badge icon + count — top-left corner, interactive */}
+                        {/* EDU-02: title tooltip explains what the badge means */}
                         <div
                             role="button"
                             tabIndex={0}
                             aria-label={`${violationCount} governance violation${violationCount !== 1 ? 's' : ''} on ${nodeId}`}
+                            title={
+                                isCritical
+                                    ? `${violationCount} issue${violationCount !== 1 ? 's' : ''} — blocks export. Must be fixed or overridden before you can export.`
+                                    : `${violationCount} design system warning${violationCount !== 1 ? 's' : ''}. Click to see details and fix options.`
+                            }
                             className={`pointer-events-auto absolute -left-1 -top-1 flex h-5 min-w-5 cursor-pointer items-center gap-0.5 rounded-full px-1 transition-colors ${
                                 isCritical
                                     ? `bg-red-900/80 border ${isHovered ? 'border-red-400' : 'border-red-500/40'}`
@@ -410,6 +424,7 @@ export function ShieldOverlay({ iframeRef }: ShieldOverlayProps) {
                                 setSelectedNode(nodeId)
                                 setActiveSelection(nodeId)
                                 setRightTab('properties')
+                                setScrollToViolationId(nodeId)
                             }}
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter' || e.key === ' ') {
@@ -417,6 +432,7 @@ export function ShieldOverlay({ iframeRef }: ShieldOverlayProps) {
                                     setSelectedNode(nodeId)
                                     setActiveSelection(nodeId)
                                     setRightTab('properties')
+                                    setScrollToViolationId(nodeId)
                                 }
                             }}
                         >
@@ -454,6 +470,49 @@ export function ShieldOverlay({ iframeRef }: ShieldOverlayProps) {
                     onClose={() => setHoveredBadgeId(null)}
                 />
             )}
+
+            {/* EDU-15: First-occurrence onboarding tooltip ──────────────────── */}
+            {/* Shown once when the first badge appears so designers know what  */}
+            {/* it means without needing to read documentation.                */}
+            {showBadgeOnboarding && visibleBadges.length > 0 && (() => {
+                const firstBadge = visibleBadges[0]
+                if (!firstBadge) return null
+                const tipX = Math.max(8, firstBadge.layout.x - 4)
+                const tipY = firstBadge.layout.y + firstBadge.layout.height + 8
+                return (
+                    <div
+                        className="pointer-events-auto absolute z-50"
+                        style={{ left: tipX, top: tipY }}
+                        data-flint-id="onboarding-tooltip-first-violation"
+                    >
+                        <div className="w-64 rounded-lg border border-indigo-500/30 bg-zinc-900 p-3 shadow-xl">
+                            <div className="mb-1.5 flex items-start justify-between gap-2">
+                                <p className="text-xs font-medium text-zinc-100">
+                                    This badge means Flint found a design issue.
+                                </p>
+                                <button
+                                    type="button"
+                                    onClick={dismissBadgeOnboarding}
+                                    className="shrink-0 rounded p-0.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
+                                    aria-label="Dismiss tip"
+                                >
+                                    <X size={12} />
+                                </button>
+                            </div>
+                            <p className="text-[11px] leading-relaxed text-zinc-400">
+                                Click it to see details and fix options.
+                            </p>
+                            <button
+                                type="button"
+                                onClick={dismissBadgeOnboarding}
+                                className="mt-2 rounded border border-indigo-500/30 bg-indigo-900/20 px-2 py-0.5 text-[10px] text-indigo-400 transition-colors hover:bg-indigo-900/40"
+                            >
+                                Got it
+                            </button>
+                        </div>
+                    </div>
+                )
+            })()}
 
             {/* ── Lock icons for remote-locked nodes (Phase 3D) ───────────── */}
             {Array.from(lockedIds).map((nodeId) => {

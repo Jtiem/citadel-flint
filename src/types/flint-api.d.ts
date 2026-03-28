@@ -110,8 +110,8 @@ export interface LinterWarning {
     /** `data-flint-id` of the violating JSX element. */
     id: string
     /** Which design system dimension was violated. */
-    type: 'color-drift' | 'typography-drift' | 'spacing-drift' | 'shadow-drift' | 'opacity-drift' | 'a11y' | 'semantic-drift'
-    severity: 'amber' | 'critical'
+    type: 'color-drift' | 'typography-drift' | 'spacing-drift' | 'shadow-drift' | 'opacity-drift' | 'a11y' | 'semantic-drift' | 'sync' | 'inline-style-drift' | 'registry'
+    severity: 'amber' | 'critical' | 'advisory'
     /**
      * For color-drift: CIEDE2000 ΔE value.
      * For all other types: 1 (presence indicator — the violation exists).

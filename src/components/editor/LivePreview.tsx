@@ -35,7 +35,7 @@ import {
   getGenericShims,
   type LibraryShimBundle,
 } from '../../preview-vendor/shims/index'
-import { MousePointer2, Hand } from 'lucide-react'
+import { MousePointer2, Hand, Loader2, AlertTriangle } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
 import { useTokenStore } from '../../store/tokenStore'
 import { useCanvasStore } from '../../store/canvasStore'
@@ -136,7 +136,7 @@ export function buildSrcdoc(
           root.innerHTML = '<p style="color:#94a3b8;font-size:12px">No default export found.</p>';
         }
       } catch (e) {
-        root.innerHTML = '<pre style="color:#f87171;font-size:12px">' + String(e) + '<\/pre>';
+        var _pre = document.createElement('pre'); _pre.style.cssText = 'color:#f87171;font-size:12px'; _pre.textContent = String(e); root.innerHTML = ''; root.appendChild(_pre);
       }
     })();
   <\/script>
@@ -230,7 +230,7 @@ export function buildVueSrcdoc(
           appEl.innerHTML = '<p style="color:#94a3b8;font-size:12px">No Vue component exported.<\/p>';
         }
       } catch (e) {
-        appEl.innerHTML = '<pre style="color:#f87171;font-size:12px">' + String(e) + '<\/pre>';
+        var _pre = document.createElement('pre'); _pre.style.cssText = 'color:#f87171;font-size:12px'; _pre.textContent = String(e); appEl.innerHTML = ''; appEl.appendChild(_pre);
       }
     })();
   <\/script>
@@ -291,7 +291,7 @@ export function buildSvelteSrcdoc(
         // eslint-disable-next-line no-new-func
         (new Function(code))();
       } catch (e) {
-        if (appEl) appEl.innerHTML = '<pre style="color:#f87171;font-size:12px">' + String(e) + '<\/pre>';
+        if (appEl) var _pre = document.createElement('pre'); _pre.style.cssText = 'color:#f87171;font-size:12px'; _pre.textContent = String(e); appEl.innerHTML = ''; appEl.appendChild(_pre);
       }
     })();
   <\/script>
@@ -340,6 +340,22 @@ export function LivePreview() {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const [transformError, setTransformError] = useState<string | null>(null)
   const [demoLoading, setDemoLoading] = useState(false)
+
+  // ── GLASS.3.1A: Transform loading indicator ──────────────────────────────
+  const [isTransforming, setIsTransforming] = useState(false)
+
+  // ── GLASS.3.1B: Stale preview indicator ──────────────────────────────────
+  // Tracks whether the source code has changed since the last successful
+  // srcdoc update. Becomes true when previewCode changes, cleared when the
+  // iframe srcdoc is actually set.
+  const [isStale, setIsStale] = useState(false)
+  // Monotonic counter — incremented on each source change so the transform
+  // callback can detect outdated results without a stale closure.
+  const codeVersionRef = useRef(0)
+  const renderedVersionRef = useRef(0)
+
+  // ── GLASS.3.1C: Error formatting — expand toggle ────────────────────────
+  const [errorExpanded, setErrorExpanded] = useState(false)
 
   // ── Phase D2C.3: Active library for shim injection ─────────────────────────
   // Read the active library via the existing `scope:get-active-library` IPC channel.
@@ -498,8 +514,19 @@ export function LivePreview() {
   // Re-compute only when the token list changes, not on every render.
   const tailwindConfigJson = useMemo(() => generateTailwindConfig(tokens), [tokens])
 
+  // GLASS.3.1B: Mark stale whenever the source code changes.
+  useEffect(() => {
+    codeVersionRef.current += 1
+    setIsStale(true)
+    // Reset error expand state on new source code
+    setErrorExpanded(false)
+  }, [previewCode])
+
   useEffect(() => {
     let cancelled = false
+
+    // GLASS.3.1A: Track the code version this transform was started for.
+    const thisVersion = codeVersionRef.current
 
     // ── MFP.1: Framework dispatch — route by file extension ───────────────
     const activeFilePath = useCanvasStore.getState().activeFilePath ?? ''
@@ -518,6 +545,8 @@ export function LivePreview() {
           if (!cancelled && iframeRef.current !== null) {
             setTransformError(null)
             iframeRef.current.srcdoc = buildHtmlSrcdoc(injectedHtml, tailwindConfigJson)
+            renderedVersionRef.current = thisVersion
+            setIsStale(false)
           }
         }
         return () => { cancelled = true }
@@ -528,10 +557,12 @@ export function LivePreview() {
       // then compile the SFC in the main process via @vue/compiler-sfc.
       case 'vue': {
         const codeWithIds = vueAdapter.injectFlintIdsIntoSource(previewCode)
+        setIsTransforming(true)
         window.flintAPI
           .transformVue(codeWithIds)
           .then(({ js, css, error }) => {
             if (cancelled) return
+            setIsTransforming(false)
             if (error !== null || js === null) {
               setTransformError(error ?? 'Vue compilation failed')
               return
@@ -539,10 +570,15 @@ export function LivePreview() {
             setTransformError(null)
             if (iframeRef.current !== null) {
               iframeRef.current.srcdoc = buildVueSrcdoc(js, css ?? '', tailwindConfigJson)
+              renderedVersionRef.current = thisVersion
+              setIsStale(false)
             }
           })
           .catch((err: unknown) => {
-            if (!cancelled) setTransformError(String(err))
+            if (!cancelled) {
+              setIsTransforming(false)
+              setTransformError(String(err))
+            }
           })
         return () => { cancelled = true }
       }
@@ -563,9 +599,11 @@ export function LivePreview() {
           }
         }
 
+        setIsTransforming(true)
         window.flintAPI.transformSvelte(codeToTransform)
           .then(({ js, css, error }: { js: string | null; css: string; error: string | null }) => {
             if (cancelled) return
+            setIsTransforming(false)
             if (error !== null || js === null) {
               setTransformError(error ?? 'Svelte compilation failed')
               return
@@ -573,10 +611,15 @@ export function LivePreview() {
             setTransformError(null)
             if (iframeRef.current !== null) {
               iframeRef.current.srcdoc = buildSvelteSrcdoc(js, css ?? '', tailwindConfigJson)
+              renderedVersionRef.current = thisVersion
+              setIsStale(false)
             }
           })
           .catch((err: unknown) => {
-            if (!cancelled) setTransformError(String(err))
+            if (!cancelled) {
+              setIsTransforming(false)
+              setTransformError(String(err))
+            }
           })
         return () => { cancelled = true }
       }
@@ -590,10 +633,12 @@ export function LivePreview() {
             ? (() => { injectFlintIds(freshAst); return generateCodeFromAST(freshAst) })()
             : previewCode
 
+        setIsTransforming(true)
         window.flintAPI
           .transformCode(codeToTransform)
           .then(({ js, error }) => {
             if (cancelled) return
+            setIsTransforming(false)
             if (error !== null || js === null) {
               setTransformError(error ?? 'Transform failed')
               return
@@ -603,10 +648,15 @@ export function LivePreview() {
               const executeCode = js.replace(/import\s+.*?from\s+['"].*?['"];?/g, '')
               const libraryShims = getLibraryShims(activeLibrary)
               iframeRef.current.srcdoc = buildSrcdoc(executeCode, tailwindConfigJson, libraryShims)
+              renderedVersionRef.current = thisVersion
+              setIsStale(false)
             }
           })
           .catch((err: unknown) => {
-            if (!cancelled) setTransformError(String(err))
+            if (!cancelled) {
+              setIsTransforming(false)
+              setTransformError(String(err))
+            }
           })
 
         return () => {
@@ -635,11 +685,13 @@ export function LivePreview() {
   }, [hoveredId])
 
   const handleHydroPaste = async (figmaPayload: string) => {
-    console.log('[HydroPaste] Received Figma AST Payload')
-    console.log('[HydroPaste] Raw payload (first 2000 chars):', figmaPayload.slice(0, 2000))
+    if (import.meta.env.DEV) {
+      console.log('[HydroPaste] Received Figma AST Payload')
+      console.log('[HydroPaste] Raw payload (first 2000 chars):', figmaPayload.slice(0, 2000))
+    }
     try {
       const response = await window.flintAPI.ai.hydroPaste?.(figmaPayload)
-      console.log('[HydroPaste] Response from main:', JSON.stringify(response, null, 2))
+      if (import.meta.env.DEV) console.log('[HydroPaste] Response from main:', JSON.stringify(response, null, 2))
       if (!response || response.error || !response.ok) {
         console.error('[HydroPaste Error]', response?.error || 'No valid components found in payload')
         return
@@ -848,6 +900,43 @@ export function LivePreview() {
     )
   }
 
+  // ── GLASS.3.1D: Derive framework badge label from activeFilePath ──────
+  const detectedFramework = useMemo(() => {
+    const filePath = useCanvasStore.getState().activeFilePath ?? ''
+    const extension = filePath.split('.').pop()?.toLowerCase() ?? ''
+    switch (extension) {
+      case 'vue': return 'Vue'
+      case 'svelte': return 'Svelte'
+      case 'html': return 'HTML'
+      default: return 'React'
+    }
+  }, [rawCode]) // re-derive when rawCode changes (implies file switch)
+
+  // ── GLASS.3.1C: Error formatting helpers ────────────────────────────────
+
+  /** Extract a recognizable error type from an error message string. */
+  const parseErrorType = (msg: string): string => {
+    if (/SyntaxError/i.test(msg)) return 'Syntax Error'
+    if (/TypeError/i.test(msg)) return 'Type Error'
+    if (/ReferenceError/i.test(msg)) return 'Reference Error'
+    if (/RangeError/i.test(msg)) return 'Range Error'
+    if (/compilation failed/i.test(msg)) return 'Compile Error'
+    return 'Error'
+  }
+
+  /** Return a contextual hint for common error patterns. */
+  const getErrorHint = (msg: string): string | null => {
+    if (/is not defined/i.test(msg) || /ReferenceError/i.test(msg))
+      return 'Missing import?'
+    if (/unexpected token/i.test(msg) || /unterminated/i.test(msg) || /SyntaxError/i.test(msg))
+      return 'Unclosed tag?'
+    if (/is not a function/i.test(msg) || /undefined/i.test(msg))
+      return 'Undefined component?'
+    if (/cannot read propert/i.test(msg))
+      return 'Null reference — check your data'
+    return null
+  }
+
   return (
     <div className="relative flex h-full w-full flex-col">
       {/* ── Preview toolbar ─────────────────────────────────── */}
@@ -874,23 +963,87 @@ export function LivePreview() {
           </button>
         </div>
 
-        {/* Quick Load */}
-        <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
-          Quick Load
-        </span>
-        <button
-          type="button"
-          disabled={demoLoading}
-          onClick={() => { handleLoadDemo().catch(console.error) }}
-          className="ml-auto rounded border border-gray-700 px-2.5 py-0.5 text-[10px] text-gray-500 transition-colors hover:border-indigo-600/60 hover:text-indigo-400 disabled:cursor-wait disabled:opacity-40"
-        >
-          {demoLoading ? 'Compiling AST…' : 'Load Demo'}
-        </button>
+        {/* GLASS.3.1D: Dev-only Quick Load / Load Demo — hidden in production */}
+        {import.meta.env.DEV && (
+          <>
+            <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+              Quick Load
+            </span>
+            <button
+              type="button"
+              disabled={demoLoading}
+              onClick={() => { handleLoadDemo().catch(console.error) }}
+              className="rounded border border-gray-700 px-2.5 py-0.5 text-[10px] text-gray-500 transition-colors hover:border-indigo-600/60 hover:text-indigo-400 disabled:cursor-wait disabled:opacity-40"
+            >
+              {demoLoading ? 'Compiling AST\u2026' : 'Load Demo'}
+            </button>
+          </>
+        )}
+
+        {/* GLASS.3.1D: Framework badge — shown in production where Quick Load was */}
+        {!import.meta.env.DEV && (
+          <span
+            data-testid="framework-badge"
+            className="ml-1 rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] font-medium text-zinc-400"
+          >
+            {detectedFramework}
+          </span>
+        )}
+
+        {/* GLASS.3.1B: Stale preview indicator */}
+        {isStale && !isTransforming && (
+          <div data-testid="stale-indicator" className="ml-auto flex items-center gap-1.5">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500" />
+            <span className="text-xs text-amber-400">Outdated</span>
+          </div>
+        )}
       </div>
 
+      {/* ── GLASS.3.1C: Structured error display ────────────────────────── */}
       {transformError !== null && (
-        <div className="shrink-0 border-b border-red-900/40 bg-red-900/10 px-3 py-1.5 text-[11px] text-red-400">
-          {transformError}
+        <div
+          data-testid="transform-error"
+          className="shrink-0 border-b border-red-700/40 bg-red-900/10 rounded p-3"
+        >
+          <div className="flex items-start gap-2">
+            <AlertTriangle size={14} className="mt-0.5 shrink-0 text-red-400" />
+            <div className="min-w-0 flex-1">
+              {/* Error type badge */}
+              <span
+                data-testid="error-type-badge"
+                className="mb-1 inline-block rounded bg-red-900/40 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-red-300"
+              >
+                {parseErrorType(transformError)}
+              </span>
+
+              {/* Error message — max 3 lines unless expanded */}
+              <pre
+                data-testid="error-message"
+                className={`mt-1 whitespace-pre-wrap break-all font-mono text-[11px] text-red-400 ${!errorExpanded ? 'line-clamp-3' : ''}`}
+              >
+                {transformError}
+              </pre>
+
+              {/* "Show more" toggle — visible only when the message likely exceeds 3 lines */}
+              {transformError.length > 200 && (
+                <button
+                  type="button"
+                  data-testid="error-expand-toggle"
+                  onClick={() => setErrorExpanded((prev) => !prev)}
+                  className="mt-1 text-[10px] text-red-300/70 underline hover:text-red-300"
+                >
+                  {errorExpanded ? 'Show less' : 'Show more'}
+                </button>
+              )}
+
+              {/* Contextual hint */}
+              {getErrorHint(transformError) !== null && (
+                <p data-testid="error-hint" className="mt-1.5 text-[10px] italic text-red-300/60">
+                  This usually means: {getErrorHint(transformError)}
+                </p>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
@@ -1191,6 +1344,18 @@ export function LivePreview() {
           {...(previewUrl != null ? { src: previewUrl } : {})}
           onLoad={handleIframeLoad}
         />
+        {/* ── GLASS.3.1A: Transform loading overlay ──────────────────────── */}
+        {isTransforming && (
+          <div
+            data-testid="transform-loading-overlay"
+            className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-zinc-950/40"
+          >
+            <div className="flex items-center gap-2">
+              <Loader2 size={14} className="animate-spin text-zinc-400" />
+              <span className="text-xs text-zinc-400">Compiling...</span>
+            </div>
+          </div>
+        )}
         {/* Shield: transparent overlay that captures pointer events during drag.
             Hidden in interact mode so drags pass through to native components. */}
         {isDragging && canvasMode === 'design' && (

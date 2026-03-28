@@ -315,7 +315,6 @@ describe('componentCardStore — toFlowNodes (09)', () => {
         expect(nodes[0].position).toEqual({ x: 120, y: 240 })
         expect(nodes[0].data.card).toEqual(card)
         expect(nodes[0].data.isSelected).toBe(false)
-        expect(nodes[0].data.canvasView).toBe('build')
     })
 
     it('marks the selected card as isSelected: true', () => {
@@ -329,20 +328,6 @@ describe('componentCardStore — toFlowNodes (09)', () => {
         const nodes = useComponentCardStore.getState().toFlowNodes('govern')
 
         expect(nodes[0].data.isSelected).toBe(true)
-        expect(nodes[0].data.canvasView).toBe('govern')
-    })
-
-    it('defaults canvasView to build when not specified', () => {
-        const card = makeCard()
-        useComponentCardStore.setState({
-            cards: [card],
-            cardPositions: { 'card-abc': { x: 0, y: 0 } },
-            selectedCardId: null,
-        })
-
-        const nodes = useComponentCardStore.getState().toFlowNodes()
-
-        expect(nodes[0].data.canvasView).toBe('build')
     })
 })
 

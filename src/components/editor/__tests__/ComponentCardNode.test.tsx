@@ -1,4 +1,6 @@
 /**
+ * @deprecated GLASS.1c — component cards moved to ComponentPanel
+ *
  * ComponentCardNode.test.tsx
  *
  * Phase CV2.3 — Unit tests for the ComponentCardNode custom React Flow node.

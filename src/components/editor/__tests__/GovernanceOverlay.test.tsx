@@ -1,9 +1,12 @@
 /**
  * GovernanceOverlay.test.tsx
  *
- * 9 tests for the GovernanceOverlay component. The overlay reads
+ * 13 tests for the GovernanceOverlay component. The overlay reads
  * linterWarnings from editorStore and renders a violation list with
  * optional Auto-Fix buttons that dispatch applyTokenFix mutations.
+ *
+ * Tests 10–13 cover OPP-15: "Configure rule" gear icon that calls
+ * onConfigureRule with the rule ID extracted from the violation message.
  */
 
 import { describe, it, expect, vi } from 'vitest'
@@ -34,11 +37,12 @@ function seedWarnings(map: Map<string, LinterWarning>) {
 // ── Suite ─────────────────────────────────────────────────────────────────────
 
 describe('GovernanceOverlay', () => {
-    // 1. Shows "No Mithril violations" when the warning map is empty
+    // 1. Shows clean state when the warning map is empty
+    // Note: EDU-03 renamed "No Mithril violations" to "No design system violations"
     it('shows "No Mithril violations" message when linterWarnings is empty', () => {
         seedWarnings(new Map())
         render(<GovernanceOverlay />)
-        expect(screen.getByText('No Mithril violations')).toBeDefined()
+        expect(screen.getByText('No design system violations')).toBeDefined()
     })
 
     // 2. Renders violation rows for each warning
@@ -143,5 +147,66 @@ describe('GovernanceOverlay', () => {
         seedWarnings(map)
         render(<GovernanceOverlay />)
         expect(screen.getByText('#flint-node-xyz')).toBeDefined()
+    })
+
+    // ── OPP-15: Configure rule gear icon ────────────────────────────────────
+
+    // 10. Configure rule button is rendered when onConfigureRule prop is provided
+    it('renders "Configure rule" button when onConfigureRule prop is provided', () => {
+        const map = new Map<string, LinterWarning>([
+            ['node-opp', makeWarning({ message: 'MITHRIL-COL: ΔE 4.5 – use text-red-500' })],
+        ])
+        seedWarnings(map)
+        render(<GovernanceOverlay onConfigureRule={vi.fn()} />)
+        const btn = screen.getByTitle('Configure rule MITHRIL-COL')
+        expect(btn).toBeDefined()
+    })
+
+    // 11. Configure rule button is NOT rendered when onConfigureRule prop is absent
+    it('does NOT render "Configure rule" button when onConfigureRule is not provided', () => {
+        const map = new Map<string, LinterWarning>([
+            ['node-no-handler', makeWarning()],
+        ])
+        seedWarnings(map)
+        render(<GovernanceOverlay />)
+        // No button with "Configure rule" in its title should exist
+        const btn = document.querySelector('[title^="Configure rule"]')
+        expect(btn).toBeNull()
+    })
+
+    // 12. Clicking the configure button calls onConfigureRule with the extracted rule ID
+    it('calls onConfigureRule with the correct rule ID when gear icon is clicked', () => {
+        const onConfigureRule = vi.fn()
+        const map = new Map<string, LinterWarning>([
+            [
+                'node-cfg',
+                makeWarning({
+                    message: 'MITHRIL-TYP-001: arbitrary Comic Sans not in typography token set',
+                }),
+            ],
+        ])
+        seedWarnings(map)
+        render(<GovernanceOverlay onConfigureRule={onConfigureRule} />)
+
+        const btn = screen.getByTitle('Configure rule MITHRIL-TYP-001')
+        fireEvent.click(btn)
+
+        expect(onConfigureRule).toHaveBeenCalledOnce()
+        expect(onConfigureRule).toHaveBeenCalledWith('MITHRIL-TYP-001')
+    })
+
+    // 13. Configure button not rendered when the message has no parseable rule ID prefix
+    it('does NOT render configure button when rule ID cannot be extracted from message', () => {
+        const onConfigureRule = vi.fn()
+        const map = new Map<string, LinterWarning>([
+            [
+                'node-no-prefix',
+                makeWarning({ message: 'some message without a rule prefix' }),
+            ],
+        ])
+        seedWarnings(map)
+        render(<GovernanceOverlay onConfigureRule={onConfigureRule} />)
+        const btn = document.querySelector('[title^="Configure rule"]')
+        expect(btn).toBeNull()
     })
 })
