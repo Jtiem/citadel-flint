@@ -96,8 +96,9 @@ mac:
   gatekeeperAssess: false
   entitlements: build-resources/entitlements.mac.plist
   entitlementsInherit: build-resources/entitlements.mac.plist
-  # Uncomment when you have an Apple Developer certificate:
+  # Set to null to skip signing. Replace with your Developer ID when ready:
   # identity: "Developer ID Application: Your Name (TEAM_ID)"
+  identity: null
   #
   # Notarization — electron-builder 26.8+ requires a boolean here.
   # Set to true when APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD + APPLE_TEAM_ID
