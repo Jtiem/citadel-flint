@@ -1,8 +1,193 @@
 # Flint — Developer Handoff
 
 **Date:** 2026-03-21
-**Architecture:** Flint MCP (headless governance engine) + Flint Glass (Electron observability layer)
-**Test baseline:** 3,612/3,612 MCP | 1,209/1,209 Glass | 1,087/1,087 Core | 56/56 CI — TSC 0 errors
+**Architecture:** Flint MCP (headless governance engine) + Flint Glass (Electron observability layer) + Flint Web (browser distribution)
+**Test baseline:** 3,612/3,612 MCP | 1,537/1,537 Glass | 1,087/1,087 Core | 56/56 CI — TSC 0 errors
+
+---
+
+## Session: 2026-03-28 Phase GLASS — Glass Brilliance (COMPLETE)
+
+**Goal:** Comprehensive UX overhaul of Flint Glass — structural redesign, credibility, and polish. Driven by 3-tier independent review (UX critic, code reviewer, security auditor).
+
+**What shipped (91 files changed, ~98 new tests, 4 swarm waves, 16 parallel agents):**
+
+| Tier | Items | Key Changes |
+|------|-------|-------------|
+| GLASS.1 Structural | 5 | Right sidebar 7→3 tabs, Build/Govern modes killed, ComponentPanel in left sidebar, unified violations, Fix All button, actionable dashboard |
+| GLASS.2 Credibility | 5 | ARIA tree semantics, FocusTrap + modal dialog roles, PanelErrorBoundary, EmptyState component, icon consistency |
+| GLASS.3 Polish | 3 | LivePreview loading/stale/error states, panel collapse/expand, production cleanup |
+| Review fixes | 8 | Badge navigation, SEC.3 compliance, locked tab CTA, CSS.escape, aria-hidden, innerHTML→textContent, canExport a11y |
+
+**New components created:**
+- `src/components/ui/ComponentPanel.tsx` — left sidebar component browser
+- `src/components/ui/ComponentPanelCard.tsx` — compact drag-to-insert cards
+- `src/components/ui/FocusTrap.tsx` — custom focus trap (no external deps)
+- `src/components/ui/PanelErrorBoundary.tsx` — React ErrorBoundary for panels
+- `src/components/ui/EmptyState.tsx` — shared zero-data state component
+- `src/hooks/useUnifiedViolations.ts` — merged violation hook
+
+**New agents created:** flint-ux-critic, flint-security-reviewer, flint-perf-profiler, flint-release-engineer, flint-docs-keeper, flint-dep-sentinel, flint-e2e-tester
+
+**Review verdicts:** UX B+→A- (after fixes), Code APPROVED (0 blockers), Security APPROVED (after remediation)
+
+**Remaining UX debt (tracked in GLASS-BRILLIANCE-PLAN.md):**
+- gray-* vs zinc-* palette normalization across canvas/sidebar boundary
+- Orphaned RecoveryPanel/ActivityFeed need final destinations (command palette or statusbar popover)
+- GovernanceDashboard approaching 745 lines — decomposition candidate
+- Duplicate `extractRuleId` → extract to src/utils/
+
+---
+
+## Session: 2026-03-28 CR-SEAL — Constrained Registry Pipeline Hardening (COMPLETE)
+
+**Goal:** Close 3 gaps in the constrained component generation pipeline so that when a user sets a component library, Flint guarantees code only uses registered components — at generation time, at audit time, and on first AI turn.
+
+### Changes
+
+| Fix | File(s) | What changed |
+|-----|---------|-------------|
+| **1. Idiom cache pre-warm** | `electron/orchestrator.ts` | `await loadIdiomCache()` in `sendChatMessage()` — first AI turn now gets library-specific constraints. Removed lazy-load fallback. |
+| **2. Post-generation registry validation** | `flint-mcp/src/core/hydroPaste.ts`, `flint-mcp/src/tools/designToCode.ts` | New `validateGeneratedComponents()` function. After Mason/D2C generates code, validates every PascalCase component against registry. Non-registry components produce `registryWarnings` in the result. |
+| **3. REG-001 audit rule** | `flint-mcp/src/core/MithrilLinter.ts`, `flint-mcp/src/tools/audit.ts`, `flint-mcp/src/server.ts`, `flint-mcp/src/core/errorTaxonomy.ts`, `flint-mcp/src/types.ts` | New `visitRegistryUsage` visitor in Mithril linter. Walks JSX elements, flags PascalCase components not in `flint-manifest.json`. Wired into `auditAll`, `audit_ui_component`, and `flint_audit`. New `'registry'` type in `LinterWarning`. |
+
+### New types/exports
+
+- `RegistryConstraintWarning` — shape for post-generation registry warnings
+- `validateGeneratedComponents()` — exported from `hydroPaste.ts`
+- `visitRegistryUsage()` — exported from `MithrilLinter.ts`
+- `RegistryComponentEntry` — minimal registry entry shape for audit options
+- `AuditAllOptions.registry` — optional field to enable REG-001 at audit time
+- `DesignToCodeResult.registryWarnings` — new optional field in D2C output
+- `LinterWarning.type: 'registry'` — new warning type
+- `FLINT-REG-001` — error taxonomy entry for unregistered component usage
+
+### Review fixes (UX + Security + Code Review)
+
+| Finding | Source | Fix |
+|---------|--------|-----|
+| H-1: Renderer LinterWarning type missing `registry`/`sync`/`inline-style-drift`/`advisory` | Security | Updated `flint-api.d.ts`, GovernanceDashboard TYPE_LABEL, ViolationTooltip typeLabel, useContextSync mithrilTypes |
+| S1: HTML_INTRINSICS 3x duplication | Code Review | Created `flint-mcp/src/core/htmlIntrinsics.ts` — canonical source. Orchestrator copy has sync comment. |
+| S2: Missing React built-ins | Code Review | `React`, `Suspense`, `StrictMode`, `Profiler` in shared `REACT_BUILTINS` set |
+| S3: D2C.6 pipeline skipped validation | Code Review | `handleFigmaJsxTransform` now runs `validateGeneratedComponents` |
+| M-2: JSXMemberExpression bypass | Security | `visitRegistryUsage` now extracts root name from `<Dialog.Header>` → `Dialog` |
+| C1: Developer-facing language | UX Critic | All messages use Citadel vocabulary ("Armory", "component library") |
+| C4: Taxonomy in hot path | Code Review | `getErrorEntryByRuleId` hoisted above `traverse()` |
+| L-2: Silent catch on idiom cache | Security | Now logs `console.warn` on failure |
+
+### Test results
+
+```
+MCP:   4100/4100 passing (20 new — registryConstraint.test.ts)
+Glass: 1509/1533 passing (24 pre-existing, 0 new failures)
+Core:  1185/1185 passing (0 new)
+TSC:   0 errors
+```
+
+---
+
+## Session: 2026-03-27 WEB + PD + EDU + GOV-FIX — Web Build, Progressive Disclosure, Governance Education (COMPLETE)
+
+**Goal:** Ship Glass in the browser, overhaul UX with progressive disclosure, make governance understandable to designers, fix governance correctness bugs.
+
+### 1. Web Build (Phase WEB) — New Distribution Channel
+
+Full Express+WebSocket server that mirrors all 94 Electron IPC handlers, enabling Glass to run in any modern browser without Electron.
+
+| File | Lines | Role |
+|------|-------|------|
+| `server/index.ts` | 1915 | Express+WS server with 94 IPC handlers |
+| `server/mcpClient.ts` | 365 | MCP JSON-RPC client (adapted from electron/mcpClient.ts) |
+| `server/cli.ts` | 178 | CLI with `--project`, `--port`, `--open` |
+| `server/services/ragStore.ts` | 528 | sqlite-vec RAG with n-gram embeddings |
+| `server/services/aiChat.ts` | 371 | Anthropic streaming over WebSocket |
+| `server/services/ingestionServer.ts` | 365 | Figma plugin receiver (port 4545) |
+| `server/services/previewServer.ts` | 175 | Vite dev server wrapper |
+| `server/services/thumbnailService.ts` | 429 | Puppeteer screenshot to PNG cache |
+| `src/adapters/web-api.ts` | 396 | FlintAPI over HTTP+WebSocket |
+| `vite.config.web.ts` | 73 | Vite without Electron |
+| `src/main.tsx` | -- | 5-line web mode detection |
+
+Commands: `npm run dev:web`, `npm run build:web`, `npm run start:web`.
+
+### 2. UX Progressive Disclosure (Phase PD) — OPP-1 through OPP-17
+
+| ID | What |
+|----|------|
+| OPP-1 | Status bar debug strings removed |
+| OPP-2 | Icon collisions fixed (Health->BarChart2, Scope->Package) |
+| OPP-3 | "Open Canvas" -> "New Project", subtitle -> "AI governance for your design system" |
+| OPP-4-9 | Empty states for Properties, Health, Activity, Agents, Scope, Tokens panels |
+| OPP-10 | Tab unlock system (`unlockedTabs` store slice in canvasStore) |
+| OPP-11 | Left panel progressive tabs (Layers always, Assets on registry, Files on MCP) |
+| OPP-12 | Status bar progressive elements (Autopilot hidden until first violation) |
+| OPP-13 | Tab reorder (Health first, workflow-aligned) |
+| OPP-14 | Keyboard shortcut labels on canvas toggle (Cmd+1/Cmd+2/Cmd+3) |
+| OPP-15 | Violation -> rule configuration path (gear icon on each violation) |
+| OPP-16 | Right panel auto-switch on selection (nothing selected -> Health, selected -> Properties) |
+| OPP-17 | Contextual one-time tooltips (`useOnboardingTooltip` hook) |
+
+### 3. Governance Correctness Fixes
+
+| ID | What |
+|----|------|
+| GOV-FIX-1 | Badge click routes to Health tab (was Properties) |
+| GOV-FIX-2 | Export Modal Fix button calls `flint_fix` via MCP (was just selecting node) |
+| GOV-FIX-3 | Health score hidden when no tokens (was showing misleading 100/A) |
+
+### 4. Governance Education System (Phase EDU) — EDU-01 through EDU-15
+
+All user-facing internal codenames replaced with plain language: "Mithril" -> "Design Drift", "Warden" -> "Accessibility", "delta-E" -> "Color distance". Tooltips on every severity badge, chip, and indicator. "Why?" expandable rows in GovernanceOverlay pulling from `errorTaxonomy.ts`. Rule descriptions in GovernancePanel. "How is this calculated?" glossary in GovernanceDashboard. "Export is blocked because..." banner in ExportModal. Section headers translated to plain language. MCP connection tooltip. Agent Dashboard plain language (Consensus Gate -> AI Second Opinion). First-occurrence onboarding tooltip on violation badge.
+
+### Test Results
+
+```text
+Glass: 1456/1456 passing
+TSC:   0 errors
+```
+
+**Next steps:**
+1. Glass Brilliance contracts (GLASS.1/2/3) are ready for implementation
+2. D2C.5 AI Refinement contract is ready for implementation
+3. Phase N (Designer Experience) is next planned major phase
+
+---
+
+## Session: 2026-03-27 Phase GLASS — Glass Brilliance (CONTRACTS COMPLETE)
+
+**Goal:** Take Flint Glass from "functional" to "brilliant" via 3-tier UX overhaul: structural redesign, credibility (a11y/errors/empty states), and polish.
+
+**What shipped (contracts only — no implementation yet):**
+
+| Artifact | What it defines |
+|----------|----------------|
+| `docs/strategy/GLASS-BRILLIANCE-PLAN.md` | Master plan: 3 tiers, 18 items, success criteria, implementation strategy |
+| `.flint-context/contracts/GLASS-1-structural-redesign.md` | Tier 1: 7→3 sidebar tabs, kill Build/Govern modes → panels, unified violations, Fix All, actionable dashboard |
+| `.flint-context/contracts/GLASS-2-credibility.md` | Tier 2: ARIA trees, focus trapping, ErrorBoundaries, empty state overhaul, emoji cleanup |
+| `.flint-context/contracts/GLASS-3-polish.md` | Tier 3: LivePreview loading, panel collapse, transitions, skeletons, first-audit onboarding, keyboard nav |
+
+**Key design decisions:**
+
+- Right sidebar: Health/Activity/Recovery/Scope/Agents tabs removed. Keep Governance, Properties, Tokens.
+- Build mode killed → Component Panel in left sidebar (drag-to-insert works because preview stays visible)
+- Govern mode killed → Extended GovernanceDashboard in right sidebar (project-level + file-level views)
+- Violation unification: GovernanceOverlay is the single source of truth. All other surfaces link to it.
+- Agent Dashboard removed from Glass entirely (admin telemetry belongs in IDE extension)
+
+**Also completed this session:**
+
+- Git hygiene: set `main` as GitHub default branch (was `feature/mcp-pivot`), deleted 8 stale remote branches, removed duplicate remote, pruned local branches
+- Created 7 new development agents: flint-ux-critic, flint-e2e-tester, flint-release-engineer, flint-docs-keeper, flint-dep-sentinel, flint-perf-profiler, flint-security-reviewer
+- Ran flint-docs-keeper audit: fixed CLAUDE.md drift (tool count 51→54, 22 missing tool rows, 4 missing resources, 1 missing store, 21 undocumented key files)
+
+**Next steps:**
+
+1. Run flint-contract-linter on all 3 GLASS contracts
+2. Begin GLASS.2 (credibility) — all 5 items are independent, can parallelize immediately
+3. Begin GLASS.1a (sidebar consolidation) — the foundation for all other structural changes
+4. GLASS.3 items 1-4 can start in parallel; items 5-8 wait for GLASS.1 decisions
+
+**Territory:** `.flint-context/ACTIVE-SWARM-TERRITORY.md` updated with GLASS phase claim.
 
 ---
 
