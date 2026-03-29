@@ -16,11 +16,16 @@ export function Accordion({
     headerRight?: React.ReactNode
 }) {
     const [isOpen, setIsOpen] = useState(defaultOpen)
+    const panelId = React.useId()
+    const triggerId = React.useId()
     return (
         <div className="border-b border-gray-800/60">
             <div className="flex w-full items-center justify-between px-3 py-2 hover:bg-gray-800/30 transition-colors">
                 <button
                     type="button"
+                    id={triggerId}
+                    aria-expanded={isOpen}
+                    aria-controls={panelId}
                     className="flex flex-1 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400 hover:text-gray-200"
                     onClick={() => setIsOpen(!isOpen)}
                 >
@@ -29,7 +34,11 @@ export function Accordion({
                 </button>
                 {headerRight && <div className="shrink-0">{headerRight}</div>}
             </div>
-            {isOpen && <div className="px-3 pb-3 pt-1">{children}</div>}
+            {isOpen && (
+                <div id={panelId} role="region" aria-labelledby={triggerId} className="px-3 pb-3 pt-1">
+                    {children}
+                </div>
+            )}
         </div>
     )
 }
@@ -116,6 +125,8 @@ export function PopoverPicker({
     return createPortal(
         <div
             ref={popoverRef}
+            role="dialog"
+            aria-modal="false"
             className="fixed z-50 flex w-48 flex-col rounded-md border border-gray-700 bg-gray-900 py-1 shadow-2xl"
             style={{ top, left }}
         >
@@ -168,6 +179,8 @@ export function TokenAutocomplete({
     const [activeIdx, setActiveIdx] = useState(-1)
     const inputRef = useRef<HTMLInputElement>(null)
     const listRef = useRef<HTMLDivElement>(null)
+    const listId = React.useId()
+    const getOptionId = (idx: number) => `${listId}-option-${idx}`
 
     // Recompute open state whenever suggestions or value change
     useEffect(() => {
@@ -230,6 +243,12 @@ export function TokenAutocomplete({
             <input
                 ref={inputRef}
                 type="text"
+                role="combobox"
+                aria-expanded={open}
+                aria-haspopup="listbox"
+                aria-controls={listId}
+                aria-autocomplete="list"
+                aria-activedescendant={activeIdx >= 0 ? getOptionId(activeIdx) : undefined}
                 value={value}
                 onChange={(e) => onChange(e.target.value)}
                 onKeyDown={handleKeyDown}
@@ -245,12 +264,18 @@ export function TokenAutocomplete({
             {open && rect && createPortal(
                 <div
                     ref={listRef}
+                    id={listId}
+                    role="listbox"
+                    aria-label="Token suggestions"
                     className="fixed z-50 flex w-56 flex-col rounded-md border border-zinc-700 bg-zinc-900 py-1 shadow-2xl"
                     style={{ top: dropdownTop, left: dropdownLeft }}
                 >
                     {suggestions.map((s, idx) => (
                         <button
                             key={s.tailwindClass}
+                            id={getOptionId(idx)}
+                            role="option"
+                            aria-selected={idx === activeIdx}
                             type="button"
                             onMouseDown={(e) => {
                                 // mousedown fires before blur — prevent input blur
@@ -279,8 +304,8 @@ export function TokenAutocomplete({
                             <span className="min-w-0 flex-1 truncate text-zinc-400">
                                 {s.label}
                             </span>
-                            {/* Tailwind class */}
-                            <span className="shrink-0 font-mono text-indigo-400 text-[10px]">
+                            {/* Tailwind class — secondary, muted */}
+                            <span className="shrink-0 font-mono text-zinc-600 text-[10px]">
                                 {s.tailwindClass}
                             </span>
                         </button>
@@ -313,6 +338,9 @@ export function ColorPickerSwatch({
             <button
                 ref={triggerRef}
                 type="button"
+                aria-label={`Color: ${activeTokenDisplay || 'none'}`}
+                aria-expanded={isOpen}
+                aria-haspopup="dialog"
                 className="flex items-center gap-2 rounded border border-transparent hover:border-gray-700 bg-transparent hover:bg-gray-800/50 p-1.5 transition-colors w-full text-left"
                 onClick={() => setIsOpen(!isOpen)}
             >

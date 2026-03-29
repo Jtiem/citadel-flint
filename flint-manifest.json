@@ -210,38 +210,16 @@
     }
   ],
   "components": {
-    "LoginScreen": {
-      "name": "LoginScreen",
-      "importPath": "./src/components/LoginScreen",
-      "props": {}
-    },
     "AssetsPanel": {
       "name": "AssetsPanel",
       "importPath": "./src/components/editor/AssetsPanel",
-      "props": {},
-      "description": "Left-sidebar panel listing injectable UI components from the local component registry. Each tile inserts the component's JSX snippet into the selected canvas layer on click. Integrates the ComponentSearch live registry query at the top.",
-      "usageExample": "// Rendered in the left sidebar assets tab — no props required\n<AssetsPanel />",
-      "compositionNotes": "Rendered in the left sidebar 'assets' tab in App.tsx. Composed with ComponentSearch for live registry querying above the static tiles. Requires a canvas node to be selected before insertion; shows an inline alert if none is selected.",
-      "a11yNotes": "Insert tiles are <button> elements with text labels. The inline 'select a target first' alert is not a live region — screen readers may not announce it automatically. Add role=\"alert\" or aria-live=\"assertive\" to announce insert failures.",
-      "relatedComponents": [
-        "ComponentSearch",
-        "LayerTree",
-        "XYCanvas"
-      ]
+      "props": {}
     },
     "CanvasViewToggle": {
       "name": "CanvasViewToggle",
       "importPath": "./src/components/editor/CanvasViewToggle",
       "props": {},
-      "description": "Three-segment control that switches the canvas between Preview (live iframe), Build (component card grid), and Govern (coverage map) modes. Floats absolutely at the top-center of the canvas area.",
-      "usageExample": "// Rendered inside XYCanvas — no props required\n<CanvasViewToggle />",
-      "compositionNotes": "Rendered inside XYCanvas as an absolutely-positioned overlay. No props — reads and writes canvasView from canvasStore. Active segment lights up indigo. Keyboard shortcuts: Cmd+1 (Preview), Cmd+2 (Build), Cmd+3 (Govern).",
-      "a11yNotes": "Wrapper has role=\"group\" and aria-label=\"Canvas view mode\". Each button has aria-pressed (not aria-selected — these are toggle buttons, not tabs) and a title with the keyboard shortcut. Keyboard navigation within the group follows natural tab order.",
-      "relatedComponents": [
-        "XYCanvas",
-        "ComponentCardNode",
-        "RecipeStrip"
-      ]
+      "description": "CanvasViewToggle"
     },
     "DependencyEdge": {
       "name": "DependencyEdge",
@@ -283,99 +261,45 @@
           "type": "unknown",
           "required": false
         }
-      },
-      "description": "Custom React Flow edge type that renders a dashed bezier path between component cards in Govern mode to show 'used-in' dependency relationships. Stroke color and dash animation reflect the target component's health grade.",
-      "usageExample": "// Registered as a custom edge type in XYCanvas — not instantiated directly\n// XYCanvas creates edges from componentCardStore dependency data",
-      "compositionNotes": "Used exclusively as a ReactFlow edge type inside XYCanvas, only rendered in govern mode. Color is grade-driven (emerald A/B, amber C, red D/F, zinc when no health data). Animated when the target has violations.",
-      "a11yNotes": "SVG edges have no interactive elements or ARIA roles — dependency relationships are visual-only in the canvas. Expose the same information via ComponentScopePanel or accessible text for screen reader users.",
-      "relatedComponents": [
-        "XYCanvas",
-        "ComponentCardNode"
-      ]
+      }
     },
     "GhostCodeSnippet": {
       "name": "GhostCodeSnippet",
       "importPath": "./src/components/editor/GhostCodeSnippet",
       "props": {},
-      "description": "Floating code-snippet panel that shows the JSX source lines around the selected canvas node, with lightweight CSS-class-based keyword highlighting. Appears on node selection; dismisses on Escape or close button.",
-      "usageExample": "// Rendered inside XYCanvas as a portal — no props required\n// Only visible in 'preview' canvas mode",
-      "compositionNotes": "Mounted inside XYCanvas, gated to preview mode. Portal into document.body. Shows CONTEXT_LINES (4) lines above and below the selected node's opening tag. Header displays the active file path and line number. No Monaco/CodeMirror dependency.",
-      "a11yNotes": "Close button should trap focus when the panel is open, or at minimum be the first focusable element. The code block is a read-only display — no interaction beyond dismiss. Escape key closes the panel.",
-      "relatedComponents": [
-        "GhostOverlay",
-        "LayerTree"
-      ]
+      "description": "Floating code snippet card."
     },
     "GhostOverlay": {
       "name": "GhostOverlay",
       "importPath": "./src/components/editor/GhostOverlay",
       "props": {},
-      "description": "React portal card that lists hardcoded Tailwind classes on the selected canvas node and suggests the nearest token-derived replacement. Floated to the top-right of the viewport so parent overflow cannot clip it.",
-      "usageExample": "// Rendered inside XYCanvas as a portal — no props required\n<GhostOverlay />",
-      "compositionNotes": "Mounted inside XYCanvas. Only visible when a node is selected AND has hardcoded classes. Portal into document.body avoids overflow clipping. pointer-events:none on the backdrop ensures drag interaction on the canvas is unblocked. Dismiss with the X button or Escape.",
-      "a11yNotes": "The overlay appears on node selection — there is no focus announcement for screen readers. The dismiss button should be the first focusable element inside the overlay. The card is not a modal (no focus trap) — keyboard users can still interact with the canvas while it is open.",
-      "relatedComponents": [
-        "GhostCodeSnippet",
-        "ShieldOverlay",
-        "GovernanceOverlay"
-      ]
+      "description": "Floating overlay rendered as a React portal into document.body."
     },
     "GovernanceOverlay": {
       "name": "GovernanceOverlay",
       "importPath": "./src/components/editor/GovernanceOverlay",
-      "props": {},
-      "description": "Scrollable violation list panel rendered below the canvas mode toggle. Shows each active Mithril linter warning with an Auto-Fix button (when nearestToken is available) and an inline diff preview on hover.",
-      "usageExample": "// Rendered inside the canvas area, below CanvasViewToggle — no props\n<GovernanceOverlay />",
-      "compositionNotes": "Rendered in the canvas area alongside LivePreview. Reads linterWarnings from editorStore. The Auto-Fix button applies a deterministic token substitution via applyBatch, bypassing the AI orchestrator. Shows a clean state badge when no violations exist.",
-      "a11yNotes": "Auto-Fix buttons have visible labels. The diff preview is triggered on hover/focus of the fix button — ensure it is also accessible on keyboard focus. Violation messages are displayed as plain text, not live regions, so screen readers must navigate to them.",
-      "relatedComponents": [
-        "ShieldOverlay",
-        "GovernanceDashboard",
-        "ExportModal"
-      ]
+      "props": {
+        "onConfigureRule": {
+          "type": "(...args: any[]) => any",
+          "required": false
+        }
+      }
     },
     "ImportAuditToast": {
       "name": "ImportAuditToast",
       "importPath": "./src/components/editor/ImportAuditToast",
-      "props": {},
-      "description": "Post-Figma-import amber warning toast that shows grouped counts of non-aligned style values (colors, spacing, typography) and links to the Export Gate for review. Auto-dismisses after 8 seconds.",
-      "usageExample": "// Self-managed — reads from importSummaryStore automatically\n<ImportAuditToast />",
-      "compositionNotes": "Mounts independently and reads from importSummaryStore. Not rendered when all counts are zero. Separate from ImportSummaryToastMount — this is specifically for Figma hydro-paste import audit results, not the full ING heal summary.",
-      "a11yNotes": "The toast is not a live region — screen readers will not announce it on appearance. Add role=\"alert\" or aria-live=\"assertive\" to ensure import warnings are announced. Dismiss button has an aria-label.",
-      "relatedComponents": [
-        "ImportSummaryToastMount",
-        "NotificationCenter",
-        "ExportModal"
-      ]
+      "props": {}
     },
     "LivePreview": {
       "name": "LivePreview",
       "importPath": "./src/components/editor/LivePreview",
-      "props": {},
-      "description": "100% offline srcdoc iframe that renders the current TSX editor code via a Babel IPC transform. Injects design tokens as a Tailwind config extension. Supports design mode (ShieldOverlay click-to-select) and interact mode (passthrough mouse events).",
-      "usageExample": "// Rendered as a node inside XYCanvas — not used standalone\n// XYCanvas mounts it as a custom ReactFlow node type",
-      "compositionNotes": "Rendered exclusively inside XYCanvas as the 'livePreviewNode'. Requires MithrilProvider in the tree above XYCanvas. The ShieldOverlay renders above the iframe to intercept clicks. Breakpoints cycle via Shift+scroll on the canvas.",
-      "a11yNotes": "The srcdoc iframe content is sandboxed with allow-scripts. Iframe title should be set for screen readers — the current implementation does not set one. In interact mode, keyboard focus enters the iframe; in design mode focus is intercepted by ShieldOverlay.",
-      "relatedComponents": [
-        "XYCanvas",
-        "ShieldOverlay",
-        "GovernanceOverlay",
-        "GhostOverlay"
-      ]
+      "props": {}
     },
     "RecipeStrip": {
       "name": "RecipeStrip",
       "importPath": "./src/components/editor/RecipeStrip",
       "props": {},
-      "description": "Horizontally-scrollable strip of pre-composed recipe chips shown at the top of the Build canvas. Each chip represents a multi-component pattern (login form, nav bar, etc.) with registry validation — a green dot when all component dependencies are present, amber with missing-component tooltip when not.",
-      "usageExample": "// Rendered inside XYCanvas Build mode — no props required\n<RecipeStrip />",
-      "compositionNotes": "Rendered inside XYCanvas directly below the search/filter bar in build mode. Uses BUILTIN_RECIPES data (6 patterns). Insertion via editorStore.applyBatch follows the same pattern as ComponentCardNode. No IPC — pure client-side data.",
-      "a11yNotes": "Recipe chips are keyboard-focusable buttons. Missing-component tooltips use the title attribute — add aria-describedby for richer screen reader context if needed. The horizontal scroll container should be keyboard-navigable with arrow keys in future iterations.",
-      "relatedComponents": [
-        "XYCanvas",
-        "CanvasViewToggle",
-        "ComponentCardNode"
-      ]
+      "description": "RecipeStrip"
     },
     "ShieldOverlay": {
       "name": "ShieldOverlay",
@@ -385,31 +309,25 @@
           "type": "React.RefObject",
           "required": true
         }
-      },
-      "description": "Transparent overlay positioned above the LivePreview iframe that intercepts postMessage events for node selection, renders spatial governance badges at node positions (severity heat tints), shows the ViolationTooltip on badge hover, and displays multiplayer presence cursors.",
-      "usageExample": "// Rendered inside LivePreview, above the srcdoc iframe\n<ShieldOverlay iframeRef={iframeRef} />",
-      "compositionNotes": "Used exclusively inside LivePreview. Requires iframeRef pointing to the sandboxed iframe. Works with ViolationTooltip for hover details. The badge cap is 50 — criticals fill first. Badges are culled to the visible viewport for performance.",
-      "a11yNotes": "Governance badges are visual indicators only — they do not have interactive keyboard access. Violations must also be accessible via the GovernanceDashboard and GovernanceOverlay sidebar panels for keyboard-only users.",
-      "relatedComponents": [
-        "LivePreview",
-        "ViolationTooltip",
-        "GovernanceOverlay"
-      ]
+      }
     },
     "StatusBar": {
       "name": "StatusBar",
       "importPath": "./src/components/editor/StatusBar",
-      "props": {},
-      "description": "VS Code-style footer strip showing the Export Gate state, Mithril violation count, Figma sync status with staleness-coded dot, active breakpoint indicator, and the SyncStatus chip. Clicking the Figma area opens a popover with server details.",
-      "usageExample": "// Mounted at the App root footer — no props required\n<StatusBar />",
-      "compositionNotes": "Mounted once at the App root below the three-panel layout. Composed with the SyncStatus chip and the BetaFeedbackModal trigger. The Export Gate chip triggers the ExportModal when clicked. Figma popover polls status every 30s.",
-      "a11yNotes": "Status chips use title attributes for supplementary context. The Figma popover and BetaFeedbackModal should trap focus when open. Export Gate chips communicate status visually — ensure color is not the only differentiator (ShieldCheck/ShieldAlert icons provide secondary cues).",
-      "relatedComponents": [
-        "SyncStatus",
-        "ExportModal",
-        "BetaFeedbackModal",
-        "GovernancePanel"
-      ]
+      "props": {
+        "onConnectIDE": {
+          "type": "(...args: any[]) => any",
+          "required": false
+        },
+        "isDemo": {
+          "type": "boolean",
+          "required": false
+        },
+        "onOpenOwnProject": {
+          "type": "(...args: any[]) => any",
+          "required": false
+        }
+      }
     },
     "ViolationTooltip": {
       "name": "ViolationTooltip",
@@ -435,31 +353,12 @@
           "type": "(...args: any[]) => any",
           "required": true
         }
-      },
-      "description": "Hover popover showing governance violation details (Mithril warnings and A11y messages) for a specific canvas node. Positioned in iframe-relative pixel coordinates and rendered by ShieldOverlay on badge hover.",
-      "usageExample": "// Rendered by ShieldOverlay — not used standalone\n<ViolationTooltip\n  nodeId={hoveredNodeId}\n  position={{ x: 120, y: 80 }}\n  mithrilWarnings={warnings}\n  a11yMessages={messages}\n  onClose={handleClose}\n/>",
-      "compositionNotes": "Used exclusively by ShieldOverlay. Position is in iframe-relative pixels matching the nodeLayouts coordinate space. Escape key and the close button both call onClose. Not a focus-trapping modal — stays open while the user reads it.",
-      "a11yNotes": "The close button has an aria-label. The tooltip content is not announced as a live region — users who rely on screen readers should use GovernanceDashboard or GovernanceOverlay for the same information. Escape key closes the tooltip.",
-      "relatedComponents": [
-        "ShieldOverlay",
-        "GovernanceOverlay"
-      ]
+      }
     },
     "XYCanvas": {
       "name": "XYCanvas",
       "importPath": "./src/components/editor/XYCanvas",
-      "props": {},
-      "description": "Infinite whiteboard canvas built on @xyflow/react (React Flow v12) that hosts the LivePreview as a draggable node. Switches between Preview, Build (component card grid), and Govern (coverage map) view modes via CanvasViewToggle.",
-      "usageExample": "// Mounted in the center panel — no props required\n<XYCanvas />",
-      "compositionNotes": "Mounted in the App center panel, wrapped by MithrilProvider. Hosts LivePreview (preview mode), ComponentCardNode grid (build/govern mode), RecipeStrip, GhostCodeSnippet, and CanvasViewToggle. Drag-to-insert from component cards into LivePreview is handled internally.",
-      "a11yNotes": "The React Flow canvas is not fully keyboard-navigable — spatial navigation of the whiteboard is mouse-driven. Ensure keyboard-only workflows (select, inspect, export) remain accessible via the LayerTree sidebar and keyboard shortcuts without requiring canvas interaction.",
-      "relatedComponents": [
-        "LivePreview",
-        "CanvasViewToggle",
-        "ComponentCardNode",
-        "RecipeStrip",
-        "GhostCodeSnippet"
-      ]
+      "props": {}
     },
     "ClassBuilder": {
       "name": "ClassBuilder",
@@ -473,32 +372,12 @@
           "type": "(...args: any[]) => any",
           "required": true
         }
-      },
-      "description": "Token-matrix property editor that presents Tailwind class categories (typography, fill, stroke, effects) as accordion sections with token-populated dropdowns. Supports a token autocomplete 'Add class' field for direct class input.",
-      "usageExample": "<ClassBuilder\n  className={layer.className}\n  onCommit={(newClass) => applyBatch([{ op: 'set-prop', ... }])}\n/>",
-      "compositionNotes": "Used exclusively inside PropertiesPanel. All options are sourced from the token store — no hardcoded classes. Uses Accordion, CompactSelect, ColorPickerSwatch, and TokenAutocomplete primitives from primitives.tsx. Mutations go through the parent's onCommit callback.",
-      "a11yNotes": "All dropdown controls are native <select> elements with accessible keyboard navigation. Accordion sections use button elements. The token autocomplete uses an input with suggestion overlay — ensure the suggestion list has role=\"listbox\" and items have role=\"option\" for full ARIA combobox compliance.",
-      "relatedComponents": [
-        "PropertiesPanel",
-        "LayoutPanel",
-        "TokenSelect",
-        "Accordion",
-        "CompactSelect"
-      ]
+      }
     },
     "DriftDetector": {
       "name": "DriftDetector",
       "importPath": "./src/components/inspector/DriftDetector",
-      "props": {},
-      "description": "Inspector section that scans the selected node's AST for hardcoded arbitrary color classes (e.g. bg-[#f3f3f3]), matches each against the token store using CIEDE2000, and shows a ΔE badge with a Fix button for systemizable matches.",
-      "usageExample": "// Used inside PropertiesPanel as an accordion section — no props\n// Reads selectedNodeId from editorStore automatically",
-      "compositionNotes": "Used exclusively inside PropertiesPanel as a read/fix accordion section. Reads selectedNodeId from editorStore. The Fix button calls applyTokenFix to surgically swap the class in the AST. ΔE < 2 is systemizable (exact match), 2–5 is minor drift, >5 is significant.",
-      "a11yNotes": "ΔE badges use color as the primary indicator (emerald/amber/red) — supplemented with text labels ('Exact match', 'Minor drift', 'Significant drift'). Fix buttons have descriptive text.",
-      "relatedComponents": [
-        "PropertiesPanel",
-        "ClassBuilder",
-        "GovernanceOverlay"
-      ]
+      "props": {}
     },
     "LayoutPanel": {
       "name": "LayoutPanel",
@@ -512,16 +391,7 @@
           "type": "(...args: any[]) => any",
           "required": true
         }
-      },
-      "description": "Figma-grade Auto Layout controls for the inspector. Provides flow direction toggles (row/column/wrap), a 3×3 alignment grid, gap token selector, W/H resizing selects (Hug/Fill), and a padding token selector.",
-      "usageExample": "<LayoutPanel\n  className={layer.className}\n  onChange={(newClass) => applyBatch([{ op: 'set-prop', ... }])}\n/>",
-      "compositionNotes": "Used inside PropertiesPanel alongside ClassBuilder. All structural class mutations go through updateLayoutClass in layoutMapper.ts (managed-set approach, never string concatenation). Token-based gap and padding are swapped inline via tokenToClass.",
-      "a11yNotes": "Flow direction buttons are toggle buttons — use aria-pressed to reflect active state. The alignment grid cells are clickable but have no descriptive labels — add aria-label (e.g., 'Align top-left') for keyboard and screen reader users.",
-      "relatedComponents": [
-        "PropertiesPanel",
-        "ClassBuilder",
-        "CompactSelect"
-      ]
+      }
     },
     "TokenSelect": {
       "name": "TokenSelect",
@@ -547,16 +417,7 @@
           "type": "(...args: any[]) => any",
           "required": true
         }
-      },
-      "description": "Labelled dropdown that lists design tokens of a given type and maps the selected token to its derived Tailwind class (classPrefix + token path). Shows a color swatch for color tokens and a dimension bar for dimension tokens.",
-      "usageExample": "<TokenSelect\n  label=\"Background\"\n  tokenType=\"color\"\n  classPrefix=\"bg-\"\n  value={activeClass}\n  onChange={(cls) => onCommit(cls)}\n/>",
-      "compositionNotes": "Used inside ClassBuilder and LayoutPanel for individual token-type rows. The `value` prop is the full Tailwind class string (e.g. 'bg-brand-primary'), not the token ID. Pass null from onChange to clear the token.",
-      "a11yNotes": "Uses a native <select> — full keyboard navigation built in. The color swatch and dimension bar are visual-only decorations. The label text is rendered as a <span>, not a <label> for= — this breaks the association. Wrapping in a <label htmlFor=> would improve accessibility.",
-      "relatedComponents": [
-        "ClassBuilder",
-        "LayoutPanel",
-        "CompactSelect"
-      ]
+      }
     },
     "Accordion": {
       "name": "Accordion",
@@ -578,16 +439,7 @@
           "type": "unknown",
           "required": false
         }
-      },
-      "description": "Collapsible section with a title, chevron indicator, and optional right-side header slot. Used throughout the inspector to group property controls into collapsible rows.",
-      "usageExample": "<Accordion title=\"Typography\" defaultOpen={true} headerRight={<span>3 tokens</span>}>\n  <TokenSelect ... />\n</Accordion>",
-      "compositionNotes": "Used inside PropertiesPanel, ClassBuilder, and AnnotationList as the standard section container. The headerRight slot is used for badges or action buttons in the section header. defaultOpen controls initial state.",
-      "a11yNotes": "The expand/collapse button uses a standard <button> element. The chevron icon is decorative. Screen readers announce the title as the button label. Collapsed content is removed from the DOM (not hidden) — no aria-expanded is set on the button, which is a gap to address.",
-      "relatedComponents": [
-        "CompactSelect",
-        "PropertiesPanel",
-        "ClassBuilder"
-      ]
+      }
     },
     "CompactSelect": {
       "name": "CompactSelect",
@@ -609,16 +461,7 @@
           "type": "unknown",
           "required": false
         }
-      },
-      "description": "Minimal inline select control for use in dense inspector rows. Optional icon slot on the left, a custom chevron shown on hover, and transparent background — blends into the inspector panel's dark background.",
-      "usageExample": "<CompactSelect\n  icon={<ArrowRight className=\"h-3 w-3\" />}\n  value={activeJustify}\n  onChange={setJustify}\n  options={justifyOptions}\n/>",
-      "compositionNotes": "Used inside LayoutPanel and ClassBuilder for individual property rows where the full SelectField treatment is too heavy. The icon slot accepts any React node. Uses a native <select> for keyboard accessibility.",
-      "a11yNotes": "Uses a native <select> — keyboard-navigable. The option list uses a placeholder '— default —' as the empty state. The icon is decorative and pointer-events-none. No explicit label — ensure the surrounding context makes the select's purpose clear.",
-      "relatedComponents": [
-        "SelectField",
-        "TokenSelect",
-        "LayoutPanel"
-      ]
+      }
     },
     "PopoverPicker": {
       "name": "PopoverPicker",
@@ -640,15 +483,7 @@
           "type": "unknown",
           "required": false
         }
-      },
-      "description": "Generic popover container rendered as a React portal into document.body, positioned relative to a triggerRef. Used as the host for the color picker swatch overlay in the inspector.",
-      "usageExample": "<PopoverPicker isOpen={isOpen} onClose={handleClose} triggerRef={swatchRef}>\n  {/* color picker content */}\n</PopoverPicker>",
-      "compositionNotes": "Used inside ClassBuilder for the ColorPickerSwatch popover. Portal into document.body prevents overflow clipping. Closes on Escape key and outside click via the onClose callback. Position is computed from the triggerRef bounding rect.",
-      "a11yNotes": "The popover is rendered as a portal — focus is not trapped by default. When the popover is open, focus should move to the first interactive element inside it, and Escape should return focus to the trigger. Add role=\"dialog\" and aria-modal if the picker is modal in nature.",
-      "relatedComponents": [
-        "ColorPickerSwatch",
-        "ClassBuilder"
-      ]
+      }
     },
     "TokenAutocomplete": {
       "name": "TokenAutocomplete",
@@ -674,15 +509,7 @@
           "type": "unknown",
           "required": false
         }
-      },
-      "description": "Text input with a floating suggestion list for token-derived class names. Accepts a list of TokenSuggestion objects and calls onCommit when the user selects a suggestion or presses Enter.",
-      "usageExample": "<TokenAutocomplete\n  suggestions={tokenSuggestions}\n  value={query}\n  onChange={setQuery}\n  onCommit={handleCommit}\n  placeholder=\"Add class…\"\n/>",
-      "compositionNotes": "Used inside ClassBuilder as the 'Add class' free-form input. Suggestions are derived from the token store filtered by the typed substring. Cap of 8 results. Down-arrow key should open the suggestion list; Enter commits the highlighted suggestion.",
-      "a11yNotes": "For full ARIA combobox compliance, the input needs role=\"combobox\", aria-expanded, aria-controls pointing to the suggestion listbox, and aria-activedescendant tracking the highlighted item. Currently missing these attributes.",
-      "relatedComponents": [
-        "ClassBuilder",
-        "CompactSelect"
-      ]
+      }
     },
     "ColorPickerSwatch": {
       "name": "ColorPickerSwatch",
@@ -704,15 +531,7 @@
           "type": "unknown",
           "required": false
         }
-      },
-      "description": "Color token swatch button that shows the active color and opens a PopoverPicker with a list of available color token options for selection.",
-      "usageExample": "<ColorPickerSwatch\n  colorHex={activeTokenValue}\n  activeTokenDisplay={activeTokenLabel}\n  options={colorTokenOptions}\n  onSelect={handleTokenSelect}\n/>",
-      "compositionNotes": "Used inside ClassBuilder for color property rows. Pairs with PopoverPicker as its container. The swatch click toggles the picker open/closed. Options are derived from color tokens in the store.",
-      "a11yNotes": "The swatch button opens a popover — it should have aria-haspopup=\"true\" and aria-expanded reflecting the popover state. The active token display text is a useful accessible name supplement.",
-      "relatedComponents": [
-        "PopoverPicker",
-        "ClassBuilder"
-      ]
+      }
     },
     "MithrilProvider": {
       "name": "MithrilProvider",
@@ -722,30 +541,12 @@
           "type": "ReactNode",
           "required": true
         }
-      },
-      "description": "Headless enforcement boundary that runs the full Mithril safety audit on every AST change. Subscribes to editorStore.ast and tokenStore.tokens, runs auditAll (color + typography + spacing + shadow + opacity), and writes results to canvasStore.mithrilViolations and editorStore.linterWarnings.",
-      "usageExample": "// Wraps XYCanvas in App.tsx\n<MithrilProvider>\n  <XYCanvas />\n</MithrilProvider>",
-      "compositionNotes": "Must wrap XYCanvas at the App root so LivePreview and ShieldOverlay have access to the violation state. Renders no DOM nodes — purely a side-effect boundary. Does not interact with the AI orchestrator; violations inform the Export Gate.",
-      "a11yNotes": "This component has no visual output or accessibility surface. Its output (linterWarnings and mithrilViolations) feeds the ShieldOverlay badges, GovernanceOverlay list, and ExportModal — those surfaces carry the accessibility responsibility.",
-      "relatedComponents": [
-        "ShieldOverlay",
-        "GovernanceOverlay",
-        "GovernanceDashboard",
-        "ExportModal"
-      ]
+      }
     },
     "ActivityFeed": {
       "name": "ActivityFeed",
       "importPath": "./src/components/ui/ActivityFeed",
-      "props": {},
-      "description": "Read-only chronological log of MCP tool invocations. Polls .flint/activity-log.jsonl every 3 seconds and displays the 50 most recent entries with outcome badges, duration, and tool labels. Includes filter pills (success/error/blocked) and a search bar.",
-      "usageExample": "// Mounted in the right sidebar 'activity' tab — no props required\n<ActivityFeed />",
-      "compositionNotes": "Rendered inside the right sidebar activity tab in App.tsx. No props — self-contained with its own polling loop. Error rows with a file path in the input summary show a 'View' button that calls window.flintAPI.openFile().",
-      "a11yNotes": "The list is a live region via its polling model, but individual entries do not use aria-live. For accessibility, the filter buttons use <button type=\"button\"> and are keyboard-navigable. Search input has a placeholder but no explicit label — add aria-label if accessibility audits flag it.",
-      "relatedComponents": [
-        "GovernanceDashboard",
-        "AgentDashboard"
-      ]
+      "props": {}
     },
     "AgentChatPanel": {
       "name": "AgentChatPanel",
@@ -755,15 +556,7 @@
     "AgentDashboard": {
       "name": "AgentDashboard",
       "importPath": "./src/components/ui/AgentDashboard",
-      "props": {},
-      "description": "Per-agent risk posture panel showing mutation counts, average risk scores, red/amber/green tier breakdowns, and override counts per agent. Also displays the Multi-Agent Epistemic Consensus summary (disagreement rate, recent disagreements).",
-      "usageExample": "// Rendered in the right sidebar agents tab — no props required\n<AgentDashboard />",
-      "compositionNotes": "Rendered in the right sidebar 'agents' tab in App.tsx. Fetches data from the flint://agent-risk MCP resource via window.flintAPI.mcp.readResource on mount and on manual refresh. Empty state shown when no agent activity has been recorded.",
-      "a11yNotes": "Risk score badges use color (green/amber/red) as the primary communication. Supplement with the numeric score text that accompanies each badge. Refresh button has visible label text. Loading state is a spinner without a live region announcement.",
-      "relatedComponents": [
-        "ActivityFeed",
-        "GovernanceDashboard"
-      ]
+      "props": {}
     },
     "AgentSettingsModal": {
       "name": "AgentSettingsModal",
@@ -784,14 +577,7 @@
           "required": true
         }
       },
-      "description": "Collapsible accordion section at the bottom of PropertiesPanel showing unresolved Flint annotations anchored to the selected node. Each annotation card displays author, type badge, relative timestamp, body text, and a Resolve button.",
-      "usageExample": "<AnnotationList nodeId={selectedNodeId} />",
-      "compositionNotes": "Used exclusively inside PropertiesPanel, embedded below the main property controls. Collapsed by default; the header shows an indigo count badge when annotations exist. Resolve button calls annotationStore.resolveAnnotation(id).",
-      "a11yNotes": "Accordion section uses a <button> for collapse/expand. Resolve buttons have text labels. The annotation count badge is decorative within the button label — screen readers will read the full button text including the count.",
-      "relatedComponents": [
-        "PropertiesPanel",
-        "LayerTree"
-      ]
+      "description": "Embeds an accordion section in PropertiesPanel showing all unresolved annotations anchored to `nodeId`. Collapsed by default; header shows a count badge when annotations exist."
     },
     "BetaFeedbackModal": {
       "name": "BetaFeedbackModal",
@@ -854,14 +640,7 @@
           "required": false
         }
       },
-      "description": "Primary interactive element for user actions. Supports three visual variants (primary, secondary, outline) and three sizes (sm, md, lg) with full disabled-state styling and focus ring.",
-      "usageExample": "<Button variant=\"primary\" size=\"md\" onClick={handleSubmit}>Save Changes</Button>",
-      "compositionNotes": "Use variant=\"primary\" for the single dominant action in a form or modal footer. Pair with variant=\"secondary\" or variant=\"outline\" for cancel/secondary actions. Used directly in form flows, wizard steps, and modal footers throughout Glass.",
-      "a11yNotes": "Renders a native <button> element — inherits all button semantics. Focus ring is always visible (focus:ring-2). Disabled state sets opacity-50 and cursor-not-allowed; ensure disabled buttons are not the only way to communicate a blocked state.",
-      "relatedComponents": [
-        "IconButton",
-        "SwitchToggle"
-      ]
+      "description": "Primary UI component for user interaction"
     },
     "CommandPalette": {
       "name": "CommandPalette",
@@ -875,42 +654,92 @@
           "type": "(...args: any[]) => any",
           "required": true
         }
-      },
-      "description": "Raycast-style ⌘K command palette rendered as a React portal. Surfaces governance actions, canvas navigation, registry search, git/recovery operations, and settings in a single keyboard-driven fuzzy-search overlay.",
-      "usageExample": "// Mounted in App.tsx — triggered by Cmd+K\n<CommandPalette\n  onOpenExportModal={() => setShowExportModal(true)}\n  onOpenGovernancePanel={() => setShowGovernancePanel(true)}\n/>",
-      "compositionNotes": "Mounted once in App.tsx. Opened via Cmd+K keyboard shortcut. Calls onOpenExportModal and onOpenGovernancePanel callbacks for those specific actions; all other commands execute directly. The search box queries the MCP registry when text is entered.",
-      "a11yNotes": "Rendered as a portal with a backdrop. Escape key closes the palette. The search input should have role=\"combobox\" and aria-expanded for full ARIA pattern compliance — current implementation uses a plain input. Arrow keys do not yet navigate the result list; Tab is the only keyboard navigation.",
-      "relatedComponents": [
-        "GovernancePanel",
-        "ExportModal",
-        "RecoveryPanel"
-      ]
+      }
+    },
+    "ComplianceProfileSelector": {
+      "name": "ComplianceProfileSelector",
+      "importPath": "./src/components/ui/ComplianceProfileSelector",
+      "props": {
+        "activePresets": {
+          "type": "string[]",
+          "required": true
+        },
+        "onToggleJurisdiction": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "isToggling": {
+          "type": "boolean",
+          "required": true
+        }
+      }
+    },
+    "ComponentPanel": {
+      "name": "ComponentPanel",
+      "importPath": "./src/components/ui/ComponentPanel",
+      "props": {}
+    },
+    "ComponentPanelCard": {
+      "name": "ComponentPanelCard",
+      "importPath": "./src/components/ui/ComponentPanelCard",
+      "props": {
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "category": {
+          "type": "string",
+          "required": true
+        },
+        "variantCount": {
+          "type": "number",
+          "required": true
+        },
+        "thumbnailUrl": {
+          "type": "string",
+          "required": false
+        },
+        "importPath": {
+          "type": "string",
+          "required": true
+        },
+        "onSelect": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "onInsert": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "draggable": {
+          "type": "boolean",
+          "required": false
+        }
+      }
     },
     "ComponentScopePanel": {
       "name": "ComponentScopePanel",
       "importPath": "./src/components/ui/ComponentScopePanel",
-      "props": {},
-      "description": "Visual allowlist editor for controlling which registered components the AI orchestrator may use when generating code. Shows enrichment state per component (bare/draft/enriched dots), inline draft review UI, and a registry health metric row.",
-      "usageExample": "// Rendered in the right sidebar scope tab — no props required\n<ComponentScopePanel />",
-      "compositionNotes": "Rendered in the right sidebar 'scope' tab. Fetches scope and enrichment drafts via IPC on mount. Checkbox toggles are debounced before writing back to scope:set-scope. Approve/dismiss actions update enrichment drafts via enrichment:approve IPC.",
-      "a11yNotes": "Component checkboxes are associated with labels. Enrichment draft expansion uses button elements. Discovery banner has a 'Copy prompt' button with visible label. The enrichment dot states (bare/draft/enriched) are color-coded — supplement with text or title attributes for color-blind users.",
-      "relatedComponents": [
-        "GovernancePanel",
-        "ActivityFeed"
-      ]
+      "props": {}
     },
     "ComponentSearch": {
       "name": "ComponentSearch",
       "importPath": "./src/components/ui/ComponentSearch",
-      "props": {},
-      "description": "Live registry search panel with a debounced text input that queries the flint_query_registry MCP tool. Displays matched component name, import path, description, and an Insert button that injects the component into the selected canvas layer.",
-      "usageExample": "// Embedded inside AssetsPanel — no props required\n<ComponentSearch />",
-      "compositionNotes": "Used exclusively inside AssetsPanel. Debounce is 300ms. Calls editorStore.injectComponent on Insert click. Results are parsed from the Shadow Storybook markdown format returned by flint_query_registry.",
-      "a11yNotes": "Search input should have an explicit aria-label (e.g., 'Search components') since the placeholder is not a label. Loading state uses a Loader2 spinner without aria-live — screen readers will not announce 'loading'. Insert buttons have component-name-derived labels.",
-      "relatedComponents": [
-        "AssetsPanel",
-        "CommandPalette"
-      ]
+      "props": {}
+    },
+    "CoverageBar": {
+      "name": "CoverageBar",
+      "importPath": "./src/components/ui/CoverageBar",
+      "props": {
+        "coverages": {
+          "type": "Record | null",
+          "required": true
+        },
+        "isLoading": {
+          "type": "boolean",
+          "required": false
+        }
+      }
     },
     "DiffCard": {
       "name": "DiffCard",
@@ -940,15 +769,29 @@
           "type": "string",
           "required": false
         }
-      },
-      "description": "Mutation approval card shown in AgentChatPanel when the AI proposes a structural or styling change. Displays the tool name, risk tier badge, reasoning text, human-readable mutation summary, and before/after code diff with LCS highlighting.",
-      "usageExample": "<DiffCard\n  call={pendingCall}\n  riskTier=\"amber\"\n  onApprove={() => handleApprove(call.id)}\n  onReject={() => handleReject(call.id)}\n/>",
-      "compositionNotes": "Used inside AgentChatPanel as the approval UI for pending tool calls. Receives a PendingToolCall from orchestratorStore. The riskTier prop overrides the inferred risk from the tool name. consensusOutcome and consensusReasoning are shown when a secondary agent has evaluated the mutation.",
-      "a11yNotes": "Accept and Reject buttons have visible text labels. Risk tier badges use color and icon — accessible because the text label ('Low risk', 'Review', 'High risk') accompanies the icon. Before/after code blocks are <pre> elements with monospace formatting.",
-      "relatedComponents": [
-        "AgentDashboard",
-        "ActivityFeed"
-      ]
+      }
+    },
+    "EmptyState": {
+      "name": "EmptyState",
+      "importPath": "./src/components/ui/EmptyState",
+      "props": {
+        "icon": {
+          "type": "ReactNode",
+          "required": true
+        },
+        "title": {
+          "type": "string",
+          "required": true
+        },
+        "description": {
+          "type": "string",
+          "required": false
+        },
+        "action": {
+          "type": "unknown",
+          "required": false
+        }
+      }
     },
     "ExportModal": {
       "name": "ExportModal",
@@ -958,16 +801,7 @@
           "type": "(...args: any[]) => any",
           "required": true
         }
-      },
-      "description": "Pre-flight export gate modal that audits Mithril violations, accessibility violations, and property overrides before allowing the user to copy the component source. Blocked when any check fails; shows fixable vs. manual violation groups and an optional compliance summary JSON export.",
-      "usageExample": "// Opened from StatusBar export button or CommandPalette\n<ExportModal onClose={() => setShowExportModal(false)} />",
-      "compositionNotes": "Rendered as a modal overlay in App.tsx. Requires canvasStore and editorStore to have an active file loaded. The DBOM download button calls flint_generate_dbom via MCP. Clicking a violation node ID selects that node in the canvas and closes the modal.",
-      "a11yNotes": "Modal backdrop has onClick close. Escape key closes via keydown listener. Close button has aria-label=\"Close export modal\". Focus is not explicitly trapped — add a focus trap in high-accessibility contexts. Severity states (BLOCKED/APPROVED) are communicated visually and via the heading text.",
-      "relatedComponents": [
-        "GovernancePanel",
-        "StatusBar",
-        "GovernanceDashboard"
-      ]
+      }
     },
     "FigmaSetupWizard": {
       "name": "FigmaSetupWizard",
@@ -981,16 +815,7 @@
           "type": "(...args: any[]) => any",
           "required": true
         }
-      },
-      "description": "3-step guided wizard for connecting the Figma plugin to Flint's ingestion server. Steps: checking server status, configuring the plugin with the endpoint, and waiting for the first ingest POST. Resolves to success automatically on first webhook receipt.",
-      "usageExample": "<FigmaSetupWizard visible={figmaSetupOpen} onClose={() => setFigmaSetupOpen(false)} />",
-      "compositionNotes": "Used inside LaunchScreen inline below the Figma tile. Also callable from StatusBar or other triggers. The wizard polls figma.status() on mount and subscribes to onConnected() in the waiting step. Closes automatically 2s after success.",
-      "a11yNotes": "The wizard is rendered inline (not a modal) — no focus trap needed. Copy-to-clipboard buttons should announce copy success via aria-live. Loading spinner states lack a live region announcement.",
-      "relatedComponents": [
-        "LaunchScreen",
-        "SetupWizard",
-        "StatusBar"
-      ]
+      }
     },
     "FileExplorer": {
       "name": "FileExplorer",
@@ -998,19 +823,24 @@
       "props": {},
       "description": "Renders the recursive project file tree in the left sidebar."
     },
+    "FocusTrap": {
+      "name": "FocusTrap",
+      "importPath": "./src/components/ui/FocusTrap",
+      "props": {
+        "children": {
+          "type": "ReactNode",
+          "required": true
+        },
+        "initialFocusRef": {
+          "type": "RefObject",
+          "required": false
+        }
+      }
+    },
     "GovernanceDashboard": {
       "name": "GovernanceDashboard",
       "importPath": "./src/components/ui/GovernanceDashboard",
-      "props": {},
-      "description": "Persistent health monitoring panel showing an SVG score ring (0–100), letter grade (A–F), penalty breakdown by violation type, and the top 5 violated rules. Supports Delta Mode — when a baseline is set, only new violations count toward the score.",
-      "usageExample": "// Rendered in the right sidebar 'health' tab — no props required\n<GovernanceDashboard />",
-      "compositionNotes": "Rendered in the 'health' right-sidebar tab in App.tsx. Reads linterWarnings and a11yViolations from Zustand stores — no props needed. The 'Set Baseline' button requires an active file to be open. Delta Mode badge appears in the panel header when active.",
-      "a11yNotes": "The SVG score ring has role=\"img\" and aria-label=\"Health score N out of 100\". The letter grade has aria-label=\"Grade X\". Decorative severity dots have aria-hidden=\"true\". The panel is not a live region — score updates only reflect on the next render cycle.",
-      "relatedComponents": [
-        "GovernancePanel",
-        "ActivityFeed",
-        "StatusBar"
-      ]
+      "props": {}
     },
     "GovernancePanel": {
       "name": "GovernancePanel",
@@ -1019,17 +849,12 @@
         "onClose": {
           "type": "(...args: any[]) => any",
           "required": true
+        },
+        "focusRuleId": {
+          "type": "string",
+          "required": false
         }
-      },
-      "description": "Full-screen modal for viewing and overriding individual governance rules. Groups rules by category in a left sidebar, shows each rule's ID, name, severity badge, and an enable/disable toggle. Supports save and reset-all operations.",
-      "usageExample": "// Opened from StatusBar or CommandPalette\n<GovernancePanel onClose={() => setShowGovernancePanel(false)} />",
-      "compositionNotes": "Rendered as a modal overlay in App.tsx, triggered by the StatusBar governance indicator or the CommandPalette. Escape key closes the panel. Requires GovernanceStore to be initialized. Override changes write telemetry via window.flintAPI.governance.recordOverride().",
-      "a11yNotes": "Dialog has role=\"dialog\", aria-modal=\"true\", and aria-labelledby pointing to the title element. Escape key closes the panel. Focus is not explicitly trapped — ensure focus returns to the trigger element on close for keyboard users. Toggle buttons use role=\"switch\" with aria-checked.",
-      "relatedComponents": [
-        "PolicySettings",
-        "GovernanceDashboard",
-        "StatusBar"
-      ]
+      }
     },
     "Heading": {
       "name": "Heading",
@@ -1047,14 +872,7 @@
           "type": "unknown",
           "required": false
         }
-      },
-      "description": "Semantic heading element that maps a numeric level (1–6) to the correct HTML tag and a consistent type scale. All levels share the same slate-800 weight and tracking-tight treatment.",
-      "usageExample": "<Heading as={2} className=\"mb-2\">Governance Rules</Heading>",
-      "compositionNotes": "Use inside panel headers, modal titles, and section dividers. Pair with a <p> or <Stack> for body copy below the heading. Do not skip heading levels — use the `as` prop to match document outline, not visual size.",
-      "a11yNotes": "Renders the correct h1–h6 tag based on the `as` prop, maintaining document heading hierarchy for screen readers. Heading level should reflect logical document structure, not visual weight. Never skip levels.",
-      "relatedComponents": [
-        "Stack"
-      ]
+      }
     },
     "IconButton": {
       "name": "IconButton",
@@ -1076,40 +894,33 @@
           "type": "unknown",
           "required": false
         }
-      },
-      "description": "Square icon-only button with built-in aria-label support. Ships four named icons (close, info, add, document) as inline SVG. Two size variants: sm (20px) and md (32px).",
-      "usageExample": "<IconButton icon=\"close\" size=\"sm\" label=\"Close panel\" onClick={onClose} />",
-      "compositionNotes": "Use for dismiss (X), help (info), and add-item (add) affordances in panel headers and list rows. Always supply the `label` prop — it becomes the aria-label. Used in NotificationCenter dismiss buttons and modal close controls.",
-      "a11yNotes": "aria-label is set to `label` prop when provided, falling back to the icon name. For icon-only buttons the `label` prop is required for screen reader accessibility. Focus ring uses focus:ring-2 focus:ring-blue-300 — ensure the host panel provides sufficient contrast context.",
-      "relatedComponents": [
-        "Button"
-      ]
+      }
     },
     "ImportSummaryPanelView": {
       "name": "ImportSummaryPanelView",
       "importPath": "./src/components/ui/ImportSummary",
       "props": {},
-      "description": "Full right-sidebar panel view for the post-import heal summary. Shows three sections: auto-healed items (green checkmarks), needs-review items with Snap buttons, and flagged items with View-on-canvas buttons. Rendered when isPanelMode is true.",
-      "usageExample": "// Mounted conditionally in App.tsx right sidebar\n<ImportSummaryPanelView />",
-      "compositionNotes": "Mounted in the right sidebar by App.tsx when importSummaryStore.isPanelMode is true, replacing the standard tab content. The toast variant (ImportSummaryToastMount) shows first for small imports before the user clicks Review to expand to panel mode.",
-      "a11yNotes": "Snap and View-on-canvas buttons have descriptive text labels. Undo All Heals is a destructive action — consider a confirmation step. The panel auto-closes when all tier-2 items are resolved.",
-      "relatedComponents": [
-        "ImportSummaryToastMount",
-        "NotificationCenter"
-      ]
+      "description": "Full panel view rendered inside the right sidebar. Public export for App.tsx mounting."
     },
     "ImportSummaryToastMount": {
       "name": "ImportSummaryToastMount",
       "importPath": "./src/components/ui/ImportSummary",
       "props": {},
-      "description": "Compact toast overlay rendered above the StatusBar after a Figma import completes. Shows a one-line count summary with an optional Review button. Auto-dismisses after 8 seconds. Self-hides when isPanelMode is true.",
-      "usageExample": "// Mounted unconditionally in App.tsx\n<ImportSummaryToastMount />",
-      "compositionNotes": "Mounted unconditionally by App.tsx. Self-manages visibility via importSummaryStore.isVisible and isPanelMode. Clicking Review switches to panel mode, which triggers App.tsx to show ImportSummaryPanelView in the right sidebar instead.",
-      "a11yNotes": "The toast is visually prominent but not a live region — screen readers will not announce it automatically. Add role=\"status\" or aria-live=\"polite\" if screen reader announcement is required on import completion.",
-      "relatedComponents": [
-        "ImportSummaryPanelView",
-        "NotificationCenter"
-      ]
+      "description": "Renders the toast variant at a fixed position above the StatusBar. App.tsx mounts this unconditionally — it self-hides when isVisible=false or when isPanelMode=true (panel is shown in sidebar instead)."
+    },
+    "InheritanceChain": {
+      "name": "InheritanceChain",
+      "importPath": "./src/components/ui/InheritanceChain",
+      "props": {
+        "chain": {
+          "type": "string[]",
+          "required": true
+        },
+        "isLoading": {
+          "type": "boolean",
+          "required": false
+        }
+      }
     },
     "Input": {
       "name": "Input",
@@ -1119,15 +930,7 @@
           "type": "unknown",
           "required": false
         }
-      },
-      "description": "Minimal dark-theme text input for use in dark panels and overlays. Uses gray-900 background and indigo-500 focus ring to match the Flint Glass dark UI palette.",
-      "usageExample": "<Input placeholder=\"Search components…\" value={query} onChange={(e) => setQuery(e.target.value)} />",
-      "compositionNotes": "Use inside dark panels such as the CommandPalette search field or ActivityFeed search bar where TextField's floating-label treatment is too heavy. When a label is required for accessibility, wrap with a <label> element or use TextField instead.",
-      "a11yNotes": "Has no built-in label. Always provide either a wrapping <label>, an aria-label, or an aria-labelledby to ensure the input is accessible to screen readers. The placeholder alone is not sufficient labeling.",
-      "relatedComponents": [
-        "TextField",
-        "SelectField"
-      ]
+      }
     },
     "LaunchScreen": {
       "name": "LaunchScreen",
@@ -1148,30 +951,17 @@
         "onLoadDemo": {
           "type": "(...args: any[]) => any",
           "required": true
+        },
+        "onConnectIDE": {
+          "type": "(...args: any[]) => any",
+          "required": false
         }
-      },
-      "description": "Context-aware entry screen shown when no project is open. Provides a primary 'Open Canvas' CTA, four job-to-be-done tiles (prototype, connect Figma, audit, dashboard), an inline flow for each tile, recent projects list, and a folder-picker escape hatch.",
-      "usageExample": "<LaunchScreen\n  onOpenFolder={handleOpenFolder}\n  onNewProject={handleNewProject}\n  onOpenRecent={handleOpenRecent}\n  onLoadDemo={handleLoadDemo}\n/>",
-      "compositionNotes": "Rendered by App.tsx when no project is open and setup is complete. Embeds FigmaSetupWizard inline when the Figma tile is expanded. Recent projects are fetched via IPC on mount. The 'Open Canvas' button calls onNewProject for an instant no-dialog session.",
-      "a11yNotes": "All CTAs are <button> elements with visible labels. Recent project entries have a delete button with a title attribute. The inline flow expansion uses conditional rendering — screen readers should announce the newly revealed content via an aria-live region.",
-      "relatedComponents": [
-        "SetupWizard",
-        "FigmaSetupWizard"
-      ]
+      }
     },
     "LayerTree": {
       "name": "LayerTree",
       "importPath": "./src/components/ui/LayerTree",
-      "props": {},
-      "description": "Recursive AST layer hierarchy panel with collapse/expand, drag-and-drop reorder, annotation count dots (from annotationStore), and remote-presence lock indicators.",
-      "usageExample": "// Rendered in the left sidebar layers tab — no props required\n<LayerTree />",
-      "compositionNotes": "Rendered in the left sidebar 'layers' tab in App.tsx. All drag-drop mutations go through moveLayerNode → applyBatch for undo support. Annotation dots require annotationStore to be initialized. Custom DOM events (flint:dragOver, flint:dragClear) mirror drop targets inside the iframe.",
-      "a11yNotes": "Chevron expand/collapse buttons and source-jump buttons are keyboard accessible. Drag-and-drop is mouse-only — keyboard reordering is not yet implemented. Locked nodes have a Lock icon with a title attribute.",
-      "relatedComponents": [
-        "PropertiesPanel",
-        "AnnotationList",
-        "GhostCodeSnippet"
-      ]
+      "props": {}
     },
     "Stack": {
       "name": "Stack",
@@ -1193,27 +983,12 @@
           "type": "unknown",
           "required": false
         }
-      },
-      "description": "Flexbox layout primitive for arranging children with configurable direction (horizontal/vertical) and gap spacing. Spacing maps directly to Tailwind gap-{n} utilities.",
-      "usageExample": "<Stack direction=\"horizontal\" spacing={3}><Button>Cancel</Button><Button variant=\"primary\">Save</Button></Stack>",
-      "compositionNotes": "Use as the primary layout wrapper inside panels, modal bodies, and form sections. Stack vertical (default) for form fields, horizontal for button groups. When spacing needs to match a specific design token value, verify the gap-{n} class is in the token-derived set.",
-      "a11yNotes": "Renders a plain div with flex layout — no semantic role. Ensure the stack's content provides its own semantic structure (headings, labels, landmarks). Does not add aria attributes.",
-      "relatedComponents": [
-        "Heading",
-        "Button"
-      ]
+      }
     },
     "NotificationCenter": {
       "name": "NotificationCenter",
       "importPath": "./src/components/ui/NotificationCenter",
-      "props": {},
-      "description": "Global toast renderer that subscribes to the notificationStore and renders a stacked list of severity-coded toast cards fixed to the bottom-right corner. Supports auto-dismiss timers and optional action callbacks.",
-      "usageExample": "// Mounted once in App.tsx — no props required\n<NotificationCenter />",
-      "compositionNotes": "Mount exactly once at the App root, alongside StatusBar. Do not mount inside panels or modals. Push toasts via useNotificationStore().push(). The store caps at 5 concurrent notifications.",
-      "a11yNotes": "Each toast card has role=\"alert\" and aria-live=\"polite\" so screen readers announce them without interrupting the current interaction. Dismiss buttons have aria-label=\"Dismiss notification\". Auto-dismissed toasts may not be read in full if dismissed before the screen reader queue processes them.",
-      "relatedComponents": [
-        "StatusBar"
-      ]
+      "props": {}
     },
     "OnboardingNudge": {
       "name": "OnboardingNudge",
@@ -1237,15 +1012,7 @@
           "type": "(...args: any[]) => any",
           "required": false
         }
-      },
-      "description": "3-step tooltip overlay shown once on first project open. Explains the canvas, the properties sidebar, and MCP chat. Reads/writes a localStorage key to track completion state across sessions.",
-      "usageExample": "<OnboardingOverlay onDismiss={() => setShowOnboarding(false)} />",
-      "compositionNotes": "Mounted in App.tsx after a project opens. Self-manages its own visibility via localStorage — the parent only needs to handle onDismiss. The final step 'Got it' button completes the sequence and writes the localStorage completion flag.",
-      "a11yNotes": "Each step card has a dismiss X button with aria-label. The overlay is not a focus trap — users can interact with the rest of Glass while it is visible. Tooltip cards are positioned statically (center or right-anchored) — not layered above interactive UI.",
-      "relatedComponents": [
-        "LaunchScreen",
-        "OnboardingNudge"
-      ]
+      }
     },
     "PolicySettings": {
       "name": "PolicySettings",
@@ -1255,44 +1022,17 @@
           "type": "(...args: any[]) => any",
           "required": true
         }
-      },
-      "description": "Full-screen modal for editing .flint/policy.json. Configures domain presets, Mithril ΔE thresholds, A11y conformance level, per-category and per-rule enforcement modes, and the Export Gate severity floor. Local draft is committed only on Save.",
-      "usageExample": "<PolicySettings onClose={() => setShowPolicySettings(false)} />",
-      "compositionNotes": "Rendered as a modal overlay in the same pattern as GovernancePanel. Opened from GovernancePanel header or Settings. Escape key closes the panel. Reset reverts to DEFAULT_POLICY_V2. Saves via window.flintAPI.policy.set(draft).",
-      "a11yNotes": "All form controls have associated labels. Escape key closes and focus should return to the trigger. The modal has role=\"dialog\" (follows GovernancePanel pattern). Sliders and selects are native elements with full keyboard support.",
-      "relatedComponents": [
-        "GovernancePanel",
-        "StatusBar"
-      ]
+      }
     },
     "PropertiesPanel": {
       "name": "PropertiesPanel",
       "importPath": "./src/components/ui/PropertiesPanel",
-      "props": {},
-      "description": "Token-aware property inspector for the selected canvas node. Shows AST-derived className, style, and textContent with editable controls routed through applyBatch. Integrates ClassBuilder, LayoutPanel, DriftDetector, and AnnotationList as accordion sections.",
-      "usageExample": "// Rendered in the right sidebar properties tab — no props required\n<PropertiesPanel />",
-      "compositionNotes": "Rendered in the right sidebar 'properties' tab. Composed with ClassBuilder (token dropdown matrix), LayoutPanel (auto layout controls), DriftDetector (CIEDE2000 class scanner), and AnnotationList. All mutations go through editorStore.applyBatch() for undo/redo support.",
-      "a11yNotes": "Remote-locked nodes show a lock icon and disable all editable controls. Mithril violation glow is a visual-only indicator — supplement with the GovernanceDashboard for screen reader users. Accordion sections use button elements for collapse/expand.",
-      "relatedComponents": [
-        "ClassBuilder",
-        "LayoutPanel",
-        "DriftDetector",
-        "AnnotationList",
-        "LayerTree"
-      ]
+      "props": {}
     },
     "RecoveryPanel": {
       "name": "RecoveryPanel",
       "importPath": "./src/components/ui/RecoveryPanel",
-      "props": {},
-      "description": "Git Time Machine panel that lists shadow-commit history for the active file and lets the user surgically transplant a single JSX node from any historical commit into the live AST. Transplants are pushed onto the undo stack.",
-      "usageExample": "// Rendered in the right sidebar 'history' tab — no props required\n<RecoveryPanel />",
-      "compositionNotes": "Rendered in the 'history' right-sidebar tab in App.tsx. Requires a file to be open and a canvas node to be selected before the Transplant button is enabled. Shows empty state banners when no history exists or no node is selected.",
-      "a11yNotes": "Transplant buttons are disabled (and keyboard-skippable) when no node is selected. The disabled state message is shown via a tooltip title attribute — ensure assistive technology users can access this context. Status feedback messages (success/error) are inline but not live regions.",
-      "relatedComponents": [
-        "LayerTree",
-        "StatusBar"
-      ]
+      "props": {}
     },
     "ResizeHandle": {
       "name": "ResizeHandle",
@@ -1301,13 +1041,34 @@
         "onDrag": {
           "type": "(...args: any[]) => any",
           "required": true
+        },
+        "onDoubleClick": {
+          "type": "(...args: any[]) => any",
+          "required": false
         }
-      },
-      "description": "4px vertical drag handle placed between the left and center panels and between the center and right panels. Reports signed pixel delta to the parent via requestAnimationFrame-batched callbacks.",
-      "usageExample": "<ResizeHandle onDrag={(delta) => setLeftWidth((w) => clamp(w + delta, MIN, MAX))} />",
-      "compositionNotes": "Used twice in App.tsx — between the left panel and canvas, and between the canvas and right panel. The parent owns the width state and clamps it. Uses document-level mousemove/mouseup listeners for smooth tracking outside the element bounds.",
-      "a11yNotes": "Has role=\"separator\" and aria-orientation=\"vertical\" and aria-label=\"Resize panel\". Keyboard users cannot resize panels via this handle — consider adding arrow-key resize support for accessibility compliance.",
-      "relatedComponents": []
+      }
+    },
+    "RuleCatalogPanel": {
+      "name": "RuleCatalogPanel",
+      "importPath": "./src/components/ui/RuleCatalogPanel",
+      "props": {
+        "activePresets": {
+          "type": "string[]",
+          "required": true
+        },
+        "onEnablePack": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "onDisablePack": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "isToggling": {
+          "type": "boolean",
+          "required": true
+        }
+      }
     },
     "SelectField": {
       "name": "SelectField",
@@ -1341,16 +1102,7 @@
           "type": "unknown",
           "required": false
         }
-      },
-      "description": "Token-aware dropdown select with a floating label, error state, and a custom chevron icon. Accepts an array of label/value option objects and uses native <select> for maximum compatibility.",
-      "usageExample": "<SelectField label=\"Severity\" options={severityOptions} placeholder=\"Choose severity\" onChange={handleChange} />",
-      "compositionNotes": "Use alongside TextField in settings and configuration forms. The native select is preferred over custom dropdowns for governance forms where predictability matters. Pair with an error prop and label for accessible form patterns.",
-      "a11yNotes": "Uses a native <select> element — full keyboard navigation and screen reader support are built in. The floating label is linked via htmlFor/id. The decorative chevron SVG is pointer-events-none and does not need an aria-label.",
-      "relatedComponents": [
-        "TextField",
-        "Input",
-        "CompactSelect"
-      ]
+      }
     },
     "SetupWizard": {
       "name": "SetupWizard",
@@ -1360,15 +1112,7 @@
           "type": "(...args: any[]) => any",
           "required": true
         }
-      },
-      "description": "5-step first-launch onboarding wizard that detects the host IDE (Claude Code, Cursor, VS Code, Antigravity), generates the correct MCP server config snippet, optionally writes it to the IDE settings file, and verifies the MCP connection before completing.",
-      "usageExample": "<SetupWizard onComplete={() => setSetupComplete(true)} />",
-      "compositionNotes": "Rendered by App.tsx when setupComplete is false on first launch. The MCP config snippet is IDE-specific (mcp.servers for VS Code/Cursor, mcpServers for Claude Code). Connection verification calls window.flintAPI.mcp.callTool('flint_status').",
-      "a11yNotes": "Step progress is indicated via step dots — supplement with an aria-label on the dot container. Copy-to-clipboard buttons use a Check icon on success — ensure the success state is announced via aria-live or status text. Back/Next navigation uses <button> elements.",
-      "relatedComponents": [
-        "LaunchScreen",
-        "FigmaSetupWizard"
-      ]
+      }
     },
     "SwitchToggle": {
       "name": "SwitchToggle",
@@ -1398,27 +1142,13 @@
           "type": "string",
           "required": false
         }
-      },
-      "description": "Accessible on/off toggle switch with an optional text label. Uses role=\"switch\" with aria-checked for screen reader support. Controlled component — caller owns the checked state.",
-      "usageExample": "<SwitchToggle label=\"Enable auto-fix\" checked={autoFixEnabled} onChange={setAutoFixEnabled} />",
-      "compositionNotes": "Use inside settings panels and governance rule rows for binary enable/disable controls. Used in GovernancePanel's rule toggle rows and PolicySettings sliders. The `disabled` prop visually dims the control and prevents interaction.",
-      "a11yNotes": "Implements role=\"switch\" with aria-checked on the button element. Space bar toggles the switch via the native button click handler. The label wraps the button so clicking the label text also toggles — do not nest interactive elements inside the label.",
-      "relatedComponents": [
-        "Button"
-      ]
+      }
     },
     "SyncStatus": {
       "name": "SyncStatus",
       "importPath": "./src/components/ui/SyncStatus",
       "props": {},
-      "description": "Footer chip displaying the PowerSync / SQLite connectivity state (CONNECTING, CONNECTED, OFFLINE_MODE, SYNC_ERROR) with a color-coded dot and label. Also exports the useSyncPresence hook for throttled multiplayer cursor publishing.",
-      "usageExample": "// Rendered inside StatusBar — no props required\n<SyncStatus />",
-      "compositionNotes": "Used inside StatusBar. Probes window.flintAPI.ping() on mount to confirm IPC is live before initializing the token subscription. The useSyncPresence hook is exported for use in any component that needs to publish presence at 100ms intervals.",
-      "a11yNotes": "The dot color changes with sync state — supplemented by the label text so color is not the only indicator. The title attribute provides further detail on hover.",
-      "relatedComponents": [
-        "StatusBar",
-        "TokenManager"
-      ]
+      "description": "Footer chip displaying the current sync state."
     },
     "TextField": {
       "name": "TextField",
@@ -1448,29 +1178,12 @@
           "type": "unknown",
           "required": false
         }
-      },
-      "description": "Floating-label text input with optional helper text, error state, and two size variants. Auto-generates an id from the label when no explicit id is provided.",
-      "usageExample": "<TextField label=\"API Key\" helperText=\"Found in your Figma settings\" error={false} onChange={handleChange} />",
-      "compositionNotes": "Use inside forms and settings modals. Pair with a Button for the submit action. Use the `error` prop in conjunction with helperText to explain validation failures inline. Used inside FigmaSetupWizard and PolicySettings for configuration inputs.",
-      "a11yNotes": "Label is linked to the input via htmlFor/id — auto-generated from the label string when not provided. The helper text is not associated with aria-describedby; add an explicit id and aria-describedby when screen reader announcement of the hint is critical. Error state changes border color only — also communicate errors via helperText.",
-      "relatedComponents": [
-        "SelectField",
-        "Input"
-      ]
+      }
     },
     "TokenManager": {
       "name": "TokenManager",
       "importPath": "./src/components/ui/TokenManager",
-      "props": {},
-      "description": "Design-tool-style palette for viewing and editing design tokens. Renders color swatches, dimension bars, font-family previews, and boolean pills per token type. Supports inline editing, deletion, and W3C DTCG JSON import.",
-      "usageExample": "// Rendered in the right sidebar tokens tab — no props required\n<TokenManager />",
-      "compositionNotes": "Rendered in the right sidebar 'tokens' tab in App.tsx. Reads/writes from tokenStore via IPC. Inline editing activates on row click (Draft Mode). Import JSON modal accepts W3C DTCG format. Token changes propagate to LivePreview via generateTailwindConfig.",
-      "a11yNotes": "Inline edit inputs appear on click — ensure keyboard focus is moved into the input on activation. Delete (trash icon) buttons appear on hover and have title attributes for context. The import modal should trap focus while open.",
-      "relatedComponents": [
-        "TokenSelect",
-        "ClassBuilder",
-        "SyncStatus"
-      ]
+      "props": {}
     },
     "Header": {
       "name": "Header",
@@ -1499,450 +1212,197 @@
       "importPath": "./src/stories/Page",
       "props": {}
     },
-    "MatAutocomplete": {
-      "name": "MatAutocomplete",
-      "importPath": "@angular/material/autocomplete",
-      "description": "Dropdown panel displaying filtered options as users type in an input field. Manages option selection, keyboard navigation, panel visibility, and ARIA accessibility.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
+    "Button": {
+      "name": "Button",
+      "importPath": "primeng/button",
+      "library": "primeng",
+      "props": {
+        "label": { "type": "string", "required": false },
+        "icon": { "type": "string", "required": false },
+        "severity": { "type": "'success' | 'info' | 'warn' | 'danger' | 'help' | 'secondary' | 'contrast'", "required": false },
+        "outlined": { "type": "boolean", "required": false },
+        "rounded": { "type": "boolean", "required": false },
+        "text": { "type": "boolean", "required": false },
+        "disabled": { "type": "boolean", "required": false },
+        "loading": { "type": "boolean", "required": false },
+        "onClick": { "type": "() => void", "required": false }
+      },
+      "description": "PrimeNG Button — versatile action trigger with severity variants, icon support, and loading state."
     },
-    "MatBadge": {
-      "name": "MatBadge",
-      "importPath": "@angular/material/badge",
-      "description": "Directive to display a small text badge on an element. Supports positioning, sizing, color theming, and visibility toggling for notification counts and status indicators.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
+    "InputText": {
+      "name": "InputText",
+      "importPath": "primeng/inputtext",
+      "library": "primeng",
+      "props": {
+        "value": { "type": "string", "required": false },
+        "placeholder": { "type": "string", "required": false },
+        "disabled": { "type": "boolean", "required": false },
+        "invalid": { "type": "boolean", "required": false }
+      },
+      "description": "PrimeNG text input field with validation state support."
     },
-    "MatBottomSheet": {
-      "name": "MatBottomSheet",
-      "importPath": "@angular/material/bottom-sheet",
-      "description": "Service that triggers Material Design bottom sheets. Manages lifecycle of overlay panels that slide up from the bottom edge for contextual actions or content.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
+    "InputSwitch": {
+      "name": "InputSwitch",
+      "importPath": "primeng/inputswitch",
+      "library": "primeng",
+      "props": {
+        "checked": { "type": "boolean", "required": false },
+        "disabled": { "type": "boolean", "required": false },
+        "onChange": { "type": "(e: { value: boolean }) => void", "required": false }
+      },
+      "description": "PrimeNG toggle switch for boolean settings."
     },
-    "MatButton": {
-      "name": "MatButton",
-      "importPath": "@angular/material/button",
-      "description": "Material Design button component supporting raised, flat, stroked, FAB, mini-FAB, and icon button variants. Handles ripple effects, disabled states, and color theming.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
+    "Dropdown": {
+      "name": "Dropdown",
+      "importPath": "primeng/dropdown",
+      "library": "primeng",
+      "props": {
+        "value": { "type": "unknown", "required": false },
+        "options": { "type": "unknown[]", "required": false },
+        "optionLabel": { "type": "string", "required": false },
+        "placeholder": { "type": "string", "required": false },
+        "disabled": { "type": "boolean", "required": false },
+        "onChange": { "type": "(e: { value: unknown }) => void", "required": false }
+      },
+      "description": "PrimeNG dropdown select with search and filtering."
     },
-    "MatButtonToggle": {
-      "name": "MatButtonToggle",
-      "importPath": "@angular/material/button-toggle",
-      "description": "Toggle button group component for selecting one or multiple options from a set. Supports single and multiple selection modes with exclusive/non-exclusive toggling.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
+    "Card": {
+      "name": "Card",
+      "importPath": "primeng/card",
+      "library": "primeng",
+      "props": {
+        "title": { "type": "string", "required": false },
+        "subTitle": { "type": "string", "required": false },
+        "header": { "type": "ReactNode", "required": false },
+        "footer": { "type": "ReactNode", "required": false }
+      },
+      "description": "PrimeNG Card — content container with header, body, and footer sections."
     },
-    "MatCard": {
-      "name": "MatCard",
-      "importPath": "@angular/material/card",
-      "description": "Content container component following Material Design card patterns. Supports header, title, subtitle, content, actions, image, and footer sub-components.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
+    "TabView": {
+      "name": "TabView",
+      "importPath": "primeng/tabview",
+      "library": "primeng",
+      "props": {
+        "activeIndex": { "type": "number", "required": false },
+        "onTabChange": { "type": "(e: { index: number }) => void", "required": false }
+      },
+      "description": "PrimeNG tab container for organizing content into tabbed sections."
     },
-    "MatCheckbox": {
-      "name": "MatCheckbox",
-      "importPath": "@angular/material/checkbox",
-      "description": "Material Design checkbox component with support for indeterminate state, label positioning, color theming, and forms integration via ngModel and FormControl.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
+    "TabPanel": {
+      "name": "TabPanel",
+      "importPath": "primeng/tabview",
+      "library": "primeng",
+      "props": {
+        "header": { "type": "string", "required": true },
+        "disabled": { "type": "boolean", "required": false }
+      },
+      "description": "PrimeNG tab panel — individual tab within a TabView."
     },
-    "MatChip": {
-      "name": "MatChip",
-      "importPath": "@angular/material/chips",
-      "description": "Material Design chip components for displaying compact elements representing inputs, attributes, or actions. Includes chip list, chip grid, chip input, and chip option variants.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
+    "Divider": {
+      "name": "Divider",
+      "importPath": "primeng/divider",
+      "library": "primeng",
+      "props": {
+        "layout": { "type": "'horizontal' | 'vertical'", "required": false },
+        "type": { "type": "'solid' | 'dashed' | 'dotted'", "required": false }
+      },
+      "description": "PrimeNG visual separator between content sections."
     },
-    "MatChipSet": {
-      "name": "MatChipSet",
-      "importPath": "@angular/material/chips",
-      "description": "Container component for organizing chip elements. Manages focus, keyboard navigation, and interaction patterns across a set of chips.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
+    "Avatar": {
+      "name": "Avatar",
+      "importPath": "primeng/avatar",
+      "library": "primeng",
+      "props": {
+        "image": { "type": "string", "required": false },
+        "label": { "type": "string", "required": false },
+        "icon": { "type": "string", "required": false },
+        "size": { "type": "'normal' | 'large' | 'xlarge'", "required": false },
+        "shape": { "type": "'square' | 'circle'", "required": false }
+      },
+      "description": "PrimeNG avatar — displays user image, initials, or icon."
     },
-    "MatDatepicker": {
-      "name": "MatDatepicker",
-      "importPath": "@angular/material/datepicker",
-      "description": "Calendar-based date selection component with popup overlay. Supports date ranges, min/max bounds, date filtering, custom date formats, and multi-calendar navigation.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
+    "Password": {
+      "name": "Password",
+      "importPath": "primeng/password",
+      "library": "primeng",
+      "props": {
+        "value": { "type": "string", "required": false },
+        "feedback": { "type": "boolean", "required": false },
+        "toggleMask": { "type": "boolean", "required": false },
+        "disabled": { "type": "boolean", "required": false },
+        "placeholder": { "type": "string", "required": false }
+      },
+      "description": "PrimeNG password input with strength meter and toggle visibility."
     },
-    "MatDateRangePicker": {
-      "name": "MatDateRangePicker",
-      "importPath": "@angular/material/datepicker",
-      "description": "Date range selection component allowing users to pick start and end dates. Extends datepicker with range-specific input fields and calendar selection behavior.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
+    "Toast": {
+      "name": "Toast",
+      "importPath": "primeng/toast",
+      "library": "primeng",
+      "props": {
+        "position": { "type": "'top-right' | 'top-left' | 'bottom-right' | 'bottom-left' | 'top-center' | 'bottom-center'", "required": false },
+        "life": { "type": "number", "required": false }
+      },
+      "description": "PrimeNG toast notification container for success/error/info messages."
     },
-    "MatDialog": {
-      "name": "MatDialog",
-      "importPath": "@angular/material/dialog",
-      "description": "Service for opening modal dialog overlays. Manages dialog lifecycle, backdrop interactions, keyboard escape handling, and focus trapping for accessible modal experiences.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
+    "Checkbox": {
+      "name": "Checkbox",
+      "importPath": "primeng/checkbox",
+      "library": "primeng",
+      "props": {
+        "checked": { "type": "boolean", "required": false },
+        "disabled": { "type": "boolean", "required": false },
+        "label": { "type": "string", "required": false },
+        "onChange": { "type": "(e: { checked: boolean }) => void", "required": false }
+      },
+      "description": "PrimeNG checkbox for multi-select boolean options."
     },
-    "MatDivider": {
-      "name": "MatDivider",
-      "importPath": "@angular/material/divider",
-      "description": "Thin line component for visually separating content sections. Supports horizontal and vertical orientations with inset positioning.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
+    "RadioButton": {
+      "name": "RadioButton",
+      "importPath": "primeng/radiobutton",
+      "library": "primeng",
+      "props": {
+        "value": { "type": "unknown", "required": false },
+        "checked": { "type": "boolean", "required": false },
+        "disabled": { "type": "boolean", "required": false },
+        "name": { "type": "string", "required": false },
+        "onChange": { "type": "(e: { value: unknown }) => void", "required": false }
+      },
+      "description": "PrimeNG radio button for single-select options within a group."
     },
-    "MatExpansionPanel": {
-      "name": "MatExpansionPanel",
-      "importPath": "@angular/material/expansion",
-      "description": "Expandable content panel with header and collapsible body. Supports accordion behavior, lazy content rendering, custom toggle positioning, and animation states.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
+    "Message": {
+      "name": "Message",
+      "importPath": "primeng/message",
+      "library": "primeng",
+      "props": {
+        "severity": { "type": "'success' | 'info' | 'warn' | 'error'", "required": false },
+        "text": { "type": "string", "required": false },
+        "closable": { "type": "boolean", "required": false }
+      },
+      "description": "PrimeNG inline message for contextual feedback."
     },
-    "MatAccordion": {
-      "name": "MatAccordion",
-      "importPath": "@angular/material/expansion",
-      "description": "Container directive for grouping expansion panels into an accordion where only one panel can be expanded at a time. Manages multi/single expansion modes.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
+    "Panel": {
+      "name": "Panel",
+      "importPath": "primeng/panel",
+      "library": "primeng",
+      "props": {
+        "header": { "type": "string", "required": false },
+        "toggleable": { "type": "boolean", "required": false },
+        "collapsed": { "type": "boolean", "required": false }
+      },
+      "description": "PrimeNG collapsible panel with header for grouping content."
     },
-    "MatFormField": {
-      "name": "MatFormField",
-      "importPath": "@angular/material/form-field",
-      "description": "Wrapper component providing Material Design styling for form controls. Manages labels, hints, errors, prefixes, suffixes, and appearance variants (fill, outline).",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatGridList": {
-      "name": "MatGridList",
-      "importPath": "@angular/material/grid-list",
-      "description": "Two-dimensional grid layout component for arranging cells with configurable column counts, row heights, and gutter sizing. Tiles can span multiple rows and columns.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatGridTile": {
-      "name": "MatGridTile",
-      "importPath": "@angular/material/grid-list",
-      "description": "Individual tile element within a grid list. Supports colspan and rowspan properties to span multiple grid cells, with optional header and footer overlays.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatIcon": {
-      "name": "MatIcon",
-      "importPath": "@angular/material/icon",
-      "description": "Component for rendering named Material Design icons from icon fonts or SVG sources. Supports icon registries, inline SVG, ligature-based fonts, and accessibility labeling.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatInput": {
-      "name": "MatInput",
-      "importPath": "@angular/material/input",
-      "description": "Directive enhancing native input and textarea elements with Material Design styling. Integrates with mat-form-field for labels, hints, errors, and validation states.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatList": {
-      "name": "MatList",
-      "importPath": "@angular/material/list",
-      "description": "Vertical list component for displaying rows of items. Supports single-line, multi-line, icons, avatars, and action items with dividers.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatNavList": {
-      "name": "MatNavList",
-      "importPath": "@angular/material/list",
-      "description": "Navigation-specific list variant rendering anchor elements as list items. Provides accessible navigation link styling within Material Design list patterns.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatSelectionList": {
-      "name": "MatSelectionList",
-      "importPath": "@angular/material/list",
-      "description": "List component with built-in selection state for each item. Supports single and multiple selection modes with checkbox indicators and forms integration.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatMenu": {
-      "name": "MatMenu",
-      "importPath": "@angular/material/menu",
-      "description": "Floating overlay panel displaying a list of action items triggered by a button or other element. Supports nested submenus, keyboard navigation, and positioning.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatPaginator": {
-      "name": "MatPaginator",
-      "importPath": "@angular/material/paginator",
-      "description": "Pagination control for navigating through paged data sets. Displays page size selector, current range, and next/previous navigation buttons.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatProgressBar": {
-      "name": "MatProgressBar",
-      "importPath": "@angular/material/progress-bar",
-      "description": "Horizontal progress indicator bar supporting determinate, indeterminate, buffer, and query display modes. Indicates loading or operation progress.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatProgressSpinner": {
-      "name": "MatProgressSpinner",
-      "importPath": "@angular/material/progress-spinner",
-      "description": "Circular progress indicator supporting determinate and indeterminate modes. Renders an SVG circle with configurable diameter and stroke width for loading states.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatRadioGroup": {
-      "name": "MatRadioGroup",
-      "importPath": "@angular/material/radio",
-      "description": "Radio button group for selecting a single option from a set. Manages mutual exclusivity, keyboard navigation, and forms integration via ngModel and FormControl.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatRadioButton": {
-      "name": "MatRadioButton",
-      "importPath": "@angular/material/radio",
-      "description": "Individual radio button element used within a radio group. Supports label positioning, color theming, disabled state, and accessibility attributes.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatSelect": {
-      "name": "MatSelect",
-      "importPath": "@angular/material/select",
-      "description": "Dropdown selection component replacing native select elements with Material Design styling. Supports single and multiple selection, option groups, search, and custom triggers.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatSidenav": {
-      "name": "MatSidenav",
-      "importPath": "@angular/material/sidenav",
-      "description": "Side navigation panel that slides in from the edge of the viewport. Supports push, over, and side display modes with responsive behavior and backdrop overlay.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatSidenavContainer": {
-      "name": "MatSidenavContainer",
-      "importPath": "@angular/material/sidenav",
-      "description": "Container component that wraps sidenav and main content areas. Manages sidenav open/close transitions, content margin adjustments, and backdrop rendering.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatDrawer": {
-      "name": "MatDrawer",
-      "importPath": "@angular/material/sidenav",
-      "description": "Generic drawer panel component providing the sliding panel behavior without the full sidenav semantics. Used as the base for mat-sidenav within mat-drawer-container.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatSlideToggle": {
-      "name": "MatSlideToggle",
-      "importPath": "@angular/material/slide-toggle",
-      "description": "Material Design slide toggle switch for binary on/off settings. Supports label positioning, color theming, disabled state, and forms integration.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatSlider": {
-      "name": "MatSlider",
-      "importPath": "@angular/material/slider",
-      "description": "Range slider component for selecting a value or range within a bounded interval. Supports discrete steps, tick marks, thumb labels, and vertical orientation.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatSnackBar": {
-      "name": "MatSnackBar",
-      "importPath": "@angular/material/snack-bar",
-      "description": "Service for displaying brief notification messages at the bottom of the screen. Supports action buttons, custom components, duration, horizontal/vertical positioning.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatSort": {
-      "name": "MatSort",
-      "importPath": "@angular/material/sort",
-      "description": "Directive for adding sortable column headers to tables and lists. Manages sort direction cycling, active sort state, and sort change event emission.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatSortHeader": {
-      "name": "MatSortHeader",
-      "importPath": "@angular/material/sort",
-      "description": "Column header button component that integrates with matSort to provide clickable sort controls with directional arrow indicators and accessibility labels.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatStepper": {
-      "name": "MatStepper",
-      "importPath": "@angular/material/stepper",
-      "description": "Multi-step workflow component managing sequential or non-linear step navigation. Supports horizontal and vertical layouts, step validation, editable steps, and animated transitions.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatStep": {
-      "name": "MatStep",
-      "importPath": "@angular/material/stepper",
-      "description": "Individual step within a stepper workflow. Contains step content, label, optional status icon, and supports form validation gating before proceeding to subsequent steps.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatTable": {
-      "name": "MatTable",
-      "importPath": "@angular/material/table",
-      "description": "Data table component extending CDK table with Material Design styling. Supports column definitions, row templates, sticky headers/footers, and integration with sort and pagination.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatHeaderRow": {
-      "name": "MatHeaderRow",
-      "importPath": "@angular/material/table",
-      "description": "Header row component for mat-table defining the row template for column headers. Works with matHeaderCellDef to render column header cells.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatRow": {
-      "name": "MatRow",
-      "importPath": "@angular/material/table",
-      "description": "Data row component for mat-table defining the template for each data row. Works with matCellDef to render column data cells for each record in the data source.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatTabGroup": {
-      "name": "MatTabGroup",
-      "importPath": "@angular/material/tabs",
-      "description": "Tab group container organizing content into tabbed sections. Manages tab selection, keyboard navigation, lazy content loading, animated transitions, and header scrolling.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatTab": {
-      "name": "MatTab",
-      "importPath": "@angular/material/tabs",
-      "description": "Individual tab within a tab group containing label and content templates. Supports lazy rendering, custom labels, disabled state, and ARIA labeling.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatTabNav": {
-      "name": "MatTabNav",
-      "importPath": "@angular/material/tabs",
-      "description": "Navigation-oriented tab bar component rendering anchor-based tab links for router integration. Provides tab-styled navigation without content panels.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatTimepicker": {
-      "name": "MatTimepicker",
-      "importPath": "@angular/material/timepicker",
-      "description": "Time-of-day selection component rendering a listbox dropdown with configurable time intervals. Integrates with MatTimepickerInput for keyboard entry and validation.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatToolbar": {
-      "name": "MatToolbar",
-      "importPath": "@angular/material/toolbar",
-      "description": "Horizontal bar component for headers and title sections. Supports multiple rows, color theming, and serves as an anchor for navigation, branding, and action items.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatTooltip": {
-      "name": "MatTooltip",
-      "importPath": "@angular/material/tooltip",
-      "description": "Directive for displaying informational text when hovering over or focusing on an element. Supports configurable positioning, show/hide delays, and touch gestures.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatTree": {
-      "name": "MatTree",
-      "importPath": "@angular/material/tree",
-      "description": "Hierarchical tree view component extending CDK tree with Material Design styling. Supports flat and nested data sources, expandable nodes, and custom node templates.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatTreeNode": {
-      "name": "MatTreeNode",
-      "importPath": "@angular/material/tree",
-      "description": "Individual node element within a tree component. Supports expand/collapse toggling, indentation levels, and custom content templates for leaf and branch nodes.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatRipple": {
-      "name": "MatRipple",
-      "importPath": "@angular/material/core",
-      "description": "Directive adding Material Design ripple ink effect to host elements on click and touch interactions. Supports configurable color, radius, animation speed, and centered mode.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatOption": {
-      "name": "MatOption",
-      "importPath": "@angular/material/core",
-      "description": "Option element used inside select, autocomplete, and listbox components. Handles selection state, keyboard activation, and accessibility labeling for dropdown choices.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "MatOptgroup": {
-      "name": "MatOptgroup",
-      "importPath": "@angular/material/core",
-      "description": "Grouping component for organizing mat-option elements under a labeled section header within select and autocomplete dropdowns.",
-      "source": "remote",
-      "remoteUrl": "https://github.com/angular/components",
-      "props": {}
-    },
-    "ComponentCardNode": {
-      "name": "ComponentCardNode",
-      "importPath": "",
-      "description": "Custom React Flow node type rendered as a 180px component card in the Build and Govern canvas views. Build mode shows thumbnail, name, category badge, and Insert button. Govern mode shows health grade, A11y status, and token binding summary.",
-      "usageExample": "// Registered as a custom node type in XYCanvas — not instantiated directly\n// XYCanvas creates cards from componentCardStore data",
-      "compositionNotes": "Only used as a ReactFlow node type inside XYCanvas. Uses useThumbnail hook for PNG thumbnails. Double-click switches to preview mode. Insert button in build mode calls editorStore.injectComponent. Governance stickers (5 types) are layered in govern mode.",
-      "a11yNotes": "Card actions (Insert, category reclassification) have accessible button labels. Sticker indicators are visual-only — supplement with text descriptions in govern mode for screen reader users. The React Flow drag handle is the GripVertical icon.",
-      "relatedComponents": [
-        "XYCanvas",
-        "CanvasViewToggle",
-        "DependencyEdge"
-      ]
+    "InputTextarea": {
+      "name": "InputTextarea",
+      "importPath": "primeng/inputtextarea",
+      "library": "primeng",
+      "props": {
+        "value": { "type": "string", "required": false },
+        "rows": { "type": "number", "required": false },
+        "autoResize": { "type": "boolean", "required": false },
+        "placeholder": { "type": "string", "required": false },
+        "disabled": { "type": "boolean", "required": false }
+      },
+      "description": "PrimeNG multi-line text input with optional auto-resize."
     }
   }
 }

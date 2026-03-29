@@ -52,11 +52,16 @@ export interface FocusTrapProps {
      * Falls back to the first focusable element inside the container.
      */
     initialFocusRef?: RefObject<HTMLElement | null>
+    /**
+     * Called when the user presses Escape while the trap is active.
+     * Typically used to close the modal/dialog containing the trap.
+     */
+    onClose?: () => void
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-export function FocusTrap({ children, initialFocusRef }: FocusTrapProps) {
+export function FocusTrap({ children, initialFocusRef, onClose }: FocusTrapProps) {
     const containerRef = useRef<HTMLDivElement>(null)
     const previousFocusRef = useRef<Element | null>(null)
 
@@ -92,11 +97,18 @@ export function FocusTrap({ children, initialFocusRef }: FocusTrapProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
-    // Intercept Tab / Shift+Tab to keep focus within the trap.
-    // Re-queries focusable elements on every keydown so dynamic content
+    // Intercept Tab / Shift+Tab to keep focus within the trap, and Escape to
+    // close. Re-queries focusable elements on every keydown so dynamic content
     // (elements added/removed while the trap is active) is handled correctly.
     useEffect(() => {
         function handleKeyDown(e: KeyboardEvent) {
+            // Escape — dismiss the trap owner
+            if (e.key === 'Escape') {
+                e.preventDefault()
+                onClose?.()
+                return
+            }
+
             if (e.key !== 'Tab') return
 
             const container = containerRef.current
@@ -126,10 +138,30 @@ export function FocusTrap({ children, initialFocusRef }: FocusTrapProps) {
 
         document.addEventListener('keydown', handleKeyDown)
         return () => document.removeEventListener('keydown', handleKeyDown)
+    // onClose is intentionally stable at the call site; lint suppressed to
+    // match the existing pattern for this file.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [onClose])
+
+    // LOW-02: If focus leaves the container (e.g. screen reader virtual
+    // cursor or programmatic focus elsewhere), redirect back to the first
+    // focusable element inside the trap.
+    useEffect(() => {
+        function handleFocusIn(e: FocusEvent) {
+            const container = containerRef.current
+            if (!container) return
+            if (e.target instanceof Node && container.contains(e.target)) return
+            // Focus has escaped — pull it back to the first focusable element
+            const focusable = queryFocusable(container)
+            focusable[0]?.focus()
+        }
+
+        document.addEventListener('focusin', handleFocusIn)
+        return () => document.removeEventListener('focusin', handleFocusIn)
     }, [])
 
     return (
-        <div ref={containerRef} data-focus-trap>
+        <div ref={containerRef} data-focus-trap aria-modal="true">
             {children}
         </div>
     )

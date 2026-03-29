@@ -366,7 +366,8 @@ export async function assembleSessionContext(projectRoot: string): Promise<Sessi
     // Read context.json (Glass state)
     const contextJsonPath = path.join(flintDir, 'context.json')
     const contextJson = safeReadJson<Record<string, unknown>>(contextJsonPath)
-    if (!contextJson) partial = true
+    const glassSessionMissing = !contextJson
+    if (glassSessionMissing) partial = true
 
     // Read design-tokens.json
     const tokensJsonPath = path.join(flintDir, 'design-tokens.json')
@@ -430,6 +431,10 @@ export async function assembleSessionContext(projectRoot: string): Promise<Sessi
         sessionSummary,
         sessionPersona,
         styleGuide,
+        ...(glassSessionMissing && {
+            coldStartHint:
+                'No Glass session found. Run `npx flint-glass --project ./your-project` to connect the visual layer, or use `flint_reindex_registry` and `flint_debt_report` to govern headlessly without Glass.',
+        }),
     }
 
     setCached(projectRoot, context)

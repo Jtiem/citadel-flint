@@ -592,14 +592,14 @@ export function PropertiesPanel() {
             )}
 
             {/* Header */}
-            <div className="flex shrink-0 items-center justify-between border-b border-gray-800 bg-gray-900/40 px-3 py-2">
+            <div className="group flex shrink-0 items-center justify-between border-b border-gray-800 bg-gray-900/40 px-3 py-2">
                 <div className="flex items-center gap-2">
                     {getIconForTag(selectedLayer.tagName)}
                     <span className="font-mono text-[11px] font-semibold text-gray-200">
                         {selectedLayer.tagName}
                     </span>
                 </div>
-                <span className="text-[10px] text-gray-500 font-mono">
+                <span className="text-[10px] text-gray-500 font-mono opacity-0 transition-opacity duration-150 group-hover:opacity-100">
                     L{selectedLayer.line}
                 </span>
             </div>
@@ -638,7 +638,7 @@ export function PropertiesPanel() {
                     />
 
                     {/* Read-only / Editable AST property grid (bottom) */}
-                    <Accordion title="Raw Attributes" defaultOpen={false}>
+                    <Accordion title="Element Properties" defaultOpen={false}>
                         <NodeProperties
                             layer={selectedLayer}
                             nodeId={effectiveId}

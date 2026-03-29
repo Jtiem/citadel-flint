@@ -1,0 +1,13 @@
+{
+  "$schema": "https://tr.designtokens.org/format/",
+  "colors": {
+    "brand": {
+      "primary": { "$value": "#1a56db", "$type": "color" },
+      "secondary": { "$value": "#6875f5", "$type": "color" }
+    },
+    "neutral": {
+      "600": { "$value": "#4b5563", "$type": "color" },
+      "900": { "$value": "#111827", "$type": "color" }
+    }
+  }
+}

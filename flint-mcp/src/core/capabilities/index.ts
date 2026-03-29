@@ -403,7 +403,7 @@ const TOOLS: ToolEntry[] = [
         },
     },
     {
-        name: "flint_vpat_report",
+        name: "flint_accessibility_report",
         category: "Report",
         description:
             "Generate a VPAT (Voluntary Product Accessibility Template) Section 508 / WCAG 2.1 conformance report for all audited components.",
@@ -423,7 +423,7 @@ const TOOLS: ToolEntry[] = [
 
     // Governance ----------------------------------------------------------------
     {
-        name: "flint_consensus_status",
+        name: "flint_consensus_report",
         category: "Governance",
         description:
             "Returns the current state of governance consensus across all agents and team members working in the project. Surfaces conflicting annotation decisions and open debates.",
@@ -465,7 +465,7 @@ const TOOLS: ToolEntry[] = [
         },
     },
     {
-        name: "flint_theme_validate",
+        name: "flint_validate_themes",
         category: "Governance",
         description:
             "Validate that the active design theme is internally consistent — no clashing CIEDE2000 ΔE values between token pairs, no typography scale gaps, no shadow opacity violations.",
@@ -568,7 +568,7 @@ const TOOLS: ToolEntry[] = [
 
     // Platform ------------------------------------------------------------------
     {
-        name: "flint_platform_export",
+        name: "flint_pack_export",
         category: "Platform",
         description:
             "Export governed components for a target platform (React, Vue, iOS SwiftUI, Android Compose). Validates all Mithril and A11y gates before generating platform output.",
@@ -597,7 +597,7 @@ const TOOLS: ToolEntry[] = [
 
     // Collaboration -------------------------------------------------------------
     {
-        name: "flint_annotate",
+        name: "flint_defer_violation",
         category: "Collaboration",
         description:
             "Create a governance annotation on a specific AST node — flag a decision, open a debate, or record a compliance note. Stored in flint://annotations and visible to all team members.",
@@ -677,7 +677,7 @@ const RESOURCES: ResourceEntry[] = [
     {
         uri: "flint://annotations",
         description:
-            "All governance annotations created via flint_annotate — decisions, debates, and compliance notes across all project files.",
+            "All governance annotations created via flint_defer_violation — decisions, debates, and compliance notes across all project files.",
         mimeType: "application/json",
     },
     {
@@ -777,7 +777,7 @@ const WORKFLOWS: WorkflowEntry[] = [
             "flint_debt_report — generate a project-wide design debt summary",
             "flint_audit — deep-audit the highest-severity files identified in the report",
             "flint_fix — apply high-confidence auto-fixes across the debt hotspots",
-            "flint_theme_validate — confirm the token theme is consistent after fixes",
+            "flint_validate_themes — confirm the token theme is consistent after fixes",
         ],
     },
     {
@@ -786,9 +786,9 @@ const WORKFLOWS: WorkflowEntry[] = [
             "Final governance check before shipping a release: full audit, VPAT report, and platform export gate.",
         steps: [
             "flint_audit — full project audit with severity: 'critical'",
-            "flint_theme_validate (strict: true) — confirm design system consistency",
-            "flint_vpat_report — generate WCAG 2.1 conformance report",
-            "flint_platform_export — verify all export targets pass governance gates",
+            "flint_validate_themes (strict: true) — confirm design system consistency",
+            "flint_accessibility_report — generate WCAG 2.1 conformance report",
+            "flint_pack_export — verify all export targets pass governance gates",
         ],
     },
     {
@@ -808,8 +808,8 @@ const WORKFLOWS: WorkflowEntry[] = [
             "Structured team review flow: audit, annotate decisions, check consensus, then approve.",
         steps: [
             "flint_audit — surface all violations for team review",
-            "flint_annotate — record decisions, debates, or compliance notes on specific nodes",
-            "flint_consensus_status — check for conflicting annotation decisions across agents",
+            "flint_defer_violation — record decisions, debates, or compliance notes on specific nodes",
+            "flint_consensus_report — check for conflicting annotation decisions across agents",
             "flint_fix — apply agreed-upon fixes once consensus is reached",
         ],
     },

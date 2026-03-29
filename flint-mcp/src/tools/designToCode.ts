@@ -11,7 +11,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { BRAND, toolName, configPath } from '../brand.js'
-import { HydroPasteEngine } from '../core/hydroPaste.js'
+import { HydroPasteEngine, validateGeneratedComponents, type RegistryConstraintWarning } from '../core/hydroPaste.js'
 import {
     getAdapter,
     hasAdapter,
@@ -205,6 +205,8 @@ export interface DesignToCodeResult {
         mappedCount: number
         unmappedCount: number
     }
+    /** CR-SEAL: Warnings for generated components not in the project registry. */
+    registryWarnings?: RegistryConstraintWarning[]
 }
 
 // ---------------------------------------------------------------------------
@@ -458,6 +460,15 @@ export async function handleDesignToCode(
         }
     }
 
+    // ------------------------------------------------------------------
+    // Step 7a: CR-SEAL — Post-generation registry membership validation
+    // Validate that all generated components exist in the project registry.
+    // Non-registry components produce warnings (not errors) so the pipeline
+    // still returns usable output, but the caller is informed.
+    // ------------------------------------------------------------------
+    const registryComponents = (manifest as Record<string, unknown>).components as Record<string, unknown> | undefined
+    const registryWarnings = validateGeneratedComponents(hydroResult, registryComponents ?? {})
+
     // Build component results array
     const componentResults: ComponentResult[] = hydroResult.components.map(c => ({
         name: c.name,
@@ -607,6 +618,15 @@ export async function handleDesignToCode(
         )
     }
 
+    // CR-SEAL: Append registry constraint warnings to summary (Citadel: Armory)
+    if (registryWarnings.length > 0) {
+        const names = registryWarnings.map(w => w.componentName).join(', ')
+        aiNotes.push(
+            ` ⚠ Armory: ${registryWarnings.length} component(s) not in your project library: ${names}.` +
+            ` Register them in your Armory or replace with registered alternatives.`
+        )
+    }
+
     return {
         status: 'ok',
         library: libraryTarget,
@@ -625,6 +645,7 @@ export async function handleDesignToCode(
         ...(aiClassificationMeta && { aiClassification: aiClassificationMeta }),
         ...(aiRefinementsMeta && { aiRefinements: aiRefinementsMeta }),
         ...(codeConnectMeta && { codeConnectEnrichment: codeConnectMeta }),
+        ...(registryWarnings.length > 0 && { registryWarnings }),
     }
 }
 
@@ -760,17 +781,42 @@ async function handleFigmaJsxTransform(
         }
     }
 
+    // CR-SEAL: Post-generation registry validation (same as HydroPaste pipeline)
+    let d2c6ManifestComponents: Record<string, unknown> = {}
+    const d2c6ManifestPath = path.join(projectRoot, BRAND.manifestFile)
+    if (fs.existsSync(d2c6ManifestPath)) {
+        try {
+            const raw = JSON.parse(fs.readFileSync(d2c6ManifestPath, 'utf-8'))
+            d2c6ManifestComponents = raw.components ?? raw ?? {}
+        } catch { /* manifest unreadable */ }
+    }
+    const d2c6HydroShim = {
+        components: [{ name: component.name, jsx: component.code, props: {}, tokenRefs: component.tokenRefs }],
+        imports: component.imports,
+        summary: '',
+        tokenMappings: transformResult.tokenMappings,
+    }
+    const d2c6RegistryWarnings = validateGeneratedComponents(d2c6HydroShim, d2c6ManifestComponents)
+
     const figmaUrlNote = args.figmaUrl ? ` (source: ${args.figmaUrl})` : ''
     const writeNote = args.writeThemeFile
         ? ` Theme file written to: ${path.join(projectRoot, themeOutput.filename)}.`
         : ' Theme file generated (dry run).'
+
+    // CR-SEAL: Append registry constraint warnings
+    let registryNote = ''
+    if (d2c6RegistryWarnings.length > 0) {
+        const names = d2c6RegistryWarnings.map(w => w.componentName).join(', ')
+        registryNote =
+            ` ⚠ Armory: ${d2c6RegistryWarnings.length} component(s) not in your project library: ${names}.`
+    }
 
     const summary =
         `D2C.6 JSX Transform Pipeline. Library: ${adapter.displayName} (${libraryTarget}).` +
         ` ${transformResult.componentCount} component(s) transformed${figmaUrlNote}.` +
         ` ${Object.keys(transformResult.tokenMappings).length} token(s) mapped.` +
         ` ${transformResult.transformations.length} element(s) replaced.` +
-        writeNote
+        writeNote + registryNote
 
     return {
         status: 'ok',
@@ -780,5 +826,6 @@ async function handleFigmaJsxTransform(
         themeFile: themeFileResult,
         tokenMappings: transformResult.tokenMappings,
         summary,
+        ...(d2c6RegistryWarnings.length > 0 && { registryWarnings: d2c6RegistryWarnings }),
     }
 }

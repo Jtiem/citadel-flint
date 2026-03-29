@@ -20,7 +20,17 @@ export interface Notification {
     type: 'mutation' | 'undo' | 'violation' | 'sync' | 'error' | 'info'
     title: string
     message: string
-    severity: 'success' | 'warning' | 'error' | 'info'
+    /**
+     * Severity drives the auto-dismiss duration (see DEFAULT_DISMISS_MS) and
+     * the visual color treatment of the toast.
+     *
+     * critical — persistent until manually dismissed (blocks export / hard stop)
+     * error    — 8 000 ms (actionable, important, but not a hard blocker)
+     * warning  — 5 000 ms
+     * info     — 3 000 ms
+     * success  — 3 000 ms
+     */
+    severity: 'critical' | 'success' | 'warning' | 'error' | 'info'
     /** Milliseconds before auto-dismiss. 0 = persistent until manually dismissed. */
     autoDismissMs: number
     actionLabel?: string
@@ -48,6 +58,32 @@ interface NotificationState {
 const MAX_CONCURRENT = 5
 const MAX_HISTORY = 200
 
+/**
+ * Default auto-dismiss durations by severity.
+ *
+ * Policy (S4.9):
+ *   critical → 0 (persistent — hard blocker, never auto-dismiss)
+ *   error    → 8 000 ms (important but not a hard stop)
+ *   warning  → 5 000 ms
+ *   info     → 3 000 ms
+ *   success  → 3 000 ms
+ *
+ * Callers may still pass an explicit autoDismissMs to override.
+ */
+const DEFAULT_DISMISS_MS: Record<Notification['severity'], number> = {
+    critical: 0,     // Persistent — hard blocker, must be manually dismissed
+    error:    8000,
+    warning:  5000,
+    success:  3000,
+    info:     3000,
+}
+
+/**
+ * Minimum dismiss time for notifications with action buttons.
+ * Undo/redo toasts need enough time for the user to read and click.
+ */
+const MIN_ACTION_DISMISS_MS = 5000
+
 // ── Store ─────────────────────────────────────────────────────────────────────
 
 export const useNotificationStore = create<NotificationState>((set) => ({
@@ -55,8 +91,34 @@ export const useNotificationStore = create<NotificationState>((set) => ({
     history: [],
 
     push(n: NotificationInput) {
+        // Derive the dismiss duration from the severity table.
+        // A caller may still supply an explicit autoDismissMs — that takes
+        // precedence as long as it is a finite number.
+        let dismissMs =
+            typeof n.autoDismissMs === 'number' && isFinite(n.autoDismissMs)
+                ? n.autoDismissMs
+                : DEFAULT_DISMISS_MS[n.severity]
+
+        // Critical severity is always persistent regardless of what the caller set.
+        if (n.severity === 'critical') {
+            dismissMs = 0
+        }
+
+        // Undo / redo notifications (type === 'undo') need enough dwell time
+        // for the user to see and act on the action button.
+        if (n.type === 'undo') {
+            dismissMs = MIN_ACTION_DISMISS_MS
+        }
+
+        // Any toast with an action button needs at least MIN_ACTION_DISMISS_MS
+        // so users have time to click the action before it disappears.
+        if (n.actionCallback && dismissMs > 0 && dismissMs < MIN_ACTION_DISMISS_MS) {
+            dismissMs = MIN_ACTION_DISMISS_MS
+        }
+
         const incoming: Notification = {
             ...n,
+            autoDismissMs: dismissMs,
             id: crypto.randomUUID(),
             timestamp: Date.now(),
         }

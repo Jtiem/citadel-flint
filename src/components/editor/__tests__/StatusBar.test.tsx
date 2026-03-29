@@ -171,8 +171,10 @@ describe('StatusBar', () => {
         })
     })
 
-    // 11. Disconnect button calls figma.disconnect()
+    // 11. Disconnect button calls figma.disconnect() after confirm
     it('calls window.flintAPI.figma.disconnect when the disconnect button is clicked', async () => {
+        // S1.12: window.confirm guard — mock it to return true so the handler proceeds
+        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
         ;(window.flintAPI.tokens.readAll as Mock).mockResolvedValue([])
         ;(window.flintAPI.figma.status as Mock).mockResolvedValue({
             running: true, lastWebhookAt: null, tokenCount: 5, port: 4545,
@@ -187,5 +189,170 @@ describe('StatusBar', () => {
         await waitFor(() => {
             expect(window.flintAPI.figma.disconnect).toHaveBeenCalled()
         })
+        confirmSpy.mockRestore()
+    })
+
+    // ── WS1: Connect IDE chip ─────────────────────────────────────────────────
+
+    // 12. "Connect IDE" chip appears when MCP is disconnected and onConnectIDE is provided
+    it('renders "Connect IDE" chip when MCP is disconnected and onConnectIDE prop is provided', async () => {
+        ;(window.flintAPI.mcp?.status as Mock).mockResolvedValue({ connected: false })
+        const onConnectIDE = vi.fn()
+        render(<StatusBar onConnectIDE={onConnectIDE} />)
+        await waitFor(() => {
+            expect(screen.getByTestId('statusbar-connect-ide')).toBeDefined()
+        })
+    })
+
+    // 13. Clicking "Connect IDE" chip calls onConnectIDE
+    it('calls onConnectIDE when "Connect IDE" chip is clicked', async () => {
+        ;(window.flintAPI.mcp?.status as Mock).mockResolvedValue({ connected: false })
+        const onConnectIDE = vi.fn()
+        render(<StatusBar onConnectIDE={onConnectIDE} />)
+        await waitFor(() => screen.getByTestId('statusbar-connect-ide'))
+        fireEvent.click(screen.getByTestId('statusbar-connect-ide'))
+        expect(onConnectIDE).toHaveBeenCalled()
+    })
+
+    // 14. "Connect IDE" chip is absent when MCP is connected
+    it('does not render "Connect IDE" chip when MCP is connected', async () => {
+        ;(window.flintAPI.mcp?.status as Mock).mockResolvedValue({ connected: true })
+        const onConnectIDE = vi.fn()
+        render(<StatusBar onConnectIDE={onConnectIDE} />)
+        await waitFor(() => {
+            expect(screen.queryByTestId('statusbar-connect-ide')).toBeNull()
+        })
+    })
+
+    // 15. "Connect IDE" chip is absent when onConnectIDE prop is not provided
+    it('does not render "Connect IDE" chip when onConnectIDE prop is absent', async () => {
+        ;(window.flintAPI.mcp?.status as Mock).mockResolvedValue({ connected: false })
+        render(<StatusBar />)
+        await waitFor(() => {
+            expect(screen.queryByTestId('statusbar-connect-ide')).toBeNull()
+        })
+    })
+
+    // ── WS1: Demo project indicator ───────────────────────────────────────────
+
+    // 16. "Demo Project" badge appears when isDemo is true
+    it('renders "Demo Project" badge when isDemo is true', async () => {
+        render(<StatusBar isDemo={true} />)
+        await waitFor(() => {
+            expect(screen.getByText('Demo Project')).toBeDefined()
+        })
+    })
+
+    // 17. "Demo Project" badge is absent when isDemo is false
+    it('does not render "Demo Project" badge when isDemo is false', async () => {
+        render(<StatusBar isDemo={false} />)
+        await waitFor(() => {
+            expect(screen.queryByText('Demo Project')).toBeNull()
+        })
+    })
+
+    // 18. "Open your project" link calls onOpenOwnProject when clicked
+    it('renders "Open your project" link and calls onOpenOwnProject when clicked', async () => {
+        const onOpenOwnProject = vi.fn()
+        render(<StatusBar isDemo={true} onOpenOwnProject={onOpenOwnProject} />)
+        await waitFor(() => screen.getByText('Open your project'))
+        fireEvent.click(screen.getByText('Open your project'))
+        expect(onOpenOwnProject).toHaveBeenCalled()
+    })
+
+    // ── S4.1: Figma dot has no glow shadow ────────────────────────────────────
+
+    // 19. S4.1 — Figma indicator dot does not carry shadow-lg or shadow-emerald classes
+    it('S4.1: Figma status dot has no shadow-lg or shadow-emerald classes', async () => {
+        ;(window.flintAPI.figma.status as ReturnType<typeof vi.fn>).mockResolvedValue({
+            running: true,
+            lastWebhookAt: Date.now() - 1000, // synced within 24 h → emerald dot
+            tokenCount: 5,
+            port: 4545,
+        })
+        render(<StatusBar />)
+        await waitFor(() => screen.getByText('Figma'))
+        // The Figma button's dot span should have bg-emerald-500 but NOT any shadow classes
+        const figmaBtn = screen.getByTitle('Figma connection — click for details')
+        const dot = figmaBtn.querySelector('span')
+        expect(dot).not.toBeNull()
+        // Must not include glow shadow classes (S4.1 requirement)
+        expect(dot!.className).not.toContain('shadow-lg')
+        expect(dot!.className).not.toContain('shadow-emerald')
+    })
+
+    // ── S4.2: StatusBar left-to-right priority ordering ───────────────────────
+
+    // 20. S4.2 — Export Gate appears before Figma button in DOM order
+    it('S4.2: Export Gate appears before Figma status button in document order', async () => {
+        ;(window.flintAPI.figma.status as ReturnType<typeof vi.fn>).mockResolvedValue({
+            running: true, lastWebhookAt: null, tokenCount: 5, port: 4545,
+        })
+        useCanvasStore.setState({ mithrilViolations: [], overridesExist: false })
+        render(<StatusBar />)
+        await waitFor(() => {
+            expect(screen.getByText('Export Ready')).toBeDefined()
+            expect(screen.getByText('Figma')).toBeDefined()
+        })
+        const exportBtn = screen.getByTitle(
+            'All design system checks pass — your file is ready to export. Click to open the Export panel.'
+        )
+        const figmaBtn = screen.getByTitle('Figma connection — click for details')
+        // compareDocumentPosition: if FOLLOWING_SIBLING bit is set (4), exportBtn comes first
+        const position = exportBtn.compareDocumentPosition(figmaBtn)
+        // Node.DOCUMENT_POSITION_FOLLOWING === 4 — figmaBtn comes after exportBtn
+        expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    })
+
+    // 21. S4.2 — Figma button appears before Flint (MCP) indicator in DOM order
+    it('S4.2: Figma status button appears before MCP/Flint indicator in document order', async () => {
+        ;(window.flintAPI.figma.status as ReturnType<typeof vi.fn>).mockResolvedValue({
+            running: true, lastWebhookAt: null, tokenCount: 5, port: 4545,
+        })
+        ;(window.flintAPI.mcp?.status as ReturnType<typeof vi.fn>).mockResolvedValue({ connected: true })
+        render(<StatusBar />)
+        await waitFor(() => {
+            expect(screen.getByText('Figma')).toBeDefined()
+            expect(screen.getByText('Flint')).toBeDefined()
+        })
+        const figmaBtn = screen.getByTitle('Figma connection — click for details')
+        const flintIndicator = screen.getByText('Flint').closest('div')!
+        // figmaBtn should precede flintIndicator in the document
+        const position = figmaBtn.compareDocumentPosition(flintIndicator)
+        expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    })
+
+    // 22. S4.2 — Export Gate shows violation label as second DOM priority (after itself)
+    it('S4.2: Export Gate violation chip renders with amber text when violations exist', async () => {
+        useCanvasStore.setState({ mithrilViolations: ['n1', 'n2'], overridesExist: false })
+        render(<StatusBar />)
+        await waitFor(() => {
+            expect(screen.getByText('2 Design Drift Issues')).toBeDefined()
+        })
+        // The gate button itself is the first meaningful item — verify it is amber
+        const gateBtn = document.querySelector('button.text-amber-400')
+        expect(gateBtn).not.toBeNull()
+        // And it should be the first button in the footer
+        const footer = document.querySelector('footer')
+        const buttons = footer ? Array.from(footer.querySelectorAll('button')) : []
+        const firstBtn = buttons[0]
+        expect(firstBtn?.classList.contains('text-amber-400')).toBe(true)
+    })
+
+    // ── S4.14: Export Gate click → Governance tab ─────────────────────────────
+
+    // 23. S4.14 — Clicking blocked Export Gate switches right panel to Governance (Health) tab
+    it('S4.14: clicking blocked Export Gate chip calls setRightTab("governance")', async () => {
+        useCanvasStore.setState({ mithrilViolations: ['node-1'], overridesExist: false })
+        const setRightTab = vi.fn()
+        useCanvasStore.setState({ setRightTab } as never)
+        render(<StatusBar />)
+        await waitFor(() => {
+            const gateBtn = document.querySelector('button.text-amber-400')
+            expect(gateBtn).not.toBeNull()
+        })
+        const gateBtn = document.querySelector('button.text-amber-400')!
+        fireEvent.click(gateBtn)
+        expect(setRightTab).toHaveBeenCalledWith('governance')
     })
 })

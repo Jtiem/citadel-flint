@@ -36,9 +36,11 @@ import {
     Settings2,
     ShieldAlert,
     AlertTriangle,
+    Wand2,
 } from 'lucide-react'
 import { useCanvasStore } from '../../store/canvasStore'
 import { useNotificationStore } from '../../store/notificationStore'
+import { useUserPrefs } from '../../hooks/useUserPrefs'
 
 // ── Local policy type (v2 superset) ──────────────────────────────────────────
 //
@@ -377,7 +379,77 @@ interface PolicySettingsProps {
     onClose: () => void
 }
 
+// ── FixBehaviorSection ────────────────────────────────────────────────────────
+//
+// Standalone sub-component so it can call useUserPrefs at the top level
+// without violating Rules of Hooks (PolicySettings is a large component).
+
+function FixBehaviorSection() {
+    const [prefs, setPrefs] = useUserPrefs()
+    const isAuto = prefs.fixMode === 'auto'
+
+    return (
+        <>
+            {/* Section divider */}
+            <div className="border-b border-zinc-800 px-4 py-2 mt-2">
+                <h3 className="text-xs font-medium uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
+                    <Wand2 className="h-3 w-3 text-zinc-500" aria-hidden="true" />
+                    Fix Behavior
+                </h3>
+            </div>
+
+            {/* Auto-fix toggle */}
+            <div className="flex items-center justify-between gap-4 px-4 py-2">
+                <div className="min-w-0">
+                    <label
+                        htmlFor="pref-fix-mode"
+                        className="block text-xs text-zinc-300"
+                    >
+                        Auto-fix without preview
+                    </label>
+                    <span className="mt-0.5 block text-[10px] text-zinc-600">
+                        {isAuto
+                            ? 'Fixes are applied immediately. Disable to review a diff before each fix.'
+                            : 'A preview shows the diff before each fix is applied.'}
+                    </span>
+                </div>
+                <button
+                    id="pref-fix-mode"
+                    type="button"
+                    role="switch"
+                    aria-checked={isAuto}
+                    aria-label="Auto-fix without preview"
+                    onClick={() => setPrefs({ fixMode: isAuto ? 'preview' : 'auto' })}
+                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900 ${
+                        isAuto
+                            ? 'border-indigo-500/50 bg-indigo-600'
+                            : 'border-zinc-700 bg-zinc-800'
+                    }`}
+                >
+                    <span
+                        className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform ${
+                            isAuto ? 'translate-x-4' : 'translate-x-0.5'
+                        }`}
+                    />
+                </button>
+            </div>
+
+            {/* Amber callout when auto-fix is on */}
+            {isAuto && (
+                <div className="mx-4 mb-2 flex items-start gap-2 rounded border border-amber-500/30 bg-amber-900/10 px-3 py-2">
+                    <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-amber-400" aria-hidden="true" />
+                    <p className="text-[10px] text-amber-300 leading-relaxed">
+                        Auto-fix is on. Fixes will apply to the canvas immediately without showing a
+                        diff preview. Toggle off above to return to preview mode.
+                    </p>
+                </div>
+            )}
+        </>
+    )
+}
+
 // ── PolicySettings ────────────────────────────────────────────────────────────
+
 
 export function PolicySettings({ onClose }: PolicySettingsProps) {
     const cachedPolicy = useCanvasStore((s) => s.cachedPolicy)
@@ -822,6 +894,9 @@ export function PolicySettings({ onClose }: PolicySettingsProps) {
                                 />
                             </button>
                         </div>
+
+                        {/* ── Fix Behavior section ───────────────────────────────────── */}
+                        <FixBehaviorSection />
 
                         {/* Bottom padding so last row isn't hidden under footer */}
                         <div className="h-4" aria-hidden="true" />

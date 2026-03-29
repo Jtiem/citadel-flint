@@ -1,5 +1,5 @@
 {
-  "timestamp": 1774312026300,
+  "timestamp": 1774746548242,
   "activeFile": null,
   "selectedNodeId": null,
   "cursorPosition": null,
@@ -23,5 +23,7 @@
     "criticalCount": 0,
     "exportBlocked": false,
     "exportBlockReason": null
-  }
+  },
+  "sessionPersona": null,
+  "selectedLibrary": null
 }

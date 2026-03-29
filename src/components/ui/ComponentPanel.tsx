@@ -26,13 +26,19 @@
  */
 
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
-import { Search, ChevronDown, ChevronRight } from 'lucide-react'
+import { Search, ChevronDown, ChevronRight, Boxes } from 'lucide-react'
 import { useComponentCardStore } from '../../store/componentCardStore'
 import { useCanvasStore } from '../../store/canvasStore'
 import { useEditorStore } from '../../store/editorStore'
+import { useNotificationStore } from '../../store/notificationStore'
 import { ComponentPanelCard } from './ComponentPanelCard'
+import { EmptyState } from './EmptyState'
 import { BUILTIN_RECIPES, type ComponentRecipe } from '../../data/builtinRecipes'
 import type { ComponentCategory } from '../../types/flint-api'
+
+// MED-02: Only allow characters safe for use in an ES module import specifier.
+// Blocks injection of quotes, backticks, semicolons, or other code-breaking chars.
+const SAFE_IMPORT_PATTERN = /^[a-zA-Z0-9@/_.-]+$/
 
 // ── Category filter options ────────────────────────────────────────────────
 
@@ -122,8 +128,10 @@ export function ComponentPanel() {
     const isLoading = useComponentCardStore((s) => s.isLoading)
     const loadCards = useComponentCardStore((s) => s.loadCards)
     const activeFilePath = useCanvasStore((s) => s.activeFilePath)
+    const activeSelection = useCanvasStore((s) => s.activeSelection)
     const setActiveFile = useCanvasStore((s) => s.setActiveFile)
     const injectComponent = useEditorStore((s) => s.injectComponent)
+    const pushNotification = useNotificationStore((s) => s.push)
 
     // Track whether we've triggered loadCards to avoid double-firing
     const loadTriggeredRef = useRef(false)
@@ -156,13 +164,39 @@ export function ComponentPanel() {
     const handleInsert = useCallback(
         (name: string, importPath: string) => {
             if (!activeFilePath) return
+
+            // Require a selected node — without one the insert target is unknown
+            // and the operation would silently fail.
+            const targetNodeId = activeSelection ?? ''
+            if (!targetNodeId) {
+                pushNotification({
+                    type: 'info',
+                    title: 'Select an element first',
+                    message: 'Click an element in the preview to set an insert target, then insert.',
+                    severity: 'warning',
+                    autoDismissMs: 4000,
+                })
+                return
+            }
+
+            // MED-02: Reject names/paths that could inject arbitrary code into the
+            // import snippet string that gets written to the AST.
+            if (!SAFE_IMPORT_PATTERN.test(name) || !SAFE_IMPORT_PATTERN.test(importPath)) {
+                pushNotification({
+                    type: 'error',
+                    title: 'Invalid component',
+                    message: 'Component name or import path contains invalid characters.',
+                })
+                return
+            }
+
             injectComponent(
-                '',
+                targetNodeId,
                 `<${name} />`,
                 `import { ${name} } from '${importPath}';`,
             )
         },
-        [activeFilePath, injectComponent],
+        [activeFilePath, activeSelection, injectComponent, pushNotification],
     )
 
     return (
@@ -217,20 +251,12 @@ export function ComponentPanel() {
                 )}
 
                 {!isLoading && filteredCards.length === 0 && (
-                    <div
-                        className="flex flex-col items-center gap-2 py-8 text-center"
-                        data-testid="component-panel-empty"
-                    >
-                        <span className="text-xs text-zinc-500">
-                            {cards.length === 0
-                                ? 'No components registered yet.'
-                                : 'No components match your search.'}
-                        </span>
-                        {cards.length === 0 && (
-                            <span className="text-[10px] text-zinc-600">
-                                Open a project with a flint-manifest.json to see components here.
-                            </span>
-                        )}
+                    <div data-testid="component-panel-empty">
+                        <EmptyState
+                            icon={<Boxes className="h-5 w-5 text-zinc-600" />}
+                            title={cards.length === 0 ? 'No components registered yet.' : 'No components match your search.'}
+                            description={cards.length === 0 ? 'Open a project with a flint-manifest.json to see components here.' : undefined}
+                        />
                     </div>
                 )}
 

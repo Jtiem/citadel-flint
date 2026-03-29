@@ -9,7 +9,7 @@ import { parse } from '@babel/parser'
 import { auditAll, visitInlineStyles, buildTokenCoverage } from '../core/MithrilLinter.js'
 import { A11yLinter } from '../core/A11yLinter.js'
 import type { FlintConfig } from '../core/config.js'
-import type { DesignToken, TokenCoverage } from '../types.js'
+import type { DesignToken, TokenCoverage, TokenType } from '../types.js'
 import fs from 'node:fs'
 import path from 'node:path'
 import { loadProjectContext } from '../core/projectContext.js'
@@ -17,7 +17,7 @@ import type { ProjectContext } from '../core/projectContext.js'
 import { getErrorEntryByRuleId } from '../core/errorTaxonomy.js'
 import { resolveProvenance } from '../core/governance/ruleProvenanceRegistry.js'
 import type { RuleProvenance } from '../core/governance/types.js'
-import { toolName, configPath, logTag } from '../brand.js'
+import { BRAND, toolName, configPath, logTag } from '../brand.js'
 import { loadProjectConfig } from '../core/config-loader.js'
 import { getClassificationProfile } from '../core/governance/classificationService.js'
 import {
@@ -286,7 +286,44 @@ export async function handleFlintAudit(
     if (fs.existsSync(tokensPath)) {
         try {
             const raw = JSON.parse(fs.readFileSync(tokensPath, 'utf-8'))
-            tokens = Array.isArray(raw) ? raw : Object.values(raw)
+            if (Array.isArray(raw)) {
+                tokens = raw
+            } else {
+                // DTCG nested format: walk the tree to extract flat DesignToken[]
+                const dtcgTypeMap: Record<string, TokenType> = {
+                    color: 'color', dimension: 'dimension', fontFamily: 'fontFamily',
+                    'font-family': 'fontFamily', fontWeight: 'fontWeight',
+                    'font-weight': 'fontWeight', lineHeight: 'lineHeight',
+                    'line-height': 'lineHeight', letterSpacing: 'letterSpacing',
+                    'letter-spacing': 'letterSpacing', shadow: 'shadow',
+                    opacity: 'opacity', string: 'string', boolean: 'boolean',
+                    number: 'dimension', spacing: 'dimension',
+                    borderRadius: 'dimension', 'border-radius': 'dimension',
+                    sizing: 'dimension', typography: 'string',
+                }
+                const walkDTCG = (obj: Record<string, unknown>, pathParts: string[]): void => {
+                    if ('$value' in obj && '$type' in obj) {
+                        const dtcgType = String(obj['$type'])
+                        tokens.push({
+                            id: tokens.length + 1,
+                            token_path: pathParts.join('.'),
+                            token_type: dtcgTypeMap[dtcgType] ?? 'dimension',
+                            token_value: String(obj['$value']),
+                            description: (obj['$description'] as string | null) ?? null,
+                            collection_name: 'dtcg',
+                            mode: 'default',
+                        })
+                        return
+                    }
+                    for (const [key, value] of Object.entries(obj)) {
+                        if (key.startsWith('$')) continue
+                        if (value && typeof value === 'object' && !Array.isArray(value)) {
+                            walkDTCG(value as Record<string, unknown>, [...pathParts, key])
+                        }
+                    }
+                }
+                walkDTCG(raw as Record<string, unknown>, [])
+            }
         } catch {
             // Use empty tokens
         }
@@ -337,6 +374,36 @@ export async function handleFlintAudit(
     )
     const coverage = buildTokenCoverage(tokens, inlineStats)
 
+    // CR-SEAL: Load component registry for REG-001 audit.
+    // Derive projectRoot from filePath when available (flint_audit receives source+filePath,
+    // and config.projectRoot may be process.cwd() which differs from the actual project).
+    let auditRegistry: Record<string, { importPath?: string; [key: string]: unknown }> | undefined
+    let registryRoot = config.projectRoot
+    if (filePath && path.isAbsolute(filePath)) {
+        let cursor = path.dirname(filePath)
+        while (cursor !== path.parse(cursor).root) {
+            // Require manifest or design-tokens alongside .flint/ to skip nested telemetry dirs
+            if (fs.existsSync(path.join(cursor, BRAND.configDir)) && (
+                fs.existsSync(path.join(cursor, BRAND.manifestFile)) ||
+                fs.existsSync(path.join(cursor, BRAND.configDir, 'design-tokens.json'))
+            )) {
+                registryRoot = cursor
+                break
+            }
+            cursor = path.dirname(cursor)
+        }
+    }
+    const manifestPath = path.join(registryRoot, BRAND.manifestFile)
+    if (fs.existsSync(manifestPath)) {
+        try {
+            const manifestRaw = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'))
+            const components = manifestRaw.components ?? manifestRaw
+            if (components && typeof components === 'object' && Object.keys(components).length > 0) {
+                auditRegistry = components
+            }
+        } catch { /* manifest unreadable — skip registry audit */ }
+    }
+
     if (policy.mithril.mode !== 'off') {
         const mithrilWarnings = auditAll(
             ast as Parameters<typeof auditAll>[0],
@@ -344,6 +411,7 @@ export async function handleFlintAudit(
             {
                 deltaE_threshold: adjustedDeltaE,
                 deltaE_critical_threshold: adjustedDeltaECritical,
+                ...(auditRegistry && { registry: auditRegistry }),
             },
         )
         mithrilCount = mithrilWarnings.size

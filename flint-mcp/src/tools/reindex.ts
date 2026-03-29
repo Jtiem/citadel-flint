@@ -22,8 +22,7 @@ import { indexComponents } from '../core/init/componentIndexer.js'
 export const FLINT_REINDEX_REGISTRY_TOOL = {
     name: 'flint_reindex_registry',
     description:
-        'CK.3: Re-scans the project source tree for components and updates ' +
-        'flint-manifest.json with the latest component inventory. ' +
+        'Re-scan the project source tree for components and update flint-manifest.json. ' +
         'Use this after adding, renaming, or removing components so the registry ' +
         'stays in sync and flint_query_registry returns up-to-date results. ' +
         'Returns the number of components indexed and a list of any warnings.',

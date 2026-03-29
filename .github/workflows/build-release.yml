@@ -83,29 +83,36 @@ jobs:
           cd flint-mcp
           npm ci
 
-      # ── 5. TypeScript — root project ────────────────────────────────────────
+      # ── 5. Build flint-ci GitHub Action bundle ───────────────────────────────
+      - name: Build flint-ci
+        run: |
+          cd flint-ci
+          npm ci
+          npm run build
+
+      # ── 6. TypeScript — root project ────────────────────────────────────────
       - name: Typecheck (root)
         run: npx tsc --noEmit
 
-      # ── 6. TypeScript — MCP engine ──────────────────────────────────────────
+      # ── 7. TypeScript — MCP engine ──────────────────────────────────────────
       - name: Typecheck (flint-mcp)
         run: npx tsc --noEmit --project flint-mcp/tsconfig.json
 
-      # ── 7. Core tests ───────────────────────────────────────────────────────
+      # ── 8. Core tests ───────────────────────────────────────────────────────
       - name: Core tests
         run: npm test
 
-      # ── 8. Glass component tests ────────────────────────────────────────────
+      # ── 9. Glass component tests ─────────────────────────────────────────────
       - name: Glass component tests
         run: npm run test:react
 
-      # ── 9. MCP engine tests ─────────────────────────────────────────────────
+      # ── 10. MCP engine tests ─────────────────────────────────────────────────
       - name: MCP engine tests
         run: |
           cd flint-mcp
           npm test
 
-      # ── 10. Build Vite + Electron ───────────────────────────────────────────
+      # ── 11. Build Vite + Electron ────────────────────────────────────────────
       # First compile the Electron main process and Vite renderer bundle,
       # then package the output into platform-specific installers.
       - name: Build Vite + Electron
@@ -133,3 +140,62 @@ jobs:
           # These are only needed on the Windows runner.
           WIN_CSC_LINK: ${{ matrix.platform == 'win' && secrets.WIN_CSC_LINK || '' }}
           WIN_CSC_KEY_PASSWORD: ${{ matrix.platform == 'win' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
+
+  # ── Web Glass build ──────────────────────────────────────────────────────────
+  # Builds the browser-based Glass SPA + server CLI bundle and uploads a tarball
+  # to the GitHub Release so users can run `npx flint-glass` without Electron.
+  build-web:
+    name: Build (web)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Install flint-mcp dependencies
+        run: cd flint-mcp && npm ci
+
+      - name: Build flint-ci
+        run: |
+          cd flint-ci
+          npm ci
+          npm run build
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Build web SPA
+        run: npm run build:web
+
+      - name: Build server CLI bundle
+        run: npm run build:server
+
+      - name: Create web release tarball
+        run: |
+          tar -czf "flint-glass-web-${{ github.ref_name }}.tar.gz" \
+            dist-web/ \
+            dist-server/ \
+            flint-ci/dist/ \
+            bin/ \
+            server/ \
+            shared/ \
+            build-resources/demo-project/ \
+            package.json
+
+      - name: Upload web release artifact
+        uses: softprops/action-gh-release@v2
+        with:
+          files: flint-glass-web-${{ github.ref_name }}.tar.gz
+          tag_name: ${{ github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}

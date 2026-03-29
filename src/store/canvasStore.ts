@@ -38,7 +38,7 @@ export type RightTab = 'governance' | 'properties' | 'tokens'
 export const DEFAULT_UNLOCKED_TABS: ReadonlySet<string> = new Set(['governance', 'properties'])
 
 /** Left panel tabs that are always visible. */
-export type LeftTab = 'layers' | 'assets' | 'files'
+export type LeftTab = 'layers' | 'components' | 'assets' | 'files'
 
 /** Left panel tabs that are always visible. */
 export const DEFAULT_UNLOCKED_LEFT_TABS: ReadonlySet<string> = new Set(['layers'])
@@ -70,13 +70,6 @@ export const BREAKPOINT_LABELS: Record<PreviewBreakpoint, string> = {
 
 /** Forward cycling order. */
 const BREAKPOINT_CYCLE: PreviewBreakpoint[] = ['mobile', 'tablet', 'desktop']
-
-/**
- * @deprecated GLASS.1c — Canvas view modes removed. The canvas is always the canvas.
- * Kept temporarily for backward compatibility with ComponentCardNode and ComponentCardStore.
- * Will be deleted in cleanup pass.
- */
-export type CanvasView = 'preview' | 'build' | 'govern'
 
 /**
  * Bounding box for a single flint node as reported by the in-iframe

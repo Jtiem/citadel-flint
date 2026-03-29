@@ -298,6 +298,7 @@ export function GovernancePanel({ onClose, focusRuleId }: GovernancePanelProps) 
     const [saving, setSaving] = useState(false)
     const [activeTab, setActiveTab] = useState<PanelTab>('rules')
     const [isToggling, setIsToggling] = useState(false)
+    const [showPlanned, setShowPlanned] = useState(false)
 
     // OPP-15: ref for the focused rule row, used to scroll it into view
     const focusedRowRef = useRef<HTMLDivElement | null>(null)
@@ -319,7 +320,7 @@ export function GovernancePanel({ onClose, focusRuleId }: GovernancePanelProps) 
 
         const targetRule = GOVERNANCE_RULES_MANIFEST.find((r) => r.id === focusRuleId)
         if (targetRule) {
-            setActiveCategory(targetRule.category)
+            setActiveCategory(targetRule.category as GovernanceCategory)
         }
         // Scroll into view after the DOM updates — one microtask delay is enough
         // because setActiveCategory triggers a synchronous React re-render before
@@ -339,11 +340,13 @@ export function GovernancePanel({ onClose, focusRuleId }: GovernancePanelProps) 
         return () => window.removeEventListener('keydown', handleKey)
     }, [onClose])
 
-    // Filter rules by selected category
-    const visibleRules =
+    // Filter rules by selected category, then split active vs planned
+    const allCategoryRules =
         activeCategory === 'All'
             ? GOVERNANCE_RULES_MANIFEST
             : GOVERNANCE_RULES_MANIFEST.filter((r) => r.category === activeCategory)
+    const visibleRules = allCategoryRules.filter((r) => r.status !== 'planned')
+    const plannedRules = allCategoryRules.filter((r) => r.status === 'planned')
 
     // Count of modified rules per category (for sidebar badge context)
     const categoryCounts: Record<string, number> = {}
@@ -472,7 +475,14 @@ export function GovernancePanel({ onClose, focusRuleId }: GovernancePanelProps) 
                 </div>
 
                 {/* ── Tab bar ── */}
-                <div className="shrink-0 flex items-center gap-0 border-b border-zinc-800 px-5">
+                {/* Issue 4: proper ARIA tab markup — role=tablist wraps the tabs,
+                    each tab has role=tab, aria-selected, and aria-controls pointing
+                    to the corresponding tabpanel. */}
+                <div
+                    className="shrink-0 flex items-center gap-0 border-b border-zinc-800 px-5"
+                    role="tablist"
+                    aria-label="Governance panel sections"
+                >
                     {(
                         [
                             {
@@ -496,6 +506,10 @@ export function GovernancePanel({ onClose, focusRuleId }: GovernancePanelProps) 
                         <button
                             key={tab.id}
                             type="button"
+                            role="tab"
+                            aria-selected={activeTab === tab.id}
+                            aria-controls={`governance-tabpanel-${tab.id}`}
+                            id={`governance-tab-${tab.id}`}
                             onClick={() => setActiveTab(tab.id)}
                             // EDU-07: subtitle shown as tooltip on each tab
                             title={tab.subtitle}
@@ -538,8 +552,13 @@ export function GovernancePanel({ onClose, focusRuleId }: GovernancePanelProps) 
                                 onChange={setActiveCategory}
                             />
 
-                            {/* Rule list */}
-                            <div className="flex-1 overflow-y-auto">
+                            {/* Rule list — Issue 4: tabpanel role with matching aria-labelledby */}
+                            <div
+                                className="flex-1 overflow-y-auto"
+                                role="tabpanel"
+                                id="governance-tabpanel-rules"
+                                aria-labelledby="governance-tab-rules"
+                            >
                                 {/* Section header */}
                                 <div className="sticky top-0 z-10 border-b border-zinc-800 bg-zinc-900/90 px-4 py-2 backdrop-blur-sm">
                                     <h3 className="text-xs font-medium uppercase tracking-wider text-zinc-400">
@@ -547,7 +566,7 @@ export function GovernancePanel({ onClose, focusRuleId }: GovernancePanelProps) 
                                     </h3>
                                 </div>
 
-                                {/* Rule rows */}
+                                {/* Rule rows — active rules only */}
                                 <div className="divide-y divide-zinc-800/40">
                                     {visibleRules.map((rule) => {
                                         const isFocused = rule.id === focusRuleId
@@ -564,12 +583,47 @@ export function GovernancePanel({ onClose, focusRuleId }: GovernancePanelProps) 
                                         )
                                     })}
                                 </div>
+
+                                {/* Planned rules — collapsed by default */}
+                                {plannedRules.length > 0 && (
+                                    <div className="border-t border-zinc-800/40">
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowPlanned((v) => !v)}
+                                            className="flex w-full items-center gap-1.5 px-4 py-2.5 text-left text-[11px] text-zinc-500 hover:text-zinc-400 transition-colors"
+                                        >
+                                            <span className={`transition-transform duration-150 ${showPlanned ? 'rotate-90' : ''}`}>▸</span>
+                                            Also coming ({plannedRules.length})
+                                        </button>
+                                        {showPlanned && (
+                                            <div className="divide-y divide-zinc-800/40">
+                                                {plannedRules.map((rule) => (
+                                                    <RuleRow
+                                                        key={rule.id}
+                                                        rule={rule}
+                                                        override={overrides[rule.id]}
+                                                        onToggle={handleToggle}
+                                                        onReset={handleResetRule}
+                                                        isFocused={rule.id === focusRuleId}
+                                                        rowRef={rule.id === focusRuleId ? focusedRowRef : undefined}
+                                                    />
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                             </div>
                         </>
                     )}
 
                     {activeTab === 'packs' && (
-                        <div className="flex-1 overflow-y-auto">
+                        // Issue 4: tabpanel role for packs tab
+                        <div
+                            className="flex-1 overflow-y-auto"
+                            role="tabpanel"
+                            id="governance-tabpanel-packs"
+                            aria-labelledby="governance-tab-packs"
+                        >
                             <RuleCatalogPanel
                                 activePresets={activePresets}
                                 onEnablePack={(packId) => void handleEnablePack(packId)}
@@ -580,7 +634,13 @@ export function GovernancePanel({ onClose, focusRuleId }: GovernancePanelProps) 
                     )}
 
                     {activeTab === 'profiles' && (
-                        <div className="flex-1 overflow-y-auto">
+                        // Issue 4: tabpanel role for profiles tab
+                        <div
+                            className="flex-1 overflow-y-auto"
+                            role="tabpanel"
+                            id="governance-tabpanel-profiles"
+                            aria-labelledby="governance-tab-profiles"
+                        >
                             <ComplianceProfileSelector
                                 activePresets={activePresets}
                                 onToggleJurisdiction={(packId, enabled) =>
@@ -591,6 +651,28 @@ export function GovernancePanel({ onClose, focusRuleId }: GovernancePanelProps) 
                         </div>
                     )}
                 </div>
+
+                {/* ── S5.7: Persistence context banner ── */}
+                {activeTab === 'rules' && modifiedCount > 0 && (
+                    <div
+                        className="shrink-0 flex items-center gap-2 border-t border-amber-900/30 bg-amber-950/20 px-5 py-2"
+                        role="status"
+                        aria-live="polite"
+                    >
+                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />
+                        <p className="text-[10px] text-amber-400/80">
+                            Toggles apply immediately to live audits · <strong className="font-semibold">Save</strong> to persist across sessions
+                        </p>
+                    </div>
+                )}
+                {(activeTab === 'packs' || activeTab === 'profiles') && (
+                    <div className="shrink-0 flex items-center gap-2 border-t border-zinc-800/60 bg-zinc-900 px-5 py-2">
+                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-600" />
+                        <p className="text-[10px] text-zinc-600">
+                            Changes take effect immediately — no Save required
+                        </p>
+                    </div>
+                )}
 
                 {/* ── Footer ── */}
                 <div className="flex shrink-0 items-center justify-between gap-3 border-t border-zinc-800 px-5 py-3">
@@ -619,16 +701,20 @@ export function GovernancePanel({ onClose, focusRuleId }: GovernancePanelProps) 
                             Close
                         </button>
 
-                        {/* Save — only on Rules tab */}
+                        {/* Save — only on Rules tab; badge shows pending count */}
                         {activeTab === 'rules' && (
                             <button
                                 type="button"
                                 onClick={() => void handleSave()}
                                 disabled={saving}
-                                className="flex items-center gap-1.5 rounded bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-indigo-500 active:scale-95 disabled:opacity-60"
+                                className={`flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium text-white transition-colors active:scale-95 disabled:opacity-60 ${
+                                    modifiedCount > 0
+                                        ? 'bg-indigo-600 ring-1 ring-indigo-400/40 hover:bg-indigo-500'
+                                        : 'bg-indigo-600 hover:bg-indigo-500'
+                                }`}
                             >
                                 <Save className="h-3 w-3" />
-                                {saving ? 'Saving…' : 'Save'}
+                                {saving ? 'Saving…' : modifiedCount > 0 ? `Save (${modifiedCount})` : 'Save'}
                             </button>
                         )}
                     </div>

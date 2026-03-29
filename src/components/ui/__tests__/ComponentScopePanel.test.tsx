@@ -145,7 +145,7 @@ describe('ComponentScopePanel', () => {
         mockScope(EMPTY_REGISTRY)
         render(<ComponentScopePanel />)
         await waitFor(() => {
-            expect(screen.getByText(/No components indexed yet/)).toBeDefined()
+            expect(screen.getByText('No components indexed. Open a React/Vue/Svelte project then click Reindex.')).toBeDefined()
         })
         expect(screen.getByText('Reindex')).toBeDefined()
     })

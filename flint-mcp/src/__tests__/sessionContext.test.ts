@@ -391,4 +391,49 @@ describe('assembleSessionContext', () => {
         expect(ctx.activeFileSource).toBeNull()
         expect(ctx.activeFilePath).toBe('/nonexistent/path/Button.tsx')
     })
+
+    // ── Cold start hint ────────────────────────────────────────────────────
+
+    it('returns coldStartHint when context.json is missing (no Glass session)', async () => {
+        // No context.json — simulates cold start with Glass not running
+
+        const ctx = await assembleSessionContext(projectRoot)
+
+        expect(ctx.partial).toBe(true)
+        expect(ctx.coldStartHint).toBeDefined()
+        expect(typeof ctx.coldStartHint).toBe('string')
+        expect(ctx.coldStartHint).toContain('flint-glass')
+        expect(ctx.coldStartHint).toContain('flint_reindex_registry')
+        expect(ctx.coldStartHint).toContain('flint_debt_report')
+    })
+
+    it('does not include coldStartHint when context.json is present', async () => {
+        writeFlintFile(projectRoot, 'context.json', SAMPLE_CONTEXT_JSON)
+        writeFlintFile(projectRoot, 'design-tokens.json', SAMPLE_TOKENS)
+
+        const ctx = await assembleSessionContext(projectRoot)
+
+        expect(ctx.partial).toBe(false)
+        expect(ctx.coldStartHint).toBeUndefined()
+    })
+
+    it('coldStartHint is present even when only design-tokens.json is also missing', async () => {
+        // Both context.json and design-tokens.json missing — still a cold start
+
+        const ctx = await assembleSessionContext(projectRoot)
+
+        expect(ctx.partial).toBe(true)
+        expect(ctx.coldStartHint).toBeDefined()
+    })
+
+    it('coldStartHint is absent when context.json exists but design-tokens.json is missing', async () => {
+        // context.json present (Glass is connected) but tokens missing — partial but NOT a cold start
+        writeFlintFile(projectRoot, 'context.json', SAMPLE_CONTEXT_JSON)
+        // No design-tokens.json
+
+        const ctx = await assembleSessionContext(projectRoot)
+
+        expect(ctx.partial).toBe(true)
+        expect(ctx.coldStartHint).toBeUndefined()
+    })
 })

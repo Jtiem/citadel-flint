@@ -207,7 +207,23 @@ let _root: string | null = null
  * @returns  The localhost URL the iframe should load (e.g. "http://localhost:5174").
  */
 export async function startViteServer(projectRoot: string): Promise<string | null> {
-  // Tear down stale server before starting a new one.
+  // Idempotency guard: if a server is already running at the same root,
+  // return the cached URL immediately. This prevents the start/stop loop
+  // that occurs when:
+  //   (a) React Strict Mode double-fires the LivePreview useEffect, or
+  //   (b) The component remounts (e.g. parent re-renders) while the same
+  //       project is open.
+  // The guard compares resolved absolute paths so trailing-slash differences
+  // don't cause a spurious restart.
+  if (_server !== null && _root !== null && _port !== null) {
+    const resolvedExisting = _root
+    const resolvedIncoming = projectRoot
+    if (resolvedExisting === resolvedIncoming) {
+      return `http://127.0.0.1:${_port}`
+    }
+  }
+
+  // Tear down stale server before starting a new one at a different root.
   if (_server !== null) {
     await stopViteServer()
   }

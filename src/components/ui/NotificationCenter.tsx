@@ -37,6 +37,15 @@ interface SeverityStyle {
 
 function severityStyle(severity: Notification['severity']): SeverityStyle {
     switch (severity) {
+        case 'critical':
+            // Persistent hard-blocker — bright red, visually distinct from error
+            return {
+                bar: 'bg-red-600',
+                icon: <XCircle size={13} className="text-red-300" />,
+                title: 'text-red-300',
+                border: 'border-red-600/60',
+                action: 'text-red-300 hover:text-red-200',
+            }
         case 'success':
             return {
                 bar: 'bg-emerald-500',

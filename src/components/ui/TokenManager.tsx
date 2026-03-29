@@ -21,6 +21,28 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { Upload, Trash2, X, Search, Palette } from 'lucide-react'
 import { useTokenStore } from '../../store/tokenStore'
 import type { DesignToken, TokenType } from '../../types/flint-api'
+import { FocusTrap } from './FocusTrap'
+
+// ── Validation ────────────────────────────────────────────────────────────────
+
+/**
+ * Returns true if `value` is a recognisable CSS color:
+ *   • hex (#rgb, #rrggbb, #rgba, #rrggbbaa)
+ *   • rgb() / rgba() / hsl() / hsla()
+ *   • any named CSS color keyword (uses the browser's own parsing via canvas)
+ */
+function isValidCssColor(value: string): boolean {
+    const v = value.trim()
+    if (!v) return false
+    // Hex shorthand or full
+    if (/^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(v)) return true
+    // rgb / rgba / hsl / hsla functional notation
+    if (/^(rgb|rgba|hsl|hsla)\s*\(/i.test(v)) return true
+    // Named keyword — delegate to the browser's own color parser
+    const s = new Option().style
+    s.color = v
+    return s.color !== ''
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -63,6 +85,12 @@ interface TokenRowProps {
     onCommit: () => void
 }
 
+function getValidationError(tokenType: TokenType, value: string): string | null {
+    if (!value.trim()) return 'Value cannot be empty'
+    if (tokenType === 'color' && !isValidCssColor(value)) return 'Not a valid color value'
+    return null
+}
+
 function TokenRow({
     token,
     onEdit,
@@ -100,14 +128,26 @@ function TokenRow({
                 </p>
 
                 {isEditing ? (
-                    <input
-                        ref={inputRef}
-                        value={draftValue}
-                        onChange={(e) => onDraftChange(e.target.value)}
-                        onBlur={onCommit}
-                        onKeyDown={handleKeyDown}
-                        className="mt-0.5 w-full rounded border border-indigo-500 bg-gray-900 px-1 py-0.5 font-mono text-[11px] text-gray-200 outline-none"
-                    />
+                    <>
+                        <input
+                            ref={inputRef}
+                            value={draftValue}
+                            onChange={(e) => onDraftChange(e.target.value)}
+                            onBlur={onCommit}
+                            onKeyDown={handleKeyDown}
+                            aria-describedby={getValidationError(token.token_type, draftValue) ? `validation-${token.id}` : undefined}
+                            className="mt-0.5 w-full rounded border border-indigo-500 bg-gray-900 px-1 py-0.5 font-mono text-[11px] text-gray-200 outline-none"
+                        />
+                        {getValidationError(token.token_type, draftValue) && (
+                            <p
+                                id={`validation-${token.id}`}
+                                role="alert"
+                                className="mt-0.5 text-[10px] text-red-400"
+                            >
+                                {getValidationError(token.token_type, draftValue)}
+                            </p>
+                        )}
+                    </>
                 ) : (
                     <button
                         type="button"
@@ -171,14 +211,18 @@ function ImportModal({ onClose, onImport, isLoading, error }: ImportModalProps) 
             className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 pt-8"
             onClick={onClose}
         >
+            <FocusTrap>
             {/* Modal */}
             <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="import-modal-title"
                 className="mx-2 w-full rounded-xl border border-gray-700 bg-gray-900 shadow-2xl"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}
                 <div className="flex items-center justify-between border-b border-gray-800 px-4 py-3">
-                    <span className="text-sm font-semibold text-gray-200">Import DTCG JSON</span>
+                    <span id="import-modal-title" className="text-sm font-semibold text-gray-200">Import Token File (JSON)</span>
                     <button
                         type="button"
                         onClick={onClose}
@@ -204,7 +248,7 @@ function ImportModal({ onClose, onImport, isLoading, error }: ImportModalProps) 
                     {/* JSON textarea */}
                     <div>
                         <label className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-gray-500">
-                            Paste W3C DTCG JSON
+                            Paste W3C Token File (JSON)
                         </label>
                         <textarea
                             value={json}
@@ -240,6 +284,7 @@ function ImportModal({ onClose, onImport, isLoading, error }: ImportModalProps) 
                     </div>
                 </form>
             </div>
+            </FocusTrap>
         </div>
     )
 }
@@ -443,10 +488,13 @@ export function TokenManager() {
                 )}
 
                 {!isLoading && tokens.length === 0 && (
-                    <div className="flex flex-col items-center justify-center px-6 py-12 text-center">
-                        <Palette className="h-8 w-8 text-zinc-600 mb-3" />
-                        <p className="text-sm text-zinc-400 leading-relaxed max-w-[240px]">
-                            No design tokens loaded. Connect Figma to sync your design system, or import a tokens JSON file.
+                    <div
+                        className="flex flex-col items-center justify-center px-6 py-12 text-center"
+                        data-testid="tokens-empty-state"
+                    >
+                        <Palette className="h-8 w-8 text-zinc-600 mb-3" aria-hidden="true" />
+                        <p className="text-sm text-zinc-500 leading-relaxed max-w-[240px]">
+                            No design tokens loaded. Connect Figma or import a tokens JSON file.
                         </p>
                         <button
                             type="button"

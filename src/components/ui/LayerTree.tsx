@@ -37,7 +37,7 @@
 
 import { useState, useRef, useCallback, useMemo } from 'react'
 import { BRAND } from '../../../shared/brand'
-import { Diamond, Hash, Type, Code2, ChevronRight, ChevronDown, AlertTriangle, Lock, Layers } from 'lucide-react'
+import { Diamond, Hash, Type, Code2, ChevronRight, ChevronDown, AlertTriangle, ShieldAlert, Lock, Layers } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
 import { useCanvasStore } from '../../store/canvasStore'
 import { useLockedNodeIds } from '../../hooks/useRemotePresence'
@@ -129,12 +129,14 @@ function LayerRow({ layer, depth, collapsedIds, onToggleCollapsed, lockedIds, fo
     const hoveredId = useEditorStore((state) => state.hoveredId)
     const setHoveredId = useEditorStore((state) => state.setHoveredId)
     const mithrilViolations = useCanvasStore((s) => s.mithrilViolations)
+    const linterWarnings = useEditorStore((s) => s.linterWarnings)
     // Phase COLLAB.4: annotation pin indicator — derived selector, not stored state.
     const annotationsForNode = useAnnotationStore((s) => s.annotationsForNode)
     const annotationCount = annotationsForNode(layer.id).length
     const isSelected = selectedNodeId === layer.id
     const isHovered = !isSelected && hoveredId === layer.id
     const hasViolation = mithrilViolations.includes(layer.id)
+    const hasA11yViolation = linterWarnings.get(layer.id)?.type === 'a11y'
     const isCollapsed = collapsedIds.has(layer.id)
     const hasChildren = layer.children.length > 0
     // Phase C.2: AST Conflict Arbiter — prevent edits on remotely locked nodes.
@@ -313,6 +315,12 @@ function LayerRow({ layer, depth, collapsedIds, onToggleCollapsed, lockedIds, fo
                             <AlertTriangle className="h-2.5 w-2.5 shrink-0 text-amber-500" />
                         </span>
                     )}
+                    {/* Commandment 5: Accessibility is a Compiler Error — a11y violation indicator */}
+                    {hasA11yViolation && (
+                        <span title="Accessibility violation">
+                            <ShieldAlert className="h-3 w-3 shrink-0 text-amber-400" />
+                        </span>
+                    )}
                     {/* Phase COLLAB.4: annotation pin — indigo dot when open annotations exist */}
                     {annotationCount > 0 && (
                         <span
@@ -331,7 +339,7 @@ function LayerRow({ layer, depth, collapsedIds, onToggleCollapsed, lockedIds, fo
                         </span>
                     )}
                     {name !== tag && (
-                        <span className="shrink-0 font-mono text-[10px] text-zinc-500">
+                        <span className="shrink-0 font-mono text-[10px] text-zinc-500 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
                             {tag}
                         </span>
                     )}

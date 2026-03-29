@@ -22,8 +22,8 @@
  * Renderer process only — no Node.js imports.
  */
 
-import { useState } from 'react'
-import { MessageSquare, ChevronRight, ChevronDown, CheckCheck } from 'lucide-react'
+import { useState, useRef, useEffect } from 'react'
+import { MessageSquare, ChevronRight, ChevronDown, CheckCheck, Plus } from 'lucide-react'
 import { useAnnotationStore } from '../../store/annotationStore'
 import type { FlintAnnotation, AnnotationType } from '../../types/flint-api'
 
@@ -132,6 +132,54 @@ export function AnnotationList({ nodeId }: AnnotationListProps) {
     const count = annotations.length
 
     const [open, setOpen] = useState(() => count > 0)
+    const [addingNote, setAddingNote] = useState(false)
+    const [noteText, setNoteText] = useState('')
+    const inputRef = useRef<HTMLTextAreaElement>(null)
+
+    // Focus the textarea whenever the inline form is opened.
+    useEffect(() => {
+        if (addingNote) {
+            inputRef.current?.focus()
+        }
+    }, [addingNote])
+
+    function handleAddNoteClick(): void {
+        setAddingNote(true)
+    }
+
+    function handleNoteSubmit(): void {
+        const trimmed = noteText.trim()
+        if (trimmed.length > 0) {
+            // Forward to the IPC write path when available (future wiring).
+            // Callers that have wired window.flintAPI.annotations.add() will
+            // see the annotation on the next fs.watch push; others get a no-op.
+            const api = (typeof window !== 'undefined' && (window as unknown as Record<string, unknown>).flintAPI) as (Record<string, unknown> | undefined)
+            const annotationsApi = api?.['annotations'] as (Record<string, unknown> | undefined)
+            if (typeof annotationsApi?.['add'] === 'function') {
+                void (annotationsApi['add'] as (opts: { nodeId: string; text: string; type: string }) => Promise<void>)({
+                    nodeId,
+                    text: trimmed,
+                    type: 'note',
+                })
+            }
+        }
+        setNoteText('')
+        setAddingNote(false)
+    }
+
+    function handleNoteCancel(): void {
+        setNoteText('')
+        setAddingNote(false)
+    }
+
+    function handleNoteKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>): void {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault()
+            handleNoteSubmit()
+        } else if (e.key === 'Escape') {
+            handleNoteCancel()
+        }
+    }
 
     return (
         <div className="border-t border-gray-800/60">
@@ -157,7 +205,7 @@ export function AnnotationList({ nodeId }: AnnotationListProps) {
             {/* Collapsed body */}
             {open && (
                 <div className="flex flex-col">
-                    {count === 0 ? (
+                    {count === 0 && !addingNote ? (
                         <div className="px-3 py-3 text-[11px] text-zinc-500">
                             No open annotations for this node.
                         </div>
@@ -169,6 +217,48 @@ export function AnnotationList({ nodeId }: AnnotationListProps) {
                                 onResolve={(id) => { void resolveAnnotation(id) }}
                             />
                         ))
+                    )}
+
+                    {/* Inline note composer */}
+                    {addingNote ? (
+                        <div className="flex flex-col gap-1.5 border-t border-gray-800/60 px-3 py-2">
+                            <textarea
+                                ref={inputRef}
+                                value={noteText}
+                                onChange={(e) => setNoteText(e.target.value)}
+                                onKeyDown={handleNoteKeyDown}
+                                onBlur={handleNoteSubmit}
+                                placeholder="Type a note… (Enter to save, Esc to cancel)"
+                                rows={2}
+                                className="w-full resize-none rounded border border-gray-700 bg-gray-900 px-2 py-1.5 text-[11px] text-gray-200 placeholder-zinc-600 outline-none focus:border-indigo-600/60 focus:ring-0"
+                            />
+                            <div className="flex gap-1.5 self-end">
+                                <button
+                                    type="button"
+                                    onMouseDown={(e) => { e.preventDefault(); handleNoteCancel() }}
+                                    className="rounded border border-gray-700 bg-gray-800/60 px-2 py-0.5 text-[10px] font-medium text-gray-400 transition-colors hover:border-gray-600 hover:text-gray-200"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="button"
+                                    onMouseDown={(e) => { e.preventDefault(); handleNoteSubmit() }}
+                                    className="rounded border border-indigo-700/60 bg-indigo-900/20 px-2 py-0.5 text-[10px] font-medium text-indigo-300 transition-colors hover:bg-indigo-900/40"
+                                >
+                                    Add
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
+                        /* Add note affordance */
+                        <button
+                            type="button"
+                            onClick={handleAddNoteClick}
+                            className="flex items-center gap-1 py-1 px-2 text-zinc-500 hover:text-zinc-300 text-xs rounded hover:bg-zinc-800/50 transition-colors"
+                        >
+                            <Plus className="h-3 w-3 shrink-0" />
+                            Add note
+                        </button>
                     )}
                 </div>
             )}

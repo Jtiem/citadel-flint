@@ -698,10 +698,13 @@ export function ComponentScopePanel() {
 
             {showEmptyState ? (
                 /* ── Empty state ─────────────────────────────────────────── */
-                <div className="flex flex-col items-center justify-center px-6 py-12 text-center">
-                    <Package className="h-8 w-8 text-zinc-600 mb-3" />
-                    <p className="text-sm text-zinc-400 leading-relaxed max-w-[240px]">
-                        No components indexed yet. Open a project with React, Vue, or Svelte components to populate the registry.
+                <div
+                    className="flex flex-col items-center justify-center px-6 py-12 text-center"
+                    data-testid="scope-empty-state"
+                >
+                    <Package className="h-8 w-8 text-zinc-600 mb-3" aria-hidden="true" />
+                    <p className="text-sm text-zinc-500 leading-relaxed max-w-[240px]">
+                        No components indexed. Open a React/Vue/Svelte project then click Reindex.
                     </p>
                     <button
                         type="button"

@@ -911,8 +911,8 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
          * The demo project contains a component with intentional violations and
          * a matching design-tokens.json so testers can experience governance immediately.
          */
-        loadDemoProject: (): Promise<{ projectPath: string } | { error: string }> =>
-            ipcRenderer.invoke('beta:load-demo-project'),
+        loadDemoProject: (demoName?: string): Promise<{ projectPath: string } | { error: string }> =>
+            ipcRenderer.invoke('beta:load-demo-project', { demoName }),
 
         /**
          * Captures a screenshot of the focused BrowserWindow via capturePage().

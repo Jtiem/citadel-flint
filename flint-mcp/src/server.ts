@@ -35,6 +35,9 @@ import { handleFlintIngest, FLINT_INGEST_TOOL } from "./tools/ingest.js";
 import { handleFlintSync, FLINT_SYNC_TOOL } from "./tools/sync.js";
 import { handleAuditReport, FLINT_AUDIT_REPORT_TOOL } from "./tools/auditReport.js";
 import { FLINT_SENTINEL_PROMPT_DEF, getFlintSentinelContent } from "./prompts/sentinel.js";
+import { QUICK_AUDIT_PROMPT_DEF, getQuickAuditContent } from "./prompts/quickAudit.js";
+import { FIX_ALL_PROMPT_DEF, getFixAllContent } from "./prompts/fixAll.js";
+import { ONBOARD_PROJECT_PROMPT_DEF, getOnboardProjectContent } from "./prompts/onboard-project.js";
 import { CAPABILITIES_RESOURCE, readCapabilities } from "./core/capabilities/index.js";
 import { WORKFLOW_GUIDE_PROMPT, getWorkflowGuideContent } from "./prompts/workflow-guide.js";
 import { domainRegistry } from "./domains/index.js";
@@ -383,41 +386,100 @@ let flintConfig: FlintConfig = DEFAULT_CONFIG;
 // ---------------------------------------------------------------------------
 
 /**
- * Build the MCP server instructions string based on whether the user is new
- * or returning. A returning user is detected by the presence of a non-null
- * `healthGrade` in `.flint/context.json`.
- *
- * Called once in `runServer()` after the project root is known.
+ * Detect whether the user has an existing project context (returning user).
+ * Returns true when `.flint/context.json` exists and contains a non-empty
+ * `healthGrade` string — indicating a prior governance session.
  */
-export function buildGreeting(projectRoot: string): string {
-    const TOOL_COUNT = 45;
-
+export function detectReturningUser(projectRoot: string): boolean {
     try {
         const contextPath = path.join(projectRoot, BRAND.configDir, "context.json");
         if (fs.existsSync(contextPath)) {
             const raw = fs.readFileSync(contextPath, "utf-8");
             const ctx = JSON.parse(raw);
-            if (ctx && typeof ctx.healthGrade === "string" && ctx.healthGrade) {
-                // Returning user — skip the tutorial, go straight to context
-                return (
-                    `${BRAND.product} is connected. ` +
-                    `Read ${resourceUri("session-context")} for your project's current state ` +
-                    `and what's changed since your last session.`
-                );
-            }
+            // healthGrade must be a non-empty string (e.g. "A", "B", "C", "D", "F")
+            return typeof ctx?.healthGrade === "string" && ctx.healthGrade.length > 0;
         }
-    } catch {
-        // Fall through to new-user greeting on any read/parse error
+    } catch { /* fall through */ }
+    return false;
+}
+
+/**
+ * Count the number of registered tools by scanning this file's ListToolsRequestSchema handler.
+ * Returns a reasonable static count derived from the CLAUDE.md tool table (54 registered).
+ * This is intentionally static — the count is known at build time and avoids circular deps.
+ */
+const REGISTERED_TOOL_COUNT = 54;
+
+/**
+ * Build the MCP server instructions string.
+ * These are for the MODEL, not the user. They tell the model WHEN to use Flint tools.
+ * Claude Code caps instructions at 2KB — stay under 1800 chars.
+ *
+ * Called once in `runServer()` after the project root is known.
+ */
+export function buildGreeting(projectRoot: string): string {
+    const isReturning = detectReturningUser(projectRoot);
+
+    const TRIGGER_WORDS =
+        "When the user mentions: audit, accessibility, WCAG, design tokens, violations, " +
+        "governance, brand compliance, export gate, design debt, Figma import, design system " +
+        "migration, Tailwind, component health, or linter -- use Flint tools.";
+
+    const KEY_TOOLS =
+        "Key tools: " +
+        `${toolName("get_context")} (project state, call first), ` +
+        "audit_ui_component (audit a file by path), " +
+        `${toolName("fix")} (auto-fix violations), ` +
+        `${toolName("debt_report")} (health score 0-100, A-F grade), ` +
+        `${toolName("plan")} (structured execution plans).`;
+
+    const CATALOG_REF =
+        `Full tool catalog: ${resourceUri("capabilities")}. ` +
+        `Guided workflows: use the ${BRAND.productLower}-workflow-guide prompt.`;
+
+    if (isReturning) {
+        // Read healthGrade from context for personalised returning-user message
+        let grade = "";
+        let topViolation = "";
+        try {
+            const contextPath = path.join(projectRoot, BRAND.configDir, "context.json");
+            if (fs.existsSync(contextPath)) {
+                const ctx = JSON.parse(fs.readFileSync(contextPath, "utf-8"));
+                grade = typeof ctx?.healthGrade === "string" ? ctx.healthGrade : "";
+                if (Array.isArray(ctx?.violations) && ctx.violations.length > 0) {
+                    const top = ctx.violations[0];
+                    topViolation = typeof top?.ruleId === "string"
+                        ? `Top violation: ${top.ruleId}.`
+                        : "";
+                }
+            }
+        } catch { /* fall through */ }
+
+        const gradeStr = grade ? `Grade: ${grade}.` : "";
+        const violationStr = topViolation ? ` ${topViolation}` : "";
+
+        return [
+            `${BRAND.product} is connected. ${gradeStr}${violationStr}`.trim(),
+            `Read ${resourceUri("session-context")} for current project state.`,
+            "Say 'audit' to scan, 'fix' to auto-remediate, or 'debt report' for trends.",
+            TRIGGER_WORDS,
+            KEY_TOOLS,
+            CATALOG_REF,
+        ].join("\n\n");
     }
 
-    // New user — orient them
-    return (
-        `${BRAND.product} is connected. ${TOOL_COUNT} governance tools available.\n\n` +
-        `You're new here. Say 'what can ${BRAND.product} do?' to get started, ` +
-        `or read ${resourceUri("capabilities")} for a full orientation.\n\n` +
-        `If you already know ${BRAND.product}, read ${resourceUri("session-context")} ` +
-        `for your project's current state.`
-    );
+    return [
+        `${BRAND.product} is connected. ${REGISTERED_TOOL_COUNT} governance tools ready.`,
+        `Quick start:\n` +
+        `- 'audit my component' — scan a file for violations\n` +
+        `- 'fix it' — auto-remediate detected violations\n` +
+        `- 'check accessibility' — WCAG 2.1 AA compliance\n` +
+        `- 'show health' — design debt score and grade\n` +
+        `- 'what can you do?' — full capability tour`,
+        TRIGGER_WORDS,
+        KEY_TOOLS,
+        CATALOG_REF,
+    ].join("\n\n");
 }
 
 const server = new Server(
@@ -431,13 +493,16 @@ const server = new Server(
             resources: {},
             prompts: {},
         },
-        // Default instructions — replaced in runServer() with context-aware greeting
+        // Default instructions — replaced in runServer() with context-aware greeting.
+        // This static version is used when the server starts before projectRoot is known.
         instructions:
-            `${BRAND.product} is a governance engine that enforces design systems, accessibility, ` +
-            "and brand compliance at the AST level. " +
-            `New to ${BRAND.product}? Start with the ${BRAND.productLower}-workflow-guide prompt or read ` +
-            `${resourceUri("capabilities")} for the full tool catalog. ` +
-            `For project health at a glance, call ${toolName("get_context")} with your projectRoot.`,
+            `${BRAND.product} is connected. ${REGISTERED_TOOL_COUNT} governance tools ready. ` +
+            `When the user mentions: audit, accessibility, WCAG, design tokens, violations, ` +
+            `governance, brand compliance, export gate, design debt, Figma import, design system ` +
+            `migration, Tailwind, component health, or linter -- use Flint tools. ` +
+            `Key tools: ${toolName("get_context")} (call first), audit_ui_component, ` +
+            `${toolName("fix")}, ${toolName("debt_report")}, ${toolName("plan")}. ` +
+            `Full catalog: ${resourceUri("capabilities")}.`,
     }
 );
 
@@ -582,7 +647,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             FLINT_PLAN_TOOL,
             {
                 name: toolName("mutation_provenance"),
-                description: "Query the Mutation Provenance Ledger (V.2-mp). Returns who or what caused each AST mutation: human, agent, auto-heal, auto-fix, or import. Supports provenance summary (aggregate counts) and per-file audit trail.",
+                description: "Query the mutation provenance ledger. Returns who or what caused each AST mutation: human, agent, auto-heal, auto-fix, or import. Supports summary and per-file audit trail.",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -622,7 +687,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             {
                 name: toolName("override_telemetry"),
-                description: "Query the Override Telemetry Ledger (GOV.2). Returns override events — every governance rule bypass, disable, or severity downgrade. Supports summary (aggregate counts), by_session, and by_rule queries.",
+                description: "Query override telemetry. Returns every governance rule bypass, disable, or severity downgrade. Supports summary, by_session, and by_rule queries.",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -653,7 +718,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             {
                 name: toolName("agent_risk"),
-                description: "Query the Agent Risk Dashboard (AGV.2). Returns per-agent risk profiles — mutation counts, average MRS scores, red/amber/green tier breakdown, override counts. Supports 'summary' (all agents) and 'by_agent' (single agent) actions.",
+                description: "Query per-agent risk profiles — mutation counts, average risk scores, red/amber/green tier breakdown, override counts. Supports 'summary' (all agents) and 'by_agent' (single agent).",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -680,7 +745,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             {
                 name: toolName("anomaly_report"),
-                description: "Statistical anomaly detection (GOV.4). Computes baselines from historical governance data and flags anomalies at 3-sigma threshold. Detects override spikes, violation surges, velocity spikes, risk drift, and agent behavior changes.",
+                description: "Detect statistical anomalies in governance data (3-sigma threshold). Flags override spikes, violation surges, velocity spikes, risk drift, and agent behavior changes.",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -739,7 +804,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             {
                 name: toolName("risk_score"),
-                description: "Query the V.1-rs Mutation Risk Scoring engine. Supports three actions: 'score_mutation' — compute and persist a 5-factor weighted risk score (0-100) for a single mutation ID. 'file_profile' — aggregate risk profile for a file (mean/max score, trend). 'project_summary' — project-wide risk distribution, riskiest files, riskiest agents.",
+                description: "Compute mutation risk scores (0-100, 5-factor weighted). Actions: 'score_mutation' (single mutation), 'file_profile' (per-file aggregate), 'project_summary' (project-wide risk distribution).",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -878,14 +943,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             {
                 name: toolName("migrate_tw"),
                 description:
-                    "EXP.3: Migrate Tailwind CSS v3 utility classes to their v4 equivalents using " +
-                    "deterministic Babel AST traversal on JSX className attributes. " +
-                    "Covers all officially deprecated v3 utilities: flex-grow→grow, flex-shrink→shrink, " +
-                    "overflow-ellipsis→text-ellipsis, decoration-clone→box-decoration-clone, " +
-                    "bg-gradient-to-*→bg-linear-to-*, opacity modifier sentinels (bg-opacity-X→bg-color/X), " +
-                    "shadow-sm→shadow-xs, outline-none→outline-hidden, and more. " +
-                    "After migration, automatically runs flint_audit on each changed file. " +
-                    "Dry-run mode is the default — pass dryRun=false to write changes to disk.",
+                    "Migrate Tailwind CSS v3 utility classes to v4 equivalents via AST transformation. " +
+                    "Covers all deprecated v3 utilities (flex-grow, overflow-ellipsis, bg-gradient, etc.). " +
+                    "Runs flint_audit on changed files after migration. Dry-run by default.",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -917,10 +977,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             {
                 name: toolName("migrate_config"),
                 description:
-                    "UCFG.4: Migrate legacy JSON config files (.flint/policy.json, .flint/agent-policy.json, " +
-                    ".flint/escalation-rules.json) into a unified flint.config.yaml. " +
-                    "Generates YAML from existing config, optionally backs up legacy files to *.bak. " +
-                    "Use dry_run=true (default) to preview the generated YAML without writing.",
+                    "Migrate legacy JSON config files into a unified flint.config.yaml. " +
+                    "Optionally backs up legacy files to *.bak. Dry-run by default.",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -941,7 +999,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             {
                 name: toolName("agent_trust"),
-                description: "AGV.4: Dynamic Agent Trust Tiers. Query and manage agent trust levels — agents earn/lose tiers based on behavioral history (red mutations, overrides, escalations). Actions: 'profile' (single agent), 'list' (all agents), 'promote' (manual upgrade), 'demote' (manual downgrade), 'reset' (return to restricted).",
+                description: "Query and manage agent trust levels. Agents earn/lose tiers based on behavioral history. Actions: 'profile', 'list', 'promote', 'demote', 'reset'.",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -969,7 +1027,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             {
                 name: toolName("figma_connect"),
-                description: "SYNC.1: Manage Figma file connections for bidirectional token sync. Actions: 'connect' (store a new connection), 'disconnect' (deactivate), 'status' (query current connection state).",
+                description: "Manage Figma file connections for bidirectional token sync. Actions: 'connect', 'disconnect', 'status'.",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -1000,7 +1058,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             {
                 name: toolName("sync_pull"),
-                description: "SYNC.2: Pull remote Figma variable changes into local design-tokens.json. Auto-applies added/modified remote tokens. Creates pending conflicts for tokens changed in both.",
+                description: "Pull remote Figma variable changes into local design-tokens.json. Auto-applies added/modified tokens; creates conflicts for tokens changed in both.",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -1011,7 +1069,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             {
                 name: toolName("sync_push"),
-                description: "SYNC.2: Push local design-token changes to the connected Figma file. Pushes added/modified local tokens.",
+                description: "Push local design-token changes to the connected Figma file.",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -1022,7 +1080,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             {
                 name: toolName("resolve_conflict"),
-                description: "SYNC.2: Resolve a single pending token sync conflict by choosing 'local', 'remote', or 'merged' (with optional mergedValue).",
+                description: "Resolve a single pending token sync conflict by choosing 'local', 'remote', or 'merged'.",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -1035,7 +1093,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             {
                 name: toolName("resolve_all"),
-                description: "SYNC.2: Bulk-resolve all pending token sync conflicts for a project. Resolution must be 'local' or 'remote'.",
+                description: "Bulk-resolve all pending token sync conflicts for a project. Resolution must be 'local' or 'remote'.",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -1047,7 +1105,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             {
                 name: toolName("sync_check"),
-                description: "SYNC.4: CI/CD sync health check. Returns whether tokens are in sync with Figma baseline, pending conflict count, staleness, drift count, and a recommendation (ok, pull_needed, push_needed, conflicts_pending).",
+                description: "CI/CD sync health check. Reports token sync status with Figma baseline, conflicts, staleness, drift, and a recommendation.",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -1058,7 +1116,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             {
                 name: toolName("sync_history"),
-                description: "SYNC.4: Export sync history for a project as JSON or CSV.",
+                description: "Export sync history for a project as JSON or CSV.",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -1070,7 +1128,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             {
                 name: toolName("validate_themes"),
-                description: "EXP.4: Validate a single codebase against multiple brand/theme token sets. Returns a cross-theme compliance matrix showing which violations are theme-specific vs universal.",
+                description: "Validate a codebase against multiple brand/theme token sets. Returns a cross-theme compliance matrix.",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -1091,7 +1149,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             {
                 name: toolName("migrate_ds"),
-                description: "EXP.5: Design System Version Migration. Computes a diff between two DTCG token files (renamed, removed, changed, added) and surgically updates consuming code via Babel AST. Returns a migration report with per-file changes and warnings. Color changes include CIEDE2000 ΔE scores.",
+                description: "Migrate between design system versions. Diffs two DTCG token files and updates consuming code via AST. Returns per-file migration report with warnings.",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -1187,25 +1245,25 @@ server.setRequestHandler(ListResourcesRequestSchema, async () => {
                 uri: resourceUri("overrides"),
                 name: BRAND.product + " Override Telemetry",
                 mimeType: "application/json",
-                description: "Override telemetry summary — total count, overrides by rule, by session, last 24h count, and last override timestamp. GOV.2."
+                description: "Override telemetry summary — total count, overrides by rule, by session, last 24h count, and last override timestamp."
             },
             {
                 uri: resourceUri("agent-risk"),
                 name: BRAND.product + " Agent Risk Dashboard",
                 mimeType: "application/json",
-                description: "Per-agent risk profiles — mutation counts, average risk scores, red/amber/green tier breakdown, override counts. AGV.2."
+                description: "Per-agent risk profiles — mutation counts, average risk scores, red/amber/green tier breakdown, override counts."
             },
             {
                 uri: resourceUri("anomalies"),
                 name: BRAND.product + " Anomaly Detection",
                 mimeType: "application/json",
-                description: "Current anomaly count and latest detected anomalies from statistical baseline analysis. GOV.4."
+                description: "Current anomaly count and latest detected anomalies from statistical baseline analysis."
             },
             {
                 uri: resourceUri("figma-connection"),
                 name: BRAND.product + " Figma Connection",
                 mimeType: "application/json",
-                description: "Current Figma file connection status, file key, last sync timestamp. SYNC.1."
+                description: "Current Figma file connection status, file key, last sync timestamp."
             }
         ]
     };
@@ -1448,6 +1506,9 @@ server.setRequestHandler(ListPromptsRequestSchema, async () => {
             },
             FLINT_SENTINEL_PROMPT_DEF,
             WORKFLOW_GUIDE_PROMPT,
+            QUICK_AUDIT_PROMPT_DEF,
+            FIX_ALL_PROMPT_DEF,
+            ONBOARD_PROJECT_PROMPT_DEF,
         ]
     };
 });
@@ -1509,6 +1570,54 @@ If you encounter a "BLOCKED" status from any tool (Mithril violation, A11y viola
                     content: {
                         type: "text",
                         text: getWorkflowGuideContent(intent),
+                    },
+                }
+            ]
+        };
+    }
+
+    if (request.params.name === BRAND.productLower + "-quick-audit") {
+        const filePath = (request.params.arguments as Record<string, string> | undefined)?.filePath;
+        return {
+            description: BRAND.product + " single-file governance audit",
+            messages: [
+                {
+                    role: "user",
+                    content: {
+                        type: "text",
+                        text: getQuickAuditContent(filePath),
+                    },
+                }
+            ]
+        };
+    }
+
+    if (request.params.name === BRAND.productLower + "-fix-all") {
+        const filePath = (request.params.arguments as Record<string, string> | undefined)?.filePath;
+        return {
+            description: BRAND.product + " auto-fix all governance violations",
+            messages: [
+                {
+                    role: "user",
+                    content: {
+                        type: "text",
+                        text: getFixAllContent(filePath),
+                    },
+                }
+            ]
+        };
+    }
+
+    if (request.params.name === BRAND.productLower + "-onboard-project") {
+        const projectRoot = (request.params.arguments as Record<string, string> | undefined)?.projectRoot;
+        return {
+            description: BRAND.product + " first-time project setup — index components, baseline health score, next steps",
+            messages: [
+                {
+                    role: "user",
+                    content: {
+                        type: "text",
+                        text: getOnboardProjectContent(projectRoot),
                     },
                 }
             ]
@@ -1625,9 +1734,23 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                     plugins: ["jsx", "typescript"],
                 });
 
+                // CR-SEAL: Load component registry for REG-001 audit
+                let auditRegistry: Record<string, { importPath?: string; [key: string]: unknown }> | undefined
+                const manifestPath = path.join(projectRoot, BRAND.manifestFile)
+                if (fs.existsSync(manifestPath)) {
+                    try {
+                        const manifestRaw = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'))
+                        const components = manifestRaw.components ?? manifestRaw
+                        if (components && typeof components === 'object' && Object.keys(components).length > 0) {
+                            auditRegistry = components
+                        }
+                    } catch { /* manifest unreadable — skip registry audit */ }
+                }
+
                 const policyOpts = {
                     deltaE_threshold: flintConfig.policy.mithril.deltaE_threshold,
                     deltaE_critical_threshold: flintConfig.policy.mithril.deltaE_critical_threshold,
+                    ...(auditRegistry && { registry: auditRegistry }),
                 };
                 const mithrilWarnings = flintConfig.policy.mithril.mode !== 'off'
                     ? auditAll(ast as any, tokens, policyOpts)
@@ -3926,8 +4049,15 @@ ${injectOps || '(no top-level children to inject)'}
 function findProjectRoot(startPath: string): string | null {
     let curr = path.dirname(startPath);
     while (curr !== path.parse(curr).root) {
+        // Require both .flint/ AND flint-manifest.json (or design-tokens.json) to distinguish
+        // a real project root from nested .flint/ telemetry artifacts (e.g. src/components/ui/.flint).
         if (fs.existsSync(path.join(curr, BRAND.configDir))) {
-            return curr;
+            if (
+                fs.existsSync(path.join(curr, BRAND.manifestFile)) ||
+                fs.existsSync(path.join(curr, BRAND.configDir, 'design-tokens.json'))
+            ) {
+                return curr;
+            }
         }
         curr = path.dirname(curr);
     }

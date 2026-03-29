@@ -6,6 +6,7 @@ import { queryRegistryDeterministic, type ComponentEntry } from './registryServi
 import { getEmitterForLibrary, type LibraryCodeEmitter } from './hydroPaste-emitters.js';
 import { hexToLab, findNearestToken, TIER2_DELTA_E, type LabTokenEntry } from './colorDistance.js';
 import { analyzeLayout, layoutClassesToString } from './layoutAnalyzer.js';
+import { HTML_INTRINSIC_TAGS, REACT_BUILTINS } from './htmlIntrinsics.js';
 
 // Internal normalised shape used only within this module
 interface NormalisedToken {
@@ -37,6 +38,16 @@ export interface HydroOptions {
     classificationOverrides?: Map<string, string>
 }
 
+/** CR-SEAL: Warning for a generated component that is not in the project registry. */
+export interface RegistryConstraintWarning {
+    /** Name of the generated component that failed registry membership. */
+    componentName: string
+    /** Why it failed — human-readable explanation. */
+    reason: string
+    /** Available registry components the user could use instead. */
+    suggestions: string[]
+}
+
 export interface HydroResult {
     components: GeneratedComponent[];
     imports: string[];
@@ -50,6 +61,8 @@ export interface HydroResult {
         jsx: string;
         imports: string[];
     };
+    /** CR-SEAL: Components that were generated but are NOT in the project registry. */
+    registryWarnings?: RegistryConstraintWarning[];
 }
 
 // Figma node shapes we care about
@@ -1066,4 +1079,59 @@ export class HydroPasteEngine {
             },
         };
     }
+}
+
+// ---------------------------------------------------------------------------
+// CR-SEAL: Post-generation registry membership validation
+// ---------------------------------------------------------------------------
+
+// HTML_INTRINSIC_TAGS and REACT_BUILTINS imported from htmlIntrinsics.ts
+
+/**
+ * Validate that all generated components exist in the project registry.
+ *
+ * Returns an array of warnings for components that are NOT registered.
+ * HTML intrinsics (div, span, button, etc.) are always allowed.
+ * When the registry is empty, no validation is performed (no constraints).
+ */
+export function validateGeneratedComponents(
+    result: HydroResult,
+    registry: Record<string, unknown>,
+): RegistryConstraintWarning[] {
+    // No registry → no constraint (same policy as CR.2 in orchestrator)
+    if (!registry || Object.keys(registry).length === 0) return []
+
+    const registryNames = new Set(Object.keys(registry))
+    const warnings: RegistryConstraintWarning[] = []
+
+    for (const comp of result.components) {
+        const name = comp.name
+        if (!name) continue
+
+        // HTML intrinsics always pass
+        if (HTML_INTRINSIC_TAGS.has(name.toLowerCase()) && name[0] === name[0]?.toLowerCase()) continue
+
+        // Lowercase first char → HTML intrinsic or custom element; skip
+        if (name[0] === name[0]?.toLowerCase()) continue
+
+        // React built-ins (Fragment, Suspense, StrictMode, Profiler) always pass
+        if (REACT_BUILTINS.has(name)) continue
+
+        // Check registry membership
+        if (registryNames.has(name)) continue
+
+        // Not in registry — build suggestion list (simple prefix match)
+        const suggestions = [...registryNames]
+            .filter(r => r.toLowerCase().includes(name.toLowerCase().slice(0, 3)))
+            .slice(0, 5)
+
+        warnings.push({
+            componentName: name,
+            reason: `${name} was generated but is not part of your project's component library. ` +
+                `Flint requires all components to be registered in your Armory.`,
+            suggestions,
+        })
+    }
+
+    return warnings
 }

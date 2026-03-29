@@ -25,7 +25,7 @@ import {
     History,
     Bot,
     RefreshCw,
-    Figma,
+    Plug,
     Download,
     X,
 } from 'lucide-react'
@@ -91,9 +91,11 @@ function parseRegistryMarkdown(markdown: string): RegistryResult[] {
 export interface CommandPaletteProps {
     onOpenExportModal: () => void
     onOpenGovernancePanel: () => void
+    /** Opens the Garrison setup wizard / IDE reconnect flow */
+    onOpenSetupWizard?: () => void
 }
 
-export function CommandPalette({ onOpenExportModal, onOpenGovernancePanel }: CommandPaletteProps) {
+export function CommandPalette({ onOpenExportModal, onOpenGovernancePanel, onOpenSetupWizard }: CommandPaletteProps) {
     const isOpen = useCanvasStore((s) => s.commandPaletteOpen)
     const setOpen = useCanvasStore((s) => s.setCommandPaletteOpen)
     const setRightTab = useCanvasStore((s) => s.setRightTab)
@@ -166,7 +168,8 @@ export function CommandPalette({ onOpenExportModal, onOpenGovernancePanel }: Com
                         pushNotification({ type: 'info', severity: 'warning', title: 'No file open', message: 'Open a component first', autoDismissMs: 3000 })
                         return
                     }
-                    await callMcp('audit_ui_component', { file: activeFilePath }, 'Audit complete')
+                    // SEC.3: use flint_audit (allowlisted) rather than audit_ui_component (not in RENDERER_ALLOWED_MCP_TOOLS)
+                    await callMcp('flint_audit', { path: activeFilePath }, 'Audit complete')
                 }),
             },
             {
@@ -245,7 +248,7 @@ export function CommandPalette({ onOpenExportModal, onOpenGovernancePanel }: Com
                         pushNotification({
                             type: 'undo',
                             title: 'Undone',
-                            message: typeof desc === 'string' ? desc : 'AST mutation reversed',
+                            message: typeof desc === 'string' ? desc : 'Change undone',
                             severity: 'info',
                             autoDismissMs: 2500,
                         })
@@ -269,15 +272,6 @@ export function CommandPalette({ onOpenExportModal, onOpenGovernancePanel }: Com
                 action: () => closeAndRun(() => setRightTab('governance')),
             },
             {
-                id: 'settings-sync-tokens',
-                label: 'Sync Tokens from Figma',
-                category: 'settings',
-                icon: <Figma className="h-4 w-4" />,
-                action: () => closeAndRun(async () => {
-                    await callMcp('flint_sync_tokens', {}, 'Tokens synced from Figma')
-                }),
-            },
-            {
                 id: 'settings-reindex',
                 label: 'Reindex Project Registry',
                 category: 'settings',
@@ -288,6 +282,21 @@ export function CommandPalette({ onOpenExportModal, onOpenGovernancePanel }: Com
                         pushNotification({ type: 'mutation', severity: 'success', title: 'Registry reindexed', message: '', autoDismissMs: 3000 })
                     } catch {
                         pushNotification({ type: 'info', severity: 'error', title: 'Reindex failed', message: '', autoDismissMs: 4000 })
+                    }
+                }),
+            },
+            {
+                id: 'settings-reconnect-ide',
+                label: 'Reconnect IDE / Setup',
+                category: 'settings',
+                icon: <Plug className="h-4 w-4" />,
+                action: () => closeAndRun(() => {
+                    if (onOpenSetupWizard) {
+                        onOpenSetupWizard()
+                    } else {
+                        // Fallback: fire-and-forget MCP reconnect (mirrors StatusBar behaviour)
+                        window.flintAPI.mcp?.reconnect?.()
+                            .catch(() => { /* reconnect is fire-and-forget */ })
                     }
                 }),
             },

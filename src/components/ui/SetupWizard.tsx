@@ -135,6 +135,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
     const [verifyStatus, setVerifyStatus] = useState<VerifyStatus>('idle')
     const [verifyError, setVerifyError] = useState<string | null>(null)
     const [copied, setCopied] = useState(false)
+    const [attemptCount, setAttemptCount] = useState(0)
 
     // R-4: Escape key blocked during active writes
     useEffect(() => {
@@ -226,27 +227,57 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
     // The MCP server is an internal child process that may still be booting
     // when this runs (cold start loads ~78 ESM imports + SQLite + rules).
     // Retry up to 6 times with 2s spacing (12s total) before giving up.
+    // A 30s wall-clock timeout aborts the entire sequence if nothing succeeds.
     const handleVerify = useCallback(async () => {
         setVerifyStatus('checking')
         setVerifyError(null)
+        setAttemptCount(0)
 
         const MAX_ATTEMPTS = 6
         const RETRY_DELAY_MS = 2_000
+        const TOTAL_TIMEOUT_MS = 30_000
 
-        for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-            try {
-                const result = await window.flintAPI.mcp?.callTool('flint_status', {})
-                if (result && typeof result === 'object') {
-                    setVerifyStatus('connected')
-                    return
-                }
-            } catch {
-                // Server still booting — wait and retry (unless last attempt)
-                if (attempt < MAX_ATTEMPTS) {
-                    await new Promise((r) => setTimeout(r, RETRY_DELAY_MS))
-                    continue
+        // Sentinel promise — resolves to 'timeout' after TOTAL_TIMEOUT_MS
+        let timeoutId: ReturnType<typeof setTimeout>
+        const timeoutPromise = new Promise<'timeout'>((resolve) => {
+            timeoutId = setTimeout(() => resolve('timeout'), TOTAL_TIMEOUT_MS)
+        })
+
+        const runAttempts = async (): Promise<'connected' | 'exhausted'> => {
+            for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+                setAttemptCount(attempt)
+
+                try {
+                    const result = await window.flintAPI.mcp?.callTool('flint_status', {})
+                    if (result && typeof result === 'object') {
+                        return 'connected'
+                    }
+                } catch {
+                    // Server still booting — wait and retry (unless last attempt)
+                    if (attempt < MAX_ATTEMPTS) {
+                        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS))
+                        continue
+                    }
                 }
             }
+            return 'exhausted'
+        }
+
+        const outcome = await Promise.race([runAttempts(), timeoutPromise])
+        clearTimeout(timeoutId!)
+
+        if (outcome === 'connected') {
+            setVerifyStatus('connected')
+            return
+        }
+
+        // Timed out before all retries exhausted
+        if (outcome === 'timeout') {
+            setVerifyStatus('error')
+            setVerifyError(
+                'Connection timed out. Try restarting your IDE and clicking "Test Connection" again.',
+            )
+            return
         }
 
         // All attempts exhausted — check status for a better error message
@@ -260,8 +291,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                 )
             } else {
                 setVerifyError(
-                    'MCP server responded but returned an unexpected result. ' +
-                    'Check the developer console (View → Toggle Developer Tools) for details.',
+                    'Could not reach the MCP server. Make sure the server is running and your IDE has the correct config.',
                 )
             }
         } catch {
@@ -580,17 +610,30 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                         </div>
 
                         {/* Verify status display */}
-                        <div className="flex min-h-[56px] items-center justify-center rounded-lg border border-zinc-700 bg-zinc-950 px-4 py-3">
+                        <div
+                            aria-live="polite"
+                            className="flex min-h-[56px] flex-col items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-950 px-4 py-3"
+                        >
                             {verifyStatus === 'idle' && (
                                 <p className="text-sm text-zinc-500">
                                     Click "Test Connection" to verify
                                 </p>
                             )}
                             {verifyStatus === 'checking' && (
-                                <div className="flex items-center gap-2 text-zinc-400">
-                                    <Loader2 size={16} className="animate-spin" />
-                                    <span className="text-sm">Connecting…</span>
-                                </div>
+                                <>
+                                    <div className="flex items-center gap-2 text-zinc-400">
+                                        <Loader2 size={16} className="animate-spin" />
+                                        <span className="text-sm">Connecting…</span>
+                                    </div>
+                                    {attemptCount > 2 && (
+                                        <p
+                                            data-testid="attempt-count"
+                                            className="text-xs text-zinc-500"
+                                        >
+                                            Still trying… (attempt {attemptCount}/6)
+                                        </p>
+                                    )}
+                                </>
                             )}
                             {verifyStatus === 'connected' && (
                                 <div className="flex items-center gap-2 text-emerald-400">
@@ -599,8 +642,8 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                                 </div>
                             )}
                             {verifyStatus === 'error' && (
-                                <div className="flex items-center gap-2 text-red-400">
-                                    <XCircle size={16} />
+                                <div className="flex items-start gap-2 text-red-400">
+                                    <XCircle size={16} className="mt-0.5 shrink-0" />
                                     <span className="text-sm">{verifyError}</span>
                                 </div>
                             )}
@@ -615,7 +658,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                                     disabled={verifyStatus === 'checking'}
                                     className="flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-40"
                                 >
-                                    {verifyStatus === 'error' ? 'Retry' : 'Test Connection'}
+                                    {verifyStatus === 'error' ? 'Try Again' : 'Test Connection'}
                                 </button>
                             )}
                             {verifyStatus === 'connected' && (
@@ -629,13 +672,25 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                                     <ChevronRight size={14} />
                                 </button>
                             )}
-                            <button
-                                type="button"
-                                onClick={goNext}
-                                className="text-center text-xs text-zinc-500 underline transition-colors hover:text-zinc-400"
-                            >
-                                Skip
-                            </button>
+                            {/* Show "Skip for now" as a more prominent escape hatch after 2 attempts */}
+                            {verifyStatus === 'checking' && attemptCount > 2 ? (
+                                <button
+                                    data-testid="skip-for-now"
+                                    type="button"
+                                    onClick={goNext}
+                                    className="text-center text-xs text-zinc-400 underline transition-colors hover:text-zinc-200"
+                                >
+                                    Skip for now →
+                                </button>
+                            ) : (
+                                <button
+                                    type="button"
+                                    onClick={goNext}
+                                    className="text-center text-xs text-zinc-500 underline transition-colors hover:text-zinc-400"
+                                >
+                                    Skip
+                                </button>
+                            )}
                         </div>
 
                         <StepDots current={step} />

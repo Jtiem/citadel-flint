@@ -152,10 +152,11 @@ function TroubleshootingSection() {
                         </p>
                     </div>
                     <div>
-                        <p className="font-medium text-zinc-300">Secret mismatch (401 error)</p>
+                        <p className="font-medium text-zinc-300">Authentication error (401)</p>
                         <p className="mt-0.5">
-                            Re-copy the secret from above. The Figma plugin must send this value
-                            in the <code className="rounded bg-zinc-800 px-1 font-mono text-zinc-300">x-flint-secret</code> header.
+                            The per-session secret is managed automatically by Flint. Restart Flint
+                            to generate a fresh session, then re-configure the Figma plugin with the
+                            updated endpoint.
                         </p>
                     </div>
                     <div>
@@ -332,9 +333,9 @@ export function FigmaSetupWizard({ visible, onClose }: FigmaSetupWizardProps) {
             {step === 'configure' && figmaStatus && (
                 <div className="space-y-3">
                     <p className="text-xs text-zinc-400">
-                        Copy the endpoint below into the Flint Figma plugin settings.
-                        The authentication secret is configured separately in the Figma Plugin Settings UI,
+                        Copy the endpoint below into the Flint Figma plugin settings,
                         then click <strong className="text-zinc-200">Sync Variables</strong>.
+                        Authentication is handled automatically — no secret to copy.
                     </p>
 
                     <CopyField

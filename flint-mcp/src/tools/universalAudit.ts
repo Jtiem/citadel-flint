@@ -45,7 +45,7 @@ export function resetDefaultRegistry(): void {
 export const FLINT_UNIVERSAL_AUDIT_TOOL = {
     name: "flint_universal_audit",
     description:
-        "V.3: Audit any file using the domain-agnostic universal engine. Resolves the language adapter by extension (or explicit override), parses into a canonical FlintNode tree, and runs all registered linter plugins. Returns violations, adapter used, and plugin list.",
+        "Audit any file using the domain-agnostic universal engine. Resolves the language adapter by extension (or explicit override), parses into a canonical FlintNode tree, and runs all registered linter plugins. Returns violations, adapter used, and plugin list.",
     inputSchema: {
         type: "object" as const,
         properties: {

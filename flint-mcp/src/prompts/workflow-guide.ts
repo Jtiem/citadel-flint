@@ -61,14 +61,14 @@ const TOOL_REFERENCE = `
 | Tool | Purpose |
 |------|---------|
 | flint_debt_report | Project-wide design debt summary |
-| flint_vpat_report | WCAG 2.1 / Section 508 VPAT conformance report |
+| flint_accessibility_report | WCAG 2.1 / Section 508 VPAT conformance report |
 
 ### Governance tools — enforcement and oversight
 | Tool | Purpose |
 |------|---------|
-| flint_consensus_status | Team annotation consensus across agents |
+| flint_consensus_report | Team annotation consensus across agents |
 | flint_anomaly_report | Detect governance bypass patterns in telemetry |
-| flint_theme_validate | Verify design theme internal consistency |
+| flint_validate_themes | Verify design theme internal consistency |
 
 ### Migration tools — large-scale codebase changes
 | Tool | Purpose |
@@ -79,12 +79,12 @@ const TOOL_REFERENCE = `
 ### Platform tools — multi-platform export
 | Tool | Purpose |
 |------|---------|
-| flint_platform_export | Export to React / Vue / iOS / Android with governance gates |
+| flint_pack_export | Export to React / Vue / iOS / Android with governance gates |
 
 ### Collaboration tools — team governance
 | Tool | Purpose |
 |------|---------|
-| flint_annotate | Record decisions, debates, or compliance notes on AST nodes |
+| flint_defer_violation | Record decisions, debates, or compliance notes on AST nodes |
 
 ---
 
@@ -124,13 +124,13 @@ flint_get_context → flint_query_registry → flint_audit (draft) → flint_fix
 ### 4. design-debt-sprint
 Use when: starting a design debt reduction effort.
 \`\`\`
-flint_debt_report → flint_audit (hotspots) → flint_fix → flint_theme_validate
+flint_debt_report → flint_audit (hotspots) → flint_fix → flint_validate_themes
 \`\`\`
 
 ### 5. pre-release-gate
 Use when: final governance check before shipping.
 \`\`\`
-flint_audit (severity: critical) → flint_theme_validate (strict) → flint_vpat_report → flint_platform_export
+flint_audit (severity: critical) → flint_validate_themes (strict) → flint_accessibility_report → flint_pack_export
 \`\`\`
 
 ### 6. token-migration
@@ -142,7 +142,7 @@ flint_sync_tokens (diff-only) → flint_sync_tokens (write) → flint_migrate_ds
 ### 7. collaborative-review
 Use when: coordinating a governance review across a team.
 \`\`\`
-flint_audit → flint_annotate → flint_consensus_status → flint_fix
+flint_audit → flint_defer_violation → flint_consensus_report → flint_fix
 \`\`\`
 `.trim();
 
@@ -233,7 +233,7 @@ function buildIntentRecommendation(intent: string): string {
         return recommendWorkflow(
             "design-debt-sprint",
             "You want to reduce design debt across the project.",
-            ["flint_debt_report", "flint_audit", "flint_fix", "flint_theme_validate"],
+            ["flint_debt_report", "flint_audit", "flint_fix", "flint_validate_themes"],
         );
     }
 
@@ -241,7 +241,7 @@ function buildIntentRecommendation(intent: string): string {
         return recommendWorkflow(
             "pre-release-gate",
             "You want to run the final governance check before a release.",
-            ["flint_audit", "flint_theme_validate", "flint_vpat_report", "flint_platform_export"],
+            ["flint_audit", "flint_validate_themes", "flint_accessibility_report", "flint_pack_export"],
         );
     }
 
@@ -257,7 +257,7 @@ function buildIntentRecommendation(intent: string): string {
         return recommendWorkflow(
             "collaborative-review",
             "You want to coordinate a governance review across your team.",
-            ["flint_audit", "flint_annotate", "flint_consensus_status", "flint_fix"],
+            ["flint_audit", "flint_defer_violation", "flint_consensus_report", "flint_fix"],
         );
     }
 

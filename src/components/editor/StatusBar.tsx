@@ -18,7 +18,7 @@
  *     timestamp, and token count.
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { BRAND } from '../../../shared/brand'
 import { ShieldCheck, ShieldAlert, X, Copy, Check, RefreshCw, Unplug, FolderInput, MessageSquare, Tablet, Smartphone, Download, RotateCcw } from 'lucide-react'
 import { useCanvasStore } from '../../store/canvasStore'
@@ -94,7 +94,12 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject }: StatusBarP
     const activeFilePath = useCanvasStore((s) => s.activeFilePath)
     const setRightTab = useCanvasStore((s) => s.setRightTab)
     const a11yViolations = useCanvasStore((s) => s.a11yViolations)
-    const canExport = mithrilViolations.length === 0 && !overridesExist && Object.keys(a11yViolations).length === 0
+    const storeCanExport = useCanvasStore((s) => s.canExport)
+    const canExport = useMemo(
+        () => storeCanExport(),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [mithrilViolations, overridesExist, a11yViolations, storeCanExport],
+    )
     const push = useNotificationStore((s) => s.push)
 
 
@@ -180,22 +185,19 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject }: StatusBarP
 
     // ── Push-based figma event subscriptions ─────────────────────────────────
     useEffect(() => {
-        const unsubConnected = window.flintAPI.figma.onConnected((event) => {
-            push({
-                type: 'sync',
-                title: 'Figma synced',
-                message: `${event.tokenCount} design token${event.tokenCount === 1 ? '' : 's'} received from Figma.`,
-                severity: 'success',
-                autoDismissMs: 5000,
-            })
+        const unsubConnected = window.flintAPI.figma.onConnected(() => {
+            // S1.15: toast is owned by FigmaSetupWizard to avoid duplicate notifications
             fetchFigmaStatus()
         })
 
         const unsubError = window.flintAPI.figma.onError((event) => {
+            const safeReason = typeof event.reason === 'string'
+                ? event.reason.replace(/[^\x20-\x7E]/g, '').slice(0, 200)
+                : 'Unknown error'
             push({
                 type: 'error',
                 title: 'Figma sync error',
-                message: `HTTP ${event.statusCode}: ${event.reason}`,
+                message: `HTTP ${event.statusCode}: ${safeReason}`,
                 severity: 'error',
                 autoDismissMs: 8000,
             })
@@ -237,6 +239,7 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject }: StatusBarP
 
     // ── Disconnect handler ────────────────────────────────────────────────────
     const handleDisconnect = () => {
+        if (!window.confirm('Disconnect Figma? You will need to reconnect to sync tokens.')) return
         void window.flintAPI.figma.disconnect().then(() => {
             fetchFigmaStatus()
             push({
@@ -364,118 +367,66 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject }: StatusBarP
         : 'Figma connection — click for details'
 
     return (
-        <footer className="relative flex shrink-0 items-center gap-6 border-t border-gray-800 bg-gray-950 px-4 py-[3px]">
-            {/* MCP Connection Indicator */}
-            <div
-                className="flex items-center gap-1.5 px-2 py-0.5"
+        <footer className="relative flex shrink-0 items-center justify-between border-t border-gray-800 bg-gray-950 px-4 py-[3px]">
+            {/* ── Left zone: Export Gate + Figma chip ─────────────────────── */}
+            <div className="flex min-w-0 flex-shrink items-center gap-4 overflow-hidden">
+            {/* ── Priority 1: Export Gate — Commandment 6 (The Gatekeeper Rule)
+                GLASS.1d: When violations exist, clicking opens the Governance tab
+                so the user can see and fix them. When clean, opens the export panel.
+                S4.2: Leftmost — this is what designers care most about. */}
+            <button
+                type="button"
+                onClick={() => {
+                    if (canExport) {
+                        window.dispatchEvent(new CustomEvent(`${BRAND.productLower}:open-export`))
+                    } else {
+                        // S4.14: violations exist → show Health/Governance tab, not Properties
+                        setRightTab('governance')
+                    }
+                }}
+                className={`flex flex-shrink-0 items-center gap-1.5 text-xs transition-colors ${
+                    canExport
+                        ? 'text-emerald-500 hover:text-emerald-400'
+                        : 'text-amber-400 hover:text-amber-300'
+                }`}
                 title={
-                    mcpConnected === null
-                        ? 'Governance engine — connecting…'
-                        : mcpConnected
-                        // EDU-13: plain-language tooltip explaining what MCP is
-                        ? 'Governance engine — connected. Flint is actively checking your code.'
-                        : 'Governance engine — not connected. Audits and fixes are unavailable.'
+                    canExport
+                        // EDU-01: explain what "export ready" means
+                        ? 'All design system checks pass — your file is ready to export. Click to open the Export panel.'
+                        : `Export blocked: ${gateLabel}. Click to see violations and fix options.`
                 }
             >
-                <span
-                    className={[
-                        'inline-block w-2 h-2 rounded-full',
-                        mcpConnected === null
-                            ? 'bg-zinc-500 animate-pulse'
-                            : mcpConnected
-                            ? 'bg-emerald-400'
-                            : 'bg-red-400',
-                    ].join(' ')}
-                    aria-hidden="true"
-                />
-                <span className="text-xs text-zinc-300">
-                    {mcpConnected === null ? 'MCP…' : mcpConnected ? 'MCP' : 'MCP'}
-                </span>
-                {mcpConnected === false && (
-                    <button
-                        onClick={handleMcpReconnect}
-                        className="text-xs text-zinc-400 hover:text-white underline underline-offset-2 ml-0.5"
-                        aria-label="Reconnect MCP server"
-                    >
-                        Reconnect
-                    </button>
+                {canExport ? (
+                    <>
+                        <ShieldCheck className="h-3 w-3" />
+                        Export Ready
+                    </>
+                ) : (
+                    <>
+                        <ShieldAlert className="h-3 w-3" />
+                        <span className="max-w-[200px] truncate">{gateLabel}</span>
+                    </>
                 )}
-            </div>
+            </button>
 
-            {/* WS1: "Connect IDE" chip — shown when MCP is disconnected and the callback is provided */}
-            {mcpConnected === false && onConnectIDE && (
+            {/* ── Priority 3: Figma Connection Status (Phase W.2) ─────────────
+                S4.2: Third — infrastructure signal, after export gate and before
+                MCP/Flint indicator. */}
+            <div ref={popoverRef} className="relative min-w-0">
                 <button
                     type="button"
-                    onClick={onConnectIDE}
-                    className="flex items-center gap-1 rounded border border-indigo-700/40 bg-indigo-900/10 px-1.5 py-0.5 text-xs text-indigo-400 transition-colors hover:border-indigo-600/60 hover:bg-indigo-900/20 hover:text-indigo-300"
-                    title="Open IDE setup wizard to configure MCP connection"
-                    data-testid="statusbar-connect-ide"
-                >
-                    Connect IDE
-                </button>
-            )}
-
-            {/* Demo project indicator — shows when viewing the auto-loaded demo */}
-            {isDemo && (
-                <div className="flex items-center gap-1.5">
-                    <span className="rounded border border-amber-700/40 bg-amber-900/10 px-1.5 py-0.5 text-xs text-amber-400">
-                        Demo Project
-                    </span>
-                    {onOpenOwnProject && (
-                        <button
-                            type="button"
-                            onClick={onOpenOwnProject}
-                            className="text-xs text-zinc-400 underline decoration-zinc-600 underline-offset-2 transition-colors hover:text-zinc-200"
-                        >
-                            Open your project
-                        </button>
-                    )}
-                </div>
-            )}
-
-            {/* OPP-1: Debug strings removed — implementation details don't belong in the status bar */}
-
-            {/* ── Responsive breakpoint chip (non-desktop) ──
-                OPP-12: Also hidden until the user has activated a non-desktop
-                breakpoint at least once (hasUsedBreakpoint tracks this). */}
-            {hasUsedBreakpoint && previewBreakpoint !== 'desktop' && (
-                <button
-                    type="button"
-                    onClick={() => { cyclePreviewBreakpoint('up') }}
-                    className="flex items-center gap-1 rounded border border-zinc-700/50 bg-zinc-800 px-1.5 py-0.5 text-xs text-zinc-400 transition-colors hover:border-zinc-600/60 hover:bg-zinc-700 hover:text-zinc-100"
-                    title={`Preview breakpoint: ${BREAKPOINT_LABELS[previewBreakpoint]} — click to cycle`}
-                    data-testid="statusbar-breakpoint-chip"
-                >
-                    {previewBreakpoint === 'mobile' ? (
-                        <Smartphone className="h-3 w-3" />
-                    ) : (
-                        <Tablet className="h-3 w-3" />
-                    )}
-                    {BREAKPOINT_LABELS[previewBreakpoint]}
-                </button>
-            )}
-
-            {/* ── Scratchpad indicator ──────────────────────────────────────── */}
-            {isScratchpad && (
-                <button
-                    type="button"
-                    title="Scratchpad project — click to save to a permanent location (Cmd+Shift+S)"
-                    onClick={() => { window.dispatchEvent(new CustomEvent(`${BRAND.productLower}:save-project-as`)) }}
-                    className="flex items-center gap-1 rounded border border-amber-700/40 bg-amber-900/10 px-1.5 py-0.5 text-xs text-amber-400 transition-colors hover:border-amber-600/60 hover:bg-amber-900/20 hover:text-amber-300"
-                >
-                    <FolderInput className="h-3 w-3" />
-                    Scratchpad
-                </button>
-            )}
-
-            {/* ── Figma Connection Status (Phase W.2) ──────────────────────── */}
-            <div ref={popoverRef} className="relative">
-                <button
-                    type="button"
-                    onClick={() => { setPopoverOpen((v) => !v) }}
+                    onClick={() => {
+                        if (tokenCount === 0) {
+                            setRightTab('governance')
+                            return
+                        }
+                        setPopoverOpen((v) => !v)
+                    }}
                     className={`flex cursor-pointer items-center gap-1.5 rounded px-1.5 py-0.5 text-xs transition-colors hover:bg-gray-800 hover:text-gray-200 ${hasNoTokens ? 'text-amber-400' : 'text-gray-400'}`}
                     title={figmaButtonTitle}
                 >
+                    {/* S4.1: Removed shadow-lg shadow-emerald-400/40 from the emerald-state dot.
+                         The infrastructure signal should not visually dominate the export gate. */}
                     <span className={`h-2 w-2 rounded-full ${figmaButtonDotColor}${isRecentSync ? ' animate-ping' : ''}`} />
                     {figmaButtonLabel}
                 </button>
@@ -498,12 +449,6 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject }: StatusBarP
 
                         {/* Status rows */}
                         <dl className="space-y-1.5 text-xs">
-                            <div className="flex items-center justify-between">
-                                <dt className="text-zinc-500">Server</dt>
-                                <dd className={figmaStatus?.running ? 'text-emerald-400' : 'text-zinc-500'}>
-                                    {figmaStatus?.running ? 'Running' : 'Stopped'}
-                                </dd>
-                            </div>
                             <div className="flex items-center justify-between">
                                 <dt className="text-zinc-500">Last sync</dt>
                                 <dd className="text-zinc-300">
@@ -590,8 +535,118 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject }: StatusBarP
                     </div>
                 )}
             </div>
+            </div>{/* end left zone */}
 
             {/* GOV.2 override badge relocated to GovernanceDashboard (GLASS.3.4-B) */}
+
+            {/* ── Right zone: MCP indicator, Connect IDE, Demo, breakpoint,
+                scratchpad, Autopilot, beta, update, sync. Flex-shrink-0 so
+                these chips never collapse. */}
+            <div className="flex flex-shrink-0 items-center gap-2">
+
+            {/* MCP Connection Indicator */}
+            <div
+                className="flex items-center gap-1.5 px-2 py-0.5"
+                title={
+                    mcpConnected === null
+                        ? 'Governance engine — connecting…'
+                        : mcpConnected
+                        // EDU-13: plain-language tooltip explaining what MCP is
+                        ? 'Governance engine — connected. Flint is actively checking your code.'
+                        : 'Governance engine — not connected. Audits and fixes are unavailable.'
+                }
+            >
+                <span
+                    className={[
+                        'inline-block w-2 h-2 rounded-full',
+                        mcpConnected === null
+                            ? 'bg-zinc-500 animate-pulse'
+                            : mcpConnected
+                            ? 'bg-emerald-400'
+                            : 'bg-red-400',
+                    ].join(' ')}
+                    aria-hidden="true"
+                />
+                <span className="text-xs text-zinc-300">
+                    {mcpConnected === null ? 'Flint…' : mcpConnected ? 'Flint' : 'Flint'}
+                </span>
+                {mcpConnected === false && (
+                    <button
+                        type="button"
+                        onClick={handleMcpReconnect}
+                        className="text-xs text-zinc-400 hover:text-white underline underline-offset-2 ml-0.5"
+                        aria-label="Reconnect Flint engine"
+                    >
+                        Reconnect
+                    </button>
+                )}
+            </div>
+
+            {/* WS1: "Connect IDE" chip — shown when MCP is disconnected and the callback is provided */}
+            {mcpConnected === false && onConnectIDE && (
+                <button
+                    type="button"
+                    onClick={onConnectIDE}
+                    className="flex items-center gap-1 rounded border border-indigo-700/40 bg-indigo-900/10 px-1.5 py-0.5 text-xs text-indigo-400 transition-colors hover:border-indigo-600/60 hover:bg-indigo-900/20 hover:text-indigo-300"
+                    title="Open IDE setup wizard to configure Flint connection"
+                    data-testid="statusbar-connect-ide"
+                >
+                    Connect IDE
+                </button>
+            )}
+
+            {/* Demo project indicator — shows when viewing the auto-loaded demo */}
+            {isDemo && (
+                <div className="flex items-center gap-1.5">
+                    <span className="rounded border border-amber-700/40 bg-amber-900/10 px-1.5 py-0.5 text-xs text-amber-400">
+                        Demo Project
+                    </span>
+                    {onOpenOwnProject && (
+                        <button
+                            type="button"
+                            onClick={onOpenOwnProject}
+                            className="text-xs text-zinc-400 underline decoration-zinc-600 underline-offset-2 transition-colors hover:text-zinc-200"
+                        >
+                            Open your project
+                        </button>
+                    )}
+                </div>
+            )}
+
+            {/* OPP-1: Debug strings removed — implementation details don't belong in the status bar */}
+
+            {/* ── Responsive breakpoint chip (non-desktop) ──
+                OPP-12: Also hidden until the user has activated a non-desktop
+                breakpoint at least once (hasUsedBreakpoint tracks this). */}
+            {hasUsedBreakpoint && previewBreakpoint !== 'desktop' && (
+                <button
+                    type="button"
+                    onClick={() => { cyclePreviewBreakpoint('up') }}
+                    className="flex items-center gap-1 rounded border border-zinc-700/50 bg-zinc-800 px-1.5 py-0.5 text-xs text-zinc-400 transition-colors hover:border-zinc-600/60 hover:bg-zinc-700 hover:text-zinc-100"
+                    title={`Preview breakpoint: ${BREAKPOINT_LABELS[previewBreakpoint]} — click to cycle`}
+                    data-testid="statusbar-breakpoint-chip"
+                >
+                    {previewBreakpoint === 'mobile' ? (
+                        <Smartphone className="h-3 w-3" />
+                    ) : (
+                        <Tablet className="h-3 w-3" />
+                    )}
+                    {BREAKPOINT_LABELS[previewBreakpoint]}
+                </button>
+            )}
+
+            {/* ── Scratchpad indicator ──────────────────────────────────────── */}
+            {isScratchpad && (
+                <button
+                    type="button"
+                    title="Scratchpad project — click to save to a permanent location (Cmd+Shift+S)"
+                    onClick={() => { window.dispatchEvent(new CustomEvent(`${BRAND.productLower}:save-project-as`)) }}
+                    className="flex items-center gap-1 rounded border border-amber-700/40 bg-amber-900/10 px-1.5 py-0.5 text-xs text-amber-400 transition-colors hover:border-amber-600/60 hover:bg-amber-900/20 hover:text-amber-300"
+                >
+                    <FolderInput className="h-3 w-3" />
+                    Unsaved Project
+                </button>
+            )}
 
             {/* ── Governance Autopilot (Phase REM.2.2) ──────────────────────
                 OPP-12: Hidden until the first Mithril violation is observed.
@@ -608,7 +663,8 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject }: StatusBarP
             )}
 
             {hasSeenViolation && autopilotEnabled && (
-                <div
+                <button
+                    type="button"
                     className="flex cursor-pointer items-center gap-1.5 rounded px-2 py-0.5 text-xs transition-colors hover:bg-zinc-700"
                     onClick={() => { if (governedCode && activeFilePath) { applyGovernedCode() } }}
                     title={governedFixCount > 0 ? `Apply ${governedFixCount} governance fixes (Cmd+Shift+G)` : 'Autopilot active — watching for violations'}
@@ -617,52 +673,15 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject }: StatusBarP
                     <span className={governedFixCount > 0 ? 'text-emerald-400' : 'text-zinc-500'}>
                         {governedFixCount > 0 ? `${governedFixCount} fixes ready` : 'Autopilot'}
                     </span>
-                </div>
+                </button>
             )}
-
-            {/* Export Gate — Commandment 6 (The Gatekeeper Rule)
-                GLASS.1d: When violations exist, clicking opens the Governance tab
-                so the user can see and fix them. When clean, opens the export panel. */}
-            <button
-                type="button"
-                onClick={() => {
-                    if (canExport) {
-                        window.dispatchEvent(new CustomEvent(`${BRAND.productLower}:open-export`))
-                    } else {
-                        setRightTab('properties')
-                    }
-                }}
-                className={`flex items-center gap-1.5 text-xs transition-colors ${
-                    canExport
-                        ? 'text-emerald-500 hover:text-emerald-400'
-                        : 'text-amber-400 hover:text-amber-300'
-                }`}
-                title={
-                    canExport
-                        // EDU-01: explain what "export ready" means
-                        ? 'All design system checks pass — your file is ready to export. Click to open the Export panel.'
-                        : `Export blocked: ${gateLabel}. Click to see violations and fix options.`
-                }
-            >
-                {canExport ? (
-                    <>
-                        <ShieldCheck className="h-3 w-3" />
-                        Export Ready
-                    </>
-                ) : (
-                    <>
-                        <ShieldAlert className="h-3 w-3" />
-                        {gateLabel}
-                    </>
-                )}
-            </button>
 
             {/* ── Beta chip + feedback button ──────────────────────────── */}
             {betaInfo && (
                 <button
                     type="button"
                     onClick={() => setFeedbackOpen(true)}
-                    className="ml-auto flex items-center gap-1.5 rounded border border-indigo-700/40 bg-indigo-900/10 px-2 py-0.5 text-xs text-indigo-400 transition-colors hover:border-indigo-600/60 hover:bg-indigo-900/20 hover:text-indigo-300"
+                    className="flex items-center gap-1.5 rounded border border-indigo-700/40 bg-indigo-900/10 px-2 py-0.5 text-xs text-indigo-400 transition-colors hover:border-indigo-600/60 hover:bg-indigo-900/20 hover:text-indigo-300"
                     title={`Beta build ${betaInfo.buildId}${betaInfo.daysRemaining != null ? ` — ${betaInfo.daysRemaining} day${betaInfo.daysRemaining === 1 ? '' : 's'} remaining` : ''} — click to send feedback`}
                 >
                     <MessageSquare className="h-3 w-3" />
@@ -675,7 +694,7 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject }: StatusBarP
                 <button
                     type="button"
                     onClick={handleUpdateDownload}
-                    className={`${betaInfo ? '' : 'ml-auto'} flex items-center gap-1.5 rounded border border-emerald-700/50 bg-emerald-900/10 px-2 py-0.5 text-xs text-emerald-400 transition-colors hover:border-emerald-600/60 hover:bg-emerald-900/20 hover:text-emerald-300`}
+                    className="flex items-center gap-1.5 rounded border border-emerald-700/50 bg-emerald-900/10 px-2 py-0.5 text-xs text-emerald-400 transition-colors hover:border-emerald-600/60 hover:bg-emerald-900/20 hover:text-emerald-300"
                     title={`Update available: v${updateInfo.version} — click to download`}
                 >
                     <Download className="h-3 w-3" />
@@ -685,7 +704,7 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject }: StatusBarP
 
             {updateState === 'downloading' && (
                 <span
-                    className={`${betaInfo ? '' : 'ml-auto'} flex items-center gap-1.5 rounded border border-blue-700/40 bg-blue-900/10 px-2 py-0.5 text-xs text-blue-400`}
+                    className="flex items-center gap-1.5 rounded border border-blue-700/40 bg-blue-900/10 px-2 py-0.5 text-xs text-blue-400"
                     title={`Downloading update… ${downloadProgress ? `${Math.round(downloadProgress.percent)}%` : ''}`}
                 >
                     <Download className="h-3 w-3 animate-pulse" />
@@ -708,7 +727,7 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject }: StatusBarP
                 <button
                     type="button"
                     onClick={handleUpdateInstall}
-                    className={`${betaInfo ? '' : 'ml-auto'} flex items-center gap-1.5 rounded border border-violet-700/50 bg-violet-900/10 px-2 py-0.5 text-xs text-violet-400 transition-colors hover:border-violet-600/60 hover:bg-violet-900/20 hover:text-violet-300`}
+                    className="flex items-center gap-1.5 rounded border border-violet-700/50 bg-violet-900/10 px-2 py-0.5 text-xs text-violet-400 transition-colors hover:border-violet-600/60 hover:bg-violet-900/20 hover:text-violet-300"
                     title={`v${updateInfo.version} downloaded — click to restart and install`}
                 >
                     <RotateCcw className="h-3 w-3" />
@@ -716,9 +735,9 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject }: StatusBarP
                 </button>
             )}
 
-            <span className={betaInfo || updateState !== 'idle' ? '' : 'ml-auto'}>
-                <SyncStatus />
-            </span>
+            <SyncStatus />
+
+            </div>{/* end right zone */}
 
             {/* Beta feedback modal */}
             <BetaFeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />

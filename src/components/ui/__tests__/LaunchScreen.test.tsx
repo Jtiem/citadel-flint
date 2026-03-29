@@ -189,6 +189,17 @@ describe('LaunchScreen', () => {
 
     // ── Tile → Figma step ─────────────────────────────────────────────────────
 
+    it('renders Figma prerequisite callout in expanded Figma section', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        render(<LaunchScreen {...defaultProps()} />)
+        await waitFor(() => screen.getByText('From Figma'))
+        fireEvent.click(screen.getByText('From Figma'))
+        await waitFor(() => {
+            expect(screen.getByText(/Install the .* Figma plugin before continuing/)).toBeDefined()
+            expect(screen.getByRole('link', { name: 'Get plugin →' })).toBeDefined()
+        })
+    })
+
     it('expands Figma step when "From Figma" tile is clicked', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
         render(<LaunchScreen {...defaultProps()} />)
@@ -292,6 +303,99 @@ describe('LaunchScreen', () => {
         fireEvent.click(screen.getByText('Open any folder...'))
         await waitFor(() => {
             expect(props.onOpenFolder).toHaveBeenCalled()
+        })
+    })
+
+    // ── WS1: Connect to IDE affordance ────────────────────────────────────────
+
+    it('renders "Connect to IDE" footer button when onConnectIDE is provided', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        const onConnectIDE = vi.fn()
+        render(<LaunchScreen {...defaultProps()} onConnectIDE={onConnectIDE} />)
+        await waitFor(() => {
+            expect(screen.getByText('Connect to IDE')).toBeDefined()
+        })
+    })
+
+    it('calls onConnectIDE when "Connect to IDE" button is clicked', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        const onConnectIDE = vi.fn()
+        render(<LaunchScreen {...defaultProps()} onConnectIDE={onConnectIDE} />)
+        await waitFor(() => screen.getByText('Connect to IDE'))
+        fireEvent.click(screen.getByText('Connect to IDE'))
+        expect(onConnectIDE).toHaveBeenCalled()
+    })
+
+    it('does not render "Connect to IDE" button when onConnectIDE prop is absent', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        render(<LaunchScreen {...defaultProps()} />)
+        await waitFor(() => {
+            // Ensure footer is rendered before checking
+            expect(screen.getByText('Open any folder...')).toBeDefined()
+        })
+        expect(screen.queryByText('Connect to IDE')).toBeNull()
+    })
+
+    // ── Demo load error banner ────────────────────────────────────────────────
+
+    it('renders amber error banner when demoError prop is set', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        render(<LaunchScreen {...defaultProps()} demoError="IPC call failed" />)
+        await waitFor(() => {
+            expect(screen.getByRole('alert')).toBeDefined()
+            expect(screen.getByText("Demo project couldn't load. Try opening your own project below.")).toBeDefined()
+        })
+    })
+
+    it('does not render error banner when demoError prop is absent', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        render(<LaunchScreen {...defaultProps()} />)
+        await waitFor(() => {
+            expect(screen.getByText('New Project')).toBeDefined()
+        })
+        expect(screen.queryByRole('alert')).toBeNull()
+    })
+
+    it('dismisses the error banner when the dismiss button is clicked', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        render(<LaunchScreen {...defaultProps()} demoError="something went wrong" />)
+        await waitFor(() => {
+            expect(screen.getByRole('alert')).toBeDefined()
+        })
+        fireEvent.click(screen.getByLabelText('Dismiss'))
+        await waitFor(() => {
+            expect(screen.queryByRole('alert')).toBeNull()
+        })
+    })
+
+    // ── Demo gallery strip ────────────────────────────────────────────────────
+
+    it('renders demo gallery strip with 4 cards', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        render(<LaunchScreen {...defaultProps()} />)
+        await waitFor(() => {
+            expect(screen.getByText('Try a demo project')).toBeDefined()
+            expect(screen.getByText('Token Drift')).toBeDefined()
+            expect(screen.getByText('A11y Audit')).toBeDefined()
+            expect(screen.getByText('DS Migration')).toBeDefined()
+            expect(screen.getByText('Full App Scan')).toBeDefined()
+        })
+        const loadButtons = screen.getAllByRole('button', { name: 'Load' })
+        expect(loadButtons).toHaveLength(4)
+    })
+
+    it('Load button calls beta.loadDemoProject with correct demoName', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        ;(window.flintAPI.beta?.loadDemoProject as ReturnType<typeof vi.fn>).mockResolvedValue({ error: 'not found' })
+        const props = defaultProps()
+        render(<LaunchScreen {...props} />)
+        await waitFor(() => screen.getByText('A11y Audit'))
+
+        const loadButtons = screen.getAllByRole('button', { name: 'Load' })
+        // Buttons are in order: token-drift, a11y-audit, design-system-migration, multi-component-app
+        fireEvent.click(loadButtons[1]) // a11y-audit
+        await waitFor(() => {
+            expect(window.flintAPI.beta?.loadDemoProject).toHaveBeenCalledWith('a11y-audit')
         })
     })
 })

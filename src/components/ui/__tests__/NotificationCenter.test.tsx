@@ -123,6 +123,30 @@ describe('NotificationCenter', () => {
         vi.useRealTimers()
     })
 
+    // ── S4.9: Severity-based styling ─────────────────────────────────────────
+
+    // 10a. Critical severity uses bright red color class (distinct from error)
+    it('applies bright red color class for critical severity', () => {
+        seedStore([makeNotification({ severity: 'critical', title: 'Critical' })])
+        render(<NotificationCenter />)
+        // Critical uses bg-red-600 (distinct from error's bg-red-500)
+        const bar = document.querySelector('.bg-red-600')
+        expect(bar).not.toBeNull()
+    })
+
+    // 10b. Critical notification is persistent (autoDismissMs = 0) — no auto-dismiss timer fires
+    it('critical notification does not auto-dismiss', () => {
+        vi.useFakeTimers()
+        const n = makeNotification({ id: 'critical-stay', severity: 'critical', autoDismissMs: 0, title: 'Critical' })
+        seedStore([n])
+        render(<NotificationCenter />)
+
+        vi.advanceTimersByTime(30_000)
+        // Still present after 30 s — persistent
+        expect(useNotificationStore.getState().notifications).toHaveLength(1)
+        vi.useRealTimers()
+    })
+
     // 10. Action button calls the callback and dismisses
     it('action button invokes the callback and dismisses the notification', () => {
         const cb = vi.fn()

@@ -6,6 +6,139 @@
 
 ---
 
+## Session: 2026-03-29 — Sprint 5 Governance Comprehension (COMPLETE)
+
+**Goal:** Make governance actionable — violation actions, save/apply distinction, pin mode, message expansion, activity undo.
+
+**Files changed:** `src/components/ui/GovernanceDashboard.tsx`, `src/components/ui/GovernancePanel.tsx`, `src/components/ui/__tests__/GovernancePanel.test.tsx`, `src/App.tsx`
+
+**What shipped:**
+- **S5.1–S5.4:** Already implemented in prior sessions (zero-state, action-framing, clickable top rules, Fix All button)
+- **S5.5:** Defer button on each violation row (`window.flintAPI.deferViolation?.()`); Override uses existing `recordOverride` telemetry IPC
+- **S5.6:** Rule descriptions already live in `RULE_DESCRIPTIONS` map in GovernancePanel
+- **S5.7:** Amber persistence banner ("Toggles apply immediately · Save to persist") + `Save (N)` count badge on Rules tab; "no Save required" info band on Packs/Profiles tabs
+- **S5.8:** "Configure rules" text link in violations footer → `onOpenGovernancePanel` callback (wired in App.tsx)
+- **S5.9:** Pin button on every violation row — `pinnedViolations` Set keeps detail panel open; `isOpen = expanded || pinned`
+- **S5.10:** Message text changed from `truncate` to `line-clamp-2` (2-line threshold before ellipsis)
+- **S5.11:** "Undo this" button on mutation-type activity entries → calls `applyUndo()` from recoveryController
+
+**Test results:** Glass: 78/78 passing (6 new GovernancePanel tests) | TSC: 0 errors
+
+**What remains:** Sprints 6–8 (primitive design system, Figma sync surface, canvas governance)
+
+**Known issues / next agent notes:**
+- All session changes across Sprints 1–5 uncommitted — needs git commit + review gate before merge
+
+---
+
+## Session: 2026-03-28 — WEB-GLASS-LAUNCH-SPRINT (COMPLETE)
+
+**Goal:** Implement the full Web Glass Launch Sprint — 4 workstreams making `npx flint-glass --demo` work end-to-end.
+
+**Files changed:** `flint-mcp/src/server.ts`, `flint-mcp/src/prompts/onboard-project.ts` (new), `flint-mcp/src/__tests__/greeting.test.ts`, `flint-mcp/src/tools/{enrich,emitTokens,reindex,universalAudit}.ts`, `server/index.ts`, `server/services/thumbnailService.ts`, `server/__tests__/ws3-server.test.ts` (new), `src/adapters/web-api.ts`, `src/adapters/__tests__/web-api.test.ts` (new), `src/components/editor/__tests__/StatusBar.test.tsx`, `src/components/ui/__tests__/LaunchScreen.test.tsx`, `bin/flint-glass.js` (new), `server/cli.ts`, `package.json`, `.github/workflows/build-release.yml`, `docs/START-HERE.md` (new), `CLAUDE.md`
+
+**What shipped:**
+- **WS1 (Demo-First Onboarding):** Verified already implemented — first-launch auto-loads demo via `beta:load-demo-project`. Added 10 tests for StatusBar "Connect IDE" chip and LaunchScreen "Connect to IDE" CTA.
+- **WS2 (MCP Greeter):** `buildGreeting()` rewritten with trigger words, dynamic tool count (54), 2KB cap. Tool descriptions cleaned of phase codes across 4 files. `flint-onboard-project` prompt created and registered (joins existing `flint-quick-audit` and `flint-fix-all`). +5 tests.
+- **WS3 server:** `components:health` handler implemented (manifest → MCP audit → per-component grades). Two Playwright API bugs fixed (`setViewport` → `setViewportSize`, `networkidle0` → `networkidle`). `project:reindex` and MCP event push verified already complete. +26 tests.
+- **WS3 client:** `openFolder()` rewired with deferred promise pattern (emits `flint:open-folder-request`, LaunchScreen resolves). Thumbnails adapter wired to server endpoint. +17 tests.
+- **WS4 (Distribution):** `bin/flint-glass.js` ESM entry point, `dist-server/cli.mjs` built via esbuild, `--demo`/`--version`/`--open` flags, `package.json` bin+files fields, CI `build-release.yml` updated with web artifact, `docs/START-HERE.md` getting-started guide.
+- **CLAUDE.md:** Added `htmlIntrinsics.ts` to Key Files table (drift fix from prior session).
+
+**What remains:** Nothing — all 4 workstreams complete. WS4 integration testing (actual `npx` execution) deferred to next session.
+
+**Known issues / next agent notes:**
+- 13 pre-existing test failures in GovernanceDashboard/GovernancePanel — tracked in GLASS-SPRINT-1
+- `'semantic-drift'` type drift still unresolved (renderer LinterWarning.type vs flint-mcp/src/types.ts)
+- All changes uncommitted — needs git commit + review gate before merge
+
+---
+
+## Session: 2026-03-29 — Sprint 4 (Zone Hierarchy) — COMPLETE
+
+**Goal:** Complete all 15 Sprint 4 items.
+
+**What shipped:**
+- **S4.1:** Figma dot glow verified absent, test added
+- **S4.2:** StatusBar reordered Export Gate → Figma → Flint → Connect IDE → others
+- **S4.3:** FileExplorer removed from Glass left panel (`'files'` LeftTab eliminated)
+- **S4.4:** A11y indicators in LayerTree (`ShieldAlert` beside existing Mithril badge)
+- **S4.5:** "Add note" inline composer in AnnotationList (Enter submits, Escape cancels)
+- **S4.6:** SetupWizard double-overlay fixed — outer App.tsx wrapper removed
+- **S4.7:** Fake macOS traffic lights + "Live Preview · srcdoc Engine" removed from XYCanvas
+- **S4.8:** Already done in Sprint 1 (S1.17)
+- **S4.9:** Toast severity policy — critical=persistent, error=8s, warning=5s, info=3s, undo=5s
+- **S4.10/S4.15:** Already correctly implemented (governance first, context auto-switch)
+- **S4.11:** Activity feed empty state in GovernanceDashboard
+- **S4.12:** Scope tab empty state updated
+- **S4.13:** Tokens tab empty state updated
+- **S4.14:** Export Gate click when blocked → `setRightTab('governance')` (not properties)
+
+**Test baseline:** Glass 78/78 | 1455/1455 | TSC 0 errors
+
+**What remains:** Sprint 5 (Governance Comprehension) — 11 items.
+
+---
+
+## Session: 2026-03-28/29 — Sprints 1–3 COMPLETE
+
+**Goal:** 19-agent full UX audit of Flint Glass → cross-reference all prior UX docs → create single master sprint plan → execute Sprints 1–3.
+
+**What shipped:**
+
+- **Sprint 1 (Critical Bugs):** All 19 items — ARIA tablist/role=tab, OnboardingNudge→SetupWizard, disconnect confirm dialog, dedup Figma sync notifications, token value validation, GovernanceDashboard export button, array coercion fix, override count boolean→real count, GovernancePanel backdrop aria-hidden, ComponentPanel insert targetNodeId, inspector ARIA, TokenManager dialog ARIA, ExportModal Fix button, error toast persistence, canvasStore LeftTab type, undo toast 5000ms.
+- **Sprint 2 (Dead Code Purge):** 26 files deleted, 8,442 lines removed.
+- **Sprint 3 (Vocabulary Normalization):** All 19 items — "Color Alignment", "Change undone/reapplied", "Element Properties", ClassBuilder de-emphasis, hover-only tag badges/line numbers, "Flint" in StatusBar, "New Issues Only" delta badge, "Manual Style Overrides", "Token File (JSON)", planned rules hidden under collapsible.
+
+**Test baseline at Sprint 3 completion:** Glass 77/77 passing | TSC 0 errors.
+
+**Files changed (selected):** `DriftDetector.tsx`, `GovernanceDashboard.tsx`, `GovernancePanel.tsx`, `StatusBar.tsx`, `App.tsx`, `LayerTree.tsx`, `PropertiesPanel.tsx`, `primitives.tsx`, `TokenManager.tsx`, `CommandPalette.tsx`, `canvasStore.ts`, `notificationStore.ts`.
+
+**What remains:** Sprints 4–8. Sprint 4 is next.
+
+---
+
+## Session: 2026-03-28 — Full UX Audit + Sprint Plan (COMPLETE)
+
+**Goal:** 19-agent full UX audit of Flint Glass → cross-reference all prior UX docs → create single master sprint plan → begin Sprint 1 critical bug fixes.
+
+**What shipped:**
+
+- `docs/strategy/GLASS-UX-AUDIT-2026-03-28.md` — Full UX audit across 19 workflow/feature areas (info hierarchy + zone hierarchy lenses)
+- `docs/strategy/GLASS-SPRINT-PLAN.md` — **Master execution document.** Consolidates all findings from GLASS-UX-AUDIT, GOVERNANCE-UX-REVIEW, UX-OPPORTUNITIES, and GLASS-BRILLIANCE-PLAN into 8 prioritized sprints, 60+ tagged items. This is the single source of truth for all Glass UX work.
+
+**Cross-reference findings:**
+
+- Many "new" audit findings are [KNOWN] items that were documented in prior docs but never shipped
+- GLASS.1 structural redesign left numerous planned items incomplete (empty states, ARIA compliance, Fix All button, dashboard actionability)
+- GOVERNANCE-UX-REVIEW.md (2026-03-27) identified 13 OPP-GOV items — most confirmed by audit, several not yet in GLASS sprint plan until now
+
+**What remains:** Sprint 3 (vocabulary normalization) — 13 unclaimed items ready. 6 blocked on WEB-GLASS-LAUNCH-SPRINT territory (StatusBar.tsx, App.tsx).
+
+**Territory note:** WEB-GLASS-LAUNCH-SPRINT is now COMPLETE (see session above). Its territory claims in `ACTIVE-SWARM-TERRITORY.md` should be cleared. Sprint 1 deferred items (S1.10, S1.12, S1.14, S1.15) are now unblocked.
+
+**Single source of truth:** `docs/strategy/GLASS-SPRINT-PLAN.md` — 8 sprints, 60+ items.
+
+---
+
+## Session: 2026-03-28 — Playwright Swap + CR-SEAL Verification + /handoff Command (COMPLETE)
+
+**Goal:** Three small but important items: swap Puppeteer→Playwright in web thumbnail service, confirm CR-SEAL REG-001 pipeline end-to-end, and create /handoff slash command for session-end documentation.
+
+**What shipped:**
+- `server/services/thumbnailService.ts` — Playwright replaces Puppeteer (`loadPlaywright()`, `chromium.launch()`). Same Page API, cleaner dependency.
+- `package.json` — `puppeteer ^24.9.0` removed, `playwright ^1.52.0` added (was already a devDep, now the sole headless browser dep).
+- `.claude/commands/handoff.md` — New `/handoff` command with 3 modes: `start` (declare territory), default (session-end entry + territory clear), `full` (+ CLAUDE.md drift check).
+- CR-SEAL REG-001 verified end-to-end: `<Dialog>` and `<Sidebar>` flagged on `_settings-test.tsx`, registered PrimeNG components pass clean.
+
+**What remains:** Nothing — all three items complete.
+
+**Known issues / next agent notes:**
+- WEB-GLASS-LAUNCH-SPRINT plan is complete and approved, pending implementation kickoff (see `.flint-context/contracts/WEB-GLASS-LAUNCH-SPRINT.md`).
+- Pre-existing type drift: `'semantic-drift'` in renderer's `LinterWarning.type` not in `flint-mcp/src/types.ts` — cleanup pass needed.
+
+---
+
 ## Session: 2026-03-28 Phase GLASS — Glass Brilliance (COMPLETE)
 
 **Goal:** Comprehensive UX overhaul of Flint Glass — structural redesign, credibility, and polish. Driven by 3-tier independent review (UX critic, code reviewer, security auditor).
@@ -103,7 +236,7 @@ Full Express+WebSocket server that mirrors all 94 Electron IPC handlers, enablin
 | `server/services/aiChat.ts` | 371 | Anthropic streaming over WebSocket |
 | `server/services/ingestionServer.ts` | 365 | Figma plugin receiver (port 4545) |
 | `server/services/previewServer.ts` | 175 | Vite dev server wrapper |
-| `server/services/thumbnailService.ts` | 429 | Puppeteer screenshot to PNG cache |
+| `server/services/thumbnailService.ts` | 429 | Playwright screenshot to PNG cache |
 | `src/adapters/web-api.ts` | 396 | FlintAPI over HTTP+WebSocket |
 | `vite.config.web.ts` | 73 | Vite without Electron |
 | `src/main.tsx` | -- | 5-line web mode detection |

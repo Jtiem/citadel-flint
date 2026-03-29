@@ -1078,7 +1078,121 @@ export function visitLocalTokenObjects(
     return warnings
 }
 
+// ── CR-SEAL: visitRegistryUsage (REG-001) ────────────────────────────────────
+
+import { HTML_INTRINSIC_TAGS, REACT_BUILTINS } from './htmlIntrinsics.js'
+
+/**
+ * REG-001: Walk JSX elements and flag PascalCase component usages that are
+ * not present in the project component registry.
+ *
+ * Only fires when `registry` is non-empty. HTML intrinsics (lowercase) are
+ * always allowed. This is the audit-time counterpart to CR.2 runtime validation.
+ */
+export function visitRegistryUsage(
+    ast: File,
+    registry: Record<string, RegistryComponentEntry>,
+    options?: PolicyOptions,
+): Map<string, LinterWarning> {
+    const warnings = new Map<string, LinterWarning>()
+
+    // Respect per-rule modes
+    const mode = options?.ruleModes?.['REG-001']
+    if (mode === 'off') return warnings
+
+    // No registry → no constraint
+    if (!registry || Object.keys(registry).length === 0) return warnings
+
+    const registryNames = new Set(Object.keys(registry))
+    const seen = new Set<string>()
+
+    // Hoist taxonomy lookup outside the traversal — REG-001 is a static rule ID.
+    const taxonomyEntry = getErrorEntryByRuleId('REG-001')
+
+    traverse(ast, {
+        JSXOpeningElement(path) {
+            const nameNode = path.node.name
+
+            let name: string
+
+            if (t.isJSXIdentifier(nameNode)) {
+                name = nameNode.name
+            } else if (t.isJSXMemberExpression(nameNode)) {
+                // Extract root: <Dialog.Header> → "Dialog", <Tabs.List> → "Tabs"
+                // Walk to the leftmost identifier in the chain
+                let cursor: t.JSXMemberExpression | t.JSXIdentifier = nameNode
+                while (t.isJSXMemberExpression(cursor)) {
+                    cursor = cursor.object
+                }
+                if (!t.isJSXIdentifier(cursor)) return
+                name = cursor.name
+            } else {
+                // JSXNamespacedName — skip
+                return
+            }
+
+            // HTML intrinsics always pass
+            if (HTML_INTRINSIC_TAGS.has(name)) return
+
+            // Lowercase first char → HTML intrinsic or custom element
+            if (name[0] === name[0]?.toLowerCase()) return
+
+            // React built-ins (Fragment, Suspense, StrictMode, Profiler) always pass
+            if (REACT_BUILTINS.has(name)) return
+
+            // Already warned about this component name in this file
+            if (seen.has(name)) return
+            seen.add(name)
+
+            // Check registry membership
+            if (registryNames.has(name)) return
+
+            // Build a synthetic ID for the warning
+            const loc = nameNode.loc?.start
+            const warningId = `reg-${name}-${loc?.line ?? 0}`
+
+            const severity: LinterWarning['severity'] = mode === 'advisory' ? 'advisory' : 'amber'
+
+            // Build targeted suggestions (prefix match, capped at 5)
+            const prefix = name.toLowerCase().slice(0, 4)
+            const suggestions = [...registryNames]
+                .filter(r => r.toLowerCase().includes(prefix))
+                .slice(0, 5)
+            const suggestionNote = suggestions.length > 0
+                ? ` Try: ${suggestions.join(', ')}.`
+                : ''
+
+            warnings.set(warningId, {
+                id: warningId,
+                type: 'registry',
+                severity,
+                value: 0,
+                message: `<${name}> is not in your project's component library.${suggestionNote}`,
+                nearestToken: null,
+                nearestTokenValue: null,
+                ruleId: 'REG-001',
+                fixable: false,
+                explanation: taxonomyEntry?.explanation ??
+                    'Only components from your project\'s registered library are allowed. ' +
+                    'This ensures design system consistency and prevents unauthorized component drift.',
+                recovery: taxonomyEntry?.recovery ??
+                    'Add this component to your Armory (project registry), or replace it with a registered alternative.',
+                line: loc?.line,
+                column: loc?.column,
+            })
+        },
+    })
+
+    return warnings
+}
+
 // ── auditAll ──────────────────────────────────────────────────────────────────
+
+/** Minimal component entry shape for registry validation. */
+export interface RegistryComponentEntry {
+    importPath?: string
+    [key: string]: unknown
+}
 
 /** Options for auditAll, extending PolicyOptions with optional sync DB. */
 export interface AuditAllOptions extends PolicyOptions {
@@ -1086,6 +1200,8 @@ export interface AuditAllOptions extends PolicyOptions {
     syncDb?: Database.Database
     /** Project root path for token_source lookups (required when syncDb is set). */
     projectRoot?: string
+    /** CR-SEAL: When provided, enables REG-001 registry membership checking for JSX elements. */
+    registry?: Record<string, RegistryComponentEntry>
 }
 
 /**
@@ -1121,6 +1237,14 @@ export function auditAll(ast: File, tokens: DesignToken[], options?: AuditAllOpt
     const dtoWarnings = visitLocalTokenObjects(ast, tokens, options)
     for (const [id, warning] of dtoWarnings) {
         if (!merged.has(id)) merged.set(id, warning)
+    }
+
+    // CR-SEAL: REG-001 — Registry membership audit for JSX elements
+    if (options?.registry && Object.keys(options.registry).length > 0) {
+        const regWarnings = visitRegistryUsage(ast, options.registry, options)
+        for (const [id, warning] of regWarnings) {
+            if (!merged.has(id)) merged.set(id, warning)
+        }
     }
 
     // SYNC.3: Append sync violations when syncDb is available

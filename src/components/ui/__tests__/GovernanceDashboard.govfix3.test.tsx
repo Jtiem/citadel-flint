@@ -52,7 +52,7 @@ describe('GovernanceDashboard — GOV-FIX-3 no-token state shows no score', () =
         it('does NOT render the numeric score "100" in the page', async () => {
             render(<GovernanceDashboard />)
             await waitFor(() => {
-                expect(screen.getByText(/No design system connected/)).toBeDefined()
+                expect(screen.getByText(/Health score measures against your design tokens/)).toBeDefined()
             })
             // The SVG score text "100" must not be in the document
             // We check textContent of the entire body to catch SVG text nodes
@@ -66,7 +66,7 @@ describe('GovernanceDashboard — GOV-FIX-3 no-token state shows no score', () =
         it('does NOT render the grade letter "A" as a styled heading', async () => {
             render(<GovernanceDashboard />)
             await waitFor(() => {
-                expect(screen.getByText(/No design system connected/)).toBeDefined()
+                expect(screen.getByText(/Health score measures against your design tokens/)).toBeDefined()
             })
             // The grade span has aria-label="Grade A" — if absent, the grade is hidden
             expect(screen.queryByLabelText('Grade A')).toBeNull()
@@ -75,17 +75,17 @@ describe('GovernanceDashboard — GOV-FIX-3 no-token state shows no score', () =
         it('does NOT render the "Top Violated Rules" section', async () => {
             render(<GovernanceDashboard />)
             await waitFor(() => {
-                expect(screen.getByText(/No design system connected/)).toBeDefined()
+                expect(screen.getByText(/Health score measures against your design tokens/)).toBeDefined()
             })
             expect(screen.queryByText(/Top Violated Rules/)).toBeNull()
         })
 
-        it('does NOT render the "All checks passing" clean-state banner', async () => {
+        it('does NOT render the "All clear" clean-state banner', async () => {
             render(<GovernanceDashboard />)
             await waitFor(() => {
-                expect(screen.getByText(/No design system connected/)).toBeDefined()
+                expect(screen.getByText(/Health score measures against your design tokens/)).toBeDefined()
             })
-            expect(screen.queryByText(/All checks passing/)).toBeNull()
+            expect(screen.queryByText(/All clear — export ready/)).toBeNull()
         })
 
         it('renders the empty state Import Tokens CTA', async () => {
@@ -135,14 +135,14 @@ describe('GovernanceDashboard — GOV-FIX-3 no-token state shows no score', () =
             // No violations seeded → score = 100
             render(<GovernanceDashboard />)
             await waitFor(() => {
-                expect(screen.getByText(/All checks passing/)).toBeDefined()
+                expect(screen.getByText(/All clear — export ready/)).toBeDefined()
             })
         })
 
         it('does NOT render the no-tokens empty state', async () => {
             render(<GovernanceDashboard />)
             await waitFor(() => {
-                expect(screen.queryByText(/No design system connected/)).toBeNull()
+                expect(screen.queryByText(/Health score measures against your design tokens/)).toBeNull()
             })
         })
     })

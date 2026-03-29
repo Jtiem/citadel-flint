@@ -1,7 +1,9 @@
 {
   "name": "flint-glass",
   "private": true,
+  "_private_note": "FIXME: remove private:true before npm publish",
   "version": "0.1.0",
+  "engines": { "node": ">=22.0.0" },
   "type": "module",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -10,12 +12,13 @@
     "build:clean": "find . -name '*.tsbuildinfo' -not -path '*/node_modules/*' -delete && npm run build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "postinstall": "electron-rebuild -f -w better-sqlite3",
+    "postinstall": "node scripts/postinstall.js",
     "test": "vitest run --config vitest.config.ts",
     "test:changed": "vitest run --changed --config vitest.config.ts",
     "test:react": "vitest run --config vitest.config.react.ts",
     "test:changed:react": "vitest run --changed --config vitest.config.react.ts",
     "test:all": "vitest run --config vitest.config.ts && vitest run --config vitest.config.react.ts",
+    "test:demo": "playwright test --project=demo-smoke",
     "flint-clean": "npx tsx scripts/flint-clean.ts",
     "build:beta": "npm run build && FLINT_BETA_EXPIRY=$(node -p \"new Date(Date.now()+(${FLINT_BETA_DAYS:-90})*864e5).toISOString().split('T')[0]+'T00:00:00Z'\") FLINT_BETA_BUILD_ID=beta-$(node -p \"require('./package.json').version\")-$(node -p \"new Date().toISOString().split('T')[0].replace(/-/g,'')\") electron-builder --config electron-builder.yml",
     "build:beta:mac": "npm run build && FLINT_BETA_EXPIRY=$(node -p \"new Date(Date.now()+(${FLINT_BETA_DAYS:-90})*864e5).toISOString().split('T')[0]+'T00:00:00Z'\") FLINT_BETA_BUILD_ID=beta-$(node -p \"require('./package.json').version\")-$(node -p \"new Date().toISOString().split('T')[0].replace(/-/g,'')\") electron-builder --mac --config electron-builder.yml",
@@ -25,8 +28,26 @@
     "build:win": "npm run build && npx electron-builder --win --config electron-builder.yml",
     "build:linux": "npm run build && npx electron-builder --linux --config electron-builder.yml",
     "build:all": "npm run build && npx electron-builder -mwl --config electron-builder.yml",
-    "release:beta": "npm run build && FLINT_BETA_EXPIRY=$(node -p \"new Date(Date.now()+(${FLINT_BETA_DAYS:-90})*864e5).toISOString().split('T')[0]+'T00:00:00Z'\") FLINT_BETA_BUILD_ID=beta-$(node -p \"require('./package.json').version\")-$(date +%Y%m%d) npx electron-builder --publish always --config electron-builder.yml"
+    "release:beta": "npm run build && FLINT_BETA_EXPIRY=$(node -p \"new Date(Date.now()+(${FLINT_BETA_DAYS:-90})*864e5).toISOString().split('T')[0]+'T00:00:00Z'\") FLINT_BETA_BUILD_ID=beta-$(node -p \"require('./package.json').version\")-$(date +%Y%m%d) npx electron-builder --publish always --config electron-builder.yml",
+    "dev:web": "npm rebuild better-sqlite3 2>/dev/null; npx tsx server/cli.ts & vite --config vite.config.web.ts --open",
+    "build:web": "vite build --config vite.config.web.ts --mode production",
+    "start:web": "npm rebuild better-sqlite3 2>/dev/null; npx tsx server/cli.ts --open",
+    "build:server": "node_modules/.bin/esbuild server/cli.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist-server/cli.mjs --packages=external --log-level=warning",
+    "build:dist": "npm run build:web && npm run build:server"
   },
+  "bin": {
+    "flint-glass": "./bin/flint-glass.js"
+  },
+  "files": [
+    "bin/",
+    "scripts/",
+    "dist-web/",
+    "dist-server/",
+    "build-resources/demo-project/",
+    "build-resources/demos/",
+    "server/",
+    "shared/"
+  ],
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
     "@babel/core": "^7.29.0",
@@ -51,10 +72,13 @@
     "rehype-highlight": "^7.0.2",
     "rehype-parse": "^9.0.1",
     "rehype-stringify": "^10.0.1",
+    "express": "^5.1.0",
+    "playwright": "^1.52.0",
     "sqlite-vec": "^0.1.7-alpha.2",
     "svelte": "^5.55.0",
     "unist-util-visit": "^5.1.0",
     "utf-8-validate": "^6.0.6",
+    "ws": "^8.18.0",
     "vue": "^3.5.31",
     "yaml": "^2.7.1",
     "zustand": "^5.0.11"
@@ -65,7 +89,9 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.0",
     "@types/better-sqlite3": "^7.6.13",
+    "@types/express": "^5.0.0",
     "@types/node": "^24.10.1",
+    "@types/ws": "^8.18.0",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
@@ -83,6 +109,7 @@
     "vite": "^7.3.1",
     "vite-plugin-electron": "^0.29.0",
     "vite-plugin-electron-renderer": "^0.14.6",
-    "vitest": "^4.0.18"
+    "vitest": "^4.0.18",
+    "@playwright/test": "^1.52.0"
   }
 }

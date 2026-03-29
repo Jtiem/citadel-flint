@@ -22,6 +22,7 @@ import { LayerTree } from '../LayerTree'
 import { useEditorStore } from '../../../store/editorStore'
 import { useCanvasStore } from '../../../store/canvasStore'
 import type { VisualLayer } from '../../../core/ast-parser'
+import type { LinterWarning } from '../../../types/flint-api'
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -448,6 +449,82 @@ describe('LayerTree', () => {
             expect(updatedItems[0].getAttribute('aria-expanded')).toBe('true')
             // Children should be visible again (4 items total)
             expect(updatedItems.length).toBe(4)
+        })
+    })
+
+    // ── S4.4: A11y violation indicators ─────────────────────────────────────
+
+    describe('S4.4: A11y violation indicators (Commandment 5)', () => {
+        const a11yWarning: LinterWarning = {
+            id: 'abc12345-full-id',
+            type: 'a11y',
+            severity: 'critical',
+            value: 1,
+            message: 'A11Y-001: Missing accessible name',
+            nearestToken: null,
+            nearestTokenValue: null,
+        }
+
+        beforeEach(() => {
+            useEditorStore.setState({
+                visualTree: mockTree,
+                selectedNodeId: null,
+                linterWarnings: new Map(),
+            })
+        })
+
+        it('shows no a11y indicator when no linterWarnings exist', () => {
+            useEditorStore.setState({ linterWarnings: new Map() })
+            render(<LayerTree />)
+            // title="Accessibility violation" should not be present
+            expect(screen.queryByTitle('Accessibility violation')).toBeNull()
+        })
+
+        it('shows a11y indicator (title="Accessibility violation") for a node with an a11y warning', () => {
+            useEditorStore.setState({
+                linterWarnings: new Map([['abc12345-full-id', a11yWarning]]),
+            })
+            render(<LayerTree />)
+            expect(screen.getByTitle('Accessibility violation')).toBeDefined()
+        })
+
+        it('does not show a11y indicator for a node without a warning', () => {
+            // Warning is for 'abc12345-full-id' but we render both nodes
+            useEditorStore.setState({
+                linterWarnings: new Map([['abc12345-full-id', a11yWarning]]),
+            })
+            render(<LayerTree />)
+            // Only 1 indicator should exist (only the root node has the a11y warning)
+            const indicators = screen.queryAllByTitle('Accessibility violation')
+            expect(indicators.length).toBe(1)
+        })
+
+        it('does not show a11y indicator for a non-a11y violation type (color-drift)', () => {
+            const colorWarning: LinterWarning = {
+                id: 'abc12345-full-id',
+                type: 'color-drift',
+                severity: 'amber',
+                value: 3.2,
+                message: 'MITHRIL-001: Color drift detected',
+                nearestToken: 'color.primary.500',
+                nearestTokenValue: '#6366f1',
+            }
+            useEditorStore.setState({
+                linterWarnings: new Map([['abc12345-full-id', colorWarning]]),
+            })
+            render(<LayerTree />)
+            expect(screen.queryByTitle('Accessibility violation')).toBeNull()
+        })
+
+        it('can show both Mithril badge and a11y indicator for the same node', () => {
+            // mithrilViolations drives AlertTriangle; linterWarnings.a11y drives ShieldAlert
+            useCanvasStore.setState({ mithrilViolations: ['abc12345-full-id'] })
+            useEditorStore.setState({
+                linterWarnings: new Map([['abc12345-full-id', a11yWarning]]),
+            })
+            render(<LayerTree />)
+            expect(screen.getByTitle('Mithril Violation — colour drift detected')).toBeDefined()
+            expect(screen.getByTitle('Accessibility violation')).toBeDefined()
         })
     })
 })

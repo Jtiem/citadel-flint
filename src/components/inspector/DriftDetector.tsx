@@ -8,7 +8,7 @@
  *      (e.g. bg-[#f3f3f3], hover:text-[#000]).
  *   2. Matches each against the design token store using CIEDE2000.
  *   3. Shows a ΔE badge per class:
- *        ΔE < 2  → emerald  "Systemizable" — perceptually indistinguishable
+ *        ΔE < 2  → emerald  "Auto-fixable" — perceptually indistinguishable
  *        ΔE 2–5  → amber    noticeable drift
  *        ΔE > 5  → red      significant drift
  *   4. Exposes a "Fix" button for systemizable matches that calls
@@ -65,13 +65,13 @@ function DriftRow({ candidate, match, onFix }: DriftRowProps) {
                 </span>
                 {match !== null ? (
                     <span
-                        className={`shrink-0 rounded border px-1 py-px font-mono text-[10px] ${deltaEBadgeClass(match.deltaE)}`}
-                        title={deltaELabel(match.deltaE)}
+                        className={`shrink-0 rounded border px-1 py-px text-[10px] ${deltaEBadgeClass(match.deltaE)}`}
                     >
-                        ΔE {match.deltaE.toFixed(1)}
+                        {deltaELabel(match.deltaE)}{' '}
+                        <span className="opacity-60 font-mono">ΔE {match.deltaE.toFixed(1)}</span>
                     </span>
                 ) : (
-                    <span className="text-[10px] text-zinc-400">no match</span>
+                    <span className="text-[10px] text-zinc-400">No off-brand colors found</span>
                 )}
             </div>
 
@@ -147,7 +147,7 @@ export function DriftDetector() {
             <div className="flex shrink-0 items-center gap-1.5 px-3 py-1.5">
                 <AlertTriangle className="h-3 w-3 text-amber-500" />
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-500/80">
-                    Drift Detection
+                    Color Alignment
                 </span>
                 {systemizableCount > 0 && (
                     <span className="ml-auto rounded bg-emerald-900/40 px-1.5 py-px text-[10px] text-emerald-400">
@@ -174,9 +174,9 @@ export function DriftDetector() {
             {/* Legend */}
             <div className="flex items-center gap-3 border-t border-gray-800/60 px-3 py-1.5">
                 <CheckCircle2 className="h-2.5 w-2.5 text-emerald-500" />
-                <span className="text-[10px] text-zinc-500">ΔE&lt;2 systemizable</span>
+                <span className="text-[10px] text-zinc-500">ΔE&lt;2 auto-fixable</span>
                 <span className="text-[10px] text-zinc-500">·</span>
-                <span className="text-[10px] text-zinc-500">ΔE&gt;5 significant drift</span>
+                <span className="text-[10px] text-zinc-500">ΔE&gt;5 noticeable drift</span>
             </div>
         </div>
     )

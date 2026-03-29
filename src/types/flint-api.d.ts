@@ -2198,7 +2198,7 @@ export interface BetaAPI {
     /** Saves feedback locally to .flint/beta-feedback.json. */
     submitFeedback: (feedback: BetaFeedback) => Promise<{ saved: boolean }>
     /** Copies the bundled demo project to a temp dir and returns the path. */
-    loadDemoProject: () => Promise<{ projectPath: string } | { error: string }>
+    loadDemoProject: (demoName?: string) => Promise<{ projectPath: string } | { error: string }>
     /**
      * Captures a screenshot of the focused window using BrowserWindow.capturePage().
      * Returns a base64-encoded PNG string, or null if capture failed.

@@ -92,7 +92,7 @@ describe('GovernancePanel', () => {
     it('activates the Rules tab when focusRuleId is provided', () => {
         renderPanel({ focusRuleId: 'MITHRIL-COL' })
         // The Rules tab button should have the active indigo border style
-        const rulesTab = screen.getByRole('button', { name: 'Rules' })
+        const rulesTab = screen.getByRole('tab', { name: /Rules/ })
         expect(rulesTab.className).toMatch(/border-indigo-500/)
     })
 
@@ -131,5 +131,64 @@ describe('GovernancePanel', () => {
         // The "All" sidebar button should have the active indigo styling
         const allBtn = screen.getByRole('button', { name: /^All/ })
         expect(allBtn.className).toMatch(/bg-indigo-600/)
+    })
+
+    // S5.6 — rule descriptions render beneath rule names
+    it('renders a rule description beneath at least one rule name (EDU-04)', () => {
+        renderPanel()
+        // MITHRIL-COL has a known description in RULE_DESCRIPTIONS
+        // Descriptions render as small muted text below the rule name
+        const descriptions = document.querySelectorAll('.text-zinc-600')
+        // At least some description text should be present in the rule list
+        expect(descriptions.length).toBeGreaterThan(0)
+    })
+
+    // S5.7 — persistence banner absent when no rules are modified
+    it('does not show the amber persistence banner when no rules are modified', () => {
+        useGovernanceStore.setState({ overrides: {} })
+        renderPanel()
+        expect(screen.queryByText(/persist across sessions/i)).toBeNull()
+    })
+
+    // S5.7 — persistence banner appears when there are unsaved rule changes
+    it('shows amber persistence banner when rules tab has modified rules', async () => {
+        // Seed an override so modifiedCount > 0
+        useGovernanceStore.setState({ overrides: { 'MITHRIL-COL': { enabled: false } } })
+        renderPanel()
+        await waitFor(() => {
+            expect(screen.getByText(/persist across sessions/i)).toBeDefined()
+        })
+    })
+
+    // S5.7 — Save button shows pending count when rules are modified
+    it('shows Save (N) on the Save button when N rules are modified', async () => {
+        useGovernanceStore.setState({
+            overrides: {
+                'MITHRIL-COL': { enabled: false },
+                'A11Y-001': { enabled: false },
+            },
+        })
+        renderPanel()
+        await waitFor(() => {
+            expect(screen.getByRole('button', { name: /Save \(2\)/i })).toBeDefined()
+        })
+    })
+
+    // S5.7 — auto-apply banner shows on Packs tab
+    it('shows auto-apply banner when Packs tab is active', async () => {
+        renderPanel()
+        fireEvent.click(screen.getByRole('tab', { name: /Rule Packs/ }))
+        await waitFor(() => {
+            expect(screen.getByText(/no Save required/i)).toBeDefined()
+        })
+    })
+
+    // S5.7 — auto-apply banner shows on Profiles tab
+    it('shows auto-apply banner when Profiles tab is active', async () => {
+        renderPanel()
+        fireEvent.click(screen.getByRole('tab', { name: /Profiles/ }))
+        await waitFor(() => {
+            expect(screen.getByText(/no Save required/i)).toBeDefined()
+        })
     })
 })

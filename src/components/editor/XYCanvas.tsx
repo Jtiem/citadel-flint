@@ -26,6 +26,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { GripHorizontal } from 'lucide-react'
 // debounce delay for Shift+scroll breakpoint cycling (ms)
 const BREAKPOINT_SCROLL_DEBOUNCE_MS = 200
 import {
@@ -64,14 +65,11 @@ function LivePreviewNode() {
             <div
                 /* `drag-handle` is the class React Flow uses when nodeDragThreshold
                    and dragHandle are set to .drag-handle on the parent node.     */
-                className="drag-handle flex shrink-0 cursor-grab items-center gap-2 border-b border-gray-800 bg-gray-900 px-4 py-2 active:cursor-grabbing"
+                className="drag-handle group flex shrink-0 cursor-grab items-center justify-center gap-2 border-b border-gray-800 bg-gray-900 px-4 py-2 active:cursor-grabbing"
             >
-                {/* Traffic-light pills */}
-                <span className="h-3 w-3 rounded-full bg-red-500/80" />
-                <span className="h-3 w-3 rounded-full bg-amber-500/80" />
-                <span className="h-3 w-3 rounded-full bg-emerald-500/80" />
-                <span className="ml-2 font-mono text-[10px] font-semibold uppercase tracking-widest text-gray-500">
-                    Live Preview · srcdoc Engine
+                <GripHorizontal size={14} className="text-zinc-600 transition-colors group-hover:text-zinc-400" />
+                <span className="text-[10px] text-zinc-600 opacity-0 transition-colors group-hover:text-zinc-400 group-hover:opacity-100">
+                    Drag to reposition
                 </span>
             </div>
 

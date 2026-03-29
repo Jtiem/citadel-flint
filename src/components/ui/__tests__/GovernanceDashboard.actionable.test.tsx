@@ -74,8 +74,8 @@ describe('GovernanceDashboard — Actionable (GLASS.1e)', () => {
         }
     })
 
-    // 1. Rule rows are clickable
-    it('renders rule rows as clickable buttons', () => {
+    // 1. Rule rows are clickable — open Top Violated Rules accordion first
+    it('renders rule rows as clickable buttons', async () => {
         const warnings = new Map<string, LinterWarning>([
             ['n1', makeWarning({ id: 'W1', type: 'color-drift' })],
             ['n2', makeWarning({ id: 'W2', type: 'color-drift' })],
@@ -83,13 +83,19 @@ describe('GovernanceDashboard — Actionable (GLASS.1e)', () => {
         seedTokensAndWarnings([makeToken()], warnings)
         render(<GovernanceDashboard />)
 
-        const ruleRow = screen.getByTestId('rule-row-color-drift')
-        expect(ruleRow).toBeDefined()
-        expect(ruleRow.tagName).toBe('BUTTON')
+        // Open the "Top Violated Rules" accordion
+        const topRulesBtn = screen.getByRole('button', { name: /Top Violated Rules/i })
+        fireEvent.click(topRulesBtn)
+
+        await waitFor(() => {
+            const ruleRow = screen.getByTestId('rule-row-color-drift')
+            expect(ruleRow).toBeDefined()
+            expect(ruleRow.tagName).toBe('BUTTON')
+        })
     })
 
-    // 2. Clicking a rule row sets governanceRuleFilter and switches tab
-    it('clicking a rule row sets governanceRuleFilter and switches to properties tab', () => {
+    // 2. Clicking a rule row sets governanceRuleFilter (no longer switches tab — scrolls instead)
+    it('clicking a rule row sets governanceRuleFilter', async () => {
         const warnings = new Map<string, LinterWarning>([
             ['n1', makeWarning({ id: 'W1', type: 'color-drift' })],
             ['n2', makeWarning({ id: 'W2', type: 'typography-drift', message: "MITHRIL-TYP-001: drift" })],
@@ -97,11 +103,20 @@ describe('GovernanceDashboard — Actionable (GLASS.1e)', () => {
         seedTokensAndWarnings([makeToken()], warnings)
         render(<GovernanceDashboard />)
 
+        // Open the "Top Violated Rules" accordion
+        const topRulesBtn = screen.getByRole('button', { name: /Top Violated Rules/i })
+        fireEvent.click(topRulesBtn)
+
+        await waitFor(() => {
+            expect(screen.getByTestId('rule-row-color-drift')).toBeDefined()
+        })
+
         const ruleRow = screen.getByTestId('rule-row-color-drift')
         fireEvent.click(ruleRow)
 
         expect(useCanvasStore.getState().governanceRuleFilter).toBe('color-drift')
-        expect(useCanvasStore.getState().rightTab).toBe('properties')
+        // rightTab stays on 'governance' (rule rows scroll to violations, no longer switch tabs)
+        expect(useCanvasStore.getState().rightTab).toBe('governance')
     })
 
     // 3. Run Audit button renders
@@ -128,23 +143,23 @@ describe('GovernanceDashboard — Actionable (GLASS.1e)', () => {
         })
     })
 
-    // 5. Delta Mode toggle is near the top (not buried at bottom)
-    it('Delta Mode toggle section is rendered near the top of the dashboard', () => {
+    // 5. Delta Mode toggle is in the "Session & Baseline" accordion
+    it('Delta Mode toggle section is rendered inside Session & Baseline accordion', async () => {
         seedTokensAndWarnings([makeToken()], new Map())
         render(<GovernanceDashboard />)
 
-        const deltaSection = screen.getByTestId('delta-mode-section')
-        expect(deltaSection).toBeDefined()
+        // The section is inside a collapsed accordion — open it first
+        const sessionBtn = screen.getByRole('button', { name: /Session.*Baseline/i })
+        fireEvent.click(sessionBtn)
 
-        // The delta section should appear before the "Top Violated Rules" heading
-        const headings = screen.getAllByText(/Top Violated Rules|Show only new violations/)
-        // If "Show only new violations" comes before "Top Violated Rules", delta is promoted
-        // Just verify the section exists — position ordering in DOM is sufficient
-        expect(headings.length).toBeGreaterThan(0)
+        await waitFor(() => {
+            const deltaSection = screen.getByTestId('delta-mode-section')
+            expect(deltaSection).toBeDefined()
+        })
     })
 
-    // 6. Score trend hint renders actionable guidance
-    it('shows score trend hint when violations exist', () => {
+    // 6. Score trend hint renders inside Health Score accordion
+    it('shows score trend hint when violations exist', async () => {
         const warnings = new Map<string, LinterWarning>([
             ['n1', makeWarning({ id: 'W1', type: 'color-drift' })],
             ['n2', makeWarning({ id: 'W2', type: 'color-drift' })],
@@ -152,8 +167,12 @@ describe('GovernanceDashboard — Actionable (GLASS.1e)', () => {
         seedTokensAndWarnings([makeToken()], warnings)
         render(<GovernanceDashboard />)
 
-        const hint = screen.getByTestId('score-trend-hint')
-        expect(hint).toBeDefined()
-        expect(hint.textContent).toContain('Color Drift')
+        // Health Score accordion is open by default — hint is visible without clicking
+
+        await waitFor(() => {
+            const hint = screen.getByTestId('score-trend-hint')
+            expect(hint).toBeDefined()
+            expect(hint.textContent).toContain('Color Drift')
+        })
     })
 })

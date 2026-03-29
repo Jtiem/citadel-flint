@@ -34,7 +34,7 @@ export interface DesignToken {
 
 export interface LinterWarning {
     id: string
-    type: 'color-drift' | 'typography-drift' | 'spacing-drift' | 'shadow-drift' | 'opacity-drift' | 'a11y' | 'sync' | 'inline-style-drift'
+    type: 'color-drift' | 'typography-drift' | 'spacing-drift' | 'shadow-drift' | 'opacity-drift' | 'a11y' | 'sync' | 'inline-style-drift' | 'registry'
     severity: 'amber' | 'critical' | 'advisory'
     value: number
     message: string
@@ -262,6 +262,11 @@ export interface SessionContext {
     sessionPersona: SessionPersona
     /** Resolved style guide content from content.style_guide in flint.config.yaml, or null */
     styleGuide?: string | null
+    /**
+     * Present only when partial=true and context.json is missing (no Glass session).
+     * Provides actionable guidance for headless governance without Glass.
+     */
+    coldStartHint?: string
 }
 
 // ── Phase ACX: ComplexityAssessment ─────────────────────────────────────────

@@ -51,6 +51,11 @@
  *   R9-A  — Status box has aria-live="polite"
  *   R10-A — Completed steps show checkmark
  *   R10-B — Current step shows ring indicator
+ *
+ * Fix 5: Verify step hang remediation:
+ *   F5-A  — shows attempt count after 2nd attempt
+ *   F5-B  — shows skip link after 2nd attempt
+ *   F5-C  — shows timeout message after 30s
  */
 
 import { describe, it, expect, vi } from 'vitest'
@@ -783,4 +788,107 @@ describe('SetupWizard', () => {
         // Current dot has an inner span (the filled dot inside the ring)
         expect(firstDot.children.length).toBeGreaterThan(0)
     })
+
+    // ── Fix 5: Verify step hang remediation ──────────────────────────────────
+
+    // F5-A: Shows attempt count text after 2nd attempt
+    // We simulate 3 failed attempts with 0ms delay by making the mock reject
+    // quickly. handleVerify sets attemptCount on each iteration so by the
+    // time the 3rd attempt fires, attemptCount === 3 > 2 → element appears.
+    it('F5-A: shows "Still trying" attempt count text after the 2nd attempt', async () => {
+        let callCount = 0
+        // First 3 calls reject immediately, last 3 never resolve (to keep checking state)
+        ;(window.flintAPI.mcp!.callTool as Mock).mockImplementation(() => {
+            callCount++
+            if (callCount <= 3) {
+                return Promise.reject(new Error('not ready'))
+            }
+            // Hang on calls 4-6
+            return new Promise(() => {})
+        })
+        ;(window.flintAPI.mcp!.status as Mock).mockRejectedValue(new Error('not connected'))
+
+        // Advance to verify with real timers, then switch to fake
+        await advanceToVerify()
+
+        vi.useFakeTimers({ shouldAdvanceTime: true })
+        try {
+            fireEvent.click(screen.getByText('Test Connection'))
+
+            // Fast-forward past 3 retry delays so calls 2 and 3 fire
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(4_001)
+            })
+
+            await waitFor(() => {
+                const el = document.querySelector('[data-testid="attempt-count"]')
+                expect(el).not.toBeNull()
+                expect(el!.textContent).toMatch(/Still trying/i)
+            }, { timeout: 5_000 })
+        } finally {
+            vi.useRealTimers()
+        }
+    }, 20_000)
+
+    // F5-B: Shows "Skip for now" link after 2nd attempt
+    it('F5-B: shows "Skip for now" link after the 2nd attempt while still checking', async () => {
+        let callCount = 0
+        ;(window.flintAPI.mcp!.callTool as Mock).mockImplementation(() => {
+            callCount++
+            if (callCount <= 3) {
+                return Promise.reject(new Error('not ready'))
+            }
+            return new Promise(() => {})
+        })
+        ;(window.flintAPI.mcp!.status as Mock).mockRejectedValue(new Error('not connected'))
+
+        await advanceToVerify()
+
+        vi.useFakeTimers({ shouldAdvanceTime: true })
+        try {
+            fireEvent.click(screen.getByText('Test Connection'))
+
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(4_001)
+            })
+
+            await waitFor(() => {
+                const el = document.querySelector('[data-testid="skip-for-now"]')
+                expect(el).not.toBeNull()
+                expect(el!.textContent).toMatch(/Skip for now/i)
+            }, { timeout: 5_000 })
+        } finally {
+            vi.useRealTimers()
+        }
+    }, 20_000)
+
+    // F5-C: Shows timeout message after 30s
+    // The 30s wall-clock timeout fires before all 6 retry attempts complete
+    // when retries use 2s spacing (12s total < 30s). We inject it by
+    // setting RETRY_DELAY via fake timers — advance 30s+ so the outer
+    // setTimeout fires while the loop is waiting.
+    it('F5-C: shows "Connection timed out" message after 30 seconds with no success', async () => {
+        ;(window.flintAPI.mcp!.callTool as Mock).mockReturnValue(new Promise(() => {}))
+        ;(window.flintAPI.mcp!.status as Mock).mockRejectedValue(new Error('not connected'))
+
+        await advanceToVerify()
+
+        vi.useFakeTimers({ shouldAdvanceTime: true })
+        try {
+            fireEvent.click(screen.getByText('Test Connection'))
+
+            // Advance 30 001ms to trigger the TOTAL_TIMEOUT_MS sentinel
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(30_001)
+            })
+
+            await waitFor(() => {
+                expect(
+                    screen.getByText(/Connection timed out/i)
+                ).toBeDefined()
+            }, { timeout: 5_000 })
+        } finally {
+            vi.useRealTimers()
+        }
+    }, 30_000)
 })

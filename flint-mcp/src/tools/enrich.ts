@@ -31,11 +31,9 @@ import type { EnrichmentDraft } from '../core/enrichmentDraftService.js'
 export const FLINT_ENRICH_REGISTRY_TOOL = {
     name: 'flint_enrich_registry',
     description:
-        'EN.1: Reads the component registry and returns structured data for bare components ' +
-        '(those lacking a description or usageExample) so the host AI can generate enrichments. ' +
-        'Returns source code, props, variants, and tokens for each bare component. ' +
-        'Does NOT generate descriptions itself — call this tool, then generate enrichments, ' +
-        'then call flint_approve_enrichment to write them back.',
+        'Read bare component registry entries so the host AI can generate enrichments. ' +
+        'Returns source code, props, variants, and tokens for components lacking description ' +
+        'or usageExample. Call this tool, generate enrichments, then call flint_approve_enrichment.',
     inputSchema: {
         type: 'object' as const,
         properties: {
@@ -61,7 +59,7 @@ export const FLINT_ENRICH_REGISTRY_TOOL = {
 export const FLINT_APPROVE_ENRICHMENT_TOOL = {
     name: 'flint_approve_enrichment',
     description:
-        'EN.1: Approve or dismiss a staged enrichment draft for a component. ' +
+        'Approve or dismiss a staged enrichment draft for a component. ' +
         "When action='approve', merges the draft into flint-manifest.json. " +
         "When action='dismiss', removes the draft from staging. " +
         'Optionally accepts editedFields to override specific draft values before approval.',

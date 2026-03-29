@@ -37,8 +37,8 @@ const ALL_PLATFORMS: PlatformTarget[] = ['tailwind', 'css', 'react-native', 'swi
 export const FLINT_EMIT_TOKENS_TOOL = {
     name: toolName('emit_tokens'),
     description:
-        'EXP.7: Emit design tokens from .flint/design-tokens.json to platform-native ' +
-        'formats. Supports: tailwind (theme config), css (custom properties), ' +
+        'Emit design tokens from .flint/design-tokens.json to platform-native formats. ' +
+        'Supports: tailwind (theme config), css (custom properties), ' +
         'react-native (StyleSheet.create), swift (UIColor extensions), kotlin ' +
         '(Compose Color/MaterialTheme). Returns per-platform output files plus a ' +
         'cross-platform consistency audit. Use dryRun=true to preview without writing files.',

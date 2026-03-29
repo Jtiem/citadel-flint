@@ -22,3 +22,4 @@
 {"timestamp":"2026-03-23T22:38:54.653Z","tool":"audit_ui_component","input_summary":"Auditing LoginScreen.tsx","outcome":"Blocked: A11y Violations (1)","metadata":"{\"mithrilCount\":0,\"a11yCount\":1}"}
 {"timestamp":"2026-03-23T22:49:56.418Z","tool":"audit_ui_component","input_summary":"Auditing LoginScreen.tsx","outcome":"Blocked: A11y Violations (1)","metadata":"{\"mithrilCount\":0,\"a11yCount\":1}"}
 {"timestamp":"2026-03-23T22:51:54.999Z","tool":"audit_ui_component","input_summary":"Auditing LoginScreen.tsx","outcome":"Blocked: A11y Violations (1)","metadata":"{\"mithrilCount\":0,\"a11yCount\":1}"}
+{"timestamp":"2026-03-28T20:25:37.287Z","tool":"audit_ui_component","input_summary":"Auditing _settings-test.tsx","outcome":"Blocked: <Dialog> is not in your project's component library.","metadata":"{\"mithrilCount\":2,\"a11yCount\":1}"}

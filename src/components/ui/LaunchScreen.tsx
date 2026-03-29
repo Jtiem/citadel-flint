@@ -14,8 +14,9 @@
  *   8. Footer escape hatch  — "Open any folder..."
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { BRAND } from '../../../shared/brand'
+import { resolveWebOpenFolder, cancelWebOpenFolder, hasWebOpenFolderPending } from '../../adapters/web-api'
 import {
     FolderOpen,
     Clock,
@@ -30,6 +31,7 @@ import {
     ChevronRight,
     Zap,
     Link2,
+    X,
 } from 'lucide-react'
 import type { RecentProject } from '../../types/flint-api'
 import { FigmaSetupWizard } from './FigmaSetupWizard'
@@ -46,7 +48,42 @@ interface LaunchScreenProps {
     onLoadDemo: () => Promise<void>
     /** WS1: Opens the SetupWizard as a non-blocking modal for IDE/MCP configuration */
     onConnectIDE?: () => void
+    /** Error message to surface when demo project load fails */
+    demoError?: string
 }
+
+// ── Demo project definitions ──────────────────────────────────────────────────
+
+const DEMO_PROJECTS = [
+    {
+        name: 'token-drift',
+        title: 'Token Drift',
+        time: '2 min',
+        topic: 'Fix color & spacing',
+        outcome: 'Catch drift your eyes miss',
+    },
+    {
+        name: 'a11y-audit',
+        title: 'A11y Audit',
+        time: '5 min',
+        topic: 'WCAG 2.1 AA',
+        outcome: 'Plain-language a11y fixes',
+    },
+    {
+        name: 'design-system-migration',
+        title: 'DS Migration',
+        time: '3 min',
+        topic: 'v3→v4 upgrade',
+        outcome: 'Migrate your DS safely',
+    },
+    {
+        name: 'multi-component-app',
+        title: 'Full App Scan',
+        time: '8 min',
+        topic: 'Full workflow',
+        outcome: 'Debt report + Export Gate',
+    },
+] as const
 
 // ── Tile definitions ──────────────────────────────────────────────────────────
 
@@ -55,13 +92,13 @@ const TILES = [
         id: 'prototype' as const,
         icon: Paintbrush,
         label: 'From Figma',
-        description: 'Build from your designs',
+        description: 'Requires Figma plugin (one-time setup)',
     },
     {
         id: 'connect' as const,
         icon: Shield,
         label: 'Connect codebase',
-        description: 'Index + govern your DS',
+        description: 'Scan & score your design system',
     },
     {
         id: 'audit' as const,
@@ -73,7 +110,7 @@ const TILES = [
         id: 'dashboard' as const,
         icon: BarChart2,
         label: 'Governance dashboard',
-        description: 'Glass as IDE companion',
+        description: 'Live governance in your IDE',
     },
 ] as const
 
@@ -82,7 +119,7 @@ const TILES = [
 // Detect web mode — true when running in browser via Express server
 const isWebMode = typeof (globalThis as Record<string, unknown>).__FLINT_WEB__ !== 'undefined'
 
-export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadDemo: _onLoadDemo, onConnectIDE }: LaunchScreenProps) {
+export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadDemo: _onLoadDemo, onConnectIDE, demoError }: LaunchScreenProps) {
     const [selectedPath, setSelectedPath] = useState<JTBDPath>(null)
     const [flowStep, setFlowStep] = useState<FlowStep>('choose')
     const [recentProjects, setRecentProjects] = useState<RecentProject[]>([])
@@ -95,6 +132,28 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
     const [webPathInput, setWebPathInput] = useState('')
     const [webPathError, setWebPathError] = useState<string | null>(null)
     const [showWebPathInput, setShowWebPathInput] = useState(false)
+    // Demo load error banner — dismissed via local state
+    const [demoBannerDismissed, setDemoBannerDismissed] = useState(false)
+
+    // ── Web-mode open-folder signal listener ──────────────────────────────────
+    // When web-api's openFolder() is called from App.tsx (e.g. project menu),
+    // it dispatches this event. We surface the path-input UI so the user can
+    // provide the folder path, which then resolves the deferred promise.
+    const handleOpenFolderRequest = useCallback(() => {
+        setShowWebPathInput(true)
+        setSelectedPath(null) // ensure footer input is visible
+        setFlowStep('choose')
+    }, [])
+
+    useEffect(() => {
+        if (!isWebMode) return
+        window.addEventListener('flint:open-folder-request', handleOpenFolderRequest)
+        return () => {
+            window.removeEventListener('flint:open-folder-request', handleOpenFolderRequest)
+            // Cancel any pending deferred promise when LaunchScreen unmounts
+            cancelWebOpenFolder()
+        }
+    }, [handleOpenFolderRequest])
 
     // ── Context detection — runs once on mount ────────────────────────────────
     useEffect(() => {
@@ -189,7 +248,16 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
         setProgressMessage('Opening project...')
         setShowWebPathInput(false)
         try {
-            await onOpenRecent(trimmed)
+            if (hasWebOpenFolderPending()) {
+                // An openFolder() deferred promise is in flight (dispatched from
+                // App.tsx, e.g. via the "Open Folder" project-menu button).
+                // Resolve it — App.tsx's handleOpenFolder will hydrate the workspace.
+                await resolveWebOpenFolder(trimmed)
+            } else {
+                // Normal tile/footer path: open the project via the standard
+                // onOpenRecent callback.
+                await onOpenRecent(trimmed)
+            }
         } catch {
             setWebPathError('Could not open that path. Check that it exists and try again.')
             setFlowStep('folder')
@@ -274,6 +342,26 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
     return (
         <div className="flex h-screen flex-col bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950">
 
+            {/* Demo load error banner */}
+            {demoError && !demoBannerDismissed && (
+                <div
+                    role="alert"
+                    className="flex shrink-0 items-center justify-between gap-3 border-b border-amber-500/30 bg-amber-900/20 px-4 py-2.5"
+                >
+                    <p className="text-xs text-amber-300">
+                        Demo project couldn't load. Try opening your own project below.
+                    </p>
+                    <button
+                        type="button"
+                        aria-label="Dismiss"
+                        onClick={() => setDemoBannerDismissed(true)}
+                        className="shrink-0 rounded p-0.5 text-amber-400 transition-colors hover:text-amber-200"
+                    >
+                        <X size={14} />
+                    </button>
+                </div>
+            )}
+
             {/* 1. Header */}
             <header className="flex shrink-0 items-center border-b border-zinc-800 px-6 py-4">
                 <div>
@@ -344,6 +432,8 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
                                     key={tile.id}
                                     type="button"
                                     onClick={() => handleSelectTile(tile.id)}
+                                    aria-expanded={selectedPath === tile.id}
+                                    aria-controls="launch-flow-panel"
                                     className={[
                                         'flex items-center gap-3 rounded-lg border px-3 py-3 text-left transition-all',
                                         isActive
@@ -382,11 +472,25 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
 
                     {/* 6. Inline expanded flow */}
                     {selectedPath !== null && (
-                        <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+                        <div id="launch-flow-panel" className="mt-4 rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
 
                             {/* Figma step */}
                             {flowStep === 'figma' && (
                                 <div>
+                                    {/* Prerequisite callout */}
+                                    <div className="border border-amber-400 bg-amber-950/30 rounded-lg p-3 mb-4">
+                                        <p className="text-xs font-medium text-amber-300 mb-1">
+                                            Install the {BRAND.product} Figma plugin before continuing.
+                                        </p>
+                                        <a
+                                            href="https://figma.com/community"
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-xs text-amber-400 underline hover:text-amber-300 transition-colors"
+                                        >
+                                            Get plugin →
+                                        </a>
+                                    </div>
                                     <StepHeader
                                         number={1}
                                         title="Connect your Figma file"
@@ -498,7 +602,44 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
                         </div>
                     )}
 
-                    {/* 7. Recent projects */}
+                    {/* 7. Demo gallery strip */}
+                    <div className="mt-8">
+                        <p className="mb-3 text-[10px] font-medium uppercase tracking-wider text-zinc-600">
+                            Try a demo project
+                        </p>
+                        <div className="flex gap-2 overflow-x-auto pb-1">
+                            {DEMO_PROJECTS.map((demo) => (
+                                <div
+                                    key={demo.name}
+                                    className="flex w-40 shrink-0 flex-col rounded-lg border border-zinc-800 bg-zinc-900/60 p-3"
+                                >
+                                    <p className="text-xs font-semibold text-zinc-200">{demo.title}</p>
+                                    <p className="mt-0.5 text-[11px] text-zinc-500">
+                                        {demo.time} · {demo.topic}
+                                    </p>
+                                    <p className="mt-2 flex-1 text-[11px] leading-relaxed text-zinc-400">
+                                        {demo.outcome}
+                                    </p>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            void window.flintAPI.beta?.loadDemoProject(demo.name)
+                                                .then((result) => {
+                                                    if (result && 'projectPath' in result) {
+                                                        void onOpenRecent(result.projectPath)
+                                                    }
+                                                })
+                                        }}
+                                        className="mt-3 w-full rounded-md border border-zinc-700 bg-zinc-800/60 py-1.5 text-[11px] font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-700/60 hover:text-zinc-100"
+                                    >
+                                        Load
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* 8. Recent projects */}
                     {!loading && recentProjects.length > 0 && (
                         <div className="mt-8">
                             <div className="mb-2 flex items-center gap-2">
@@ -546,7 +687,7 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
                         </div>
                     )}
 
-                    {/* 8. Footer actions */}
+                    {/* 9. Footer actions */}
                     <div className="mt-6 flex flex-col items-center gap-3">
                         {/* Web mode: standalone path input when no tile is expanded */}
                         {isWebMode && !selectedPath && (

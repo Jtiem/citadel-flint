@@ -37,7 +37,7 @@ outputs:
     description: 'Path to the generated SARIF file (if sarif_output was set)'
 
 runs:
-  using: 'node20'
+  using: 'node22'
   main: 'dist/github-action.js'
 
 branding:

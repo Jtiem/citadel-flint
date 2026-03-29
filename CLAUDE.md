@@ -63,8 +63,8 @@ FOUNDATION
 |  (Layers /     |  (XYCanvas + LivePreview    |  Tabs: Properties |  |
 |   Assets)      |   as draggable node)        |  Tokens | Activity | |
 |                |                             |  Health              |
-|  AST tree      |  Ghost Code HUDs            |                      |
-|  Asset grid    |  Drift Overlays             |  GovernanceOverlay   |
+|  AST tree      |                             |                      |
+|  Asset grid    |                             |                      |
 |                |  Spatial Repair triggers    |  (inline violations) |
 +----------------+----------------------------+---------------------+
 |  StatusBar (Export Gate + Save State + Sync + Figma Status)        |
@@ -216,16 +216,16 @@ Note: 5 rule pack tools (`flint_list_rule_packs`, `flint_enable_pack`, `flint_di
 |--------|-------|--------|
 | Infinite Canvas (XYCanvas) | A | **ONLINE** |
 | LivePreview (srcdoc iframe) | A | **ONLINE** |
-| ShieldOverlay / Shield (spatial governance badges) | A | **ONLINE** |
-| GhostOverlay / Ghost (hardcoded class HUD) | U.4 | **ONLINE** |
-| GovernanceOverlay / Shield (violation list + auto-fix) | U | **ONLINE** |
+| ShieldOverlay / Shield (spatial governance badges) | A | **DELETED Sprint 2** — replaced by GovernanceDashboard inline violations |
+| GhostOverlay / Ghost (hardcoded class HUD) | U.4 | **DELETED Sprint 2** — hardcoded detection in GovernanceDashboard |
+| GovernanceOverlay / Shield (violation list + auto-fix) | U | **DELETED Sprint 2** — merged into GovernanceDashboard |
 | GovernancePanel (rule manager) | U | **ONLINE** |
 | StatusBar (export gate + save state + sync) | A | **ONLINE** |
 | NotificationCenter (toast system) | -- | **ONLINE** |
-| ActivityFeed (MCP tool invocation log) | -- | **ONLINE** |
+| ActivityFeed (MCP tool invocation log) | -- | **DELETED Sprint 2** — superseded by useMCPEventListener |
 | OnboardingOverlay | -- | **ONLINE** |
 | ExportModal / Gate (pre-flight audit) | B.2 | **ONLINE** |
-| RecoveryPanel / Rewind (Git Time Machine) | D.2 | **ONLINE** |
+| RecoveryPanel / Rewind (Git Time Machine) | D.2 | **DELETED Sprint 2** — TODO: move to Command Palette |
 | Designer Experience (LayoutPanel) | N.1 | **ONLINE** |
 | Asset Management Hub | Q | **ONLINE** |
 | Interaction Modes (design/interact) | I | **ONLINE** |
@@ -234,12 +234,12 @@ Note: 5 rule pack tools (`flint_list_rule_packs`, `flint_enable_pack`, `flint_di
 | Auto-Save | F.1 | **ONLINE** |
 | Activity Feed Upgrade (filter bar, search, error view) | V.2-af | **ONLINE** |
 | Figma Connection Status (IPC, StatusBar popover, staleness) | W.2 | **ONLINE** |
-| Ghost Canvas (Ghost severity heat tints, ViolationTooltip, viewport culling) | U.1 | **ONLINE** |
+| Ghost Canvas (Ghost severity heat tints, ViolationTooltip, viewport culling) | U.1 | **DELETED Sprint 2** — canvas governance visualization needs redesign (Sprint 8) |
 | Annotation Rendering (annotationStore, AnnotationList, LayerTree dots) | COLLAB.4 | **ONLINE** |
 | Governance Dashboard (health score ring, grade, top-5 rules, "health" tab) | V.1-gd | **ONLINE** |
 | MCP Push Channel (mcp-events.jsonl, useMCPEventListener, fs.watch tail) | W.1 | **ONLINE** |
 | Bidirectional Action Flint (mcpClient.ts, Glass-initiated MCP tool calls) | W.3 | **ONLINE** |
-| Agent Risk Dashboard (per-agent risk badges, escalation indicators) | AGV.2 | **ONLINE** |
+| Agent Risk Dashboard (per-agent risk badges, escalation indicators) | AGV.2 | **DELETED Sprint 2** — Glass component removed; MCP resource `flint://agent-risk` still ONLINE |
 | Multi-Agent Epistemic Consensus Gate (secondary agent eval for Amber/Red mutations, `flint_consensus_report`, per-domain config) | V.4 | **ONLINE** |
 | First-Launch Setup Wizard / Garrison (IDE detection, MCP snippet, connection test, first-launch flag) | ONBOARD.1 | **ONLINE** |
 | Ghost Code Snippet Overlay (contextual source panel on node select, Hover-to-Source) | U.2 | **ONLINE** |
@@ -477,6 +477,8 @@ Phase 2.5: /review → Pre-commit code review gate (MANDATORY for agent-produced
 GIT:      flint-git-guru → commit per agent + pre-commit gate (TSC + tests)
 Phase 3:  flint-integration-validator → Integration Report (SHIP/FIX/REDESIGN)
 GIT:      flint-git-guru → create PR (on SHIP)
+REVIEW:   3 parallel reviews (UX + code + security) → write full reports to .flint-context/reviews/
+          Surface findings to user — user makes grade/threshold calls, not the agent
 SESSION END: Update HANDOFF.md + clear territory claim
 ```
 
@@ -485,6 +487,8 @@ Single-file bug fixes and cosmetic changes are exempt from the Contract-First fl
 **v2 improvements** (2026-03-27): Executable `.contract.ts` files (Phase 2 imports real types, not prose), Phase 1.5 contract linting (catches architect mistakes before cascade), test-from-contract scaffolding (TDD red phase from `testBoundaries`), IPC runtime validation (Zod schemas at preload bridge).
 
 **Review gate** — `/review` runs between Phase 2 (implementation) and git commit. It catches issues that TSC and tests miss: Commandment violations, IPC security gaps, architectural anti-patterns, and missing test coverage. Code that fails review must be fixed before committing. This gate is mandatory for all agent-produced code, including single-file fixes.
+
+**End-of-round review ceremony** — Before marking any phase COMPLETE, run 3 independent parallel reviews (UX, code, security) that write full findings to `.flint-context/reviews/<phase>-{ux,code,security}-review-<date>.md`. Surface these reports to the user directly — paste key findings in chat. The user makes all grade threshold calls. A "B+" UX grade is NOT automatically acceptable. Do not mark work COMPLETE until the user has seen the findings and approved the grade.
 
 **Git ceremonies** are handled by `flint-git-guru` at every phase boundary. It manages branch naming (`feat/<phase>-<desc>`), conventional commit messages, pre-commit validation, and PR creation. Never commit without running the pre-commit gate (TSC + relevant test suites).
 
@@ -548,6 +552,7 @@ Do not port designer features to the extension or developer features to Glass un
 | `flint-mcp/src/core/governance/trustTierService.ts` | AGV.4 — Dynamic trust tier promotion/demotion |
 | `flint-mcp/src/core/tailwindMigrator.ts` | EXP.3 — Tailwind v3→v4 AST class migration engine |
 | `flint-mcp/src/core/a11y/rules/` | Warden rules — 50 WCAG 2.1 AA rules (9 modules: names-labels, keyboard, structure, aria, landmarks, contrast, forms, live-regions, motion) |
+| `flint-mcp/src/core/htmlIntrinsics.ts` | Canonical HTML intrinsic element set shared by MithrilLinter, hydroPaste, and orchestrator |
 | `flint-mcp/src/core/hydroPaste.ts` | Mason — Figma-to-JSX transform engine (component classification + code generation) |
 | `flint-mcp/src/core/figmaMcpParser.ts` | Figma MCP `get_design_context` response parser |
 | `flint-mcp/src/core/figmaJsxTransformer.ts` | Figma node tree → JSX AST transformer |
@@ -585,20 +590,15 @@ Do not port designer features to the extension or developer features to Glass un
 | `src/components/editor/XYCanvas.tsx` | Infinite canvas (`@xyflow/react` v12) |
 | `src/components/editor/LivePreview.tsx` | `srcdoc` iframe preview engine |
 | `src/components/editor/StatusBar.tsx` | Gate + engine indicators |
-| `src/components/editor/GovernanceOverlay.tsx` | Shield — inline violation list with auto-fix |
-| `src/components/editor/GhostOverlay.tsx` | Ghost — hardcoded class detection HUD |
-| `src/components/editor/ShieldOverlay.tsx` | Shield — spatial governance badges + presence cursors |
 | `src/components/ui/NotificationCenter.tsx` | Global toast renderer |
-| `src/components/ui/ActivityFeed.tsx` | MCP tool invocation log |
 | `src/components/ui/GovernancePanel.tsx` | Rule enable/disable/severity manager |
 | `src/components/ui/ExportModal.tsx` | Gate — export pre-flight audit |
-| `src/components/ui/RecoveryPanel.tsx` | Rewind — Git Time Machine UI |
 | `src/components/inspector/LayoutPanel.tsx` | Figma-grade Auto Layout controls |
-| `src/components/ui/GovernanceDashboard.tsx` | Health score ring, grade letter, top-5 rules ("health" tab) |
+| `src/components/ui/GovernanceDashboard.tsx` | Health score ring, grade letter, top-5 rules, violation list ("governance" tab) |
 | `src/components/ui/AnnotationList.tsx` | Annotation rendering in right sidebar |
-| `src/components/editor/ViolationTooltip.tsx` | Ghost — canvas severity tooltip on hover |
 | `src/components/ui/ImportSummary.tsx` | Ingestion heal summary toast + review panel (Phase ING) |
-| `src/components/ui/AgentDashboard.tsx` | AGV.2 — Per-agent risk posture, escalation indicators, right sidebar "agents" tab |
+| `src/components/ui/ComponentPanel.tsx` | Left sidebar component browser with drag-to-insert |
+| `src/components/ui/FixPreviewDrawer.tsx` | Fix preview diff drawer (fixMode: preview) |
 | `src/store/importSummaryStore.ts` | Ingestion summary state, tier-2 snap, undo-all-heals |
 | `src/store/annotationStore.ts` | Annotation CRUD + fs.watch push sync |
 | `src/hooks/useContextSync.ts` | Beacon — writes live state to `.flint/context.json` |

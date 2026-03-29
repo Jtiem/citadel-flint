@@ -57,6 +57,25 @@ import {
 } from '../../services/PresenceService'
 import { useRemotePresence, useLockedNodeIds } from '../../hooks/useRemotePresence'
 
+// ── MED-01: Restrict postMessage target origin to iframe origin ───────────────
+
+/**
+ * Returns the origin of the current preview URL so postMessage calls use the
+ * principle of least privilege instead of the wildcard '*'.
+ *
+ * srcdoc iframes have an opaque origin — the string 'null' is NOT a valid postMessage
+ * target origin (only '*' or a serialized origin are valid per the HTML spec).
+ * For srcdoc mode we must use '*'. When a Vite preview URL is active we use its origin.
+ */
+function getIframeOrigin(previewUrl: string | null): string {
+  if (previewUrl == null) return '*'
+  try {
+    return new URL(previewUrl).origin
+  } catch {
+    return '*'
+  }
+}
+
 // ── srcdoc builder ────────────────────────────────────────────────────────────
 
 /**
@@ -670,19 +689,19 @@ export function LivePreview() {
   useEffect(() => {
     const iframe = iframeRef.current
     if (iframe?.contentWindow == null) return
-    iframe.contentWindow.postMessage({ type: 'HIGHLIGHT', id: selectedNodeId }, '*')
-  }, [selectedNodeId])
+    iframe.contentWindow.postMessage({ type: 'HIGHLIGHT', id: selectedNodeId }, getIframeOrigin(previewUrl))
+  }, [selectedNodeId, previewUrl])
 
   // When hoveredId changes → send HOVER / CLEAR_HOVER into the iframe.
   useEffect(() => {
     const iframe = iframeRef.current
     if (iframe?.contentWindow == null) return
     if (hoveredId !== null) {
-      iframe.contentWindow.postMessage({ type: 'HOVER', id: hoveredId }, '*')
+      iframe.contentWindow.postMessage({ type: 'HOVER', id: hoveredId }, getIframeOrigin(previewUrl))
     } else {
-      iframe.contentWindow.postMessage({ type: 'CLEAR_HOVER' }, '*')
+      iframe.contentWindow.postMessage({ type: 'CLEAR_HOVER' }, getIframeOrigin(previewUrl))
     }
-  }, [hoveredId])
+  }, [hoveredId, previewUrl])
 
   const handleHydroPaste = async (figmaPayload: string) => {
     if (import.meta.env.DEV) {
@@ -773,7 +792,7 @@ export function LivePreview() {
         endDrag()
         // Broadcast lock release: clear the active drag element immediately.
         publishPresenceImmediate(0, 0, '')
-        iframeRef.current?.contentWindow?.postMessage({ type: 'DRAG_CLEAR' }, '*')
+        iframeRef.current?.contentWindow?.postMessage({ type: 'DRAG_CLEAR' }, getIframeOrigin(previewUrl))
         if (
           typeof msg.targetId === 'string' &&
           typeof msg.position === 'string' &&
@@ -813,11 +832,11 @@ export function LivePreview() {
       const { targetId, position } = e.detail as { targetId: string; position: string }
       iframeRef.current?.contentWindow?.postMessage(
         { type: 'DRAG_OVER', targetId, position },
-        '*'
+        getIframeOrigin(previewUrl)
       )
     }
     function handleDragClear(): void {
-      iframeRef.current?.contentWindow?.postMessage({ type: 'DRAG_CLEAR' }, '*')
+      iframeRef.current?.contentWindow?.postMessage({ type: 'DRAG_CLEAR' }, getIframeOrigin(previewUrl))
     }
     window.addEventListener(dragOverEvent, handleDragOver as EventListener)
     window.addEventListener(dragClearEvent, handleDragClear)
@@ -825,7 +844,7 @@ export function LivePreview() {
       window.removeEventListener(dragOverEvent, handleDragOver as EventListener)
       window.removeEventListener(dragClearEvent, handleDragClear)
     }
-  }, [])
+  }, [previewUrl])
 
   // ── Shield handlers (Ghost Proxy) ─────────────────────────────────────────
 
@@ -843,7 +862,7 @@ export function LivePreview() {
     if (rafRef.current !== null) return
     rafRef.current = requestAnimationFrame(() => {
       rafRef.current = null
-      iframeRef.current?.contentWindow?.postMessage({ type: 'DRAG_MOVE', x, y }, '*')
+      iframeRef.current?.contentWindow?.postMessage({ type: 'DRAG_MOVE', x, y }, getIframeOrigin(previewUrl))
     })
   }
 
@@ -865,7 +884,7 @@ export function LivePreview() {
         type: 'DRAG_END',
         x: e.clientX - rect.left,
         y: e.clientY - rect.top,
-      }, '*')
+      }, getIframeOrigin(previewUrl))
       // dragSourceIdRef and canvasStore are cleared in the HIT_TEST_RESULT handler.
     } else {
       // Cancel: clear immediately without waiting for a HIT_TEST_RESULT.
@@ -873,7 +892,7 @@ export function LivePreview() {
       endDrag()
       // Broadcast lock release: clear the active drag element immediately.
       publishPresenceImmediate(0, 0, '')
-      iframeRef.current?.contentWindow?.postMessage({ type: 'DRAG_CLEAR' }, '*')
+      iframeRef.current?.contentWindow?.postMessage({ type: 'DRAG_CLEAR' }, getIframeOrigin(previewUrl))
     }
   }
 
@@ -885,18 +904,18 @@ export function LivePreview() {
     if (iframe?.contentWindow == null) return
     iframe.contentWindow.postMessage(
       { type: 'SET_INTERACT_MODE', enabled: canvasMode === 'interact' },
-      '*'
+      getIframeOrigin(previewUrl)
     )
-  }, [canvasMode])
+  }, [canvasMode, previewUrl])
 
   // Re-apply highlight + current mode after the iframe reloads (srcdoc change navigates it)
   function handleIframeLoad(): void {
     const iframe = iframeRef.current
     if (iframe?.contentWindow == null) return
-    iframe.contentWindow.postMessage({ type: 'HIGHLIGHT', id: selectedNodeId }, '*')
+    iframe.contentWindow.postMessage({ type: 'HIGHLIGHT', id: selectedNodeId }, getIframeOrigin(previewUrl))
     iframe.contentWindow.postMessage(
       { type: 'SET_INTERACT_MODE', enabled: canvasMode === 'interact' },
-      '*'
+      getIframeOrigin(previewUrl)
     )
   }
 

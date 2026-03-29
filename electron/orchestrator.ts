@@ -1232,14 +1232,21 @@ let cachedRegistry: Record<string, RegistryEntry> = {}
 let activeRegistry: Record<string, RegistryEntry> = {}
 
 // ── HTML intrinsic tag set — never require registry membership ─────────────────
+// SYNC: Canonical source is flint-mcp/src/core/htmlIntrinsics.ts.
+//       Keep this copy in sync when adding or removing tags.
 const HTML_INTRINSICS = new Set([
-    'div', 'span', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-    'section', 'article', 'nav', 'main', 'header', 'footer', 'aside',
-    'ul', 'ol', 'li', 'a', 'img', 'button', 'input', 'textarea', 'select',
-    'form', 'label', 'table', 'tr', 'td', 'th', 'thead', 'tbody', 'tfoot',
-    'details', 'summary', 'dialog', 'figure', 'figcaption', 'blockquote',
-    'pre', 'code', 'hr', 'br', 'svg', 'path',
+    'div', 'span', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'a', 'button',
+    'img', 'input', 'textarea', 'select', 'option', 'form', 'label', 'ul',
+    'ol', 'li', 'table', 'tr', 'td', 'th', 'thead', 'tbody', 'tfoot', 'nav',
+    'header', 'footer', 'main', 'section', 'article', 'aside', 'figure',
+    'figcaption', 'details', 'summary', 'dialog', 'svg', 'path', 'circle',
+    'rect', 'line', 'polyline', 'polygon', 'video', 'audio', 'source',
+    'canvas', 'pre', 'code', 'blockquote', 'hr', 'br', 'strong', 'em',
+    'small', 'sub', 'sup', 'mark', 'del', 'ins', 'abbr', 'time',
 ])
+
+// React built-in PascalCase components — never require registry membership.
+const REACT_BUILTINS = new Set(['React', 'Fragment', 'Suspense', 'StrictMode', 'Profiler'])
 
 /**
  * CR.1 — Serialize the component registry into a BINDING markdown constraint block.
@@ -1403,14 +1410,9 @@ async function loadIdiomCache(): Promise<Record<string, string>> {
 
 export function serializeLibraryIdiomConstraints(selectedLibrary: string | undefined): string {
     if (!selectedLibrary) return ''
-    // If cache is warm, use it synchronously (the common path after first call)
-    if (_idiomCache) return _idiomCache[selectedLibrary] ?? ''
-    // Cache is cold — trigger async load. This call will return '' for the
-    // very first message in a session. Subsequent calls use the warm cache.
-    // This is acceptable because the first message typically doesn't need
-    // library constraints (it's usually the user's initial prompt).
-    loadIdiomCache().catch(() => {})
-    return ''
+    // CR-SEAL: Cache is pre-warmed in sendChatMessage() so this is always
+    // synchronous. If somehow called before warm-up, return '' gracefully.
+    return _idiomCache?.[selectedLibrary] ?? ''
 }
 
 /**
@@ -1469,6 +1471,9 @@ export function validateRegistryMembership(
         // Lowercase first char → HTML intrinsic or custom element; skip registry check
         return null
     }
+
+    // React built-ins (Fragment, Suspense, StrictMode, Profiler) always pass
+    if (REACT_BUILTINS.has(componentName)) return null
 
     // Check registry membership
     if (registry[componentName]) return null
@@ -1544,6 +1549,13 @@ export async function sendChatMessage(
     const workspaceRoot = activeFilePath ? path.dirname(activeFilePath) : process.cwd()
     loadComponentRegistry(workspaceRoot)
     activeRegistry = cachedRegistry
+
+    // CR-SEAL: Pre-warm library idiom cache eagerly so the FIRST AI turn
+    // gets library-specific constraints. Previously this was lazy-loaded,
+    // meaning the first message in a session had no library idiom block.
+    await loadIdiomCache().catch((err) => {
+        console.warn('[CR-SEAL] idiom cache warm failed:', err instanceof Error ? err.message : String(err))
+    })
 
     if (!config.apiKey) {
         onChunk({ type: 'error', error: 'No API key configured. Open AI Settings to set a key.' })

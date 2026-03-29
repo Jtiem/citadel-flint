@@ -15,12 +15,10 @@ LanguageRegistry.register(['svelte'], svelteAdapter)
 import { XYCanvas } from './components/editor/XYCanvas'
 import { LayerTree } from './components/ui/LayerTree'
 import { AssetsPanel } from './components/editor/AssetsPanel'
-import { FileExplorer } from './components/ui/FileExplorer'
 import { PropertiesPanel } from './components/ui/PropertiesPanel'
 import { TokenManager } from './components/ui/TokenManager'
 import { ExportModal } from './components/ui/ExportModal'
 import { GovernancePanel } from './components/ui/GovernancePanel'
-import { GovernanceOverlay } from './components/editor/GovernanceOverlay'
 import { GovernanceDashboard } from './components/ui/GovernanceDashboard'
 import { PanelErrorBoundary } from './components/ui/PanelErrorBoundary'
 import { NotificationCenter } from './components/ui/NotificationCenter'
@@ -48,7 +46,7 @@ import { useContextSync } from './hooks/useContextSync'
 import { useMCPEventListener } from './hooks/useMCPEventListener'
 import { useAutopilot } from './hooks/useAutopilot'
 import { useIDEFileSync } from './hooks/useIDEFileSync'
-import { ShieldAlert, ShieldCheck, Settings2, SlidersHorizontal, Palette, Layers, BarChart2, MoreHorizontal, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Settings2, SlidersHorizontal, Palette, BarChart2, MoreHorizontal, ChevronLeft, ChevronRight, Layers, LayoutGrid, Image } from 'lucide-react'
 import { OnboardingNudge } from './components/ui/OnboardingNudge'
 import { CommandPalette } from './components/ui/CommandPalette'
 import { ComponentPanel } from './components/ui/ComponentPanel'
@@ -56,6 +54,13 @@ import { ComponentPanel } from './components/ui/ComponentPanel'
 // ── Panel width constraints ───────────────────────────────────────────────────
 const PANEL_MIN = 160
 const PANEL_MAX = 400
+
+// ── Left sidebar tab display config ──────────────────────────────────────────
+const LEFT_TAB_CONFIG: Record<string, { label: string; Icon: React.ElementType }> = {
+    layers:     { label: 'Layers',     Icon: Layers },
+    components: { label: 'Components', Icon: LayoutGrid },
+    assets:     { label: 'Assets',     Icon: Image },
+}
 
 // ── Primary file selection ────────────────────────────────────────────────────
 function findPrimaryFile(tree: FileTreeNode): string | null {
@@ -76,9 +81,10 @@ function findPrimaryFile(tree: FileTreeNode): string | null {
 // ── App ───────────────────────────────────────────────────────────────────────
 
 function App() {
-    const [leftTab, setLeftTab] = useState<'layers' | 'components' | 'assets' | 'files'>('layers')
+    const [leftTab, setLeftTab] = useState<'layers' | 'components' | 'assets'>('layers')
     const rightTab    = useCanvasStore((s) => s.rightTab)
     const setRightTab = useCanvasStore((s) => s.setRightTab)
+    const governanceRuleFilter = useCanvasStore((s) => s.governanceRuleFilter)
     const [ipcStatus, setIpcStatus] = useState<string>('Connecting…')
     const [ipcOk, setIpcOk] = useState<boolean>(false)
     const [showExportModal, setShowExportModal] = useState(false)
@@ -126,13 +132,6 @@ function App() {
         setRightPanelWidth(next)
     }, [rightWidth, setRightPanelWidth])
 
-    // OPP-15: Opens GovernancePanel focused on a specific rule ID.
-    // Called by GovernanceOverlay's "Configure rule" gear button.
-    const handleConfigureRule = useCallback((ruleId: string) => {
-        setGovernanceFocusRuleId(ruleId)
-        setShowGovernancePanel(true)
-    }, [])
-
     const fetchTokens = useTokenStore((s) => s.fetchTokens)
     const pushNotification = useNotificationStore((s) => s.push)
     const fetchAnnotations = useAnnotationStore((s) => s.fetchAnnotations)
@@ -144,13 +143,11 @@ function App() {
     const saveState = useCanvasStore((s) => s.saveState)
     const activeFilePath = useCanvasStore((s) => s.activeFilePath)
     const closeWorkspace = useCanvasStore((s) => s.closeWorkspace)
-    const canExport = useCanvasStore((s) => s.canExport)
 
     // ── OPP-10/11: Progressive disclosure selectors ───────────────────────────
     const unlockTab        = useCanvasStore((s) => s.unlockTab)
     const markTabSeen      = useCanvasStore((s) => s.markTabSeen)
     const unlockLeftTab    = useCanvasStore((s) => s.unlockLeftTab)
-    const mithrilViolations = useCanvasStore((s) => s.mithrilViolations)
     // Subscribe to the Sets directly. Zustand v5 uses Object.is comparison, so
     // a new Set reference (from unlockTab / markTabSeen) correctly triggers a
     // re-render. Derive the tab-level predicates from these subscribed values
@@ -167,6 +164,7 @@ function App() {
     // OPP-10 unlock trigger data — subscribe to each source store
     const tokenCount           = useTokenStore((s) => s.tokens.length)
     const registryCards        = useComponentCardStore((s) => s.cards)
+    const hasOrchestratorConfig = useOrchestratorStore((s) => s.hasConfig)
 
     // OPP-16: Selection-based right panel auto-switch
     const activeSelection = useCanvasStore((s) => s.activeSelection)
@@ -223,24 +221,31 @@ function App() {
     // files tab — unlocks when MCP is connected (polled in StatusBar; here we
     // use the orchestratorStore hasConfig flag as a proxy for MCP availability)
     useEffect(() => {
-        if (useOrchestratorStore.getState().hasConfig) unlockLeftTab('files')
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [unlockLeftTab])
+        if (hasOrchestratorConfig) unlockLeftTab('files')
+    }, [hasOrchestratorConfig, unlockLeftTab])
 
     // ── OPP-16: Selection-based right panel auto-switch ───────────────────────
+    // Smart routing:
+    //  - If the user is actively reviewing violations in the Governance tab
+    //    (governanceRuleFilter is set), canvas selection keeps the governance
+    //    tab so they don't lose their place mid-investigation.
+    //  - Otherwise, element selection → Properties; deselect → Governance.
     useEffect(() => {
         const MANUAL_LOCK_MS = 3000
         const timeSinceManual = Date.now() - lastManualTabSwitchRef.current
         if (timeSinceManual < MANUAL_LOCK_MS) return
+
+        // If user is actively filtering violations, don't disrupt their flow
+        if (governanceRuleFilter !== null) return
 
         if (activeSelection && isTabUnlocked('properties')) {
             setRightTab('properties')
         } else if (!activeSelection && isTabUnlocked('governance')) {
             setRightTab('governance')
         }
-    // setRightTab is stable; isTabUnlocked reads from the store ref inline
+    // setRightTab and isTabUnlocked are stable; governanceRuleFilter is primitive
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeSelection])
+    }, [activeSelection, governanceRuleFilter])
 
     // ── Shared hydrate helper ─────────────────────────────────────────────────
     const hydrateWorkspace = async (tree: FileTreeNode) => {
@@ -320,13 +325,18 @@ function App() {
     }
 
     const handleLoadDemo = async () => {
-        const targetPath = await window.flintAPI.selectFolder()
-        if (!targetPath) return
-        const tree = await window.flintAPI.project.initialize({
-            targetPath,
-            templateId: 'flint-demo',
-        })
-        await hydrateWorkspace(tree as FileTreeNode)
+        try {
+            const targetPath = await window.flintAPI.selectFolder()
+            if (!targetPath) return
+            const tree = await window.flintAPI.project.initialize({
+                targetPath,
+                templateId: 'flint-demo',
+            })
+            await hydrateWorkspace(tree as FileTreeNode)
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err)
+            setDemoLoadError(`Demo project couldn't load: ${message}`)
+        }
     }
 
     // ── IPC health check ──────────────────────────────────────────────────────
@@ -493,7 +503,7 @@ function App() {
                     useNotificationStore.getState().push({
                         type: 'undo',
                         title: 'Undone',
-                        message: typeof desc === 'string' ? desc : 'AST mutation reversed',
+                        message: typeof desc === 'string' ? desc : 'Change undone',
                         severity: 'info',
                         autoDismissMs: 2500,
                         actionLabel: 'Redo',
@@ -510,7 +520,7 @@ function App() {
                     useNotificationStore.getState().push({
                         type: 'undo',
                         title: 'Redone',
-                        message: typeof desc === 'string' ? desc : 'AST mutation reapplied',
+                        message: typeof desc === 'string' ? desc : 'Change reapplied',
                         severity: 'info',
                         autoDismissMs: 2500,
                     })
@@ -549,6 +559,14 @@ function App() {
         return () => { window.removeEventListener(eventName, handler) }
     }, [])
 
+    // ── open-export custom event (fired by StatusBar export gate chip) ───────
+    useEffect(() => {
+        const handler = () => { setShowExportModal(true) }
+        const eventName = `${BRAND.productLower}:open-export`
+        window.addEventListener(eventName, handler)
+        return () => { window.removeEventListener(eventName, handler) }
+    }, [])
+
     // ── Project overflow menu: close on outside click ─────────────────────────
     useEffect(() => {
         if (!showProjectMenu) return
@@ -575,18 +593,21 @@ function App() {
         const timer = setTimeout(() => setSetupComplete(true), 3000)
 
         // Check if a project was explicitly specified (CLI --project flag)
+        const params = new URLSearchParams(window.location.search)
         const projectSpecified = typeof (globalThis as Record<string, unknown>).__FLINT_PROJECT__ === 'string'
-            || new URLSearchParams(window.location.search).has('project')
+            || params.has('project')
+        // --demo flag: force demo load regardless of first-launch state
+        const demoForced = params.has('demo')
 
         window.flintAPI.setup
             ?.checkFirstLaunch()
             .then(async ({ isFirstLaunch }: { isFirstLaunch: boolean }) => {
                 clearTimeout(timer)
-                if (!isFirstLaunch) {
+                if (!isFirstLaunch && !demoForced) {
                     setSetupComplete(true)
                     return
                 }
-                // First launch + no explicit project: auto-load demo for instant value
+                // First launch (or --demo flag) + no explicit project: auto-load demo
                 if (!projectSpecified) {
                     try {
                         const result = await window.flintAPI.beta?.loadDemoProject()
@@ -614,6 +635,9 @@ function App() {
         return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
+
+    // WS1: Error string when demo project load fails (surfaces to LaunchScreen)
+    const [demoLoadError, setDemoLoadError] = useState<string | null>(null)
 
     // ── Beta Welcome check (runs once after setup wizard resolves) ────────────
     // Defaults to done=true so non-beta builds never flash. Only flips to false
@@ -667,11 +691,7 @@ function App() {
     // but the demo auto-load already set workspaceFiles, we proceed to the canvas.
     // The SetupWizard is still accessible via "Connect to IDE" in the StatusBar
     // and LaunchScreen (rendered as a non-blocking modal).
-    if (!setupComplete) {
-        // Safety fallback: if setupComplete is false but we somehow get here,
-        // treat it as complete rather than blocking on the wizard.
-        setSetupComplete(true)
-    }
+    // (setupComplete === true is guaranteed by the timeout fallback useEffect above)
 
     // ── Beta Welcome gate ─────────────────────────────────────────────────────
     if (!betaWelcomeDone && betaInfo) {
@@ -706,6 +726,7 @@ function App() {
                     onOpenRecent={(p) => handleOpenRecent(p)}
                     onLoadDemo={() => handleLoadDemo()}
                     onConnectIDE={() => setShowSetupWizardModal(true)}
+                    demoError={demoLoadError ?? undefined}
                 />
                 {/* SetupWizard modal is rendered once at the App root (below) to avoid duplication */}
             </>
@@ -782,19 +803,6 @@ function App() {
 
                     <button
                         type="button"
-                        onClick={() => setShowExportModal(true)}
-                        title={canExport() ? 'Export-ready' : 'Export blocked by violations'}
-                        className={`flex items-center gap-1.5 rounded border px-2.5 py-1 text-[11px] font-medium transition-colors ${canExport()
-                            ? 'border-emerald-700/50 bg-emerald-900/20 text-emerald-400 hover:bg-emerald-900/40'
-                            : 'border-amber-700/50 bg-amber-900/20 text-amber-400 hover:bg-amber-900/40'
-                            }`}
-                    >
-                        {canExport() ? <ShieldCheck className="h-3 w-3" /> : <ShieldAlert className="h-3 w-3" />}
-                        Export
-                    </button>
-
-                    <button
-                        type="button"
                         onClick={() => { setGovernanceFocusRuleId(undefined); setShowGovernancePanel(true) }}
                         title="Governance Rules"
                         aria-label="Governance Rules"
@@ -862,24 +870,30 @@ function App() {
                             style={{ width: leftWidth, minWidth: PANEL_MIN, maxWidth: PANEL_MAX }}
                             className="flex min-h-0 shrink-0 flex-col border-r border-gray-800"
                         >
-                            <div className="flex shrink-0 border-b border-gray-800">
+                            <div role="tablist" className="flex shrink-0 border-b border-gray-800">
                                 {/* OPP-11: Left panel progressive tabs — filter by unlocked set */}
                                 {/* GLASS.1b: Components tab added between Layers and Assets */}
-                                {(['layers', 'components', 'assets', 'files'] as const)
+                                {(['layers', 'components', 'assets'] as const)
                                     .filter((tab) => isLeftTabUnlocked(tab))
-                                    .map((tab) => (
-                                        <button
-                                            key={tab}
-                                            type="button"
-                                            onClick={() => setLeftTab(tab)}
-                                            className={`flex-1 py-2 text-[10px] font-medium uppercase tracking-wider transition-colors ${leftTab === tab
-                                                ? 'border-b-2 border-indigo-500 text-indigo-400'
-                                                : 'text-zinc-500 hover:text-zinc-300'
-                                                }`}
-                                        >
-                                            {tab}
-                                        </button>
-                                    ))}
+                                    .map((tab) => {
+                                        const { label, Icon: LeftTabIcon } = LEFT_TAB_CONFIG[tab]
+                                        return (
+                                            <button
+                                                key={tab}
+                                                type="button"
+                                                role="tab"
+                                                aria-selected={leftTab === tab}
+                                                onClick={() => setLeftTab(tab)}
+                                                className={`flex flex-1 flex-col items-center py-2 transition-colors ${leftTab === tab
+                                                    ? 'border-b-2 border-indigo-500 text-indigo-400'
+                                                    : 'text-zinc-500 hover:text-zinc-300'
+                                                    }`}
+                                            >
+                                                <LeftTabIcon size={12} />
+                                                <span className="mt-0.5 text-[9px] font-medium leading-none">{label}</span>
+                                            </button>
+                                        )
+                                    })}
                             </div>
                             <div className="min-h-0 flex-1 overflow-y-auto">
                                 {leftTab === 'layers' && (
@@ -897,7 +911,6 @@ function App() {
                                         <AssetsPanel />
                                     </PanelErrorBoundary>
                                 )}
-                                {leftTab === 'files' && <FileExplorer />}
                             </div>
                         </section>
 
@@ -937,11 +950,11 @@ function App() {
                         >
                             {/* Onboarding nudge — shown above the tab bar for fresh projects */}
                             <OnboardingNudge
-                                onConnectFigma={() => handleSetRightTab('tokens')}
+                                onConnectFigma={() => setShowSetupWizardModal(true)}
                                 onStartEditing={() => handleSetRightTab('properties')}
                             />
 
-                            <div className="flex shrink-0 border-b border-gray-800">
+                            <div role="tablist" className="flex shrink-0 border-b border-gray-800">
                                 {/* OPP-10: Right panel progressive tabs — filter by unlocked set,
                                     show one-time indigo dot on newly-unlocked tabs */}
                                 {([
@@ -955,14 +968,18 @@ function App() {
                                         <button
                                             key={tab}
                                             type="button"
+                                            role="tab"
                                             onClick={() => handleSetRightTab(tab)}
                                             title={label}
-                                            className={`relative py-2 px-3 transition-colors ${rightTab === tab
+                                            aria-label={label}
+                                            aria-selected={rightTab === tab}
+                                            className={`relative flex flex-col items-center gap-0.5 py-2 px-3 transition-colors ${rightTab === tab
                                                 ? 'border-b-2 border-indigo-500 text-indigo-400'
                                                 : 'text-zinc-500 hover:text-zinc-300'
                                                 }`}
                                         >
                                             <Icon size={14} />
+                                            <span className="text-[9px] font-medium leading-none">{label}</span>
                                             {/* OPP-10: One-time "new" dot — indigo, 4px, top-right of icon */}
                                             {isTabNew(tab) && (
                                                 <span
@@ -981,7 +998,6 @@ function App() {
                                     <>
                                         {rightTab === 'properties' && (
                                             <PanelErrorBoundary panelName="Properties">
-                                                <GovernanceOverlay onConfigureRule={handleConfigureRule} />
                                                 <PropertiesPanel />
                                             </PanelErrorBoundary>
                                         )}
@@ -992,7 +1008,10 @@ function App() {
                                         )}
                                         {rightTab === 'governance' && (
                                             <PanelErrorBoundary panelName="Governance">
-                                                <GovernanceDashboard />
+                                                <GovernanceDashboard
+                                                    onOpenExportModal={() => setShowExportModal(true)}
+                                                    onOpenGovernancePanel={() => { setGovernanceFocusRuleId(undefined); setShowGovernancePanel(true) }}
+                                                />
                                             </PanelErrorBoundary>
                                         )}
                                     </>
@@ -1027,6 +1046,7 @@ function App() {
             <CommandPalette
                 onOpenExportModal={() => setShowExportModal(true)}
                 onOpenGovernancePanel={() => { setGovernanceFocusRuleId(undefined); setShowGovernancePanel(true) }}
+                onOpenSetupWizard={() => setShowSetupWizardModal(true)}
             />
             <NotificationCenter />
         </div>
@@ -1042,20 +1062,12 @@ function App() {
                 focusRuleId={governanceFocusRuleId}
             />
         )}
-        {/* WS1: SetupWizard as non-blocking modal, triggered from StatusBar "Connect IDE" */}
+        {/* WS1: SetupWizard as non-blocking modal, triggered from StatusBar "Connect IDE".
+             SetupWizard owns its own fixed inset-0 backdrop — no wrapper needed. */}
         {showSetupWizardModal && (
-            <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-                <FocusTrap>
-                <div
-                    role="dialog"
-                    aria-modal="true"
-                    aria-labelledby="setup-wizard-title"
-                    className="relative max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl"
-                >
-                    <SetupWizard onComplete={() => setShowSetupWizardModal(false)} />
-                </div>
-                </FocusTrap>
-            </div>
+            <FocusTrap>
+                <SetupWizard onComplete={() => setShowSetupWizardModal(false)} />
+            </FocusTrap>
         )}
         </>
     )

@@ -1,5 +1,7 @@
 # Flint
 
+**Prerequisites:** Node.js 22+
+
 Flint is a governance infrastructure layer that makes AI-generated UI code safe to ship. It enforces design systems, accessibility standards, and brand compliance at the AST level — deterministically, before code reaches production. Flint is the type checker for design systems: the same shift-left move TypeScript made for runtime errors, applied to brand drift and accessibility violations in AI-generated code.
 
 ---
@@ -60,12 +62,29 @@ npx tsc --noEmit
 
 Add Flint MCP to your Claude Code or Cursor MCP config:
 
+### Local dev (repo clone)
+
+```json
+{
+  "mcpServers": {
+    "flint": {
+      "command": "npx",
+      "args": ["tsx", "flint-mcp/src/server.ts"]
+    }
+  }
+}
+```
+
+> Run `cd flint-mcp && npm run build` once first if you prefer using the compiled path (`node flint-mcp/dist/server.js`).
+
+### Installed package (`npm install flint-glass`)
+
 ```json
 {
   "mcpServers": {
     "flint": {
       "command": "node",
-      "args": ["/absolute/path/to/flint-mcp/dist/server.js"]
+      "args": ["node_modules/flint-glass/flint-mcp/dist/server.js"]
     }
   }
 }

@@ -1115,6 +1115,24 @@ const REGISTRY: Record<string, ErrorEntry> = {
             'missing, the file may have been edited outside Flint.',
         sourceAuthority: 'Flint Commandment 7 (ID Preservation)',
     },
+
+    // ── CR-SEAL: Registry constraint rules ────────────────────────────────────
+
+    'FLINT-REG-001': {
+        code: 'FLINT-REG-001',
+        ruleId: 'REG-001',
+        category: 'governance',
+        severity: 'warning',
+        title: 'Unregistered Component Usage',
+        explanation:
+            'A component was used that is not part of your project\'s registered component library. ' +
+            'When a library is configured, Flint ensures all generated and existing code uses only ' +
+            'approved components — this prevents design system drift and unauthorized component usage.',
+        recovery:
+            'Add this component to your Armory (project registry), or replace it with ' +
+            'a registered alternative from your component library.',
+        sourceAuthority: 'Flint CR.2 (Constrained Registry)',
+    },
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────────

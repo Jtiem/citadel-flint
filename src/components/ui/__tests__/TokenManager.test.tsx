@@ -58,7 +58,17 @@ describe('TokenManager', () => {
         ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue([])
         render(<TokenManager />)
         await waitFor(() => {
-            expect(screen.getByText('No design tokens loaded. Connect Figma to sync your design system, or import a tokens JSON file.')).toBeDefined()
+            expect(screen.getByText('No design tokens loaded. Connect Figma or import a tokens JSON file.')).toBeDefined()
+        })
+    })
+
+    // 3b. Empty state renders the data-testid anchor
+    it('empty state container has data-testid="tokens-empty-state"', async () => {
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        render(<TokenManager />)
+        await waitFor(() => {
+            const el = document.querySelector('[data-testid="tokens-empty-state"]')
+            expect(el).not.toBeNull()
         })
     })
 
@@ -162,6 +172,90 @@ describe('TokenManager', () => {
         render(<TokenManager />)
         await waitFor(() => {
             expect(screen.getByText('Error: IPC unavailable')).toBeDefined()
+        })
+    })
+
+    // 12. ImportModal has role=dialog and aria-modal
+    it('ImportModal renders with role=dialog and aria-modal when open', async () => {
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        render(<TokenManager />)
+        // Open the import modal
+        const importBtn = screen.getByRole('button', { name: /Import JSON/i })
+        fireEvent.click(importBtn)
+        await waitFor(() => {
+            const dialog = screen.getByRole('dialog')
+            expect(dialog).toBeDefined()
+            expect(dialog.getAttribute('aria-modal')).toBe('true')
+        })
+    })
+
+    // 13. ImportModal title is labelled via aria-labelledby
+    it('ImportModal title element matches aria-labelledby', async () => {
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        render(<TokenManager />)
+        fireEvent.click(screen.getByRole('button', { name: /Import JSON/i }))
+        await waitFor(() => {
+            const dialog = screen.getByRole('dialog')
+            const labelId = dialog.getAttribute('aria-labelledby')
+            expect(labelId).toBeTruthy()
+            const title = document.getElementById(labelId!)
+            expect(title).not.toBeNull()
+            expect(title!.textContent).toContain('Import Token File (JSON)')
+        })
+    })
+
+    // 14. Color token validation — valid hex shows no error
+    it('shows no validation error for a valid hex color value', async () => {
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue([
+            makeToken({ id: 20, token_type: 'color', token_value: '#0066ff' }),
+        ])
+        render(<TokenManager />)
+        // The edit trigger button's accessible name is its text content (the token value)
+        await waitFor(() => screen.getByRole('button', { name: '#0066ff' }))
+
+        // Enter edit mode by clicking the value button
+        fireEvent.click(screen.getByRole('button', { name: '#0066ff' }))
+        await waitFor(() => screen.getByDisplayValue('#0066ff'))
+
+        // Valid hex — no error
+        expect(screen.queryByText('Not a valid color value')).toBeNull()
+    })
+
+    // 15. Color token validation — invalid value shows inline error
+    it('shows "Not a valid color value" when an invalid color is typed for a color token', async () => {
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue([
+            makeToken({ id: 21, token_type: 'color', token_value: '#0066ff' }),
+        ])
+        render(<TokenManager />)
+        await waitFor(() => screen.getByRole('button', { name: '#0066ff' }))
+
+        // Enter edit mode
+        fireEvent.click(screen.getByRole('button', { name: '#0066ff' }))
+        const input = await waitFor(() => screen.getByDisplayValue('#0066ff'))
+
+        // Type an invalid color
+        fireEvent.change(input, { target: { value: 'notacolor' } })
+
+        await waitFor(() => {
+            expect(screen.getByText('Not a valid color value')).toBeDefined()
+        })
+    })
+
+    // 16. Non-color token validation — empty value shows error
+    it('shows "Value cannot be empty" when a non-color token value is cleared', async () => {
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue([
+            makeToken({ id: 22, token_type: 'dimension', token_value: '16px' }),
+        ])
+        render(<TokenManager />)
+        await waitFor(() => screen.getByRole('button', { name: '16px' }))
+
+        fireEvent.click(screen.getByRole('button', { name: '16px' }))
+        const input = await waitFor(() => screen.getByDisplayValue('16px'))
+
+        fireEvent.change(input, { target: { value: '' } })
+
+        await waitFor(() => {
+            expect(screen.getByText('Value cannot be empty')).toBeDefined()
         })
     })
 })

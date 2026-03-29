@@ -4102,13 +4102,24 @@ ipcMain.handle(
     },
 )
 
-ipcMain.handle('beta:load-demo-project', async () => {
+ipcMain.handle('beta:load-demo-project', async (_event, payload?: { demoName?: string }) => {
     try {
-        // In packaged builds, demo assets are in resources/build-resources/demo-project/
-        // In dev, they're relative to the project root.
-        const demoSourceDir = app.isPackaged
-            ? path.join(process.resourcesPath, 'build-resources', 'demo-project')
-            : path.join(__dirname, '..', 'build-resources', 'demo-project')
+        const demoName = payload?.demoName
+        const resourcesBase = app.isPackaged
+            ? path.join(process.resourcesPath, 'build-resources')
+            : path.join(__dirname, '..', 'build-resources')
+
+        // If a named demo is requested, look in build-resources/demos/<demoName>/
+        // Fall back to build-resources/demo-project/ for the default case.
+        let demoSourceDir: string
+        if (demoName && demoName !== 'default') {
+            const namedDir = path.join(resourcesBase, 'demos', demoName)
+            demoSourceDir = existsSync(namedDir)
+                ? namedDir
+                : path.join(resourcesBase, 'demo-project')
+        } else {
+            demoSourceDir = path.join(resourcesBase, 'demo-project')
+        }
 
         if (!existsSync(demoSourceDir)) {
             return { error: 'Demo project bundle not found.' }

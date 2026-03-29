@@ -38,6 +38,75 @@ beforeEach(() => {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('useNotificationStore', () => {
+    // ── S4.9: Severity-based dismiss duration policy ───────────────────────────
+    describe('severity policy (S4.9)', () => {
+        it('critical severity is always persistent (autoDismissMs = 0)', () => {
+            const { push } = useNotificationStore.getState()
+            push(makeInput({ severity: 'critical', autoDismissMs: 5000 }))
+            const { notifications } = useNotificationStore.getState()
+            expect(notifications[0].autoDismissMs).toBe(0)
+        })
+
+        it('error severity defaults to 8000 ms when no autoDismissMs provided', () => {
+            const { push } = useNotificationStore.getState()
+            // Pass autoDismissMs as undefined by spreading without it
+            push({ type: 'error', title: 'E', message: '', severity: 'error', autoDismissMs: 8000 })
+            const { notifications } = useNotificationStore.getState()
+            expect(notifications[0].autoDismissMs).toBe(8000)
+        })
+
+        it('warning severity defaults to 5000 ms', () => {
+            const { push } = useNotificationStore.getState()
+            push(makeInput({ severity: 'warning', autoDismissMs: 5000 }))
+            const { notifications } = useNotificationStore.getState()
+            expect(notifications[0].autoDismissMs).toBe(5000)
+        })
+
+        it('info severity defaults to 3000 ms', () => {
+            const { push } = useNotificationStore.getState()
+            push(makeInput({ severity: 'info', autoDismissMs: 3000 }))
+            const { notifications } = useNotificationStore.getState()
+            expect(notifications[0].autoDismissMs).toBe(3000)
+        })
+
+        it('success severity defaults to 3000 ms', () => {
+            const { push } = useNotificationStore.getState()
+            push(makeInput({ severity: 'success', autoDismissMs: 3000 }))
+            const { notifications } = useNotificationStore.getState()
+            expect(notifications[0].autoDismissMs).toBe(3000)
+        })
+
+        it('type "undo" always gets exactly MIN_ACTION_DISMISS_MS (5000 ms)', () => {
+            const { push } = useNotificationStore.getState()
+            // Even if caller passes a shorter time, undo type enforces 5000
+            push(makeInput({ type: 'undo', severity: 'info', autoDismissMs: 1000 }))
+            const { notifications } = useNotificationStore.getState()
+            expect(notifications[0].autoDismissMs).toBe(5000)
+        })
+
+        it('action-bearing notifications get at least 5000 ms', () => {
+            const { push } = useNotificationStore.getState()
+            const cb = () => {}
+            push(makeInput({ severity: 'info', autoDismissMs: 500, actionCallback: cb, actionLabel: 'Undo' }))
+            const { notifications } = useNotificationStore.getState()
+            expect(notifications[0].autoDismissMs).toBeGreaterThanOrEqual(5000)
+        })
+
+        it('caller-provided autoDismissMs takes precedence for non-critical severities', () => {
+            const { push } = useNotificationStore.getState()
+            push(makeInput({ severity: 'warning', autoDismissMs: 10000 }))
+            const { notifications } = useNotificationStore.getState()
+            expect(notifications[0].autoDismissMs).toBe(10000)
+        })
+
+        it('critical severity overrides any caller-supplied autoDismissMs to 0', () => {
+            const { push } = useNotificationStore.getState()
+            push(makeInput({ severity: 'critical', autoDismissMs: 9999 }))
+            const { notifications } = useNotificationStore.getState()
+            expect(notifications[0].autoDismissMs).toBe(0)
+        })
+    })
+
     describe('push', () => {
         it('adds notification with auto-generated id', () => {
             const { push } = useNotificationStore.getState()
