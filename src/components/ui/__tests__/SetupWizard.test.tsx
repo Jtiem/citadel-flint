@@ -14,7 +14,7 @@
  *   WIZ-07 — "Continue" is disabled with no selection
  *   WIZ-08 — "Continue" advances to mcp-snippet step
  *   WIZ-09 — "Skip setup" on ide-detect calls onComplete
- *   WIZ-10 — "Install MCP Config" button is shown (no auto-write on step entry)
+ *   WIZ-10 — "Add to editor" button is shown (no auto-write on step entry)
  *   WIZ-11 — Shows "Config written" after clicking Install and writeMCPConfig resolves
  *   WIZ-12 — Shows error state when writeMCPConfig rejects
  *   WIZ-13 — Retry button resets write state so another attempt fires
@@ -34,8 +34,8 @@
  *
  * New R-* fix coverage:
  *   R1-A  — writeMCPConfig NOT called automatically on mcp-snippet step entry
- *   R1-B  — "Install MCP Config" button is present before write
- *   R1-C  — Clicking "Install MCP Config" calls writeMCPConfig
+ *   R1-B  — "Add to editor" button is present before write
+ *   R1-C  — Clicking "Add to editor" calls writeMCPConfig
  *   R1-D  — Install button shows "Installing…" spinner while writing
  *   R2-A  — "Copy config snippet" button appears in error state
  *   R2-B  — Clicking copy writes the JSON to clipboard
@@ -130,7 +130,7 @@ async function advanceToMcpStepInstalled(detectResult = MOCK_IDES_ALL_DETECTED) 
     ;(window.flintAPI.setup.writeMCPConfig as Mock).mockResolvedValue({ written: true })
     const result = await advanceToMcpStep(detectResult)
     // Click Install button
-    fireEvent.click(screen.getByText('Install MCP Config'))
+    fireEvent.click(screen.getByText('Add to editor'))
     await waitFor(() => {
         expect(screen.getByText(/Config written/i)).toBeDefined()
     })
@@ -242,23 +242,23 @@ describe('SetupWizard', () => {
         expect(onComplete).toHaveBeenCalledOnce()
     })
 
-    // WIZ-10 (updated): "Install MCP Config" button is shown; writeMCPConfig NOT auto-called
-    it('shows "Install MCP Config" button and does NOT auto-call writeMCPConfig on step entry', async () => {
+    // WIZ-10 (updated): "Add to editor" button is shown; writeMCPConfig NOT auto-called
+    it('shows "Add to editor" button and does NOT auto-call writeMCPConfig on step entry', async () => {
         await advanceToMcpStep()
 
         // Install button must be present
-        expect(screen.getByText('Install MCP Config')).toBeDefined()
+        expect(screen.getByText('Add to editor')).toBeDefined()
         // writeMCPConfig must NOT have been called automatically
         expect(window.flintAPI.setup.writeMCPConfig).not.toHaveBeenCalled()
     })
 
     // WIZ-11 (updated): Shows "Config written" after clicking Install and writeMCPConfig resolves
-    it('shows "Config written" after clicking "Install MCP Config" and writeMCPConfig resolves', async () => {
+    it('shows "Config written" after clicking "Add to editor" and writeMCPConfig resolves', async () => {
         ;(window.flintAPI.setup.writeMCPConfig as Mock).mockResolvedValue({ written: true })
 
         await advanceToMcpStep()
 
-        fireEvent.click(screen.getByText('Install MCP Config'))
+        fireEvent.click(screen.getByText('Add to editor'))
 
         await waitFor(() => {
             expect(screen.getByText(/Config written/i)).toBeDefined()
@@ -277,10 +277,10 @@ describe('SetupWizard', () => {
         fireEvent.click(screen.getByText('Continue'))
 
         await waitFor(() => {
-            expect(screen.getByText('Install MCP Config')).toBeDefined()
+            expect(screen.getByText('Add to editor')).toBeDefined()
         })
 
-        fireEvent.click(screen.getByText('Install MCP Config'))
+        fireEvent.click(screen.getByText('Add to editor'))
 
         await waitFor(() => {
             expect(screen.getByText(/Write failed/i)).toBeDefined()
@@ -295,8 +295,8 @@ describe('SetupWizard', () => {
         fireEvent.click(screen.getByText("Let's go"))
         await waitFor(() => { expect(screen.getByText('Claude Code')).toBeDefined() })
         fireEvent.click(screen.getByText('Continue'))
-        await waitFor(() => { expect(screen.getByText('Install MCP Config')).toBeDefined() })
-        fireEvent.click(screen.getByText('Install MCP Config'))
+        await waitFor(() => { expect(screen.getByText('Add to editor')).toBeDefined() })
+        fireEvent.click(screen.getByText('Add to editor'))
 
         await waitFor(() => {
             expect(screen.getByText(/Write failed/i)).toBeDefined()
@@ -308,10 +308,10 @@ describe('SetupWizard', () => {
 
         // After retry, we're back to null state, then user clicks Install again
         await waitFor(() => {
-            expect(screen.getByText('Install MCP Config')).toBeDefined()
+            expect(screen.getByText('Add to editor')).toBeDefined()
         })
 
-        fireEvent.click(screen.getByText('Install MCP Config'))
+        fireEvent.click(screen.getByText('Add to editor'))
 
         await waitFor(() => {
             expect(screen.getByText(/Config written/i)).toBeDefined()
@@ -364,7 +364,7 @@ describe('SetupWizard', () => {
             new Error('connect ECONNREFUSED 127.0.0.1:5000'),
         )
         // mcp.status throws → component falls into the outer catch and sets
-        // "Could not reach the MCP server. Try restarting the app, or check …"
+        // "Could not connect to Flint. Try restarting the app, or check …"
         ;(window.flintAPI.mcp!.status as Mock).mockRejectedValue(
             new Error('not connected'),
         )
@@ -386,7 +386,7 @@ describe('SetupWizard', () => {
 
             await waitFor(() => {
                 expect(
-                    screen.getByText(/Could not reach the MCP server/i)
+                    screen.getByText(/Could not connect to Flint/i)
                 ).toBeDefined()
             })
         } finally {
@@ -496,7 +496,7 @@ describe('SetupWizard', () => {
         await advanceToMcpStep(MOCK_IDES_ANTIGRAVITY_ONLY)
 
         // Click Install to trigger write
-        fireEvent.click(screen.getByText('Install MCP Config'))
+        fireEvent.click(screen.getByText('Add to editor'))
 
         await waitFor(() => {
             expect(window.flintAPI.setup.writeMCPConfig).toHaveBeenCalledWith(
@@ -519,19 +519,19 @@ describe('SetupWizard', () => {
         expect(window.flintAPI.setup.writeMCPConfig).not.toHaveBeenCalled()
     })
 
-    // R1-B: "Install MCP Config" button is present before write
-    it('R1-B: "Install MCP Config" button is visible before the write is triggered', async () => {
+    // R1-B: "Add to editor" button is present before write
+    it('R1-B: "Add to editor" button is visible before the write is triggered', async () => {
         await advanceToMcpStep()
 
-        expect(screen.getByText('Install MCP Config')).toBeDefined()
+        expect(screen.getByText('Add to editor')).toBeDefined()
     })
 
-    // R1-C: Clicking "Install MCP Config" calls writeMCPConfig
-    it('R1-C: clicking "Install MCP Config" calls window.flintAPI.setup.writeMCPConfig', async () => {
+    // R1-C: Clicking "Add to editor" calls writeMCPConfig
+    it('R1-C: clicking "Add to editor" calls window.flintAPI.setup.writeMCPConfig', async () => {
         ;(window.flintAPI.setup.writeMCPConfig as Mock).mockResolvedValue({ written: true })
 
         await advanceToMcpStep()
-        fireEvent.click(screen.getByText('Install MCP Config'))
+        fireEvent.click(screen.getByText('Add to editor'))
 
         await waitFor(() => {
             expect(window.flintAPI.setup.writeMCPConfig).toHaveBeenCalledOnce()
@@ -544,7 +544,7 @@ describe('SetupWizard', () => {
         ;(window.flintAPI.setup.writeMCPConfig as Mock).mockReturnValue(new Promise(() => {}))
 
         await advanceToMcpStep()
-        fireEvent.click(screen.getByText('Install MCP Config'))
+        fireEvent.click(screen.getByText('Add to editor'))
 
         await waitFor(() => {
             // Find the disabled Install button (the aria-live region also shows "Installing…"
@@ -565,8 +565,8 @@ describe('SetupWizard', () => {
         fireEvent.click(screen.getByText("Let's go"))
         await waitFor(() => { expect(screen.getByText('Claude Code')).toBeDefined() })
         fireEvent.click(screen.getByText('Continue'))
-        await waitFor(() => { expect(screen.getByText('Install MCP Config')).toBeDefined() })
-        fireEvent.click(screen.getByText('Install MCP Config'))
+        await waitFor(() => { expect(screen.getByText('Add to editor')).toBeDefined() })
+        fireEvent.click(screen.getByText('Add to editor'))
 
         await waitFor(() => {
             expect(screen.getByText(/Copy config snippet/i)).toBeDefined()
@@ -581,8 +581,8 @@ describe('SetupWizard', () => {
         fireEvent.click(screen.getByText("Let's go"))
         await waitFor(() => { expect(screen.getByText('Claude Code')).toBeDefined() })
         fireEvent.click(screen.getByText('Continue'))
-        await waitFor(() => { expect(screen.getByText('Install MCP Config')).toBeDefined() })
-        fireEvent.click(screen.getByText('Install MCP Config'))
+        await waitFor(() => { expect(screen.getByText('Add to editor')).toBeDefined() })
+        fireEvent.click(screen.getByText('Add to editor'))
 
         await waitFor(() => {
             expect(screen.getByText(/Copy config snippet/i)).toBeDefined()
@@ -608,8 +608,8 @@ describe('SetupWizard', () => {
         fireEvent.click(screen.getByText("Let's go"))
         await waitFor(() => { expect(screen.getByText('Claude Code')).toBeDefined() })
         fireEvent.click(screen.getByText('Continue'))
-        await waitFor(() => { expect(screen.getByText('Install MCP Config')).toBeDefined() })
-        fireEvent.click(screen.getByText('Install MCP Config'))
+        await waitFor(() => { expect(screen.getByText('Add to editor')).toBeDefined() })
+        fireEvent.click(screen.getByText('Add to editor'))
 
         await waitFor(() => {
             expect(screen.getByText(/Paste this into/i)).toBeDefined()
@@ -672,10 +672,10 @@ describe('SetupWizard', () => {
         fireEvent.click(screen.getByText("Let's go"))
         await waitFor(() => { expect(screen.getByText('Claude Code')).toBeDefined() })
         fireEvent.click(screen.getByText('Continue'))
-        await waitFor(() => { expect(screen.getByText('Install MCP Config')).toBeDefined() })
+        await waitFor(() => { expect(screen.getByText('Add to editor')).toBeDefined() })
 
         // Begin the write
-        fireEvent.click(screen.getByText('Install MCP Config'))
+        fireEvent.click(screen.getByText('Add to editor'))
 
         // Wait until write is in-flight (disabled button present)
         await waitFor(() => {
@@ -720,8 +720,8 @@ describe('SetupWizard', () => {
         // Select Claude Code then advance to mcp-snippet and install
         fireEvent.click(screen.getByText('Claude Code'))
         fireEvent.click(screen.getByText('Continue'))
-        await waitFor(() => { expect(screen.getByText('Install MCP Config')).toBeDefined() })
-        fireEvent.click(screen.getByText('Install MCP Config'))
+        await waitFor(() => { expect(screen.getByText('Add to editor')).toBeDefined() })
+        fireEvent.click(screen.getByText('Add to editor'))
         await waitFor(() => { expect(screen.getByText(/Config written/i)).toBeDefined() })
 
         // Go back to ide-detect
@@ -736,7 +736,7 @@ describe('SetupWizard', () => {
         await waitFor(() => { expect(screen.getByText(/Connecting Flint to/i)).toBeDefined() })
 
         // The Install button must be visible (not the "Config written" state)
-        expect(screen.getByText('Install MCP Config')).toBeDefined()
+        expect(screen.getByText('Add to editor')).toBeDefined()
     })
 
     // ── R-9 Fix Tests ─────────────────────────────────────────────────────────
@@ -891,4 +891,41 @@ describe('SetupWizard', () => {
             vi.useRealTimers()
         }
     }, 30_000)
+
+    // ── Fix 5 (onboarding copy) ───────────────────────────────────────────────
+
+    // Fix5-MCP: No rendered text content contains the word "MCP" (JSON snippet excepted)
+    it('Fix5-MCP: no user-visible text contains the word "MCP" outside the JSON snippet', async () => {
+        ;(window.flintAPI.setup.detectIDEs as Mock).mockResolvedValue(MOCK_IDES_ALL_DETECTED)
+        render(<SetupWizard onComplete={vi.fn()} />)
+
+        // Walk through each step and check for MCP in rendered text
+        const steps: Array<() => void> = [
+            () => fireEvent.click(screen.getByText("Let's go")),
+            async () => {
+                await waitFor(() => screen.getByText('Continue'))
+                fireEvent.click(screen.getByText('Continue'))
+            },
+        ]
+
+        for (const step of steps) {
+            await step()
+            // Gather all text nodes, excluding <pre> and <code> elements (JSON snippet)
+            const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+            const textNodes: string[] = []
+            let node = walker.nextNode()
+            while (node) {
+                const el = node.parentElement
+                // Skip JSON snippet containers (pre, code)
+                if (el && (el.closest('pre') || el.closest('code'))) {
+                    node = walker.nextNode()
+                    continue
+                }
+                textNodes.push(node.textContent ?? '')
+                node = walker.nextNode()
+            }
+            const allText = textNodes.join(' ')
+            expect(allText).not.toMatch(/\bMCP\b/)
+        }
+    })
 })

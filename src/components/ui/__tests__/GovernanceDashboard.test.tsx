@@ -322,6 +322,78 @@ describe('GovernanceDashboard', () => {
         })
     })
 
+    // ── Fix 1: A11y Fix button via MCP ───────────────────────────────────────
+
+    // 22. Fix button renders for an a11y violation
+    it('renders a Fix button for an a11y violation', async () => {
+        seedTokens([makeToken()])
+        useCanvasStore.setState({
+            activeFilePath: '/project/src/Button.tsx',
+            a11yViolations: {
+                'node-a1': ['A11Y-001: Missing alt text'],
+            },
+        })
+        render(<GovernanceDashboard />)
+        await waitFor(() => {
+            expect(screen.getByTestId('a11y-fix-btn-A11Y-001')).toBeDefined()
+        })
+    })
+
+    // 23. Clicking the Fix button calls flint_fix with correct arguments
+    it('clicking Fix calls flint_fix with filePath, ruleId, dry_run: false', async () => {
+        const mockCallTool = vi.fn().mockResolvedValue({ ok: true })
+        ;(window.flintAPI as Record<string, unknown>).mcp = { callTool: mockCallTool }
+
+        seedTokens([makeToken()])
+        useCanvasStore.setState({
+            activeFilePath: '/project/src/Button.tsx',
+            a11yViolations: {
+                'node-a1': ['A11Y-001: Missing alt text'],
+            },
+        })
+        render(<GovernanceDashboard />)
+        await waitFor(() => screen.getByTestId('a11y-fix-btn-A11Y-001'))
+        fireEvent.click(screen.getByTestId('a11y-fix-btn-A11Y-001'))
+        await waitFor(() => {
+            expect(mockCallTool).toHaveBeenCalledWith('flint_fix', {
+                filePath: '/project/src/Button.tsx',
+                ruleId: 'A11Y-001',
+                dry_run: false,
+            })
+        })
+    })
+
+    // 24. Mithril Fix button still works (regression guard)
+    it('Mithril Fix button still calls applyBatch — regression guard', async () => {
+        // Set fixMode to 'auto' so handleFixSingle calls applyBatch directly
+        localStorage.setItem('flint:user-prefs', JSON.stringify({ fixMode: 'auto' }))
+        seedTokens([makeToken()])
+        const applyBatch = vi.fn()
+        useEditorStore.setState({ applyBatch } as Parameters<typeof useEditorStore.setState>[0])
+        useEditorStore.setState({
+            linterWarnings: new Map([
+                ['node-m1', {
+                    id: 'node-m1',
+                    type: 'color-drift' as const,
+                    severity: 'critical' as const,
+                    value: 1,
+                    message: "MITHRIL-COL-001: arbitrary '#3b82f6' not in color token set",
+                    nearestToken: 'bg-blue-600',
+                    nearestTokenValue: '#2563eb',
+                }],
+            ]),
+        })
+        render(<GovernanceDashboard />)
+        await waitFor(() => {
+            expect(screen.getByRole('button', { name: /Fix violation on element node-m1/i })).toBeDefined()
+        })
+        fireEvent.click(screen.getByRole('button', { name: /Fix violation on element node-m1/i }))
+        expect(applyBatch).toHaveBeenCalledWith(expect.arrayContaining([
+            expect.objectContaining({ op: 'applyTokenFix', nodeId: 'node-m1' }),
+        ]))
+        localStorage.removeItem('flint:user-prefs')
+    })
+
     // ── Cleanup ───────────────────────────────────────────────────────────────
 
     // Reset canvas store state shared across tests

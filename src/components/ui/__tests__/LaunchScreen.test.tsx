@@ -368,34 +368,67 @@ describe('LaunchScreen', () => {
         })
     })
 
-    // ── Demo gallery strip ────────────────────────────────────────────────────
+    // ── Demo section ──────────────────────────────────────────────────────────
 
-    it('renders demo gallery strip with 4 cards', async () => {
+    it('renders "Try a demo project" section label', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
         render(<LaunchScreen {...defaultProps()} />)
         await waitFor(() => {
             expect(screen.getByText('Try a demo project')).toBeDefined()
+        })
+    })
+
+    it('renders a single "Try the demo" CTA button', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        render(<LaunchScreen {...defaultProps()} />)
+        await waitFor(() => {
+            expect(screen.getByText('Try the demo')).toBeDefined()
+        })
+    })
+
+    it('"Try the demo" button calls onLoadDemo with "a11y-audit"', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        const props = defaultProps()
+        render(<LaunchScreen {...props} />)
+        await waitFor(() => screen.getByText('Try the demo'))
+        fireEvent.click(screen.getByText('Try the demo'))
+        await waitFor(() => {
+            expect(props.onLoadDemo).toHaveBeenCalledWith('a11y-audit')
+        })
+    })
+
+    it('"More demos" section is collapsed by default', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        render(<LaunchScreen {...defaultProps()} />)
+        await waitFor(() => screen.getByText('More demos'))
+        expect(screen.queryByTestId('more-demos-section')).toBeNull()
+    })
+
+    it('clicking "More demos" toggle shows additional demo cards', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        render(<LaunchScreen {...defaultProps()} />)
+        await waitFor(() => screen.getByText('More demos'))
+        fireEvent.click(screen.getByText('More demos'))
+        await waitFor(() => {
+            expect(screen.getByTestId('more-demos-section')).toBeDefined()
             expect(screen.getByText('Token Drift')).toBeDefined()
             expect(screen.getByText('A11y Audit')).toBeDefined()
             expect(screen.getByText('DS Migration')).toBeDefined()
             expect(screen.getByText('Full App Scan')).toBeDefined()
         })
-        const loadButtons = screen.getAllByRole('button', { name: 'Load' })
-        expect(loadButtons).toHaveLength(4)
     })
 
-    it('Load button calls beta.loadDemoProject with correct demoName', async () => {
+    it('clicking the toggle again hides the demo cards', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        ;(window.flintAPI.beta?.loadDemoProject as ReturnType<typeof vi.fn>).mockResolvedValue({ error: 'not found' })
-        const props = defaultProps()
-        render(<LaunchScreen {...props} />)
-        await waitFor(() => screen.getByText('A11y Audit'))
-
-        const loadButtons = screen.getAllByRole('button', { name: 'Load' })
-        // Buttons are in order: token-drift, a11y-audit, design-system-migration, multi-component-app
-        fireEvent.click(loadButtons[1]) // a11y-audit
+        render(<LaunchScreen {...defaultProps()} />)
+        await waitFor(() => screen.getByText('More demos'))
+        // Expand
+        fireEvent.click(screen.getByText('More demos'))
+        await waitFor(() => screen.getByTestId('more-demos-section'))
+        // Collapse
+        fireEvent.click(screen.getByText('Hide demos'))
         await waitFor(() => {
-            expect(window.flintAPI.beta?.loadDemoProject).toHaveBeenCalledWith('a11y-audit')
+            expect(screen.queryByTestId('more-demos-section')).toBeNull()
         })
     })
 })

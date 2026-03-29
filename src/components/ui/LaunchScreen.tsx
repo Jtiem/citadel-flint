@@ -45,7 +45,7 @@ interface LaunchScreenProps {
     onOpenFolder: () => Promise<void>
     onNewProject: () => Promise<void>
     onOpenRecent: (projectPath: string) => Promise<void>
-    onLoadDemo: () => Promise<void>
+    onLoadDemo: (demoName: string) => Promise<void>
     /** WS1: Opens the SetupWizard as a non-blocking modal for IDE/MCP configuration */
     onConnectIDE?: () => void
     /** Error message to surface when demo project load fails */
@@ -119,7 +119,7 @@ const TILES = [
 // Detect web mode — true when running in browser via Express server
 const isWebMode = typeof (globalThis as Record<string, unknown>).__FLINT_WEB__ !== 'undefined'
 
-export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadDemo: _onLoadDemo, onConnectIDE, demoError }: LaunchScreenProps) {
+export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadDemo, onConnectIDE, demoError }: LaunchScreenProps) {
     const [selectedPath, setSelectedPath] = useState<JTBDPath>(null)
     const [flowStep, setFlowStep] = useState<FlowStep>('choose')
     const [recentProjects, setRecentProjects] = useState<RecentProject[]>([])
@@ -134,6 +134,8 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
     const [showWebPathInput, setShowWebPathInput] = useState(false)
     // Demo load error banner — dismissed via local state
     const [demoBannerDismissed, setDemoBannerDismissed] = useState(false)
+    // Demo gallery — show more / collapse
+    const [showMoreDemos, setShowMoreDemos] = useState(false)
 
     // ── Web-mode open-folder signal listener ──────────────────────────────────
     // When web-api's openFolder() is called from App.tsx (e.g. project menu),
@@ -602,41 +604,64 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
                         </div>
                     )}
 
-                    {/* 7. Demo gallery strip */}
+                    {/* 7. Demo section */}
                     <div className="mt-8">
                         <p className="mb-3 text-[10px] font-medium uppercase tracking-wider text-zinc-600">
                             Try a demo project
                         </p>
-                        <div className="flex gap-2 overflow-x-auto pb-1">
-                            {DEMO_PROJECTS.map((demo) => (
-                                <div
-                                    key={demo.name}
-                                    className="flex w-40 shrink-0 flex-col rounded-lg border border-zinc-800 bg-zinc-900/60 p-3"
-                                >
-                                    <p className="text-xs font-semibold text-zinc-200">{demo.title}</p>
-                                    <p className="mt-0.5 text-[11px] text-zinc-500">
-                                        {demo.time} · {demo.topic}
-                                    </p>
-                                    <p className="mt-2 flex-1 text-[11px] leading-relaxed text-zinc-400">
-                                        {demo.outcome}
-                                    </p>
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            void window.flintAPI.beta?.loadDemoProject(demo.name)
-                                                .then((result) => {
-                                                    if (result && 'projectPath' in result) {
-                                                        void onOpenRecent(result.projectPath)
-                                                    }
-                                                })
-                                        }}
-                                        className="mt-3 w-full rounded-md border border-zinc-700 bg-zinc-800/60 py-1.5 text-[11px] font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-700/60 hover:text-zinc-100"
+                        {/* Primary demo CTA */}
+                        <button
+                            type="button"
+                            onClick={() => { void onLoadDemo('a11y-audit') }}
+                            className="group mb-3 flex w-full items-center gap-3 rounded-xl border border-indigo-500/30 bg-gradient-to-r from-indigo-600/20 to-indigo-500/10 px-5 py-4 text-left transition-all hover:border-indigo-500/50 hover:from-indigo-600/30 hover:to-indigo-500/20"
+                        >
+                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-600/30 text-indigo-300 transition-colors group-hover:bg-indigo-600/40">
+                                <Shield size={18} />
+                            </div>
+                            <div className="flex-1">
+                                <p className="text-sm font-semibold text-zinc-100">Try the demo</p>
+                                <p className="text-xs text-zinc-400">A11y Audit · 5 min · WCAG 2.1 AA</p>
+                            </div>
+                            <ChevronRight size={16} className="shrink-0 text-zinc-600 transition-transform group-hover:translate-x-0.5" />
+                        </button>
+                        {/* More demos toggle */}
+                        <button
+                            type="button"
+                            onClick={() => setShowMoreDemos((v) => !v)}
+                            className="mb-2 flex w-full items-center justify-center gap-1 text-[11px] text-zinc-600 transition-colors hover:text-zinc-400"
+                        >
+                            {showMoreDemos ? 'Hide demos' : 'More demos'}
+                            <ChevronRight
+                                size={11}
+                                className={['shrink-0 transition-transform', showMoreDemos ? 'rotate-90' : ''].join(' ')}
+                            />
+                        </button>
+                        {/* Collapsible additional demos */}
+                        {showMoreDemos && (
+                            <div className="flex gap-2 overflow-x-auto pb-1" data-testid="more-demos-section">
+                                {DEMO_PROJECTS.map((demo) => (
+                                    <div
+                                        key={demo.name}
+                                        className="flex w-40 shrink-0 flex-col rounded-lg border border-zinc-800 bg-zinc-900/60 p-3"
                                     >
-                                        Load
-                                    </button>
-                                </div>
-                            ))}
-                        </div>
+                                        <p className="text-xs font-semibold text-zinc-200">{demo.title}</p>
+                                        <p className="mt-0.5 text-[11px] text-zinc-500">
+                                            {demo.time} · {demo.topic}
+                                        </p>
+                                        <p className="mt-2 flex-1 text-[11px] leading-relaxed text-zinc-400">
+                                            {demo.outcome}
+                                        </p>
+                                        <button
+                                            type="button"
+                                            onClick={() => { void onLoadDemo(demo.name) }}
+                                            className="mt-3 w-full rounded-md border border-zinc-700 bg-zinc-800/60 py-1.5 text-[11px] font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-700/60 hover:text-zinc-100"
+                                        >
+                                            Load
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
 
                     {/* 8. Recent projects */}

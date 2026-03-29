@@ -674,6 +674,42 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
         }
     }, [autoFixableEntries, prefs.fixMode])
 
+    // ── A11y fix handler — calls flint_fix via bidirectional MCP client ─────────
+    const handleA11yFix = useCallback(async (ruleId: string) => {
+        const filePath = useCanvasStore.getState().activeFilePath
+        if (!filePath) {
+            useNotificationStore.getState().push({
+                type: 'violation',
+                title: 'Fix failed',
+                message: 'No active file — open a file before fixing',
+                severity: 'amber',
+                autoDismissMs: 4000,
+            })
+            return
+        }
+        try {
+            await window.flintAPI.mcp?.callTool('flint_fix', { filePath, ruleId, dry_run: false })
+            useNotificationStore.getState().push({
+                type: 'mutation',
+                title: 'Fix applied',
+                message: `${ruleId} fixed in ${filePath.split('/').pop()}`,
+                severity: 'info',
+                autoDismissMs: 3000,
+            })
+            // Trigger re-audit so violations refresh
+            void window.flintAPI.mcp?.callTool('flint_audit', { file: filePath }).catch(() => { /* best-effort */ })
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err)
+            useNotificationStore.getState().push({
+                type: 'violation',
+                title: 'Fix failed',
+                message: `Fix failed — ${msg}`,
+                severity: 'amber',
+                autoDismissMs: 5000,
+            })
+        }
+    }, [])
+
     // ── Apply confirmed fix(es) from preview drawer ───────────────────────────
     const handleApplyPreview = useCallback(() => {
         if (!fixPreviewItems) return
@@ -1017,8 +1053,17 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
                                                 ? <ChevronDown size={10} className="shrink-0 mt-1 text-zinc-600" aria-hidden="true" />
                                                 : <ChevronRight size={10} className="shrink-0 mt-1 text-zinc-600" aria-hidden="true" />}
                                         </button>
-                                        {/* S5.5 + S5.9: Defer + Pin actions for a11y violations */}
+                                        {/* S5.5 + S5.9: Fix + Defer + Pin actions for a11y violations */}
                                         <div className="flex shrink-0 items-center gap-1 self-center mr-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => void handleA11yFix(ruleId)}
+                                                className="rounded border border-indigo-500/30 bg-indigo-900/20 px-2 py-0.5 text-[10px] text-indigo-400 hover:bg-indigo-900/40 transition-colors"
+                                                aria-label={`Fix ${ruleId} violation`}
+                                                data-testid={`a11y-fix-btn-${ruleId}`}
+                                            >
+                                                Fix
+                                            </button>
                                             <button
                                                 type="button"
                                                 onClick={() => {

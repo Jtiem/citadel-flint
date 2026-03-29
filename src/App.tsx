@@ -23,6 +23,7 @@ import { GovernanceDashboard } from './components/ui/GovernanceDashboard'
 import { PanelErrorBoundary } from './components/ui/PanelErrorBoundary'
 import { NotificationCenter } from './components/ui/NotificationCenter'
 import { OnboardingOverlay } from './components/ui/OnboardingOverlay'
+import { DemoWalkthrough } from './components/ui/DemoWalkthrough'
 // Phase ING.2: Import Summary toast + panel
 import { ImportSummaryToastMount, ImportSummaryPanelView } from './components/ui/ImportSummary'
 import { useImportSummaryStore } from './store/importSummaryStore'
@@ -324,15 +325,19 @@ function App() {
         await hydrateWorkspace(tree as FileTreeNode)
     }
 
-    const handleLoadDemo = async () => {
+    const handleLoadDemo = async (demoName: string) => {
+        if (!window.flintAPI.beta) {
+            setDemoLoadError('Demo loading is not available in this environment')
+            return
+        }
         try {
-            const targetPath = await window.flintAPI.selectFolder()
-            if (!targetPath) return
-            const tree = await window.flintAPI.project.initialize({
-                targetPath,
-                templateId: 'flint-demo',
-            })
-            await hydrateWorkspace(tree as FileTreeNode)
+            const result = await window.flintAPI.beta.loadDemoProject(demoName)
+            if (result && 'projectPath' in result) {
+                const tree = await window.flintAPI.project.openPath(result.projectPath)
+                if (tree) {
+                    await hydrateWorkspace(tree as FileTreeNode)
+                }
+            }
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err)
             setDemoLoadError(`Demo project couldn't load: ${message}`)
@@ -609,17 +614,21 @@ function App() {
                 }
                 // First launch (or --demo flag) + no explicit project: auto-load demo
                 if (!projectSpecified) {
-                    try {
-                        const result = await window.flintAPI.beta?.loadDemoProject()
-                        if (result && 'projectPath' in result) {
-                            const tree = await window.flintAPI.project.openPath(result.projectPath)
-                            if (tree) {
-                                await hydrateWorkspace(tree as FileTreeNode)
-                                setDemoAutoLoaded(true)
+                    if (!window.flintAPI.beta) {
+                        setDemoLoadError('Demo loading is not available in this environment')
+                    } else {
+                        try {
+                            const result = await window.flintAPI.beta.loadDemoProject('a11y-audit')
+                            if (result && 'projectPath' in result) {
+                                const tree = await window.flintAPI.project.openPath(result.projectPath)
+                                if (tree) {
+                                    await hydrateWorkspace(tree as FileTreeNode)
+                                    setDemoAutoLoaded(true)
+                                }
                             }
+                        } catch {
+                            // Demo load failed — fall through to LaunchScreen gracefully
                         }
-                    } catch {
-                        // Demo load failed — fall through to LaunchScreen gracefully
                     }
                 }
                 // Don't call completeFirstLaunch() here — defer until first meaningful
@@ -700,7 +709,7 @@ function App() {
                 buildId={betaInfo.buildId}
                 daysRemaining={betaInfo.daysRemaining}
                 onTryDemo={async () => {
-                    const result = await window.flintAPI.beta?.loadDemoProject()
+                    const result = await window.flintAPI.beta?.loadDemoProject('a11y-audit')
                     if (result && 'projectPath' in result) {
                         const tree = await window.flintAPI.project.openPath(result.projectPath)
                         if (tree) {
@@ -724,7 +733,7 @@ function App() {
                     onOpenFolder={() => handleOpenFolder()}
                     onNewProject={() => handleNewProject()}
                     onOpenRecent={(p) => handleOpenRecent(p)}
-                    onLoadDemo={() => handleLoadDemo()}
+                    onLoadDemo={(demoName) => handleLoadDemo(demoName)}
                     onConnectIDE={() => setShowSetupWizardModal(true)}
                     demoError={demoLoadError ?? undefined}
                 />
@@ -1037,6 +1046,9 @@ function App() {
             <ImportSummaryToastMount />
 
             {/* Non-modal overlays (inside the aria-hidden wrapper) */}
+            {demoAutoLoaded && (
+                <DemoWalkthrough onDismiss={() => setDemoAutoLoaded(false)} />
+            )}
             <OnboardingOverlay onDismiss={() => {
                 // Fix #3: Complete first launch when user finishes the onboarding tour.
                 // Users who close before finishing get the demo again on next launch.

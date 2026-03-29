@@ -134,6 +134,10 @@ import {
     handlePullVariables,
     FLINT_PULL_VARIABLES_TOOL,
 } from "./tools/figmaVariables.js";
+import {
+    handleFlintQuickstart,
+    FLINT_QUICKSTART_TOOL,
+} from "./tools/quickstart.js";
 
 // @ts-ignore
 const generate = _generate.default || _generate;
@@ -635,6 +639,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                     required: ["query"],
                 },
             },
+            FLINT_QUICKSTART_TOOL,
             FLINT_AUDIT_TOOL,
             FLINT_FIX_TOOL,
             FLINT_SWARM_AUDIT_FIX_TOOL,
@@ -3913,6 +3918,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 mode?: string;
             };
             return handlePullVariables(pullArgs);
+        }
+
+        case "flint_quickstart": {
+            const qsArgs = request.params.arguments as { outputDir?: string } ?? {};
+            return handleFlintQuickstart(qsArgs, flintConfig);
         }
 
         default:

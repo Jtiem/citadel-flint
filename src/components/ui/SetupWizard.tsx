@@ -286,17 +286,17 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
             const status = await window.flintAPI.mcp?.status?.()
             if (status && !status.connected) {
                 setVerifyError(
-                    'MCP server is starting but not ready yet. ' +
+                    'Flint is starting but not ready yet. ' +
                     'Wait a few seconds and try again, or check the console for errors.',
                 )
             } else {
                 setVerifyError(
-                    'Could not reach the MCP server. Make sure the server is running and your IDE has the correct config.',
+                    'Could not connect to Flint. Make sure your IDE has the correct config file.',
                 )
             }
         } catch {
             setVerifyError(
-                'Could not reach the MCP server. ' +
+                'Could not connect to Flint. ' +
                 'Try restarting the app, or check the developer console for errors.',
             )
         }
@@ -340,7 +340,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                                 Get {BRAND.product} running in 2 minutes
                             </h1>
                             <p className="text-sm text-zinc-400">
-                                {BRAND.product} connects to your IDE via MCP. We&apos;ll help you set it up.
+                                {BRAND.product} connects to your IDE. We&apos;ll help you set it up.
                             </p>
                         </div>
                         <button
@@ -468,7 +468,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                             {/* Pre-install: show prompt to click Install */}
                             {writeStatus === null && (
                                 <p className="text-center text-sm text-zinc-500">
-                                    Review the config above, then click "Install MCP Config".
+                                    Review the config above, then click "Add to editor".
                                 </p>
                             )}
 
@@ -536,7 +536,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                                     onClick={handleInstall}
                                     className="flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
                                 >
-                                    Install MCP Config
+                                    Add to editor
                                     <ChevronRight size={14} />
                                 </button>
                             )}
