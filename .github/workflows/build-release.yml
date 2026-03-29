@@ -83,36 +83,42 @@ jobs:
           cd flint-mcp
           npm ci
 
-      # ── 5. Build flint-ci GitHub Action bundle ───────────────────────────────
+      # ── 5. Build flint-mcp engine (flint-ci imports from flint-mcp/dist/) ──────
+      - name: Build flint-mcp
+        run: |
+          cd flint-mcp
+          npm run build
+
+      # ── 6. Build flint-ci GitHub Action bundle ───────────────────────────────
       - name: Build flint-ci
         run: |
           cd flint-ci
           npm ci
           npm run build
 
-      # ── 6. TypeScript — root project ────────────────────────────────────────
+      # ── 7. TypeScript — root project ────────────────────────────────────────
       - name: Typecheck (root)
         run: npx tsc --noEmit
 
-      # ── 7. TypeScript — MCP engine ──────────────────────────────────────────
+      # ── 8. TypeScript — MCP engine ──────────────────────────────────────────
       - name: Typecheck (flint-mcp)
         run: npx tsc --noEmit --project flint-mcp/tsconfig.json
 
-      # ── 8. Core tests ───────────────────────────────────────────────────────
+      # ── 9. Core tests ───────────────────────────────────────────────────────
       - name: Core tests
         run: npm test
 
-      # ── 9. Glass component tests ─────────────────────────────────────────────
+      # ── 10. Glass component tests ─────────────────────────────────────────────
       - name: Glass component tests
         run: npm run test:react
 
-      # ── 10. MCP engine tests ─────────────────────────────────────────────────
+      # ── 11. MCP engine tests ─────────────────────────────────────────────────
       - name: MCP engine tests
         run: |
           cd flint-mcp
           npm test
 
-      # ── 11. Build Vite + Electron ────────────────────────────────────────────
+      # ── 12. Build Vite + Electron ────────────────────────────────────────────
       # First compile the Electron main process and Vite renderer bundle,
       # then package the output into platform-specific installers.
       - name: Build Vite + Electron
@@ -164,6 +170,9 @@ jobs:
 
       - name: Install flint-mcp dependencies
         run: cd flint-mcp && npm ci
+
+      - name: Build flint-mcp
+        run: cd flint-mcp && npm run build
 
       - name: Build flint-ci
         run: |
