@@ -6,6 +6,51 @@
 
 ---
 
+## Session: 2026-03-29 — Sprint Clarity 2 Contract (Phase 1)
+
+**Goal:** Write Contract Artifact + Executable Contract for Sprint Clarity 2 (5 coaching/surfacing items).
+
+**Files created:**
+
+- `docs/contracts/SPRINT-CLARITY-2.md` — Contract Artifact with 5 work items, scope, acceptance criteria
+- `docs/contracts/sprint-clarity-2.contract.ts` — Executable Contract with types and test boundaries
+
+**What shipped:** Phase 1 contract only. No implementation yet.
+
+**What remains:** Phase 1.5 (contract lint / TSC check), then Phase 2 (parallel implementation).
+
+**Sprint items:**
+
+1. Health Ring "Next Step" Prompt — dynamic coaching sentence below grade letter (GovernanceDashboard.tsx)
+2. Tab Unlock Narration — tooltip on first tab appearance (App.tsx + new TabUnlockTooltip component)
+3. Extend Response Shaping to 8 more MCP tools (fix, debt, a11y, swarm, sync, dbom, risk, migrate)
+4. Shared Health Signal — consistent 3-number summary in Glass + CLI (shared/healthSignal.ts)
+5. Progressive MCP Tool Surfacing — context-aware top-5 tool suggestions (toolSuggester.ts)
+
+---
+
+## Session: 2026-03-29 — Sprint Clarity Contract (Phase 1)
+
+**Goal:** Write Contract Artifact + Executable Contract for Sprint Clarity (4 discoverability items).
+
+**Files created:**
+
+- `docs/contracts/SPRINT-CLARITY.md` — Contract Artifact with 4 work items, scope, acceptance criteria
+- `docs/contracts/sprint-clarity.contract.ts` — Executable Contract with types and test boundaries
+
+**What shipped:** Phase 1 contract only. No implementation yet.
+
+**What remains:** Phase 1.5 (contract lint), then Phase 2 (parallel implementation of all 4 items).
+
+**Sprint items:**
+
+1. Language pass: "violations" to "drift" in Glass UI (13 files, text-only)
+2. MCP response shaping: nextStep/recommendation fields on context + audit responses
+3. `flint-gate help` CLI command (conversational 7-situation guide)
+4. Wire workflow guide to onboard-project prompt
+
+---
+
 ## Session: 2026-03-29 — Sprint 5 Governance Comprehension (COMPLETE)
 
 **Goal:** Make governance actionable — violation actions, save/apply distinction, pin mode, message expansion, activity undo.

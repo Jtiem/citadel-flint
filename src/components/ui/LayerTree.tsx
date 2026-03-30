@@ -311,13 +311,13 @@ function LayerRow({ layer, depth, collapsedIds, onToggleCollapsed, lockedIds, fo
                     />
                     <span className="min-w-0 flex-1 truncate font-medium">{name}</span>
                     {hasViolation && (
-                        <span title="Mithril Violation — colour drift detected">
+                        <span title="Design drift — colour mismatch detected">
                             <AlertTriangle className="h-2.5 w-2.5 shrink-0 text-amber-500" />
                         </span>
                     )}
                     {/* Commandment 5: Accessibility is a Compiler Error — a11y violation indicator */}
                     {hasA11yViolation && (
-                        <span title="Accessibility violation">
+                        <span title="Accessibility gap">
                             <ShieldAlert className="h-3 w-3 shrink-0 text-amber-400" />
                         </span>
                     )}

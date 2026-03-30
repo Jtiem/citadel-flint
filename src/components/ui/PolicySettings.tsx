@@ -852,9 +852,9 @@ export function PolicySettings({ onClose }: PolicySettingsProps) {
                                 className="rounded border border-zinc-700 bg-zinc-900 py-1 pl-2 pr-6 text-xs text-zinc-300 outline-none transition-colors focus:border-indigo-500/60 focus:ring-1 focus:ring-indigo-500/30"
                                 aria-label="Export gate severity floor"
                             >
-                                <option value="critical">Critical — only critical violations block</option>
+                                <option value="critical">Critical — only critical issues block</option>
                                 <option value="warning">Warning — warning and critical block</option>
-                                <option value="info">Info — all violations block</option>
+                                <option value="info">Info — all issues block</option>
                             </select>
                         </FormRow>
 

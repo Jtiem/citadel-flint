@@ -74,7 +74,7 @@ describe('GovernanceDashboard — Actionable (GLASS.1e)', () => {
         }
     })
 
-    // 1. Rule rows are clickable — open Top Violated Rules accordion first
+    // 1. Rule rows are clickable — open Top Triggered Rules accordion first
     it('renders rule rows as clickable buttons', async () => {
         const warnings = new Map<string, LinterWarning>([
             ['n1', makeWarning({ id: 'W1', type: 'color-drift' })],
@@ -83,8 +83,8 @@ describe('GovernanceDashboard — Actionable (GLASS.1e)', () => {
         seedTokensAndWarnings([makeToken()], warnings)
         render(<GovernanceDashboard />)
 
-        // Open the "Top Violated Rules" accordion
-        const topRulesBtn = screen.getByRole('button', { name: /Top Violated Rules/i })
+        // Open the "Top Triggered Rules" accordion
+        const topRulesBtn = screen.getByRole('button', { name: /Top Triggered Rules/i })
         fireEvent.click(topRulesBtn)
 
         await waitFor(() => {
@@ -103,8 +103,8 @@ describe('GovernanceDashboard — Actionable (GLASS.1e)', () => {
         seedTokensAndWarnings([makeToken()], warnings)
         render(<GovernanceDashboard />)
 
-        // Open the "Top Violated Rules" accordion
-        const topRulesBtn = screen.getByRole('button', { name: /Top Violated Rules/i })
+        // Open the "Top Triggered Rules" accordion
+        const topRulesBtn = screen.getByRole('button', { name: /Top Triggered Rules/i })
         fireEvent.click(topRulesBtn)
 
         await waitFor(() => {

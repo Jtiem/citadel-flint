@@ -76,6 +76,8 @@ export interface AccessibilityReportOutput {
     auditResult: A11yAuditResult
     fixedSource?: string
     appliedFixes?: Array<{ ruleId: string; description: string }>
+    /** Actionable next-step recommendation. CLARITY-2 */
+    recommendation: string
 }
 
 export async function handleAccessibilityReport(
@@ -149,9 +151,22 @@ export async function handleAccessibilityReport(
 
     const status: 'PASS' | 'FAIL' = auditResult.violations.length === 0 ? 'PASS' : 'FAIL'
 
+    // CLARITY-2: Generate actionable recommendation
+    const violationCount = auditResult.violations.length
+    let recommendation: string
+    if (violationCount === 0) {
+        recommendation = 'Full WCAG 2.1 AA compliance — no accessibility gaps found.'
+    } else {
+        const fixableCount = auditResult.violations.filter((v) => v.fixable).length
+        recommendation = fixableCount > 0
+            ? `${violationCount} accessibility gap(s) found, ${fixableCount} auto-fixable. Say 'fix it' to remediate.`
+            : `${violationCount} accessibility gap(s) found. Review each for manual remediation.`
+    }
+
     const output: AccessibilityReportOutput = {
         status,
         auditResult,
+        recommendation,
     }
 
     if (fixedSource !== undefined) {

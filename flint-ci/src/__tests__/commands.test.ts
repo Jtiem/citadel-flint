@@ -25,6 +25,7 @@ import {
     saveAuditCache,
 } from '../utils/files.js'
 import { ANSI } from '../utils/ansi.js'
+import { helpCommand, HELP_SITUATIONS } from '../commands/help.js'
 import { auditCommand } from '../commands/audit.js'
 import { debtCommand } from '../commands/debt.js'
 import { syncCheckCommand } from '../commands/sync-check.js'
@@ -950,5 +951,50 @@ describe('baselineCommand', () => {
         const exitCode = await baselineCommand([tmpDir], { projectRoot: tmpDir })
         expect([0, 1]).toContain(exitCode)
         expect(fs.existsSync(path.join(tmpDir, '.flint', 'baseline.json'))).toBe(true)
+    })
+})
+
+// ── Help command ────────────────────────────────────────────────────────────
+
+describe('helpCommand', () => {
+    it('should return exit code 0', () => {
+        const exitCode = helpCommand()
+        expect(exitCode).toBe(0)
+    })
+
+    it('should export exactly 7 situations', () => {
+        expect(HELP_SITUATIONS).toHaveLength(7)
+    })
+
+    it('should print all 7 situation titles to console', () => {
+        helpCommand()
+        const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n')
+        for (const situation of HELP_SITUATIONS) {
+            expect(output).toContain(situation.title)
+        }
+    })
+
+    it('should include a command example for each situation', () => {
+        helpCommand()
+        const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n')
+        for (const situation of HELP_SITUATIONS) {
+            expect(output).toContain(situation.command)
+        }
+    })
+
+    it('should include a description for each situation', () => {
+        helpCommand()
+        const output = consoleLogSpy.mock.calls.map(c => c[0]).join('\n')
+        for (const situation of HELP_SITUATIONS) {
+            expect(output).toContain(situation.description)
+        }
+    })
+
+    it('each situation should have non-empty title, command, and description', () => {
+        for (const situation of HELP_SITUATIONS) {
+            expect(situation.title.length).toBeGreaterThan(0)
+            expect(situation.command.length).toBeGreaterThan(0)
+            expect(situation.description.length).toBeGreaterThan(0)
+        }
     })
 })

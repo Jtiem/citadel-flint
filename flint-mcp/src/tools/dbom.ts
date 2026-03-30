@@ -114,12 +114,18 @@ export async function handleGenerateDBOM(
     const includeProvenance = args.includeProvenance ?? false
     const glob = args.glob
 
+    // CLARITY-2: recommendation for DBOM
+    const dbomRecommendation = 'DBOM exported. Share with stakeholders for design system compliance review.'
+
     // For markdown format, use the core DBOM + markdown formatter (backward compat)
     if (format === 'markdown') {
         const coreDbom = await generateCoreDBOM(projectRoot, glob)
         cachedDBOM = coreDbom
         return {
-            content: [{ type: 'text', text: formatDBOMAsMarkdown(coreDbom) }],
+            content: [
+                { type: 'text', text: formatDBOMAsMarkdown(coreDbom) },
+                { type: 'text', text: JSON.stringify({ recommendation: dbomRecommendation }) },
+            ],
         }
     }
 
@@ -138,6 +144,9 @@ export async function handleGenerateDBOM(
     const text = formatDBOMOutput(govDbom, format === 'cyclonedx' ? 'cyclonedx' : 'json')
 
     return {
-        content: [{ type: 'text', text }],
+        content: [
+            { type: 'text', text },
+            { type: 'text', text: JSON.stringify({ recommendation: dbomRecommendation }) },
+        ],
     }
 }

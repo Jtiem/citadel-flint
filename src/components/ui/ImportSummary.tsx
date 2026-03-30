@@ -388,7 +388,7 @@ export function ImportSummaryPanelView() {
                             <div className="px-3 py-2">
                                 <p className="text-[10px] text-zinc-500 leading-relaxed">
                                     {tier3Count} value{tier3Count !== 1 ? 's have' : ' has'} no matching design token.
-                                    Standard governance violations are visible on the canvas.
+                                    Standard governance issues are visible on the canvas.
                                 </p>
                             </div>
                         </div>

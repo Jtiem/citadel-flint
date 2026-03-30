@@ -219,7 +219,7 @@ describe('GovernanceDashboard', () => {
         const sessionBtn = screen.getByRole('button', { name: /Session.*Baseline/i })
         fireEvent.click(sessionBtn)
         await waitFor(() => {
-            expect(screen.getByText(/Show only new violations/)).toBeDefined()
+            expect(screen.getByText(/Show only new issues/)).toBeDefined()
         })
     })
 
@@ -385,9 +385,9 @@ describe('GovernanceDashboard', () => {
         })
         render(<GovernanceDashboard />)
         await waitFor(() => {
-            expect(screen.getByRole('button', { name: /Fix violation on element node-m1/i })).toBeDefined()
+            expect(screen.getByRole('button', { name: /Fix drift on element node-m1/i })).toBeDefined()
         })
-        fireEvent.click(screen.getByRole('button', { name: /Fix violation on element node-m1/i }))
+        fireEvent.click(screen.getByRole('button', { name: /Fix drift on element node-m1/i }))
         expect(applyBatch).toHaveBeenCalledWith(expect.arrayContaining([
             expect.objectContaining({ op: 'applyTokenFix', nodeId: 'node-m1' }),
         ]))

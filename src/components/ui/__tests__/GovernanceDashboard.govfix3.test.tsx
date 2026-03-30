@@ -7,7 +7,7 @@
  * Tests:
  *   - Score ring is NOT rendered when tokens are absent (ring role=img hidden)
  *   - Grade letter "A" is NOT rendered when tokens are absent
- *   - Top Violated Rules section is NOT rendered when tokens are absent
+ *   - Top Triggered Rules section is NOT rendered when tokens are absent
  *   - "All checks passing" clean-state banner is NOT rendered when tokens are absent
  *   - The no-tokens empty state IS rendered (OPP-5 coverage)
  *   - Score ring IS rendered when tokens exist
@@ -72,12 +72,12 @@ describe('GovernanceDashboard — GOV-FIX-3 no-token state shows no score', () =
             expect(screen.queryByLabelText('Grade A')).toBeNull()
         })
 
-        it('does NOT render the "Top Violated Rules" section', async () => {
+        it('does NOT render the "Top Triggered Rules" section', async () => {
             render(<GovernanceDashboard />)
             await waitFor(() => {
                 expect(screen.getByText(/Health score measures against your design tokens/)).toBeDefined()
             })
-            expect(screen.queryByText(/Top Violated Rules/)).toBeNull()
+            expect(screen.queryByText(/Top Triggered Rules/)).toBeNull()
         })
 
         it('does NOT render the "All clear" clean-state banner', async () => {
@@ -124,10 +124,10 @@ describe('GovernanceDashboard — GOV-FIX-3 no-token state shows no score', () =
             })
         })
 
-        it('renders Top Violated Rules section', async () => {
+        it('renders Top Triggered Rules section', async () => {
             render(<GovernanceDashboard />)
             await waitFor(() => {
-                expect(screen.getByText(/Top Violated Rules/)).toBeDefined()
+                expect(screen.getByText(/Top Triggered Rules/)).toBeDefined()
             })
         })
 

@@ -24,20 +24,20 @@ interface Step {
 
 const STEPS: Step[] = [
     {
-        title: 'These are violations',
+        title: 'These are drift items',
         body: 'Flint found 8 issues in this form — missing labels, contrast failures, and hardcoded colors.',
         targetTestId: 'governance-dashboard-violations',
         buttonLabel: 'Next →',
     },
     {
         title: 'Click Fix to resolve them',
-        body: 'Each violation has an auto-fix. Click Fix to let Flint correct it via AST surgery.',
+        body: 'Each issue has an auto-fix. Click Fix to let Flint correct it automatically.',
         targetTestId: 'fix-all-button',
         buttonLabel: 'Next →',
     },
     {
         title: 'The gate clears',
-        body: 'Once all violations are resolved, the Export Gate opens. Your code is compliant.',
+        body: 'Once all issues are resolved, the Export Gate opens. Your code is compliant.',
         targetTestId: 'export-gate-indicator',
         buttonLabel: 'Done',
     },
@@ -55,9 +55,7 @@ export interface DemoWalkthroughProps {
 }
 
 export function DemoWalkthrough({ onDismiss }: DemoWalkthroughProps) {
-    // Skip entirely if already completed
-    if (localStorage.getItem(STORAGE_KEY) === 'true') return null
-
+    const [completed] = useState(() => localStorage.getItem(STORAGE_KEY) === 'true')
     const [step, setStep] = useState(0)
     const [pos, setPos] = useState<TooltipPos>(FALLBACK_POS)
 
@@ -77,6 +75,8 @@ export function DemoWalkthrough({ onDismiss }: DemoWalkthroughProps) {
             setPos(FALLBACK_POS)
         }
     }, [step, current.targetTestId])
+
+    if (completed) return null
 
     const dismiss = () => {
         localStorage.setItem(STORAGE_KEY, 'true')

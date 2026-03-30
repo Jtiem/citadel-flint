@@ -25,6 +25,7 @@ export default defineConfig({
             'src/core/**/*.test.ts',
             'src/utils/**/*.test.ts',
             'server/**/*.test.ts',
+            'shared/**/*.test.ts',
         ],
         exclude: ['node_modules/**', 'dist/**', 'dist-electron/**', 'src/core/__tests__/crossFileRecovery.test.ts', 'src/tests/project-scaffold.test.ts'],
     },

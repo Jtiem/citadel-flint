@@ -1826,9 +1826,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                     }
                 }
 
+                // CLARITY: Generate recommendation for audit_ui_component
+                let auditRecommendation: string;
+                if (hasViolations) {
+                    const fixNote = totalFixableCount > 0 ? ` (${totalFixableCount} auto-fixable)` : '';
+                    auditRecommendation = `${totalViolationCount} issue${totalViolationCount !== 1 ? 's' : ''} found${fixNote}. Say 'fix it' to auto-remediate.`;
+                } else {
+                    auditRecommendation = 'Clean audit — this component is fully compliant.';
+                }
+
                 return finishAudit({
                     content: [
-                        { type: "text", text: `${finalSummary}\n\n${finalFormatted}` },
+                        { type: "text", text: `${finalSummary}\n\nRecommendation: ${auditRecommendation}\n\n${finalFormatted}` },
                     ],
                 });
             } catch (err: any) {
@@ -2572,10 +2581,23 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 debtSummary += " Snapshot saved to debt history.";
             }
 
+            // CLARITY-2: Generate actionable recommendation
+            let debtRecommendation: string;
+            if (report.grade === 'A') {
+                debtRecommendation = 'Grade A — your design system is healthy. Keep it up.';
+            } else if (report.grade === 'F') {
+                debtRecommendation = `Grade F — ${report.totalViolations} issues need urgent attention. Run 'fix it' to start.`;
+            } else {
+                const topCategoryEntry = Object.entries(report.byCategory).sort((a, b) => b[1] - a[1])[0];
+                const categoryHint = topCategoryEntry ? ` Focus on ${topCategoryEntry[0]} drifts to improve.` : '';
+                debtRecommendation = `Grade ${report.grade} — ${report.totalViolations} issue(s) to address.${categoryHint}`;
+            }
+
             return {
                 content: [
                     { type: "text", text: debtSummary },
                     { type: "text", text },
+                    { type: "text", text: JSON.stringify({ recommendation: debtRecommendation }) },
                 ],
             };
         }
@@ -3069,8 +3091,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                             }],
                         };
                     }
+                    // CLARITY-2: recommendation based on risk tier
+                    const mutationRec = result.tier === 'low'
+                        ? 'Low risk — safe to apply.'
+                        : result.tier === 'medium'
+                            ? 'Medium risk — review the changes before applying.'
+                            : result.tier === 'high'
+                                ? 'High risk — review carefully before applying.'
+                                : 'Critical risk — escalate for team review before applying.';
                     return {
-                        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+                        content: [{ type: "text", text: JSON.stringify({ ...result, recommendation: mutationRec }, null, 2) }],
                     };
                 }
 
@@ -3093,15 +3123,27 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                             }],
                         };
                     }
+                    const profileRec = profile.meanScore > 66
+                        ? 'High average risk for this file — review recent mutations.'
+                        : profile.meanScore > 33
+                            ? 'Moderate risk — monitor this file during review.'
+                            : 'Low risk file — no special attention needed.';
                     return {
-                        content: [{ type: "text", text: JSON.stringify(profile, null, 2) }],
+                        content: [{ type: "text", text: JSON.stringify({ ...profile, recommendation: profileRec }, null, 2) }],
                     };
                 }
 
                 case "project_summary": {
                     const summary = riskSvc.getProjectRiskSummary();
+                    const critCount = summary.distribution?.critical ?? 0;
+                    const highCount = summary.distribution?.high ?? 0;
+                    const projRec = critCount > 0
+                        ? `${critCount} critical-risk mutation(s) need urgent review.`
+                        : highCount > 0
+                            ? `${highCount} high-risk mutation(s) — review before shipping.`
+                            : 'Project risk is low across the board.';
                     return {
-                        content: [{ type: "text", text: JSON.stringify(summary, null, 2) }],
+                        content: [{ type: "text", text: JSON.stringify({ ...summary, recommendation: projRec }, null, 2) }],
                     };
                 }
 
@@ -3229,10 +3271,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                     ? `Dry-run complete. ${totalChanges} class replacement(s) found across ${totalChanged}/${twArgs.filePaths.length} file(s). No files were written.`
                     : `Migration complete. ${totalChanges} class replacement(s) applied across ${totalChanged}/${twArgs.filePaths.length} file(s).`;
 
+            // CLARITY-2: Generate actionable recommendation
+            const twRecommendation = totalChanges > 0
+                ? dryRun
+                    ? `${totalChanges} class(es) ready to migrate. Run again without dry-run to apply.`
+                    : `Migration complete. Run 'audit' to check for remaining drifts.`
+                : 'No Tailwind v3 classes found — already up to date.';
+
             return {
                 content: [{
                     type: "text",
-                    text: JSON.stringify({ summary, dryRun, files: perFileReports }, null, 2),
+                    text: JSON.stringify({ summary, dryRun, files: perFileReports, recommendation: twRecommendation }, null, 2),
                 }],
             };
         }
@@ -3482,7 +3531,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             const summary = report.inSync
                 ? "Sync status: OK — tokens are in sync with baseline."
                 : `Sync status: ${report.recommendation}. ${report.pendingConflicts} conflict(s), ${report.tokensDrifted} token(s) drifted.`;
-            return { content: [{ type: "text", text: summary }, { type: "text", text: JSON.stringify(report, null, 2) }] };
+            // CLARITY-2: Generate actionable recommendation
+            const syncRecommendation = report.inSync
+                ? "All tokens are in sync. No action needed."
+                : `${report.tokensDrifted} token(s) drifted from Figma. Run 'sync pull' to update.`;
+            return { content: [{ type: "text", text: summary }, { type: "text", text: JSON.stringify({ ...report, recommendation: syncRecommendation }, null, 2) }] };
         }
 
         case "flint_sync_history": {

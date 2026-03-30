@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { BRAND } from '../shared/brand'
 import './index.css'
 // ── Phase N.1: Bootstrap the Abstract Syntax Protocol (ASP) ──────────────────
@@ -43,6 +43,8 @@ import { LaunchScreen } from './components/ui/LaunchScreen'
 import { SetupWizard } from './components/ui/SetupWizard'
 import { BetaWelcome, shouldShowBetaWelcome } from './components/ui/BetaWelcome'
 import { FocusTrap } from './components/ui/FocusTrap'
+import { TabUnlockTooltip } from './components/ui/TabUnlockTooltip'
+import { TAB_NARRATION } from '../docs/contracts/sprint-clarity-2.contract'
 import { useContextSync } from './hooks/useContextSync'
 import { useMCPEventListener } from './hooks/useMCPEventListener'
 import { useAutopilot } from './hooks/useAutopilot'
@@ -973,31 +975,42 @@ function App() {
                                     { tab: 'tokens',      Icon: Palette,           label: 'Tokens'     },
                                 ] as const)
                                     .filter(({ tab }) => isTabUnlocked(tab))
-                                    .map(({ tab, Icon, label }) => (
-                                        <button
-                                            key={tab}
-                                            type="button"
-                                            role="tab"
-                                            onClick={() => handleSetRightTab(tab)}
-                                            title={label}
-                                            aria-label={label}
-                                            aria-selected={rightTab === tab}
-                                            className={`relative flex flex-col items-center gap-0.5 py-2 px-3 transition-colors ${rightTab === tab
-                                                ? 'border-b-2 border-indigo-500 text-indigo-400'
-                                                : 'text-zinc-500 hover:text-zinc-300'
-                                                }`}
-                                        >
-                                            <Icon size={14} />
-                                            <span className="text-[9px] font-medium leading-none">{label}</span>
-                                            {/* OPP-10: One-time "new" dot — indigo, 4px, top-right of icon */}
-                                            {isTabNew(tab) && (
-                                                <span
-                                                    className="absolute right-1.5 top-1.5 h-1 w-1 rounded-full bg-indigo-500"
-                                                    aria-hidden="true"
-                                                />
-                                            )}
-                                        </button>
-                                    ))}
+                                    .map(({ tab, Icon, label }) => {
+                                        const tabButton = (
+                                            <button
+                                                key={tab}
+                                                type="button"
+                                                role="tab"
+                                                onClick={() => handleSetRightTab(tab)}
+                                                title={label}
+                                                aria-label={label}
+                                                aria-selected={rightTab === tab}
+                                                className={`relative flex flex-col items-center gap-0.5 py-2 px-3 transition-colors ${rightTab === tab
+                                                    ? 'border-b-2 border-indigo-500 text-indigo-400'
+                                                    : 'text-zinc-500 hover:text-zinc-300'
+                                                    }`}
+                                            >
+                                                <Icon size={14} />
+                                                <span className="text-[9px] font-medium leading-none">{label}</span>
+                                                {/* OPP-10: One-time "new" dot — indigo, 4px, top-right of icon */}
+                                                {isTabNew(tab) && (
+                                                    <span
+                                                        className="absolute right-1.5 top-1.5 h-1 w-1 rounded-full bg-indigo-500"
+                                                        aria-hidden="true"
+                                                    />
+                                                )}
+                                            </button>
+                                        )
+                                        /* CLARITY-2 Item 2: Tab Unlock Narration — wrap dynamically-unlocked tabs */
+                                        const narration = TAB_NARRATION[tab]
+                                        return narration ? (
+                                            <TabUnlockTooltip key={tab} tooltipKey={`tab-unlock-${tab}`} text={narration}>
+                                                {tabButton}
+                                            </TabUnlockTooltip>
+                                        ) : (
+                                            <React.Fragment key={tab}>{tabButton}</React.Fragment>
+                                        )
+                                    })}
                             </div>
                             <div className="min-h-0 flex-1 overflow-y-auto">
                                 {/* Phase ING.2: Import Summary panel takes priority */}

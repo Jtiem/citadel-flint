@@ -1003,6 +1003,124 @@ AGV.1 and AGV.2 are detailed in Sprint 3 above. AGV.3 and AGV.4 are detailed in 
 
 ---
 
+## Project Initiation Track — Forge (FORGE.1–4)
+
+> Full strategy: `docs/strategy/PROJECT-INITIATION-STRATEGY.md`
+> Implementation plan: `docs/strategy/PROJECT-INITIATION-PLAN.md`
+> Citadel name: **Forge** — where new projects are ignited, their environment detected, and governance activated
+
+**Problem:** 8 initiation channels on one screen = paralysis. The engine has 54 tools but none activate at project open. Gap between "opened" and "governed" is entirely manual. "New Project" creates a blank screen in an observability-only tool.
+
+**Moat:** "The violation IS the first value." No other tool can auto-audit a codebase and offer one-click deterministic fixes in under 10 seconds. Flint's unique advantage is showing real problems on real code before the user asks.
+
+| ID | Name | Priority | Effort | Sprint | Status |
+|----|------|----------|--------|--------|--------|
+| FORGE.1a | Three-Path LaunchScreen (reduce from 8 channels) | P0 | M | FORGE.1 | PROPOSED |
+| FORGE.1b | Demo-to-Project Handoff (conversion CTA) | P1 | S | FORGE.1 | PROPOSED |
+| FORGE.1c | Workspace Orientation Step (Step 0 in walkthrough) | P1 | S | FORGE.1 | PROPOSED |
+| FORGE.1d | LaunchScreen A11y Fixes (10 critical) | P0 | M | FORGE.1 | PROPOSED |
+| FORGE.1e | DemoWalkthrough A11y Fixes (6 critical) | P0 | S | FORGE.1 | PROPOSED |
+| FORGE.1f | BetaWelcome + SetupWizard A11y Fixes (7 critical) | P1 | M | FORGE.1 | PROPOSED |
+| FORGE.1g | Gate Transition Announcements (screen reader) | P1 | S | FORGE.1 | PROPOSED |
+| FORGE.2a | Project Environment Detection (framework, library, tokens) | P0 | M | FORGE.2 | PROPOSED |
+| FORGE.2b | Auto-Configuration from Detection | P1 | M | FORGE.2 | PROPOSED |
+| FORGE.2c | Baseline Audit on Open (auto-audit + progress) | P0 | M | FORGE.2 | PROPOSED |
+| FORGE.2d | Detection Banner in Glass | P1 | S | FORGE.2 | PROPOSED |
+| FORGE.2e | MCP Banner Promotion (dominant when active) | P1 | S | FORGE.2 | PROPOSED |
+| FORGE.3a | Progressive Integration Suggestions | P2 | M | FORGE.3 | PROPOSED |
+| FORGE.3b | Figma Setup as Contextual Flow (not LaunchScreen) | P2 | S | FORGE.3 | PROPOSED |
+| FORGE.3c | Demo Scenario Picker | P2 | S | FORGE.3 | PROPOSED |
+| FORGE.4a | "Paste and Audit" Entry Point | P2 | M | FORGE.4 | PROPOSED |
+| FORGE.4b | Recent Projects with Health Grades | P1 | S | FORGE.4 | PROPOSED |
+| FORGE.4c | Scan Progress Streaming | P1 | S | FORGE.4 | PROPOSED |
+| FORGE.4d | Smart Recommendations on First Audit | P1 | S | FORGE.4 | PROPOSED |
+
+---
+
+## Token Experience Track — Mint (MINT.1–4)
+
+> Full strategy: `docs/strategy/TOKEN-EXPERIENCE-STRATEGY.md`
+> Implementation plan: `docs/strategy/TOKEN-IMPLEMENTATION-PLAN.md`
+> Citadel name: **Mint** — where tokens are forged, verified, and certified for circulation
+
+**Problem:** The Tokens tab is a flat CRUD list. 80% of the data needed for a brilliant token experience already exists in SQLite/MCP but isn't surfaced in Glass. Meanwhile, inline editing lets designers silently mutate governance standards with no provenance.
+
+**Moat:** No competitor (Figma Variables, Tokens Studio, Supernova, Specify) has AST-level code awareness. Only Flint can show usage counts, dead tokens, drift with ΔE, and impact preview — because only Flint reads the actual code.
+
+| ID | Name | Priority | Effort | Sprint | Status |
+|----|------|----------|--------|--------|--------|
+| MINT.1a | Token Health Bar (wire sync/coverage data) | P1 | S | MINT.1 | PROPOSED |
+| MINT.1b | Visual Token Grid (swatches, specimens, rulers) | P1 | M | MINT.1 | PROPOSED |
+| MINT.1c | Mode Columns (Light/Dark side-by-side) | P1 | S | MINT.1 | PROPOSED |
+| MINT.1d | Remove Dangerous Actions (inline edit, delete, clear all) | P0 | S | MINT.1 | PROPOSED |
+| MINT.1e | Fix TokenManager A11y Issues (8 findings) | P1 | S | MINT.1 | PROPOSED |
+| MINT.2a | Token Usage Scanner (AST-level usage counts) | P0 | M | MINT.2 | PROPOSED |
+| MINT.2b | Usage Counts + Dead Token Badges in UI | P0 | S | MINT.2 | PROPOSED |
+| MINT.2c | Drift Indicators (Figma vs. local swatch comparison) | P1 | M | MINT.2 | PROPOSED |
+| MINT.2d | Silent Drift Badge on Tokens Tab | P1 | S | MINT.2 | PROPOSED |
+| MINT.3a | Token Contrast Auditor (WCAG pairing matrix) | P1 | M | MINT.3 | PROPOSED |
+| MINT.3b | Contrast Badges in Token UI | P1 | S | MINT.3 | PROPOSED |
+| MINT.3c | Token Approval Staging Area | P1 | M | MINT.3 | PROPOSED |
+| MINT.3d | Additional A11y Token Insights (motion, scale, modes) | P2 | M | MINT.3 | PROPOSED |
+| MINT.4a | First-Sync Prompt (Brilliant Moment 1) | P1 | S | MINT.4 | PROPOSED |
+| MINT.4b | Pre-Export Emission Check (Brilliant Moment 4) | P1 | S | MINT.4 | PROPOSED |
+| MINT.4c | Scale Gap Analysis | P2 | S | MINT.4 | PROPOSED |
+| MINT.4d | Per-Token Detail View (usage + contrast + drift + provenance) | P1 | M | MINT.4 | PROPOSED |
+| MINT.4e | Alias Chain Preservation (schema migration) | P2 | M | MINT.4 | PROPOSED |
+
+---
+
+## Counsel Track — Governance Experience Redesign
+
+*Source: `docs/strategy/GOVERNANCE-EXPERIENCE-STRATEGY.md` + `GOVERNANCE-IMPLEMENTATION-PLAN.md`*
+*Citadel name:* **Counsel** — *Where governance advises rather than judges.*
+
+Full strategy: `docs/strategy/GOVERNANCE-EXPERIENCE-STRATEGY.md`
+Full plan: `docs/strategy/GOVERNANCE-IMPLEMENTATION-PLAN.md`
+
+### COUNSEL.1 — Triage + Framing Foundation
+
+| ID | Task | Priority | Effort | Dependencies | Status |
+|----|------|----------|--------|-------------|--------|
+| COUNSEL.1.1 | Category Split Header (Design System / A11y / Token Sync counts above score ring) | P0 | S | — | PROPOSED |
+| COUNSEL.1.2 | New-Code-First Default (Delta Mode auto-enable for legacy projects with 10+ violations) | P0 | M | COUNSEL.1.1 | PROPOSED |
+| COUNSEL.1.3 | Health Score Formula Unification (GovernanceDashboard ↔ flint_debt_report parity) | P0 | M | — | PROPOSED |
+| COUNSEL.1.4 | Violation Card Fix Co-location (inline diff preview before committing mutation) | P1 | M | — | PROPOSED |
+| COUNSEL.1.5 | Auto-Fixable Label on Every Violation Card | P1 | S | — | PROPOSED |
+| COUNSEL.1.6 | A11y Batch Fix Button (extends existing Mithril batch pattern) | P1 | M | COUNSEL.1.5 | PROPOSED |
+| COUNSEL.1.7 | 26 Accessibility Fixes in Governance UI (self-audit remediation) | P0 | M | — | PROPOSED |
+
+### COUNSEL.2 — Deferral + Workload Voice
+
+| ID | Task | Priority | Effort | Dependencies | Status |
+|----|------|----------|--------|-------------|--------|
+| COUNSEL.2.1 | Defer Button in Violation List + ExportModal (surfaces existing flint_defer_violation MCP tool) | P0 | M | COUNSEL.1 | PROPOSED |
+| COUNSEL.2.2 | "Flagged for Review" Tier (middle state: not active, not ignored, score-exempt) | P1 | M | COUNSEL.2.1 | PROPOSED |
+| COUNSEL.2.3 | Snooze with Auto-Resurface (time-bound expiry + Stamp-recorded deferral) | P1 | L | COUNSEL.2.1 | PROPOSED |
+| COUNSEL.2.4 | Effort Framing ("About 2 minutes with Autopilot" replaces grade as first beat) | P1 | S | COUNSEL.1.3 | PROPOSED |
+| COUNSEL.2.5 | Session Fix Progress Indicator ("3 of 7 violations fixed this session") | P2 | S | — | PROPOSED |
+
+### COUNSEL.3 — Intelligence Surface
+
+| ID | Task | Priority | Effort | Dependencies | Status |
+|----|------|----------|--------|-------------|--------|
+| COUNSEL.3.1 | "Undo to Last Clean State" (Stamp + Rewind integration, session-new violations) | P1 | L | COUNSEL.2 | PROPOSED |
+| COUNSEL.3.2 | Provenance Chip in Violation Cards ("Introduced by Claude · 3 mutations ago") | P1 | M | COUNSEL.3.1 | PROPOSED |
+| COUNSEL.3.3 | Anomaly Alert Banner (Flare 3-sigma anomalies surfaced in GovernanceDashboard) | P1 | M | — | PROPOSED |
+| COUNSEL.3.4 | Risk Trend Badge on Violation Cards (Sentry risk tier + contributing factor label) | P2 | M | COUNSEL.3.2 | PROPOSED |
+
+### COUNSEL.4 — Brilliant Moments
+
+| ID | Task | Priority | Effort | Dependencies | Status |
+|----|------|----------|--------|-------------|--------|
+| COUNSEL.4.1 | Token Change Impact Preview (pre-sync violation forecast via AST + token registry) | P1 | L | COUNSEL.3 | PROPOSED |
+| COUNSEL.4.2 | Compliance Trajectory Chart (7-day rolling health score sparkline) | P2 | M | COUNSEL.1.3 | PROPOSED |
+| COUNSEL.4.3 | Governance Navigation Pathway (Dashboard → Panel → PolicySettings clear chain) | P1 | M | COUNSEL.1 | PROPOSED |
+| COUNSEL.4.4 | Zero-Violation Generation Signal (celebrate clean component on first audit) | P2 | S | — | PROPOSED |
+| COUNSEL.4.5 | Audit Log Tab (provenance + override + anomaly history, filterable, exportable) | P2 | L | COUNSEL.3 | PROPOSED |
+
+---
+
 ## Do NOT Build
 
 These items might seem appealing but are outside Flint's scope, duplicate existing tools, or violate the architectural identity.

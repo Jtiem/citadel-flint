@@ -180,7 +180,7 @@ function MithrilViolationCard({ deltaE, tokenName, hexColor, tokenValue, onAutoF
             <div className="flex items-center gap-2">
                 <AlertTriangle className={`h-3 w-3 shrink-0 ${isCritical ? 'text-red-400' : 'text-amber-400'}`} />
                 <span className={`text-[10px] font-semibold ${isCritical ? 'text-red-400' : 'text-amber-400'}`}>
-                    Mithril Violation
+                    Design Drift
                 </span>
                 <AmberPulse deltaE={deltaE} tokenName={tokenName} />
             </div>

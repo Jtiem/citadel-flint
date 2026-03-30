@@ -267,6 +267,10 @@ export interface SessionContext {
      * Provides actionable guidance for headless governance without Glass.
      */
     coldStartHint?: string
+    /** Plain-English next step based on current project state */
+    nextStep?: string
+    /** Contextually suggested MCP tools based on project state */
+    suggestedTools?: Array<{ tool: string; reason: string }>
 }
 
 // ── Phase ACX: ComplexityAssessment ─────────────────────────────────────────

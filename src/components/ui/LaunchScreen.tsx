@@ -322,14 +322,14 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
                     ? [
                         `Run 50 WCAG 2.1 AA accessibility rules on every component`,
                         `Check all colors, spacing, and typography against your token set`,
-                        `Show which violations are auto-fixable and which need manual work`,
+                        `Show which issues are auto-fixable and which need manual work`,
                         `Generate a governance report with a health score`,
                     ]
                     : selectedPath === 'dashboard'
                         ? [
                             `Connect ${BRAND.viewer} to your active IDE session`,
                             `Show live governance state without interrupting your editor`,
-                            `Surface violations, overrides, and drift as they happen`,
+                            `Surface drift, overrides, and gaps as they happen`,
                         ]
                         : [
                             `Detect your stack (Tailwind, CSS custom properties, Chakra, MUI, etc.)`,

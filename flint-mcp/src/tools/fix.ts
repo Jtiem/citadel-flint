@@ -435,6 +435,8 @@ export interface FixResult {
     dryRun: boolean
     /** Project-level health context. Omitted when unavailable. CX.1 */
     project_context?: ProjectContext
+    /** Actionable next-step recommendation. CLARITY-2 */
+    recommendation: string
 }
 
 // ── CX.1 Summary generation ────────────────────────────────────────────────
@@ -638,12 +640,25 @@ function buildFixResult(opts: {
     const { fixedSource, fixesApplied, status, filePath, dryRun, projectRoot } = opts
     const summary = generateFixSummary(filePath, fixesApplied, status, dryRun)
 
+    // CLARITY-2: Generate actionable recommendation
+    let recommendation: string
+    if (fixesApplied > 0) {
+        recommendation = dryRun
+            ? `${fixesApplied} drift(s) can be fixed. Run again without dry-run to apply.`
+            : `Fixed ${fixesApplied} drift(s). Run 'audit' to verify no gaps remain.`
+    } else {
+        recommendation = status === 'parse-error' || status === 'generate-error'
+            ? 'Could not process this file. Check for syntax errors.'
+            : '0 fixable issues — this file looks clean.'
+    }
+
     const result: FixResult = {
         fixedSource,
         fixesApplied,
         status,
         summary,
         dryRun,
+        recommendation,
     }
 
     // CX.1: Attach project_context footer (best-effort, never blocks fix result)

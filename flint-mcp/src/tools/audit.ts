@@ -135,6 +135,8 @@ export interface AuditResult {
      * True when any violation has enforcementAction === 'block' at the export_gate point.
      */
     exportBlocked?: boolean
+    /** CLARITY: One-line actionable recommendation for the user */
+    recommendation?: string
 }
 
 export interface BatchFileResult {
@@ -520,6 +522,18 @@ export async function handleFlintAudit(
             skipped: true,
             reason: 'heal pass requires Glass IPC pipeline',
         }
+    }
+
+    // CLARITY: Generate recommendation based on audit findings
+    const totalIssueCount = mithrilCount + a11yCount
+    if (totalIssueCount > 0) {
+        const fixableCount = violations.filter(v =>
+            v.enforcementAction === 'auto_fix' || v.recovery !== undefined
+        ).length
+        const fixNote = fixableCount > 0 ? ` (${fixableCount} auto-fixable)` : ''
+        result.recommendation = `${totalIssueCount} issue${totalIssueCount !== 1 ? 's' : ''} found${fixNote}. Say 'fix it' to auto-remediate.`
+    } else {
+        result.recommendation = 'Clean audit — this component is fully compliant.'
     }
 
     return result

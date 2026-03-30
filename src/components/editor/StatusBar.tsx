@@ -393,7 +393,7 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject }: StatusBarP
                     canExport
                         // EDU-01: explain what "export ready" means
                         ? 'All design system checks pass — your file is ready to export. Click to open the Export panel.'
-                        : `Export blocked: ${gateLabel}. Click to see violations and fix options.`
+                        : `Export blocked: ${gateLabel}. Click to see issues and fix options.`
                 }
             >
                 {canExport ? (
@@ -667,7 +667,7 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject }: StatusBarP
                     type="button"
                     className="flex cursor-pointer items-center gap-1.5 rounded px-2 py-0.5 text-xs transition-colors hover:bg-zinc-700"
                     onClick={() => { if (governedCode && activeFilePath) { applyGovernedCode() } }}
-                    title={governedFixCount > 0 ? `Apply ${governedFixCount} governance fixes (Cmd+Shift+G)` : 'Autopilot active — watching for violations'}
+                    title={governedFixCount > 0 ? `Apply ${governedFixCount} governance fixes (Cmd+Shift+G)` : 'Autopilot active — watching for drift'}
                 >
                     <span className={`h-2 w-2 rounded-full ${governedFixCount > 0 ? 'animate-pulse bg-emerald-400' : 'bg-zinc-500'}`} />
                     <span className={governedFixCount > 0 ? 'text-emerald-400' : 'text-zinc-500'}>

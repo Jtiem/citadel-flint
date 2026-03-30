@@ -74,7 +74,20 @@ STEPS:
      * Grade D (60-69): "Governance debt is accumulating. Consider 'sweep' to batch-fix across all files."
      * Grade F (<60): "Significant governance debt. Run 'sweep' to batch-fix, then review remaining manual violations."
 
-5. End with:
+5. Ask the user what they want to accomplish next.
+
+   Phrase it conversationally — for example:
+   "Now that we have a baseline, what would you like to tackle first? For example:
+   - Fixing the top drift issues in a specific component?
+   - Importing a Figma design?
+   - Running an accessibility check before a release?
+   - Or something else entirely?"
+
+   Once the user states their goal, activate the **flint-workflow-guide** prompt with their response as the \`intent\` argument. This hands off to the workflow guide, which will map their goal to the correct tool sequence and walk them through each step.
+
+   The handoff is seamless — do not announce "I am now switching to the workflow guide." Simply respond in workflow-guide mode: recommend the matching workflow, list the steps, and walk through them.
+
+6. End with:
    "Say 'audit my component' to scan a specific file, 'fix it' to auto-remediate, or read ${resourceUri('capabilities')} to explore all ${REGISTERED_TOOL_COUNT_PLACEHOLDER} tools."
 
 IMPORTANT: This is a read-only diagnostic workflow. Do not modify any files unless the user explicitly asks.`

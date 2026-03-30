@@ -262,3 +262,52 @@ describe('CX.1: project_context omitted gracefully when no history', () => {
         expect(result.project_context).toBeUndefined()
     })
 })
+
+// ── CLARITY: recommendation field ───────────────────────────────────────────
+
+describe('flint_audit: CLARITY recommendation field', () => {
+    let tmpDir: string
+
+    beforeEach(() => {
+        tmpDir = makeTempDir()
+        makeFlintDir(tmpDir)
+    })
+
+    afterEach(() => {
+        fs.rmSync(tmpDir, { recursive: true, force: true })
+    })
+
+    it('clean source includes positive recommendation', async () => {
+        const config = makeConfig(tmpDir)
+        const result = await handleFlintAudit(
+            { source: CLEAN_SOURCE, filePath: 'Clean.tsx' },
+            config,
+        )
+        expect(result.recommendation).toBeDefined()
+        expect(result.recommendation).toContain('Clean audit')
+        expect(result.recommendation).toContain('fully compliant')
+    })
+
+    it('violation source includes actionable recommendation with count', async () => {
+        const config = makeConfig(tmpDir)
+        const result = await handleFlintAudit(
+            { source: VIOLATION_SOURCE, filePath: 'Bad.tsx' },
+            config,
+        )
+        expect(result.recommendation).toBeDefined()
+        expect(result.recommendation).toContain('issue')
+        expect(result.recommendation).toContain('fix it')
+        // Should contain actual count from violations
+        const totalIssues = result.mithrilCount + result.a11yCount
+        expect(result.recommendation).toContain(`${totalIssues} issue`)
+    })
+
+    it('recommendation is a string, not undefined', async () => {
+        const config = makeConfig(tmpDir)
+        const result = await handleFlintAudit(
+            { source: CLEAN_SOURCE, filePath: 'Clean.tsx' },
+            config,
+        )
+        expect(typeof result.recommendation).toBe('string')
+    })
+})

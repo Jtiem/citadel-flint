@@ -36,28 +36,28 @@ interface BetaWelcomeProps {
 const VALUE_STEPS = [
     {
         icon: Eye,
-        title: 'See violations instantly',
-        description: `Open any component — ${BRAND.product} scans it against your design system tokens and WCAG rules. Violations light up in the canvas and properties panel.`,
+        title: 'See drift instantly',
+        description: `Open any component — ${BRAND.product} scans it against your design system tokens and WCAG rules. Issues light up in the canvas and properties panel.`,
         color: 'text-amber-400',
     },
     {
         icon: Wrench,
         title: 'Auto-fix with one click',
-        description: `Each violation has a deterministic fix. Click "Auto-Fix" and ${BRAND.product} surgically rewrites the AST — no regex, no guessing. The preview updates live.`,
+        description: `Each issue has a deterministic fix. Click "Auto-Fix" and ${BRAND.product} surgically rewrites the AST — no regex, no guessing. The preview updates live.`,
         color: 'text-emerald-400',
     },
     {
         icon: PackageCheck,
         title: 'Export when clean',
-        description: 'The Export Gate blocks shipping until all violations are resolved. When the shield turns green, your component is safe to ship.',
+        description: 'The Export Gate blocks shipping until all issues are resolved. When the shield turns green, your component is safe to ship.',
         color: 'text-indigo-400',
     },
 ]
 
 const TEST_CHECKLIST = [
-    'Open the demo project and see violations appear',
-    'Click "Auto-Fix" on a violation and watch the preview update',
-    'Try the Export Gate — can you export with violations?',
+    'Open the demo project and see drift items appear',
+    'Click "Auto-Fix" on an issue and watch the preview update',
+    'Try the Export Gate — can you export with issues?',
     'Check the governance dashboard (Health tab in the sidebar)',
     'Send us feedback via the Beta chip in the status bar',
 ]
@@ -108,7 +108,7 @@ export function BetaWelcome({ onTryDemo, onSkip, buildId, daysRemaining }: BetaW
                             Welcome to the {BRAND.product} Beta
                         </h2>
                         <p className="mx-auto mt-3 max-w-lg text-sm leading-relaxed text-zinc-400">
-                            {BRAND.product} catches design system violations and accessibility issues
+                            {BRAND.product} catches design system drift and accessibility gaps
                             at the AST level — before AI-generated UI code reaches production.
                             Here&apos;s how it works.
                         </p>

@@ -476,16 +476,16 @@ describe('LayerTree', () => {
         it('shows no a11y indicator when no linterWarnings exist', () => {
             useEditorStore.setState({ linterWarnings: new Map() })
             render(<LayerTree />)
-            // title="Accessibility violation" should not be present
-            expect(screen.queryByTitle('Accessibility violation')).toBeNull()
+            // title="Accessibility gap" should not be present
+            expect(screen.queryByTitle('Accessibility gap')).toBeNull()
         })
 
-        it('shows a11y indicator (title="Accessibility violation") for a node with an a11y warning', () => {
+        it('shows a11y indicator (title="Accessibility gap") for a node with an a11y warning', () => {
             useEditorStore.setState({
                 linterWarnings: new Map([['abc12345-full-id', a11yWarning]]),
             })
             render(<LayerTree />)
-            expect(screen.getByTitle('Accessibility violation')).toBeDefined()
+            expect(screen.getByTitle('Accessibility gap')).toBeDefined()
         })
 
         it('does not show a11y indicator for a node without a warning', () => {
@@ -495,7 +495,7 @@ describe('LayerTree', () => {
             })
             render(<LayerTree />)
             // Only 1 indicator should exist (only the root node has the a11y warning)
-            const indicators = screen.queryAllByTitle('Accessibility violation')
+            const indicators = screen.queryAllByTitle('Accessibility gap')
             expect(indicators.length).toBe(1)
         })
 
@@ -513,7 +513,7 @@ describe('LayerTree', () => {
                 linterWarnings: new Map([['abc12345-full-id', colorWarning]]),
             })
             render(<LayerTree />)
-            expect(screen.queryByTitle('Accessibility violation')).toBeNull()
+            expect(screen.queryByTitle('Accessibility gap')).toBeNull()
         })
 
         it('can show both Mithril badge and a11y indicator for the same node', () => {
@@ -523,8 +523,8 @@ describe('LayerTree', () => {
                 linterWarnings: new Map([['abc12345-full-id', a11yWarning]]),
             })
             render(<LayerTree />)
-            expect(screen.getByTitle('Mithril Violation — colour drift detected')).toBeDefined()
-            expect(screen.getByTitle('Accessibility violation')).toBeDefined()
+            expect(screen.getByTitle('Design drift — colour mismatch detected')).toBeDefined()
+            expect(screen.getByTitle('Accessibility gap')).toBeDefined()
         })
     })
 })

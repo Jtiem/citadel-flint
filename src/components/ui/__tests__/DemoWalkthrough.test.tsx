@@ -17,7 +17,7 @@ describe('DemoWalkthrough', () => {
     it('renders step 0 by default', () => {
         const onDismiss = vi.fn()
         render(<DemoWalkthrough onDismiss={onDismiss} />)
-        expect(screen.getByText('These are violations')).toBeTruthy()
+        expect(screen.getByText('These are drift items')).toBeTruthy()
         expect(screen.getByText(/Step 1 of 3/i)).toBeTruthy()
     })
 

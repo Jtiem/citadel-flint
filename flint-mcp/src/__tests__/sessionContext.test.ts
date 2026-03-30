@@ -436,4 +436,59 @@ describe('assembleSessionContext', () => {
         expect(ctx.partial).toBe(true)
         expect(ctx.coldStartHint).toBeUndefined()
     })
+
+    // ── CLARITY: nextStep field ───────────────────────────────────────────
+
+    it('includes nextStep with violation counts when violations are present', async () => {
+        writeFlintFile(projectRoot, 'context.json', SAMPLE_CONTEXT_JSON)
+        writeFlintFile(projectRoot, 'design-tokens.json', SAMPLE_TOKENS)
+
+        const ctx = await assembleSessionContext(projectRoot) as any
+
+        expect(ctx.nextStep).toBeDefined()
+        expect(typeof ctx.nextStep).toBe('string')
+        expect(ctx.nextStep).toContain('1 color drift')
+        expect(ctx.nextStep).toContain('1 accessibility gap')
+        expect(ctx.nextStep).toContain('fix it')
+    })
+
+    it('includes positive nextStep when no violations exist', async () => {
+        writeFlintFile(projectRoot, 'context.json', {
+            ...SAMPLE_CONTEXT_JSON,
+            violations: [],
+        })
+        writeFlintFile(projectRoot, 'design-tokens.json', SAMPLE_TOKENS)
+
+        const ctx = await assembleSessionContext(projectRoot) as any
+
+        expect(ctx.nextStep).toBeDefined()
+        expect(ctx.nextStep).toContain('All clear')
+        expect(ctx.nextStep).toContain('0 issues')
+    })
+
+    it('includes positive nextStep on cold start (no context.json)', async () => {
+        // No context.json — violations default to 0
+        const ctx = await assembleSessionContext(projectRoot) as any
+
+        expect(ctx.nextStep).toBeDefined()
+        expect(ctx.nextStep).toContain('All clear')
+    })
+
+    it('nextStep uses plural forms correctly', async () => {
+        writeFlintFile(projectRoot, 'context.json', {
+            ...SAMPLE_CONTEXT_JSON,
+            violations: [
+                { id: 'v1', type: 'color-drift', severity: 'amber', nodeId: 'n1', fixable: false },
+                { id: 'v2', type: 'color-drift', severity: 'amber', nodeId: 'n2', fixable: false },
+                { id: 'v3', type: 'a11y', severity: 'critical', nodeId: 'n3', fixable: false },
+                { id: 'v4', type: 'a11y', severity: 'critical', nodeId: 'n4', fixable: false },
+                { id: 'v5', type: 'a11y', severity: 'critical', nodeId: 'n5', fixable: false },
+            ],
+        })
+
+        const ctx = await assembleSessionContext(projectRoot) as any
+
+        expect(ctx.nextStep).toContain('2 color drifts')
+        expect(ctx.nextStep).toContain('3 accessibility gaps')
+    })
 })

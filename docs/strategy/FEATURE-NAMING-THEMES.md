@@ -43,6 +43,7 @@
 | **Envoy** | Token sync (Figma) | Diplomatic messenger — push/pull tokens between Figma and code |
 | **Bridge** | Code Connect | The connection between Figma's castle and yours |
 | **Armory** | Component registry | The collection of known patterns — search, match, constrain |
+| **Mint** | Token experience | Where tokens are forged, verified, and certified for circulation |
 
 ### Infrastructure
 
@@ -52,6 +53,8 @@
 | **Rewind** | Undo/recovery | Reverses a judgment — Git Time Machine + AST inversions |
 | **Alliance** | OAuth flow | The treaty between kingdoms — one-click Figma connection |
 | **Garrison** | Setup wizard | Establishing initial defenses — IDE detection, MCP config, connection test |
+| **Forge** | Project initiation | Where new projects are ignited — environment detected, governance activated |
+| **Counsel** | Governance experience | Where governance advises rather than judges — triage, deferral, intelligence surface |
 
 ## Usage Guidelines
 

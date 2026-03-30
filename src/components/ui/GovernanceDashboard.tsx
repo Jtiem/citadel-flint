@@ -41,6 +41,7 @@ import { useGovernanceConfig } from '../../hooks/useGovernanceConfig'
 import { useUserPrefs } from '../../hooks/useUserPrefs'
 import { FixPreviewDrawer, type FixableItem } from './FixPreviewDrawer'
 import { applyUndo } from '../../core/recoveryController'
+import { formatHealthSignal } from '../../../shared/healthSignal'
 
 // ── Score / grade helpers ─────────────────────────────────────────────────────
 
@@ -499,6 +500,41 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
     const score = computeHealthScore(mithrilCount, a11yCount, overrideCount)
     const grade = gradeFromScore(score)
 
+    // ── Shared health signal (sub-scores for breakdown labels) ──────────────
+    const healthSignal = useMemo(
+        () => formatHealthSignal(mithrilCount, a11yCount, overrideCount),
+        [mithrilCount, a11yCount, overrideCount],
+    )
+
+    // ── Next-step coaching sentence ──────────────────────────────────────────
+    const nextStep = useMemo(() => {
+        const total = mithrilCount + a11yCount + overrideCount
+        if (score === 100) {
+            return { variant: 'perfect' as const, text: 'Perfect score — your design system is fully in sync.' }
+        }
+        if (overrideCount > mithrilCount + a11yCount) {
+            return { variant: 'override-dominant' as const, text: `${overrideCount} rule override${overrideCount !== 1 ? 's are' : ' is'} active. Review them in the Governance panel to restore full compliance.` }
+        }
+        if (score >= 90) {
+            const category = a11yCount > mithrilCount ? 'accessibility gap' + (total !== 1 ? 's' : '') : 'design drift' + (total !== 1 ? 's' : '')
+            return { variant: 'nearly-perfect' as const, text: `Nearly perfect. ${total} ${category} remain — say 'fix it' in your IDE to clean up.` }
+        }
+        if (a11yCount > 0 && mithrilCount > 0) {
+            if (a11yCount > mithrilCount) {
+                return { variant: 'a11y-dominant' as const, text: `${a11yCount} accessibility gap${a11yCount !== 1 ? 's are' : ' is'} pulling your score down. Run an a11y audit for details.` }
+            }
+            return { variant: 'mithril-dominant' as const, text: `${mithrilCount} color drift${mithrilCount !== 1 ? 's are' : ' is'} lowering your score. Say 'fix it' in your IDE to auto-remediate.` }
+        }
+        if (a11yCount > 0) {
+            return { variant: 'a11y-dominant' as const, text: `${a11yCount} accessibility gap${a11yCount !== 1 ? 's are' : ' is'} pulling your score down. Run an a11y audit for details.` }
+        }
+        if (mithrilCount > 0) {
+            return { variant: 'mithril-dominant' as const, text: `${mithrilCount} color drift${mithrilCount !== 1 ? 's are' : ' is'} lowering your score. Say 'fix it' in your IDE to auto-remediate.` }
+        }
+        // mixed fallback (overrides only, but not dominant)
+        return { variant: 'mixed' as const, text: `${mithrilCount} drift${mithrilCount !== 1 ? 's' : ''} and ${a11yCount} accessibility gap${a11yCount !== 1 ? 's' : ''} need attention. Start with accessibility — it has the biggest score impact.` }
+    }, [mithrilCount, a11yCount, overrideCount, score])
+
     // ── Top-5 violated rules (aggregated by type + severity) ─────────────────
     const topRules = useMemo<RuleRow[]>(() => {
         const buckets = new Map<string, RuleRow>()
@@ -566,7 +602,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
         setBaselineEntries(entries)
         setBaselineStatus('idle')
         setConfirmationMsg(
-            `Baseline set — ${violations.length} existing violation${violations.length !== 1 ? 's' : ''} marked as known`,
+            `Baseline set — ${violations.length} existing ${violations.length !== 1 ? 'issues' : 'issue'} marked as known`,
         )
         // Auto-dismiss the confirmation after 4 seconds.
         setTimeout(() => setConfirmationMsg(null), 4000)
@@ -582,7 +618,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
         setIsBaselineSet(false)
         setBaselineEntries([])
         setBaselineStatus('idle')
-        setConfirmationMsg('Baseline cleared — all violations are now visible')
+        setConfirmationMsg('Baseline cleared — all issues are now visible')
         setTimeout(() => setConfirmationMsg(null), 4000)
     }, [])
 
@@ -689,6 +725,11 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
         }
         try {
             await window.flintAPI.mcp?.callTool('flint_fix', { filePath, ruleId, dry_run: false })
+            // Re-sync editor store so in-memory AST matches what MCP wrote to disk
+            try {
+                const content = await window.flintAPI.readFile(filePath)
+                useEditorStore.getState().syncCode(content)
+            } catch { /* best-effort — file watcher will catch it on next poll */ }
             useNotificationStore.getState().push({
                 type: 'mutation',
                 title: 'Fix applied',
@@ -784,7 +825,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
                         {isAuditing ? 'Auditing...' : 'Run Audit'}
                     </button>
                     {isBaselineSet && (
-                        <span className="inline-flex items-center gap-1 rounded border border-indigo-500/40 bg-indigo-900/20 px-1.5 py-0.5 text-[10px] font-medium text-indigo-400" title="New Issues Only — violations present at baseline are excluded">
+                        <span className="inline-flex items-center gap-1 rounded border border-indigo-500/40 bg-indigo-900/20 px-1.5 py-0.5 text-[10px] font-medium text-indigo-400" title="New Issues Only — issues present at baseline are excluded">
                             <span className="h-1.5 w-1.5 rounded-full bg-indigo-400" aria-hidden="true" />
                             New Issues Only
                         </span>
@@ -820,7 +861,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
                     <div className="flex items-center gap-2 rounded border border-red-700/40 bg-red-900/10 px-3 py-2" role="alert">
                         <span className="h-2 w-2 rounded-full bg-red-400 shrink-0" aria-hidden="true" />
                         <span className="flex-1 text-xs font-medium text-red-300">
-                            Export blocked — {mithrilCount + a11yCount} violation{mithrilCount + a11yCount !== 1 ? 's' : ''}
+                            Export blocked — {mithrilCount + a11yCount} {mithrilCount + a11yCount !== 1 ? 'issues' : 'issue'}
                             {overridesExist ? ' + overrides' : ''}
                         </span>
                     </div>
@@ -831,7 +872,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
                     <div className="flex items-center gap-2 rounded border border-emerald-500/40 bg-emerald-900/10 px-3 py-2">
                         <ShieldCheck size={13} className="shrink-0 text-emerald-400" aria-hidden="true" />
                         <span className="flex-1 text-xs font-medium text-emerald-300">
-                            {isBaselineSet ? 'No new violations — export ready' : 'All clear — export ready'}
+                            {isBaselineSet ? 'No new issues — export ready' : 'All clear — export ready'}
                         </span>
                         <button
                             type="button"
@@ -859,7 +900,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
                             )}
                         </div>
                         <span className="text-[10px] text-zinc-500 leading-snug">
-                            Auto-fixes Tier-1 violations as you work
+                            Auto-fixes Tier-1 drift as you work
                         </span>
                     </div>
                     <button
@@ -887,7 +928,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
                     {/* Section header + batch fix CTA */}
                     <div className="flex items-center gap-2 border-b border-zinc-800 px-3 py-2">
                         <h4 className="flex-1 text-xs font-medium uppercase tracking-wider text-zinc-400">
-                            Violations
+                            Issues
                             {isBaselineSet && <span className="ml-1.5 text-indigo-400">(new only)</span>}
                         </h4>
                         {autoFixableEntries.length > 0 && (
@@ -895,7 +936,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
                                 type="button"
                                 onClick={handleFixAll}
                                 className="flex items-center gap-1 rounded border border-indigo-500/30 bg-indigo-900/20 px-2.5 py-1 text-[10px] text-indigo-400 hover:bg-indigo-900/40 hover:text-indigo-300 transition-colors"
-                                aria-label={`Fix all ${autoFixableEntries.length} auto-fixable violations`}
+                                aria-label={`Fix all ${autoFixableEntries.length} auto-fixable issues`}
                             >
                                 <Wand2 size={9} aria-hidden="true" />
                                 Auto-fix {autoFixableEntries.length} {autoFixableEntries.length === 1 ? 'issue' : 'issues'}
@@ -949,7 +990,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
                                                     type="button"
                                                     onClick={() => handleFixSingle(fixItem!)}
                                                     className="rounded border border-indigo-500/30 bg-indigo-900/20 px-2 py-0.5 text-[10px] text-indigo-400 hover:bg-indigo-900/40 transition-colors"
-                                                    aria-label={`Fix violation on element ${w.id}`}
+                                                    aria-label={`Fix drift on element ${w.id}`}
                                                 >
                                                     Fix
                                                 </button>
@@ -962,8 +1003,8 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
                                                     useNotificationStore.getState().push({ type: 'sync', title: 'Deferred', message: `${ruleId} deferred`, severity: 'info', autoDismissMs: 3000 })
                                                 }}
                                                 className="rounded border border-zinc-700 bg-zinc-800 px-2 py-0.5 text-[10px] text-zinc-500 hover:bg-zinc-700 hover:text-zinc-300 transition-colors"
-                                                aria-label={`Defer ${ruleId} violation`}
-                                                title="Snooze this violation for the current session"
+                                                aria-label={`Defer ${ruleId} issue`}
+                                                title="Snooze this issue for the current session"
                                             >
                                                 Defer
                                             </button>
@@ -975,7 +1016,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
                                                     if (!isPinned) setExpandedViolations((prev) => { const n = new Set(prev); n.add(`m-${w.id}`); return n })
                                                 }}
                                                 className={`rounded p-0.5 transition-colors ${isPinned ? 'text-indigo-400 hover:text-indigo-300' : 'text-zinc-600 hover:text-zinc-400'}`}
-                                                aria-label={isPinned ? 'Unpin violation detail' : 'Pin violation detail open'}
+                                                aria-label={isPinned ? 'Unpin issue detail' : 'Pin issue detail open'}
                                                 title={isPinned ? 'Unpin' : 'Pin open while working'}
                                             >
                                                 <Pin size={9} aria-hidden="true" />
@@ -1059,7 +1100,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
                                                 type="button"
                                                 onClick={() => void handleA11yFix(ruleId)}
                                                 className="rounded border border-indigo-500/30 bg-indigo-900/20 px-2 py-0.5 text-[10px] text-indigo-400 hover:bg-indigo-900/40 transition-colors"
-                                                aria-label={`Fix ${ruleId} violation`}
+                                                aria-label={`Fix ${ruleId} gap`}
                                                 data-testid={`a11y-fix-btn-${ruleId}`}
                                             >
                                                 Fix
@@ -1071,8 +1112,8 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
                                                     useNotificationStore.getState().push({ type: 'sync', title: 'Deferred', message: `${ruleId} deferred`, severity: 'info', autoDismissMs: 3000 })
                                                 }}
                                                 className="rounded border border-zinc-700 bg-zinc-800 px-2 py-0.5 text-[10px] text-zinc-500 hover:bg-zinc-700 hover:text-zinc-300 transition-colors"
-                                                aria-label={`Defer ${ruleId} violation`}
-                                                title="Snooze this violation for the current session"
+                                                aria-label={`Defer ${ruleId} issue`}
+                                                title="Snooze this issue for the current session"
                                             >
                                                 Defer
                                             </button>
@@ -1083,7 +1124,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
                                                     if (!isPinned) setExpandedViolations((prev) => { const n = new Set(prev); n.add(`a-${w.id}-${i}`); return n })
                                                 }}
                                                 className={`rounded p-0.5 transition-colors ${isPinned ? 'text-indigo-400 hover:text-indigo-300' : 'text-zinc-600 hover:text-zinc-400'}`}
-                                                aria-label={isPinned ? 'Unpin violation detail' : 'Pin violation detail open'}
+                                                aria-label={isPinned ? 'Unpin issue detail' : 'Pin issue detail open'}
                                                 title={isPinned ? 'Unpin' : 'Pin open while working'}
                                             >
                                                 <Pin size={9} aria-hidden="true" />
@@ -1184,24 +1225,25 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
                                     <span className={`text-6xl font-bold leading-none ${GRADE_TEXT[grade]}`} aria-label={`Grade ${grade}`}>{grade}</span>
                                     <span className="text-xs text-zinc-500">{isBaselineSet ? 'Delta Score (new issues only)' : 'Governance Health'}</span>
                                     {scoreTrendHint && <span className="text-xs text-zinc-300 mt-0.5" data-testid="score-trend-hint">{scoreTrendHint}</span>}
+                                    <p className="text-xs text-zinc-500 mt-1" data-testid="next-step-prompt">{nextStep.text}</p>
                                 </div>
                             </div>
                             {(mithrilCount > 0 || a11yCount > 0 || overrideCount > 0) && (
                                 <div className="px-3 py-2 space-y-1.5 border-t border-zinc-800/50">
                                     {mithrilCount > 0 && (
-                                        <div className="flex items-center gap-2 text-xs text-zinc-400">
+                                        <div className="flex items-center gap-2 text-xs text-zinc-400" data-testid="fidelity-score-row">
                                             <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" aria-hidden="true" />
-                                            <span className="flex-1">Fixing {mithrilCount} design system {mithrilCount !== 1 ? 'issues' : 'issue'} would raise your score by {mithrilCount * 5} pts</span>
+                                            <span className="flex-1">Fidelity Score: {healthSignal.fidelityScore}/100 — fixing {mithrilCount} design system {mithrilCount !== 1 ? 'issues' : 'issue'} would raise your score by {mithrilCount * 5} pts</span>
                                         </div>
                                     )}
                                     {a11yCount > 0 && (
-                                        <div className="flex items-center gap-2 text-xs text-zinc-400">
+                                        <div className="flex items-center gap-2 text-xs text-zinc-400" data-testid="a11y-score-row">
                                             <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-400" aria-hidden="true" />
-                                            <span className="flex-1">Fixing {a11yCount} accessibility {a11yCount !== 1 ? 'issues' : 'issue'} would raise your score by {a11yCount * 10} pts</span>
+                                            <span className="flex-1">Accessibility Score: {healthSignal.a11yScore}/100 — fixing {a11yCount} accessibility {a11yCount !== 1 ? 'issues' : 'issue'} would raise your score by {a11yCount * 10} pts</span>
                                         </div>
                                     )}
                                     {overrideCount > 0 && (
-                                        <div className="flex items-center gap-2 text-xs text-zinc-400">
+                                        <div className="flex items-center gap-2 text-xs text-zinc-400" data-testid="override-score-row">
                                             <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" aria-hidden="true" />
                                             <span className="flex-1">Fixing {overrideCount} unapplied style {overrideCount !== 1 ? 'overrides' : 'override'} would raise your score by {overrideCount * 3} pts</span>
                                         </div>
@@ -1223,7 +1265,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
                                     <div id="score-formula" className="mt-2 rounded border border-zinc-800 bg-zinc-950 px-3 py-2.5 space-y-1.5">
                                         <ul className="space-y-1 text-[10px] text-zinc-500">
                                             <li className="flex items-center justify-between"><span>Design system drift</span><span className="font-mono text-amber-400">−5 per issue</span></li>
-                                            <li className="flex items-center justify-between"><span>Accessibility violations</span><span className="font-mono text-red-400">−10 per issue</span></li>
+                                            <li className="flex items-center justify-between"><span>Accessibility gaps</span><span className="font-mono text-red-400">−10 per issue</span></li>
                                             <li className="flex items-center justify-between"><span>Unapplied overrides</span><span className="font-mono text-amber-400">−3 per change</span></li>
                                         </ul>
                                         <p className="text-[10px] font-mono text-zinc-600">A (90–100) · B (80–89) · C (70–79) · D (60–69) · F (&lt;60)</p>
@@ -1235,7 +1277,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
                 </div>
             )}
 
-            {/* ── ACCORDION: Top Violated Rules ─────────────────────────── */}
+            {/* ── ACCORDION: Top Triggered Rules ─────────────────────────── */}
             {tokenCount > 0 && (
                 <div className="border-t border-zinc-800">
                     <button
@@ -1246,13 +1288,13 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
                         aria-controls="top-rules-accordion"
                     >
                         {isTopRulesOpen ? <ChevronDown size={12} className="shrink-0 text-zinc-500" aria-hidden="true" /> : <ChevronRight size={12} className="shrink-0 text-zinc-500" aria-hidden="true" />}
-                        <span className="flex-1 text-xs text-zinc-400">Top Violated Rules</span>
+                        <span className="flex-1 text-xs text-zinc-400">Top Triggered Rules</span>
                         {topRules.length > 0 && <span className="font-mono text-[10px] text-zinc-600">{topRules.length}</span>}
                     </button>
                     {isTopRulesOpen && (
                         <div id="top-rules-accordion" className="px-3 py-2 space-y-1">
                             {topRules.length === 0 ? (
-                                <p className="text-xs text-emerald-400">No violations</p>
+                                <p className="text-xs text-emerald-400">No issues</p>
                             ) : (
                                 topRules.map((row) => (
                                     <button
@@ -1261,7 +1303,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
                                         onClick={() => handleRuleRowClick(row.type)}
                                         className="flex w-full items-center gap-2 rounded px-2 py-1.5 cursor-pointer hover:bg-zinc-800/50 transition-colors text-left"
                                         data-testid={`rule-row-${row.type}`}
-                                        title={`Scroll to ${TYPE_LABEL[row.type]} violations`}
+                                        title={`Scroll to ${TYPE_LABEL[row.type]} issues`}
                                     >
                                         <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${SEVERITY_DOT[row.severity]}`} aria-hidden="true" />
                                         <span className="flex-1 truncate text-xs text-zinc-300">{TYPE_LABEL[row.type]}</span>
@@ -1312,11 +1354,11 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
                                     >
                                         {baselineStatus === 'setting'
                                             ? 'Setting baseline...'
-                                            : `Show only new violations${totalRaw > 0 ? ` (${totalRaw} baselined)` : ''}`}
+                                            : `Show only new issues${totalRaw > 0 ? ` (${totalRaw} baselined)` : ''}`}
                                     </button>
                                 ) : (
                                     <>
-                                        <span className="flex-1 text-xs text-indigo-400">Showing new violations only ({baselineEntries.length} baselined)</span>
+                                        <span className="flex-1 text-xs text-indigo-400">Showing new issues only ({baselineEntries.length} baselined)</span>
                                         <button
                                             type="button"
                                             onClick={() => void handleClearBaseline()}

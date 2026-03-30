@@ -191,11 +191,11 @@ export function CommandPalette({ onOpenExportModal, onOpenGovernancePanel, onOpe
                         if (m?.[1]) fixOps.push({ op: 'applyTokenFix', nodeId, hardcodedClass: m[1], tokenClass: w.nearestToken })
                     }
                     if (fixOps.length === 0) {
-                        pushNotification({ type: 'info', severity: 'info', title: 'Nothing to fix', message: 'No auto-fixable violations found', autoDismissMs: 3000 })
+                        pushNotification({ type: 'info', severity: 'info', title: 'Nothing to fix', message: 'No auto-fixable issues found', autoDismissMs: 3000 })
                         return
                     }
                     await useEditorStore.getState().applyBatch(fixOps)
-                    pushNotification({ type: 'info', severity: 'success', title: `Fixed ${fixOps.length} violations`, message: 'Auto-fixable token drifts resolved', autoDismissMs: 4000 })
+                    pushNotification({ type: 'info', severity: 'success', title: `Fixed ${fixOps.length} issues`, message: 'Auto-fixable token drifts resolved', autoDismissMs: 4000 })
                 }),
             },
             {

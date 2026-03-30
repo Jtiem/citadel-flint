@@ -26,6 +26,7 @@ import type {
 } from '../types.js'
 import { loadProjectConfig } from './config-loader.js'
 import { resolveStyleGuide } from './styleGuideService.js'
+import { suggestTools } from './toolSuggester.js'
 
 // Re-export for consumers that import from this module
 export type { ViolationSummary, TokenSummary, MutationEntry, CanvasState, SessionContext, SessionSummary, SessionPersona }
@@ -435,6 +436,31 @@ export async function assembleSessionContext(projectRoot: string): Promise<Sessi
             coldStartHint:
                 'No Glass session found. Run `npx flint-glass --project ./your-project` to connect the visual layer, or use `flint_reindex_registry` and `flint_debt_report` to govern headlessly without Glass.',
         }),
+    }
+
+    // CLARITY-2 Item 5: Progressive tool surfacing
+    const manifestPath = path.join(projectRoot, 'flint-manifest.json')
+    const hasManifest = fs.existsSync(manifestPath)
+    context.suggestedTools = suggestTools({
+        tokenCount: tokens.totalCount,
+        mithrilCount: violations.mithrilCount,
+        a11yCount: violations.a11yCount,
+        healthScore,
+        figmaConnected: canvas.figmaConnected,
+        hasManifest,
+    })
+
+    // CLARITY: Add nextStep field when violations are present
+    const totalIssues = violations.mithrilCount + violations.a11yCount
+    if (totalIssues > 0) {
+        const parts: string[] = []
+        if (violations.mithrilCount > 0) parts.push(`${violations.mithrilCount} color drift${violations.mithrilCount !== 1 ? 's' : ''}`)
+        if (violations.a11yCount > 0) parts.push(`${violations.a11yCount} accessibility gap${violations.a11yCount !== 1 ? 's' : ''}`)
+        context.nextStep =
+            `${parts.join(' and ')} found. Say 'fix it' to auto-remediate, or 'explain' for details.`
+    } else {
+        context.nextStep =
+            'All clear — 0 issues detected. Your design system is in sync.'
     }
 
     setCached(projectRoot, context)

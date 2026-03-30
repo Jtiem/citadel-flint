@@ -362,7 +362,7 @@ export function ExportModal({ onClose }: ExportModalProps) {
                         <div className="space-y-4">
                             {/* EDU-12: plain language — no "Mithril" jargon */}
                             <p className="text-xs text-emerald-300">
-                                No design system violations or unapplied style changes detected.
+                                No design system drift or unapplied style changes detected.
                                 This file is fully export-ready.
                             </p>
                             {/* Source preview */}
@@ -553,7 +553,7 @@ export function ExportModal({ onClose }: ExportModalProps) {
                                                     ? warning.message
                                                     : deltaE !== null
                                                         ? `Color drift ΔE ${deltaE.toFixed(1)} — token not applied`
-                                                        : 'Design system violation — token not applied'
+                                                        : 'Design system drift — token not applied'
                                                 }
                                             </p>
                                         </li>

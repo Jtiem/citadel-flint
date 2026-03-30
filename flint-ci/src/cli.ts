@@ -28,6 +28,7 @@ import { dbomCommand } from './commands/dbom.js'
 import { fixCommand } from './commands/fix.js'
 import { initCommand } from './commands/init.js'
 import { baselineCommand } from './commands/baseline.js'
+import { helpCommand } from './commands/help.js'
 
 const program = new Command()
 
@@ -164,6 +165,16 @@ program
             printError(err)
             process.exit(3)
         }
+    })
+
+// ── help ────────────────────────────────────────────────────────────────────
+
+program
+    .command('help')
+    .description('Show workflow-oriented help for common tasks')
+    .action(() => {
+        const exitCode = helpCommand()
+        process.exit(exitCode)
     })
 
 // ── Error helper ─────────────────────────────────────────────────────────────
