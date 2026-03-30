@@ -39,6 +39,8 @@ export interface SwarmReport {
     durationMs: number
     /** One-sentence human-readable summary. CX.1 */
     summary: string
+    /** Actionable next-step recommendation. CLARITY-2 */
+    recommendation: string
 }
 
 // ── CX.1 Summary generation ────────────────────────────────────────────────
@@ -46,7 +48,24 @@ export interface SwarmReport {
 /**
  * Generate a one-sentence plain-English summary of a swarm audit/fix report.
  */
-export function generateSwarmSummary(report: Omit<SwarmReport, 'summary'>): string {
+/**
+ * CLARITY-2: Generate actionable recommendation for swarm results.
+ */
+export function generateSwarmRecommendation(report: Omit<SwarmReport, 'summary' | 'recommendation'>): string {
+    if (report.totalViolations === 0) {
+        return `All ${report.filesScanned} files are clean. No action needed.`
+    }
+    const remaining = report.filesWithViolations - report.fileReports.filter(f => f.fixed).length
+    if (report.fixesApplied > 0 && remaining > 0) {
+        return `Cleaned ${report.fixesApplied} drift(s). ${remaining} file(s) still need manual review.`
+    }
+    if (report.fixesApplied > 0) {
+        return `Cleaned ${report.fixesApplied} drift(s) across all files. Run 'audit' to verify.`
+    }
+    return `${report.filesWithViolations} file(s) have issues. Run with autoFix to remediate.`
+}
+
+export function generateSwarmSummary(report: Omit<SwarmReport, 'summary' | 'recommendation'>): string {
     return (
         `Scanned ${report.filesScanned} files. ` +
         `${report.totalViolations} violation(s) found, ${report.fixesApplied} fixed. ` +
@@ -178,7 +197,7 @@ export async function handleFlintSwarmAuditFix(
             fileReports: [],
             durationMs: Date.now() - startMs,
         }
-        return { ...emptyReport, summary: generateSwarmSummary(emptyReport) }
+        return { ...emptyReport, summary: generateSwarmSummary(emptyReport), recommendation: generateSwarmRecommendation(emptyReport) }
     }
 
     // Step 2: Audit all discovered files
@@ -292,5 +311,5 @@ export async function handleFlintSwarmAuditFix(
         fileReports,
         durationMs: Date.now() - startMs,
     }
-    return { ...report, summary: generateSwarmSummary(report) }
+    return { ...report, summary: generateSwarmSummary(report), recommendation: generateSwarmRecommendation(report) }
 }

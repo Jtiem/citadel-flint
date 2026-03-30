@@ -11,6 +11,28 @@
 import path from 'node:path'
 import { ANSI } from '../utils/ansi.js'
 
+// ── Inlined from shared/healthSignal.ts (avoids cross-package rootDir issues) ─
+interface HealthSignal {
+    fidelityScore: number
+    a11yScore: number
+    overrideCount: number
+    overallScore: number
+    grade: 'A' | 'B' | 'C' | 'D' | 'F'
+}
+function formatHealthSignal(mithrilCount: number, a11yCount: number, overrideCount: number): HealthSignal {
+    const fidelityScore = Math.max(0, 100 - mithrilCount * 5)
+    const a11yScore = Math.max(0, 100 - a11yCount * 10)
+    const raw = 100 - mithrilCount * 5 - a11yCount * 10 - overrideCount * 3
+    const overallScore = Math.max(0, Math.min(100, raw))
+    let grade: HealthSignal['grade']
+    if (overallScore >= 90) grade = 'A'
+    else if (overallScore >= 80) grade = 'B'
+    else if (overallScore >= 70) grade = 'C'
+    else if (overallScore >= 60) grade = 'D'
+    else grade = 'F'
+    return { fidelityScore, a11yScore, overrideCount, overallScore, grade }
+}
+
 // ── Types (mirrored from MCP for CI portability) ─────────────────────────────
 
 interface DebtReport {
@@ -104,6 +126,15 @@ export async function debtCommand(
     )
     console.error(
         `${ANSI.dim}  ${report.totalViolations} violations across ${report.scannedFiles} files${ANSI.reset}`,
+    )
+
+    // Break down the health signal into sub-scores (shared with Glass)
+    const mithrilCount = report.byCategory['design-system'] ?? report.byCategory['color'] ?? 0
+    const a11yCount = report.byCategory['accessibility'] ?? report.byCategory['a11y'] ?? 0
+    const overrideCountVal = report.byCategory['override'] ?? 0
+    const signal = formatHealthSignal(mithrilCount, a11yCount, overrideCountVal)
+    console.error(
+        `${ANSI.dim}  Fidelity: ${signal.fidelityScore}/100 | Accessibility: ${signal.a11yScore}/100 | Overrides: ${signal.overrideCount}${ANSI.reset}`,
     )
     console.error()
 
