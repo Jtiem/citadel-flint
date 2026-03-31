@@ -50,10 +50,10 @@ describe('DemoWalkthrough', () => {
         expect(localStorage.getItem(STORAGE_KEY)).toBe('true')
     })
 
-    it('calls onDismiss and sets localStorage when Skip (X) is clicked', () => {
+    it('calls onDismiss and sets localStorage when close (X) is clicked', () => {
         const onDismiss = vi.fn()
         render(<DemoWalkthrough onDismiss={onDismiss} />)
-        fireEvent.click(screen.getByRole('button', { name: /Skip walkthrough/i }))
+        fireEvent.click(screen.getByRole('button', { name: /Close demo walkthrough/i }))
         expect(onDismiss).toHaveBeenCalledOnce()
         expect(localStorage.getItem(STORAGE_KEY)).toBe('true')
     })

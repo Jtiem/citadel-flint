@@ -148,7 +148,7 @@ describe('LaunchScreen', () => {
         ;(window.flintAPI.registry.removeProject as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
         render(<LaunchScreen {...defaultProps()} />)
         await waitFor(() => screen.getByText('Delta App'))
-        const removeBtn = screen.getByLabelText('Remove from recent')
+        const removeBtn = screen.getByRole('button', { name: /Remove Delta App from recent projects/i })
         fireEvent.click(removeBtn)
         await waitFor(() => {
             expect(window.flintAPI.registry.removeProject).toHaveBeenCalledWith('proj-abc')
@@ -196,7 +196,9 @@ describe('LaunchScreen', () => {
         fireEvent.click(screen.getByText('From Figma'))
         await waitFor(() => {
             expect(screen.getByText(/Install the .* Figma plugin before continuing/)).toBeDefined()
-            expect(screen.getByRole('link', { name: 'Get plugin →' })).toBeDefined()
+            // Link now has an aria-label (describes destination for a11y)
+            const link = document.querySelector('a[href*="figma.com/community"]')
+            expect(link).not.toBeNull()
         })
     })
 
