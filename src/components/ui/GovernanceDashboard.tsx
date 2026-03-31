@@ -7,9 +7,10 @@
  * canvasStore.overridesExist) so there is no polling, no IPC, and no
  * external dependency — fully local-first per Architecture Commandment 4.
  *
- * Health score formula (spec §V.1):
- *   score = 100 - (mithrilCount × 5) - (a11yCount × 10) - (overrideCount × 3)
- *   clamped to [0, 100].
+ * Health score formula (canonical — matches debtReportService and MCP):
+ *   score = 100 − (criticals × 10) − (warnings × 3) − (infos × 1) − (overrides × 3)
+ *   clamped to [0, 100]. Computed via useGovernanceHealth hook.
+ *   Severity mapping: critical → criticals, amber → warnings, advisory → infos.
  *
  * Grade mapping:
  *   A ≥ 90 · B ≥ 80 · C ≥ 70 · D ≥ 60 · F < 60
@@ -42,25 +43,7 @@ import { useUserPrefs } from '../../hooks/useUserPrefs'
 import { FixPreviewDrawer, type FixableItem } from './FixPreviewDrawer'
 import { applyUndo } from '../../core/recoveryController'
 import { formatHealthSignal } from '../../../shared/healthSignal'
-
-// ── Score / grade helpers ─────────────────────────────────────────────────────
-
-function computeHealthScore(
-    mithrilCount: number,
-    a11yCount: number,
-    overrideCount: number,
-): number {
-    const raw = 100 - mithrilCount * 5 - a11yCount * 10 - overrideCount * 3
-    return Math.max(0, Math.min(100, raw))
-}
-
-function gradeFromScore(score: number): 'A' | 'B' | 'C' | 'D' | 'F' {
-    if (score >= 90) return 'A'
-    if (score >= 80) return 'B'
-    if (score >= 70) return 'C'
-    if (score >= 60) return 'D'
-    return 'F'
-}
+import { useGovernanceHealth, gradeFromScore } from '../../hooks/useGovernanceHealth'
 
 // ── Grade → token colour maps ─────────────────────────────────────────────────
 
@@ -364,17 +347,37 @@ function CopySnippet({ snippet }: { snippet: string }) {
 
 type BaselineStatus = 'idle' | 'setting' | 'clearing'
 
+// ── COUNSEL.1.4: Inline diff preview data ────────────────────────────────────
+
+/** Data returned by governance.previewFix IPC (COUNSEL.1.4). */
+interface InlineFixPreview {
+    current: string
+    proposed: string
+    tokenName: string
+    isColor: boolean
+}
+
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 interface GovernanceDashboardProps {
     onOpenExportModal?: () => void
     /** S5.8: Opens the full GovernancePanel rules manager */
     onOpenGovernancePanel?: () => void
+    /**
+     * COUNSEL.1.2: Total violation count at project open.
+     * When > 10 and delta mode is currently off, auto-enables delta mode
+     * and shows a contextual banner so designers focus on new issues.
+     */
+    initialViolationCount?: number
+    /** COUNSEL.4.3: Navigate to the GovernancePanel rules manager */
+    onManageRules?: () => void
+    /** COUNSEL.4.3: Navigate to Policy Settings */
+    onPolicySettings?: () => void
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }: GovernanceDashboardProps = {}) {
+export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, initialViolationCount, onManageRules, onPolicySettings }: GovernanceDashboardProps = {}) {
     // Zustand selectors — one per slice to minimise re-renders.
     const linterWarnings       = useEditorStore((s) => s.linterWarnings)
     const a11yViolations       = useCanvasStore((s) => s.a11yViolations)
@@ -490,6 +493,10 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
         return auditDelta(allA11yWarnings, baselineEntries)
     }, [isBaselineSet, baselineEntries, allA11yWarnings])
 
+    // ── COUNSEL.1.1 + COUNSEL.1.2: category filter + banner state ───────────
+    const [activeCategory, setActiveCategory] = useState<'design-system' | 'accessibility' | 'token-sync' | null>(null)
+    const [bannerDismissed, setBannerDismissed] = useState(false)
+
     // ── Derived counts (delta-aware) ──────────────────────────────────────────
     const mithrilCount  = effectiveLinterWarnings.length
     const a11yCount     = effectiveA11yWarnings.length
@@ -497,8 +504,31 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
     // when overridesExist is true but the count hasn't loaded yet.
     const overrideCount = overridesExist ? Math.max(1, govOverrideCount) : 0
 
-    const score = computeHealthScore(mithrilCount, a11yCount, overrideCount)
-    const grade = gradeFromScore(score)
+    // Combine effective violations for the canonical severity-weighted formula
+    const allEffectiveViolations = useMemo(
+        () => [...effectiveLinterWarnings, ...effectiveA11yWarnings],
+        [effectiveLinterWarnings, effectiveA11yWarnings],
+    )
+    const { score, grade } = useGovernanceHealth(allEffectiveViolations, overrideCount)
+
+    // ── COUNSEL.1.1: category chip counts + filtered violation lists ──────────
+    const syncCount = effectiveLinterWarnings.filter((w) => w.type === 'sync').length
+    const visibleLinterWarnings = activeCategory === null
+        ? effectiveLinterWarnings
+        : activeCategory === 'design-system' ? effectiveLinterWarnings.filter((w) => w.type !== 'sync')
+        : activeCategory === 'token-sync' ? effectiveLinterWarnings.filter((w) => w.type === 'sync')
+        : []
+    const visibleA11yWarnings = (activeCategory === null || activeCategory === 'accessibility')
+        ? effectiveA11yWarnings : []
+
+    // ── COUNSEL.2.4: effort framing text ─────────────────────────────────────
+    const autoFixableCount = effectiveLinterWarnings.filter((w) => w.nearestToken !== null).length
+    const effortText: string = (() => {
+        const total = mithrilCount + a11yCount
+        if (total === 0) return 'No violations — looking good'
+        if (autoFixableCount > 0) return `${autoFixableCount} auto-fixable — Autopilot can resolve ${autoFixableCount === 1 ? 'it' : 'them'} in one click`
+        return `${total} ${total === 1 ? 'issue' : 'issues'} need your input to resolve`
+    })()
 
     // ── Shared health signal (sub-scores for breakdown labels) ──────────────
     const healthSignal = useMemo(
@@ -718,7 +748,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
                 type: 'violation',
                 title: 'Fix failed',
                 message: 'No active file — open a file before fixing',
-                severity: 'amber',
+                severity: 'warning',
                 autoDismissMs: 4000,
             })
             return
@@ -745,7 +775,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
                 type: 'violation',
                 title: 'Fix failed',
                 message: `Fix failed — ${msg}`,
-                severity: 'amber',
+                severity: 'warning',
                 autoDismissMs: 5000,
             })
         }
@@ -764,6 +794,158 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
         )
         setFixPreviewItems(null)
     }, [fixPreviewItems])
+
+    // ── COUNSEL.1.4: Inline diff preview state ────────────────────────────────
+    const [inlineDiffOpen, setInlineDiffOpen] = useState<Set<string>>(new Set())
+    const [inlineDiffData, setInlineDiffData] = useState<Map<string, InlineFixPreview>>(new Map())
+    const [inlineDiffLoading, setInlineDiffLoading] = useState<Set<string>>(new Set())
+    // Queue of accepted fixes awaiting batch apply
+    const [acceptedFixes, setAcceptedFixes] = useState<FixableItem[]>([])
+
+    const toggleInlineDiff = useCallback(async (key: string, ruleId: string, filePath: string | null) => {
+        if (inlineDiffOpen.has(key)) {
+            setInlineDiffOpen((prev) => { const n = new Set(prev); n.delete(key); return n })
+            return
+        }
+        setInlineDiffOpen((prev) => new Set([...prev, key]))
+        if (inlineDiffData.has(key)) return
+        setInlineDiffLoading((prev) => new Set([...prev, key]))
+        try {
+            if (window.flintAPI.governance.previewFix && filePath) {
+                const data = await window.flintAPI.governance.previewFix(ruleId, filePath)
+                if (data) setInlineDiffData((prev) => new Map([...prev, [key, data]]))
+            }
+        } catch {
+            /* IPC not yet available — show placeholder diff from store data */
+        } finally {
+            setInlineDiffLoading((prev) => { const n = new Set(prev); n.delete(key); return n })
+        }
+    }, [inlineDiffOpen, inlineDiffData])
+
+    const acceptInlineFix = useCallback((key: string, item: FixableItem) => {
+        setAcceptedFixes((prev) => {
+            if (prev.some((f) => f.nodeId === item.nodeId)) return prev
+            return [...prev, item]
+        })
+        setInlineDiffOpen((prev) => { const n = new Set(prev); n.delete(key); return n })
+    }, [])
+
+    const skipInlineFix = useCallback((key: string) => {
+        setInlineDiffOpen((prev) => { const n = new Set(prev); n.delete(key); return n })
+    }, [])
+
+    const applyAcceptedFixes = useCallback(() => {
+        if (acceptedFixes.length === 0) return
+        useEditorStore.getState().applyBatch(
+            acceptedFixes.map((item) => ({
+                op: 'applyTokenFix' as const,
+                nodeId: item.nodeId,
+                hardcodedClass: item.hardcodedClass,
+                tokenClass: item.tokenClass,
+            }))
+        )
+        setAcceptedFixes([])
+    }, [acceptedFixes])
+
+    // ── COUNSEL.2.1: Defer form state ─────────────────────────────────────────
+    const [deferFormOpen, setDeferFormOpen] = useState<Set<string>>(new Set())
+    const [deferReasons, setDeferReasons] = useState<Map<string, string>>(new Map())
+    const [deferDurations, setDeferDurations] = useState<Map<string, string>>(new Map())
+    const [deferSuccess, setDeferSuccess] = useState<Set<string>>(new Set())
+    const [deferSuccessMsg, setDeferSuccessMsg] = useState<Map<string, string>>(new Map())
+
+    const toggleDeferForm = useCallback((key: string) => {
+        setDeferFormOpen((prev) => {
+            const n = new Set(prev)
+            if (n.has(key)) { n.delete(key) } else { n.add(key) }
+            return n
+        })
+    }, [])
+
+    const submitDefer = useCallback(async (key: string, ruleId: string, nodeId: string) => {
+        const reason = deferReasons.get(key) ?? ''
+        const duration = deferDurations.get(key) ?? '1 day'
+        let deferred = false
+        try {
+            if (window.flintAPI.governance.deferViolation) {
+                await window.flintAPI.governance.deferViolation({ ruleId, filePath: activeFilePath ?? '', reason, duration })
+                deferred = true
+            } else if (window.flintAPI.deferViolation) {
+                await window.flintAPI.deferViolation(activeFilePath ?? '', ruleId, nodeId, reason)
+                deferred = true
+            }
+        } catch { /* best-effort */ }
+        if (!deferred) {
+            useNotificationStore.getState().push({
+                type: 'violation',
+                title: 'Defer unavailable',
+                message: 'Defer IPC is not available in this environment',
+                severity: 'warning',
+                autoDismissMs: 4000,
+            })
+            return
+        }
+        const msg = duration === 'Manually' ? 'Deferred. Will resurface manually.' : `Deferred. Will resurface in ${duration}.`
+        setDeferSuccessMsg((prev) => new Map([...prev, [key, msg]]))
+        setDeferSuccess((prev) => new Set([...prev, key]))
+        setDeferFormOpen((prev) => { const n = new Set(prev); n.delete(key); return n })
+        setTimeout(() => {
+            setDeferSuccess((prev) => { const n = new Set(prev); n.delete(key); return n })
+        }, 4000)
+    }, [deferReasons, deferDurations, activeFilePath])
+
+    // ── COUNSEL.2.5: Session fix progress indicator ───────────────────────────
+    const [sessionInitialCount] = useState<number>(() => {
+        const mWarnings = Array.from(useEditorStore.getState().linterWarnings.values())
+        const aWarnings = Object.keys(useCanvasStore.getState().a11yViolations)
+        return mWarnings.length + aWarnings.length
+    })
+
+    // ── COUNSEL.1.6: A11y auto-fixable entries ────────────────────────────────
+    const autoFixableA11yEntries = useMemo(
+        () => effectiveA11yWarnings.filter((w) => {
+            const ruleId = extractRuleIdFromMsg(w.message) ?? ''
+            return w.nearestToken !== null || ['A11Y-001', 'A11Y-002'].includes(ruleId)
+        }),
+        [effectiveA11yWarnings],
+    )
+    const manualA11yEntries = useMemo(
+        () => effectiveA11yWarnings.filter((w) => {
+            const ruleId = extractRuleIdFromMsg(w.message) ?? ''
+            return w.nearestToken === null && !['A11Y-001', 'A11Y-002'].includes(ruleId)
+        }),
+        [effectiveA11yWarnings],
+    )
+
+    const handleBatchFixA11y = useCallback(async () => {
+        if (!activeFilePath) return
+        try {
+            if (window.flintAPI.governance.batchFixA11y) {
+                await window.flintAPI.governance.batchFixA11y(activeFilePath)
+            } else {
+                for (const w of autoFixableA11yEntries) {
+                    const rId = extractRuleIdFromMsg(w.message) ?? 'A11Y'
+                    await handleA11yFix(rId).catch(() => { /* best-effort */ })
+                }
+            }
+            useNotificationStore.getState().push({
+                type: 'mutation',
+                title: 'A11y batch fix applied',
+                message: `${autoFixableA11yEntries.length} a11y ${autoFixableA11yEntries.length === 1 ? 'issue' : 'issues'} fixed`,
+                severity: 'info',
+                autoDismissMs: 3000,
+            })
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err)
+            useNotificationStore.getState().push({
+                type: 'violation',
+                title: 'A11y batch fix failed',
+                message: msg,
+                severity: 'warning',
+                autoDismissMs: 5000,
+            })
+        }
+    }, [activeFilePath, autoFixableA11yEntries, handleA11yFix])
 
     // ── Export gate ──────────────────────────────────────────────────────────
     // Use the store's canExport() which respects cachedPolicy mode settings.
@@ -903,34 +1085,55 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
                             Auto-fixes Tier-1 drift as you work
                         </span>
                     </div>
-                    <button
-                        type="button"
-                        onClick={() => setAutopilotEnabled(!autopilotEnabled)}
-                        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
-                            autopilotEnabled ? 'bg-blue-500' : 'bg-zinc-700'
+                    {/* COUNSEL.4.3: Read-only status chip replaces the toggle — autopilot state is
+                         set by the engine policy, not manually toggled from Glass. */}
+                    <span
+                        data-testid="autopilot-status-chip"
+                        className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium ${
+                            autopilotEnabled
+                                ? 'border-emerald-500/30 bg-emerald-900/20 text-emerald-400'
+                                : 'border-zinc-700 bg-zinc-800 text-zinc-500'
                         }`}
-                        role="switch"
-                        aria-checked={autopilotEnabled}
-                        aria-label="Toggle Autopilot"
+                        aria-label={autopilotEnabled ? 'Autopilot: On' : 'Autopilot: Off'}
                     >
-                        <span
-                            className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
-                                autopilotEnabled ? 'translate-x-4' : 'translate-x-0.5'
-                            }`}
-                        />
-                    </button>
+                        <span className={`h-1.5 w-1.5 rounded-full ${autopilotEnabled ? 'bg-emerald-400' : 'bg-zinc-600'}`} aria-hidden="true" />
+                        {autopilotEnabled ? 'On' : 'Off'}
+                    </span>
                 </div>
             )}
 
             {/* ── VIOLATIONS SECTION — primary job surface ─────────────── */}
             {tokenCount > 0 && (mithrilCount > 0 || a11yCount > 0 || overridesExist) && (
                 <div ref={violationsSectionRef}>
-                    {/* Section header + batch fix CTA */}
-                    <div className="flex items-center gap-2 border-b border-zinc-800 px-3 py-2">
+                    {/* Section header + batch fix CTAs */}
+                    <div className="flex flex-wrap items-center gap-2 border-b border-zinc-800 px-3 py-2">
                         <h4 className="flex-1 text-xs font-medium uppercase tracking-wider text-zinc-400">
                             Issues
                             {isBaselineSet && <span className="ml-1.5 text-indigo-400">(new only)</span>}
                         </h4>
+                        {/* COUNSEL.2.5: Session fix progress indicator */}
+                        {sessionInitialCount > 0 && (
+                            <span
+                                data-testid="session-progress-indicator"
+                                className="text-[10px] text-zinc-600"
+                                aria-live="polite"
+                            >
+                                {Math.max(0, sessionInitialCount - mithrilCount - a11yCount)} of {sessionInitialCount} fixed this session
+                            </span>
+                        )}
+                        {/* COUNSEL.1.4: Apply accepted fixes queue button */}
+                        {acceptedFixes.length > 0 && (
+                            <button
+                                type="button"
+                                onClick={applyAcceptedFixes}
+                                data-testid="apply-accepted-fixes-button"
+                                className="flex items-center gap-1 rounded border border-emerald-500/30 bg-emerald-900/20 px-2.5 py-1 text-[10px] text-emerald-400 hover:bg-emerald-900/40 hover:text-emerald-300 transition-colors"
+                                aria-label={`Apply ${acceptedFixes.length} accepted ${acceptedFixes.length === 1 ? 'fix' : 'fixes'}`}
+                            >
+                                <Check size={9} aria-hidden="true" />
+                                Apply {acceptedFixes.length} {acceptedFixes.length === 1 ? 'fix' : 'fixes'}
+                            </button>
+                        )}
                         {autoFixableEntries.length > 0 && (
                             <button
                                 type="button"
@@ -942,11 +1145,40 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
                                 Auto-fix {autoFixableEntries.length} {autoFixableEntries.length === 1 ? 'issue' : 'issues'}
                             </button>
                         )}
+                        {/* COUNSEL.1.6: Fix all a11y batch button + Review N manually link */}
+                        {autoFixableA11yEntries.length > 0 && (
+                            <button
+                                type="button"
+                                onClick={() => void handleBatchFixA11y()}
+                                data-testid="fix-all-a11y-button"
+                                className="flex items-center gap-1 rounded border border-red-500/30 bg-red-900/20 px-2.5 py-1 text-[10px] text-red-400 hover:bg-red-900/40 hover:text-red-300 transition-colors"
+                                aria-label={`Fix all ${autoFixableA11yEntries.length} auto-fixable accessibility issues`}
+                            >
+                                <Wand2 size={9} aria-hidden="true" />
+                                Fix all a11y ({autoFixableA11yEntries.length})
+                            </button>
+                        )}
+                        {manualA11yEntries.length > 0 && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    manualA11yEntries.forEach((w) => {
+                                        const k = `a-${w.id}-${effectiveA11yWarnings.indexOf(w)}`
+                                        setExpandedViolations((prev) => { const n = new Set(prev); n.add(k); return n })
+                                    })
+                                }}
+                                data-testid="review-manual-a11y-button"
+                                className="text-[10px] text-zinc-500 underline-offset-2 hover:text-zinc-300 hover:underline transition-colors"
+                                aria-label={`Review ${manualA11yEntries.length} accessibility issues that need manual input`}
+                            >
+                                Review {manualA11yEntries.length} manually
+                            </button>
+                        )}
                     </div>
 
                     {/* Violation cards — expandable action items */}
-                    <div className="divide-y divide-zinc-800/50">
-                        {effectiveLinterWarnings.map((w) => {
+                    <div className="divide-y divide-zinc-800/50" data-testid="violations-list">
+                        {visibleLinterWarnings.map((w) => {
                             const hardcoded = extractHardcodedClassFromMsg(w.message)
                             const token = w.nearestToken
                             const canFix = hardcoded !== null && token !== null
@@ -958,22 +1190,48 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
                             } : null
                             const guide = getFixGuide(w.type, w.message)
                             const ruleId = extractRuleIdFromMsg(w.message) ?? w.type
-                            const isOpen = expandedViolations.has(`m-${w.id}`) || pinnedViolations.has(`m-${w.id}`)
-                            const isPinned = pinnedViolations.has(`m-${w.id}`)
+                            const cardKey = `m-${w.id}`
+                            const isOpen = expandedViolations.has(cardKey) || pinnedViolations.has(cardKey)
+                            const isPinned = pinnedViolations.has(cardKey)
+                            // COUNSEL.1.5: auto-fixable badge — Mithril violations with a nearestToken are auto-fixable
+                            const isAutoFixable = canFix
+                            const isDiffOpen = inlineDiffOpen.has(cardKey)
+                            const isDiffLoading = inlineDiffLoading.has(cardKey)
+                            const diffData = inlineDiffData.get(cardKey)
+                            const isDeferOpen = deferFormOpen.has(cardKey)
+                            const isDeferSuccess = deferSuccess.has(cardKey)
                             return (
-                                <div key={`m-${w.id}`} className="border-b border-zinc-800/30 last:border-0">
+                                <div key={cardKey} className="border-b border-zinc-800/30 last:border-0">
                                     {/* Summary row — always visible. Expand toggle and action buttons are siblings. */}
                                     <div className="flex w-full items-start hover:bg-zinc-800/30 transition-colors">
                                         <button
                                             type="button"
-                                            onClick={() => toggleViolation(`m-${w.id}`)}
+                                            onClick={() => toggleViolation(cardKey)}
                                             className="flex flex-1 items-start gap-2 px-3 py-2 text-left min-w-0"
                                             aria-expanded={isOpen}
                                             aria-controls={`v-m-${w.id}`}
                                         >
                                             <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${SEVERITY_DOT[w.severity]}`} aria-hidden="true" />
                                             <div className="min-w-0 flex-1">
-                                                <p className="text-[10px] text-zinc-300 font-medium">{ruleId}</p>
+                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                    <p className="text-[10px] text-zinc-300 font-medium">{ruleId}</p>
+                                                    {/* COUNSEL.1.5: fixability badge */}
+                                                    {isAutoFixable ? (
+                                                        <span
+                                                            data-testid={`badge-auto-fixable-${w.id}`}
+                                                            className="rounded-full border border-emerald-500/30 bg-emerald-900/20 px-1.5 py-px text-[9px] font-medium text-emerald-400 leading-none"
+                                                        >
+                                                            Auto-fixable
+                                                        </span>
+                                                    ) : (
+                                                        <span
+                                                            data-testid={`badge-needs-input-${w.id}`}
+                                                            className="rounded-full border border-amber-500/30 bg-amber-900/20 px-1.5 py-px text-[9px] font-medium text-amber-400 leading-none"
+                                                        >
+                                                            Needs input
+                                                        </span>
+                                                    )}
+                                                </div>
                                                 {/* S5.10: line-clamp-2 instead of truncate — shows 2 lines before ellipsis */}
                                                 <p className="text-[10px] text-zinc-500 line-clamp-2" title={w.message}>
                                                     {w.message.replace(/^[A-Z0-9-]+:\s*/, '')}
@@ -983,8 +1241,26 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
                                                 ? <ChevronDown size={10} className="shrink-0 mt-1 text-zinc-600" aria-hidden="true" />
                                                 : <ChevronRight size={10} className="shrink-0 mt-1 text-zinc-600" aria-hidden="true" />}
                                         </button>
-                                        {/* S5.5 + S5.9: action buttons (Fix / Defer / Pin) */}
+                                        {/* Action buttons: Preview Fix / Fix / Defer / Pin */}
                                         <div className="flex shrink-0 items-center gap-1 self-center mr-2">
+                                            {/* COUNSEL.1.4: Preview fix button */}
+                                            {canFix && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => void toggleInlineDiff(cardKey, ruleId, activeFilePath)}
+                                                    data-testid={`preview-fix-btn-${w.id}`}
+                                                    className={`rounded border px-2 py-0.5 text-[10px] transition-colors ${
+                                                        isDiffOpen
+                                                            ? 'border-indigo-500/50 bg-indigo-900/30 text-indigo-300'
+                                                            : 'border-indigo-500/30 bg-indigo-900/20 text-indigo-400 hover:bg-indigo-900/40'
+                                                    }`}
+                                                    aria-label={isDiffOpen ? 'Close diff preview' : `Preview fix for ${ruleId}`}
+                                                    aria-expanded={isDiffOpen}
+                                                >
+                                                    {isDiffLoading ? <Loader2 size={8} className="animate-spin inline mr-0.5" aria-hidden="true" /> : null}
+                                                    {isDiffOpen ? 'Close' : 'Preview fix'}
+                                                </button>
+                                            )}
                                             {canFix && (
                                                 <button
                                                     type="button"
@@ -995,16 +1271,17 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
                                                     Fix
                                                 </button>
                                             )}
-                                            {/* S5.5: Defer — snoozes the violation for this session */}
+                                            {/* COUNSEL.2.1: Defer form toggle */}
                                             <button
                                                 type="button"
-                                                onClick={() => {
-                                                    void window.flintAPI.deferViolation?.(activeFilePath ?? '', ruleId, w.id)
-                                                    useNotificationStore.getState().push({ type: 'sync', title: 'Deferred', message: `${ruleId} deferred`, severity: 'info', autoDismissMs: 3000 })
-                                                }}
-                                                className="rounded border border-zinc-700 bg-zinc-800 px-2 py-0.5 text-[10px] text-zinc-500 hover:bg-zinc-700 hover:text-zinc-300 transition-colors"
-                                                aria-label={`Defer ${ruleId} issue`}
-                                                title="Snooze this issue for the current session"
+                                                onClick={() => toggleDeferForm(cardKey)}
+                                                className={`rounded border px-2 py-0.5 text-[10px] transition-colors ${
+                                                    isDeferOpen
+                                                        ? 'border-zinc-600 bg-zinc-700 text-zinc-300'
+                                                        : 'border-zinc-700 bg-zinc-800 text-zinc-500 hover:bg-zinc-700 hover:text-zinc-300'
+                                                }`}
+                                                aria-label={isDeferOpen ? 'Cancel defer' : `Defer ${ruleId} issue`}
+                                                aria-expanded={isDeferOpen}
                                             >
                                                 Defer
                                             </button>
@@ -1012,8 +1289,8 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
                                             <button
                                                 type="button"
                                                 onClick={() => {
-                                                    togglePin(`m-${w.id}`)
-                                                    if (!isPinned) setExpandedViolations((prev) => { const n = new Set(prev); n.add(`m-${w.id}`); return n })
+                                                    togglePin(cardKey)
+                                                    if (!isPinned) setExpandedViolations((prev) => { const n = new Set(prev); n.add(cardKey); return n })
                                                 }}
                                                 className={`rounded p-0.5 transition-colors ${isPinned ? 'text-indigo-400 hover:text-indigo-300' : 'text-zinc-600 hover:text-zinc-400'}`}
                                                 aria-label={isPinned ? 'Unpin issue detail' : 'Pin issue detail open'}
@@ -1023,6 +1300,142 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
                                             </button>
                                         </div>
                                     </div>
+
+                                    {/* COUNSEL.1.4: Inline diff preview panel */}
+                                    {isDiffOpen && (
+                                        <div
+                                            data-testid={`inline-diff-${w.id}`}
+                                            className="mx-3 mb-2 rounded border border-zinc-700 bg-zinc-950 overflow-hidden"
+                                        >
+                                            {isDiffLoading || !diffData ? (
+                                                <div className="flex items-center justify-center gap-2 py-3">
+                                                    <Loader2 size={12} className="animate-spin text-zinc-500" aria-hidden="true" />
+                                                    <span className="text-[10px] text-zinc-500">Loading diff...</span>
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <div className="grid grid-cols-2 divide-x divide-zinc-800">
+                                                        <div className="px-3 py-2">
+                                                            <p className="mb-1 text-[9px] font-medium uppercase tracking-wider text-zinc-600">Current</p>
+                                                            {diffData.isColor && (
+                                                                <span
+                                                                    className="mb-1 block h-4 w-4 rounded border border-zinc-700"
+                                                                    style={{ backgroundColor: diffData.current }}
+                                                                    aria-hidden="true"
+                                                                />
+                                                            )}
+                                                            <code className="text-[10px] text-red-400 font-mono">{diffData.current}</code>
+                                                        </div>
+                                                        <div className="px-3 py-2">
+                                                            <p className="mb-1 text-[9px] font-medium uppercase tracking-wider text-zinc-600">Proposed</p>
+                                                            {diffData.isColor && (
+                                                                <span
+                                                                    className="mb-1 block h-4 w-4 rounded border border-zinc-700"
+                                                                    style={{ backgroundColor: diffData.proposed }}
+                                                                    aria-hidden="true"
+                                                                />
+                                                            )}
+                                                            <code className="text-[10px] text-emerald-400 font-mono">{diffData.proposed}</code>
+                                                            <p className="mt-0.5 text-[9px] text-zinc-500">{diffData.tokenName}</p>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-2 border-t border-zinc-800 px-3 py-1.5">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => acceptInlineFix(cardKey, fixItem!)}
+                                                            data-testid={`accept-fix-btn-${w.id}`}
+                                                            className="rounded border border-emerald-500/30 bg-emerald-900/20 px-2.5 py-1 text-[10px] text-emerald-400 hover:bg-emerald-900/40 transition-colors"
+                                                            aria-label="Accept this fix"
+                                                        >
+                                                            Accept
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => skipInlineFix(cardKey)}
+                                                            data-testid={`skip-fix-btn-${w.id}`}
+                                                            className="rounded border border-zinc-700 bg-zinc-800 px-2.5 py-1 text-[10px] text-zinc-500 hover:bg-zinc-700 hover:text-zinc-300 transition-colors"
+                                                            aria-label="Skip this fix"
+                                                        >
+                                                            Skip
+                                                        </button>
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {/* COUNSEL.2.1: Inline defer form */}
+                                    {isDeferOpen && (
+                                        <div
+                                            data-testid={`defer-form-${w.id}`}
+                                            className="mx-3 mb-2 rounded border border-zinc-700 bg-zinc-950 px-3 py-2.5 space-y-2"
+                                        >
+                                            <p className="text-[10px] font-medium text-zinc-400">Defer this issue</p>
+                                            <textarea
+                                                rows={2}
+                                                placeholder="Reason (optional)"
+                                                value={deferReasons.get(cardKey) ?? ''}
+                                                onChange={(e) => setDeferReasons((prev) => new Map([...prev, [cardKey, e.target.value]]))}
+                                                className="w-full resize-none rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-[10px] text-zinc-300 placeholder-zinc-600 focus:border-indigo-500/60 focus:outline-none"
+                                                aria-label="Defer reason"
+                                            />
+                                            <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Defer duration">
+                                                {['1 day', '1 week', '1 sprint', 'Manually'].map((d) => (
+                                                    <label key={d} className="flex items-center gap-1 cursor-pointer">
+                                                        <input
+                                                            type="radio"
+                                                            name={`defer-duration-${cardKey}`}
+                                                            value={d}
+                                                            checked={(deferDurations.get(cardKey) ?? '1 day') === d}
+                                                            onChange={() => setDeferDurations((prev) => new Map([...prev, [cardKey, d]]))}
+                                                            className="sr-only"
+                                                        />
+                                                        <span
+                                                            className={`rounded-full border px-2 py-0.5 text-[9px] font-medium cursor-pointer transition-colors ${
+                                                                (deferDurations.get(cardKey) ?? '1 day') === d
+                                                                    ? 'border-indigo-500/50 bg-indigo-900/30 text-indigo-300'
+                                                                    : 'border-zinc-700 bg-zinc-800 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'
+                                                            }`}
+                                                        >
+                                                            {d}
+                                                        </span>
+                                                    </label>
+                                                ))}
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => void submitDefer(cardKey, ruleId, w.id)}
+                                                    data-testid={`defer-submit-${w.id}`}
+                                                    className="rounded border border-zinc-600 bg-zinc-800 px-2.5 py-1 text-[10px] text-zinc-300 hover:bg-zinc-700 transition-colors"
+                                                    aria-label="Submit defer"
+                                                >
+                                                    Defer issue
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => toggleDeferForm(cardKey)}
+                                                    data-testid={`defer-cancel-${w.id}`}
+                                                    className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors"
+                                                    aria-label="Cancel defer"
+                                                >
+                                                    Cancel
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Defer success confirmation */}
+                                    {isDeferSuccess && (
+                                        <div
+                                            data-testid={`defer-success-${w.id}`}
+                                            className="mx-3 mb-2 flex items-center gap-2 rounded border border-indigo-500/30 bg-indigo-900/20 px-3 py-1.5"
+                                            role="status"
+                                        >
+                                            <Check size={10} className="shrink-0 text-indigo-400" aria-hidden="true" />
+                                            <span className="text-[10px] text-indigo-300">{deferSuccessMsg.get(cardKey)}</span>
+                                        </div>
+                                    )}
 
                                     {/* Expanded guide */}
                                     {isOpen && (
@@ -1067,24 +1480,47 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
                         })}
 
                         {/* A11y violation cards */}
-                        {effectiveA11yWarnings.map((w, i) => {
+                        {visibleA11yWarnings.map((w, i) => {
                             const guide = getFixGuide('a11y', w.message)
                             const ruleId = extractRuleIdFromMsg(w.message) ?? 'A11Y'
-                            const isOpen = expandedViolations.has(`a-${w.id}-${i}`) || pinnedViolations.has(`a-${w.id}-${i}`)
-                            const isPinned = pinnedViolations.has(`a-${w.id}-${i}`)
+                            const cardKey = `a-${w.id}-${i}`
+                            const isOpen = expandedViolations.has(cardKey) || pinnedViolations.has(cardKey)
+                            const isPinned = pinnedViolations.has(cardKey)
+                            // COUNSEL.1.5: a11y auto-fixable = has nearestToken or is a known auto-fixable rule
+                            const isAutoFixable = w.nearestToken !== null || ['A11Y-001', 'A11Y-002'].includes(ruleId)
+                            const isDeferOpen = deferFormOpen.has(cardKey)
+                            const isDeferSuccess = deferSuccess.has(cardKey)
                             return (
-                                <div key={`a-${w.id}-${i}`} className="border-b border-zinc-800/30 last:border-0">
+                                <div key={cardKey} className="border-b border-zinc-800/30 last:border-0">
                                     <div className="flex w-full items-start hover:bg-zinc-800/30 transition-colors">
                                         <button
                                             type="button"
-                                            onClick={() => toggleViolation(`a-${w.id}-${i}`)}
+                                            onClick={() => toggleViolation(cardKey)}
                                             className="flex flex-1 items-start gap-2 px-3 py-2 text-left min-w-0"
                                             aria-expanded={isOpen}
                                             aria-controls={`v-a-${w.id}-${i}`}
                                         >
                                             <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-red-400" aria-hidden="true" />
                                             <div className="min-w-0 flex-1">
-                                                <p className="text-[10px] text-zinc-300 font-medium">{ruleId}</p>
+                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                    <p className="text-[10px] text-zinc-300 font-medium">{ruleId}</p>
+                                                    {/* COUNSEL.1.5: fixability badge */}
+                                                    {isAutoFixable ? (
+                                                        <span
+                                                            data-testid={`badge-auto-fixable-a11y-${w.id}`}
+                                                            className="rounded-full border border-emerald-500/30 bg-emerald-900/20 px-1.5 py-px text-[9px] font-medium text-emerald-400 leading-none"
+                                                        >
+                                                            Auto-fixable
+                                                        </span>
+                                                    ) : (
+                                                        <span
+                                                            data-testid={`badge-needs-input-a11y-${w.id}`}
+                                                            className="rounded-full border border-amber-500/30 bg-amber-900/20 px-1.5 py-px text-[9px] font-medium text-amber-400 leading-none"
+                                                        >
+                                                            Needs input
+                                                        </span>
+                                                    )}
+                                                </div>
                                                 {/* S5.10: line-clamp-2 shows 2 lines before truncating */}
                                                 <p className="text-[10px] text-zinc-500 line-clamp-2" title={w.message}>
                                                     {w.message.replace(/^[A-Z0-9-]+:\s*/, '')}
@@ -1094,7 +1530,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
                                                 ? <ChevronDown size={10} className="shrink-0 mt-1 text-zinc-600" aria-hidden="true" />
                                                 : <ChevronRight size={10} className="shrink-0 mt-1 text-zinc-600" aria-hidden="true" />}
                                         </button>
-                                        {/* S5.5 + S5.9: Fix + Defer + Pin actions for a11y violations */}
+                                        {/* Fix + Defer + Pin actions for a11y violations */}
                                         <div className="flex shrink-0 items-center gap-1 self-center mr-2">
                                             <button
                                                 type="button"
@@ -1105,23 +1541,25 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
                                             >
                                                 Fix
                                             </button>
+                                            {/* COUNSEL.2.1: Defer form toggle */}
                                             <button
                                                 type="button"
-                                                onClick={() => {
-                                                    void window.flintAPI.deferViolation?.(activeFilePath ?? '', ruleId, w.id)
-                                                    useNotificationStore.getState().push({ type: 'sync', title: 'Deferred', message: `${ruleId} deferred`, severity: 'info', autoDismissMs: 3000 })
-                                                }}
-                                                className="rounded border border-zinc-700 bg-zinc-800 px-2 py-0.5 text-[10px] text-zinc-500 hover:bg-zinc-700 hover:text-zinc-300 transition-colors"
-                                                aria-label={`Defer ${ruleId} issue`}
-                                                title="Snooze this issue for the current session"
+                                                onClick={() => toggleDeferForm(cardKey)}
+                                                className={`rounded border px-2 py-0.5 text-[10px] transition-colors ${
+                                                    isDeferOpen
+                                                        ? 'border-zinc-600 bg-zinc-700 text-zinc-300'
+                                                        : 'border-zinc-700 bg-zinc-800 text-zinc-500 hover:bg-zinc-700 hover:text-zinc-300'
+                                                }`}
+                                                aria-label={isDeferOpen ? 'Cancel defer' : `Defer ${ruleId} issue`}
+                                                aria-expanded={isDeferOpen}
                                             >
                                                 Defer
                                             </button>
                                             <button
                                                 type="button"
                                                 onClick={() => {
-                                                    togglePin(`a-${w.id}-${i}`)
-                                                    if (!isPinned) setExpandedViolations((prev) => { const n = new Set(prev); n.add(`a-${w.id}-${i}`); return n })
+                                                    togglePin(cardKey)
+                                                    if (!isPinned) setExpandedViolations((prev) => { const n = new Set(prev); n.add(cardKey); return n })
                                                 }}
                                                 className={`rounded p-0.5 transition-colors ${isPinned ? 'text-indigo-400 hover:text-indigo-300' : 'text-zinc-600 hover:text-zinc-400'}`}
                                                 aria-label={isPinned ? 'Unpin issue detail' : 'Pin issue detail open'}
@@ -1131,6 +1569,77 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
                                             </button>
                                         </div>
                                     </div>
+
+                                    {/* COUNSEL.2.1: Inline defer form */}
+                                    {isDeferOpen && (
+                                        <div
+                                            data-testid={`defer-form-a11y-${w.id}`}
+                                            className="mx-3 mb-2 rounded border border-zinc-700 bg-zinc-950 px-3 py-2.5 space-y-2"
+                                        >
+                                            <p className="text-[10px] font-medium text-zinc-400">Defer this issue</p>
+                                            <textarea
+                                                rows={2}
+                                                placeholder="Reason (optional)"
+                                                value={deferReasons.get(cardKey) ?? ''}
+                                                onChange={(e) => setDeferReasons((prev) => new Map([...prev, [cardKey, e.target.value]]))}
+                                                className="w-full resize-none rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-[10px] text-zinc-300 placeholder-zinc-600 focus:border-indigo-500/60 focus:outline-none"
+                                                aria-label="Defer reason"
+                                            />
+                                            <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Defer duration">
+                                                {['1 day', '1 week', '1 sprint', 'Manually'].map((d) => (
+                                                    <label key={d} className="flex items-center gap-1 cursor-pointer">
+                                                        <input
+                                                            type="radio"
+                                                            name={`defer-duration-${cardKey}`}
+                                                            value={d}
+                                                            checked={(deferDurations.get(cardKey) ?? '1 day') === d}
+                                                            onChange={() => setDeferDurations((prev) => new Map([...prev, [cardKey, d]]))}
+                                                            className="sr-only"
+                                                        />
+                                                        <span
+                                                            className={`rounded-full border px-2 py-0.5 text-[9px] font-medium cursor-pointer transition-colors ${
+                                                                (deferDurations.get(cardKey) ?? '1 day') === d
+                                                                    ? 'border-indigo-500/50 bg-indigo-900/30 text-indigo-300'
+                                                                    : 'border-zinc-700 bg-zinc-800 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'
+                                                            }`}
+                                                        >
+                                                            {d}
+                                                        </span>
+                                                    </label>
+                                                ))}
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => void submitDefer(cardKey, ruleId, w.id)}
+                                                    data-testid={`defer-submit-a11y-${w.id}`}
+                                                    className="rounded border border-zinc-600 bg-zinc-800 px-2.5 py-1 text-[10px] text-zinc-300 hover:bg-zinc-700 transition-colors"
+                                                    aria-label="Submit defer"
+                                                >
+                                                    Defer issue
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => toggleDeferForm(cardKey)}
+                                                    className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors"
+                                                    aria-label="Cancel defer"
+                                                >
+                                                    Cancel
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Defer success confirmation */}
+                                    {isDeferSuccess && (
+                                        <div
+                                            className="mx-3 mb-2 flex items-center gap-2 rounded border border-indigo-500/30 bg-indigo-900/20 px-3 py-1.5"
+                                            role="status"
+                                        >
+                                            <Check size={10} className="shrink-0 text-indigo-400" aria-hidden="true" />
+                                            <span className="text-[10px] text-indigo-300">{deferSuccessMsg.get(cardKey)}</span>
+                                        </div>
+                                    )}
 
                                     {isOpen && (
                                         <div id={`v-a-${w.id}-${i}`} className="px-3 pb-3 space-y-2.5 bg-zinc-950/60">
@@ -1179,16 +1688,41 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
                 </div>
             )}
 
-            {/* S5.8: Configure rules link — shown whenever there are violations */}
-            {tokenCount > 0 && (mithrilCount > 0 || a11yCount > 0) && onOpenGovernancePanel && (
-                <div className="flex items-center justify-end border-b border-zinc-800/60 px-3 py-1.5">
-                    <button
-                        type="button"
-                        onClick={onOpenGovernancePanel}
-                        className="text-[10px] text-zinc-600 underline-offset-2 hover:text-indigo-400 hover:underline transition-colors"
-                    >
-                        Configure rules
-                    </button>
+            {/* COUNSEL.4.3: Governance navigation footer — Manage rules + Policy settings */}
+            {tokenCount > 0 && (mithrilCount > 0 || a11yCount > 0) && (onOpenGovernancePanel || onManageRules || onPolicySettings) && (
+                <div className="flex items-center justify-end gap-3 border-b border-zinc-800/60 px-3 py-1.5">
+                    {/* Legacy "Configure rules" via onOpenGovernancePanel (S5.8) */}
+                    {onOpenGovernancePanel && !onManageRules && (
+                        <button
+                            type="button"
+                            onClick={onOpenGovernancePanel}
+                            className="text-[10px] text-zinc-600 underline-offset-2 hover:text-indigo-400 hover:underline transition-colors"
+                        >
+                            Configure rules
+                        </button>
+                    )}
+                    {/* COUNSEL.4.3: "Manage rules →" link */}
+                    {onManageRules && (
+                        <button
+                            type="button"
+                            onClick={onManageRules}
+                            className="text-[10px] text-zinc-500 underline-offset-2 hover:text-indigo-400 hover:underline transition-colors"
+                            data-testid="manage-rules-link"
+                        >
+                            Manage rules →
+                        </button>
+                    )}
+                    {/* COUNSEL.4.3: "Policy settings →" link */}
+                    {onPolicySettings && (
+                        <button
+                            type="button"
+                            onClick={onPolicySettings}
+                            className="text-[10px] text-zinc-500 underline-offset-2 hover:text-indigo-400 hover:underline transition-colors"
+                            data-testid="policy-settings-link"
+                        >
+                            Policy settings →
+                        </button>
+                    )}
                 </div>
             )}
 
@@ -1219,6 +1753,70 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
                     </button>
                     {isScoreOpen && (
                         <div id="score-accordion">
+                            {/* COUNSEL.2.4: Effort framing — must appear before the score ring (DOM order) */}
+                            {tokenCount > 0 && (
+                                <p className="px-4 pt-3 pb-1 text-xs text-zinc-400" data-testid="effort-framing">
+                                    {effortText}
+                                </p>
+                            )}
+                            {/* COUNSEL.1.1: Category split chips */}
+                            {tokenCount > 0 && (
+                                <div className="flex items-center gap-1.5 px-4 pb-2" data-testid="category-chips">
+                                    <button
+                                        type="button"
+                                        aria-pressed={activeCategory === 'design-system'}
+                                        onClick={() => setActiveCategory(activeCategory === 'design-system' ? null : 'design-system')}
+                                        className="flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] transition-colors border-zinc-700 bg-zinc-800/50 text-zinc-400 hover:text-zinc-200 aria-pressed:border-amber-500/50 aria-pressed:bg-amber-900/20 aria-pressed:text-amber-300"
+                                        data-testid="chip-design-system"
+                                    >
+                                        Design System {mithrilCount}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        aria-pressed={activeCategory === 'accessibility'}
+                                        onClick={() => setActiveCategory(activeCategory === 'accessibility' ? null : 'accessibility')}
+                                        className="flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] transition-colors border-zinc-700 bg-zinc-800/50 text-zinc-400 hover:text-zinc-200 aria-pressed:border-red-500/50 aria-pressed:bg-red-900/20 aria-pressed:text-red-300"
+                                        data-testid="chip-accessibility"
+                                    >
+                                        Accessibility {a11yCount}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        aria-pressed={activeCategory === 'token-sync'}
+                                        onClick={() => setActiveCategory(activeCategory === 'token-sync' ? null : 'token-sync')}
+                                        className="flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] transition-colors border-zinc-700 bg-zinc-800/50 text-zinc-400 hover:text-zinc-200 aria-pressed:border-indigo-500/50 aria-pressed:bg-indigo-900/20 aria-pressed:text-indigo-300"
+                                        data-testid="chip-token-sync"
+                                    >
+                                        Token Sync {syncCount}
+                                    </button>
+                                </div>
+                            )}
+                            {/* COUNSEL.1.2: Delta mode auto-enable banner */}
+                            {tokenCount > 0 && (initialViolationCount ?? 0) > 10 && isBaselineSet && !bannerDismissed && (
+                                <div className="mx-3 mb-2 rounded border border-indigo-500/30 bg-indigo-900/10 px-3 py-2" data-testid="delta-mode-auto-banner">
+                                    <p className="text-[10px] text-indigo-300">
+                                        Delta mode active — showing new issues only. There are {initialViolationCount} existing violations being filtered.
+                                    </p>
+                                    <div className="mt-1.5 flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            aria-label="Show all violations"
+                                            onClick={() => void window.flintAPI.baseline?.clear?.()}
+                                            className="text-[10px] text-indigo-400 hover:text-indigo-300 underline"
+                                        >
+                                            Show all violations
+                                        </button>
+                                        <button
+                                            type="button"
+                                            aria-label="Dismiss delta mode banner"
+                                            onClick={() => setBannerDismissed(true)}
+                                            className="text-[10px] text-zinc-500 hover:text-zinc-400"
+                                        >
+                                            Dismiss
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                             <div className="flex items-center gap-4 px-4 py-4" title={scoreTrendHint ?? undefined}>
                                 <ScoreRing score={score} grade={grade} />
                                 <div className="flex flex-col gap-0.5">
@@ -1264,8 +1862,9 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel }
                                 {isScoreExpanded && (
                                     <div id="score-formula" className="mt-2 rounded border border-zinc-800 bg-zinc-950 px-3 py-2.5 space-y-1.5">
                                         <ul className="space-y-1 text-[10px] text-zinc-500">
-                                            <li className="flex items-center justify-between"><span>Design system drift</span><span className="font-mono text-amber-400">−5 per issue</span></li>
-                                            <li className="flex items-center justify-between"><span>Accessibility gaps</span><span className="font-mono text-red-400">−10 per issue</span></li>
+                                            <li className="flex items-center justify-between"><span>Critical violations</span><span className="font-mono text-red-400">−10 per issue</span></li>
+                                            <li className="flex items-center justify-between"><span>Amber violations</span><span className="font-mono text-amber-400">−3 per issue</span></li>
+                                            <li className="flex items-center justify-between"><span>Advisory violations</span><span className="font-mono text-zinc-400">−1 per issue</span></li>
                                             <li className="flex items-center justify-between"><span>Unapplied overrides</span><span className="font-mono text-amber-400">−3 per change</span></li>
                                         </ul>
                                         <p className="text-[10px] font-mono text-zinc-600">A (90–100) · B (80–89) · C (70–79) · D (60–69) · F (&lt;60)</p>

@@ -396,6 +396,11 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
         } | null> =>
             ipcRenderer.invoke('project:openPath', folderPath),
 
+        /** Walks up the directory tree from filePath to find the project root.
+         *  Returns the absolute project root path, or null if not found. */
+        findRootForFile: (filePath: string): Promise<string | null> =>
+            ipcRenderer.invoke('project:findRootForFile', filePath),
+
         /**
          * Resets an existing project to the known-good 'flint-demo' state.
          * Overwrites existing files within targetPath.
@@ -669,6 +674,11 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
         removeEventListener: (): void => {
             ipcRenderer.removeAllListeners(ipcChannel('mcp-event'))
         },
+
+        /** Phase 3: Returns the filePath from the most recent file:focus event
+         *  within the last 60 seconds across all known projects, or null. */
+        getRecentFileFocus: (): Promise<string | null> =>
+            ipcRenderer.invoke('mcp:get-recent-file-focus'),
     },
 
     // ── Phase ING: Import Summary IPC ────────────────────────────────────────
@@ -817,6 +827,22 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
                 ipcRenderer.removeListener(ipcChannel('governance-override-recorded'), listener)
             }
         },
+
+        /**
+         * COUNSEL.1.4: Preview the proposed fix for a violation before applying.
+         * Calls flint_fix with dry_run:true via the MCP engine and returns the
+         * normalised InlineFixPreview shape for GovernanceDashboard inline diffs.
+         *
+         * Returns null when the MCP server is disconnected, the file cannot be
+         * parsed, or no fixable violations are found for the given ruleId.
+         */
+        previewFix: (ruleId: string, filePath: string): Promise<{
+            current: string
+            proposed: string
+            tokenName: string
+            isColor: boolean
+        } | null> =>
+            ipcRenderer.invoke('governance:preview-fix', ruleId, filePath),
     },
 
     // ── Phase ACX.5: Context Sync Pipeline ────────────────────────────────────

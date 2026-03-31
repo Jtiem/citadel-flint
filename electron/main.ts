@@ -1403,6 +1403,38 @@ app.whenReady().then(async () => {
         }
     })
 
+    // ── project:findRootForFile ───────────────────────────────────────────────
+    // Walks up the directory tree from a given file path looking for a project
+    // root (a directory that contains package.json or .flint/). Returns the
+    // absolute root path, or null if none is found before the home directory.
+    //
+    // Used by the Glass MCP push channel (file:focus events) to auto-open a
+    // project when Claude writes a file and Glass has no workspace loaded.
+    ipcMain.handle('project:findRootForFile', (_event, filePath: unknown): string | null => {
+        if (typeof filePath !== 'string') return null
+
+        const home = app.getPath('home')
+        let dir = path.dirname(path.normalize(filePath))
+
+        for (let i = 0; i < 20; i++) {
+            // Security: stop at home directory boundary
+            if (!dir.startsWith(home)) break
+
+            const hasPackageJson = existsSync(path.join(dir, 'package.json'))
+            const hasFlintDir = existsSync(path.join(dir, '.flint'))
+
+            if (hasPackageJson || hasFlintDir) {
+                return isFlintSourceTree(dir) ? null : dir
+            }
+
+            const parent = path.dirname(dir)
+            if (parent === dir) break  // filesystem root
+            dir = parent
+        }
+
+        return null
+    })
+
     // ── project:reindex ───────────────────────────────────────────────────────
     // CK.3: Re-scans the active project for components, merges the result
     // into flint-manifest.json, and re-seeds the RAG store so that
@@ -1463,6 +1495,51 @@ app.whenReady().then(async () => {
         // Verify the path still exists on disk
         if (!existsSync(session.path)) return null
         return session
+    })
+
+    // ── mcp:get-recent-file-focus ──────────────────────────────────────────────
+    // Scans recently opened projects for file:focus events written in the last
+    // 60 seconds. Used by App.tsx on cold launch to skip LaunchScreen and open
+    // directly to the last file Claude Code touched.
+    ipcMain.handle('mcp:get-recent-file-focus', (): string | null => {
+        const THRESHOLD_MS = 60_000
+        const now = Date.now()
+        const home = app.getPath('home')
+        const projects = getRecentProjects()
+        let best: { filePath: string; timestamp: number } | null = null
+
+        for (const project of projects) {
+            const eventsFile = path.join(project.path, '.flint', 'mcp-events.jsonl')
+            if (!existsSync(eventsFile)) continue
+
+            try {
+                const content = readFileSync(eventsFile, 'utf-8')
+                const lines = content.trimEnd().split('\n').slice(-100)
+
+                for (const line of lines) {
+                    if (!line.trim()) continue
+                    try {
+                        const event = JSON.parse(line) as {
+                            type?: string
+                            timestamp?: number
+                            filePath?: string
+                            summary?: string
+                        }
+                        if (event.type !== 'file:focus') continue
+                        const ts = typeof event.timestamp === 'number' ? event.timestamp : 0
+                        if (now - ts > THRESHOLD_MS) continue
+                        // Only accept filePath — summary is human-readable text, not a path.
+                        const fp = event.filePath
+                        if (!fp || !path.isAbsolute(fp) || !fp.startsWith(home)) continue
+                        if (!best || ts > best.timestamp) {
+                            best = { filePath: fp, timestamp: ts }
+                        }
+                    } catch { /* malformed line — skip */ }
+                }
+            } catch { /* file unreadable — skip */ }
+        }
+
+        return best?.filePath ?? null
     })
 
     // ── registry:upsertProject ────────────────────────────────────────────────
@@ -2618,6 +2695,64 @@ app.whenReady().then(async () => {
         const nId = typeof nodeId === 'string' ? nodeId : null
         deferViolationResolve.run(filePath, ruleId, nId, nId)
     })
+
+    // ── governance:preview-fix ────────────────────────────────────────────────
+    //
+    // COUNSEL.1.4: Calls flint_fix with dry_run:true to preview the proposed
+    // fix for a single violation before the user commits to applying it.
+    //
+    // The MCP tool returns a FixResult whose `fixes` array describes the
+    // before/after token substitution. We extract the first fix entry and
+    // normalise it to the InlineFixPreview shape expected by GovernanceDashboard.
+    //
+    // Payload: (ruleId: string, filePath: string)
+    // Return:  { current, proposed, tokenName, isColor } | null on any error
+    ipcMain.handle(
+        'governance:preview-fix',
+        async (_event, ruleId: unknown, filePath: unknown): Promise<{
+            current: string
+            proposed: string
+            tokenName: string
+            isColor: boolean
+        } | null> => {
+            if (typeof ruleId !== 'string' || typeof filePath !== 'string') return null
+            // Security: restrict to paths within the user's home directory
+            const home = os.homedir()
+            if (filePath !== home && !filePath.startsWith(home + path.sep)) return null
+            try {
+                if (!mcpClient.status().connected) return null
+                const rawResult = await mcpClient.callTool('flint_fix', {
+                    file: filePath,
+                    ruleId,
+                    dry_run: true,
+                })
+                if (!rawResult.content?.length || !rawResult.content[0].text) return null
+                const parsed = JSON.parse(rawResult.content[0].text) as {
+                    fixes?: Array<{
+                        currentValue?: string
+                        current?: string
+                        proposedValue?: string
+                        proposed?: string
+                        tokenName?: string
+                        token_name?: string
+                        isColor?: boolean
+                        type?: string
+                    }>
+                }
+                const fixes = parsed.fixes ?? []
+                if (fixes.length === 0) return null
+                const fix = fixes[0]
+                return {
+                    current: fix.currentValue ?? fix.current ?? '',
+                    proposed: fix.proposedValue ?? fix.proposed ?? '',
+                    tokenName: fix.tokenName ?? fix.token_name ?? '',
+                    isColor: fix.isColor ?? fix.type === 'color',
+                }
+            } catch {
+                return null
+            }
+        },
+    )
 
     // ── Delta Mode: Baseline IPC Handlers ────────────────────────────────────
     //

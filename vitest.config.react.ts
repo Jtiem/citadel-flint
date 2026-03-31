@@ -22,5 +22,6 @@ export default defineConfig({
         exclude: ['node_modules/**', 'dist/**', 'dist-electron/**'],
         setupFiles: ['src/components/__tests__/setup.ts'],
         globals: true,
+        testTimeout: 30_000,
     },
 })

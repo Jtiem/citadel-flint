@@ -363,6 +363,15 @@ export interface ProjectAPI {
      * Returns `{ components, ragChunks }`. Both are 0 when no project is open.
      */
     reindex: () => Promise<{ components: number; ragChunks: number }>
+
+    /**
+     * Walks up the directory tree from `filePath` looking for a project root
+     * (a directory that contains `package.json` or `.flint/`).
+     *
+     * Returns the absolute path of the project root, or `null` if none is found
+     * before reaching the home directory.
+     */
+    findRootForFile: (filePath: string) => Promise<string | null>
 }
 
 /** IPC surface for native OS menu events pushed by the main process. */
@@ -647,7 +656,7 @@ export interface AnnotationsAPI {
  * Event types that the MCP server appends to `.flint/mcp-events.jsonl`
  * after each tool completion.
  */
-export type MCPEventType = 'violation' | 'annotation' | 'mutation' | 'audit' | 'fix' | 'debt'
+export type MCPEventType = 'violation' | 'annotation' | 'mutation' | 'audit' | 'fix' | 'debt' | 'context-delta' | 'file:focus'
 
 /** Severity levels for MCPEvent — drives notification styling in Glass. */
 export type MCPEventSeverity = 'critical' | 'warning' | 'info'
@@ -733,6 +742,10 @@ export interface MCPAPI {
 
     /** Removes all `flint:mcp-event` listeners. Call in useEffect cleanup. */
     removeEventListener: () => void
+
+    /** Phase 3: Returns the filePath of the most recent file:focus event within
+     *  the last 60 seconds across all known projects, or null if none. */
+    getRecentFileFocus: () => Promise<string | null>
 }
 
 // ── Phase ING: Ingestion-Time Audit & Auto-Heal ───────────────────────────────
@@ -1964,6 +1977,35 @@ export interface GovernanceAPI {
      * Returns an unsubscribe function — pass it to useEffect cleanup.
      */
     onOverrideRecorded: (cb: () => void) => () => void
+
+    /**
+     * COUNSEL.1.4: Preview the proposed fix for a violation before applying.
+     * Returns current and proposed token values for inline diff display.
+     * Optional — not available in all environments.
+     */
+    previewFix?: (ruleId: string, filePath: string) => Promise<{
+        current: string
+        proposed: string
+        tokenName: string
+        isColor: boolean
+    }>
+
+    /**
+     * COUNSEL.1.6: Batch-fix all auto-fixable a11y violations in a file.
+     * Optional — not available in all environments.
+     */
+    batchFixA11y?: (filePath: string) => Promise<void>
+
+    /**
+     * COUNSEL.2.1: Defer a violation for later resolution.
+     * Optional — falls back to window.flintAPI.deferViolation if absent.
+     */
+    deferViolation?: (opts: {
+        ruleId: string
+        filePath: string
+        reason: string
+        duration: string
+    }) => Promise<void>
 
     // ── ERM-2: Enterprise Rule Management ────────────────────────────────────
 

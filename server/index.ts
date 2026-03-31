@@ -777,6 +777,32 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     }
   })
 
+  // ── project:findRootForFile ─────────────────────────────────────────────────
+  // Web-build parity for the Electron project:findRootForFile IPC handler.
+  handlers.set('project:findRootForFile', (filePath: unknown): string | null => {
+    if (typeof filePath !== 'string') return null
+
+    const home = os.homedir()
+    let dir = path.dirname(path.normalize(filePath))
+
+    for (let i = 0; i < 20; i++) {
+      if (!dir.startsWith(home)) break
+
+      if (existsSync(path.join(dir, 'package.json')) || existsSync(path.join(dir, '.flint'))) {
+        // Self-hosting guard: never return the Flint source tree as a project root.
+        // Prevents iframe recursion when the web server is run from the repo root.
+        if (existsSync(path.join(dir, 'electron', 'main.ts'))) return null
+        return dir
+      }
+
+      const parent = path.dirname(dir)
+      if (parent === dir) break
+      dir = parent
+    }
+
+    return null
+  })
+
   handlers.set('project:create-scratchpad', async () => {
     const flintProjectsDir = path.join(os.homedir(), `${BRAND.product} Projects`)
     await fs.mkdir(flintProjectsDir, { recursive: true })
@@ -836,6 +862,46 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
       path: activeProjectRoot,
       name: path.basename(activeProjectRoot),
       isScratchpad: /Flint Projects\/Untitled/i.test(activeProjectRoot),
+    }
+  })
+
+  // ── mcp:get-recent-file-focus ─────────────────────────────────────────────
+  // Web-build parity. Checks the active project's mcp-events.jsonl for a
+  // file:focus event within the last 60 seconds.
+  handlers.set('mcp:get-recent-file-focus', (): string | null => {
+    const THRESHOLD_MS = 60_000
+    const now = Date.now()
+    const home = os.homedir()
+    const eventsFile = path.join(activeProjectRoot, '.flint', 'mcp-events.jsonl')
+    if (!existsSync(eventsFile)) return null
+
+    try {
+      const content = readFileSync(eventsFile, 'utf-8')
+      const lines = content.trimEnd().split('\n').slice(-100)
+      let best: { filePath: string; timestamp: number } | null = null
+
+      for (const line of lines) {
+        if (!line.trim()) continue
+        try {
+          const event = JSON.parse(line) as {
+            type?: string
+            timestamp?: number
+            filePath?: string
+            summary?: string
+          }
+          if (event.type !== 'file:focus') continue
+          const ts = typeof event.timestamp === 'number' ? event.timestamp : 0
+          if (now - ts > THRESHOLD_MS) continue
+          // Only accept filePath — summary is human-readable text, not a path.
+          const fp = event.filePath
+          if (!fp || !path.isAbsolute(fp) || !fp.startsWith(home)) continue
+          if (!best || ts > best.timestamp) best = { filePath: fp, timestamp: ts }
+        } catch { /* malformed line — skip */ }
+      }
+
+      return best?.filePath ?? null
+    } catch {
+      return null
     }
   })
 
@@ -1141,6 +1207,55 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     }
     const nId = typeof nodeId === 'string' ? nodeId : null
     deferViolationResolve.run(filePath, ruleId, nId, nId)
+  })
+
+  // ── governance:preview-fix ─────────────────────────────────────────────────
+  //
+  // COUNSEL.1.4: Dry-run fix preview — mirrors the Electron main.ts handler.
+  // Calls flint_fix with dry_run:true and returns the normalised InlineFixPreview
+  // shape so the web build has parity with the Electron desktop build.
+  handlers.set('governance:preview-fix', async (ruleId: unknown, filePath: unknown): Promise<{
+    current: string
+    proposed: string
+    tokenName: string
+    isColor: boolean
+  } | null> => {
+    if (typeof ruleId !== 'string' || typeof filePath !== 'string') return null
+    // Security: restrict to paths within the user's home directory
+    const home = os.homedir()
+    if (filePath !== home && !filePath.startsWith(home + path.sep)) return null
+    try {
+      if (!mcp.status().connected) return null
+      const rawResult = await mcp.callTool('flint_fix', {
+        file: filePath,
+        ruleId,
+        dry_run: true,
+      })
+      if (!rawResult.content?.length || !rawResult.content[0].text) return null
+      const parsed = JSON.parse(rawResult.content[0].text) as {
+        fixes?: Array<{
+          currentValue?: string
+          current?: string
+          proposedValue?: string
+          proposed?: string
+          tokenName?: string
+          token_name?: string
+          isColor?: boolean
+          type?: string
+        }>
+      }
+      const fixes = parsed.fixes ?? []
+      if (fixes.length === 0) return null
+      const fix = fixes[0]
+      return {
+        current: fix.currentValue ?? fix.current ?? '',
+        proposed: fix.proposedValue ?? fix.proposed ?? '',
+        tokenName: fix.tokenName ?? fix.token_name ?? '',
+        isColor: fix.isColor ?? fix.type === 'color',
+      }
+    } catch {
+      return null
+    }
   })
 
   // ── Baseline ───────────────────────────────────────────────────────────────
