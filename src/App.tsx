@@ -666,31 +666,52 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
-    // ── Auto-resume: restore last session if available (LAUNCH.2) ────────────
-    // Runs once after setup + beta gates resolve. If a prior session exists on
-    // disk, opens it directly — the user never sees the LaunchScreen.
+    // ── Auto-resume: file:focus fast path + last session fallback (LAUNCH.2/3) ─
+    // Runs once after setup + beta gates resolve. Priority order:
+    //   1. Recent file:focus event (≤60s) — skip LaunchScreen, open Claude's file
+    //   2. Last saved session — restore previous project
+    //   3. Fall through to LaunchScreen
     useEffect(() => {
         if (setupComplete !== true || !betaWelcomeDone) return
         if (autoResumeChecked) return
         if (workspaceFiles) return // already hydrated (e.g. demo loaded)
 
         setAutoResumeChecked(true)
-        window.flintAPI.session
-            ?.getLastSession()
-            .then(async (session) => {
+
+        async function tryAutoResume() {
+            // Phase 3 — Check for a recent file:focus event first. If Claude
+            // edited a file within the last 60 seconds, open that project and
+            // file directly — the user never sees the LaunchScreen.
+            try {
+                const focusFile = await window.flintAPI.mcp?.getRecentFileFocus?.()
+                if (focusFile && window.flintAPI.project?.findRootForFile) {
+                    const root = await window.flintAPI.project.findRootForFile(focusFile)
+                    if (root) {
+                        const tree = await window.flintAPI.project.openPath(root)
+                        if (tree) {
+                            void window.flintAPI.registry?.upsertProject?.({ name: tree.name, path: tree.path })
+                            setWorkspaceFiles(tree as FileTreeNode)
+                            await setActiveFile(focusFile)
+                            return // done — skip session restore
+                        }
+                    }
+                }
+            } catch { /* fall through to session restore */ }
+
+            // Phase LAUNCH.2 — Restore last saved session
+            try {
+                const session = await window.flintAPI.session?.getLastSession()
                 if (!session) return
                 // Don't auto-resume empty scratchpads — let the user choose
                 if (session.isScratchpad) return
-                try {
-                    const tree = await window.flintAPI.project.openPath(session.path)
-                    if (tree) await hydrateWorkspace(tree as FileTreeNode)
-                } catch {
-                    // Path no longer valid — fall through to LaunchScreen
-                }
-            })
-            .catch(() => {
-                // IPC unavailable — fall through to LaunchScreen
-            })
+                const tree = await window.flintAPI.project.openPath(session.path)
+                if (tree) await hydrateWorkspace(tree as FileTreeNode)
+            } catch {
+                // Path no longer valid — fall through to LaunchScreen
+            }
+        }
+
+        void tryAutoResume()
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [setupComplete, betaWelcomeDone])
 

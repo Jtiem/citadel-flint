@@ -9,7 +9,7 @@
  * Dismissed state is persisted to localStorage — shown once per device.
  */
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { BRAND } from '../../../shared/brand'
 import {
     ShieldCheck,
@@ -64,6 +64,11 @@ const TEST_CHECKLIST = [
 
 export function BetaWelcome({ onTryDemo, onSkip, buildId, daysRemaining }: BetaWelcomeProps) {
     const [loading, setLoading] = useState(false)
+    const headingRef = useRef<HTMLHeadingElement>(null)
+
+    useEffect(() => {
+        headingRef.current?.focus()
+    }, [])
 
     const handleTryDemo = useCallback(() => {
         setLoading(true)
@@ -85,10 +90,10 @@ export function BetaWelcome({ onTryDemo, onSkip, buildId, daysRemaining }: BetaW
                         <ShieldCheck className="h-5 w-5 text-indigo-400" />
                     </div>
                     <div>
-                        <h1 className="bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-xl font-bold tracking-tight text-transparent">
+                        <h1 className="text-xl font-bold tracking-tight text-white">
                             {BRAND.product}
                         </h1>
-                        <p className="text-[10px] text-gray-500">Governance Engine for AI-Generated UI</p>
+                        <p className="text-[10px] text-zinc-400">Governance Engine for AI-Generated UI</p>
                     </div>
                 </div>
                 {buildId && (
@@ -104,10 +109,14 @@ export function BetaWelcome({ onTryDemo, onSkip, buildId, daysRemaining }: BetaW
 
                     {/* Hero */}
                     <div className="text-center">
-                        <h2 className="text-2xl font-bold text-zinc-100">
+                        <h2
+                            ref={headingRef}
+                            tabIndex={-1}
+                            className="text-2xl font-bold text-zinc-100 outline-none"
+                        >
                             Welcome to the {BRAND.product} Beta
                         </h2>
-                        <p className="mx-auto mt-3 max-w-lg text-sm leading-relaxed text-zinc-400">
+                        <p className="mx-auto mt-3 max-w-lg text-sm leading-relaxed text-zinc-300">
                             {BRAND.product} catches design system drift and accessibility gaps
                             at the AST level — before AI-generated UI code reaches production.
                             Here&apos;s how it works.
@@ -136,7 +145,7 @@ export function BetaWelcome({ onTryDemo, onSkip, buildId, daysRemaining }: BetaW
                                     <h3 className="mt-0.5 text-sm font-semibold text-zinc-200">
                                         {step.title}
                                     </h3>
-                                    <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+                                    <p className="mt-1 text-xs leading-relaxed text-zinc-400">
                                         {step.description}
                                     </p>
                                 </div>

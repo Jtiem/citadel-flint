@@ -22,6 +22,45 @@ const helpersDir = __dirname;
 const DATA_DIR = path.join(process.cwd(), '.claude-flow', 'data');
 const SESSION_DIR = path.join(process.cwd(), '.claude-flow', 'sessions');
 
+/**
+ * Phase 1 — file:focus emitter
+ *
+ * Walks up the directory tree from `filePath` to find the project root
+ * (the nearest ancestor containing a `.git` directory). Returns null if none found.
+ */
+function findProjectRoot(filePath) {
+  let dir = path.dirname(path.resolve(filePath));
+  while (true) {
+    if (fs.existsSync(path.join(dir, '.git'))) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null; // reached filesystem root
+    dir = parent;
+  }
+}
+
+/**
+ * Appends a `file:focus` MCPEvent to `<projectRoot>/.flint/mcp-events.jsonl`.
+ * Only fires for source files (.ts, .tsx, .js, .jsx, .vue, .svelte).
+ * Silently no-ops on any error.
+ */
+function emitFileFocusEvent(filePath) {
+  if (!filePath || !/\.(tsx?|jsx?|vue|svelte)$/.test(filePath)) return;
+  try {
+    const root = findProjectRoot(filePath);
+    if (!root) return;
+    const flintDir = path.join(root, '.flint');
+    if (!fs.existsSync(flintDir)) fs.mkdirSync(flintDir, { recursive: true });
+    const event = JSON.stringify({
+      timestamp: Date.now(),
+      type: 'file:focus',
+      severity: 'info',
+      summary: filePath,
+      filePath,
+    });
+    fs.appendFileSync(path.join(flintDir, 'mcp-events.jsonl'), event + '\n', 'utf-8');
+  } catch { /* never throw from a hook */ }
+}
+
 function readJSONFile(filePath) {
   try {
     if (fs.existsSync(filePath)) return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
@@ -223,17 +262,21 @@ const handlers = {
   },
 
   'post-edit': () => {
+    // Extract the edited file path — Claude Code sends it via stdin as hookInput.file_path
+    const file = hookInput.file_path || (hookInput.toolInput && hookInput.toolInput.file_path)
+      || process.env.TOOL_INPUT_file_path || args[0] || '';
+
+    // Phase 1 — emit file:focus event to .flint/mcp-events.jsonl so Glass can
+    // auto-jump to this file (Phase 2: live follow-mode, Phase 3: cold-launch fast path)
+    if (file) emitFileFocusEvent(file);
+
     // Record edit for session metrics
     if (session && session.metric) {
       try { session.metric('edits'); } catch (e) { /* no active session */ }
     }
-    // Record edit for intelligence consolidation — prefer stdin data from Claude Code
+    // Record edit for intelligence consolidation
     if (intelligence && intelligence.recordEdit) {
-      try {
-        const file = hookInput.file_path || (hookInput.toolInput && hookInput.toolInput.file_path)
-          || process.env.TOOL_INPUT_file_path || args[0] || '';
-        intelligence.recordEdit(file);
-      } catch (e) { /* non-fatal */ }
+      try { intelligence.recordEdit(file); } catch (e) { /* non-fatal */ }
     }
     console.log('[OK] Edit recorded');
   },

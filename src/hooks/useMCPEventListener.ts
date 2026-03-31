@@ -27,7 +27,8 @@
 import { useEffect } from 'react'
 import { useNotificationStore } from '../store/notificationStore'
 import { useAnnotationStore } from '../store/annotationStore'
-import type { MCPEvent } from '../types/flint-api'
+import { useCanvasStore } from '../store/canvasStore'
+import type { MCPEvent, FileTreeNode } from '../types/flint-api'
 
 /** Events older than this threshold (in ms) are ignored on startup catch-up. */
 const CATCH_UP_THRESHOLD_MS = 60_000
@@ -108,6 +109,31 @@ export function useMCPEventListener(): void {
                             severity: event.severity === 'critical' ? 'error' : event.severity === 'warning' ? 'warning' : 'info',
                             autoDismissMs: 8000,
                         })
+                        break
+                    }
+
+                    case 'file:focus': {
+                        const fp = event.filePath ?? event.summary
+                        if (!fp) break
+
+                        const { workspaceFiles, setWorkspaceFiles, setActiveFile } = useCanvasStore.getState()
+
+                        if (workspaceFiles && fp.startsWith(workspaceFiles.path)) {
+                            // Happy path: project already open and file is inside it
+                            void setActiveFile(fp)
+                        } else if (window.flintAPI.project?.findRootForFile) {
+                            // Auto-open path: no project open (or file is in a different
+                            // project). Ask the main process to walk up and find the root,
+                            // then open it silently — no folder picker dialog required.
+                            void window.flintAPI.project.findRootForFile(fp).then(async (root) => {
+                                if (!root) return
+                                const tree = await window.flintAPI.project!.openPath(root)
+                                if (!tree) return
+                                void window.flintAPI.registry?.upsertProject?.({ name: tree.name, path: tree.path })
+                                setWorkspaceFiles(tree as FileTreeNode)
+                                await setActiveFile(fp)
+                            })
+                        }
                         break
                     }
 

@@ -1,7 +1,9 @@
 /**
  * TokenManager — src/components/ui/TokenManager.tsx
  *
- * Design-tool-style palette for viewing and editing design tokens.
+ * Read-only governance palette for viewing design tokens.
+ * Token values are managed through your design system via MCP tools
+ * (flint_approve_tokens, flint_sync_tokens) — not directly in this UI.
  *
  * Visual rendering per token_type:
  *   color     — filled circle swatch derived from token_value
@@ -10,39 +12,19 @@
  *   boolean   — pill badge (true / false)
  *
  * Interactions:
- *   • Click any value  → inline input (Draft Mode); blur/Enter commits
- *   • Trash icon       → delete (visible on row hover)
- *   • Import JSON      → modal for pasting W3C DTCG JSON
+ *   • Token values are read-only (hover shows governance tooltip)
+ *   • Import JSON → modal for pasting W3C DTCG JSON
  *
  * Renderer Process only — no Node.js imports.
  */
 
-import { useState, useEffect, useMemo, useRef } from 'react'
-import { Upload, Trash2, X, Search, Palette } from 'lucide-react'
+import { useState, useEffect, useMemo } from 'react'
+import { Upload, X, Search, Palette } from 'lucide-react'
 import { useTokenStore } from '../../store/tokenStore'
 import type { DesignToken, TokenType } from '../../types/flint-api'
 import { FocusTrap } from './FocusTrap'
 
-// ── Validation ────────────────────────────────────────────────────────────────
-
-/**
- * Returns true if `value` is a recognisable CSS color:
- *   • hex (#rgb, #rrggbb, #rgba, #rrggbbaa)
- *   • rgb() / rgba() / hsl() / hsla()
- *   • any named CSS color keyword (uses the browser's own parsing via canvas)
- */
-function isValidCssColor(value: string): boolean {
-    const v = value.trim()
-    if (!v) return false
-    // Hex shorthand or full
-    if (/^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(v)) return true
-    // rgb / rgba / hsl / hsla functional notation
-    if (/^(rgb|rgba|hsl|hsla)\s*\(/i.test(v)) return true
-    // Named keyword — delegate to the browser's own color parser
-    const s = new Option().style
-    s.color = v
-    return s.color !== ''
-}
+// (Validation helpers removed — token values are read-only in this UI)
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -116,14 +98,14 @@ function TokenRow({
     }
 
     return (
-        <div className="group flex items-center gap-2 border-b border-gray-800/40 px-3 py-1.5 hover:bg-gray-800/30">
+        <div className="group flex items-center gap-2 border-b border-zinc-800/40 px-3 py-1.5 hover:bg-zinc-800/30">
             {/* Type-specific visual indicator */}
             {token.token_type === 'color' && <ColorSwatch value={token.token_value} />}
             {token.token_type === 'dimension' && <DimensionBar value={token.token_value} />}
 
             {/* Path + value */}
             <div className="min-w-0 flex-1">
-                <p className="truncate font-mono text-[10px] text-gray-500" title={token.token_path}>
+                <p className="truncate font-mono text-[10px] text-zinc-500" title={token.token_path}>
                     {token.token_path}
                 </p>
 
@@ -136,7 +118,7 @@ function TokenRow({
                             onBlur={onCommit}
                             onKeyDown={handleKeyDown}
                             aria-describedby={getValidationError(token.token_type, draftValue) ? `validation-${token.id}` : undefined}
-                            className="mt-0.5 w-full rounded border border-indigo-500 bg-gray-900 px-1 py-0.5 font-mono text-[11px] text-gray-200 outline-none"
+                            className="mt-0.5 w-full rounded border border-indigo-500 bg-zinc-900 px-1 py-0.5 font-mono text-[11px] text-zinc-200 outline-none"
                         />
                         {getValidationError(token.token_type, draftValue) && (
                             <p
@@ -152,7 +134,7 @@ function TokenRow({
                     <button
                         type="button"
                         onClick={() => onEdit(token.id, token.token_path, token.token_value)}
-                        className="mt-0.5 w-full truncate text-left font-mono text-[11px] text-gray-300 hover:text-indigo-300"
+                        className="mt-0.5 w-full truncate text-left font-mono text-[11px] text-zinc-300 hover:text-indigo-300"
                         title="Click to edit"
                         style={
                             token.token_type === 'string'
@@ -217,16 +199,16 @@ function ImportModal({ onClose, onImport, isLoading, error }: ImportModalProps) 
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="import-modal-title"
-                className="mx-2 w-full rounded-xl border border-gray-700 bg-gray-900 shadow-2xl"
+                className="mx-2 w-full rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}
-                <div className="flex items-center justify-between border-b border-gray-800 px-4 py-3">
-                    <span id="import-modal-title" className="text-sm font-semibold text-gray-200">Import Token File (JSON)</span>
+                <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
+                    <span id="import-modal-title" className="text-sm font-semibold text-zinc-200">Import Token File (JSON)</span>
                     <button
                         type="button"
                         onClick={onClose}
-                        className="rounded p-1 text-gray-500 hover:bg-gray-800 hover:text-gray-300"
+                        className="rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
                     >
                         <X className="h-3.5 w-3.5" />
                     </button>
@@ -235,19 +217,19 @@ function ImportModal({ onClose, onImport, isLoading, error }: ImportModalProps) 
                 <form onSubmit={handleSubmit} className="flex flex-col gap-3 p-4">
                     {/* Collection name */}
                     <div>
-                        <label className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-gray-500">
+                        <label className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-zinc-500">
                             Collection name
                         </label>
                         <input
                             value={collectionName}
                             onChange={(e) => setCollectionName(e.target.value)}
-                            className="w-full rounded border border-gray-700 bg-gray-800 px-2 py-1.5 text-xs text-gray-200 focus:border-indigo-500 focus:outline-none"
+                            className="w-full rounded border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-xs text-zinc-200 focus:border-indigo-500 focus:outline-none"
                         />
                     </div>
 
                     {/* JSON textarea */}
                     <div>
-                        <label className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-gray-500">
+                        <label className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-zinc-500">
                             Paste W3C Token File (JSON)
                         </label>
                         <textarea
@@ -256,7 +238,7 @@ function ImportModal({ onClose, onImport, isLoading, error }: ImportModalProps) 
                             rows={8}
                             spellCheck={false}
                             placeholder={'{\n  "color": {\n    "brand": {\n      "primary": { "$value": "#0066FF", "$type": "color" }\n    }\n  }\n}'}
-                            className="w-full resize-none rounded border border-gray-700 bg-gray-800 px-2 py-2 font-mono text-[11px] text-gray-200 placeholder:text-gray-700 focus:border-indigo-500 focus:outline-none"
+                            className="w-full resize-none rounded border border-zinc-700 bg-zinc-800 px-2 py-2 font-mono text-[11px] text-zinc-200 placeholder:text-zinc-700 focus:border-indigo-500 focus:outline-none"
                         />
                     </div>
 
@@ -270,7 +252,7 @@ function ImportModal({ onClose, onImport, isLoading, error }: ImportModalProps) 
                         <button
                             type="button"
                             onClick={onClose}
-                            className="flex-1 rounded border border-gray-700 py-1.5 text-xs text-gray-400 hover:bg-gray-800"
+                            className="flex-1 rounded border border-zinc-700 py-1.5 text-xs text-zinc-400 hover:bg-zinc-800"
                         >
                             Cancel
                         </button>
@@ -414,9 +396,9 @@ export function TokenManager() {
     // ── Render ──────────────────────────────────────────────────────────────
 
     return (
-        <div className="relative flex h-full flex-col text-gray-300">
+        <div className="relative flex h-full flex-col text-zinc-300">
             {/* ── Toolbar ──────────────────────────────────────────────────── */}
-            <div className="flex shrink-0 items-center gap-2 border-b border-gray-800 px-3 py-2">
+            <div className="flex shrink-0 items-center gap-2 border-b border-zinc-800 px-3 py-2">
                 <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-400">
                     {tokens.length} token{tokens.length !== 1 ? 's' : ''}
                 </span>
@@ -438,7 +420,7 @@ export function TokenManager() {
                     <button
                         type="button"
                         onClick={() => setShowImport(true)}
-                        className="flex items-center gap-1.5 rounded border border-gray-700 bg-gray-800/60 px-2 py-1 text-[11px] text-gray-400 transition-colors hover:border-indigo-500 hover:text-indigo-300"
+                        className="flex items-center gap-1.5 rounded border border-zinc-700 bg-zinc-800/60 px-2 py-1 text-[11px] text-zinc-400 transition-colors hover:border-indigo-500 hover:text-indigo-300"
                     >
                         <Upload className="h-3 w-3" />
                         Import JSON
@@ -447,14 +429,14 @@ export function TokenManager() {
             </div>
 
             {/* ── Search bar ───────────────────────────────────────────────── */}
-            <div className="flex shrink-0 items-center gap-1.5 border-b border-gray-800/60 px-3 py-1.5">
+            <div className="flex shrink-0 items-center gap-1.5 border-b border-zinc-800/60 px-3 py-1.5">
                 <Search size={10} className="shrink-0 text-zinc-500" />
                 <input
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Search by name, value, or type…"
-                    className="flex-1 bg-transparent font-mono text-[11px] text-gray-300 placeholder-gray-700 outline-none"
+                    className="flex-1 bg-transparent font-mono text-[11px] text-zinc-300 placeholder-zinc-700 outline-none"
                 />
                 {searchQuery && (
                     <span className="shrink-0 text-[10px] text-zinc-500">
@@ -509,8 +491,8 @@ export function TokenManager() {
                 {[...grouped.entries()].map(([collectionName, byType]) => (
                     <div key={collectionName}>
                         {/* Collection header */}
-                        <div className="sticky top-0 z-[1] border-b border-gray-700 bg-gray-950/95 px-3 py-1.5 backdrop-blur-sm">
-                            <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+                        <div className="sticky top-0 z-[1] border-b border-zinc-700 bg-zinc-950/95 px-3 py-1.5 backdrop-blur-sm">
+                            <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
                                 {collectionName}
                             </span>
                         </div>
@@ -518,9 +500,9 @@ export function TokenManager() {
                         {[...byType.entries()].map(([tokenType, group]) => (
                             <div key={tokenType}>
                                 {/* Type sub-header */}
-                                <div className="flex items-center gap-1.5 border-b border-gray-800/60 bg-gray-900/40 px-3 py-1">
+                                <div className="flex items-center gap-1.5 border-b border-zinc-800/60 bg-zinc-900/40 px-3 py-1">
                                     <span
-                                        className={`inline-block h-1.5 w-1.5 rounded-full ${TYPE_DOT[tokenType] ?? 'bg-gray-500'}`}
+                                        className={`inline-block h-1.5 w-1.5 rounded-full ${TYPE_DOT[tokenType] ?? 'bg-zinc-500'}`}
                                     />
                                     <span className="text-[10px] font-medium uppercase tracking-widest text-zinc-400">
                                         {TYPE_LABEL[tokenType] ?? tokenType}

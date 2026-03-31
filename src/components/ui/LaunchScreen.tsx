@@ -365,7 +365,7 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
             )}
 
             {/* 1. Header */}
-            <header className="flex shrink-0 items-center border-b border-zinc-800 px-6 py-4">
+            <header aria-label={`${BRAND.product} launch screen`} className="flex shrink-0 items-center border-b border-zinc-800 px-6 py-4">
                 <div>
                     <h1 className="bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-2xl font-bold tracking-tight text-transparent">
                         {BRAND.product}
@@ -380,9 +380,13 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
 
                     {/* 2. MCP context banner */}
                     {mcpConnected && (
-                        <div className="mb-4 flex items-center justify-between rounded-lg border border-indigo-500/30 bg-indigo-900/20 px-3 py-2">
+                        <div
+                            role="status"
+                            aria-label="MCP connection status"
+                            className="mb-4 flex items-center justify-between rounded-lg border border-indigo-500/30 bg-indigo-900/20 px-3 py-2"
+                        >
                             <div className="flex items-center gap-2">
-                                <span className="h-1.5 w-1.5 rounded-full bg-indigo-400" />
+                                <span className="h-1.5 w-1.5 rounded-full bg-indigo-400" aria-hidden="true" />
                                 <span className="text-xs text-zinc-400">
                                     MCP connected
                                     {connectedProjectName && (
@@ -392,6 +396,7 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
                             </div>
                             <button
                                 type="button"
+                                aria-label={connectedProjectName ? `Open ${connectedProjectName}` : 'Open connected project'}
                                 onClick={() => {
                                     if (recentProjects[0]) {
                                         void handleOpenRecent(recentProjects[0])
@@ -400,7 +405,7 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
                                 className="flex items-center gap-1 text-xs text-indigo-400 transition-colors hover:text-indigo-300"
                             >
                                 Open this project
-                                <ArrowRight size={11} />
+                                <ArrowRight size={11} aria-hidden="true" />
                             </button>
                         </div>
                     )}
@@ -426,7 +431,7 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
                     <p className="mb-3 text-xs font-medium text-zinc-500">Or connect something</p>
 
                     {/* 5. Compact horizontal tiles */}
-                    <div className="flex flex-col gap-2">
+                    <div role="group" aria-label="Connection options" className="flex flex-col gap-2">
                         {TILES.map((tile) => {
                             const isActive = selectedPath === tile.id
                             return (
@@ -436,6 +441,7 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
                                     onClick={() => handleSelectTile(tile.id)}
                                     aria-expanded={selectedPath === tile.id}
                                     aria-controls="launch-flow-panel"
+                                    aria-label={`${tile.label}: ${tile.description}`}
                                     className={[
                                         'flex items-center gap-3 rounded-lg border px-3 py-3 text-left transition-all',
                                         isActive
@@ -447,7 +453,7 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
                                         'flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors',
                                         isActive ? 'bg-indigo-600/20 text-indigo-400' : 'bg-zinc-800 text-zinc-400',
                                     ].join(' ')}>
-                                        <tile.icon size={15} />
+                                        <tile.icon size={15} aria-hidden="true" />
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <p className={[
@@ -488,6 +494,7 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
                                             href="https://figma.com/community"
                                             target="_blank"
                                             rel="noopener noreferrer"
+                                            aria-label={`Get ${BRAND.product} Figma plugin (opens in new tab)`}
                                             className="text-xs text-amber-400 underline hover:text-amber-300 transition-colors"
                                         >
                                             Get plugin →
@@ -582,8 +589,9 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
 
                             {/* Progress step */}
                             {flowStep === 'progress' && (
-                                <div className="flex flex-col items-center py-8">
-                                    <Loader2 size={28} className="animate-spin text-indigo-400" />
+                                <div role="status" aria-label={progressMessage} className="flex flex-col items-center py-8">
+                                    {/* motion-safe: respects prefers-reduced-motion */}
+                                    <Loader2 size={28} aria-hidden="true" className="motion-safe:animate-spin text-indigo-400" />
                                     <p className="mt-4 text-sm text-zinc-300">{progressMessage}</p>
                                     <p className="mt-1 text-xs text-zinc-500">
                                         Detecting stack, extracting tokens, indexing components...
@@ -605,13 +613,14 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
                     )}
 
                     {/* 7. Demo section */}
-                    <div className="mt-8">
-                        <p className="mb-3 text-[10px] font-medium uppercase tracking-wider text-zinc-600">
+                    <section aria-labelledby="demo-section-label" className="mt-8">
+                        <p id="demo-section-label" className="mb-3 text-[10px] font-medium uppercase tracking-wider text-zinc-600">
                             Try a demo project
                         </p>
                         {/* Primary demo CTA */}
                         <button
                             type="button"
+                            aria-label="Try the A11y Audit demo (5 minutes)"
                             onClick={() => { void onLoadDemo('a11y-audit') }}
                             className="group mb-3 flex w-full items-center gap-3 rounded-xl border border-indigo-500/30 bg-gradient-to-r from-indigo-600/20 to-indigo-500/10 px-5 py-4 text-left transition-all hover:border-indigo-500/50 hover:from-indigo-600/30 hover:to-indigo-500/20"
                         >
@@ -627,18 +636,21 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
                         {/* More demos toggle */}
                         <button
                             type="button"
+                            aria-expanded={showMoreDemos}
+                            aria-controls="more-demos-section"
                             onClick={() => setShowMoreDemos((v) => !v)}
                             className="mb-2 flex w-full items-center justify-center gap-1 text-[11px] text-zinc-600 transition-colors hover:text-zinc-400"
                         >
                             {showMoreDemos ? 'Hide demos' : 'More demos'}
                             <ChevronRight
                                 size={11}
+                                aria-hidden="true"
                                 className={['shrink-0 transition-transform', showMoreDemos ? 'rotate-90' : ''].join(' ')}
                             />
                         </button>
                         {/* Collapsible additional demos */}
                         {showMoreDemos && (
-                            <div className="flex gap-2 overflow-x-auto pb-1" data-testid="more-demos-section">
+                            <div id="more-demos-section" className="flex gap-2 overflow-x-auto pb-1" data-testid="more-demos-section">
                                 {DEMO_PROJECTS.map((demo) => (
                                     <div
                                         key={demo.name}
@@ -653,6 +665,7 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
                                         </p>
                                         <button
                                             type="button"
+                                            aria-label={`Load ${demo.title} demo`}
                                             onClick={() => { void onLoadDemo(demo.name) }}
                                             className="mt-3 w-full rounded-md border border-zinc-700 bg-zinc-800/60 py-1.5 text-[11px] font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-700/60 hover:text-zinc-100"
                                         >
@@ -662,14 +675,14 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
                                 ))}
                             </div>
                         )}
-                    </div>
+                    </section>
 
                     {/* 8. Recent projects */}
                     {!loading && recentProjects.length > 0 && (
-                        <div className="mt-8">
+                        <section aria-labelledby="recent-projects-label" className="mt-8">
                             <div className="mb-2 flex items-center gap-2">
-                                <Clock size={11} className="text-zinc-600" />
-                                <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-600">
+                                <Clock size={11} aria-hidden="true" className="text-zinc-600" />
+                                <span id="recent-projects-label" className="text-[10px] font-medium uppercase tracking-wider text-zinc-600">
                                     Reopen a project
                                 </span>
                             </div>
@@ -696,20 +709,20 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
                                                     {displayPath}
                                                 </span>
                                             </button>
-                                            <ArrowRight size={12} className="shrink-0 text-zinc-700 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                            <ArrowRight size={12} aria-hidden="true" className="shrink-0 text-zinc-700 opacity-0 group-hover:opacity-100 transition-opacity" />
                                             <button
                                                 type="button"
-                                                aria-label="Remove from recent"
+                                                aria-label={`Remove ${project.name} from recent projects`}
                                                 onClick={(e) => handleRemove(e, project.id)}
                                                 className="shrink-0 rounded p-0.5 text-zinc-700 opacity-0 transition-opacity hover:text-zinc-400 group-hover:opacity-100"
                                             >
-                                                <Trash2 size={11} />
+                                                <Trash2 size={11} aria-hidden="true" />
                                             </button>
                                         </div>
                                     )
                                 })}
                             </div>
-                        </div>
+                        </section>
                     )}
 
                     {/* 9. Footer actions */}
@@ -720,6 +733,7 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
                                 <div className="flex gap-2">
                                     <input
                                         type="text"
+                                        aria-label="Project folder path (absolute path)"
                                         value={webPathInput}
                                         onChange={(e) => { setWebPathInput(e.target.value); setWebPathError(null) }}
                                         onKeyDown={(e) => { if (e.key === 'Enter') void handleWebPathSubmit() }}
@@ -728,6 +742,7 @@ export function LaunchScreen({ onOpenFolder, onNewProject, onOpenRecent, onLoadD
                                     />
                                     <button
                                         type="button"
+                                        aria-label="Open project at entered path"
                                         onClick={() => { void handleWebPathSubmit() }}
                                         className="shrink-0 rounded-lg border border-zinc-700 bg-zinc-800/40 px-3 py-2 text-xs text-zinc-400 transition-colors hover:text-zinc-300"
                                     >

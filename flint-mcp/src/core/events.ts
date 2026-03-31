@@ -37,7 +37,7 @@ export const flintEvents = new EventEmitter()
 
 // ── MCPEvent shape ────────────────────────────────────────────────────────────
 
-export type MCPEventType = 'violation' | 'annotation' | 'mutation' | 'audit' | 'fix' | 'debt' | 'context-delta'
+export type MCPEventType = 'violation' | 'annotation' | 'mutation' | 'audit' | 'fix' | 'debt' | 'context-delta' | 'file:focus'
 export type MCPEventSeverity = 'critical' | 'warning' | 'info'
 
 export interface MCPEvent {

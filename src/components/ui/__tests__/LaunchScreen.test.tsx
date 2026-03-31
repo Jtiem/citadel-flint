@@ -431,4 +431,105 @@ describe('LaunchScreen', () => {
             expect(screen.queryByTestId('more-demos-section')).toBeNull()
         })
     })
+
+    // ── FORGE.1d a11y fixes ───────────────────────────────────────────────────
+
+    it('header has aria-label', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        render(<LaunchScreen {...defaultProps()} />)
+        await waitFor(() => {
+            const header = document.querySelector('header')
+            expect(header).not.toBeNull()
+            expect(header!.getAttribute('aria-label')).toBeTruthy()
+        })
+    })
+
+    it('"New Project" button has accessible name', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        render(<LaunchScreen {...defaultProps()} />)
+        await waitFor(() => {
+            const btn = screen.getByRole('button', { name: 'Start a new project' })
+            expect(btn).toBeDefined()
+        })
+    })
+
+    it('connection option tiles have aria-label with description', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        render(<LaunchScreen {...defaultProps()} />)
+        await waitFor(() => {
+            expect(screen.getByRole('button', { name: /From Figma.*Requires Figma plugin/ })).toBeDefined()
+            expect(screen.getByRole('button', { name: /Connect codebase.*Scan/ })).toBeDefined()
+            expect(screen.getByRole('button', { name: /Audit a folder.*50 WCAG/ })).toBeDefined()
+        })
+    })
+
+    it('connection options group has aria-label', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        render(<LaunchScreen {...defaultProps()} />)
+        await waitFor(() => {
+            const group = document.querySelector('[role="group"]')
+            expect(group).not.toBeNull()
+            expect(group!.getAttribute('aria-label')).toBe('Connection options')
+        })
+    })
+
+    it('demo section is a landmark with aria-labelledby', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        render(<LaunchScreen {...defaultProps()} />)
+        await waitFor(() => screen.getByText('Try a demo project'))
+        const sections = document.querySelectorAll('section[aria-labelledby]')
+        const demoSection = Array.from(sections).find((s) => {
+            const labelId = s.getAttribute('aria-labelledby')
+            const el = labelId ? document.getElementById(labelId) : null
+            return el && el.textContent?.includes('Try a demo')
+        })
+        expect(demoSection).not.toBeNull()
+    })
+
+    it('"More demos" toggle has aria-expanded attribute', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        render(<LaunchScreen {...defaultProps()} />)
+        await waitFor(() => screen.getByText('More demos'))
+        const toggle = screen.getByRole('button', { name: /More demos/i })
+        expect(toggle.getAttribute('aria-expanded')).toBe('false')
+        fireEvent.click(toggle)
+        await waitFor(() => {
+            expect(toggle.getAttribute('aria-expanded')).toBe('true')
+        })
+    })
+
+    it('progress spinner uses motion-safe class', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        render(<LaunchScreen {...defaultProps()} />)
+        await waitFor(() => screen.getByText('Audit a folder'))
+        fireEvent.click(screen.getByText('Audit a folder'))
+        await waitFor(() => screen.getByText('Choose folder'))
+        // Trigger folder step to reach progress step
+        fireEvent.click(screen.getByText('Choose folder'))
+        await waitFor(() => {
+            const spinner = document.querySelector('.motion-safe\\:animate-spin')
+            expect(spinner).not.toBeNull()
+        })
+    })
+
+    it('recent projects section has aria-labelledby pointing to "Reopen a project"', async () => {
+        const projects = [makeProject({ name: 'Omega App' })]
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue(projects)
+        render(<LaunchScreen {...defaultProps()} />)
+        await waitFor(() => screen.getByText('Reopen a project'))
+        const label = screen.getByText('Reopen a project')
+        expect(label.id).toBeTruthy()
+        const section = document.getElementById(label.id)?.closest('section')
+        expect(section).not.toBeNull()
+    })
+
+    it('remove-from-recent button has project-specific aria-label', async () => {
+        const project = makeProject({ name: 'Zeta Project', id: 'zeta-id' })
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([project])
+        ;(window.flintAPI.registry.removeProject as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
+        render(<LaunchScreen {...defaultProps()} />)
+        await waitFor(() => screen.getByText('Zeta Project'))
+        const removeBtn = screen.getByRole('button', { name: /Remove Zeta Project from recent/ })
+        expect(removeBtn).toBeDefined()
+    })
 })

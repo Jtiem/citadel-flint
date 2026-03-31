@@ -10,7 +10,7 @@
  * Mount/unmount is controlled by App.tsx via the demoAutoLoaded flag.
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { X } from 'lucide-react'
 
 const STORAGE_KEY = 'flint-demo-walkthrough-complete'
@@ -58,6 +58,7 @@ export function DemoWalkthrough({ onDismiss }: DemoWalkthroughProps) {
     const [completed] = useState(() => localStorage.getItem(STORAGE_KEY) === 'true')
     const [step, setStep] = useState(0)
     const [pos, setPos] = useState<TooltipPos>(FALLBACK_POS)
+    const dialogRef = useRef<HTMLDivElement>(null)
 
     const current = STEPS[step]
 
@@ -75,6 +76,17 @@ export function DemoWalkthrough({ onDismiss }: DemoWalkthroughProps) {
             setPos(FALLBACK_POS)
         }
     }, [step, current.targetTestId])
+
+    // Move focus into the dialog when it first opens (WCAG 2.4.3 Focus Order)
+    useEffect(() => {
+        if (!completed) {
+            // Small delay to allow positioning to settle
+            const t = setTimeout(() => {
+                dialogRef.current?.focus()
+            }, 50)
+            return () => clearTimeout(t)
+        }
+    }, [completed])
 
     if (completed) return null
 
@@ -99,26 +111,29 @@ export function DemoWalkthrough({ onDismiss }: DemoWalkthroughProps) {
 
     return (
         // Transparent overlay — doesn't block interaction, just layers the tooltip
-        <div className="fixed inset-0 z-50 pointer-events-none">
+        <div className="fixed inset-0 z-50 pointer-events-none" aria-hidden="false">
             {/* Tooltip card — pointer-events re-enabled for buttons */}
             <div
+                ref={dialogRef}
                 className="absolute w-72 rounded-lg border border-indigo-500 bg-zinc-900 p-4 shadow-xl shadow-black/40 pointer-events-auto"
                 style={posStyle}
                 role="dialog"
-                aria-label={`Walkthrough step ${step + 1} of ${STEPS.length}`}
+                aria-modal="true"
+                aria-label={`Demo walkthrough: step ${step + 1} of ${STEPS.length}`}
+                tabIndex={-1}
             >
-                {/* Skip link */}
+                {/* Close / Skip */}
                 <button
                     type="button"
                     onClick={dismiss}
                     className="absolute right-2 top-2 rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300 transition-colors"
-                    aria-label="Skip walkthrough"
+                    aria-label="Close demo walkthrough"
                 >
-                    <X size={14} />
+                    <X size={14} aria-hidden="true" />
                 </button>
 
-                {/* Step counter */}
-                <p className="mb-2 text-[10px] font-medium uppercase tracking-widest text-indigo-400">
+                {/* Step counter — visually presented, also announced via dialog aria-label */}
+                <p className="mb-2 text-[10px] font-medium uppercase tracking-widest text-indigo-400" aria-hidden="true">
                     Step {step + 1} of {STEPS.length}
                 </p>
 
@@ -133,11 +148,15 @@ export function DemoWalkthrough({ onDismiss }: DemoWalkthroughProps) {
                 {/* Step dots + action button */}
                 <div className="mt-4 flex items-center justify-between">
                     {/* Dot indicators */}
-                    <div className="flex items-center gap-1.5">
+                    <div role="tablist" aria-label="Walkthrough progress" className="flex items-center gap-1.5">
                         {STEPS.map((_, i) => (
                             <span
                                 key={i}
-                                className={`block h-1.5 rounded-full transition-all ${
+                                role="tab"
+                                aria-label={`Step ${i + 1} of ${STEPS.length}`}
+                                aria-current={i === step ? 'step' : undefined}
+                                aria-selected={i === step}
+                                className={`block h-1.5 rounded-full motion-safe:transition-all ${
                                     i === step
                                         ? 'w-4 bg-indigo-400'
                                         : 'w-1.5 bg-zinc-700'
@@ -150,7 +169,12 @@ export function DemoWalkthrough({ onDismiss }: DemoWalkthroughProps) {
                     <button
                         type="button"
                         onClick={handleNext}
-                        className="rounded px-3 py-1.5 text-xs font-medium bg-indigo-600 text-zinc-100 hover:bg-indigo-500 transition-colors"
+                        aria-label={
+                            step < STEPS.length - 1
+                                ? `Next step (${step + 1} of ${STEPS.length})`
+                                : 'Done — close walkthrough'
+                        }
+                        className="rounded px-3 py-1.5 text-xs font-medium bg-indigo-600 text-zinc-100 hover:bg-indigo-500 motion-safe:transition-colors"
                     >
                         {current.buttonLabel}
                     </button>
