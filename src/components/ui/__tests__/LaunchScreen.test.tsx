@@ -1,17 +1,20 @@
 /**
  * LaunchScreen.test.tsx
  *
- * Tests for the LAUNCH.2 context-aware entry system. Covers:
- *   - Primary CTA "New Project"
- *   - "Or connect something" section label
- *   - All four compact tiles
- *   - Inline expanded flows (folder step, Figma step)
- *   - "Skip — open canvas instead" link in expanded flows
- *   - Recent projects list
- *   - Recent project callback wiring
+ * Tests for the FORGE.1a Three-Path LaunchScreen.
+ *
+ * Verifies:
+ *   - Exactly 3 primary CTAs: "Try Flint", "Open My Project", "Audit a Folder"
+ *   - No 4th primary CTA (new-project blank scratchpad, from-Figma, governance dashboard tiles)
+ *   - Demo scenario picker opens/closes via "Try Flint" toggle
+ *   - Scenario cards load demos when clicked
+ *   - Recent projects visible with optional health grades
+ *   - MCP connected banner shown when connected
+ *   - "Open My Project" calls onOpenFolder
+ *   - "Audit a Folder" calls onOpenFolder
  *   - Remove-from-recent wiring
- *   - MCP connected banner
- *   - Tile toggle (clicking active tile collapses it)
+ *   - Demo load error banner
+ *   - "Connect to IDE" footer affordance
  */
 
 import { describe, it, expect, vi } from 'vitest'
@@ -38,68 +41,161 @@ function defaultProps() {
     }
 }
 
-describe('LaunchScreen', () => {
-    // ── Primary CTA ──────────────────────────────────────────────────────────
+describe('LaunchScreen — FORGE.1a Three-Path', () => {
 
-    it('renders the "New Project" primary CTA button', async () => {
+    // ── 3 primary paths present ───────────────────────────────────────────────
+
+    it('renders "Try Flint" primary CTA', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
         render(<LaunchScreen {...defaultProps()} />)
         await waitFor(() => {
-            expect(screen.getByText('New Project')).toBeDefined()
+            expect(screen.getByText('Try Flint')).toBeDefined()
         })
     })
 
-    it('renders the CTA subtitle "Start building immediately. No setup required."', async () => {
+    it('renders "Open My Project" primary CTA', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
         render(<LaunchScreen {...defaultProps()} />)
         await waitFor(() => {
-            expect(screen.getByText('Start building immediately. No setup required.')).toBeDefined()
+            expect(screen.getByText('Open My Project')).toBeDefined()
         })
     })
 
-    it('calls onNewProject when "New Project" is clicked', async () => {
+    it('renders "Audit a Folder" secondary link', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        render(<LaunchScreen {...defaultProps()} />)
+        await waitFor(() => {
+            expect(screen.getByText('Audit a Folder')).toBeDefined()
+        })
+    })
+
+    // ── No 4th primary CTA ────────────────────────────────────────────────────
+
+    it('does not render "New Project" blank scratchpad tile', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        render(<LaunchScreen {...defaultProps()} />)
+        await waitFor(() => {
+            expect(screen.getByText('Try Flint')).toBeDefined()
+        })
+        expect(screen.queryByText('New Project')).toBeNull()
+    })
+
+    it('does not render "From Figma" tile as a primary option', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        render(<LaunchScreen {...defaultProps()} />)
+        await waitFor(() => {
+            expect(screen.getByText('Try Flint')).toBeDefined()
+        })
+        expect(screen.queryByText('From Figma')).toBeNull()
+    })
+
+    it('does not render "Governance dashboard" tile as a primary option', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        render(<LaunchScreen {...defaultProps()} />)
+        await waitFor(() => {
+            expect(screen.getByText('Try Flint')).toBeDefined()
+        })
+        expect(screen.queryByText('Governance dashboard')).toBeNull()
+    })
+
+    it('does not render "Connect codebase" tile as a primary option', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        render(<LaunchScreen {...defaultProps()} />)
+        await waitFor(() => {
+            expect(screen.getByText('Try Flint')).toBeDefined()
+        })
+        expect(screen.queryByText('Connect codebase')).toBeNull()
+    })
+
+    // ── "Try Flint" opens scenario picker ─────────────────────────────────────
+
+    it('clicking "Try Flint" reveals the demo scenario picker', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        render(<LaunchScreen {...defaultProps()} />)
+        await waitFor(() => screen.getByText('Try Flint'))
+        fireEvent.click(screen.getByText('Try Flint'))
+        await waitFor(() => {
+            expect(screen.getByTestId('demo-scenario-picker')).toBeDefined()
+        })
+    })
+
+    it('clicking "Try Flint" again collapses the scenario picker', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        render(<LaunchScreen {...defaultProps()} />)
+        await waitFor(() => screen.getByText('Try Flint'))
+        fireEvent.click(screen.getByText('Try Flint'))
+        await waitFor(() => screen.getByTestId('demo-scenario-picker'))
+        fireEvent.click(screen.getByText('Try Flint'))
+        await waitFor(() => {
+            expect(screen.queryByTestId('demo-scenario-picker')).toBeNull()
+        })
+    })
+
+    it('scenario picker shows 4 demo cards', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        render(<LaunchScreen {...defaultProps()} />)
+        await waitFor(() => screen.getByText('Try Flint'))
+        fireEvent.click(screen.getByText('Try Flint'))
+        await waitFor(() => {
+            expect(screen.getByText('A11y Audit')).toBeDefined()
+            expect(screen.getByText('Token Drift')).toBeDefined()
+            expect(screen.getByText('DS Migration')).toBeDefined()
+            expect(screen.getByText('Full App Scan')).toBeDefined()
+        })
+    })
+
+    it('clicking a demo scenario calls onLoadDemo with the correct name', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
         const props = defaultProps()
         render(<LaunchScreen {...props} />)
-        await waitFor(() => screen.getByText('New Project'))
-        fireEvent.click(screen.getByText('New Project'))
+        await waitFor(() => screen.getByText('Try Flint'))
+        fireEvent.click(screen.getByText('Try Flint'))
+        await waitFor(() => screen.getByText('A11y Audit'))
+        fireEvent.click(screen.getByRole('button', { name: /Load A11y Audit demo/i }))
         await waitFor(() => {
-            expect(props.onNewProject).toHaveBeenCalled()
+            expect(props.onLoadDemo).toHaveBeenCalledWith('a11y-audit')
         })
     })
 
-    // ── Section label ────────────────────────────────────────────────────────
-
-    it('renders the "Or connect something" section label', async () => {
+    it('"Try Flint" button has aria-expanded attribute', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
         render(<LaunchScreen {...defaultProps()} />)
+        await waitFor(() => screen.getByText('Try Flint'))
+        const btn = screen.getByTestId('try-flint-cta')
+        expect(btn.getAttribute('aria-expanded')).toBe('false')
+        fireEvent.click(btn)
         await waitFor(() => {
-            expect(screen.getByText('Or connect something')).toBeDefined()
+            expect(btn.getAttribute('aria-expanded')).toBe('true')
         })
     })
 
-    // ── Four compact tiles ───────────────────────────────────────────────────
+    // ── "Open My Project" calls onOpenFolder ─────────────────────────────────
 
-    it('renders all four compact tiles', async () => {
+    it('clicking "Open My Project" calls onOpenFolder', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        render(<LaunchScreen {...defaultProps()} />)
+        const props = defaultProps()
+        render(<LaunchScreen {...props} />)
+        await waitFor(() => screen.getByText('Open My Project'))
+        fireEvent.click(screen.getByText('Open My Project'))
         await waitFor(() => {
-            expect(screen.getByText('From Figma')).toBeDefined()
-            expect(screen.getByText('Connect codebase')).toBeDefined()
-            expect(screen.getByText('Audit a folder')).toBeDefined()
-            expect(screen.getByText('Governance dashboard')).toBeDefined()
+            expect(props.onOpenFolder).toHaveBeenCalled()
         })
     })
 
-    it('renders the tagline "AI governance for your design system" in the header', async () => {
+    // ── "Audit a Folder" calls onOpenFolder ───────────────────────────────────
+
+    it('clicking "Audit a Folder" calls onOpenFolder', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        render(<LaunchScreen {...defaultProps()} />)
+        const props = defaultProps()
+        render(<LaunchScreen {...props} />)
+        await waitFor(() => screen.getByText('Audit a Folder'))
+        fireEvent.click(screen.getByText('Audit a Folder'))
         await waitFor(() => {
-            expect(screen.getByText('AI governance for your design system')).toBeDefined()
+            expect(props.onOpenFolder).toHaveBeenCalled()
         })
     })
 
-    // ── Recent projects ──────────────────────────────────────────────────────
+    // ── Recent projects ────────────────────────────────────────────────────────
 
     it('shows recent projects when available', async () => {
         const projects = [makeProject({ name: 'Alpha App' }), makeProject({ name: 'Beta Site' })]
@@ -111,15 +207,6 @@ describe('LaunchScreen', () => {
         })
     })
 
-    it('shows full project path in recent projects list', async () => {
-        const project = makeProject({ name: 'Delta App', path: '/Users/dev/delta' })
-        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([project])
-        render(<LaunchScreen {...defaultProps()} />)
-        await waitFor(() => {
-            expect(screen.getByText('/Users/dev/delta')).toBeDefined()
-        })
-    })
-
     it('does not render recent projects section when list is empty', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
         render(<LaunchScreen {...defaultProps()} />)
@@ -127,8 +214,6 @@ describe('LaunchScreen', () => {
             expect(screen.queryByText('Reopen a project')).toBeNull()
         })
     })
-
-    // ── Recent project callbacks ──────────────────────────────────────────────
 
     it('calls onOpenRecent when a recent project is clicked', async () => {
         const project = makeProject({ name: 'Gamma App', path: '/tmp/gamma' })
@@ -155,119 +240,35 @@ describe('LaunchScreen', () => {
         })
     })
 
-    // ── Tile → folder step ────────────────────────────────────────────────────
-
-    it('expands folder step when "Audit a folder" tile is clicked', async () => {
-        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+    it('remove-from-recent button has project-specific aria-label', async () => {
+        const project = makeProject({ name: 'Zeta Project', id: 'zeta-id' })
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([project])
+        ;(window.flintAPI.registry.removeProject as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
         render(<LaunchScreen {...defaultProps()} />)
-        await waitFor(() => screen.getByText('Audit a folder'))
-        fireEvent.click(screen.getByText('Audit a folder'))
-        await waitFor(() => {
-            expect(screen.getByText('Which folder should Flint audit?')).toBeDefined()
-        })
+        await waitFor(() => screen.getByText('Zeta Project'))
+        const removeBtn = screen.getByRole('button', { name: /Remove Zeta Project from recent/ })
+        expect(removeBtn).toBeDefined()
     })
 
-    it('expands folder step when "Connect codebase" tile is clicked', async () => {
-        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+    it('renders health grade badge when project has a healthGrade', async () => {
+        const project = { ...makeProject({ name: 'Healthy App' }), healthGrade: 'A+' }
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([project])
         render(<LaunchScreen {...defaultProps()} />)
-        await waitFor(() => screen.getByText('Connect codebase'))
-        fireEvent.click(screen.getByText('Connect codebase'))
         await waitFor(() => {
-            expect(screen.getByText('Where is your codebase?')).toBeDefined()
+            expect(screen.getByText('A+')).toBeDefined()
         })
     })
 
-    it('expands folder step when "Governance dashboard" tile is clicked', async () => {
-        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+    it('does not render a grade badge when healthGrade is absent', async () => {
+        const project = makeProject({ name: 'Gradeless App' })
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([project])
         render(<LaunchScreen {...defaultProps()} />)
-        await waitFor(() => screen.getByText('Governance dashboard'))
-        fireEvent.click(screen.getByText('Governance dashboard'))
-        await waitFor(() => {
-            expect(screen.getByText('Which project is your IDE working on?')).toBeDefined()
-        })
+        await waitFor(() => screen.getByText('Gradeless App'))
+        // No grade badge (no A-F text beside the project name)
+        expect(screen.queryByLabelText(/Health grade/i)).toBeNull()
     })
 
-    // ── Tile → Figma step ─────────────────────────────────────────────────────
-
-    it('renders Figma prerequisite callout in expanded Figma section', async () => {
-        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        render(<LaunchScreen {...defaultProps()} />)
-        await waitFor(() => screen.getByText('From Figma'))
-        fireEvent.click(screen.getByText('From Figma'))
-        await waitFor(() => {
-            expect(screen.getByText(/Install the .* Figma plugin before continuing/)).toBeDefined()
-            // Link now has an aria-label (describes destination for a11y)
-            const link = document.querySelector('a[href*="figma.com/community"]')
-            expect(link).not.toBeNull()
-        })
-    })
-
-    it('expands Figma step when "From Figma" tile is clicked', async () => {
-        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        render(<LaunchScreen {...defaultProps()} />)
-        await waitFor(() => screen.getByText('From Figma'))
-        fireEvent.click(screen.getByText('From Figma'))
-        await waitFor(() => {
-            expect(screen.getByText('Connect your Figma file')).toBeDefined()
-        })
-    })
-
-    // ── Skip link ─────────────────────────────────────────────────────────────
-
-    it('shows "Skip — open canvas instead" link when folder step is expanded', async () => {
-        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        render(<LaunchScreen {...defaultProps()} />)
-        await waitFor(() => screen.getByText('Audit a folder'))
-        fireEvent.click(screen.getByText('Audit a folder'))
-        await waitFor(() => {
-            expect(screen.getByText('Skip — open canvas instead')).toBeDefined()
-        })
-    })
-
-    it('shows "Skip — open canvas instead" link when Figma step is expanded', async () => {
-        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        render(<LaunchScreen {...defaultProps()} />)
-        await waitFor(() => screen.getByText('From Figma'))
-        fireEvent.click(screen.getByText('From Figma'))
-        await waitFor(() => {
-            expect(screen.getByText('Skip — open canvas instead')).toBeDefined()
-        })
-    })
-
-    it('calls onNewProject and collapses flow when "Skip — open canvas instead" is clicked', async () => {
-        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        const props = defaultProps()
-        render(<LaunchScreen {...props} />)
-        await waitFor(() => screen.getByText('Audit a folder'))
-        fireEvent.click(screen.getByText('Audit a folder'))
-        await waitFor(() => screen.getByText('Skip — open canvas instead'))
-        fireEvent.click(screen.getByText('Skip — open canvas instead'))
-        await waitFor(() => {
-            expect(props.onNewProject).toHaveBeenCalled()
-            // Expanded flow should be gone
-            expect(screen.queryByText('Skip — open canvas instead')).toBeNull()
-        })
-    })
-
-    // ── Tile toggle ───────────────────────────────────────────────────────────
-
-    it('collapses expanded flow when the active tile is clicked again', async () => {
-        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        render(<LaunchScreen {...defaultProps()} />)
-        await waitFor(() => screen.getByText('Audit a folder'))
-        // First click: expand
-        fireEvent.click(screen.getByText('Audit a folder'))
-        await waitFor(() => {
-            expect(screen.getByText('Which folder should Flint audit?')).toBeDefined()
-        })
-        // Second click: collapse
-        fireEvent.click(screen.getByText('Audit a folder'))
-        await waitFor(() => {
-            expect(screen.queryByText('Which folder should Flint audit?')).toBeNull()
-        })
-    })
-
-    // ── MCP connected banner ──────────────────────────────────────────────────
+    // ── MCP connected banner ───────────────────────────────────────────────────
 
     it('shows MCP connected banner when mcp.status returns connected: true', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
@@ -287,28 +288,39 @@ describe('LaunchScreen', () => {
         })
     })
 
-    // ── Footer escape hatch ───────────────────────────────────────────────────
+    // ── Demo load error banner ─────────────────────────────────────────────────
 
-    it('renders the "Open any folder..." footer escape hatch', async () => {
+    it('renders amber error banner when demoError prop is set', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        render(<LaunchScreen {...defaultProps()} demoError="IPC call failed" />)
+        await waitFor(() => {
+            expect(screen.getByRole('alert')).toBeDefined()
+            expect(screen.getByText("Demo project couldn't load. Try opening your own project below.")).toBeDefined()
+        })
+    })
+
+    it('does not render error banner when demoError prop is absent', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
         render(<LaunchScreen {...defaultProps()} />)
         await waitFor(() => {
-            expect(screen.getByText('Open any folder...')).toBeDefined()
+            expect(screen.getByText('Try Flint')).toBeDefined()
         })
+        expect(screen.queryByRole('alert')).toBeNull()
     })
 
-    it('calls onOpenFolder when "Open any folder..." is clicked', async () => {
+    it('dismisses the error banner when the dismiss button is clicked', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        const props = defaultProps()
-        render(<LaunchScreen {...props} />)
-        await waitFor(() => screen.getByText('Open any folder...'))
-        fireEvent.click(screen.getByText('Open any folder...'))
+        render(<LaunchScreen {...defaultProps()} demoError="something went wrong" />)
         await waitFor(() => {
-            expect(props.onOpenFolder).toHaveBeenCalled()
+            expect(screen.getByRole('alert')).toBeDefined()
+        })
+        fireEvent.click(screen.getByLabelText('Dismiss'))
+        await waitFor(() => {
+            expect(screen.queryByRole('alert')).toBeNull()
         })
     })
 
-    // ── WS1: Connect to IDE affordance ────────────────────────────────────────
+    // ── Connect to IDE affordance ──────────────────────────────────────────────
 
     it('renders "Connect to IDE" footer button when onConnectIDE is provided', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
@@ -332,109 +344,12 @@ describe('LaunchScreen', () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
         render(<LaunchScreen {...defaultProps()} />)
         await waitFor(() => {
-            // Ensure footer is rendered before checking
-            expect(screen.getByText('Open any folder...')).toBeDefined()
+            expect(screen.getByText('Try Flint')).toBeDefined()
         })
         expect(screen.queryByText('Connect to IDE')).toBeNull()
     })
 
-    // ── Demo load error banner ────────────────────────────────────────────────
-
-    it('renders amber error banner when demoError prop is set', async () => {
-        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        render(<LaunchScreen {...defaultProps()} demoError="IPC call failed" />)
-        await waitFor(() => {
-            expect(screen.getByRole('alert')).toBeDefined()
-            expect(screen.getByText("Demo project couldn't load. Try opening your own project below.")).toBeDefined()
-        })
-    })
-
-    it('does not render error banner when demoError prop is absent', async () => {
-        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        render(<LaunchScreen {...defaultProps()} />)
-        await waitFor(() => {
-            expect(screen.getByText('New Project')).toBeDefined()
-        })
-        expect(screen.queryByRole('alert')).toBeNull()
-    })
-
-    it('dismisses the error banner when the dismiss button is clicked', async () => {
-        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        render(<LaunchScreen {...defaultProps()} demoError="something went wrong" />)
-        await waitFor(() => {
-            expect(screen.getByRole('alert')).toBeDefined()
-        })
-        fireEvent.click(screen.getByLabelText('Dismiss'))
-        await waitFor(() => {
-            expect(screen.queryByRole('alert')).toBeNull()
-        })
-    })
-
-    // ── Demo section ──────────────────────────────────────────────────────────
-
-    it('renders "Try a demo project" section label', async () => {
-        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        render(<LaunchScreen {...defaultProps()} />)
-        await waitFor(() => {
-            expect(screen.getByText('Try a demo project')).toBeDefined()
-        })
-    })
-
-    it('renders a single "Try the demo" CTA button', async () => {
-        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        render(<LaunchScreen {...defaultProps()} />)
-        await waitFor(() => {
-            expect(screen.getByText('Try the demo')).toBeDefined()
-        })
-    })
-
-    it('"Try the demo" button calls onLoadDemo with "a11y-audit"', async () => {
-        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        const props = defaultProps()
-        render(<LaunchScreen {...props} />)
-        await waitFor(() => screen.getByText('Try the demo'))
-        fireEvent.click(screen.getByText('Try the demo'))
-        await waitFor(() => {
-            expect(props.onLoadDemo).toHaveBeenCalledWith('a11y-audit')
-        })
-    })
-
-    it('"More demos" section is collapsed by default', async () => {
-        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        render(<LaunchScreen {...defaultProps()} />)
-        await waitFor(() => screen.getByText('More demos'))
-        expect(screen.queryByTestId('more-demos-section')).toBeNull()
-    })
-
-    it('clicking "More demos" toggle shows additional demo cards', async () => {
-        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        render(<LaunchScreen {...defaultProps()} />)
-        await waitFor(() => screen.getByText('More demos'))
-        fireEvent.click(screen.getByText('More demos'))
-        await waitFor(() => {
-            expect(screen.getByTestId('more-demos-section')).toBeDefined()
-            expect(screen.getByText('Token Drift')).toBeDefined()
-            expect(screen.getByText('A11y Audit')).toBeDefined()
-            expect(screen.getByText('DS Migration')).toBeDefined()
-            expect(screen.getByText('Full App Scan')).toBeDefined()
-        })
-    })
-
-    it('clicking the toggle again hides the demo cards', async () => {
-        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        render(<LaunchScreen {...defaultProps()} />)
-        await waitFor(() => screen.getByText('More demos'))
-        // Expand
-        fireEvent.click(screen.getByText('More demos'))
-        await waitFor(() => screen.getByTestId('more-demos-section'))
-        // Collapse
-        fireEvent.click(screen.getByText('Hide demos'))
-        await waitFor(() => {
-            expect(screen.queryByTestId('more-demos-section')).toBeNull()
-        })
-    })
-
-    // ── FORGE.1d a11y fixes ───────────────────────────────────────────────────
+    // ── A11y structural checks ─────────────────────────────────────────────────
 
     it('header has aria-label', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
@@ -443,74 +358,6 @@ describe('LaunchScreen', () => {
             const header = document.querySelector('header')
             expect(header).not.toBeNull()
             expect(header!.getAttribute('aria-label')).toBeTruthy()
-        })
-    })
-
-    it('"New Project" button has accessible name', async () => {
-        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        render(<LaunchScreen {...defaultProps()} />)
-        await waitFor(() => {
-            const btn = screen.getByRole('button', { name: 'Start a new project' })
-            expect(btn).toBeDefined()
-        })
-    })
-
-    it('connection option tiles have aria-label with description', async () => {
-        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        render(<LaunchScreen {...defaultProps()} />)
-        await waitFor(() => {
-            expect(screen.getByRole('button', { name: /From Figma.*Requires Figma plugin/ })).toBeDefined()
-            expect(screen.getByRole('button', { name: /Connect codebase.*Scan/ })).toBeDefined()
-            expect(screen.getByRole('button', { name: /Audit a folder.*50 WCAG/ })).toBeDefined()
-        })
-    })
-
-    it('connection options group has aria-label', async () => {
-        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        render(<LaunchScreen {...defaultProps()} />)
-        await waitFor(() => {
-            const group = document.querySelector('[role="group"]')
-            expect(group).not.toBeNull()
-            expect(group!.getAttribute('aria-label')).toBe('Connection options')
-        })
-    })
-
-    it('demo section is a landmark with aria-labelledby', async () => {
-        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        render(<LaunchScreen {...defaultProps()} />)
-        await waitFor(() => screen.getByText('Try a demo project'))
-        const sections = document.querySelectorAll('section[aria-labelledby]')
-        const demoSection = Array.from(sections).find((s) => {
-            const labelId = s.getAttribute('aria-labelledby')
-            const el = labelId ? document.getElementById(labelId) : null
-            return el && el.textContent?.includes('Try a demo')
-        })
-        expect(demoSection).not.toBeNull()
-    })
-
-    it('"More demos" toggle has aria-expanded attribute', async () => {
-        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        render(<LaunchScreen {...defaultProps()} />)
-        await waitFor(() => screen.getByText('More demos'))
-        const toggle = screen.getByRole('button', { name: /More demos/i })
-        expect(toggle.getAttribute('aria-expanded')).toBe('false')
-        fireEvent.click(toggle)
-        await waitFor(() => {
-            expect(toggle.getAttribute('aria-expanded')).toBe('true')
-        })
-    })
-
-    it('progress spinner uses motion-safe class', async () => {
-        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        render(<LaunchScreen {...defaultProps()} />)
-        await waitFor(() => screen.getByText('Audit a folder'))
-        fireEvent.click(screen.getByText('Audit a folder'))
-        await waitFor(() => screen.getByText('Choose folder'))
-        // Trigger folder step to reach progress step
-        fireEvent.click(screen.getByText('Choose folder'))
-        await waitFor(() => {
-            const spinner = document.querySelector('.motion-safe\\:animate-spin')
-            expect(spinner).not.toBeNull()
         })
     })
 
@@ -523,15 +370,5 @@ describe('LaunchScreen', () => {
         expect(label.id).toBeTruthy()
         const section = document.getElementById(label.id)?.closest('section')
         expect(section).not.toBeNull()
-    })
-
-    it('remove-from-recent button has project-specific aria-label', async () => {
-        const project = makeProject({ name: 'Zeta Project', id: 'zeta-id' })
-        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([project])
-        ;(window.flintAPI.registry.removeProject as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
-        render(<LaunchScreen {...defaultProps()} />)
-        await waitFor(() => screen.getByText('Zeta Project'))
-        const removeBtn = screen.getByRole('button', { name: /Remove Zeta Project from recent/ })
-        expect(removeBtn).toBeDefined()
     })
 })

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { BRAND } from '../../../shared/brand'
 import {
     CheckCircle,
@@ -127,6 +127,8 @@ function StepDots({ current }: { current: WizardStep }) {
 
 export function SetupWizard({ onComplete }: SetupWizardProps) {
     const [step, setStep] = useState<WizardStep>('welcome')
+    // FORGE.1f: Focus management — ref for the step heading so we can move focus on transitions
+    const stepHeadingRef = useRef<HTMLHeadingElement>(null)
     const [detectedIDEs, setDetectedIDEs] = useState<DetectedIDE[] | null>(null)
     const [mcpServerPath, setMcpServerPath] = useState<string>('')
     const [selectedIDE, setSelectedIDE] = useState<DetectedIDE | null>(null)
@@ -157,6 +159,14 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
         window.addEventListener('keydown', handleKeyDown)
         return () => window.removeEventListener('keydown', handleKeyDown)
     }, [onComplete, writeStatus])
+
+    // FORGE.1f: Move focus to the new step's heading on step transitions
+    useEffect(() => {
+        const t = setTimeout(() => {
+            stepHeadingRef.current?.focus()
+        }, 50)
+        return () => clearTimeout(t)
+    }, [step])
 
     // ── IDE detection (runs when entering ide-detect step) ───────────────────
     useEffect(() => {
@@ -319,7 +329,12 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950">
-            <div className="w-full max-w-lg rounded-xl border border-zinc-800 bg-zinc-900 p-8 shadow-2xl">
+            <div
+                role="dialog"
+                aria-labelledby="setup-wizard-heading"
+                aria-modal="true"
+                className="w-full max-w-lg rounded-xl border border-zinc-800 bg-zinc-900 p-8 shadow-2xl"
+            >
                 {/* Back button */}
                 {canGoBack && (
                     <button
@@ -336,7 +351,12 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                 {step === 'welcome' && (
                     <div className="flex flex-col gap-6">
                         <div className="flex flex-col gap-2">
-                            <h1 id="setup-wizard-title" className="text-2xl font-bold text-zinc-100">
+                            <h1
+                                id="setup-wizard-heading"
+                                ref={stepHeadingRef}
+                                tabIndex={-1}
+                                className="text-2xl font-bold text-zinc-100 outline-none"
+                            >
                                 Get {BRAND.product} running in 2 minutes
                             </h1>
                             <p className="text-sm text-zinc-400">
@@ -360,7 +380,12 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                 {step === 'ide-detect' && (
                     <div className="flex flex-col gap-6">
                         <div className="flex flex-col gap-2">
-                            <h2 className="text-xl font-bold text-zinc-100">
+                            <h2
+                                id="setup-wizard-heading"
+                                ref={stepHeadingRef}
+                                tabIndex={-1}
+                                className="text-xl font-bold text-zinc-100 outline-none"
+                            >
                                 Which IDE do you use?
                             </h2>
                             <p className="text-sm text-zinc-400">
@@ -380,6 +405,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                                         <button
                                             key={ide.name}
                                             type="button"
+                                            aria-pressed={isSelected}
                                             onClick={() => {
                                                 setSelectedIDE(ide)
                                                 // R-6: Reset write status when IDE selection changes
@@ -444,7 +470,12 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                 {step === 'mcp-snippet' && selectedIDE && (
                     <div className="flex flex-col gap-6">
                         <div className="flex flex-col gap-2">
-                            <h2 className="text-xl font-bold text-zinc-100">
+                            <h2
+                                id="setup-wizard-heading"
+                                ref={stepHeadingRef}
+                                tabIndex={-1}
+                                className="text-xl font-bold text-zinc-100 outline-none"
+                            >
                                 Connecting {BRAND.product} to {selectedIDE.name}
                             </h2>
                             <p className="text-sm text-zinc-400">
@@ -460,9 +491,9 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                             {configSnippet}
                         </pre>
 
-                        {/* R-9: aria-live so screen readers announce status changes */}
+                        {/* R-9: aria-live assertive so screen readers announce error/status changes immediately */}
                         <div
-                            aria-live="polite"
+                            aria-live="assertive"
                             className="min-h-[72px] rounded-lg border border-zinc-700 bg-zinc-950 px-4 py-4"
                         >
                             {/* Pre-install: show prompt to click Install */}
@@ -599,7 +630,12 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                 {step === 'verify' && (
                     <div className="flex flex-col gap-6">
                         <div className="flex flex-col gap-2">
-                            <h2 className="text-xl font-bold text-zinc-100">
+                            <h2
+                                id="setup-wizard-heading"
+                                ref={stepHeadingRef}
+                                tabIndex={-1}
+                                className="text-xl font-bold text-zinc-100 outline-none"
+                            >
                                 Test your connection
                             </h2>
                             {/* R-5: Accurate copy — this tests the internal MCP connection */}
@@ -611,7 +647,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
 
                         {/* Verify status display */}
                         <div
-                            aria-live="polite"
+                            aria-live="assertive"
                             className="flex min-h-[56px] flex-col items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-950 px-4 py-3"
                         >
                             {verifyStatus === 'idle' && (
@@ -702,7 +738,14 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                     <div className="flex flex-col gap-6">
                         <div className="flex flex-col items-center gap-3 py-4 text-center">
                             <CheckCircle size={48} className="text-emerald-400" />
-                            <h2 className="text-2xl font-bold text-zinc-100">You're ready.</h2>
+                            <h2
+                                id="setup-wizard-heading"
+                                ref={stepHeadingRef}
+                                tabIndex={-1}
+                                className="text-2xl font-bold text-zinc-100 outline-none"
+                            >
+                                You're ready.
+                            </h2>
                             <p className="text-sm text-zinc-400">
                                 {BRAND.product} will audit your code and enforce your design system
                                 automatically.

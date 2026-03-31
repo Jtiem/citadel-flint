@@ -1081,7 +1081,13 @@ function App() {
 
             {/* Non-modal overlays (inside the aria-hidden wrapper) */}
             {demoAutoLoaded && (
-                <DemoWalkthrough onDismiss={() => setDemoAutoLoaded(false)} />
+                <DemoWalkthrough
+                    onDismiss={() => setDemoAutoLoaded(false)}
+                    onProjectHandoff={() => {
+                        setDemoAutoLoaded(false)
+                        void handleOpenFolder()
+                    }}
+                />
             )}
             <OnboardingOverlay onDismiss={() => {
                 // Fix #3: Complete first launch when user finishes the onboarding tour.

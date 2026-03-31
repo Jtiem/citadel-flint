@@ -48,7 +48,7 @@
  *   R5-B  — Verify step shows "internal connection" language
  *   R6-A  — writeStatus resets to null when IDE selection changes
  *   R8-A  — No @ts-expect-error comments in component (types are properly defined)
- *   R9-A  — Status box has aria-live="polite"
+ *   R9-A  — Status box has aria-live (assertive — upgraded by FORGE.1f for immediate error announcements)
  *   R10-A — Completed steps show checkmark
  *   R10-B — Current step shows ring indicator
  *
@@ -741,11 +741,11 @@ describe('SetupWizard', () => {
 
     // ── R-9 Fix Tests ─────────────────────────────────────────────────────────
 
-    // R9-A: Status box has aria-live="polite"
-    it('R9-A: the status indicator container in mcp-snippet has aria-live="polite"', async () => {
+    // R9-A: Status box has aria-live — FORGE.1f upgraded polite → assertive for immediate error announcements
+    it('R9-A: the status indicator container in mcp-snippet has aria-live (assertive for errors)', async () => {
         await advanceToMcpStep()
 
-        const liveRegion = document.querySelector('[aria-live="polite"]')
+        const liveRegion = document.querySelector('[aria-live="assertive"]')
         expect(liveRegion).not.toBeNull()
     })
 
@@ -927,5 +927,86 @@ describe('SetupWizard', () => {
             const allText = textNodes.join(' ')
             expect(allText).not.toMatch(/\bMCP\b/)
         }
+    })
+})
+
+// ── FORGE.1f — SetupWizard A11y Fixes ────────────────────────────────────────
+
+describe('SetupWizard — FORGE.1f A11y', () => {
+    it('wizard container has role="dialog"', () => {
+        render(<SetupWizard onComplete={vi.fn()} />)
+        const dialog = screen.getByRole('dialog')
+        expect(dialog).toBeTruthy()
+    })
+
+    it('wizard container has aria-modal="true"', () => {
+        render(<SetupWizard onComplete={vi.fn()} />)
+        const dialog = screen.getByRole('dialog')
+        expect(dialog.getAttribute('aria-modal')).toBe('true')
+    })
+
+    it('wizard container has aria-labelledby pointing to the heading', () => {
+        render(<SetupWizard onComplete={vi.fn()} />)
+        const dialog = screen.getByRole('dialog')
+        const labelledBy = dialog.getAttribute('aria-labelledby')
+        expect(labelledBy).toBe('setup-wizard-heading')
+        const heading = document.getElementById('setup-wizard-heading')
+        expect(heading).not.toBeNull()
+    })
+
+    it('IDE selection buttons have aria-pressed attribute', async () => {
+        ;(window.flintAPI.setup.detectIDEs as Mock).mockResolvedValue(MOCK_IDES_ALL_DETECTED)
+        render(<SetupWizard onComplete={vi.fn()} />)
+        // Advance to ide-detect step
+        fireEvent.click(screen.getByText("Let's go"))
+        await waitFor(() => screen.getByText('Claude Code'))
+        const ideButtons = document.querySelectorAll<HTMLButtonElement>('[aria-pressed]')
+        expect(ideButtons.length).toBeGreaterThan(0)
+    })
+
+    it('first IDE button has aria-pressed="true" when selected', async () => {
+        ;(window.flintAPI.setup.detectIDEs as Mock).mockResolvedValue(MOCK_IDES_ALL_DETECTED)
+        render(<SetupWizard onComplete={vi.fn()} />)
+        fireEvent.click(screen.getByText("Let's go"))
+        await waitFor(() => screen.getByText('Claude Code'))
+        // Click Claude Code to select it
+        const claudeBtn = screen.getByText('Claude Code').closest('button')!
+        fireEvent.click(claudeBtn)
+        expect(claudeBtn.getAttribute('aria-pressed')).toBe('true')
+    })
+
+    it('non-selected IDE button has aria-pressed="false"', async () => {
+        ;(window.flintAPI.setup.detectIDEs as Mock).mockResolvedValue(MOCK_IDES_ALL_DETECTED)
+        render(<SetupWizard onComplete={vi.fn()} />)
+        fireEvent.click(screen.getByText("Let's go"))
+        await waitFor(() => screen.getByText('Cursor'))
+        // Auto-selects first IDE (Claude Code). Cursor should be false.
+        const cursorBtn = screen.getByText('Cursor').closest('button')!
+        expect(cursorBtn.getAttribute('aria-pressed')).toBe('false')
+    })
+
+    it('mcp-snippet status box has aria-live="assertive"', async () => {
+        ;(window.flintAPI.setup.detectIDEs as Mock).mockResolvedValue(MOCK_IDES_ALL_DETECTED)
+        render(<SetupWizard onComplete={vi.fn()} />)
+        fireEvent.click(screen.getByText("Let's go"))
+        await waitFor(() => screen.getByText('Continue'))
+        fireEvent.click(screen.getByText('Continue'))
+        await waitFor(() => screen.getByText('Add to editor'))
+        const liveRegion = document.querySelector('[aria-live="assertive"]')
+        expect(liveRegion).not.toBeNull()
+    })
+
+    it('verify step status box has aria-live="assertive"', async () => {
+        ;(window.flintAPI.setup.detectIDEs as Mock).mockResolvedValue(MOCK_IDES_ALL_DETECTED)
+        render(<SetupWizard onComplete={vi.fn()} />)
+        fireEvent.click(screen.getByText("Let's go"))
+        await waitFor(() => screen.getByText('Continue'))
+        fireEvent.click(screen.getByText('Continue'))
+        await waitFor(() => screen.getByText('Add to editor'))
+        // Skip to verify
+        fireEvent.click(screen.getByText('Skip'))
+        await waitFor(() => screen.getByText('Test Connection'))
+        const liveRegions = document.querySelectorAll('[aria-live="assertive"]')
+        expect(liveRegions.length).toBeGreaterThan(0)
     })
 })

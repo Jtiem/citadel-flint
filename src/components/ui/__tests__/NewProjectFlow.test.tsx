@@ -70,38 +70,24 @@ function defaultLaunchProps() {
 
 // ── #33: LaunchScreen "New Project" button calls onNewProject ─────────────────
 
-describe('#33 — LaunchScreen "From Figma" path', () => {
-    it('navigates to Figma step when "From Figma" tile is clicked', async () => {
+// FORGE.1a: "From Figma" is no longer a primary tile — Figma is a contextual flow.
+// Tests updated to reflect the 3-path LaunchScreen design.
+describe('#33 — LaunchScreen "From Figma" path (FORGE.1a: demoted from primary tile)', () => {
+    it('does NOT render "From Figma" as a primary tile (it is a contextual flow now)', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        ;(window.flintAPI.figma?.status as ReturnType<typeof vi.fn>)?.mockResolvedValue({
-            running: true, lastWebhookAt: null, tokenCount: 0, port: 4545,
-        })
-
         const props = defaultLaunchProps()
         render(<LaunchScreen {...props} />)
-
         await waitFor(() => {
-            expect(screen.getByText('From Figma')).toBeDefined()
+            expect(screen.getByText('Try Flint')).toBeDefined()
         })
-
-        fireEvent.click(screen.getByText('From Figma'))
-
-        await waitFor(() => {
-            expect(screen.getByText('Connect your Figma file')).toBeDefined()
-        })
+        expect(screen.queryByText('From Figma')).toBeNull()
     })
 
-    it('does NOT call onOpenFolder or onLoadDemo when Figma path starts', async () => {
+    it('does NOT call onOpenFolder or onLoadDemo when screen first loads', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        ;(window.flintAPI.figma?.status as ReturnType<typeof vi.fn>)?.mockResolvedValue({
-            running: true, lastWebhookAt: null, tokenCount: 0, port: 4545,
-        })
         const props = defaultLaunchProps()
         render(<LaunchScreen {...props} />)
-
-        await waitFor(() => screen.getByText('From Figma'))
-        fireEvent.click(screen.getByText('From Figma'))
-
+        await waitFor(() => screen.getByText('Try Flint'))
         expect(props.onOpenFolder).not.toHaveBeenCalled()
         expect(props.onLoadDemo).not.toHaveBeenCalled()
     })
@@ -196,27 +182,27 @@ describe('#40 — First-run nudge: renders when conditions are met', () => {
         expect(localStorage.getItem('flint-onboarding-nudge-dismissed')).toBeNull()
     })
 
-    it('renders "From Figma" as the primary Figma-related tile on first visit', async () => {
+    // FORGE.1a: LaunchScreen now has 3 paths, not the old 4-tile grid.
+    it('renders "Try Flint" as the primary demo-entry CTA on first visit', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
 
         render(<LaunchScreen {...defaultLaunchProps()} />)
 
         await waitFor(() => {
-            expect(screen.getByText('From Figma')).toBeDefined()
+            expect(screen.getByText('Try Flint')).toBeDefined()
         })
     })
 
-    it('renders all four compact tiles when workspaceFiles is null (no project loaded)', async () => {
+    it('renders the 3 primary paths when workspaceFiles is null (no project loaded)', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
 
         const props = defaultLaunchProps()
         render(<LaunchScreen {...props} />)
 
         await waitFor(() => {
-            expect(screen.getByText('From Figma')).toBeDefined()
-            expect(screen.getByText('Connect codebase')).toBeDefined()
-            expect(screen.getByText('Audit a folder')).toBeDefined()
-            expect(screen.getByText('Governance dashboard')).toBeDefined()
+            expect(screen.getByText('Try Flint')).toBeDefined()
+            expect(screen.getByText('Open My Project')).toBeDefined()
+            expect(screen.getByText('Audit a Folder')).toBeDefined()
         })
     })
 })
