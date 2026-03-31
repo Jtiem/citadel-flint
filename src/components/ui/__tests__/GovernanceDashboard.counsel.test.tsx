@@ -468,3 +468,16 @@ describe('GovernanceDashboard — COUNSEL', () => {
         expect(scoreBtn.getAttribute('aria-expanded')).toBeDefined()
     })
 })
+
+// ---------------------------------------------------------------------------
+// COUNSEL.2.1 — GovernanceDashboard post-defer visual state (it.todo scaffolds)
+// Full assertions added in Group D after flint-design-engineer completes Group C.
+// ---------------------------------------------------------------------------
+
+describe('GovernanceDashboard — COUNSEL.2.1 post-defer visual state', () => {
+    it.todo('defer button visible on each violation row')
+    it.todo('defer form opens with all 5 duration options')
+    it.todo('submit calls governance.deferViolation with duration and note')
+    it.todo('violation shows Deferred badge after successful defer')
+    it.todo('cancel closes form without calling deferViolation')
+})
