@@ -48,8 +48,8 @@ export interface DeferViolationPayload {
   nodeId?: string
   /** User-provided reason for deferring (optional) */
   reason?: string
-  /** How long to defer before resurfacing */
-  duration: DeferDuration
+  /** How long to defer before resurfacing (optional for backward compat; omitted = NULL in DB) */
+  duration?: DeferDuration
 }
 
 /**
@@ -81,13 +81,14 @@ export interface DeferredViolationRow {
  *
  * Used by the main process IPC handler to compute expires_at.
  */
-export function durationToMs(duration: DeferDuration): number | null {
+export function durationToMs(duration: DeferDuration | undefined): number | null {
   switch (duration) {
     case '1 day':    return 1 * 24 * 60 * 60 * 1000
     case '3 days':   return 3 * 24 * 60 * 60 * 1000
     case '1 week':   return 7 * 24 * 60 * 60 * 1000
     case '1 sprint': return 14 * 24 * 60 * 60 * 1000
     case 'Manually': return null
+    case undefined:  return null
   }
 }
 
@@ -95,7 +96,7 @@ export function durationToMs(duration: DeferDuration): number | null {
  * Computes the ISO 8601 expires_at string from a DeferDuration.
  * Returns null for 'Manually'.
  */
-export function computeExpiresAt(duration: DeferDuration): string | null {
+export function computeExpiresAt(duration: DeferDuration | undefined): string | null {
   const ms = durationToMs(duration)
   if (ms === null) return null
   return new Date(Date.now() + ms).toISOString()
@@ -112,6 +113,35 @@ export function computeExpiresAt(duration: DeferDuration): string | null {
  */
 export interface GovernanceDeferAPI {
   deferViolation: (payload: DeferViolationPayload) => Promise<void>
+}
+
+/**
+ * Exact final signature for GovernanceAPI.deferViolation in src/types/flint-api.d.ts.
+ * All three agents (IPC, design, test) must build to this call site.
+ *
+ * Replaces the current:
+ *   deferViolation?: (opts: { ruleId: string; filePath: string; reason: string; duration: string }) => Promise<void>
+ *
+ * With (non-optional, aligned with DeferViolationPayload):
+ *   deferViolation: (opts: {
+ *     ruleId: string;
+ *     filePath: string;
+ *     nodeId?: string;
+ *     reason?: string;
+ *     duration?: DeferDuration;
+ *   }) => Promise<void>
+ *
+ * The preload return type for getDeferredViolations must also be updated
+ * to include duration and expires_at columns, matching DeferredViolationRow.
+ */
+export interface GovernanceAPIDeferSignature {
+  deferViolation: (opts: {
+    ruleId: string
+    filePath: string
+    nodeId?: string
+    reason?: string
+    duration?: DeferDuration
+  }) => Promise<void>
 }
 
 // ── ExportModal Defer State Contract ────────────────────────────────────────
@@ -139,7 +169,7 @@ export const CONTRACT: FlintContract = {
   meta: {
     name: 'COUNSEL-2-1-DeferButton',
     phase: 'COUNSEL.2.1',
-    status: 'DRAFT',
+    status: 'APPROVED',
     owner: 'flint-architect',
     date: '2026-03-31',
   },
@@ -182,6 +212,12 @@ export const CONTRACT: FlintContract = {
       summary: 'Mirror schema + handler changes for web build parity',
     },
     {
+      file: 'shared/deferralUtils.ts',
+      changeType: 'CREATE',
+      owner: 'flint-electron-ipc',
+      summary: 'Exports DeferDuration type, durationToMs, and computeExpiresAt. Shared by electron/main.ts and server/index.ts.',
+    },
+    {
       file: 'src/components/ui/__tests__/ExportModal.defer.test.tsx',
       changeType: 'CREATE',
       owner: 'flint-test-writer',
@@ -198,6 +234,12 @@ export const CONTRACT: FlintContract = {
       changeType: 'CREATE',
       owner: 'flint-test-writer',
       summary: 'IPC handler accepts duration, computes expires_at, round-trip query returns new columns',
+    },
+    {
+      file: 'shared/__tests__/deferralUtils.test.ts',
+      changeType: 'CREATE',
+      owner: 'flint-test-writer',
+      summary: 'Unit tests for durationToMs and computeExpiresAt (all 5 duration values + undefined)',
     },
   ],
 
@@ -237,7 +279,7 @@ export const CONTRACT: FlintContract = {
     },
   ],
 
-  commandments: [4, 5, 6, 12],
+  commandments: [4, 5, 6, 12, 14],
 
   testBoundaries: [
     {
@@ -274,18 +316,18 @@ export const CONTRACT: FlintContract = {
       ],
     },
     {
-      target: 'durationToMs',
+      target: 'durationToMs (shared/deferralUtils.ts)',
       kind: 'service',
       behavior: 'Maps DeferDuration enum values to correct millisecond offsets',
       assertion: 'Returns correct ms for each duration; null for Manually',
-      edgeCases: ['All 5 duration values are covered'],
+      edgeCases: ['All 5 duration values are covered', 'undefined input returns null (backward compat)'],
     },
     {
-      target: 'computeExpiresAt',
+      target: 'computeExpiresAt (shared/deferralUtils.ts)',
       kind: 'service',
       behavior: 'Produces ISO 8601 datetime string from DeferDuration',
       assertion: 'String parses to a Date in the future; null for Manually',
-      edgeCases: ['Resulting date is within 1 second of expected offset'],
+      edgeCases: ['Resulting date is within 1 second of expected offset', 'undefined input returns null'],
     },
   ],
 
@@ -315,8 +357,9 @@ export const CONTRACT: FlintContract = {
 
   parallelismGroups: {
     A: ['flint-electron-ipc'],
-    B: ['flint-test-writer'],
-    C: ['flint-design-engineer'],
+    B: ['flint-test-writer'],       // it.todo() scaffolds only, parallel with A
+    C: ['flint-design-engineer'],   // after A
+    D: ['flint-test-writer'],       // full assertions, after A and C
   },
 
   nonGoals: [

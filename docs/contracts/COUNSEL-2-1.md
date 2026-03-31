@@ -1,7 +1,7 @@
 # COUNSEL.2.1 -- Defer Button in Glass
 
 **Phase:** COUNSEL.2.1
-**Status:** DRAFT
+**Status:** APPROVED
 **Owner:** flint-architect
 **Date:** 2026-03-31
 
@@ -11,7 +11,7 @@
 
 COUNSEL.2.1 is partially implemented. The GovernanceDashboard already has:
 - Defer button on every Mithril and a11y violation row
-- Inline form with reason textarea + duration radio (1 day / 1 week / 1 sprint / Manually)
+- Inline form with reason textarea + duration radio (1 day / 3 days / 1 week / 1 sprint / Manually)
 - `submitDefer()` callback that calls `window.flintAPI.governance.deferViolation` or falls back to `window.flintAPI.deferViolation`
 - Success confirmation with auto-dismiss after 4 seconds
 
@@ -48,6 +48,7 @@ This contract addresses all 5 gaps. The implementation order is:
 | `src/components/ui/ExportModal.tsx` | MODIFY | flint-design-engineer | Add defer button + inline form to Mithril and a11y violation rows |
 | `src/components/ui/GovernanceDashboard.tsx` | MODIFY | flint-design-engineer | After successful defer, remove violation from visible list (or dim with badge); fix fallback path to use governance namespace |
 | `server/index.ts` | MODIFY | flint-electron-ipc | Mirror schema + handler changes for web build parity |
+| `shared/deferralUtils.ts` | CREATE | flint-electron-ipc | Exports `DeferDuration`, `durationToMs`, `computeExpiresAt`. Shared by `electron/main.ts` and `server/index.ts`. |
 | `src/components/ui/__tests__/ExportModal.defer.test.tsx` | CREATE | flint-test-writer | Defer button render, form interaction, submit, success state |
 | `src/components/ui/__tests__/GovernanceDashboard.defer.test.tsx` | CREATE | flint-test-writer | Post-defer visual state, duration persistence |
 | `electron/__tests__/defer-ipc.test.ts` | CREATE | flint-test-writer | IPC handler accepts duration, computes expires_at, round-trip |
@@ -75,7 +76,7 @@ interface DeferViolationPayload {
   ruleId: string
   nodeId?: string
   reason?: string
-  duration: DeferDuration
+  duration?: DeferDuration
 }
 ```
 
@@ -108,6 +109,26 @@ No new channels. Existing channel `governance:defer-violation` is modified:
 | `governance:get-deferred-violations` | renderer -> main | (none) | (none) | `DeferredViolationRow[]` |
 
 The `governance.deferViolation` method in the preload's `governance` namespace must be wired to invoke `governance:defer-violation` with the full 5-param signature. The existing top-level `window.flintAPI.deferViolation` is deprecated but kept for backward compatibility.
+
+### GovernanceAPI.deferViolation (final signature for `flint-api.d.ts`)
+
+This is the exact signature that replaces the current optional `deferViolation?` in the `GovernanceAPI` interface at `src/types/flint-api.d.ts`. All three agents (IPC, design, test) must build to this call site.
+
+```typescript
+/**
+ * COUNSEL.2.1: Defer a violation for later resolution.
+ * Non-optional -- always available when governance namespace is present.
+ */
+deferViolation: (opts: {
+    ruleId: string
+    filePath: string
+    nodeId?: string
+    reason?: string
+    duration?: DeferDuration
+}) => Promise<void>
+```
+
+The preload return type for `getDeferredViolations` must also be updated to include `duration` and `expires_at` columns, matching `DeferredViolationRow`.
 
 ---
 
@@ -157,28 +178,37 @@ Changes:
 | 6 | The Gatekeeper Rule | Yes | Deferred violations still block export. Defer is an acknowledgment, not an override. The ExportModal defer is informational ("I know about this, will fix later") but does NOT unblock the gate. |
 | 9 | Process Boundary | Yes | No `fs` in renderer. All persistence via IPC to main process. |
 | 12 | Atomic Queuing | Partial | Defer writes go through SQLite prepared statements (atomic), not FileTransactionManager (which is for .tsx file writes). This is correct -- deferrals are metadata, not source code. |
+| 14 | Bypass Prohibition | Yes | No raw `fs` or `git` calls. SQLite writes go through `db.prepare().run()` in the main process, which is the correct channel for metadata persistence. FileTransactionManager is not required here because deferrals are DB metadata, not source file mutations. |
 
 ---
 
 ## Implementation Order
 
 **Group A (parallel -- flint-electron-ipc):**
-1. Schema migration: add `duration TEXT`, `expires_at TEXT` columns to `deferred_violations` in `electron/main.ts`
-2. Update upsert prepared statement to accept and store duration + computed expires_at
-3. Update `governance:defer-violation` handler to accept 5th param
-4. Wire `governance.deferViolation` in preload's governance namespace
-5. Update `flint-api.d.ts` to make `governance.deferViolation` non-optional
-6. Mirror all changes in `server/index.ts`
+1. Create `shared/deferralUtils.ts` with `DeferDuration`, `durationToMs`, `computeExpiresAt`
+2. Schema migration: add `duration TEXT`, `expires_at TEXT` columns to `deferred_violations` in `electron/main.ts`
+3. Update upsert prepared statement to accept and store duration + computed expires_at (import from `shared/deferralUtils.ts`)
+4. Update `governance:defer-violation` handler to accept 5th param
+5. Wire `governance.deferViolation` in preload's governance namespace
+6. Update `flint-api.d.ts` -- final `GovernanceAPI.deferViolation` signature (see Type Contracts below)
+7. Mirror all changes in `server/index.ts`
 
-**Group B (parallel with A -- flint-test-writer):**
-1. Write `electron/__tests__/defer-ipc.test.ts` -- IPC round-trip with duration
-2. Write `src/components/ui/__tests__/ExportModal.defer.test.tsx` -- button render, form, submit
-3. Write `src/components/ui/__tests__/GovernanceDashboard.defer.test.tsx` -- post-defer badge
+**Group B (parallel with A -- flint-test-writer, `it.todo()` scaffolds only):**
+1. Write `electron/__tests__/defer-ipc.test.ts` -- `it.todo()` stubs for IPC round-trip with duration
+2. Write `src/components/ui/__tests__/ExportModal.defer.test.tsx` -- `it.todo()` stubs for button render, form, submit
+3. Write `src/components/ui/__tests__/GovernanceDashboard.defer.test.tsx` -- `it.todo()` stubs for post-defer badge
+4. Write `shared/__tests__/deferralUtils.test.ts` -- `it.todo()` stubs for durationToMs and computeExpiresAt
 
 **Group C (after A completes -- flint-design-engineer):**
 1. Add defer UI to ExportModal (button + inline form + success state)
 2. Update GovernanceDashboard post-defer visual state (badge + dim)
 3. Fix GovernanceDashboard `submitDefer` to prefer `governance.deferViolation`
+
+**Group D (after A and C complete -- flint-test-writer, full assertions):**
+1. Fill `electron/__tests__/defer-ipc.test.ts` -- real assertions for IPC round-trip with duration
+2. Fill `src/components/ui/__tests__/ExportModal.defer.test.tsx` -- real assertions for button render, form, submit
+3. Fill `src/components/ui/__tests__/GovernanceDashboard.defer.test.tsx` -- real assertions for post-defer badge
+4. Fill `shared/__tests__/deferralUtils.test.ts` -- real assertions for durationToMs and computeExpiresAt
 
 ---
 
