@@ -6,6 +6,25 @@
 
 ---
 
+## Session: 2026-03-30 — Counsel Wave 1 Credibility Fixes (COMPLETE)
+
+**Goal:** Fix the three active defects that would undermine trust with real beta users, plus wire the a11y pass on Flint's own governance UI.
+
+**What shipped:**
+1. **COUNSEL.1.3** — Health score formula unified. Removed local `computeHealthScore` from GovernanceDashboard.tsx; wired `useGovernanceHealth` hook. Glass and MCP now agree on health grades. 9 new tests in GovernanceDashboard.counsel.test.tsx.
+2. **governance:previewFix IPC** — wired end-to-end: `electron/main.ts` handler (flint_fix dry_run:true), `electron/preload.ts` bridge, `server/index.ts` web-parity handler. Both handlers include home-directory path boundary guard (security fix from review). GovernanceDashboard null guard on diff data store added (bug fix from review).
+3. **MuiDashboard.tsx deleted** — orphaned @mui prototype with no consumers.
+4. **COUNSEL.1.7** — A11y already compliant from Sprint 5; no changes needed.
+
+**Test baseline locked:**
+- Glass: 1593/1593 | Core: 1248/1248 | MCP: 3612/3612 | CI: 56/56 | TSC: 0 errors
+
+**Commit:** `a08ed86` — fix(counsel): unified health formula, previewFix IPC, delete MuiDashboard orphan
+
+**What remains:** Counsel Wave 2 / Sprint Clarity 2 implementation (contracts approved, Phase 2 pending).
+
+---
+
 ## Session: 2026-03-29 — Sprint Clarity 2 Contract (Phase 1)
 
 **Goal:** Write Contract Artifact + Executable Contract for Sprint Clarity 2 (5 coaching/surfacing items).
