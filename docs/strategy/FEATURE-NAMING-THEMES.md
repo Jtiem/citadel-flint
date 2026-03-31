@@ -49,6 +49,8 @@
 
 | Name | Feature | One-liner |
 |------|---------|-----------|
+| **Anvil** | CLI experience | The developer's workbench — where governance is shaped, fixed, and inspected |
+| **Chronicle** | Narrated governance history | The annotated story — why rules were overridden, distributed via git |
 | **Beacon** | Context sync | Signal fires between towers — Glass writes state every 200ms |
 | **Rewind** | Undo/recovery | Reverses a judgment — Git Time Machine + AST inversions |
 | **Alliance** | OAuth flow | The treaty between kingdoms — one-click Figma connection |

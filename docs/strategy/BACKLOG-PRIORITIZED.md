@@ -993,7 +993,9 @@ AGV.1 and AGV.2 are detailed in Sprint 3 above. AGV.3 and AGV.4 are detailed in 
 | Sprint 5 | 8–12 | EXP.3, EXP.4, POL.1, IDE.1, ONBOARD.1 | Market Expansion | Yes — migration, multi-brand, first-run wizard |
 | Sprint 6 | 12–18 | EXP.6a-ext, DBOM.1, V.3, V.4, GOV.4, EXP.5, AGV.3 | Platform Moat | Yes — compliance, domain abstraction |
 | Sprint 7 | 18–26 | SYNC.1–4, EXP.7, AGV.4 | Enterprise Sync | Yes — bidirectional Figma sync |
-| Sprint 8 | 26+ | BETA.1, EXP.8, EXP.9, GPX.3, AUTO.1 | Next Wave | Yes — distribution, WCAG 2.2, marketplace |
+| Sprint 8 | 26+ | BETA.1, EXP.8, EXP.9, GPX.3, AUTO.1, CHRON.1 | Next Wave | Yes — distribution, WCAG 2.2, marketplace, Chronicle |
+| Sprint 9 | 30+ | CHRON.2, ANVIL.1, ANVIL.2 | Developer Experience | Yes — beautiful CLI, interactive fix, local diff |
+| Sprint 10 | 34+ | ANVIL.3, ANVIL.4 | CLI Completion | Yes — watch mode, missing commands, polish |
 
 **Parallelization opportunities within each sprint:**
 - Sprint 1: SEC.4 + CX.1 + ING.3 are independent, can run simultaneously
@@ -1121,6 +1123,40 @@ Full plan: `docs/strategy/GOVERNANCE-IMPLEMENTATION-PLAN.md`
 
 ---
 
+## Anvil Track — Brilliant CLI Experience (ANVIL.1–4)
+
+> Full spec: `docs/strategy/FEATURE-SPEC-ANVIL.md`
+> Citadel name: **Anvil** — the developer's workbench where governance is shaped, fixed, and inspected
+
+**Problem:** The Flint CLI works but doesn't impress. The binary is named `flint-gate` (not `flint`), output is flat text with no inline source or fix previews, there's no interactive fix mode, no local diff, no watch mode, and several MCP tools have no CLI surface. The GitHub Action duplicates the health score formula.
+
+**Solution:** Four sprints of developer experience upgrades: beautiful output with inline source snippets, interactive step-through fix, local diff mode, watch mode, missing command wrappers, shell completions, and CI-optimized output.
+
+| ID | Name | Priority | Effort | Sprint | Dependencies | Status |
+|----|------|----------|--------|--------|-------------|--------|
+| ANVIL.1 | Identity + Beautiful Output (rename to `flint`, rich terminal) | P1 | M | Sprint 9 | None | PROPOSED |
+| ANVIL.2 | Interactive Fix + Local Diff (`flint fix -i`, `flint diff`) | P1 | L | Sprint 9 | ANVIL.1 | PROPOSED |
+| ANVIL.3 | Watch Mode + Missing Commands (`flint watch`, migrate, pack, rules) | P2 | L | Sprint 10 | ANVIL.1 | PROPOSED |
+| ANVIL.4 | Polish (shell completions, CI detection, smart errors, npx) | P2 | M | Sprint 10 | ANVIL.1 | PROPOSED |
+
+---
+
+## Chronicle Track — Narrated Governance History (CHRON.1–2)
+
+> Full spec: `docs/strategy/FEATURE-SPEC-CHRONICLE.md`
+> Citadel name: **Chronicle** — the annotated story of governance decisions, distributed via git
+
+**Problem:** Ledger records *that* overrides happen. Stamp records *who*. But neither records *why*. In a compliance review, "why" is the question that matters. And the entire governance history is local-only — multi-developer teams have no shared audit trail.
+
+**Solution:** Risk-tiered reason annotations (Green: auto, Amber: optional, Red/Override: required) + a git-tracked `.flint/chronicle.jsonl` that travels with the repo.
+
+| ID | Name | Priority | Effort | Sprint | Dependencies | Status |
+|----|------|----------|--------|--------|-------------|--------|
+| CHRON.1 | Reason-on-Override (risk-tiered annotation) | P1 | M | Sprint 8 | COUNSEL.1 | PROPOSED |
+| CHRON.2 | Git-Backed Governance Ledger (Chronicle) | P2 | L | Sprint 9 | CHRON.1, BETA.1 | PROPOSED |
+
+---
+
 ## Do NOT Build
 
 These items might seem appealing but are outside Flint's scope, duplicate existing tools, or violate the architectural identity.
@@ -1172,13 +1208,15 @@ These items require more information, user feedback, or a business decision befo
 | Priority | Count | Status breakdown |
 |----------|:-----:|-----------------|
 | P0 | 1 | BETA.1 (Sprint 8) |
-| P1 | 2 | EXP.8, GPX.3 (Sprint 8) |
-| P2 | 2 | EXP.9, AUTO.1 (Sprint 8) |
+| P1 | 5 | EXP.8, GPX.3, CHRON.1 (Sprint 8), ANVIL.1, ANVIL.2 (Sprint 9) |
+| P2 | 5 | EXP.9, AUTO.1 (Sprint 8), CHRON.2 (Sprint 9), ANVIL.3, ANVIL.4 (Sprint 10) |
 | P3 | 0 | — |
-| **Total active** | **5** | All in Sprint 8 — Sprints 1–7 fully ONLINE |
+| **Total active** | **11** | Sprint 8 (6) + Sprint 9 (3) + Sprint 10 (2) — Sprints 1–7 fully ONLINE |
 
 **Sprints 1–7 status:** All 34 items originally tracked across Sprints 1–7 are ONLINE. The backlog above preserves their full specs for reference and dependency tracing.
 
-**Sprint 8 items:** 5 new items added 2026-03-27. None are blocked — all dependencies are ONLINE.
+**Sprint 8 items:** 6 items (5 original + CHRON.1 added 2026-03-31). None are blocked — all dependencies are ONLINE.
+**Sprint 9 items:** 3 items (CHRON.2, ANVIL.1, ANVIL.2). CHRON.2 depends on CHRON.1 + BETA.1. ANVIL.1-2 have no blockers.
+**Sprint 10 items:** 2 items (ANVIL.3, ANVIL.4). Depend on ANVIL.1.
 
 **Test baseline at time of update:** MCP: 3,612/3,612 | Glass: 1,322/1,322 | Core: 1,146/1,146 | CI: 56/56 — TSC 0 errors
