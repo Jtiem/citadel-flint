@@ -263,6 +263,50 @@ db.exec(`
 `)
 console.log(`${BRAND.logPrefix} violation_baselines table ready`)
 
+// ── Deferred Violations table (COUNSEL.2.1) ───────────────────────────────────
+//
+// Stores violations the user explicitly deferred for later resolution.
+// Three handlers in main.ts cover the lifecycle: defer (upsert), get-all, resolve.
+//
+// The MCP tool flint_defer_violation also writes to .flint/deferred-violations.json
+// so the headless MCP server can read deferrals without SQLite access.
+//
+// UNIQUE(file_path, rule_id, node_id) ensures idempotent upserts:
+// deferring the same violation twice just refreshes the timestamp, reason, and duration.
+db.exec(`
+    CREATE TABLE IF NOT EXISTS deferred_violations (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        file_path   TEXT    NOT NULL,
+        rule_id     TEXT    NOT NULL,
+        node_id     TEXT,
+        reason      TEXT,
+        duration    TEXT,
+        session_id  TEXT,
+        deferred_at TEXT    NOT NULL DEFAULT (datetime('now')),
+        expires_at  TEXT,
+        resolved_at TEXT,
+        UNIQUE(file_path, rule_id, node_id)
+    )
+`)
+
+// Migration: add duration and expires_at columns to existing databases.
+// ALTER TABLE ADD COLUMN is safe for SQLite — new columns default to NULL.
+const deferredCols = db
+    .prepare('PRAGMA table_info(deferred_violations)')
+    .all() as Array<{ name: string }>
+const deferredColNames = new Set(deferredCols.map((c) => c.name))
+
+if (!deferredColNames.has('duration')) {
+    db.exec('ALTER TABLE deferred_violations ADD COLUMN duration TEXT')
+    console.log(`${BRAND.logPrefix} deferred_violations: migrated — added duration column`)
+}
+if (!deferredColNames.has('expires_at')) {
+    db.exec('ALTER TABLE deferred_violations ADD COLUMN expires_at TEXT')
+    console.log(`${BRAND.logPrefix} deferred_violations: migrated — added expires_at column`)
+}
+
+console.log(`${BRAND.logPrefix} deferred_violations table ready`)
+
 console.log(`${BRAND.logPrefix} Database ready at: ${DB_PATH}`)
 
 // ── PowerSync Integration ──────────────────────────────────────────────────────

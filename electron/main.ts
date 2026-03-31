@@ -2,6 +2,8 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, net, safeStorage, session } 
 import type { MenuItemConstructorOptions } from 'electron'
 import path from 'node:path'
 import { BRAND, ipcChannel, logTag } from '../shared/brand.ts'
+import { computeExpiresAt } from '../shared/deferralUtils.ts'
+import type { DeferDuration } from '../shared/deferralUtils.ts'
 import { fileURLToPath } from 'node:url'
 import { readdir, readFile, writeFile, mkdir, stat as fsStat, open as fsOpen, cp } from 'node:fs/promises'
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
@@ -2640,19 +2642,21 @@ app.whenReady().then(async () => {
     // The MCP tool flint_defer_violation also writes to .flint/deferred-violations.json
     // so the headless MCP server can read deferrals without SQLite access.
 
-    const deferViolationUpsert = db.prepare<[string, string, string | null, string | null, string]>(`
-        INSERT INTO deferred_violations (file_path, rule_id, node_id, reason, session_id)
-        VALUES (?, ?, ?, ?, ?)
+    const deferViolationUpsert = db.prepare<[string, string, string | null, string | null, string | null, string | null, string]>(`
+        INSERT INTO deferred_violations (file_path, rule_id, node_id, reason, duration, expires_at, session_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(file_path, rule_id, node_id)
         DO UPDATE SET
             reason      = excluded.reason,
+            duration    = excluded.duration,
+            expires_at  = excluded.expires_at,
             session_id  = excluded.session_id,
             deferred_at = datetime('now'),
             resolved_at = NULL
     `)
 
     const deferViolationSelectUnresolved = db.prepare(
-        `SELECT id, file_path, rule_id, node_id, reason, session_id, deferred_at
+        `SELECT id, file_path, rule_id, node_id, reason, duration, session_id, deferred_at, expires_at, resolved_at
          FROM deferred_violations
          WHERE resolved_at IS NULL
          ORDER BY deferred_at DESC`
@@ -2670,13 +2674,17 @@ app.whenReady().then(async () => {
         ruleId: unknown,
         nodeId?: unknown,
         reason?: unknown,
+        duration?: unknown,
     ): void => {
         if (typeof filePath !== 'string' || typeof ruleId !== 'string') {
             throw new TypeError('governance:defer-violation — filePath and ruleId must be strings')
         }
         const nId = typeof nodeId === 'string' ? nodeId : null
         const r = typeof reason === 'string' ? reason : null
-        deferViolationUpsert.run(filePath, ruleId, nId, r, governanceSessionId)
+        const VALID_DURATIONS = new Set(['1 day', '3 days', '1 week', '1 sprint', 'Manually'])
+        const dur = (typeof duration === 'string' && VALID_DURATIONS.has(duration)) ? duration as DeferDuration : undefined
+        const expiresAt = computeExpiresAt(dur)
+        deferViolationUpsert.run(filePath, ruleId, nId, r, dur ?? null, expiresAt, governanceSessionId)
     })
 
     ipcMain.handle('governance:get-deferred-violations', (): unknown[] => {

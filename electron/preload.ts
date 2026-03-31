@@ -843,6 +843,36 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
             isColor: boolean
         } | null> =>
             ipcRenderer.invoke('governance:preview-fix', ruleId, filePath),
+
+        /**
+         * COUNSEL.2.1: Defer a violation for later resolution.
+         * Canonical location — callers should prefer governance.deferViolation.
+         */
+        deferViolation: (opts: { filePath: string; ruleId: string; nodeId?: string; reason?: string; duration?: string }): Promise<void> =>
+            ipcRenderer.invoke('governance:defer-violation', opts.filePath, opts.ruleId, opts.nodeId, opts.reason, opts.duration),
+
+        /**
+         * Returns all unresolved deferred violations (resolved_at IS NULL).
+         */
+        getDeferredViolations: (): Promise<Array<{
+            id: number
+            file_path: string
+            rule_id: string
+            node_id: string | null
+            reason: string | null
+            duration: string | null
+            expires_at: string | null
+            session_id: string
+            deferred_at: string
+        }>> =>
+            ipcRenderer.invoke('governance:get-deferred-violations'),
+
+        /**
+         * Resolves a previously deferred violation by setting its resolved_at
+         * timestamp. Called when the violation is fixed or dismissed.
+         */
+        resolveDeferredViolation: (file: string, ruleId: string, nodeId?: string): Promise<void> =>
+            ipcRenderer.invoke('governance:resolve-deferred-violation', file, ruleId, nodeId),
     },
 
     // ── Phase ACX.5: Context Sync Pipeline ────────────────────────────────────
@@ -873,35 +903,30 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
             ipcRenderer.invoke('context:get-enriched'),
     },
 
-    // ── Strategy 7: Deferred Violations ──────────────────────────────────────
+    // ── Strategy 7: Deferred Violations (backward-compat shims) ───────────────
+    // Canonical location: governance.deferViolation / governance.getDeferredViolations / governance.resolveDeferredViolation.
+    // These top-level aliases delegate to the governance namespace and exist only
+    // for backward compatibility with callers that have not migrated yet.
 
-    /**
-     * Defers a governance violation so the user can return to it in a later
-     * session. Upserts by (file, ruleId, nodeId) — deferring the same
-     * violation twice just refreshes the timestamp and reason.
-     */
-    deferViolation: (file: string, ruleId: string, nodeId?: string, reason?: string): Promise<void> =>
-        ipcRenderer.invoke('governance:defer-violation', file, ruleId, nodeId, reason),
+    /** @deprecated Use governance.deferViolation instead. */
+    deferViolation: (file: string, ruleId: string, nodeId?: string, reason?: string, duration?: string): Promise<void> =>
+        ipcRenderer.invoke('governance:defer-violation', file, ruleId, nodeId, reason, duration),
 
-    /**
-     * Returns all unresolved deferred violations (resolved_at IS NULL).
-     * Used by GovernanceOverlay to show "Deferred" badges.
-     */
+    /** @deprecated Use governance.getDeferredViolations instead. */
     getDeferredViolations: (): Promise<Array<{
         id: number
         file_path: string
         rule_id: string
         node_id: string | null
         reason: string | null
+        duration: string | null
+        expires_at: string | null
         session_id: string
         deferred_at: string
     }>> =>
         ipcRenderer.invoke('governance:get-deferred-violations'),
 
-    /**
-     * Resolves a previously deferred violation by setting its resolved_at
-     * timestamp. Called when the violation is fixed or dismissed.
-     */
+    /** @deprecated Use governance.resolveDeferredViolation instead. */
     resolveDeferredViolation: (file: string, ruleId: string, nodeId?: string): Promise<void> =>
         ipcRenderer.invoke('governance:resolve-deferred-violation', file, ruleId, nodeId),
 

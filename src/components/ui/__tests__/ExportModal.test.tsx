@@ -310,3 +310,17 @@ describe('ExportModal', () => {
         })
     })
 })
+
+// ---------------------------------------------------------------------------
+// COUNSEL.2.1 — ExportModal defer UI (it.todo scaffolds)
+// Full assertions added in Group D after flint-design-engineer completes Group C.
+// ---------------------------------------------------------------------------
+
+describe('ExportModal — COUNSEL.2.1 defer UI', () => {
+    it.todo('renders Defer button on each blocked violation row')
+    it.todo('opens inline duration form on Defer click')
+    it.todo('calls governance.deferViolation with correct payload on submit')
+    it.todo('shows success toast after successful deferral')
+    it.todo('violation row shows Deferred badge after deferral')
+    it.todo('form resets after cancel')
+})

@@ -223,6 +223,8 @@ export interface DeferredViolationRow {
     rule_id: string
     node_id: string | null
     reason: string | null
+    duration: string | null
+    expires_at: string | null
     session_id: string
     deferred_at: string
 }
@@ -1671,11 +1673,14 @@ export interface FlintAPI {
     // ── Strategy 7: Deferred Violations ──────────────────────────────────────
 
     /**
+     * @deprecated Use governance.deferViolation instead — this top-level alias
+     * exists only for backward compatibility and will be removed in a future release.
+     *
      * Defers a governance violation so the user can return to it later.
      * Upserts by (file, ruleId, nodeId) — deferring the same violation twice
      * refreshes the timestamp and reason.
      */
-    deferViolation?: (file: string, ruleId: string, nodeId?: string, reason?: string) => Promise<void>
+    deferViolation?: (file: string, ruleId: string, nodeId?: string, reason?: string, duration?: string) => Promise<void>
 
     /**
      * Returns all unresolved deferred violations (resolved_at IS NULL).
@@ -1998,14 +2003,22 @@ export interface GovernanceAPI {
 
     /**
      * COUNSEL.2.1: Defer a violation for later resolution.
-     * Optional — falls back to window.flintAPI.deferViolation if absent.
+     * Non-optional — always available when governance namespace is present.
      */
-    deferViolation?: (opts: {
+    deferViolation: (opts: {
         ruleId: string
         filePath: string
-        reason: string
-        duration: string
+        nodeId?: string
+        reason?: string
+        duration?: '1 day' | '3 days' | '1 week' | '1 sprint' | 'Manually'
     }) => Promise<void>
+
+    /**
+     * COUNSEL.2.1: Returns all currently active (non-resolved) deferred violations.
+     * Used by ExportModal on mount to pre-populate the Deferred badge state.
+     * Optional — not available in all environments.
+     */
+    getDeferredViolations?: () => Promise<DeferredViolationRow[]>
 
     // ── ERM-2: Enterprise Rule Management ────────────────────────────────────
 

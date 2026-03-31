@@ -26,8 +26,13 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ShieldAlert, ShieldCheck, X, Copy, Check, AlertTriangle, FileDown, Download, Wrench, Loader2 } from 'lucide-react'
 import { useCanvasStore } from '../../store/canvasStore'
 import { useEditorStore } from '../../store/editorStore'
+import { useNotificationStore } from '../../store/notificationStore'
 import { FocusTrap } from './FocusTrap'
 import type { LinterWarning, OverrideRow, ComplianceSummary } from '../../types/flint-api'
+
+// ── COUNSEL.2.1: Defer duration type ─────────────────────────────────────────
+import type { DeferDuration } from '../../../shared/deferralUtils'
+const DEFER_DURATIONS: DeferDuration[] = ['1 day', '3 days', '1 week', '1 sprint', 'Manually']
 
 // ── Props ──────────────────────────────────────────────────────────────────────
 
@@ -57,6 +62,12 @@ export function ExportModal({ onClose }: ExportModalProps) {
     // GOV-FIX-2: per-node fix state — tracks which violation IDs are mid-fix
     const [fixingIds, setFixingIds] = useState<Set<string>>(new Set())
     const [fixError, setFixError] = useState<string | null>(null)
+
+    // COUNSEL.2.1: Defer state — component-local only (no Zustand store)
+    const [deferFormOpen, setDeferFormOpen] = useState<Set<string>>(new Set())
+    const [deferReasons, setDeferReasons] = useState<Map<string, DeferDuration | string>>(new Map())
+    const [deferDurations, setDeferDurations] = useState<Map<string, DeferDuration>>(new Map())
+    const [deferredIds, setDeferredIds] = useState<Set<string>>(new Set())
 
     // OPP-11: Audit progress — tracked across the two async phases (overrides + summary).
     // Total steps = 2 (overrides fetch is step 1, compliance summary is step 2).
@@ -135,6 +146,17 @@ export function ExportModal({ onClose }: ExportModalProps) {
                     setTimeout(() => setLoading(false), 200)
                 }
             })
+
+        // COUNSEL.2.1: Fetch already-deferred violations to pre-populate badge state
+        const getDeferredViolations = window.flintAPI.governance?.getDeferredViolations
+        if (getDeferredViolations) {
+            getDeferredViolations()
+                .then((rows) => {
+                    const ids = new Set(rows.map((r) => `${r.file_path}::${r.rule_id}::${r.node_id ?? ''}`))
+                    setDeferredIds(ids)
+                })
+                .catch(() => { /* best-effort */ })
+        }
 
         return () => clearTimeout(minDisplayTimer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -224,6 +246,41 @@ export function ExportModal({ onClose }: ExportModalProps) {
             })
         }
     }, [activeFilePath, handleSelectNode, applyBatch, refreshOverrides])
+
+    // ── COUNSEL.2.1: Defer a violation from ExportModal ──────────────────────
+    const submitDeferExport = useCallback(async (key: string, filePath: string, ruleId: string, nodeId?: string) => {
+        const reason = (deferReasons.get(key) as string | undefined) ?? ''
+        const duration = deferDurations.get(key) ?? '1 day'
+        try {
+            if (window.flintAPI.governance?.deferViolation) {
+                await window.flintAPI.governance.deferViolation({ filePath, ruleId, nodeId, reason, duration })
+            } else if (window.flintAPI.deferViolation) {
+                await window.flintAPI.deferViolation(filePath, ruleId, nodeId, reason, duration)
+            } else {
+                throw new Error('Defer API not available')
+            }
+            // Success — update local state and show toast
+            const compositeId = `${filePath}::${ruleId}::${nodeId ?? ''}`
+            setDeferredIds((prev) => new Set([...prev, compositeId]))
+            setDeferFormOpen((prev) => { const n = new Set(prev); n.delete(key); return n })
+            useNotificationStore.getState().push({
+                type: 'mutation',
+                title: 'Issue deferred',
+                message: duration === 'Manually' ? 'Will resurface manually.' : `Will resurface in ${duration}.`,
+                severity: 'info',
+                autoDismissMs: 3000,
+            })
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : 'Failed to defer issue'
+            useNotificationStore.getState().push({
+                type: 'violation',
+                title: 'Defer failed',
+                message: msg,
+                severity: 'error',
+                autoDismissMs: 4000,
+            })
+        }
+    }, [deferReasons, deferDurations])
 
     // ── Copy source to clipboard ───────────────────────────────────────────────
     const handleCopy = useCallback(async () => {
@@ -459,24 +516,100 @@ export function ExportModal({ onClose }: ExportModalProps) {
                                     </h3>
                                     <ul className="space-y-1.5">
                                         {Object.entries(a11yViolations).map(([flintId, messages]) =>
-                                            messages.map((msg) => (
-                                                <li
-                                                    key={`${flintId}::${msg}`}
-                                                    className="rounded border border-red-900/40 bg-red-900/10 px-3 py-2"
-                                                >
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleSelectNode(flintId)}
-                                                        className="font-mono text-[10px] text-red-400 transition-colors hover:text-red-300 hover:underline"
-                                                        title={`Navigate to ${flintId}`}
+                                            messages.map((msg, msgIdx) => {
+                                                const ruleMatch = msg.match(/^(A11Y-\d{3})/)
+                                                const ruleId = ruleMatch?.[1] ?? 'A11Y'
+                                                const rowKey = `a11y::${flintId}::${ruleId}::${msgIdx}`
+                                                const compositeId = `${activeFilePath ?? ''}::${ruleId}::${flintId}`
+                                                const isAlreadyDeferred = deferredIds.has(compositeId)
+                                                const isDeferOpen = deferFormOpen.has(rowKey)
+                                                return (
+                                                    <li
+                                                        key={`${flintId}::${msg}`}
+                                                        className={`rounded border border-red-900/40 bg-red-900/10 px-3 py-2${isAlreadyDeferred ? ' opacity-50' : ''}`}
                                                     >
-                                                        {flintId}
-                                                    </button>
-                                                    <p className="mt-0.5 text-[10px] text-zinc-400">
-                                                        {msg}
-                                                    </p>
-                                                </li>
-                                            ))
+                                                        <div className="flex items-center gap-2">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleSelectNode(flintId)}
+                                                                className="flex-1 truncate text-left font-mono text-[10px] text-red-400 transition-colors hover:text-red-300 hover:underline"
+                                                                title={`Navigate to ${flintId}`}
+                                                            >
+                                                                {flintId}
+                                                            </button>
+                                                            {isAlreadyDeferred ? (
+                                                                <span className="text-xs text-amber-400 bg-amber-400/10 rounded px-1.5 py-0.5">
+                                                                    Deferred
+                                                                </span>
+                                                            ) : (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setDeferFormOpen((prev) => {
+                                                                        const n = new Set(prev)
+                                                                        if (n.has(rowKey)) { n.delete(rowKey) } else { n.add(rowKey) }
+                                                                        return n
+                                                                    })}
+                                                                    className="text-xs text-zinc-400 hover:text-amber-400 ml-auto"
+                                                                    aria-label={`Defer ${ruleId} issue`}
+                                                                >
+                                                                    Defer
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                        <p className="mt-0.5 text-[10px] text-zinc-400">
+                                                            {msg}
+                                                        </p>
+                                                        {/* COUNSEL.2.1: Inline defer form */}
+                                                        {isDeferOpen && (
+                                                            <div className="mt-2 rounded border border-zinc-700 bg-zinc-950 px-3 py-2.5 space-y-2">
+                                                                <textarea
+                                                                    rows={2}
+                                                                    placeholder="Reason (optional)"
+                                                                    value={(deferReasons.get(rowKey) as string | undefined) ?? ''}
+                                                                    onChange={(e) => setDeferReasons((prev) => new Map([...prev, [rowKey, e.target.value]]))}
+                                                                    className="w-full resize-none rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-[10px] text-zinc-300 placeholder-zinc-600 focus:border-indigo-500/60 focus:outline-none"
+                                                                    aria-label="Defer reason"
+                                                                />
+                                                                <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Defer duration">
+                                                                    {DEFER_DURATIONS.map((d) => (
+                                                                        <label key={d} className="flex items-center gap-1 cursor-pointer">
+                                                                            <input
+                                                                                type="radio"
+                                                                                name={`defer-duration-${rowKey}`}
+                                                                                value={d}
+                                                                                checked={(deferDurations.get(rowKey) ?? '1 day') === d}
+                                                                                onChange={() => setDeferDurations((prev) => new Map([...prev, [rowKey, d]]))}
+                                                                                className="sr-only"
+                                                                            />
+                                                                            <span className={`rounded-full border px-2 py-0.5 text-[9px] font-medium cursor-pointer transition-colors ${(deferDurations.get(rowKey) ?? '1 day') === d ? 'border-indigo-500/50 bg-indigo-900/30 text-indigo-300' : 'border-zinc-700 bg-zinc-800 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'}`}>
+                                                                                {d}
+                                                                            </span>
+                                                                        </label>
+                                                                    ))}
+                                                                </div>
+                                                                <div className="flex items-center gap-2">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => void submitDeferExport(rowKey, activeFilePath ?? '', ruleId, flintId)}
+                                                                        className="rounded border border-zinc-600 bg-zinc-800 px-2.5 py-1 text-[10px] text-zinc-300 hover:bg-zinc-700 transition-colors"
+                                                                        aria-label="Submit defer"
+                                                                    >
+                                                                        Defer issue
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => setDeferFormOpen((prev) => { const n = new Set(prev); n.delete(rowKey); return n })}
+                                                                        className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors"
+                                                                        aria-label="Cancel defer"
+                                                                    >
+                                                                        Cancel
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </li>
+                                                )
+                                            })
                                         )}
                                     </ul>
                                 </div>
@@ -498,13 +631,20 @@ export function ExportModal({ onClose }: ExportModalProps) {
                                     const deltaE = warning?.type === 'color-drift' && warning.value > 0
                                         ? warning.value
                                         : null
+                                    // COUNSEL.2.1: extract ruleId from warning message for composite key
+                                    const ruleIdMatch = warning?.message?.match(/^([A-Z][-A-Z0-9]+)(?::\s|$)/)
+                                    const ruleId = ruleIdMatch?.[1] ?? warning?.type.toUpperCase() ?? 'MITH'
+                                    const rowKey = `mith::${id}::${ruleId}`
+                                    const compositeId = `${activeFilePath ?? ''}::${ruleId}::${id}`
+                                    const isAlreadyDeferred = deferredIds.has(compositeId)
+                                    const isDeferOpen = deferFormOpen.has(rowKey)
                                     return (
                                         <li
                                             key={id}
                                             className={`rounded border px-3 py-2 ${isCritical
                                                 ? 'border-red-700/50 bg-red-900/20'
                                                 : 'border-amber-900/40 bg-amber-900/10'
-                                            }`}
+                                            }${isAlreadyDeferred ? ' opacity-50' : ''}`}
                                         >
                                             <div className="flex items-center gap-2">
                                                 <button
@@ -547,6 +687,25 @@ export function ExportModal({ onClose }: ExportModalProps) {
                                                         Manual
                                                     </span>
                                                 )}
+                                                {/* COUNSEL.2.1: Defer button / Deferred badge */}
+                                                {isAlreadyDeferred ? (
+                                                    <span className="text-xs text-amber-400 bg-amber-400/10 rounded px-1.5 py-0.5">
+                                                        Deferred
+                                                    </span>
+                                                ) : (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setDeferFormOpen((prev) => {
+                                                            const n = new Set(prev)
+                                                            if (n.has(rowKey)) { n.delete(rowKey) } else { n.add(rowKey) }
+                                                            return n
+                                                        })}
+                                                        className="text-xs text-zinc-400 hover:text-amber-400 ml-auto"
+                                                        aria-label={`Defer ${ruleId} issue`}
+                                                    >
+                                                        Defer
+                                                    </button>
+                                                )}
                                             </div>
                                             <p className="mt-0.5 text-[10px] text-zinc-400">
                                                 {warning?.message
@@ -556,6 +715,54 @@ export function ExportModal({ onClose }: ExportModalProps) {
                                                         : 'Design system drift — token not applied'
                                                 }
                                             </p>
+                                            {/* COUNSEL.2.1: Inline defer form */}
+                                            {isDeferOpen && (
+                                                <div className="mt-2 rounded border border-zinc-700 bg-zinc-950 px-3 py-2.5 space-y-2">
+                                                    <textarea
+                                                        rows={2}
+                                                        placeholder="Reason (optional)"
+                                                        value={(deferReasons.get(rowKey) as string | undefined) ?? ''}
+                                                        onChange={(e) => setDeferReasons((prev) => new Map([...prev, [rowKey, e.target.value]]))}
+                                                        className="w-full resize-none rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-[10px] text-zinc-300 placeholder-zinc-600 focus:border-indigo-500/60 focus:outline-none"
+                                                        aria-label="Defer reason"
+                                                    />
+                                                    <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Defer duration">
+                                                        {DEFER_DURATIONS.map((d) => (
+                                                            <label key={d} className="flex items-center gap-1 cursor-pointer">
+                                                                <input
+                                                                    type="radio"
+                                                                    name={`defer-duration-${rowKey}`}
+                                                                    value={d}
+                                                                    checked={(deferDurations.get(rowKey) ?? '1 day') === d}
+                                                                    onChange={() => setDeferDurations((prev) => new Map([...prev, [rowKey, d]]))}
+                                                                    className="sr-only"
+                                                                />
+                                                                <span className={`rounded-full border px-2 py-0.5 text-[9px] font-medium cursor-pointer transition-colors ${(deferDurations.get(rowKey) ?? '1 day') === d ? 'border-indigo-500/50 bg-indigo-900/30 text-indigo-300' : 'border-zinc-700 bg-zinc-800 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'}`}>
+                                                                    {d}
+                                                                </span>
+                                                            </label>
+                                                        ))}
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => void submitDeferExport(rowKey, activeFilePath ?? '', ruleId, id)}
+                                                            className="rounded border border-zinc-600 bg-zinc-800 px-2.5 py-1 text-[10px] text-zinc-300 hover:bg-zinc-700 transition-colors"
+                                                            aria-label="Submit defer"
+                                                        >
+                                                            Defer issue
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setDeferFormOpen((prev) => { const n = new Set(prev); n.delete(rowKey); return n })}
+                                                            className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors"
+                                                            aria-label="Cancel defer"
+                                                        >
+                                                            Cancel
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
                                         </li>
                                     )
                                 }

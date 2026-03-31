@@ -43,6 +43,7 @@ import { useUserPrefs } from '../../hooks/useUserPrefs'
 import { FixPreviewDrawer, type FixableItem } from './FixPreviewDrawer'
 import { applyUndo } from '../../core/recoveryController'
 import { formatHealthSignal } from '../../../shared/healthSignal'
+import type { DeferDuration } from '../../../shared/deferralUtils'
 import { useGovernanceHealth, gradeFromScore } from '../../hooks/useGovernanceHealth'
 
 // ── Grade → token colour maps ─────────────────────────────────────────────────
@@ -850,9 +851,11 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
     // ── COUNSEL.2.1: Defer form state ─────────────────────────────────────────
     const [deferFormOpen, setDeferFormOpen] = useState<Set<string>>(new Set())
     const [deferReasons, setDeferReasons] = useState<Map<string, string>>(new Map())
-    const [deferDurations, setDeferDurations] = useState<Map<string, string>>(new Map())
+    const [deferDurations, setDeferDurations] = useState<Map<string, DeferDuration>>(new Map())
     const [deferSuccess, setDeferSuccess] = useState<Set<string>>(new Set())
     const [deferSuccessMsg, setDeferSuccessMsg] = useState<Map<string, string>>(new Map())
+    // G4: track which violation rows have been successfully deferred this session
+    const [deferredCardKeys, setDeferredCardKeys] = useState<Set<string>>(new Set())
 
     const toggleDeferForm = useCallback((key: string) => {
         setDeferFormOpen((prev) => {
@@ -871,7 +874,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                 await window.flintAPI.governance.deferViolation({ ruleId, filePath: activeFilePath ?? '', reason, duration })
                 deferred = true
             } else if (window.flintAPI.deferViolation) {
-                await window.flintAPI.deferViolation(activeFilePath ?? '', ruleId, nodeId, reason)
+                await window.flintAPI.deferViolation(activeFilePath ?? '', ruleId, nodeId, reason, duration)
                 deferred = true
             }
         } catch { /* best-effort */ }
@@ -889,6 +892,8 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
         setDeferSuccessMsg((prev) => new Map([...prev, [key, msg]]))
         setDeferSuccess((prev) => new Set([...prev, key]))
         setDeferFormOpen((prev) => { const n = new Set(prev); n.delete(key); return n })
+        // G4: mark the row as deferred so the badge persists after the toast dismisses
+        setDeferredCardKeys((prev) => new Set([...prev, key]))
         setTimeout(() => {
             setDeferSuccess((prev) => { const n = new Set(prev); n.delete(key); return n })
         }, 4000)
@@ -1200,8 +1205,9 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                             const diffData = inlineDiffData.get(cardKey)
                             const isDeferOpen = deferFormOpen.has(cardKey)
                             const isDeferSuccess = deferSuccess.has(cardKey)
+                            const isDeferred = deferredCardKeys.has(cardKey)
                             return (
-                                <div key={cardKey} className="border-b border-zinc-800/30 last:border-0">
+                                <div key={cardKey} className={`border-b border-zinc-800/30 last:border-0${isDeferred ? ' opacity-50' : ''}`}>
                                     {/* Summary row — always visible. Expand toggle and action buttons are siblings. */}
                                     <div className="flex w-full items-start hover:bg-zinc-800/30 transition-colors">
                                         <button
@@ -1271,20 +1277,29 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                                     Fix
                                                 </button>
                                             )}
-                                            {/* COUNSEL.2.1: Defer form toggle */}
-                                            <button
-                                                type="button"
-                                                onClick={() => toggleDeferForm(cardKey)}
-                                                className={`rounded border px-2 py-0.5 text-[10px] transition-colors ${
-                                                    isDeferOpen
-                                                        ? 'border-zinc-600 bg-zinc-700 text-zinc-300'
-                                                        : 'border-zinc-700 bg-zinc-800 text-zinc-500 hover:bg-zinc-700 hover:text-zinc-300'
-                                                }`}
-                                                aria-label={isDeferOpen ? 'Cancel defer' : `Defer ${ruleId} issue`}
-                                                aria-expanded={isDeferOpen}
-                                            >
-                                                Defer
-                                            </button>
+                                            {/* COUNSEL.2.1: Defer form toggle / G4: Deferred badge */}
+                                            {isDeferred ? (
+                                                <span
+                                                    data-testid={`deferred-badge-${w.id}`}
+                                                    className="text-xs text-amber-400 bg-amber-400/10 rounded px-1.5 py-0.5"
+                                                >
+                                                    Deferred
+                                                </span>
+                                            ) : (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => toggleDeferForm(cardKey)}
+                                                    className={`rounded border px-2 py-0.5 text-[10px] transition-colors ${
+                                                        isDeferOpen
+                                                            ? 'border-zinc-600 bg-zinc-700 text-zinc-300'
+                                                            : 'border-zinc-700 bg-zinc-800 text-zinc-500 hover:bg-zinc-700 hover:text-zinc-300'
+                                                    }`}
+                                                    aria-label={isDeferOpen ? 'Cancel defer' : `Defer ${ruleId} issue`}
+                                                    aria-expanded={isDeferOpen}
+                                                >
+                                                    Defer
+                                                </button>
+                                            )}
                                             {/* S5.9: Pin — keeps the detail panel open while working */}
                                             <button
                                                 type="button"
@@ -1380,7 +1395,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                                 aria-label="Defer reason"
                                             />
                                             <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Defer duration">
-                                                {['1 day', '1 week', '1 sprint', 'Manually'].map((d) => (
+                                                {(['1 day', '3 days', '1 week', '1 sprint', 'Manually'] as const).map((d) => (
                                                     <label key={d} className="flex items-center gap-1 cursor-pointer">
                                                         <input
                                                             type="radio"
@@ -1490,8 +1505,9 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                             const isAutoFixable = w.nearestToken !== null || ['A11Y-001', 'A11Y-002'].includes(ruleId)
                             const isDeferOpen = deferFormOpen.has(cardKey)
                             const isDeferSuccess = deferSuccess.has(cardKey)
+                            const isDeferred = deferredCardKeys.has(cardKey)
                             return (
-                                <div key={cardKey} className="border-b border-zinc-800/30 last:border-0">
+                                <div key={cardKey} className={`border-b border-zinc-800/30 last:border-0${isDeferred ? ' opacity-50' : ''}`}>
                                     <div className="flex w-full items-start hover:bg-zinc-800/30 transition-colors">
                                         <button
                                             type="button"
@@ -1541,20 +1557,29 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                             >
                                                 Fix
                                             </button>
-                                            {/* COUNSEL.2.1: Defer form toggle */}
-                                            <button
-                                                type="button"
-                                                onClick={() => toggleDeferForm(cardKey)}
-                                                className={`rounded border px-2 py-0.5 text-[10px] transition-colors ${
-                                                    isDeferOpen
-                                                        ? 'border-zinc-600 bg-zinc-700 text-zinc-300'
-                                                        : 'border-zinc-700 bg-zinc-800 text-zinc-500 hover:bg-zinc-700 hover:text-zinc-300'
-                                                }`}
-                                                aria-label={isDeferOpen ? 'Cancel defer' : `Defer ${ruleId} issue`}
-                                                aria-expanded={isDeferOpen}
-                                            >
-                                                Defer
-                                            </button>
+                                            {/* COUNSEL.2.1: Defer form toggle / G4: Deferred badge */}
+                                            {isDeferred ? (
+                                                <span
+                                                    data-testid={`deferred-badge-a11y-${w.id}`}
+                                                    className="text-xs text-amber-400 bg-amber-400/10 rounded px-1.5 py-0.5"
+                                                >
+                                                    Deferred
+                                                </span>
+                                            ) : (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => toggleDeferForm(cardKey)}
+                                                    className={`rounded border px-2 py-0.5 text-[10px] transition-colors ${
+                                                        isDeferOpen
+                                                            ? 'border-zinc-600 bg-zinc-700 text-zinc-300'
+                                                            : 'border-zinc-700 bg-zinc-800 text-zinc-500 hover:bg-zinc-700 hover:text-zinc-300'
+                                                    }`}
+                                                    aria-label={isDeferOpen ? 'Cancel defer' : `Defer ${ruleId} issue`}
+                                                    aria-expanded={isDeferOpen}
+                                                >
+                                                    Defer
+                                                </button>
+                                            )}
                                             <button
                                                 type="button"
                                                 onClick={() => {
@@ -1586,7 +1611,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                                 aria-label="Defer reason"
                                             />
                                             <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Defer duration">
-                                                {['1 day', '1 week', '1 sprint', 'Manually'].map((d) => (
+                                                {(['1 day', '3 days', '1 week', '1 sprint', 'Manually'] as const).map((d) => (
                                                     <label key={d} className="flex items-center gap-1 cursor-pointer">
                                                         <input
                                                             type="radio"
