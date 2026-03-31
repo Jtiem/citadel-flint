@@ -439,3 +439,15 @@ describe('tokens:get-sync-summary handler logic', () => {
         expect(result.tokenCount).toBe(3)
     })
 })
+
+// ---------------------------------------------------------------------------
+// COUNSEL.2.1 — governance:defer-violation IPC handler (it.todo scaffolds)
+// Full assertions added in Group D after flint-electron-ipc completes Group A.
+// ---------------------------------------------------------------------------
+
+describe('governance:defer-violation IPC handler — COUNSEL.2.1', () => {
+    it.todo('invokes with duration and persists expires_at')
+    it.todo('with undefined duration sets expires_at to null')
+    it.todo('backward compat: omitting duration does not error')
+    it.todo('returns error shape on invalid violationId')
+})

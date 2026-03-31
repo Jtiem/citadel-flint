@@ -309,12 +309,26 @@ function initProjectDatabase(projectRoot: string): Database.Database {
       rule_id     TEXT    NOT NULL,
       node_id     TEXT,
       reason      TEXT,
+      duration    TEXT,
+      expires_at  TEXT,
       session_id  TEXT,
       deferred_at TEXT    NOT NULL DEFAULT (datetime('now')),
       resolved_at TEXT,
       UNIQUE(file_path, rule_id, node_id)
     );
   `)
+
+  // ── Schema migration: add duration + expires_at to existing DBs ──────────
+  {
+    const cols = db.pragma('table_info(deferred_violations)') as Array<{ name: string }>
+    const colNames = new Set(cols.map((c) => c.name))
+    if (!colNames.has('duration')) {
+      db.exec('ALTER TABLE deferred_violations ADD COLUMN duration TEXT')
+    }
+    if (!colNames.has('expires_at')) {
+      db.exec('ALTER TABLE deferred_violations ADD COLUMN expires_at TEXT')
+    }
+  }
 
   // ── RAG chunks (no sqlite-vec in web mode — just the metadata table) ──────
   db.exec(`
@@ -448,19 +462,21 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
 
   // ── Prepared Statements: deferred_violations ───────────────────────────────
 
-  const deferViolationUpsert = db.prepare<[string, string, string | null, string | null, string]>(`
-    INSERT INTO deferred_violations (file_path, rule_id, node_id, reason, session_id)
-    VALUES (?, ?, ?, ?, ?)
+  const deferViolationUpsert = db.prepare<[string, string, string | null, string | null, string | null, string | null, string]>(`
+    INSERT INTO deferred_violations (file_path, rule_id, node_id, reason, duration, expires_at, session_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(file_path, rule_id, node_id)
     DO UPDATE SET
       reason      = excluded.reason,
+      duration    = excluded.duration,
+      expires_at  = excluded.expires_at,
       session_id  = excluded.session_id,
       deferred_at = datetime('now'),
       resolved_at = NULL
   `)
 
   const deferViolationSelectUnresolved = db.prepare(
-    `SELECT id, file_path, rule_id, node_id, reason, session_id, deferred_at
+    `SELECT id, file_path, rule_id, node_id, reason, duration, expires_at, session_id, deferred_at
      FROM deferred_violations
      WHERE resolved_at IS NULL
      ORDER BY deferred_at DESC`,
@@ -1185,14 +1201,23 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
   // ── Deferred Violations ────────────────────────────────────────────────────
 
   handlers.set('governance:defer-violation', async (
-    filePath: unknown, ruleId: unknown, nodeId?: unknown, reason?: unknown,
+    filePath: unknown, ruleId: unknown, nodeId?: unknown, reason?: unknown, duration?: unknown,
   ) => {
     if (typeof filePath !== 'string' || typeof ruleId !== 'string') {
       throw new TypeError('governance:defer-violation — filePath and ruleId must be strings')
     }
     const nId = typeof nodeId === 'string' ? nodeId : null
     const r = typeof reason === 'string' ? reason : null
-    deferViolationUpsert.run(filePath, ruleId, nId, r, governanceSessionId)
+    const VALID_DURATIONS = new Set(['1 day', '3 days', '1 week', '1 sprint', 'Manually'])
+    const dur = (typeof duration === 'string' && VALID_DURATIONS.has(duration)) ? duration : null
+    // Compute expires_at inline (same logic as shared/deferralUtils.ts)
+    let expiresAt: string | null = null
+    if (dur && dur !== 'Manually') {
+      const msMap: Record<string, number> = { '1 day': 86400000, '3 days': 259200000, '1 week': 604800000, '1 sprint': 1209600000 }
+      const ms = msMap[dur]
+      if (ms) expiresAt = new Date(Date.now() + ms).toISOString()
+    }
+    deferViolationUpsert.run(filePath, ruleId, nId, r, dur, expiresAt, governanceSessionId)
   })
 
   handlers.set('governance:get-deferred-violations', async () => {
