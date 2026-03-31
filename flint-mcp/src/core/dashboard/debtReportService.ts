@@ -113,8 +113,26 @@ function extractRuleId(message: string): string {
 // ── Health score & grade ────────────────────────────────────────────────────
 
 /**
- * Computes the health score from violation severity counts.
- * Formula: 100 - (criticals x 10 + warnings x 3 + infos x 1), clamped to [0, 100].
+ * Computes health score using the canonical formula from shared/healthSignal.
+ * Formula: clamp(100 - mithrilCount × 5 - a11yCount × 10, 0, 100)
+ * Matches GovernanceDashboard formula. overrideCount is always 0 for
+ * file-scan reports (override data lives in Glass/SQLite, not static files).
+ *
+ * MUST stay in sync with shared/healthSignal.formatHealthSignal.
+ */
+export function computeHealthScoreFromViolationTypes(mithrilCount: number, a11yCount: number): number {
+    const raw = 100 - mithrilCount * 5 - a11yCount * 10
+    return Math.max(0, Math.min(100, raw))
+}
+
+/**
+ * @deprecated Use computeHealthScoreFromViolationTypes instead.
+ * This function uses the old severity-based formula which diverges from the
+ * canonical shared/healthSignal formula used by GovernanceDashboard and Glass.
+ * Retained for backwards compatibility with external callers; do NOT use for
+ * new report generation.
+ *
+ * Old formula: 100 - (criticals x 10 + warnings x 3 + infos x 1), clamped to [0, 100].
  */
 export function computeHealthScore(
     criticals: number,
@@ -231,6 +249,11 @@ export function generateDebtReport(options: GenerateReportOptions): DebtReport {
 
     // Accumulators
     const bySeverity = { critical: 0, warning: 0, info: 0 }
+    // Violation-type accumulators for the canonical health score formula.
+    // Rule IDs starting with 'MITHRIL-' are Mithril (fidelity) violations;
+    // rule IDs starting with 'A11Y-' are accessibility violations.
+    let mithrilViolationCount = 0
+    let a11yViolationCount = 0
     const byCategory: Record<string, number> = {}
     const byFileMap: Map<string, { count: number; worst: string; worstSeverity: number }> = new Map()
     const ruleAccumulator: Map<string, { count: number; severity: string }> = new Map()
@@ -259,6 +282,13 @@ export function generateDebtReport(options: GenerateReportOptions): DebtReport {
         for (const v of violations) {
             // Severity counts
             bySeverity[v.severity]++
+
+            // Violation-type counts for canonical health score formula
+            if (v.ruleId.startsWith('MITHRIL-')) {
+                mithrilViolationCount++
+            } else if (v.ruleId.startsWith('A11Y-')) {
+                a11yViolationCount++
+            }
 
             // Category counts
             byCategory[v.ruleId] = (byCategory[v.ruleId] ?? 0) + 1
@@ -299,7 +329,10 @@ export function generateDebtReport(options: GenerateReportOptions): DebtReport {
     }
 
     const totalViolations = bySeverity.critical + bySeverity.warning + bySeverity.info
-    const healthScore = computeHealthScore(bySeverity.critical, bySeverity.warning, bySeverity.info)
+    // Use canonical formula (matches shared/healthSignal and GovernanceDashboard):
+    // clamp(100 - mithrilCount × 5 - a11yCount × 10, 0, 100)
+    // overrideCount is omitted (always 0 for file scans — overrides are live Glass state).
+    const healthScore = computeHealthScoreFromViolationTypes(mithrilViolationCount, a11yViolationCount)
     const grade = scoreToGrade(healthScore)
     const timestamp = new Date().toISOString()
 

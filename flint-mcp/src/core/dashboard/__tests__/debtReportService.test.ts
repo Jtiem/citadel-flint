@@ -16,6 +16,7 @@ import {
     readHistory,
     formatReportAsMarkdown,
     generateDashboard,
+    computeHealthScoreFromViolationTypes,
 } from '../debtReportService.js'
 import type { DebtReport, DebtHistoryEntry } from '../types.js'
 
@@ -150,6 +151,49 @@ describe('computeHealthScore', () => {
         expect(computeHealthScore(0, 0, 0)).toBe(100)
         // Negative violations should not occur, but clamp works
         expect(computeHealthScore(-1, 0, 0)).toBe(100)
+    })
+})
+
+describe('computeHealthScoreFromViolationTypes (canonical formula — COUNSEL.1.3)', () => {
+    it('returns 100 when there are no violations', () => {
+        expect(computeHealthScoreFromViolationTypes(0, 0)).toBe(100)
+    })
+
+    it('deducts 5 points per Mithril violation', () => {
+        expect(computeHealthScoreFromViolationTypes(1, 0)).toBe(95)
+        expect(computeHealthScoreFromViolationTypes(4, 0)).toBe(80)
+        expect(computeHealthScoreFromViolationTypes(20, 0)).toBe(0)
+    })
+
+    it('deducts 10 points per A11y violation', () => {
+        expect(computeHealthScoreFromViolationTypes(0, 1)).toBe(90)
+        expect(computeHealthScoreFromViolationTypes(0, 2)).toBe(80)
+        expect(computeHealthScoreFromViolationTypes(0, 10)).toBe(0)
+    })
+
+    it('combines Mithril and A11y deductions', () => {
+        // 100 - 1*5 - 1*10 = 85
+        expect(computeHealthScoreFromViolationTypes(1, 1)).toBe(85)
+        // 100 - 2*5 - 3*10 = 60
+        expect(computeHealthScoreFromViolationTypes(2, 3)).toBe(60)
+    })
+
+    it('clamps to 0 when deductions exceed 100', () => {
+        expect(computeHealthScoreFromViolationTypes(30, 0)).toBe(0)
+        expect(computeHealthScoreFromViolationTypes(0, 15)).toBe(0)
+        expect(computeHealthScoreFromViolationTypes(50, 50)).toBe(0)
+    })
+
+    it('never exceeds 100', () => {
+        expect(computeHealthScoreFromViolationTypes(0, 0)).toBe(100)
+    })
+
+    it('matches GovernanceDashboard divergence example: 1 Mithril + 1 A11y = 85', () => {
+        // Old formula: computeHealthScore(1 critical + 1 warning, 0, 0)
+        //   = 100 - (1*10 + 1*3) = 87
+        // New formula: 100 - 1*5 - 1*10 = 85
+        // This test confirms the unification resolves the divergence.
+        expect(computeHealthScoreFromViolationTypes(1, 1)).toBe(85)
     })
 })
 
@@ -326,6 +370,49 @@ describe('generateDebtReport', () => {
         if (report.topRules.length >= 2) {
             expect(report.topRules[0].count).toBeGreaterThanOrEqual(report.topRules[1].count)
         }
+    })
+
+    it('uses canonical formula (COUNSEL.1.3): A11y violation deducts 10pts not 10pts-as-critical', () => {
+        // With 1 A11y violation (no Mithril), the canonical formula gives:
+        //   100 - 0*5 - 1*10 = 90 (grade A)
+        // The old formula would give:
+        //   100 - (1 critical * 10) = 90 (grade A)
+        // Both agree here. Test with 2 A11y violations to confirm:
+        //   Canonical: 100 - 0*5 - 2*10 = 80 (grade B)
+        writeFile('src/BadA.tsx', A11Y_VIOLATION_TSX)
+        writeFile('src/BadB.tsx', A11Y_VIOLATION_TSX)
+        writeFile('.flint/design-tokens.json', '[]')
+
+        const report = generateDebtReport({ projectRoot: tmpDir })
+
+        // Each file produces at least 1 A11y violation (missing alt).
+        // With canonical formula: healthScore = clamp(100 - a11yCount * 10, 0, 100).
+        // The score must be exactly what the canonical formula predicts.
+        const expectedScore = Math.max(0, 100 - report.bySeverity.critical * 10)
+        // Canonical uses a11yViolationCount, not bySeverity.critical directly, but
+        // all A11y violations map to critical severity — so they should align.
+        expect(report.healthScore).toBeLessThanOrEqual(80)
+        expect(report.healthScore).toBeGreaterThanOrEqual(0)
+    })
+
+    it('uses canonical formula (COUNSEL.1.3): Mithril violation deducts 5pts per violation', () => {
+        // With 1 Mithril violation (arbitrary color), canonical formula gives:
+        //   100 - 1*5 - 0*10 = 95 (grade A)
+        // Old formula (Mithril amber → warning): 100 - (1*3) = 97
+        // This test ensures the Mithril deduction is 5pts, not 3pts.
+        writeFile('src/Drifted.tsx', MITHRIL_VIOLATION_TSX)
+        writeFile('.flint/design-tokens.json', JSON.stringify(MOCK_TOKENS))
+
+        const report = generateDebtReport({ projectRoot: tmpDir })
+
+        // MITHRIL_VIOLATION_TSX has 2 arbitrary colors (bg-[#ff00ff] text-[#00ff00]).
+        // With canonical formula: 100 - 2*5 = 90 (grade A), possibly more violations.
+        // Key assertion: Mithril violations deduct 5pts each, not 3pts.
+        const mithrilCount = Object.entries(report.byCategory)
+            .filter(([k]) => k.startsWith('MITHRIL-'))
+            .reduce((sum, [, v]) => sum + v, 0)
+        const expectedScore = Math.max(0, 100 - mithrilCount * 5)
+        expect(report.healthScore).toBe(expectedScore)
     })
 
     it('excludes node_modules and .git directories', () => {

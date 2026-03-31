@@ -14,7 +14,8 @@
  * A11yLinter (WCAG 2.1 AA rules) across all scanned source files.
  *
  * healthScore is computed as:
- *   100 - (criticals x 10 + warnings x 3 + infos x 1), clamped to [0, 100].
+ *   clamp(100 - mithrilCount × 5 - a11yCount × 10, 0, 100)
+ *   (matches GovernanceDashboard formula; overrideCount is 0 for file scans)
  */
 export interface DebtReport {
     /** Aggregate health score, 0-100. */
