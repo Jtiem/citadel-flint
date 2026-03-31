@@ -59,46 +59,12 @@ function DimensionBar({ value }: { value: string }) {
 
 interface TokenRowProps {
     token: DesignToken
-    onEdit: (id: number, path: string, currentValue: string) => void
-    onDelete: (id: number) => void
-    editingId: number | null
-    draftValue: string
-    onDraftChange: (v: string) => void
-    onCommit: () => void
 }
 
-function getValidationError(tokenType: TokenType, value: string): string | null {
-    if (!value.trim()) return 'Value cannot be empty'
-    if (tokenType === 'color' && !isValidCssColor(value)) return 'Not a valid color value'
-    return null
-}
-
-function TokenRow({
-    token,
-    onEdit,
-    onDelete,
-    editingId,
-    draftValue,
-    onDraftChange,
-    onCommit,
-}: TokenRowProps) {
-    const inputRef = useRef<HTMLInputElement>(null)
-    const isEditing = editingId === token.id
-
-    useEffect(() => {
-        if (isEditing) inputRef.current?.focus()
-    }, [isEditing])
-
-    function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-        if (e.key === 'Enter') e.currentTarget.blur()
-        if (e.key === 'Escape') {
-            // Discard draft
-            onEdit(-1, '', '')
-        }
-    }
-
+/** Read-only token row. Values are managed via MCP tools (flint_approve_tokens, flint_sync_tokens). */
+function TokenRow({ token }: TokenRowProps) {
     return (
-        <div className="group flex items-center gap-2 border-b border-zinc-800/40 px-3 py-1.5 hover:bg-zinc-800/30">
+        <div className="flex items-center gap-2 border-b border-zinc-800/40 px-3 py-1.5 hover:bg-zinc-800/30">
             {/* Type-specific visual indicator */}
             {token.token_type === 'color' && <ColorSwatch value={token.token_value} />}
             {token.token_type === 'dimension' && <DimensionBar value={token.token_value} />}
@@ -108,43 +74,18 @@ function TokenRow({
                 <p className="truncate font-mono text-[10px] text-zinc-500" title={token.token_path}>
                     {token.token_path}
                 </p>
-
-                {isEditing ? (
-                    <>
-                        <input
-                            ref={inputRef}
-                            value={draftValue}
-                            onChange={(e) => onDraftChange(e.target.value)}
-                            onBlur={onCommit}
-                            onKeyDown={handleKeyDown}
-                            aria-describedby={getValidationError(token.token_type, draftValue) ? `validation-${token.id}` : undefined}
-                            className="mt-0.5 w-full rounded border border-indigo-500 bg-zinc-900 px-1 py-0.5 font-mono text-[11px] text-zinc-200 outline-none"
-                        />
-                        {getValidationError(token.token_type, draftValue) && (
-                            <p
-                                id={`validation-${token.id}`}
-                                role="alert"
-                                className="mt-0.5 text-[10px] text-red-400"
-                            >
-                                {getValidationError(token.token_type, draftValue)}
-                            </p>
-                        )}
-                    </>
-                ) : (
-                    <button
-                        type="button"
-                        onClick={() => onEdit(token.id, token.token_path, token.token_value)}
-                        className="mt-0.5 w-full truncate text-left font-mono text-[11px] text-zinc-300 hover:text-indigo-300"
-                        title="Click to edit"
-                        style={
-                            token.token_type === 'string'
-                                ? { fontFamily: token.token_value }
-                                : undefined
-                        }
-                    >
-                        {token.token_value}
-                    </button>
-                )}
+                {/* Read-only value — tooltip explains how to edit */}
+                <p
+                    className="mt-0.5 truncate font-mono text-[11px] text-zinc-300"
+                    title="Token values are managed through your design system. Use Envoy sync to update."
+                    style={
+                        token.token_type === 'string'
+                            ? { fontFamily: token.token_value }
+                            : undefined
+                    }
+                >
+                    {token.token_value}
+                </p>
             </div>
 
             {/* Mode badge — only when non-default */}
@@ -153,16 +94,6 @@ function TokenRow({
                     {token.mode}
                 </span>
             )}
-
-            {/* Delete — visible on row hover */}
-            <button
-                type="button"
-                onClick={() => onDelete(token.id)}
-                className="shrink-0 rounded p-0.5 text-zinc-500 opacity-0 transition-opacity hover:bg-red-900/40 hover:text-red-400 group-hover:opacity-100"
-                title={`Delete ${token.token_path}`}
-            >
-                <Trash2 className="h-3 w-3" />
-            </button>
         </div>
     )
 }
@@ -302,13 +233,8 @@ const TYPE_DOT: Record<TokenType, string> = {
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function TokenManager() {
-    const { tokens, isLoading, error, fetchTokens, updateToken, deleteToken, importTokensJSON, clearAllTokens } =
+    const { tokens, isLoading, error, fetchTokens, importTokensJSON } =
         useTokenStore()
-
-    // Inline-edit state
-    const [editingId, setEditingId] = useState<number | null>(null)
-    const [editingPath, setEditingPath] = useState<string>('')
-    const [draftValue, setDraftValue] = useState<string>('')
 
     // Search
     const [searchQuery, setSearchQuery] = useState('')
@@ -316,20 +242,9 @@ export function TokenManager() {
     // Import modal
     const [showImport, setShowImport] = useState(false)
 
-    // Clear-all two-step confirm
-    const [confirmingClear, setConfirmingClear] = useState(false)
-    const clearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
     useEffect(() => {
         fetchTokens().catch(console.error)
     }, [fetchTokens])
-
-    // Cancel the auto-reset timer on unmount
-    useEffect(() => {
-        return () => {
-            if (clearTimerRef.current !== null) clearTimeout(clearTimerRef.current)
-        }
-    }, [])
 
     // Search-filtered token list
     const filteredTokens = useMemo(() => {
@@ -359,40 +274,6 @@ export function TokenManager() {
         return map
     }, [filteredTokens])
 
-    function startEdit(id: number, path: string, currentValue: string) {
-        // id = -1 signals a discard (from Escape key)
-        if (id === -1) {
-            setEditingId(null)
-            return
-        }
-        setEditingId(id)
-        setEditingPath(path)
-        setDraftValue(currentValue)
-    }
-
-    function handleClearAll(): void {
-        if (!confirmingClear) {
-            // First click — arm the confirm state and auto-reset after 2.5 s
-            setConfirmingClear(true)
-            clearTimerRef.current = setTimeout(() => setConfirmingClear(false), 2500)
-            return
-        }
-        // Second click — execute
-        if (clearTimerRef.current !== null) clearTimeout(clearTimerRef.current)
-        setConfirmingClear(false)
-        clearAllTokens().catch(console.error)
-    }
-
-    function commitEdit() {
-        if (editingId === null) return
-        // Find the original value to avoid a no-op IPC call
-        const original = tokens.find((t) => t.id === editingId)
-        if (original && draftValue !== original.token_value) {
-            updateToken(editingPath, draftValue).catch(console.error)
-        }
-        setEditingId(null)
-    }
-
     // ── Render ──────────────────────────────────────────────────────────────
 
     return (
@@ -403,20 +284,6 @@ export function TokenManager() {
                     {tokens.length} token{tokens.length !== 1 ? 's' : ''}
                 </span>
                 <div className="ml-auto flex items-center gap-1.5">
-                    {tokens.length > 0 && (
-                        <button
-                            type="button"
-                            onClick={handleClearAll}
-                            className={`flex items-center gap-1 rounded border px-2 py-1 text-[11px] font-medium transition-colors ${confirmingClear
-                                    ? 'border-red-700 bg-red-900/30 text-red-400 hover:bg-red-900/50'
-                                    : 'border-zinc-700 bg-zinc-800/40 text-zinc-400 hover:border-red-700/60 hover:text-red-500'
-                                }`}
-                            title="Delete all design tokens"
-                        >
-                            <Trash2 className="h-3 w-3" />
-                            {confirmingClear ? 'Confirm?' : 'Clear all'}
-                        </button>
-                    )}
                     <button
                         type="button"
                         onClick={() => setShowImport(true)}
@@ -517,12 +384,6 @@ export function TokenManager() {
                                     <TokenRow
                                         key={token.id}
                                         token={token}
-                                        onEdit={startEdit}
-                                        onDelete={deleteToken}
-                                        editingId={editingId}
-                                        draftValue={draftValue}
-                                        onDraftChange={setDraftValue}
-                                        onCommit={commitEdit}
                                     />
                                 ))}
                             </div>

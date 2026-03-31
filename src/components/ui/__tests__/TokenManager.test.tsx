@@ -1,9 +1,10 @@
 /**
  * TokenManager.test.tsx
  *
- * 11 tests for the TokenManager component. The component fetches all tokens
- * from window.flintAPI.tokens.readAll(), groups them by collection_name,
- * and provides a search filter.
+ * Tests for the read-only TokenManager component. Token values are
+ * governed via MCP tools — not editable directly in this UI.
+ * Covers: loading state, token display, grouping, search, empty state,
+ * import modal, and the removal of dangerous mutation actions.
  */
 
 import { describe, it, expect, vi } from 'vitest'
@@ -204,58 +205,47 @@ describe('TokenManager', () => {
         })
     })
 
-    // 14. Color token validation — valid hex shows no error
-    it('shows no validation error for a valid hex color value', async () => {
-        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue([
-            makeToken({ id: 20, token_type: 'color', token_value: '#0066ff' }),
-        ])
+    // ── MINT.1d: Read-only governance UI (no dangerous mutations) ─────────────
+
+    // 14. No delete button present
+    it('does not render a delete button for any token row', async () => {
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(SAMPLE_TOKENS)
         render(<TokenManager />)
-        // The edit trigger button's accessible name is its text content (the token value)
-        await waitFor(() => screen.getByRole('button', { name: '#0066ff' }))
-
-        // Enter edit mode by clicking the value button
-        fireEvent.click(screen.getByRole('button', { name: '#0066ff' }))
-        await waitFor(() => screen.getByDisplayValue('#0066ff'))
-
-        // Valid hex — no error
-        expect(screen.queryByText('Not a valid color value')).toBeNull()
+        await waitFor(() => screen.getByText('color.primary'))
+        // No button with trash/delete label
+        expect(screen.queryByRole('button', { name: /delete/i })).toBeNull()
+        expect(screen.queryByRole('button', { name: /remove/i })).toBeNull()
     })
 
-    // 15. Color token validation — invalid value shows inline error
-    it('shows "Not a valid color value" when an invalid color is typed for a color token', async () => {
-        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue([
-            makeToken({ id: 21, token_type: 'color', token_value: '#0066ff' }),
-        ])
+    // 15. No "Clear all" button present
+    it('does not render a "Clear all" or "Reset" button', async () => {
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(SAMPLE_TOKENS)
         render(<TokenManager />)
-        await waitFor(() => screen.getByRole('button', { name: '#0066ff' }))
-
-        // Enter edit mode
-        fireEvent.click(screen.getByRole('button', { name: '#0066ff' }))
-        const input = await waitFor(() => screen.getByDisplayValue('#0066ff'))
-
-        // Type an invalid color
-        fireEvent.change(input, { target: { value: 'notacolor' } })
-
-        await waitFor(() => {
-            expect(screen.getByText('Not a valid color value')).toBeDefined()
-        })
+        await waitFor(() => screen.getByText('color.primary'))
+        expect(screen.queryByRole('button', { name: /clear all/i })).toBeNull()
+        expect(screen.queryByRole('button', { name: /reset/i })).toBeNull()
+        expect(screen.queryByText('Clear all')).toBeNull()
     })
 
-    // 16. Non-color token validation — empty value shows error
-    it('shows "Value cannot be empty" when a non-color token value is cleared', async () => {
+    // 16. Token values are not in editable inputs
+    it('token values are shown as read-only text, not as input elements', async () => {
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(SAMPLE_TOKENS)
+        render(<TokenManager />)
+        await waitFor(() => screen.getByText('color.primary'))
+        // The value should appear as text
+        expect(screen.getByText('#1d4ed8')).toBeDefined()
+        // No input with that value
+        expect(screen.queryByDisplayValue('#1d4ed8')).toBeNull()
+    })
+
+    // 17. Read-only tooltip is present on token value elements
+    it('token value text has governance tooltip', async () => {
         ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue([
-            makeToken({ id: 22, token_type: 'dimension', token_value: '16px' }),
+            makeToken({ id: 30, token_type: 'color', token_value: '#ff0000' }),
         ])
         render(<TokenManager />)
-        await waitFor(() => screen.getByRole('button', { name: '16px' }))
-
-        fireEvent.click(screen.getByRole('button', { name: '16px' }))
-        const input = await waitFor(() => screen.getByDisplayValue('16px'))
-
-        fireEvent.change(input, { target: { value: '' } })
-
-        await waitFor(() => {
-            expect(screen.getByText('Value cannot be empty')).toBeDefined()
-        })
+        await waitFor(() => screen.getByText('#ff0000'))
+        const valueEl = screen.getByText('#ff0000')
+        expect(valueEl.getAttribute('title')).toContain('managed through your design system')
     })
 })
