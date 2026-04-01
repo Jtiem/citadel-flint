@@ -119,6 +119,8 @@ function App() {
 
     // ── FORGE.2d: Project environment detection state ─────────────────────────
     const [detectedEnvironment, setDetectedEnvironment] = useState<ProjectEnvironment | null>(null)
+    // FORGE.4c: Scanning state for DetectionBanner progress bar
+    const [isScanning, setIsScanning] = useState(false)
 
     // ── GLASS.3.2: Resizable + collapsible panel widths (from canvasStore) ──
     const leftWidth          = useCanvasStore((s) => s.leftPanelWidth)
@@ -724,15 +726,20 @@ function App() {
     useEffect(() => {
         if (!workspaceFiles) {
             setDetectedEnvironment(null)
+            setIsScanning(false)
             return
         }
         let cancelled = false
+        setIsScanning(true)
         window.flintAPI.project?.detectEnvironment?.()
             .then((env) => {
                 if (!cancelled && env) setDetectedEnvironment(env as ProjectEnvironment)
             })
             .catch(() => {
                 // Detection is best-effort — do not block the UI
+            })
+            .finally(() => {
+                if (!cancelled) setIsScanning(false)
             })
         return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -977,13 +984,16 @@ function App() {
                 <section className="flex min-h-0 flex-1 flex-col">
                     <DetectionBanner
                         environment={detectedEnvironment}
+                        isScanning={isScanning}
                         onRunAudit={() => {
                             // Trigger a full audit via MCP and update the banner
+                            setIsScanning(true)
                             window.flintAPI.project?.detectEnvironment?.()
                                 .then((env) => {
                                     if (env) setDetectedEnvironment(env as ProjectEnvironment)
                                 })
                                 .catch(() => { /* best-effort */ })
+                                .finally(() => { setIsScanning(false) })
                         }}
                     />
                     <PanelErrorBoundary panelName="Canvas">

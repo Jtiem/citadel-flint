@@ -124,6 +124,9 @@ export function LaunchScreen({
     // Demo load error banner
     const [demoBannerDismissed, setDemoBannerDismissed] = useState(false)
 
+    // FORGE.4b: Map of project path → health grade letter
+    const [healthGrades, setHealthGrades] = useState<Map<string, string>>(new Map())
+
     const scenarioPickerId = useId()
 
     // ── Web-mode open-folder signal listener ──────────────────────────────────
@@ -164,6 +167,31 @@ export function LaunchScreen({
             controller.abort()
         }
     }, [])
+
+    // ── FORGE.4b: Fetch health grades for recent projects ──────────────────
+    useEffect(() => {
+        if (recentProjects.length === 0) return
+        const getGrade = window.flintAPI.project?.getHealthGrade
+        if (!getGrade) return
+
+        let cancelled = false
+        const gradeMap = new Map<string, string>()
+
+        Promise.allSettled(
+            recentProjects.slice(0, 5).map(async (p) => {
+                const result = await getGrade(p.path)
+                if (result?.grade && !cancelled) {
+                    gradeMap.set(p.path, result.grade)
+                }
+            }),
+        ).then(() => {
+            if (!cancelled && gradeMap.size > 0) {
+                setHealthGrades(new Map(gradeMap))
+            }
+        })
+
+        return () => { cancelled = true }
+    }, [recentProjects])
 
     // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -447,8 +475,8 @@ export function LaunchScreen({
                                     const displayPath = project.path.length > 40
                                         ? '...' + project.path.slice(-37)
                                         : project.path
-                                    // healthGrade may not exist on RecentProject — safe access
-                                    const grade = (project as Record<string, unknown>).healthGrade as string | undefined
+                                    // FORGE.4b: look up grade from fetched health grades map
+                                    const grade = healthGrades.get(project.path)
                                     return (
                                         <div
                                             key={project.id}

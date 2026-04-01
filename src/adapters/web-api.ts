@@ -246,6 +246,7 @@ export function createWebFlintAPI() {
       resetToDemo: (targetPath: string) => invoke('project:reset-to-demo', targetPath) as Promise<unknown>,
       createScratchpad: () => invoke('project:create-scratchpad') as Promise<unknown>,
       reindex: () => invoke('project:reindex') as Promise<{ components: number; ragChunks: number }>,
+      getHealthGrade: (projectPath: string) => invoke('project:get-health-grade', projectPath) as Promise<{ grade: string; score: number; updatedAt: string } | null>,
     },
 
     // ── File read / git ─────────────────────────────────────────────────────

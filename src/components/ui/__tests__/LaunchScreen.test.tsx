@@ -250,18 +250,28 @@ describe('LaunchScreen — FORGE.1a Three-Path', () => {
         expect(removeBtn).toBeDefined()
     })
 
-    it('renders health grade badge when project has a healthGrade', async () => {
-        const project = { ...makeProject({ name: 'Healthy App' }), healthGrade: 'A+' }
+    it('renders health grade badge when getHealthGrade returns a grade', async () => {
+        const project = makeProject({ name: 'Healthy App', path: '/tmp/healthy' })
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([project])
+        // Mock the IPC that fetches health grades (FORGE.4b)
+        ;(window.flintAPI as Record<string, unknown>).project = {
+            ...(window.flintAPI.project ?? {}),
+            getHealthGrade: vi.fn().mockResolvedValue({ grade: 'A+', score: 95, updatedAt: '2026-04-01T00:00:00Z' }),
+        }
         render(<LaunchScreen {...defaultProps()} />)
         await waitFor(() => {
             expect(screen.getByText('A+')).toBeDefined()
         })
     })
 
-    it('does not render a grade badge when healthGrade is absent', async () => {
+    it('does not render a grade badge when getHealthGrade returns null', async () => {
         const project = makeProject({ name: 'Gradeless App' })
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([project])
+        // Mock returning null (no snapshot)
+        ;(window.flintAPI as Record<string, unknown>).project = {
+            ...(window.flintAPI.project ?? {}),
+            getHealthGrade: vi.fn().mockResolvedValue(null),
+        }
         render(<LaunchScreen {...defaultProps()} />)
         await waitFor(() => screen.getByText('Gradeless App'))
         // No grade badge (no A-F text beside the project name)
