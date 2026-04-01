@@ -12,6 +12,7 @@
  * (server/cli.ts) or tests call startServer() with options.
  */
 
+import { computeExpiresAt, type DeferDuration } from '../shared/deferralUtils'
 import express from 'express'
 import { WebSocketServer, WebSocket } from 'ws'
 import http from 'node:http'
@@ -1208,15 +1209,9 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     }
     const nId = typeof nodeId === 'string' ? nodeId : null
     const r = typeof reason === 'string' ? reason : null
-    const VALID_DURATIONS = new Set(['1 day', '3 days', '1 week', '1 sprint', 'Manually'])
-    const dur = (typeof duration === 'string' && VALID_DURATIONS.has(duration)) ? duration : null
-    // Compute expires_at inline (same logic as shared/deferralUtils.ts)
-    let expiresAt: string | null = null
-    if (dur && dur !== 'Manually') {
-      const msMap: Record<string, number> = { '1 day': 86400000, '3 days': 259200000, '1 week': 604800000, '1 sprint': 1209600000 }
-      const ms = msMap[dur]
-      if (ms) expiresAt = new Date(Date.now() + ms).toISOString()
-    }
+    const VALID_DURATIONS = new Set<string>(['1 day', '3 days', '1 week', '1 sprint', 'Manually'])
+    const dur: DeferDuration | null = (typeof duration === 'string' && VALID_DURATIONS.has(duration)) ? duration as DeferDuration : null
+    const expiresAt = dur ? computeExpiresAt(dur) : null
     deferViolationUpsert.run(filePath, ruleId, nId, r, dur, expiresAt, governanceSessionId)
   })
 
