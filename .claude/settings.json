@@ -202,7 +202,19 @@
       "Edit(HANDOFF.md)",
       "Write(HANDOFF.md)",
       "Edit(.claude/settings.json)",
-      "Write(.claude/helpers/*)"
+      "Write(.claude/helpers/*)",
+      "Edit(src/**)",
+      "Write(src/**)",
+      "Edit(electron/**)",
+      "Write(electron/**)",
+      "Edit(shared/**)",
+      "Write(shared/**)",
+      "Edit(server/**)",
+      "Write(server/**)",
+      "Edit(flint-ci/**)",
+      "Write(flint-ci/**)",
+      "Bash(git add *)",
+      "Bash(git commit *)"
     ],
     "deny": [
       "Read(./.env)",

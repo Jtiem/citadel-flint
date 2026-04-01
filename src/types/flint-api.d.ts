@@ -201,6 +201,64 @@ export interface TokensAPI {
      * and usage intelligence badges in TokenPanel.
      */
     scanUsage?: () => Promise<TokenUsageResult[]>
+
+    /**
+     * MINT.3a: Audits all color token foreground/background pairs for WCAG contrast.
+     * Returns an array of contrast pair results with pass/fail for AA and AAA.
+     */
+    auditContrast?: () => Promise<ContrastPair[]>
+
+    /**
+     * MINT.3c: Returns pending tokens awaiting approval from `.flint/pending-tokens.json`.
+     */
+    getPendingApprovals?: () => Promise<PendingToken[]>
+
+    /**
+     * MINT.3c: Approves a pending token, moving it into design-tokens.json.
+     */
+    approveToken?: (tokenName: string) => Promise<{ ok: boolean }>
+
+    /**
+     * MINT.3c: Rejects a pending token, removing it from the pending list.
+     */
+    rejectToken?: (tokenName: string) => Promise<{ ok: boolean }>
+}
+
+/**
+ * MINT.3a: A contrast pair result from the WCAG contrast audit.
+ * Compares a foreground color token against a background color token.
+ */
+export interface ContrastPair {
+    /** Foreground token path. */
+    fg: string
+    /** Background token path. */
+    bg: string
+    /** Foreground hex value. */
+    fgValue: string
+    /** Background hex value. */
+    bgValue: string
+    /** WCAG contrast ratio (e.g. 4.5). */
+    ratio: number
+    /** True if ratio >= 4.5 (WCAG AA normal text). */
+    passAA: boolean
+    /** True if ratio >= 7.0 (WCAG AAA normal text). */
+    passAAA: boolean
+}
+
+/**
+ * MINT.3c: A pending token awaiting approval before merging into design-tokens.json.
+ */
+export interface PendingToken {
+    /** Token name/path, e.g. "color.brand.accent". */
+    name: string
+    /** Token value, e.g. "#ff6600". */
+    value: string
+    /** W3C DTCG type. */
+    type: string
+    /** Where this token came from, e.g. "Figma", "Scout", "Manual". */
+    source: string
+    /** ISO 8601 timestamp when the token was proposed. */
+    proposedAt: string
 }
 
 /**
@@ -432,6 +490,13 @@ export interface ProjectAPI {
      * Returns `null` when no project is open.
      */
     detectEnvironment: () => Promise<ProjectEnvironment | null>
+
+    /**
+     * FORGE.4b: Reads the cached debt snapshot for a project and returns
+     * its health grade letter, numeric score, and last-updated timestamp.
+     * Returns null when the snapshot file is missing or malformed.
+     */
+    getHealthGrade?: (projectPath: string) => Promise<{ grade: string; score: number; updatedAt: string } | null>
 }
 
 /** IPC surface for native OS menu events pushed by the main process. */
@@ -2164,6 +2229,72 @@ export interface GovernanceAPI {
      * anomaly alert banner at the top of the dashboard.
      */
     getAnomalies?: () => Promise<AnomalyAlert[]>
+
+    // ── COUNSEL.3.1: Rewind to Clean State ──────────────────────────────────
+
+    /**
+     * Returns the most recent health-history entry with score >= 95.
+     * Returns null when no clean state exists in history.
+     */
+    getLastCleanState?: () => Promise<{ timestamp: string; score: number } | null>
+
+    // ── COUNSEL.4.1: Token Change Impact ────────────────────────────────────
+
+    /**
+     * Previews the impact of changing a design token across the project.
+     * Returns the number of affected files and an impact classification.
+     */
+    previewTokenImpact?: (tokenName: string, newValue: string) => Promise<{
+        affectedFiles: number
+        estimatedImpact: 'low' | 'medium' | 'high'
+    }>
+
+    // ── COUNSEL.4.2: Compliance Trajectory ──────────────────────────────────
+
+    /**
+     * Returns the health score history for the compliance trajectory sparkline.
+     * Each entry contains the date, score (0-100), and grade (A-F).
+     */
+    getHealthHistory?: () => Promise<Array<{ date: string; score: number; grade: string }>>
+
+    /**
+     * Records a health score entry to the history file.
+     * Called after each audit to build the trajectory chart.
+     */
+    recordHealth?: (entry: { score: number; grade: string }) => Promise<void>
+
+    // ── S8.3: MRS Pending Approval State ────────────────────────────────────
+
+    /**
+     * Returns pending mutations awaiting approval (Amber/Red risk tier).
+     * Used by GovernanceDashboard to render the "Pending Approvals" section.
+     */
+    getPendingMutations?: () => Promise<PendingMutation[]>
+
+    /**
+     * Approves a pending mutation by setting its approved_at timestamp.
+     */
+    approveMutation?: (id: number) => Promise<void>
+
+    /**
+     * Rejects a pending mutation by deleting it from the ledger.
+     */
+    rejectMutation?: (id: number) => Promise<void>
+}
+
+// ── S8.3: Pending Mutation Type ──────────────────────────────────────────────
+
+/**
+ * A single pending mutation from the mutations_ledger awaiting approval.
+ * Used by GovernanceDashboard "Pending Approvals" section (S8.3).
+ */
+export interface PendingMutation {
+    id: number
+    type: string
+    filePath: string
+    riskScore: number
+    riskTier: string
+    agentId?: string
 }
 
 // ── Delta Mode: Baseline Types (Gap 6) ───────────────────────────────────────

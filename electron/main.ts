@@ -961,6 +961,172 @@ app.whenReady().then(async () => {
         })
     })
 
+    // ── MINT.3a: Token Contrast Auditor ─────────────────────────────────────
+    // Reads color tokens from .flint/design-tokens.json, computes WCAG contrast
+    // ratio for all foreground/background pairs.
+    ipcMain.handle('tokens:audit-contrast', async () => {
+        if (!activeProjectRoot) return []
+
+        // Inline WCAG contrast helpers
+        function hexToRgb(hex: string): [number, number, number] | null {
+            const m = hex.replace('#', '').match(/^([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i)
+            return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : null
+        }
+        function srgbLinear(c: number): number {
+            const s = c / 255
+            return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4)
+        }
+        function luminance(r: number, g: number, b: number): number {
+            return 0.2126 * srgbLinear(r) + 0.7152 * srgbLinear(g) + 0.0722 * srgbLinear(b)
+        }
+        function contrastRatio(l1: number, l2: number): number {
+            const [lighter, darker] = l1 > l2 ? [l1, l2] : [l2, l1]
+            return (lighter + 0.05) / (darker + 0.05)
+        }
+
+        // Load color tokens
+        const tokensPath = path.join(activeProjectRoot, '.flint', 'design-tokens.json')
+        const colorTokens: { name: string; value: string }[] = []
+        try {
+            const raw = await readFile(tokensPath, 'utf8')
+            const parsed = JSON.parse(raw)
+            function walk(obj: Record<string, unknown>, prefix: string) {
+                for (const [key, val] of Object.entries(obj)) {
+                    if (key.startsWith('$')) continue
+                    const fullPath = prefix ? `${prefix}.${key}` : key
+                    if (val && typeof val === 'object' && '$value' in (val as Record<string, unknown>)) {
+                        const v = (val as Record<string, unknown>).$value
+                        const t = (val as Record<string, unknown>).$type
+                        if (typeof v === 'string' && t === 'color' && v.startsWith('#')) {
+                            colorTokens.push({ name: fullPath, value: v })
+                        }
+                    } else if (val && typeof val === 'object') {
+                        walk(val as Record<string, unknown>, fullPath)
+                    }
+                }
+            }
+            walk(parsed, '')
+        } catch {
+            // Also try SQLite fallback
+            try {
+                const allTokens = stmtReadAll.all() as Array<{ token_path: string; token_value: string; token_type: string }>
+                for (const t of allTokens) {
+                    if (t.token_type === 'color' && t.token_value.startsWith('#')) {
+                        colorTokens.push({ name: t.token_path, value: t.token_value })
+                    }
+                }
+            } catch {
+                return []
+            }
+        }
+
+        if (colorTokens.length < 2) return []
+
+        // Compute contrast for all fg/bg pairs
+        const pairs: Array<{
+            fg: string; bg: string; fgValue: string; bgValue: string
+            ratio: number; passAA: boolean; passAAA: boolean
+        }> = []
+
+        for (let i = 0; i < colorTokens.length; i++) {
+            for (let j = 0; j < colorTokens.length; j++) {
+                if (i === j) continue
+                const fgRgb = hexToRgb(colorTokens[i].value)
+                const bgRgb = hexToRgb(colorTokens[j].value)
+                if (!fgRgb || !bgRgb) continue
+
+                const fgLum = luminance(...fgRgb)
+                const bgLum = luminance(...bgRgb)
+                const ratio = Math.round(contrastRatio(fgLum, bgLum) * 100) / 100
+
+                pairs.push({
+                    fg: colorTokens[i].name,
+                    bg: colorTokens[j].name,
+                    fgValue: colorTokens[i].value,
+                    bgValue: colorTokens[j].value,
+                    ratio,
+                    passAA: ratio >= 4.5,
+                    passAAA: ratio >= 7.0,
+                })
+            }
+        }
+
+        return pairs
+    })
+
+    // ── MINT.3c: Token Approval Staging ─────────────────────────────────────
+    // Reads/writes `.flint/pending-tokens.json` for approval workflow.
+
+    ipcMain.handle('tokens:get-pending-approvals', async () => {
+        if (!activeProjectRoot) return []
+        const pendingPath = path.join(activeProjectRoot, '.flint', 'pending-tokens.json')
+        try {
+            const raw = await readFile(pendingPath, 'utf8')
+            return JSON.parse(raw)
+        } catch {
+            return []
+        }
+    })
+
+    ipcMain.handle('tokens:approve-token', async (_event, tokenName: unknown) => {
+        if (!activeProjectRoot || typeof tokenName !== 'string') return { ok: false }
+
+        const pendingPath = path.join(activeProjectRoot, '.flint', 'pending-tokens.json')
+        const tokensPath = path.join(activeProjectRoot, '.flint', 'design-tokens.json')
+
+        try {
+            const raw = await readFile(pendingPath, 'utf8')
+            const pending = JSON.parse(raw) as Array<{ name: string; value: string; type: string; source: string; proposedAt: string }>
+            const token = pending.find((t) => t.name === tokenName)
+            if (!token) return { ok: false }
+
+            // Remove from pending
+            const remaining = pending.filter((t) => t.name !== tokenName)
+            await writeFile(pendingPath, JSON.stringify(remaining, null, 2), 'utf8')
+
+            // Add to design-tokens.json
+            let designTokens: Record<string, unknown> = {}
+            try {
+                const dtRaw = await readFile(tokensPath, 'utf8')
+                designTokens = JSON.parse(dtRaw)
+            } catch { /* fresh file */ }
+
+            // Build nested path
+            const parts = token.name.split('.')
+            let current: Record<string, unknown> = designTokens
+            for (let i = 0; i < parts.length - 1; i++) {
+                if (!current[parts[i]] || typeof current[parts[i]] !== 'object') {
+                    current[parts[i]] = {}
+                }
+                current = current[parts[i]] as Record<string, unknown>
+            }
+            current[parts[parts.length - 1]] = {
+                $value: token.value,
+                $type: token.type,
+            }
+
+            await writeFile(tokensPath, JSON.stringify(designTokens, null, 2), 'utf8')
+            return { ok: true }
+        } catch {
+            return { ok: false }
+        }
+    })
+
+    ipcMain.handle('tokens:reject-token', async (_event, tokenName: unknown) => {
+        if (!activeProjectRoot || typeof tokenName !== 'string') return { ok: false }
+
+        const pendingPath = path.join(activeProjectRoot, '.flint', 'pending-tokens.json')
+        try {
+            const raw = await readFile(pendingPath, 'utf8')
+            const pending = JSON.parse(raw) as Array<{ name: string }>
+            const remaining = pending.filter((t) => t.name !== tokenName)
+            await writeFile(pendingPath, JSON.stringify(remaining, null, 2), 'utf8')
+            return { ok: true }
+        } catch {
+            return { ok: false }
+        }
+    })
+
     // ── Presence UPSERT Handler ──────────────────────────────────────────────
     // Receives batched cursor/selection updates from the renderer (sent at most
     // every 50–100 ms via the renderer-side throttle in useSyncPresence).
@@ -1764,6 +1930,20 @@ app.whenReady().then(async () => {
         }
 
         return result
+    })
+
+    // ── project:get-health-grade (FORGE.4b) ──────────────────────────────────
+    // Reads the cached debt snapshot for a project and returns its health grade.
+    // Used by LaunchScreen to display grade badges on recent projects.
+    ipcMain.handle('project:get-health-grade', async (_e, projectPath: unknown): Promise<{ grade: string; score: number; updatedAt: string } | null> => {
+        if (typeof projectPath !== 'string') return null
+        try {
+            const snapshotPath = path.join(projectPath, '.flint', 'debt-snapshot.json')
+            const raw = await readFile(snapshotPath, 'utf-8')
+            const data = JSON.parse(raw) as { grade?: string; score?: number; timestamp?: string }
+            if (!data.grade || data.score == null) return null
+            return { grade: data.grade, score: data.score, updatedAt: data.timestamp ?? new Date().toISOString() }
+        } catch { return null }
     })
 
     // ── mcp:get-recent-file-focus ──────────────────────────────────────────────
@@ -3088,6 +3268,168 @@ app.whenReady().then(async () => {
             // anomaly_history table may not exist — return empty
             return []
         }
+    })
+
+    // ── COUNSEL.3.1: governance:get-last-clean-state ────────────────────────
+    //
+    // Returns the most recent health-history entry with score >= 95, or null.
+    // Primary source: .flint/health-history.json. Fallback: governance_events table.
+    ipcMain.handle('governance:get-last-clean-state', async (): Promise<{ timestamp: string; score: number } | null> => {
+        // Try .flint/health-history.json first
+        if (activeProjectRoot) {
+            try {
+                const histPath = path.join(activeProjectRoot, '.flint', 'health-history.json')
+                const raw = await readFile(histPath, 'utf-8')
+                const entries = JSON.parse(raw) as Array<{ date: string; score: number; grade: string }>
+                for (let i = entries.length - 1; i >= 0; i--) {
+                    if (entries[i].score >= 95) {
+                        return { timestamp: entries[i].date, score: entries[i].score }
+                    }
+                }
+            } catch {
+                // File missing or malformed — fall through to DB fallback
+            }
+        }
+        // Fallback: governance_events table
+        try {
+            const row = db.prepare(`
+                SELECT created_at, json_extract(payload, '$.score') as score
+                FROM governance_events
+                WHERE json_extract(payload, '$.score') >= 95
+                ORDER BY created_at DESC
+                LIMIT 1
+            `).get() as { created_at: string; score: number } | undefined
+            if (row) return { timestamp: row.created_at, score: row.score }
+        } catch {
+            // governance_events table may not exist
+        }
+        return null
+    })
+
+    // ── COUNSEL.4.1: governance:preview-token-impact ─────────────────────────
+    //
+    // Counts project files referencing a given token's CSS variable.
+    // Returns { affectedFiles, estimatedImpact }.
+    ipcMain.handle('governance:preview-token-impact', async (
+        _event,
+        tokenName: unknown,
+        _newValue: unknown,
+    ): Promise<{ affectedFiles: number; estimatedImpact: 'low' | 'medium' | 'high' }> => {
+        if (typeof tokenName !== 'string') {
+            throw new TypeError('governance:preview-token-impact — tokenName must be a string')
+        }
+        if (!activeProjectRoot) {
+            return { affectedFiles: 0, estimatedImpact: 'low' }
+        }
+        const cssVar = `--${tokenName.replace(/\./g, '-')}`
+        let affectedFiles = 0
+        try {
+            const srcDir = path.join(activeProjectRoot, 'src')
+            const scanDir = existsSync(srcDir) ? srcDir : activeProjectRoot
+            const files = await collectSourceFilesForImpact(scanDir)
+            for (const f of files) {
+                try {
+                    const content = await readFile(f, 'utf-8')
+                    if (content.includes(cssVar) || content.includes(tokenName)) {
+                        affectedFiles++
+                    }
+                } catch { /* skip unreadable files */ }
+            }
+        } catch { /* scan failed */ }
+        const estimatedImpact: 'low' | 'medium' | 'high' =
+            affectedFiles <= 2 ? 'low' : affectedFiles <= 5 ? 'medium' : 'high'
+        return { affectedFiles, estimatedImpact }
+    })
+
+    // Helper: collect .tsx/.ts/.jsx/.js/.css files recursively for token impact scan
+    async function collectSourceFilesForImpact(dir: string): Promise<string[]> {
+        const results: string[] = []
+        const SKIP = new Set(['node_modules', 'dist', 'dist-electron', '.git', '.flint'])
+        try {
+            const entries = await readdir(dir, { withFileTypes: true })
+            for (const entry of entries) {
+                if (entry.name.startsWith('.') && entry.name !== '.') continue
+                if (SKIP.has(entry.name)) continue
+                const full = path.join(dir, entry.name)
+                if (entry.isDirectory()) {
+                    results.push(...(await collectSourceFilesForImpact(full)))
+                } else if (/\.(tsx?|jsx?|css)$/.test(entry.name)) {
+                    results.push(full)
+                }
+            }
+        } catch { /* directory not readable */ }
+        return results
+    }
+
+    // ── COUNSEL.4.2: governance:get-health-history + governance:record-health ─
+    //
+    // Reads/appends .flint/health-history.json for the compliance trajectory chart.
+    ipcMain.handle('governance:get-health-history', async (): Promise<Array<{ date: string; score: number; grade: string }>> => {
+        if (!activeProjectRoot) return []
+        const histPath = path.join(activeProjectRoot, '.flint', 'health-history.json')
+        try {
+            const raw = await readFile(histPath, 'utf-8')
+            return JSON.parse(raw) as Array<{ date: string; score: number; grade: string }>
+        } catch {
+            return []
+        }
+    })
+
+    ipcMain.handle('governance:record-health', async (_event, entry: unknown): Promise<void> => {
+        if (!activeProjectRoot) return
+        if (typeof entry !== 'object' || entry === null) return
+        const e = entry as { score?: number; grade?: string }
+        if (typeof e.score !== 'number' || typeof e.grade !== 'string') return
+        const histPath = path.join(activeProjectRoot, '.flint', 'health-history.json')
+        let entries: Array<{ date: string; score: number; grade: string }> = []
+        try {
+            const raw = await readFile(histPath, 'utf-8')
+            entries = JSON.parse(raw) as Array<{ date: string; score: number; grade: string }>
+        } catch { /* file does not exist yet */ }
+        entries.push({ date: new Date().toISOString(), score: e.score, grade: e.grade })
+        if (entries.length > 90) entries = entries.slice(-90)
+        try {
+            await mkdir(path.join(activeProjectRoot, '.flint'), { recursive: true })
+            await writeFile(histPath, JSON.stringify(entries, null, 2), 'utf-8')
+        } catch { /* best-effort */ }
+    })
+
+    // ── S8.3: governance:get-pending-mutations ───────────────────────────────
+    //
+    // Returns mutations_ledger rows with risk_tier IN ('Amber','Red') and no approval.
+    ipcMain.handle('governance:get-pending-mutations', (): Array<{
+        id: number; type: string; filePath: string; riskScore: number; riskTier: string; agentId?: string
+    }> => {
+        try {
+            const rows = db.prepare(`
+                SELECT id, type, file_path as filePath, risk_score as riskScore,
+                       risk_tier as riskTier, agent_id as agentId
+                FROM mutations_ledger
+                WHERE risk_tier IN ('Amber', 'Red')
+                  AND approved_at IS NULL
+                ORDER BY risk_score DESC
+                LIMIT 50
+            `).all() as Array<{
+                id: number; type: string; filePath: string; riskScore: number; riskTier: string; agentId?: string
+            }>
+            return rows
+        } catch {
+            return []
+        }
+    })
+
+    ipcMain.handle('governance:approve-mutation', (_event, id: unknown): void => {
+        if (typeof id !== 'number') throw new TypeError('governance:approve-mutation — id must be a number')
+        try {
+            db.prepare(`UPDATE mutations_ledger SET approved_at = datetime('now') WHERE id = ?`).run(id)
+        } catch { /* table may not exist */ }
+    })
+
+    ipcMain.handle('governance:reject-mutation', (_event, id: unknown): void => {
+        if (typeof id !== 'number') throw new TypeError('governance:reject-mutation — id must be a number')
+        try {
+            db.prepare(`DELETE FROM mutations_ledger WHERE id = ?`).run(id)
+        } catch { /* table may not exist */ }
     })
 
     // ── Delta Mode: Baseline IPC Handlers ────────────────────────────────────

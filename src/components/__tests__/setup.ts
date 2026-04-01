@@ -90,6 +90,10 @@ export function createMockFlintAPI() {
             readOverrides: vi.fn().mockResolvedValue([]),
             clearOverride: vi.fn().mockResolvedValue(undefined),
             scanUsage: vi.fn().mockResolvedValue([]),
+            auditContrast: vi.fn().mockResolvedValue([]),
+            getPendingApprovals: vi.fn().mockResolvedValue([]),
+            approveToken: vi.fn().mockResolvedValue({ ok: true }),
+            rejectToken: vi.fn().mockResolvedValue({ ok: true }),
         },
         assets: {
             getMetadata: vi.fn().mockResolvedValue([]),
@@ -161,6 +165,17 @@ export function createMockFlintAPI() {
             getProvenanceSummary: vi.fn().mockResolvedValue({}),
             // COUNSEL.3.3: Anomaly alerts
             getAnomalies: vi.fn().mockResolvedValue([]),
+            // COUNSEL.3.1: Last clean state
+            getLastCleanState: vi.fn().mockResolvedValue(null),
+            // COUNSEL.4.1: Token impact preview
+            previewTokenImpact: vi.fn().mockResolvedValue({ affectedFiles: 0, estimatedImpact: 'low' }),
+            // COUNSEL.4.2: Health history
+            getHealthHistory: vi.fn().mockResolvedValue([]),
+            recordHealth: vi.fn().mockResolvedValue(undefined),
+            // S8.3: Pending mutations
+            getPendingMutations: vi.fn().mockResolvedValue([]),
+            approveMutation: vi.fn().mockResolvedValue(undefined),
+            rejectMutation: vi.fn().mockResolvedValue(undefined),
         },
         figma: {
             status: vi.fn().mockResolvedValue({ running: false, lastWebhookAt: null, tokenCount: 0, port: 4545 }),

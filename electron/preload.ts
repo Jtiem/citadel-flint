@@ -178,6 +178,33 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
             usageCount: number
             files: string[]
         }[]> => ipcRenderer.invoke('tokens:scan-usage'),
+
+        /**
+         * MINT.3a: Audits color token pairs for WCAG contrast compliance.
+         */
+        auditContrast: (): Promise<{
+            fg: string; bg: string; fgValue: string; bgValue: string
+            ratio: number; passAA: boolean; passAAA: boolean
+        }[]> => ipcRenderer.invoke('tokens:audit-contrast'),
+
+        /**
+         * MINT.3c: Returns pending tokens awaiting approval.
+         */
+        getPendingApprovals: (): Promise<{
+            name: string; value: string; type: string; source: string; proposedAt: string
+        }[]> => ipcRenderer.invoke('tokens:get-pending-approvals'),
+
+        /**
+         * MINT.3c: Approves a pending token, moving it into design-tokens.json.
+         */
+        approveToken: (tokenName: string): Promise<{ ok: boolean }> =>
+            ipcRenderer.invoke('tokens:approve-token', tokenName),
+
+        /**
+         * MINT.3c: Rejects a pending token, removing it from the pending list.
+         */
+        rejectToken: (tokenName: string): Promise<{ ok: boolean }> =>
+            ipcRenderer.invoke('tokens:reject-token', tokenName),
     },
 
     /**
@@ -448,6 +475,14 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
          */
         detectEnvironment: (): Promise<unknown> =>
             ipcRenderer.invoke('project:detect-environment'),
+
+        /**
+         * FORGE.4b: Reads the cached debt snapshot for a project and returns
+         * its health grade letter, numeric score, and last-updated timestamp.
+         * Returns null when the snapshot file is missing or malformed.
+         */
+        getHealthGrade: (projectPath: string): Promise<{ grade: string; score: number; updatedAt: string } | null> =>
+            ipcRenderer.invoke('project:get-health-grade', projectPath),
     },
 
     /**
@@ -908,6 +943,56 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
          */
         getAnomalies: (): Promise<Array<{ type: string; severity: string; message: string; detected_at: string }>> =>
             ipcRenderer.invoke('governance:get-anomalies'),
+
+        /**
+         * COUNSEL.3.1: Returns the most recent health-history entry with score >= 95.
+         * Returns null when no clean state exists. Used by "Rewind to clean" link.
+         */
+        getLastCleanState: (): Promise<{ timestamp: string; score: number } | null> =>
+            ipcRenderer.invoke('governance:get-last-clean-state'),
+
+        /**
+         * COUNSEL.4.1: Previews the impact of changing a design token.
+         * Returns affected file count and impact classification.
+         */
+        previewTokenImpact: (tokenName: string, newValue: string): Promise<{
+            affectedFiles: number
+            estimatedImpact: 'low' | 'medium' | 'high'
+        }> =>
+            ipcRenderer.invoke('governance:preview-token-impact', tokenName, newValue),
+
+        /**
+         * COUNSEL.4.2: Returns health score history for the compliance trajectory chart.
+         */
+        getHealthHistory: (): Promise<Array<{ date: string; score: number; grade: string }>> =>
+            ipcRenderer.invoke('governance:get-health-history'),
+
+        /**
+         * COUNSEL.4.2: Records a health score entry to the history file.
+         * Called after each audit to build the trajectory chart.
+         */
+        recordHealth: (entry: { score: number; grade: string }): Promise<void> =>
+            ipcRenderer.invoke('governance:record-health', entry),
+
+        /**
+         * S8.3: Returns pending mutations awaiting approval (Amber/Red risk tier).
+         */
+        getPendingMutations: (): Promise<Array<{
+            id: number; type: string; filePath: string; riskScore: number; riskTier: string; agentId?: string
+        }>> =>
+            ipcRenderer.invoke('governance:get-pending-mutations'),
+
+        /**
+         * S8.3: Approves a pending mutation by setting approved_at.
+         */
+        approveMutation: (id: number): Promise<void> =>
+            ipcRenderer.invoke('governance:approve-mutation', id),
+
+        /**
+         * S8.3: Rejects a pending mutation by deleting it from the ledger.
+         */
+        rejectMutation: (id: number): Promise<void> =>
+            ipcRenderer.invoke('governance:reject-mutation', id),
     },
 
     // ── Phase ACX.5: Context Sync Pipeline ────────────────────────────────────
