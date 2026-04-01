@@ -18,10 +18,10 @@
  * Renderer Process only — no Node.js imports.
  */
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Upload, X, Search, Palette } from 'lucide-react'
 import { useTokenStore } from '../../store/tokenStore'
-import type { DesignToken, TokenType } from '../../types/flint-api'
+import type { DesignToken, TokenType, FigmaStatus } from '../../types/flint-api'
 import { FocusTrap } from './FocusTrap'
 
 // (Validation helpers removed — token values are read-only in this UI)
@@ -57,12 +57,42 @@ function DimensionBar({ value }: { value: string }) {
     )
 }
 
+// ── S7.2: Sync badge types ───────────────────────────────────────────────────
+
+export type SyncBadgeStatus = 'synced' | 'local-only' | 'drifted' | 'figma-only'
+
+const SYNC_BADGE_STYLES: Record<SyncBadgeStatus, string> = {
+    'synced': 'bg-emerald-400/10 text-emerald-400 border-emerald-400/20',
+    'local-only': 'bg-zinc-400/10 text-zinc-400 border-zinc-400/20',
+    'drifted': 'bg-amber-400/10 text-amber-400 border-amber-400/20',
+    'figma-only': 'bg-blue-400/10 text-blue-400 border-blue-400/20',
+}
+
+const SYNC_BADGE_LABELS: Record<SyncBadgeStatus, string> = {
+    'synced': 'Synced',
+    'local-only': 'Local only',
+    'drifted': 'Drifted',
+    'figma-only': 'Figma only',
+}
+
+function SyncBadge({ status }: { status: SyncBadgeStatus }) {
+    return (
+        <span
+            className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] ${SYNC_BADGE_STYLES[status]}`}
+            data-testid="sync-badge"
+        >
+            {SYNC_BADGE_LABELS[status]}
+        </span>
+    )
+}
+
 interface TokenRowProps {
     token: DesignToken
+    syncStatus?: SyncBadgeStatus | null
 }
 
 /** Read-only token row. Values are managed via MCP tools (flint_approve_tokens, flint_sync_tokens). */
-function TokenRow({ token }: TokenRowProps) {
+function TokenRow({ token, syncStatus }: TokenRowProps) {
     return (
         <div className="flex items-center gap-2 border-b border-zinc-800/40 px-3 py-1.5 hover:bg-zinc-800/30">
             {/* Type-specific visual indicator */}
@@ -87,6 +117,9 @@ function TokenRow({ token }: TokenRowProps) {
                     {token.token_value}
                 </p>
             </div>
+
+            {/* S7.2: Sync badge — only when Figma is connected */}
+            {syncStatus && <SyncBadge status={syncStatus} />}
 
             {/* Mode badge — only when non-default */}
             {token.mode !== 'default' && (
@@ -242,9 +275,56 @@ export function TokenManager() {
     // Import modal
     const [showImport, setShowImport] = useState(false)
 
+    // S7.2: Figma connection state + figma tokens for sync badges
+    const [figmaConnected, setFigmaConnected] = useState(false)
+    const [figmaTokens, setFigmaTokens] = useState<Map<string, string>>(new Map())
+
+    const fetchFigmaState = useCallback(() => {
+        window.flintAPI.figma?.status()
+            .then((status: FigmaStatus) => {
+                const connected = status.running && (status.tokenCount ?? 0) > 0
+                setFigmaConnected(connected)
+                if (connected) {
+                    // Read figma-tokens.json via MCP readResource
+                    window.flintAPI.mcp?.readResource?.('flint://tokens')
+                        .then((text) => {
+                            try {
+                                const data = typeof text === 'string' ? JSON.parse(text) : text
+                                const map = new Map<string, string>()
+                                // Parse flat token map or nested DTCG structure
+                                if (data && typeof data === 'object') {
+                                    const entries = Array.isArray(data) ? data : Object.entries(data)
+                                    for (const entry of entries) {
+                                        if (Array.isArray(entry)) {
+                                            const [key, val] = entry
+                                            map.set(String(key), typeof val === 'object' && val?.$value ? String(val.$value) : String(val))
+                                        } else if (entry && typeof entry === 'object' && entry.token_path) {
+                                            map.set(String(entry.token_path), String(entry.token_value ?? ''))
+                                        }
+                                    }
+                                }
+                                setFigmaTokens(map)
+                            } catch { /* parse error — ignore */ }
+                        })
+                        .catch(() => { /* MCP not available */ })
+                }
+            })
+            .catch(() => setFigmaConnected(false))
+    }, [])
+
     useEffect(() => {
         fetchTokens().catch(console.error)
-    }, [fetchTokens])
+        fetchFigmaState()
+    }, [fetchTokens, fetchFigmaState])
+
+    // S7.2: Compute sync status for each token
+    const getSyncStatus = useCallback((token: DesignToken): SyncBadgeStatus | null => {
+        if (!figmaConnected || figmaTokens.size === 0) return null
+        const figmaValue = figmaTokens.get(token.token_path)
+        if (figmaValue === undefined) return 'local-only'
+        if (figmaValue === token.token_value) return 'synced'
+        return 'drifted'
+    }, [figmaConnected, figmaTokens])
 
     // Search-filtered token list
     const filteredTokens = useMemo(() => {
@@ -384,6 +464,7 @@ export function TokenManager() {
                                     <TokenRow
                                         key={token.id}
                                         token={token}
+                                        syncStatus={getSyncStatus(token)}
                                     />
                                 ))}
                             </div>

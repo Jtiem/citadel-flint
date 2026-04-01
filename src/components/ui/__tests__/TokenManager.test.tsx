@@ -248,4 +248,36 @@ describe('TokenManager', () => {
         const valueEl = screen.getByText('#ff0000')
         expect(valueEl.getAttribute('title')).toContain('managed through your design system')
     })
+
+    // ── S7.2: Per-token sync badges ─────────────────────────────────────────
+
+    // 18. No sync badges when Figma is not connected
+    it('does not show sync badges when Figma is not connected', async () => {
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(SAMPLE_TOKENS)
+        ;(window.flintAPI.figma.status as ReturnType<typeof vi.fn>).mockResolvedValue({
+            running: false, lastWebhookAt: null, tokenCount: 0, port: 4545,
+        })
+        render(<TokenManager />)
+        await waitFor(() => screen.getByText('color.primary'))
+        expect(screen.queryAllByTestId('sync-badge').length).toBe(0)
+    })
+
+    // 19. Shows sync badges when Figma is connected and tokens are available
+    it('shows sync badges when Figma is connected', async () => {
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue([
+            makeToken({ id: 1, token_path: 'color.primary', token_value: '#1d4ed8', collection_name: 'Colors' }),
+        ])
+        ;(window.flintAPI.figma.status as ReturnType<typeof vi.fn>).mockResolvedValue({
+            running: true, lastWebhookAt: Date.now(), tokenCount: 5, port: 4545,
+        })
+        // Mock MCP readResource to return a matching token
+        ;(window.flintAPI.mcp!.readResource as ReturnType<typeof vi.fn>).mockResolvedValue(
+            JSON.stringify([{ token_path: 'color.primary', token_value: '#1d4ed8' }])
+        )
+        render(<TokenManager />)
+        await waitFor(() => {
+            const badges = screen.queryAllByTestId('sync-badge')
+            expect(badges.length).toBeGreaterThan(0)
+        })
+    })
 })

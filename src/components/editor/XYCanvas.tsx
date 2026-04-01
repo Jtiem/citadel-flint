@@ -25,7 +25,7 @@
  *    since LivePreview reads from the MithrilContext.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { GripHorizontal } from 'lucide-react'
 // debounce delay for Shift+scroll breakpoint cycling (ms)
 const BREAKPOINT_SCROLL_DEBOUNCE_MS = 200
@@ -49,6 +49,44 @@ import { useASTBufferStore } from '../../store/astBufferStore'
 type LivePreviewData = Record<string, never>
 
 /**
+ * S8.1: Violation indicator dot for canvas nodes.
+ * Reads from canvasStore.mithrilViolations and canvasStore.a11yViolations.
+ */
+function ViolationIndicator() {
+    const mithrilViolations = useCanvasStore((s) => s.mithrilViolations)
+    const a11yViolations = useCanvasStore((s) => s.a11yViolations)
+
+    const { color, count, label } = useMemo(() => {
+        const mithrilCount = mithrilViolations.length
+        const a11yCount = Object.keys(a11yViolations).length
+        const total = mithrilCount + a11yCount
+        if (total === 0) return { color: '', count: 0, label: '' }
+        // Red for blocking (a11y) issues, amber for warnings (mithril drift)
+        const hasBlocking = a11yCount > 0
+        return {
+            color: hasBlocking ? 'bg-red-500' : 'bg-amber-400',
+            count: total,
+            label: `${total} issue${total !== 1 ? 's' : ''}`,
+        }
+    }, [mithrilViolations, a11yViolations])
+
+    if (count === 0) return null
+
+    return (
+        <div
+            className="group absolute right-2 top-2 z-10"
+            data-testid="violation-indicator"
+        >
+            <span className={`block h-3 w-3 rounded-full ${color} shadow-sm`} />
+            {/* Tooltip on hover */}
+            <span className="pointer-events-none absolute right-0 top-full mt-1 whitespace-nowrap rounded bg-zinc-800 px-2 py-1 text-[10px] text-zinc-200 opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
+                {label}
+            </span>
+        </div>
+    )
+}
+
+/**
  * XYFlow custom node that renders the Flint LivePreview iframe.
  *
  * `nodrag` class on the wrapping div prevents XYFlow's built-in drag from
@@ -58,9 +96,12 @@ type LivePreviewData = Record<string, never>
 function LivePreviewNode() {
     return (
         <div
-            className="flex flex-col overflow-hidden rounded-xl border border-gray-700 bg-gray-950 shadow-2xl shadow-black/60"
+            className="relative flex flex-col overflow-hidden rounded-xl border border-gray-700 bg-gray-950 shadow-2xl shadow-black/60"
             style={{ width: 900, height: 600 }}
         >
+            {/* S8.1: Violation indicator dot (top-right corner) */}
+            <ViolationIndicator />
+
             {/* ── Window chrome drag handle ───────────────────────────── */}
             <div
                 /* `drag-handle` is the class React Flow uses when nodeDragThreshold

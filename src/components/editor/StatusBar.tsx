@@ -86,9 +86,11 @@ interface StatusBarProps {
     isDemo?: boolean
     /** Navigate away from the demo to the user's real project */
     onOpenOwnProject?: () => void
+    /** S7.1: Opens the dedicated Figma Connection Panel */
+    onManageFigma?: () => void
 }
 
-export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject }: StatusBarProps = {}) {
+export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject, onManageFigma }: StatusBarProps = {}) {
     const mithrilViolations = useCanvasStore((s) => s.mithrilViolations)
     const overridesExist = useCanvasStore((s) => s.overridesExist)
     const activeFilePath = useCanvasStore((s) => s.activeFilePath)
@@ -645,6 +647,20 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject }: StatusBarP
                                 Disconnect
                             </button>
                         </div>
+
+                        {/* S7.1: Manage connection link */}
+                        {onManageFigma && (
+                            <div className="mt-2.5 border-t border-zinc-800 pt-2">
+                                <button
+                                    type="button"
+                                    onClick={() => { setPopoverOpen(false); onManageFigma() }}
+                                    className="text-[11px] text-indigo-400 transition-colors hover:text-indigo-300"
+                                    data-testid="figma-manage-link"
+                                >
+                                    Manage connection
+                                </button>
+                            </div>
+                        )}
 
                         {/* Setup guide link */}
                         <div className="relative mt-2.5 border-t border-zinc-800 pt-2">
