@@ -34,7 +34,7 @@ import { useCanvasStore } from '../../store/canvasStore'
 import { useGovernanceStore } from '../../store/governanceStore'
 import { useTokenStore } from '../../store/tokenStore'
 import { useNotificationStore } from '../../store/notificationStore'
-import type { LinterWarning, BaselineEntry, ProvenanceInfo, AnomalyAlert } from '../../types/flint-api'
+import type { LinterWarning, BaselineEntry, ProvenanceInfo, AnomalyAlert, PendingMutation } from '../../types/flint-api'
 import { auditDelta } from '../../utils/deltaAudit'
 import { CoverageBar } from './CoverageBar'
 import { InheritanceChain } from './InheritanceChain'
@@ -347,6 +347,60 @@ function CopySnippet({ snippet }: { snippet: string }) {
 // ── Delta Mode state ──────────────────────────────────────────────────────────
 
 type BaselineStatus = 'idle' | 'setting' | 'clearing'
+
+// ── COUNSEL.4.2: Sparkline (SVG) ────────────────────────────────────────────
+
+function Sparkline({ data }: { data: Array<{ score: number }> }) {
+    if (data.length < 2) return null
+    const w = 120, h = 32, pad = 2
+    const scores = data.slice(-7).map(d => d.score)
+    const min = Math.min(...scores), max = Math.max(...scores)
+    const range = max - min || 1
+    const points = scores.map((s, i) => {
+        const x = pad + (i / (scores.length - 1)) * (w - 2 * pad)
+        const y = h - pad - ((s - min) / range) * (h - 2 * pad)
+        return `${x},${y}`
+    }).join(' ')
+    const trend = scores[scores.length - 1] - scores[0]
+    const color = trend > 2 ? '#34d399' : trend < -2 ? '#f87171' : '#fbbf24'
+    return (
+        <svg width={w} height={h} className="shrink-0" aria-label="Health trend" data-testid="sparkline">
+            <polyline fill="none" stroke={color} strokeWidth="1.5" points={points} />
+        </svg>
+    )
+}
+
+// ── Relative time helper ────────────────────────────────────────────────────
+
+function relativeTime(isoDate: string): string {
+    const diff = Date.now() - new Date(isoDate).getTime()
+    const mins = Math.floor(diff / 60000)
+    if (mins < 1) return 'just now'
+    if (mins < 60) return `${mins}m ago`
+    const hrs = Math.floor(mins / 60)
+    if (hrs < 24) return `${hrs}h ago`
+    const days = Math.floor(hrs / 24)
+    return `${days}d ago`
+}
+
+// ── Impact colour helpers ───────────────────────────────────────────────────
+
+const IMPACT_COLOR: Record<string, string> = {
+    low: 'text-emerald-400',
+    medium: 'text-amber-400',
+    high: 'text-red-400',
+}
+
+const IMPACT_BORDER: Record<string, string> = {
+    low: 'border-emerald-500/30 bg-emerald-900/10',
+    medium: 'border-amber-500/30 bg-amber-900/10',
+    high: 'border-red-500/30 bg-red-900/10',
+}
+
+const RISK_TIER_STYLE: Record<string, string> = {
+    Amber: 'border-amber-500/40 bg-amber-900/20 text-amber-400',
+    Red: 'border-red-500/40 bg-red-900/20 text-red-400',
+}
 
 // ── COUNSEL.1.4: Inline diff preview data ────────────────────────────────────
 
@@ -969,6 +1023,147 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
         const aWarnings = Object.keys(useCanvasStore.getState().a11yViolations)
         return mWarnings.length + aWarnings.length
     })
+
+    // ── COUNSEL.3.1: Last clean state (Rewind to clean) ────────────────────
+    const [lastCleanState, setLastCleanState] = useState<{ timestamp: string; score: number } | null>(null)
+
+    useEffect(() => {
+        const api = window.flintAPI.governance
+        if (api.getLastCleanState) {
+            void api.getLastCleanState()
+                .then(setLastCleanState)
+                .catch(() => setLastCleanState(null))
+        }
+    }, [score]) // re-check when score changes
+
+    const handleRewindToClean = useCallback(async () => {
+        if (!lastCleanState) return
+        const confirmed = window.confirm(
+            `Rewind to last clean state (score ${lastCleanState.score}, ${relativeTime(lastCleanState.timestamp)})?\n\nThis will undo all changes since that point.`
+        )
+        if (!confirmed) return
+        try {
+            await applyUndo()
+            useNotificationStore.getState().push({
+                type: 'mutation',
+                title: 'Reverted to clean state',
+                message: `Reverted to score ${lastCleanState.score}`,
+                severity: 'info',
+                autoDismissMs: 4000,
+            })
+        } catch {
+            useNotificationStore.getState().push({
+                type: 'violation',
+                title: 'Rewind failed',
+                message: 'Could not revert — try using the undo shortcut instead',
+                severity: 'warning',
+                autoDismissMs: 5000,
+            })
+        }
+    }, [lastCleanState])
+
+    // ── COUNSEL.4.1: Token impact preview ────────────────────────────────────
+    const [tokenImpact, setTokenImpact] = useState<{ tokenName: string; affectedFiles: number; estimatedImpact: 'low' | 'medium' | 'high' } | null>(null)
+    const [isTokenImpactOpen, setIsTokenImpactOpen] = useState(false)
+
+    // Fetch token impact when sync-type violations exist
+    useEffect(() => {
+        const syncWarnings = effectiveLinterWarnings.filter((w) => w.type === 'sync')
+        if (syncWarnings.length === 0) {
+            setTokenImpact(null)
+            return
+        }
+        const api = window.flintAPI.governance
+        if (!api.previewTokenImpact) return
+        // Use the first sync warning's token as the preview candidate
+        const firstSync = syncWarnings[0]
+        const tokenName = firstSync.nearestToken ?? extractHardcodedClassFromMsg(firstSync.message) ?? ''
+        if (!tokenName) return
+        void api.previewTokenImpact(tokenName, '')
+            .then((result) => setTokenImpact({ tokenName, ...result }))
+            .catch(() => setTokenImpact(null))
+    }, [effectiveLinterWarnings])
+
+    // ── COUNSEL.4.2: Health history for sparkline ────────────────────────────
+    const [healthHistory, setHealthHistory] = useState<Array<{ date: string; score: number; grade: string }>>([])
+
+    useEffect(() => {
+        const api = window.flintAPI.governance
+        if (api.getHealthHistory) {
+            void api.getHealthHistory()
+                .then(setHealthHistory)
+                .catch(() => setHealthHistory([]))
+        }
+    }, [])
+
+    // Record health entry when score changes (debounced by React's batching)
+    const prevScoreRef = useRef<number | null>(null)
+    useEffect(() => {
+        if (prevScoreRef.current === null) {
+            prevScoreRef.current = score
+            return
+        }
+        if (prevScoreRef.current === score) return
+        prevScoreRef.current = score
+        const api = window.flintAPI.governance
+        if (api.recordHealth && tokenCount > 0) {
+            void api.recordHealth({ score, grade })
+                .then(() => {
+                    // Refresh the sparkline data after recording
+                    if (api.getHealthHistory) {
+                        void api.getHealthHistory()
+                            .then(setHealthHistory)
+                            .catch(() => {})
+                    }
+                })
+                .catch(() => {})
+        }
+    }, [score, grade, tokenCount])
+
+    // ── S8.3: Pending mutations ──────────────────────────────────────────────
+    const [pendingMutations, setPendingMutations] = useState<PendingMutation[]>([])
+    const [isPendingOpen, setIsPendingOpen] = useState(false)
+
+    useEffect(() => {
+        const api = window.flintAPI.governance
+        if (api.getPendingMutations) {
+            void api.getPendingMutations()
+                .then(setPendingMutations)
+                .catch(() => setPendingMutations([]))
+        }
+    }, [])
+
+    const handleApproveMutation = useCallback(async (id: number) => {
+        const api = window.flintAPI.governance
+        if (!api.approveMutation) return
+        try {
+            await api.approveMutation(id)
+            setPendingMutations((prev) => prev.filter((m) => m.id !== id))
+            useNotificationStore.getState().push({
+                type: 'mutation',
+                title: 'Mutation approved',
+                message: `Mutation #${id} approved`,
+                severity: 'info',
+                autoDismissMs: 3000,
+            })
+        } catch { /* best-effort */ }
+    }, [])
+
+    const handleRejectMutation = useCallback(async (id: number) => {
+        const api = window.flintAPI.governance
+        if (!api.rejectMutation) return
+        try {
+            await api.rejectMutation(id)
+            setPendingMutations((prev) => prev.filter((m) => m.id !== id))
+            useNotificationStore.getState().push({
+                type: 'violation',
+                title: 'Mutation rejected',
+                message: `Mutation #${id} rejected and removed`,
+                severity: 'warning',
+                autoDismissMs: 3000,
+            })
+        } catch { /* best-effort */ }
+    }, [])
 
     // ── COUNSEL.1.6: A11y auto-fixable entries ────────────────────────────────
     const autoFixableA11yEntries = useMemo(
@@ -2027,12 +2222,27 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                 </div>
                             )}
                             <div className="flex items-center gap-4 px-4 py-4" title={scoreTrendHint ?? undefined}>
-                                <ScoreRing score={score} grade={grade} />
+                                <div className="flex flex-col items-center gap-1">
+                                    <ScoreRing score={score} grade={grade} />
+                                    {/* COUNSEL.4.2: Compliance trajectory sparkline */}
+                                    {healthHistory.length >= 2 && <Sparkline data={healthHistory} />}
+                                </div>
                                 <div className="flex flex-col gap-0.5">
                                     <span className={`text-6xl font-bold leading-none ${GRADE_TEXT[grade]}`} aria-label={`Grade ${grade}`}>{grade}</span>
                                     <span className="text-xs text-zinc-500">{isBaselineSet ? 'Delta Score (new issues only)' : 'Governance Health'}</span>
                                     {scoreTrendHint && <span className="text-xs text-zinc-300 mt-0.5" data-testid="score-trend-hint">{scoreTrendHint}</span>}
                                     <p className="text-xs text-zinc-500 mt-1" data-testid="next-step-prompt">{nextStep.text}</p>
+                                    {/* COUNSEL.3.1: Rewind to clean link */}
+                                    {score < 95 && lastCleanState && (
+                                        <button
+                                            type="button"
+                                            onClick={() => void handleRewindToClean()}
+                                            className="mt-1 text-left text-xs text-indigo-400 underline underline-offset-2 hover:text-indigo-300 transition-colors"
+                                            data-testid="rewind-to-clean"
+                                        >
+                                            Rewind to clean (score {lastCleanState.score}, {relativeTime(lastCleanState.timestamp)})
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                             {(mithrilCount > 0 || a11yCount > 0 || overrideCount > 0) && (
@@ -2268,6 +2478,119 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                     </div>
                 )}
             </div>
+
+            {/* ── COUNSEL.4.1: Token Change Impact Preview ─────────────── */}
+            {tokenImpact && (
+                <div className="border-t border-zinc-800" data-testid="token-impact-section">
+                    <button
+                        type="button"
+                        onClick={() => setIsTokenImpactOpen((v) => !v)}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-zinc-800/30 transition-colors"
+                        aria-expanded={isTokenImpactOpen}
+                        aria-controls="token-impact-accordion"
+                    >
+                        {isTokenImpactOpen
+                            ? <ChevronDown size={12} className="shrink-0 text-zinc-500" aria-hidden="true" />
+                            : <ChevronRight size={12} className="shrink-0 text-zinc-500" aria-hidden="true" />}
+                        <span className="flex-1 text-xs text-zinc-400">Token Impact</span>
+                        <span className={`text-[10px] font-medium ${IMPACT_COLOR[tokenImpact.estimatedImpact]}`}>
+                            {tokenImpact.estimatedImpact}
+                        </span>
+                    </button>
+                    {isTokenImpactOpen && (
+                        <div id="token-impact-accordion" className="px-3 py-2 space-y-1.5">
+                            <div className={`flex items-start gap-2 rounded border px-3 py-2 ${IMPACT_BORDER[tokenImpact.estimatedImpact]}`}>
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-xs text-zinc-300">
+                                        Changing <span className="font-mono text-indigo-300">{tokenImpact.tokenName}</span> would
+                                        affect <span className={`font-bold ${IMPACT_COLOR[tokenImpact.estimatedImpact]}`}>{tokenImpact.affectedFiles}</span> {tokenImpact.affectedFiles === 1 ? 'file' : 'files'}
+                                    </p>
+                                    <p className={`mt-0.5 text-[10px] ${IMPACT_COLOR[tokenImpact.estimatedImpact]}`}>
+                                        {tokenImpact.estimatedImpact === 'low' && 'Low impact — safe to change'}
+                                        {tokenImpact.estimatedImpact === 'medium' && 'Medium impact — review affected files before changing'}
+                                        {tokenImpact.estimatedImpact === 'high' && 'High impact — this token is widely used, proceed with caution'}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* ── S8.3: Pending Approvals (MRS) ────────────────────────────── */}
+            {pendingMutations.length > 0 && (
+                <div className="border-t border-zinc-800" data-testid="pending-approvals-section">
+                    <button
+                        type="button"
+                        onClick={() => setIsPendingOpen((v) => !v)}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-zinc-800/30 transition-colors"
+                        aria-expanded={isPendingOpen}
+                        aria-controls="pending-approvals-accordion"
+                    >
+                        {isPendingOpen
+                            ? <ChevronDown size={12} className="shrink-0 text-zinc-500" aria-hidden="true" />
+                            : <ChevronRight size={12} className="shrink-0 text-zinc-500" aria-hidden="true" />}
+                        <span className="flex-1 text-xs text-zinc-400">Pending Approvals</span>
+                        <span className="inline-flex items-center gap-1 rounded border border-amber-500/40 bg-amber-900/20 px-1.5 py-0.5 text-[10px] font-medium text-amber-400">
+                            {pendingMutations.length} pending
+                        </span>
+                    </button>
+                    {isPendingOpen && (
+                        <div id="pending-approvals-accordion" className="px-3 py-2 space-y-1.5" data-testid="pending-approvals-list">
+                            {pendingMutations.map((m) => (
+                                <div
+                                    key={m.id}
+                                    className={`rounded border px-3 py-2 ${RISK_TIER_STYLE[m.riskTier] ?? 'border-zinc-700 bg-zinc-800/50 text-zinc-400'}`}
+                                    data-testid={`pending-mutation-${m.id}`}
+                                >
+                                    <div className="flex items-start gap-2">
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-xs font-medium truncate">
+                                                {m.type} — {m.filePath.split('/').pop() ?? m.filePath}
+                                            </p>
+                                            <div className="flex items-center gap-2 mt-0.5">
+                                                <span className="text-[10px] font-mono">
+                                                    Risk: {m.riskScore}
+                                                </span>
+                                                <span className={`text-[10px] rounded px-1 py-px ${
+                                                    m.riskTier === 'Red' ? 'bg-red-900/40 text-red-300' : 'bg-amber-900/40 text-amber-300'
+                                                }`}>
+                                                    {m.riskTier}
+                                                </span>
+                                                {m.agentId && (
+                                                    <span className="text-[10px] text-zinc-500 truncate">
+                                                        Agent: {m.agentId}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-1 shrink-0">
+                                            <button
+                                                type="button"
+                                                onClick={() => void handleApproveMutation(m.id)}
+                                                className="rounded border border-emerald-500/40 bg-emerald-900/20 px-2 py-0.5 text-[10px] text-emerald-400 hover:bg-emerald-900/40 transition-colors"
+                                                aria-label={`Approve mutation ${m.id}`}
+                                                data-testid={`approve-mutation-${m.id}`}
+                                            >
+                                                Approve
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => void handleRejectMutation(m.id)}
+                                                className="rounded border border-red-500/40 bg-red-900/20 px-2 py-0.5 text-[10px] text-red-400 hover:bg-red-900/40 transition-colors"
+                                                aria-label={`Reject mutation ${m.id}`}
+                                                data-testid={`reject-mutation-${m.id}`}
+                                            >
+                                                Reject
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
 
             {/* ── Compliance Coverage (ERM) ──────────────────────────────── */}
             <CoverageBar coverages={jurisdictionCoverage} isLoading={isLoadingConfig} />

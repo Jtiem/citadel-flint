@@ -701,4 +701,189 @@ describe('GovernanceDashboard — COUNSEL.3.3 Anomaly Alert Banner', () => {
             expect(screen.getByTestId('anomaly-alert-banner').textContent).toContain('Flare detected 2 anomalies')
         })
     })
+
+    // ── COUNSEL.3.1: Rewind to clean state ───────────────────────────────────
+
+    it('shows "Rewind to clean" link when score < 95 and a clean state exists', async () => {
+        ;(window.flintAPI.governance as Record<string, unknown>).getLastCleanState =
+            vi.fn().mockResolvedValue({ timestamp: '2026-03-30T10:00:00Z', score: 98 })
+        seedTokens([makeToken()])
+        // Add violations to drop score below 95
+        const warnings = new Map<string, LinterWarning>()
+        for (let i = 0; i < 3; i++) {
+            const w = makeLinterWarning({ id: `v-${i}`, severity: 'critical' })
+            warnings.set(`v-${i}`, w)
+        }
+        useEditorStore.setState({ linterWarnings: warnings })
+        render(<GovernanceDashboard />)
+        await waitFor(() => {
+            expect(screen.getByTestId('rewind-to-clean')).toBeDefined()
+        })
+        expect(screen.getByTestId('rewind-to-clean').textContent).toContain('score 98')
+    })
+
+    it('hides "Rewind to clean" link when score >= 95', async () => {
+        ;(window.flintAPI.governance as Record<string, unknown>).getLastCleanState =
+            vi.fn().mockResolvedValue({ timestamp: '2026-03-30T10:00:00Z', score: 100 })
+        seedTokens([makeToken()])
+        // No violations — score stays at 100
+        render(<GovernanceDashboard />)
+        await waitFor(() => {
+            expect(screen.queryByTestId('rewind-to-clean')).toBeNull()
+        })
+    })
+
+    it('hides "Rewind to clean" link when no clean state exists', async () => {
+        ;(window.flintAPI.governance as Record<string, unknown>).getLastCleanState =
+            vi.fn().mockResolvedValue(null)
+        seedTokens([makeToken()])
+        const w = makeLinterWarning({ id: 'v1', severity: 'critical' })
+        useEditorStore.setState({ linterWarnings: new Map([['v1', w]]) })
+        render(<GovernanceDashboard />)
+        await waitFor(() => {
+            expect(screen.queryByTestId('rewind-to-clean')).toBeNull()
+        })
+    })
+
+    // ── COUNSEL.4.2: Compliance trajectory sparkline ─────────────────────────
+
+    it('renders sparkline when health history has 2+ entries', async () => {
+        ;(window.flintAPI.governance as Record<string, unknown>).getHealthHistory =
+            vi.fn().mockResolvedValue([
+                { date: '2026-03-28T10:00:00Z', score: 85, grade: 'B' },
+                { date: '2026-03-29T10:00:00Z', score: 90, grade: 'A' },
+                { date: '2026-03-30T10:00:00Z', score: 92, grade: 'A' },
+            ])
+        ;(window.flintAPI.governance as Record<string, unknown>).recordHealth =
+            vi.fn().mockResolvedValue(undefined)
+        seedTokens([makeToken()])
+        render(<GovernanceDashboard />)
+        await waitFor(() => {
+            expect(screen.getByTestId('sparkline')).toBeDefined()
+        })
+        // Should have a polyline element inside the SVG
+        const svg = screen.getByTestId('sparkline')
+        expect(svg.querySelector('polyline')).not.toBeNull()
+    })
+
+    it('does not render sparkline when history has fewer than 2 entries', async () => {
+        ;(window.flintAPI.governance as Record<string, unknown>).getHealthHistory =
+            vi.fn().mockResolvedValue([{ date: '2026-03-30T10:00:00Z', score: 95, grade: 'A' }])
+        ;(window.flintAPI.governance as Record<string, unknown>).recordHealth =
+            vi.fn().mockResolvedValue(undefined)
+        seedTokens([makeToken()])
+        render(<GovernanceDashboard />)
+        // Allow effects to settle
+        await waitFor(() => {
+            expect(screen.getByTestId('next-step-prompt')).toBeDefined()
+        })
+        expect(screen.queryByTestId('sparkline')).toBeNull()
+    })
+
+    // ── COUNSEL.4.1: Token impact preview ────────────────────────────────────
+
+    it('shows token impact section when sync violations exist', async () => {
+        ;(window.flintAPI.governance as Record<string, unknown>).previewTokenImpact =
+            vi.fn().mockResolvedValue({ affectedFiles: 4, estimatedImpact: 'medium' })
+        seedTokens([makeToken()])
+        const syncWarning = makeLinterWarning({
+            type: 'sync',
+            id: 'sync-1',
+            nearestToken: 'color.brand.primary',
+            message: "SYNC-001: token drift on 'color.brand.primary'",
+        })
+        useEditorStore.setState({ linterWarnings: new Map([['sync-1', syncWarning]]) })
+        render(<GovernanceDashboard />)
+        await waitFor(() => {
+            expect(screen.getByTestId('token-impact-section')).toBeDefined()
+        })
+    })
+
+    it('hides token impact section when no sync violations exist', async () => {
+        ;(window.flintAPI.governance as Record<string, unknown>).previewTokenImpact =
+            vi.fn().mockResolvedValue({ affectedFiles: 0, estimatedImpact: 'low' })
+        seedTokens([makeToken()])
+        const mithrilWarning = makeLinterWarning({ type: 'color-drift', id: 'n1' })
+        useEditorStore.setState({ linterWarnings: new Map([['n1', mithrilWarning]]) })
+        render(<GovernanceDashboard />)
+        // Allow effects to settle
+        await waitFor(() => {
+            expect(screen.getByTestId('next-step-prompt')).toBeDefined()
+        })
+        expect(screen.queryByTestId('token-impact-section')).toBeNull()
+    })
+
+    // ── S8.3: Pending approvals ──────────────────────────────────────────────
+
+    it('shows pending approvals section when mutations await approval', async () => {
+        ;(window.flintAPI.governance as Record<string, unknown>).getPendingMutations =
+            vi.fn().mockResolvedValue([
+                { id: 1, type: 'insertNode', filePath: '/src/App.tsx', riskScore: 65, riskTier: 'Amber', agentId: 'agent-1' },
+                { id: 2, type: 'deleteNode', filePath: '/src/Home.tsx', riskScore: 85, riskTier: 'Red' },
+            ])
+        seedTokens([makeToken()])
+        render(<GovernanceDashboard />)
+        await waitFor(() => {
+            expect(screen.getByTestId('pending-approvals-section')).toBeDefined()
+        })
+        // Badge should show "2 pending"
+        expect(screen.getByTestId('pending-approvals-section').textContent).toContain('2 pending')
+    })
+
+    it('hides pending approvals section when no mutations pending', async () => {
+        ;(window.flintAPI.governance as Record<string, unknown>).getPendingMutations =
+            vi.fn().mockResolvedValue([])
+        seedTokens([makeToken()])
+        render(<GovernanceDashboard />)
+        // Allow effects to settle
+        await waitFor(() => {
+            expect(screen.getByTestId('next-step-prompt')).toBeDefined()
+        })
+        expect(screen.queryByTestId('pending-approvals-section')).toBeNull()
+    })
+
+    it('approve button removes the mutation from the list', async () => {
+        const approveFn = vi.fn().mockResolvedValue(undefined)
+        ;(window.flintAPI.governance as Record<string, unknown>).getPendingMutations =
+            vi.fn().mockResolvedValue([
+                { id: 42, type: 'insertNode', filePath: '/src/App.tsx', riskScore: 65, riskTier: 'Amber' },
+            ])
+        ;(window.flintAPI.governance as Record<string, unknown>).approveMutation = approveFn
+        seedTokens([makeToken()])
+        render(<GovernanceDashboard />)
+        await waitFor(() => {
+            expect(screen.getByTestId('pending-approvals-section')).toBeDefined()
+        })
+        // Open the accordion
+        fireEvent.click(screen.getByText('Pending Approvals'))
+        await waitFor(() => {
+            expect(screen.getByTestId('approve-mutation-42')).toBeDefined()
+        })
+        fireEvent.click(screen.getByTestId('approve-mutation-42'))
+        await waitFor(() => {
+            expect(approveFn).toHaveBeenCalledWith(42)
+        })
+    })
+
+    it('reject button removes the mutation from the list', async () => {
+        const rejectFn = vi.fn().mockResolvedValue(undefined)
+        ;(window.flintAPI.governance as Record<string, unknown>).getPendingMutations =
+            vi.fn().mockResolvedValue([
+                { id: 99, type: 'deleteNode', filePath: '/src/Home.tsx', riskScore: 85, riskTier: 'Red' },
+            ])
+        ;(window.flintAPI.governance as Record<string, unknown>).rejectMutation = rejectFn
+        seedTokens([makeToken()])
+        render(<GovernanceDashboard />)
+        await waitFor(() => {
+            expect(screen.getByTestId('pending-approvals-section')).toBeDefined()
+        })
+        fireEvent.click(screen.getByText('Pending Approvals'))
+        await waitFor(() => {
+            expect(screen.getByTestId('reject-mutation-99')).toBeDefined()
+        })
+        fireEvent.click(screen.getByTestId('reject-mutation-99'))
+        await waitFor(() => {
+            expect(rejectFn).toHaveBeenCalledWith(99)
+        })
+    })
 })
