@@ -9,11 +9,14 @@
  *   MINT.1b — Visual token grid (ColorGrid, TypographySpecimen, SpacingRuler)
  *   MINT.1c — Mode columns toggle (group tokens by mode side-by-side)
  *   MINT.1e — A11y fixes (labels, h3 headers, focus-visible delete, roles)
+ *   MINT.3b — Contrast audit section (WCAG AA/AAA pass rates)
+ *   MINT.3c — Token approval staging (pending tokens from Figma/Scout)
+ *   MINT.4d — Per-token detail view (slide-out panel)
  *
  * Renderer Process only — no Node.js imports.
  */
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Upload, X, Search, Palette, RefreshCw, Check, AlertCircle } from 'lucide-react'
 import { useTokenStore } from '../../store/tokenStore'
 import type { DesignToken, TokenType } from '../../types/flint-api'
@@ -22,7 +25,10 @@ import { ColorGrid } from './token/ColorGrid'
 import { TypographySpecimen } from './token/TypographySpecimen'
 import { SpacingRuler } from './token/SpacingRuler'
 import { ModeColumns } from './token/ModeColumns'
+import { TokenApprovalStaging } from './token/TokenApprovalStaging'
+import { TokenDetailView } from './token/TokenDetailView'
 import { useTokenUsage } from '../../hooks/useTokenUsage'
+import { useContrastAudit } from '../../hooks/useContrastAudit'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -325,6 +331,15 @@ export function TokenPanel() {
     const [showImport, setShowImport] = useState(false)
     const [groupByMode, setGroupByMode] = useState(false)
 
+    // MINT.4d: Per-token detail view
+    const [selectedToken, setSelectedToken] = useState<DesignToken | null>(null)
+    const handleTokenSelect = useCallback((token: DesignToken) => {
+        setSelectedToken(token)
+    }, [])
+
+    // MINT.3b: Contrast audit
+    const { failingPairs, passingCount, totalPairs, isAuditing, pairs: allContrastPairs } = useContrastAudit()
+
     // MINT.2b/2c: Token usage intelligence + drift detection
     const localTokensForDrift = useMemo(
         () => tokens.map((t) => ({ token_path: t.token_path, token_value: t.token_value })),
@@ -415,6 +430,54 @@ export function TokenPanel() {
                     </div>
                 </div>
             )}
+
+            {/* ── MINT.3b: Contrast Audit ────────────────────────────────── */}
+            {totalPairs > 0 && (
+                <div className="shrink-0 border-b border-zinc-800 bg-zinc-900/40 px-3 py-2" data-testid="contrast-audit-section">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 mb-1">
+                        Contrast Audit
+                    </p>
+                    <div className="flex items-center gap-2 mb-1.5">
+                        <span className="text-[10px] text-zinc-400">
+                            {passingCount} of {totalPairs} color pairs pass WCAG AA
+                        </span>
+                        {isAuditing && <span className="text-[10px] text-zinc-600">Auditing...</span>}
+                    </div>
+                    {/* Progress bar */}
+                    <div className="h-1.5 w-full rounded-full bg-zinc-800" data-testid="contrast-progress-bar">
+                        <div
+                            className={`h-full rounded-full transition-all ${
+                                passingCount === totalPairs ? 'bg-emerald-500' : 'bg-amber-500'
+                            }`}
+                            style={{ width: `${totalPairs > 0 ? (passingCount / totalPairs) * 100 : 0}%` }}
+                        />
+                    </div>
+                    {/* Failing pairs list (worst 10) */}
+                    {failingPairs.length > 0 && (
+                        <div className="mt-2 space-y-1" data-testid="failing-pairs-list">
+                            {failingPairs.map((pair, i) => (
+                                <div key={`${pair.fg}-${pair.bg}-${i}`} className="flex items-center gap-2 text-[10px]">
+                                    <div
+                                        className="h-4 w-4 shrink-0 rounded border border-white/10"
+                                        style={{ backgroundColor: pair.fgValue }}
+                                        aria-hidden="true"
+                                    />
+                                    <div
+                                        className="h-4 w-4 shrink-0 rounded border border-white/10"
+                                        style={{ backgroundColor: pair.bgValue }}
+                                        aria-hidden="true"
+                                    />
+                                    <span className="font-mono text-zinc-400">{pair.ratio.toFixed(2)}:1</span>
+                                    <span className="rounded bg-red-900/30 px-1 text-red-400">Fails AA</span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* ── MINT.3c: Token Approval Staging ─────────────────────────── */}
+            <TokenApprovalStaging onTokenResolved={() => fetchTokens()} />
 
             {/* ── Toolbar ─────────────────────────────────────────────────── */}
             <div className="flex shrink-0 items-center gap-2 border-b border-zinc-800 px-3 py-2">
@@ -548,7 +611,7 @@ export function TokenPanel() {
 
                                     {/* Visual renderers per type */}
                                     {tokenType === 'color' && (
-                                        <ColorGrid tokens={group} usageMap={usageMap} driftMap={driftMap} />
+                                        <ColorGrid tokens={group} usageMap={usageMap} driftMap={driftMap} onTokenSelect={handleTokenSelect} />
                                     )}
                                     {isTypographyType(tokenType) && <TypographySpecimen tokens={group} />}
                                     {isSpacingType(tokenType) && <SpacingRuler tokens={group} />}
@@ -580,6 +643,19 @@ export function TokenPanel() {
                     onImport={importTokensJSON}
                     isLoading={isLoading}
                     error={error}
+                />
+            )}
+
+            {/* ── MINT.4d: Token Detail View ──────────────────────────────── */}
+            {selectedToken && (
+                <TokenDetailView
+                    token={selectedToken}
+                    usage={usageMap.get(selectedToken.token_path)}
+                    contrastPairs={allContrastPairs.filter(
+                        (p) => p.fg === selectedToken.token_path || p.bg === selectedToken.token_path,
+                    )}
+                    drift={driftMap.get(selectedToken.token_path)}
+                    onClose={() => setSelectedToken(null)}
                 />
             )}
         </div>

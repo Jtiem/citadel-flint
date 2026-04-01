@@ -17,9 +17,11 @@ interface ColorGridProps {
     usageMap?: Map<string, TokenUsageResult>
     /** MINT.2c: Per-token drift info (tokenPath → { localValue, figmaValue }). Optional. */
     driftMap?: Map<string, { localValue: string; figmaValue: string }>
+    /** MINT.4d: Callback when a token swatch is clicked to open the detail view. */
+    onTokenSelect?: (token: DesignToken) => void
 }
 
-export function ColorGrid({ tokens, usageMap, driftMap }: ColorGridProps) {
+export function ColorGrid({ tokens, usageMap, driftMap, onTokenSelect }: ColorGridProps) {
     if (tokens.length === 0) return null
 
     return (
@@ -32,8 +34,12 @@ export function ColorGrid({ tokens, usageMap, driftMap }: ColorGridProps) {
                 return (
                     <div
                         key={token.id}
-                        className="flex flex-col items-center gap-1"
+                        className={`flex flex-col items-center gap-1${onTokenSelect ? ' cursor-pointer' : ''}`}
                         title={token.token_path}
+                        onClick={onTokenSelect ? () => onTokenSelect(token) : undefined}
+                        role={onTokenSelect ? 'button' : undefined}
+                        tabIndex={onTokenSelect ? 0 : undefined}
+                        onKeyDown={onTokenSelect ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onTokenSelect(token) } } : undefined}
                     >
                         {/* Swatch with optional drift dot */}
                         <div className="relative">

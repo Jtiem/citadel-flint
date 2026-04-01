@@ -483,4 +483,174 @@ describe('TokenPanel', () => {
             expect(document.querySelector('[data-testid="token-usage-summary"]')).toBeNull()
         })
     })
+
+    // ── MINT.3b: Contrast Audit ──────────────────────────────────────────────
+
+    describe('Contrast Audit (MINT.3b)', () => {
+        it('shows contrast audit section when audit returns pairs', async () => {
+            ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(COLOR_TOKENS)
+            ;(window.flintAPI.tokens as any).auditContrast = vi.fn().mockResolvedValue([
+                { fg: 'color.primary', bg: 'color.accent', fgValue: '#1d4ed8', bgValue: '#10b981', ratio: 2.1, passAA: false, passAAA: false },
+                { fg: 'color.primary', bg: 'color.secondary', fgValue: '#1d4ed8', bgValue: '#7c3aed', ratio: 5.2, passAA: true, passAAA: false },
+            ])
+            render(<TokenPanel />)
+            await waitFor(() => {
+                const section = screen.getByTestId('contrast-audit-section')
+                expect(section).toBeDefined()
+                expect(section.textContent).toContain('1 of 2 color pairs pass WCAG AA')
+            })
+        })
+
+        it('shows progress bar in contrast audit section', async () => {
+            ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(COLOR_TOKENS)
+            ;(window.flintAPI.tokens as any).auditContrast = vi.fn().mockResolvedValue([
+                { fg: 'color.primary', bg: 'color.accent', fgValue: '#1d4ed8', bgValue: '#10b981', ratio: 5.0, passAA: true, passAAA: false },
+            ])
+            render(<TokenPanel />)
+            await waitFor(() => {
+                expect(screen.getByTestId('contrast-progress-bar')).toBeDefined()
+            })
+        })
+
+        it('shows failing pairs list when contrast issues exist', async () => {
+            ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(COLOR_TOKENS)
+            ;(window.flintAPI.tokens as any).auditContrast = vi.fn().mockResolvedValue([
+                { fg: 'color.primary', bg: 'color.accent', fgValue: '#1d4ed8', bgValue: '#10b981', ratio: 2.1, passAA: false, passAAA: false },
+            ])
+            render(<TokenPanel />)
+            await waitFor(() => {
+                expect(screen.getByTestId('failing-pairs-list')).toBeDefined()
+                expect(screen.getByText('Fails AA')).toBeDefined()
+            })
+        })
+
+        it('does not show contrast section when audit returns empty', async () => {
+            ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(COLOR_TOKENS)
+            ;(window.flintAPI.tokens as any).auditContrast = vi.fn().mockResolvedValue([])
+            render(<TokenPanel />)
+            await waitFor(() => {
+                expect(screen.getByTestId('token-health-bar')).toBeDefined()
+            })
+            expect(document.querySelector('[data-testid="contrast-audit-section"]')).toBeNull()
+        })
+    })
+
+    // ── MINT.3c: Token Approval Staging ──────────────────────────────────────
+
+    describe('Token Approval Staging (MINT.3c)', () => {
+        it('shows approval staging when pending tokens exist', async () => {
+            ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(COLOR_TOKENS)
+            ;(window.flintAPI.tokens as any).getPendingApprovals = vi.fn().mockResolvedValue([
+                { name: 'color.new.accent', value: '#ff6600', type: 'color', source: 'Figma', proposedAt: new Date().toISOString() },
+            ])
+            render(<TokenPanel />)
+            await waitFor(() => {
+                expect(screen.getByTestId('token-approval-staging')).toBeDefined()
+                expect(screen.getByText('1 pending approval')).toBeDefined()
+            })
+        })
+
+        it('does not show approval staging when no pending tokens', async () => {
+            ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(COLOR_TOKENS)
+            ;(window.flintAPI.tokens as any).getPendingApprovals = vi.fn().mockResolvedValue([])
+            render(<TokenPanel />)
+            await waitFor(() => {
+                expect(screen.getByTestId('token-health-bar')).toBeDefined()
+            })
+            expect(document.querySelector('[data-testid="token-approval-staging"]')).toBeNull()
+        })
+
+        it('shows approve and reject buttons for each pending token', async () => {
+            ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(COLOR_TOKENS)
+            ;(window.flintAPI.tokens as any).getPendingApprovals = vi.fn().mockResolvedValue([
+                { name: 'color.pending', value: '#aabbcc', type: 'color', source: 'Scout', proposedAt: new Date().toISOString() },
+            ])
+            render(<TokenPanel />)
+            await waitFor(() => {
+                expect(screen.getByLabelText('Approve color.pending')).toBeDefined()
+                expect(screen.getByLabelText('Reject color.pending')).toBeDefined()
+            })
+        })
+
+        it('removes token from list after approval', async () => {
+            ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(COLOR_TOKENS)
+            ;(window.flintAPI.tokens as any).getPendingApprovals = vi.fn().mockResolvedValue([
+                { name: 'color.test', value: '#112233', type: 'color', source: 'Manual', proposedAt: new Date().toISOString() },
+            ])
+            ;(window.flintAPI.tokens as any).approveToken = vi.fn().mockResolvedValue({ ok: true })
+            render(<TokenPanel />)
+            await waitFor(() => screen.getByLabelText('Approve color.test'))
+            fireEvent.click(screen.getByLabelText('Approve color.test'))
+            await waitFor(() => {
+                expect(document.querySelector('[data-testid="token-approval-staging"]')).toBeNull()
+            })
+        })
+    })
+
+    // ── MINT.4d: Token Detail View ───────────────────────────────────────────
+
+    describe('Token Detail View (MINT.4d)', () => {
+        it('opens detail view when a color swatch is clicked', async () => {
+            ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(COLOR_TOKENS)
+            render(<TokenPanel />)
+            await waitFor(() => {
+                const swatches = document.querySelectorAll('[role="img"][aria-label*="Color token"]')
+                expect(swatches.length).toBeGreaterThan(0)
+            })
+            // Click the first swatch's container (which has role="button")
+            const clickables = document.querySelectorAll('[data-testid="color-grid"] [role="button"]')
+            if (clickables.length > 0) {
+                fireEvent.click(clickables[0])
+                await waitFor(() => {
+                    expect(screen.getByTestId('token-detail-view')).toBeDefined()
+                })
+            }
+        })
+
+        it('shows large swatch in detail view for color tokens', async () => {
+            ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(COLOR_TOKENS)
+            render(<TokenPanel />)
+            await waitFor(() => {
+                const clickables = document.querySelectorAll('[data-testid="color-grid"] [role="button"]')
+                expect(clickables.length).toBeGreaterThan(0)
+            })
+            const clickables = document.querySelectorAll('[data-testid="color-grid"] [role="button"]')
+            fireEvent.click(clickables[0])
+            await waitFor(() => {
+                expect(screen.getByTestId('detail-swatch')).toBeDefined()
+            })
+        })
+
+        it('closes detail view on X button click', async () => {
+            ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(COLOR_TOKENS)
+            render(<TokenPanel />)
+            await waitFor(() => {
+                const clickables = document.querySelectorAll('[data-testid="color-grid"] [role="button"]')
+                expect(clickables.length).toBeGreaterThan(0)
+            })
+            const clickables = document.querySelectorAll('[data-testid="color-grid"] [role="button"]')
+            fireEvent.click(clickables[0])
+            await waitFor(() => screen.getByTestId('token-detail-view'))
+            fireEvent.click(screen.getByLabelText('Close detail view'))
+            await waitFor(() => {
+                expect(document.querySelector('[data-testid="token-detail-view"]')).toBeNull()
+            })
+        })
+
+        it('closes detail view on Escape key', async () => {
+            ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(COLOR_TOKENS)
+            render(<TokenPanel />)
+            await waitFor(() => {
+                const clickables = document.querySelectorAll('[data-testid="color-grid"] [role="button"]')
+                expect(clickables.length).toBeGreaterThan(0)
+            })
+            const clickables = document.querySelectorAll('[data-testid="color-grid"] [role="button"]')
+            fireEvent.click(clickables[0])
+            await waitFor(() => screen.getByTestId('token-detail-view'))
+            fireEvent.keyDown(document, { key: 'Escape' })
+            await waitFor(() => {
+                expect(document.querySelector('[data-testid="token-detail-view"]')).toBeNull()
+            })
+        })
+    })
 })
