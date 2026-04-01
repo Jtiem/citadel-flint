@@ -857,6 +857,110 @@ app.whenReady().then(async () => {
     `)
     ipcMain.handle('tokens:read-overrides', (): OverrideRow[] => stmtReadOverrides.all())
 
+    // ── MINT.2a: Token Usage Scanner ────────────────────────────────────────
+    // Scans project files (.tsx/.jsx/.css) for CSS variable references to
+    // design tokens. Returns usage counts per token for dead-token detection.
+    ipcMain.handle('tokens:scan-usage', async () => {
+        if (!activeProjectRoot) return []
+
+        // 1. Load design tokens from .flint/design-tokens.json
+        const tokensPath = path.join(activeProjectRoot, '.flint', 'design-tokens.json')
+        let tokenEntries: { name: string; cssVar: string }[] = []
+        try {
+            const raw = await readFile(tokensPath, 'utf8')
+            const parsed = JSON.parse(raw)
+            // Flatten token tree into name → CSS variable pairs
+            // Tokens are stored as nested objects; leaf nodes have $value and $type
+            function walk(obj: Record<string, unknown>, prefix: string) {
+                for (const [key, val] of Object.entries(obj)) {
+                    if (key.startsWith('$')) continue
+                    const fullPath = prefix ? `${prefix}-${key}` : key
+                    if (val && typeof val === 'object' && '$value' in (val as Record<string, unknown>)) {
+                        tokenEntries.push({
+                            name: fullPath,
+                            cssVar: `--${fullPath}`,
+                        })
+                    } else if (val && typeof val === 'object') {
+                        walk(val as Record<string, unknown>, fullPath)
+                    }
+                }
+            }
+            walk(parsed, '')
+        } catch {
+            // Also try reading from SQLite token store as fallback
+            try {
+                const allTokens = stmtReadAll.all() as Array<{ token_path: string }>
+                tokenEntries = allTokens.map((t) => ({
+                    name: t.token_path,
+                    cssVar: `--${t.token_path.replace(/\./g, '-')}`,
+                }))
+            } catch {
+                return []
+            }
+        }
+
+        if (tokenEntries.length === 0) return []
+
+        // 2. Collect project files (.tsx, .jsx, .css) — limit to 500 files
+        const FILE_LIMIT = 500
+        const extensions = new Set(['.tsx', '.jsx', '.css'])
+        const files: string[] = []
+
+        async function collectFiles(dir: string) {
+            if (files.length >= FILE_LIMIT) return
+            let entries
+            try {
+                entries = await readdir(dir, { withFileTypes: true })
+            } catch { return }
+            for (const entry of entries) {
+                if (files.length >= FILE_LIMIT) break
+                const fullPath = path.join(dir, entry.name)
+                if (entry.isDirectory()) {
+                    // Skip node_modules, .git, dist, build
+                    if (['node_modules', '.git', 'dist', 'build', '.next'].includes(entry.name)) continue
+                    await collectFiles(fullPath)
+                } else if (extensions.has(path.extname(entry.name))) {
+                    files.push(fullPath)
+                }
+            }
+        }
+        await collectFiles(activeProjectRoot)
+
+        // 3. Scan each file for CSS variable references
+        const usageMap = new Map<string, { count: number; files: Set<string> }>()
+        for (const te of tokenEntries) {
+            usageMap.set(te.cssVar, { count: 0, files: new Set() })
+        }
+
+        for (const filePath of files) {
+            let content: string
+            try {
+                content = await readFile(filePath, 'utf8')
+            } catch { continue }
+
+            for (const te of tokenEntries) {
+                // Match var(--token-name) or direct --token-name references
+                if (content.includes(te.cssVar)) {
+                    const entry = usageMap.get(te.cssVar)!
+                    const relativePath = path.relative(activeProjectRoot!, filePath)
+                    entry.count++
+                    entry.files.add(relativePath)
+                }
+            }
+        }
+
+        // 4. Build result array
+        return tokenEntries.map((te) => {
+            const usage = usageMap.get(te.cssVar)!
+            return {
+                tokenName: te.name,
+                cssVar: te.cssVar,
+                usageCount: usage.count,
+                files: [...usage.files],
+            }
+        })
+    })
+
     // ── Presence UPSERT Handler ──────────────────────────────────────────────
     // Receives batched cursor/selection updates from the renderer (sent at most
     // every 50–100 ms via the renderer-side throttle in useSyncPresence).
@@ -1497,6 +1601,169 @@ app.whenReady().then(async () => {
         // Verify the path still exists on disk
         if (!existsSync(session.path)) return null
         return session
+    })
+
+    // ── project:detect-environment (FORGE.2a–2c) ───────────────────────────────
+    // Detects the project's UI framework, CSS framework, token format, TypeScript,
+    // and component library by reading package.json and checking for config files.
+    // Writes the result to .flint/detected-environment.json (FORGE.2b) and runs
+    // a best-effort baseline audit via MCP if connected (FORGE.2c).
+    ipcMain.handle('project:detect-environment', async (): Promise<unknown> => {
+        if (!activeProjectRoot) return null
+
+        const root = activeProjectRoot
+
+        // ── FORGE.2a: Detection logic ─────────────────────────────────────
+        interface DetectedEnvironment {
+            uiFramework: string
+            cssFramework: string
+            tokenFormat: string | null
+            typescript: boolean
+            componentLibrary: string | null
+            detectedAt: string
+            auditSummary?: { violations: number; grade: string }
+        }
+
+        let uiFramework = 'Unknown'
+        let cssFramework = 'Unknown'
+        let tokenFormat: string | null = null
+        let componentLibrary: string | null = null
+        let typescript = false
+
+        // Read package.json deps
+        let allDeps: Record<string, string> = {}
+        try {
+            const pkgRaw = await readFile(path.join(root, 'package.json'), 'utf-8')
+            const pkg = JSON.parse(pkgRaw) as {
+                dependencies?: Record<string, string>
+                devDependencies?: Record<string, string>
+            }
+            allDeps = { ...pkg.dependencies, ...pkg.devDependencies }
+        } catch {
+            // No package.json or parse error — continue with defaults
+        }
+
+        // Detect UI framework
+        if (allDeps['react'] || allDeps['react-dom'] || allDeps['next']) {
+            uiFramework = 'React'
+        } else if (allDeps['vue'] || allDeps['nuxt']) {
+            uiFramework = 'Vue'
+        } else if (allDeps['svelte'] || allDeps['@sveltejs/kit']) {
+            uiFramework = 'Svelte'
+        } else if (allDeps['@angular/core']) {
+            uiFramework = 'Angular'
+        }
+
+        // Detect CSS framework
+        const hasTwConfig = existsSync(path.join(root, 'tailwind.config.ts'))
+            || existsSync(path.join(root, 'tailwind.config.js'))
+            || existsSync(path.join(root, 'tailwind.config.mjs'))
+            || existsSync(path.join(root, 'tailwind.config.cjs'))
+        if (allDeps['tailwindcss']) {
+            const twVersion = allDeps['tailwindcss']
+            // v4 typically starts with ^4 or 4. or >= 4
+            if (twVersion.match(/^[\^~>=]*4/)) {
+                cssFramework = 'Tailwind v4'
+            } else {
+                cssFramework = 'Tailwind v3'
+            }
+        } else if (hasTwConfig) {
+            cssFramework = 'Tailwind'
+        }
+
+        // Detect token format
+        if (existsSync(path.join(root, '.flint', 'design-tokens.json'))) {
+            try {
+                const tokenRaw = await readFile(path.join(root, '.flint', 'design-tokens.json'), 'utf-8')
+                if (tokenRaw.includes('"$type"') || tokenRaw.includes('"$value"')) {
+                    tokenFormat = 'DTCG'
+                }
+            } catch {
+                // Ignore read errors
+            }
+        }
+        if (!tokenFormat && existsSync(path.join(root, 'tokens.json'))) {
+            tokenFormat = 'Tokens Studio'
+        }
+
+        // Detect TypeScript
+        typescript = existsSync(path.join(root, 'tsconfig.json'))
+
+        // Detect component library
+        if (allDeps['@mui/material'] || allDeps['@mui/core']) {
+            componentLibrary = 'MUI'
+        } else if (allDeps['primeng'] || allDeps['@primeng/themes']) {
+            componentLibrary = 'PrimeNG'
+        } else if (allDeps['@radix-ui/react-slot'] || allDeps['class-variance-authority']) {
+            componentLibrary = 'shadcn'
+        } else if (allDeps['antd']) {
+            componentLibrary = 'Ant Design'
+        } else if (allDeps['@chakra-ui/react']) {
+            componentLibrary = 'Chakra UI'
+        }
+
+        const result: DetectedEnvironment = {
+            uiFramework,
+            cssFramework,
+            tokenFormat,
+            typescript,
+            componentLibrary,
+            detectedAt: new Date().toISOString(),
+        }
+
+        // ── FORGE.2b: Write detection result to .flint/ ──────────────────
+        try {
+            const flintDir = path.join(root, '.flint')
+            if (!existsSync(flintDir)) {
+                await mkdir(flintDir, { recursive: true })
+            }
+            await writeFile(
+                path.join(flintDir, 'detected-environment.json'),
+                JSON.stringify(result, null, 2),
+                'utf-8',
+            )
+        } catch (err) {
+            console.error(`${logTag('FORGE.2b')} Failed to write detected-environment.json:`, err)
+        }
+
+        // ── FORGE.2c: Best-effort baseline audit via MCP ─────────────────
+        try {
+            if (mcpClient.status().connected) {
+                // Look for common entry points to audit
+                let auditFile: string | null = null
+                const candidates = ['src/App.tsx', 'src/app.tsx', 'src/index.tsx', 'src/main.tsx', 'pages/index.tsx']
+                for (const c of candidates) {
+                    const full = path.join(root, c)
+                    if (existsSync(full)) {
+                        auditFile = full
+                        break
+                    }
+                }
+
+                if (auditFile) {
+                    const rawResult = await mcpClient.callTool('audit_ui_component', { file: auditFile })
+                    if (rawResult?.content?.[0]?.text) {
+                        try {
+                            const auditData = JSON.parse(rawResult.content[0].text as string) as {
+                                violations?: unknown[]
+                                summary?: { grade?: string; totalViolations?: number }
+                            }
+                            const violations = auditData.summary?.totalViolations
+                                ?? (auditData.violations as unknown[] | undefined)?.length
+                                ?? 0
+                            const grade = auditData.summary?.grade ?? 'N/A'
+                            result.auditSummary = { violations, grade }
+                        } catch {
+                            // Audit result was not valid JSON — skip
+                        }
+                    }
+                }
+            }
+        } catch (err) {
+            console.error(`${logTag('FORGE.2c')} Baseline audit failed (non-blocking):`, err)
+        }
+
+        return result
     })
 
     // ── mcp:get-recent-file-focus ──────────────────────────────────────────────
@@ -2761,6 +3028,67 @@ app.whenReady().then(async () => {
             }
         },
     )
+
+    // ── COUNSEL.3.2: governance:get-provenance-summary ─────────────────────────
+    //
+    // Returns a map of nodeId → { source, agentId?, timestamp } for all
+    // mutations on the given file. Used by GovernanceDashboard to render
+    // "Introduced by [source]" provenance chips on violation cards.
+    //
+    // Queries the mutations_ledger table (created by mutationProvenanceService).
+    // Guard with try/catch — the table may not exist in all databases.
+    ipcMain.handle('governance:get-provenance-summary', (_event, filePath: unknown): Record<string, { source: string; agentId?: string; timestamp: string }> => {
+        if (typeof filePath !== 'string') return {}
+        try {
+            const rows = db.prepare(`
+                SELECT node_id, provenance_source, provenance_agent_id, created_at
+                FROM mutations_ledger
+                WHERE file_path = ?
+                ORDER BY created_at DESC
+            `).all(filePath) as Array<{
+                node_id: string
+                provenance_source: string
+                provenance_agent_id: string | null
+                created_at: string
+            }>
+            const result: Record<string, { source: string; agentId?: string; timestamp: string }> = {}
+            for (const row of rows) {
+                // Keep only the most recent mutation per node (rows are DESC by created_at)
+                if (result[row.node_id]) continue
+                result[row.node_id] = {
+                    source: row.provenance_source ?? 'unknown',
+                    ...(row.provenance_agent_id ? { agentId: row.provenance_agent_id } : {}),
+                    timestamp: row.created_at,
+                }
+            }
+            return result
+        } catch {
+            // mutations_ledger table may not exist — return empty
+            return {}
+        }
+    })
+
+    // ── COUNSEL.3.3: governance:get-anomalies ────────────────────────────────
+    //
+    // Returns recent anomalies (last 24 hours) from the anomaly_history table.
+    // Used by GovernanceDashboard to render the Flare anomaly alert banner.
+    //
+    // Guard with try/catch — the table may not exist in all databases.
+    ipcMain.handle('governance:get-anomalies', (): Array<{ type: string; severity: string; message: string; detected_at: string }> => {
+        try {
+            const rows = db.prepare(`
+                SELECT type, severity, message, detected_at
+                FROM anomaly_history
+                WHERE detected_at >= datetime('now', '-24 hours')
+                ORDER BY detected_at DESC
+                LIMIT 20
+            `).all() as Array<{ type: string; severity: string; message: string; detected_at: string }>
+            return rows
+        } catch {
+            // anomaly_history table may not exist — return empty
+            return []
+        }
+    })
 
     // ── Delta Mode: Baseline IPC Handlers ────────────────────────────────────
     //

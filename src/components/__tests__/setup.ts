@@ -89,6 +89,7 @@ export function createMockFlintAPI() {
             upsertOverride: vi.fn().mockResolvedValue(undefined),
             readOverrides: vi.fn().mockResolvedValue([]),
             clearOverride: vi.fn().mockResolvedValue(undefined),
+            scanUsage: vi.fn().mockResolvedValue([]),
         },
         assets: {
             getMetadata: vi.fn().mockResolvedValue([]),
@@ -148,10 +149,18 @@ export function createMockFlintAPI() {
                 generatedAt: new Date().toISOString(),
             }),
             onOverrideRecorded: vi.fn().mockReturnValue(() => {}),
+            // COUNSEL.2.1: Defer violation
+            deferViolation: vi.fn().mockResolvedValue(undefined),
+            getDeferredViolations: vi.fn().mockResolvedValue([]),
+            resolveDeferredViolation: vi.fn().mockResolvedValue(undefined),
             // ERM IPC surface (Phase ERM)
             getResolvedConfig: vi.fn().mockResolvedValue(null),
             togglePack: vi.fn().mockResolvedValue({ success: true, extends: [] }),
             onConfigChanged: vi.fn().mockReturnValue(() => {}),
+            // COUNSEL.3.2: Provenance summary
+            getProvenanceSummary: vi.fn().mockResolvedValue({}),
+            // COUNSEL.3.3: Anomaly alerts
+            getAnomalies: vi.fn().mockResolvedValue([]),
         },
         figma: {
             status: vi.fn().mockResolvedValue({ running: false, lastWebhookAt: null, tokenCount: 0, port: 4545 }),

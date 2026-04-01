@@ -167,6 +167,17 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
             property_value: string
             updated_at: number
         }[]> => ipcRenderer.invoke('tokens:read-overrides'),
+
+        /**
+         * MINT.2a: Scans project files for CSS variable references to design tokens.
+         * Returns usage counts per token for dead-token detection and usage badges.
+         */
+        scanUsage: (): Promise<{
+            tokenName: string
+            cssVar: string
+            usageCount: number
+            files: string[]
+        }[]> => ipcRenderer.invoke('tokens:scan-usage'),
     },
 
     /**
@@ -428,6 +439,15 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
          */
         reindex: (): Promise<{ components: number; ragChunks: number }> =>
             ipcRenderer.invoke('project:reindex'),
+
+        /**
+         * FORGE.2a: Detects the project environment (UI framework, CSS framework,
+         * token format, TypeScript, component library). Also writes to
+         * .flint/detected-environment.json and runs a baseline audit if MCP is up.
+         * Returns null when no project is open.
+         */
+        detectEnvironment: (): Promise<unknown> =>
+            ipcRenderer.invoke('project:detect-environment'),
     },
 
     /**
@@ -873,6 +893,21 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
          */
         resolveDeferredViolation: (file: string, ruleId: string, nodeId?: string): Promise<void> =>
             ipcRenderer.invoke('governance:resolve-deferred-violation', file, ruleId, nodeId),
+
+        /**
+         * COUNSEL.3.2: Returns provenance info for all mutations on a given file.
+         * Maps nodeId → { source, agentId?, timestamp } for "Introduced by" chips.
+         * Returns empty object when the mutations_ledger table is not available.
+         */
+        getProvenanceSummary: (filePath: string): Promise<Record<string, { source: string; agentId?: string; timestamp: string }>> =>
+            ipcRenderer.invoke('governance:get-provenance-summary', filePath),
+
+        /**
+         * COUNSEL.3.3: Returns recent anomalies from the Flare engine (last 24h).
+         * Returns empty array when the anomaly_history table is not available.
+         */
+        getAnomalies: (): Promise<Array<{ type: string; severity: string; message: string; detected_at: string }>> =>
+            ipcRenderer.invoke('governance:get-anomalies'),
     },
 
     // ── Phase ACX.5: Context Sync Pipeline ────────────────────────────────────

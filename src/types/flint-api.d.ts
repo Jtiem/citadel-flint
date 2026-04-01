@@ -194,6 +194,28 @@ export interface TokensAPI {
      * property override that is blocking the export gate (Commandment 6).
      */
     readOverrides?: () => Promise<OverrideRow[]>
+
+    /**
+     * MINT.2a: Scans project files (.tsx/.jsx/.css) for CSS variable references
+     * to design tokens. Returns per-token usage counts for dead-token detection
+     * and usage intelligence badges in TokenPanel.
+     */
+    scanUsage?: () => Promise<TokenUsageResult[]>
+}
+
+/**
+ * MINT.2a: Result of scanning project files for design token CSS variable usage.
+ * Each entry maps a design token to its usage count across project files.
+ */
+export interface TokenUsageResult {
+    /** The token name/path, e.g. "color-brand-primary" */
+    tokenName: string
+    /** The CSS variable name, e.g. "--color-brand-primary" */
+    cssVar: string
+    /** Number of files referencing this CSS variable */
+    usageCount: number
+    /** Relative file paths that reference this token */
+    files: string[]
 }
 
 /**
@@ -320,6 +342,30 @@ export interface RegistryAPI {
     reindex?: () => Promise<void>
 }
 
+// ── FORGE.2a: Project Environment Detection ─────────────────────────────────
+
+/**
+ * Detected project environment returned by `project:detect-environment`.
+ * Summarises the UI framework, CSS framework, token format, TypeScript usage,
+ * and component library detected in the active project root.
+ */
+export interface ProjectEnvironment {
+    /** UI framework detected from package.json (e.g. 'React', 'Vue', 'Svelte', 'Angular', 'Unknown'). */
+    uiFramework: string
+    /** CSS framework detected from config files and deps (e.g. 'Tailwind v4', 'Tailwind v3', 'CSS Custom Properties', 'Unknown'). */
+    cssFramework: string
+    /** Token format detected from project files (e.g. 'DTCG', 'Tokens Studio', null). */
+    tokenFormat: string | null
+    /** Whether TypeScript is configured (tsconfig.json present). */
+    typescript: boolean
+    /** Component library detected from package.json (e.g. 'shadcn', 'MUI', 'PrimeNG', null). */
+    componentLibrary: string | null
+    /** ISO 8601 timestamp when detection ran. */
+    detectedAt: string
+    /** Optional baseline audit summary, present when MCP was connected at detection time. */
+    auditSummary?: { violations: number; grade: string }
+}
+
 /** IPC surface for project lifecycle operations (Phase G). */
 export interface ProjectAPI {
     /**
@@ -374,6 +420,18 @@ export interface ProjectAPI {
      * before reaching the home directory.
      */
     findRootForFile: (filePath: string) => Promise<string | null>
+
+    /**
+     * FORGE.2a: Detects the project environment (UI framework, CSS framework,
+     * token format, TypeScript, component library) by reading package.json
+     * and checking for config files.
+     *
+     * Also writes the result to `.flint/detected-environment.json` (FORGE.2b)
+     * and optionally runs a baseline audit if MCP is connected (FORGE.2c).
+     *
+     * Returns `null` when no project is open.
+     */
+    detectEnvironment: () => Promise<ProjectEnvironment | null>
 }
 
 /** IPC surface for native OS menu events pushed by the main process. */
@@ -1938,6 +1996,38 @@ export interface ComplianceSummary {
     generatedAt: string
 }
 
+// ── COUNSEL.3.2: Provenance Info ─────────────────────────────────────────────
+
+/**
+ * Provenance metadata for a single mutation on a node.
+ * Returned by `governance.getProvenanceSummary(filePath)`.
+ */
+export interface ProvenanceInfo {
+    /** Who or what introduced the mutation: 'human', agent name, 'auto-fix', or 'import'. */
+    source: string
+    /** Agent identifier when source is an AI agent, or undefined for human/auto-fix. */
+    agentId?: string
+    /** ISO timestamp of the mutation. */
+    timestamp: string
+}
+
+// ── COUNSEL.3.3: Anomaly Alert ──────────────────────────────────────────────
+
+/**
+ * A single anomaly detected by the Flare statistical anomaly engine.
+ * Returned by `governance.getAnomalies()`.
+ */
+export interface AnomalyAlert {
+    /** Anomaly type, e.g. 'mutation_spike', 'override_spike', 'violation_spike'. */
+    type: string
+    /** Severity level: 'low', 'medium', 'high'. */
+    severity: string
+    /** Human-readable description of the anomaly. */
+    message: string
+    /** ISO timestamp of when the anomaly was detected. */
+    detected_at: string
+}
+
 /**
  * IPC surface for governance telemetry operations (GOV.1 + GOV.2 + ERM-2).
  * Exposed as window.flintAPI.governance.
@@ -2020,6 +2110,11 @@ export interface GovernanceAPI {
      */
     getDeferredViolations?: () => Promise<DeferredViolationRow[]>
 
+    /**
+     * Resolves a previously deferred violation by setting resolved_at.
+     */
+    resolveDeferredViolation?: (file: string, ruleId: string, nodeId?: string) => Promise<void>
+
     // ── ERM-2: Enterprise Rule Management ────────────────────────────────────
 
     /**
@@ -2051,6 +2146,24 @@ export interface GovernanceAPI {
      * Returns an unsubscribe function — pass it to useEffect cleanup.
      */
     onConfigChanged: (cb: () => void) => () => void
+
+    // ── COUNSEL.3.2: Mutation Provenance ─────────────────────────────────────
+
+    /**
+     * Returns a map of nodeId → provenance info for all mutations on the given file.
+     * Used by GovernanceDashboard to render "Introduced by [source]" chips on
+     * violation cards. Returns an empty object when no provenance data is found.
+     */
+    getProvenanceSummary?: (filePath: string) => Promise<Record<string, ProvenanceInfo>>
+
+    // ── COUNSEL.3.3: Anomaly Alerts ──────────────────────────────────────────
+
+    /**
+     * Returns recent anomalies (last 24 hours, unresolved) from the Flare
+     * anomaly detection engine. Used by GovernanceDashboard to render the
+     * anomaly alert banner at the top of the dashboard.
+     */
+    getAnomalies?: () => Promise<AnomalyAlert[]>
 }
 
 // ── Delta Mode: Baseline Types (Gap 6) ───────────────────────────────────────
