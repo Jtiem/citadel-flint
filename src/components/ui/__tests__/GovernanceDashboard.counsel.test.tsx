@@ -481,3 +481,224 @@ describe('GovernanceDashboard — COUNSEL.2.1 post-defer visual state', () => {
     it.todo('violation shows Deferred badge after successful defer')
     it.todo('cancel closes form without calling deferViolation')
 })
+
+// ---------------------------------------------------------------------------
+// COUNSEL.2.2 — Flagged for Review tier
+// ---------------------------------------------------------------------------
+
+describe('GovernanceDashboard — COUNSEL.2.2 Flagged for Review', () => {
+    beforeEach(() => {
+        useTokenStore.setState({ tokens: [], isLoading: false, error: null })
+        useCanvasStore.setState({ mithrilViolations: [], a11yViolations: {} })
+        useEditorStore.setState({ linterWarnings: new Map() })
+        ;(window.flintAPI as Record<string, unknown>).baseline = {
+            isSet: vi.fn().mockResolvedValue(false),
+            get: vi.fn().mockResolvedValue([]),
+            set: vi.fn().mockResolvedValue(undefined),
+            clear: vi.fn().mockResolvedValue(undefined),
+        }
+        ;(window.flintAPI.governance.getOverrideCount as ReturnType<typeof vi.fn>).mockResolvedValue(0)
+    })
+
+    it('renders a Flag button on each Mithril violation card', async () => {
+        seedTokens([makeToken()])
+        const warning = makeLinterWarning({ id: 'n1', type: 'color-drift' })
+        useEditorStore.setState({ linterWarnings: new Map([['n1', warning]]) })
+        render(<GovernanceDashboard />)
+        await waitFor(() => {
+            expect(screen.getByTestId('flag-btn-n1')).toBeDefined()
+        })
+    })
+
+    it('renders a Flag button on each a11y violation card', async () => {
+        seedTokens([makeToken()])
+        useCanvasStore.setState({
+            a11yViolations: { 'node-abc': ['A11Y-001: Missing alt text'] },
+        })
+        render(<GovernanceDashboard />)
+        await waitFor(() => {
+            expect(screen.getByTestId('flag-btn-a11y-node-abc')).toBeDefined()
+        })
+    })
+
+    it('clicking Flag shows "Flagged for Review" badge on the violation card', async () => {
+        seedTokens([makeToken()])
+        const warning = makeLinterWarning({ id: 'n1', type: 'color-drift' })
+        useEditorStore.setState({ linterWarnings: new Map([['n1', warning]]) })
+        render(<GovernanceDashboard />)
+        await waitFor(() => {
+            expect(screen.getByTestId('flag-btn-n1')).toBeDefined()
+        })
+        fireEvent.click(screen.getByTestId('flag-btn-n1'))
+        await waitFor(() => {
+            expect(screen.getByTestId('flagged-badge-n1')).toBeDefined()
+            expect(screen.getByTestId('flagged-badge-n1').textContent).toContain('Flagged for Review')
+        })
+    })
+
+    it('flagging a violation calls governance.deferViolation with [FLAGGED] prefix', async () => {
+        seedTokens([makeToken()])
+        const warning = makeLinterWarning({ id: 'n1', type: 'color-drift' })
+        useEditorStore.setState({ linterWarnings: new Map([['n1', warning]]) })
+        useCanvasStore.setState({ activeFilePath: '/test/file.tsx' })
+        render(<GovernanceDashboard />)
+        await waitFor(() => {
+            expect(screen.getByTestId('flag-btn-n1')).toBeDefined()
+        })
+        fireEvent.click(screen.getByTestId('flag-btn-n1'))
+        await waitFor(() => {
+            expect(window.flintAPI.governance.deferViolation).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    reason: '[FLAGGED] Flagged for review',
+                    duration: 'Manually',
+                }),
+            )
+        })
+    })
+
+    it('flagged violation shows Unflag button instead of Flag and Defer', async () => {
+        seedTokens([makeToken()])
+        const warning = makeLinterWarning({ id: 'n1', type: 'color-drift' })
+        useEditorStore.setState({ linterWarnings: new Map([['n1', warning]]) })
+        render(<GovernanceDashboard />)
+        await waitFor(() => {
+            expect(screen.getByTestId('flag-btn-n1')).toBeDefined()
+        })
+        fireEvent.click(screen.getByTestId('flag-btn-n1'))
+        await waitFor(() => {
+            expect(screen.getByTestId('unflag-btn-n1')).toBeDefined()
+            expect(screen.queryByTestId('flag-btn-n1')).toBeNull()
+        })
+    })
+})
+
+// ---------------------------------------------------------------------------
+// COUNSEL.3.2 — Provenance Chip
+// ---------------------------------------------------------------------------
+
+describe('GovernanceDashboard — COUNSEL.3.2 Provenance Chip', () => {
+    beforeEach(() => {
+        useTokenStore.setState({ tokens: [], isLoading: false, error: null })
+        useCanvasStore.setState({ mithrilViolations: [], a11yViolations: {} })
+        useEditorStore.setState({ linterWarnings: new Map() })
+        ;(window.flintAPI as Record<string, unknown>).baseline = {
+            isSet: vi.fn().mockResolvedValue(false),
+            get: vi.fn().mockResolvedValue([]),
+            set: vi.fn().mockResolvedValue(undefined),
+            clear: vi.fn().mockResolvedValue(undefined),
+        }
+        ;(window.flintAPI.governance.getOverrideCount as ReturnType<typeof vi.fn>).mockResolvedValue(0)
+    })
+
+    it('renders "Introduced by you" when provenance source is human', async () => {
+        seedTokens([makeToken()])
+        const warning = makeLinterWarning({ id: 'n1', type: 'color-drift' })
+        useEditorStore.setState({ linterWarnings: new Map([['n1', warning]]) })
+        useCanvasStore.setState({ activeFilePath: '/test/file.tsx' })
+        ;(window.flintAPI.governance.getProvenanceSummary as ReturnType<typeof vi.fn>).mockResolvedValue({
+            'n1': { source: 'human', timestamp: '2026-03-31T00:00:00Z' },
+        })
+        render(<GovernanceDashboard />)
+        await waitFor(() => {
+            expect(screen.getByTestId('provenance-chip-n1')).toBeDefined()
+            expect(screen.getByTestId('provenance-chip-n1').textContent).toContain('Introduced by you')
+        })
+    })
+
+    it('renders agent name when provenance source is an agent', async () => {
+        seedTokens([makeToken()])
+        const warning = makeLinterWarning({ id: 'n2', type: 'color-drift' })
+        useEditorStore.setState({ linterWarnings: new Map([['n2', warning]]) })
+        useCanvasStore.setState({ activeFilePath: '/test/file.tsx' })
+        ;(window.flintAPI.governance.getProvenanceSummary as ReturnType<typeof vi.fn>).mockResolvedValue({
+            'n2': { source: 'agent', agentId: 'claude-coder', timestamp: '2026-03-31T00:00:00Z' },
+        })
+        render(<GovernanceDashboard />)
+        await waitFor(() => {
+            expect(screen.getByTestId('provenance-chip-n2')).toBeDefined()
+            expect(screen.getByTestId('provenance-chip-n2').textContent).toContain('Introduced by claude-coder')
+        })
+    })
+
+    it('does not render provenance chip when no provenance data exists', async () => {
+        seedTokens([makeToken()])
+        const warning = makeLinterWarning({ id: 'n3', type: 'color-drift' })
+        useEditorStore.setState({ linterWarnings: new Map([['n3', warning]]) })
+        ;(window.flintAPI.governance.getProvenanceSummary as ReturnType<typeof vi.fn>).mockResolvedValue({})
+        render(<GovernanceDashboard />)
+        await waitFor(() => {
+            const list = document.querySelector('[data-testid="violations-list"]')
+            expect(list).toBeDefined()
+        })
+        expect(screen.queryByTestId('provenance-chip-n3')).toBeNull()
+    })
+})
+
+// ---------------------------------------------------------------------------
+// COUNSEL.3.3 — Anomaly Alert Banner
+// ---------------------------------------------------------------------------
+
+describe('GovernanceDashboard — COUNSEL.3.3 Anomaly Alert Banner', () => {
+    beforeEach(() => {
+        useTokenStore.setState({ tokens: [], isLoading: false, error: null })
+        useCanvasStore.setState({ mithrilViolations: [], a11yViolations: {} })
+        useEditorStore.setState({ linterWarnings: new Map() })
+        ;(window.flintAPI as Record<string, unknown>).baseline = {
+            isSet: vi.fn().mockResolvedValue(false),
+            get: vi.fn().mockResolvedValue([]),
+            set: vi.fn().mockResolvedValue(undefined),
+            clear: vi.fn().mockResolvedValue(undefined),
+        }
+        ;(window.flintAPI.governance.getOverrideCount as ReturnType<typeof vi.fn>).mockResolvedValue(0)
+    })
+
+    it('renders anomaly banner when anomalies are present', async () => {
+        ;(window.flintAPI.governance.getAnomalies as ReturnType<typeof vi.fn>).mockResolvedValue([
+            { type: 'mutation_spike', severity: 'high', message: 'Mutation rate 3x above baseline', detected_at: '2026-03-31T12:00:00Z' },
+        ])
+        seedTokens([makeToken()])
+        render(<GovernanceDashboard />)
+        await waitFor(() => {
+            expect(screen.getByTestId('anomaly-alert-banner')).toBeDefined()
+            expect(screen.getByTestId('anomaly-alert-banner').textContent).toContain('Flare detected 1 anomaly')
+            expect(screen.getByTestId('anomaly-alert-banner').textContent).toContain('Mutation rate 3x above baseline')
+        })
+    })
+
+    it('does not render anomaly banner when no anomalies exist', async () => {
+        ;(window.flintAPI.governance.getAnomalies as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        seedTokens([makeToken()])
+        render(<GovernanceDashboard />)
+        // Give it time to mount and fetch
+        await waitFor(() => {
+            expect(screen.queryByTestId('anomaly-alert-banner')).toBeNull()
+        })
+    })
+
+    it('dismiss button hides the anomaly banner for the session', async () => {
+        ;(window.flintAPI.governance.getAnomalies as ReturnType<typeof vi.fn>).mockResolvedValue([
+            { type: 'override_spike', severity: 'medium', message: 'Override count above baseline', detected_at: '2026-03-31T12:00:00Z' },
+        ])
+        seedTokens([makeToken()])
+        render(<GovernanceDashboard />)
+        await waitFor(() => {
+            expect(screen.getByTestId('anomaly-alert-banner')).toBeDefined()
+        })
+        fireEvent.click(screen.getByTestId('anomaly-banner-dismiss'))
+        await waitFor(() => {
+            expect(screen.queryByTestId('anomaly-alert-banner')).toBeNull()
+        })
+    })
+
+    it('renders correct plural text for multiple anomalies', async () => {
+        ;(window.flintAPI.governance.getAnomalies as ReturnType<typeof vi.fn>).mockResolvedValue([
+            { type: 'mutation_spike', severity: 'high', message: 'Spike 1', detected_at: '2026-03-31T12:00:00Z' },
+            { type: 'violation_spike', severity: 'medium', message: 'Spike 2', detected_at: '2026-03-31T12:01:00Z' },
+        ])
+        seedTokens([makeToken()])
+        render(<GovernanceDashboard />)
+        await waitFor(() => {
+            expect(screen.getByTestId('anomaly-alert-banner').textContent).toContain('Flare detected 2 anomalies')
+        })
+    })
+})

@@ -28,13 +28,13 @@
  */
 
 import { useMemo, useState, useEffect, useCallback, useRef } from 'react'
-import { ChevronDown, ChevronRight, Loader2, Play, ShieldOff, ShieldCheck, Wand2, SendHorizonal, Copy, Check, Activity, Pin } from 'lucide-react'
+import { ChevronDown, ChevronRight, Loader2, Play, ShieldOff, ShieldCheck, Wand2, SendHorizonal, Copy, Check, Activity, Pin, AlertTriangle, Flag, X } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
 import { useCanvasStore } from '../../store/canvasStore'
 import { useGovernanceStore } from '../../store/governanceStore'
 import { useTokenStore } from '../../store/tokenStore'
 import { useNotificationStore } from '../../store/notificationStore'
-import type { LinterWarning, BaselineEntry } from '../../types/flint-api'
+import type { LinterWarning, BaselineEntry, ProvenanceInfo, AnomalyAlert } from '../../types/flint-api'
 import { auditDelta } from '../../utils/deltaAudit'
 import { CoverageBar } from './CoverageBar'
 import { InheritanceChain } from './InheritanceChain'
@@ -522,10 +522,74 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
     const visibleA11yWarnings = (activeCategory === null || activeCategory === 'accessibility')
         ? effectiveA11yWarnings : []
 
-    // ── COUNSEL.2.4: effort framing text ─────────────────────────────────────
-    const autoFixableCount = effectiveLinterWarnings.filter((w) => w.nearestToken !== null).length
+    // ── COUNSEL.2.2: Flagged for Review state ──────────────────────────────
+    const [flaggedCardKeys, setFlaggedCardKeys] = useState<Set<string>>(new Set())
+
+    const handleFlag = useCallback(async (key: string, ruleId: string, nodeId: string) => {
+        setFlaggedCardKeys((prev) => new Set([...prev, key]))
+        // Persist via defer with [FLAGGED] prefix so it survives sessions
+        try {
+            if (window.flintAPI.governance.deferViolation) {
+                await window.flintAPI.governance.deferViolation({
+                    ruleId,
+                    filePath: activeFilePath ?? '',
+                    nodeId,
+                    reason: '[FLAGGED] Flagged for review',
+                    duration: 'Manually',
+                })
+            }
+        } catch { /* best-effort persistence */ }
+    }, [activeFilePath])
+
+    const handleUnflag = useCallback((key: string) => {
+        setFlaggedCardKeys((prev) => {
+            const next = new Set(prev)
+            next.delete(key)
+            return next
+        })
+    }, [])
+
+    // ── COUNSEL.3.2: Provenance data ─────────────────────────────────────────
+    const [provenanceMap, setProvenanceMap] = useState<Record<string, ProvenanceInfo>>({})
+
+    useEffect(() => {
+        if (!activeFilePath) {
+            setProvenanceMap({})
+            return
+        }
+        const api = window.flintAPI.governance
+        if (api.getProvenanceSummary) {
+            void api.getProvenanceSummary(activeFilePath)
+                .then(setProvenanceMap)
+                .catch(() => setProvenanceMap({}))
+        }
+    }, [activeFilePath])
+
+    // ── COUNSEL.3.3: Anomaly alerts ──────────────────────────────────────────
+    const [anomalies, setAnomalies] = useState<AnomalyAlert[]>([])
+    const [anomalyBannerDismissed, setAnomalyBannerDismissed] = useState(false)
+
+    useEffect(() => {
+        const api = window.flintAPI.governance
+        if (api.getAnomalies) {
+            void api.getAnomalies()
+                .then(setAnomalies)
+                .catch(() => setAnomalies([]))
+        }
+    }, [])
+
+    // ── COUNSEL.2.2 + COUNSEL.2.4: effort framing text (excludes flagged violations) ──
+    const unflaggedLinterWarnings = useMemo(
+        () => effectiveLinterWarnings.filter((w) => !flaggedCardKeys.has(`m-${w.id}`)),
+        [effectiveLinterWarnings, flaggedCardKeys],
+    )
+    const unflaggedA11yWarnings = useMemo(
+        () => effectiveA11yWarnings.filter((w, i) => !flaggedCardKeys.has(`a-${w.id}-${i}`)),
+        [effectiveA11yWarnings, flaggedCardKeys],
+    )
+    const autoFixableCount = unflaggedLinterWarnings.filter((w) => w.nearestToken !== null).length
     const effortText: string = (() => {
-        const total = mithrilCount + a11yCount
+        const total = unflaggedLinterWarnings.length + unflaggedA11yWarnings.length
         if (total === 0) return 'No violations — looking good'
         if (autoFixableCount > 0) return `${autoFixableCount} auto-fixable — Autopilot can resolve ${autoFixableCount === 1 ? 'it' : 'them'} in one click`
         return `${total} ${total === 1 ? 'issue' : 'issues'} need your input to resolve`
@@ -1025,6 +1089,40 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                 </div>
             </div>
 
+            {/* ── COUNSEL.3.3: Flare Anomaly Alert Banner ────────────────── */}
+            {anomalies.length > 0 && !anomalyBannerDismissed && (
+                <div
+                    data-testid="anomaly-alert-banner"
+                    className="mx-3 mt-2 rounded border border-amber-700/40 bg-amber-900/20 px-3 py-2"
+                    role="alert"
+                >
+                    <div className="flex items-start gap-2">
+                        <AlertTriangle size={13} className="shrink-0 mt-0.5 text-amber-400" aria-hidden="true" />
+                        <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-amber-300">
+                                Flare detected {anomalies.length} {anomalies.length === 1 ? 'anomaly' : 'anomalies'}
+                            </p>
+                            <div className="mt-1.5 space-y-1">
+                                {anomalies.map((a, idx) => (
+                                    <p key={idx} className="text-[10px] text-amber-400/80">
+                                        <span className="font-medium text-amber-300">{a.type}:</span> {a.message}
+                                    </p>
+                                ))}
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setAnomalyBannerDismissed(true)}
+                            className="shrink-0 rounded p-0.5 text-amber-500 hover:text-amber-300 transition-colors"
+                            aria-label="Dismiss anomaly alert banner"
+                            data-testid="anomaly-banner-dismiss"
+                        >
+                            <X size={12} aria-hidden="true" />
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {/* ── No design system ──────────────────────────────────────── */}
             {tokenCount === 0 && (
                 <div className="flex flex-col items-center justify-center px-6 py-12 text-center border-b border-zinc-800">
@@ -1206,8 +1304,10 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                             const isDeferOpen = deferFormOpen.has(cardKey)
                             const isDeferSuccess = deferSuccess.has(cardKey)
                             const isDeferred = deferredCardKeys.has(cardKey)
+                            const isFlagged = flaggedCardKeys.has(cardKey)
+                            const provenance = provenanceMap[w.id]
                             return (
-                                <div key={cardKey} className={`border-b border-zinc-800/30 last:border-0${isDeferred ? ' opacity-50' : ''}`}>
+                                <div key={cardKey} className={`border-b border-zinc-800/30 last:border-0${isDeferred ? ' opacity-50' : isFlagged ? ' opacity-70' : ''}${isFlagged ? ' border-l-2 border-l-amber-500/60' : ''}`}>
                                     {/* Summary row — always visible. Expand toggle and action buttons are siblings. */}
                                     <div className="flex w-full items-start hover:bg-zinc-800/30 transition-colors">
                                         <button
@@ -1221,27 +1321,45 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                             <div className="min-w-0 flex-1">
                                                 <div className="flex items-center gap-1.5 flex-wrap">
                                                     <p className="text-[10px] text-zinc-300 font-medium">{ruleId}</p>
+                                                    {/* COUNSEL.2.2: Flagged badge */}
+                                                    {isFlagged && (
+                                                        <span
+                                                            data-testid={`flagged-badge-${w.id}`}
+                                                            className="rounded-full border border-amber-500/40 bg-amber-900/20 px-1.5 py-px text-[9px] font-medium text-amber-400 leading-none"
+                                                        >
+                                                            Flagged for Review
+                                                        </span>
+                                                    )}
                                                     {/* COUNSEL.1.5: fixability badge */}
-                                                    {isAutoFixable ? (
+                                                    {!isFlagged && isAutoFixable ? (
                                                         <span
                                                             data-testid={`badge-auto-fixable-${w.id}`}
                                                             className="rounded-full border border-emerald-500/30 bg-emerald-900/20 px-1.5 py-px text-[9px] font-medium text-emerald-400 leading-none"
                                                         >
                                                             Auto-fixable
                                                         </span>
-                                                    ) : (
+                                                    ) : !isFlagged ? (
                                                         <span
                                                             data-testid={`badge-needs-input-${w.id}`}
                                                             className="rounded-full border border-amber-500/30 bg-amber-900/20 px-1.5 py-px text-[9px] font-medium text-amber-400 leading-none"
                                                         >
                                                             Needs input
                                                         </span>
-                                                    )}
+                                                    ) : null}
                                                 </div>
                                                 {/* S5.10: line-clamp-2 instead of truncate — shows 2 lines before ellipsis */}
                                                 <p className="text-[10px] text-zinc-500 line-clamp-2" title={w.message}>
                                                     {w.message.replace(/^[A-Z0-9-]+:\s*/, '')}
                                                 </p>
+                                                {/* COUNSEL.3.2: Provenance chip */}
+                                                {provenance && (
+                                                    <span
+                                                        data-testid={`provenance-chip-${w.id}`}
+                                                        className="mt-0.5 inline-block text-[10px] text-zinc-500 bg-zinc-800/50 rounded px-1.5 py-0.5"
+                                                    >
+                                                        Introduced by {provenance.source === 'human' ? 'you' : provenance.agentId ?? provenance.source}
+                                                    </span>
+                                                )}
                                             </div>
                                             {isOpen
                                                 ? <ChevronDown size={10} className="shrink-0 mt-1 text-zinc-600" aria-hidden="true" />
@@ -1277,6 +1395,29 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                                     Fix
                                                 </button>
                                             )}
+                                            {/* COUNSEL.2.2: Flag for review button */}
+                                            {!isDeferred && !isFlagged && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => void handleFlag(cardKey, ruleId, w.id)}
+                                                    data-testid={`flag-btn-${w.id}`}
+                                                    className="rounded border border-amber-500/30 bg-amber-900/20 px-2 py-0.5 text-[10px] text-amber-400 hover:bg-amber-900/40 transition-colors"
+                                                    aria-label={`Flag ${ruleId} for review`}
+                                                >
+                                                    Flag
+                                                </button>
+                                            )}
+                                            {isFlagged && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleUnflag(cardKey)}
+                                                    data-testid={`unflag-btn-${w.id}`}
+                                                    className="rounded border border-amber-500/40 bg-amber-900/20 px-2 py-0.5 text-[10px] text-amber-300 hover:bg-amber-900/40 transition-colors"
+                                                    aria-label={`Remove flag from ${ruleId}`}
+                                                >
+                                                    Unflag
+                                                </button>
+                                            )}
                                             {/* COUNSEL.2.1: Defer form toggle / G4: Deferred badge */}
                                             {isDeferred ? (
                                                 <span
@@ -1285,7 +1426,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                                 >
                                                     Deferred
                                                 </span>
-                                            ) : (
+                                            ) : !isFlagged ? (
                                                 <button
                                                     type="button"
                                                     onClick={() => toggleDeferForm(cardKey)}
@@ -1299,7 +1440,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                                 >
                                                     Defer
                                                 </button>
-                                            )}
+                                            ) : null}
                                             {/* S5.9: Pin — keeps the detail panel open while working */}
                                             <button
                                                 type="button"
@@ -1506,8 +1647,10 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                             const isDeferOpen = deferFormOpen.has(cardKey)
                             const isDeferSuccess = deferSuccess.has(cardKey)
                             const isDeferred = deferredCardKeys.has(cardKey)
+                            const isFlagged = flaggedCardKeys.has(cardKey)
+                            const provenance = provenanceMap[w.id]
                             return (
-                                <div key={cardKey} className={`border-b border-zinc-800/30 last:border-0${isDeferred ? ' opacity-50' : ''}`}>
+                                <div key={cardKey} className={`border-b border-zinc-800/30 last:border-0${isDeferred ? ' opacity-50' : isFlagged ? ' opacity-70' : ''}${isFlagged ? ' border-l-2 border-l-amber-500/60' : ''}`}>
                                     <div className="flex w-full items-start hover:bg-zinc-800/30 transition-colors">
                                         <button
                                             type="button"
@@ -1520,33 +1663,51 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                             <div className="min-w-0 flex-1">
                                                 <div className="flex items-center gap-1.5 flex-wrap">
                                                     <p className="text-[10px] text-zinc-300 font-medium">{ruleId}</p>
+                                                    {/* COUNSEL.2.2: Flagged badge */}
+                                                    {isFlagged && (
+                                                        <span
+                                                            data-testid={`flagged-badge-a11y-${w.id}`}
+                                                            className="rounded-full border border-amber-500/40 bg-amber-900/20 px-1.5 py-px text-[9px] font-medium text-amber-400 leading-none"
+                                                        >
+                                                            Flagged for Review
+                                                        </span>
+                                                    )}
                                                     {/* COUNSEL.1.5: fixability badge */}
-                                                    {isAutoFixable ? (
+                                                    {!isFlagged && isAutoFixable ? (
                                                         <span
                                                             data-testid={`badge-auto-fixable-a11y-${w.id}`}
                                                             className="rounded-full border border-emerald-500/30 bg-emerald-900/20 px-1.5 py-px text-[9px] font-medium text-emerald-400 leading-none"
                                                         >
                                                             Auto-fixable
                                                         </span>
-                                                    ) : (
+                                                    ) : !isFlagged ? (
                                                         <span
                                                             data-testid={`badge-needs-input-a11y-${w.id}`}
                                                             className="rounded-full border border-amber-500/30 bg-amber-900/20 px-1.5 py-px text-[9px] font-medium text-amber-400 leading-none"
                                                         >
                                                             Needs input
                                                         </span>
-                                                    )}
+                                                    ) : null}
                                                 </div>
                                                 {/* S5.10: line-clamp-2 shows 2 lines before truncating */}
                                                 <p className="text-[10px] text-zinc-500 line-clamp-2" title={w.message}>
                                                     {w.message.replace(/^[A-Z0-9-]+:\s*/, '')}
                                                 </p>
+                                                {/* COUNSEL.3.2: Provenance chip */}
+                                                {provenance && (
+                                                    <span
+                                                        data-testid={`provenance-chip-a11y-${w.id}`}
+                                                        className="mt-0.5 inline-block text-[10px] text-zinc-500 bg-zinc-800/50 rounded px-1.5 py-0.5"
+                                                    >
+                                                        Introduced by {provenance.source === 'human' ? 'you' : provenance.agentId ?? provenance.source}
+                                                    </span>
+                                                )}
                                             </div>
                                             {isOpen
                                                 ? <ChevronDown size={10} className="shrink-0 mt-1 text-zinc-600" aria-hidden="true" />
                                                 : <ChevronRight size={10} className="shrink-0 mt-1 text-zinc-600" aria-hidden="true" />}
                                         </button>
-                                        {/* Fix + Defer + Pin actions for a11y violations */}
+                                        {/* Fix + Flag + Defer + Pin actions for a11y violations */}
                                         <div className="flex shrink-0 items-center gap-1 self-center mr-2">
                                             <button
                                                 type="button"
@@ -1557,6 +1718,29 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                             >
                                                 Fix
                                             </button>
+                                            {/* COUNSEL.2.2: Flag for review button */}
+                                            {!isDeferred && !isFlagged && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => void handleFlag(cardKey, ruleId, w.id)}
+                                                    data-testid={`flag-btn-a11y-${w.id}`}
+                                                    className="rounded border border-amber-500/30 bg-amber-900/20 px-2 py-0.5 text-[10px] text-amber-400 hover:bg-amber-900/40 transition-colors"
+                                                    aria-label={`Flag ${ruleId} for review`}
+                                                >
+                                                    Flag
+                                                </button>
+                                            )}
+                                            {isFlagged && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleUnflag(cardKey)}
+                                                    data-testid={`unflag-btn-a11y-${w.id}`}
+                                                    className="rounded border border-amber-500/40 bg-amber-900/20 px-2 py-0.5 text-[10px] text-amber-300 hover:bg-amber-900/40 transition-colors"
+                                                    aria-label={`Remove flag from ${ruleId}`}
+                                                >
+                                                    Unflag
+                                                </button>
+                                            )}
                                             {/* COUNSEL.2.1: Defer form toggle / G4: Deferred badge */}
                                             {isDeferred ? (
                                                 <span
@@ -1565,7 +1749,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                                 >
                                                     Deferred
                                                 </span>
-                                            ) : (
+                                            ) : !isFlagged ? (
                                                 <button
                                                     type="button"
                                                     onClick={() => toggleDeferForm(cardKey)}
@@ -1579,7 +1763,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                                 >
                                                     Defer
                                                 </button>
-                                            )}
+                                            ) : null}
                                             <button
                                                 type="button"
                                                 onClick={() => {
