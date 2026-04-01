@@ -355,4 +355,76 @@ describe('StatusBar', () => {
         fireEvent.click(gateBtn)
         expect(setRightTab).toHaveBeenCalledWith('governance')
     })
+
+    // ── S7.4: Pull / Push sync buttons ───────────────────────────────────────
+
+    // Helper: open the Figma popover with a connected status
+    async function openFigmaPopoverConnected() {
+        ;(window.flintAPI.figma.status as Mock).mockResolvedValue({
+            running: true, lastWebhookAt: Date.now() - 60_000, tokenCount: 5, port: 4545,
+        })
+        render(<StatusBar />)
+        await waitFor(() => screen.getByText('Figma'))
+        fireEvent.click(screen.getByText('Figma'))
+        await waitFor(() => screen.getByText('Figma Connection'))
+    }
+
+    // 24. S7.4 — Pull and Push buttons render in the Figma popover
+    it('S7.4: renders Pull and Push buttons in the Figma popover', async () => {
+        await openFigmaPopoverConnected()
+        expect(screen.getByTestId('figma-sync-pull')).toBeDefined()
+        expect(screen.getByTestId('figma-sync-push')).toBeDefined()
+        expect(screen.getByText('Pull from Figma')).toBeDefined()
+        expect(screen.getByText('Push to Figma')).toBeDefined()
+    })
+
+    // 25. S7.4 — Pull button calls flint_sync_pull via MCP
+    it('S7.4: Pull button calls flint_sync_pull via MCP callTool', async () => {
+        ;(window.flintAPI.mcp?.callTool as Mock).mockResolvedValue({
+            content: [{ type: 'text', text: 'ok' }], isError: false,
+        })
+        await openFigmaPopoverConnected()
+        fireEvent.click(screen.getByTestId('figma-sync-pull'))
+        await waitFor(() => {
+            expect(window.flintAPI.mcp?.callTool).toHaveBeenCalledWith('flint_sync_pull', {})
+        })
+    })
+
+    // 26. S7.4 — Push button calls flint_sync_push via MCP
+    it('S7.4: Push button calls flint_sync_push via MCP callTool', async () => {
+        ;(window.flintAPI.mcp?.callTool as Mock).mockResolvedValue({
+            content: [{ type: 'text', text: 'ok' }], isError: false,
+        })
+        await openFigmaPopoverConnected()
+        fireEvent.click(screen.getByTestId('figma-sync-push'))
+        await waitFor(() => {
+            expect(window.flintAPI.mcp?.callTool).toHaveBeenCalledWith('flint_sync_push', {})
+        })
+    })
+
+    // 27. S7.4 — Pull and Push buttons are disabled when Figma is not connected
+    it('S7.4: Pull and Push buttons are disabled when Figma is disconnected', async () => {
+        // tokenCount: 0 triggers the "No design system" state which redirects click
+        // to governance tab instead of opening the popover. Use running: false + tokens > 0 instead.
+        ;(window.flintAPI.figma.status as Mock).mockResolvedValue({
+            running: false, lastWebhookAt: null, tokenCount: 5, port: 4545,
+        })
+        render(<StatusBar />)
+        await waitFor(() => screen.getByText('Figma'))
+        fireEvent.click(screen.getByText('Figma'))
+        await waitFor(() => screen.getByText('Figma Connection'))
+        const pullBtn = screen.getByTestId('figma-sync-pull')
+        const pushBtn = screen.getByTestId('figma-sync-push')
+        expect(pullBtn.hasAttribute('disabled')).toBe(true)
+        expect(pushBtn.hasAttribute('disabled')).toBe(true)
+    })
+
+    // 28. S7.4 — Last synced timestamp displays when lastWebhookAt is present
+    it('S7.4: displays last synced timestamp when figmaStatus has lastWebhookAt', async () => {
+        await openFigmaPopoverConnected()
+        await waitFor(() => {
+            expect(screen.getByTestId('figma-last-synced')).toBeDefined()
+            expect(screen.getByTestId('figma-last-synced').textContent).toContain('Last synced:')
+        })
+    })
 })

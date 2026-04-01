@@ -20,7 +20,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { BRAND } from '../../../shared/brand'
-import { ShieldCheck, ShieldAlert, X, Copy, Check, RefreshCw, Unplug, FolderInput, MessageSquare, Tablet, Smartphone, Download, RotateCcw } from 'lucide-react'
+import { ShieldCheck, ShieldAlert, X, Copy, Check, RefreshCw, Unplug, FolderInput, MessageSquare, Tablet, Smartphone, Download, Upload, RotateCcw, Loader2 } from 'lucide-react'
 import { useCanvasStore } from '../../store/canvasStore'
 import { BREAKPOINT_LABELS } from '../../store/canvasStore'
 import { useEditorStore } from '../../store/editorStore'
@@ -251,6 +251,83 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject }: StatusBarP
             })
         })
     }
+
+    // ── S7.4: Pull / Push sync handlers ────────────────────────────────────
+    const [syncOp, setSyncOp] = useState<'pull' | 'push' | null>(null)
+    const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null)
+
+    // Seed lastSyncedAt from figmaStatus whenever it updates
+    useEffect(() => {
+        if (figmaStatus?.lastWebhookAt != null) {
+            setLastSyncedAt(figmaStatus.lastWebhookAt)
+        }
+    }, [figmaStatus?.lastWebhookAt])
+
+    const isFigmaConnected = figmaStatus?.running === true && (figmaStatus?.tokenCount ?? 0) > 0
+
+    const handleSyncPull = useCallback(async () => {
+        if (syncOp || !isFigmaConnected) return
+        setSyncOp('pull')
+        try {
+            const result = await window.flintAPI.mcp?.callTool('flint_sync_pull', {})
+            const isError = result?.isError === true
+            push({
+                type: isError ? 'error' : 'mutation',
+                title: isError ? 'Pull failed' : 'Pull complete',
+                message: isError
+                    ? (result?.content?.[0]?.text ?? 'Unknown error during pull.')
+                    : 'Figma tokens pulled to local project.',
+                severity: isError ? 'error' : 'success',
+                autoDismissMs: isError ? 8000 : 4000,
+            })
+            if (!isError) {
+                setLastSyncedAt(Date.now())
+                fetchFigmaStatus()
+            }
+        } catch {
+            push({
+                type: 'error',
+                title: 'Pull failed',
+                message: 'Could not reach the governance engine. Check your MCP connection.',
+                severity: 'error',
+                autoDismissMs: 8000,
+            })
+        } finally {
+            setSyncOp(null)
+        }
+    }, [syncOp, isFigmaConnected, push, fetchFigmaStatus])
+
+    const handleSyncPush = useCallback(async () => {
+        if (syncOp || !isFigmaConnected) return
+        setSyncOp('push')
+        try {
+            const result = await window.flintAPI.mcp?.callTool('flint_sync_push', {})
+            const isError = result?.isError === true
+            push({
+                type: isError ? 'error' : 'mutation',
+                title: isError ? 'Push failed' : 'Push complete',
+                message: isError
+                    ? (result?.content?.[0]?.text ?? 'Unknown error during push.')
+                    : 'Local tokens pushed to Figma.',
+                severity: isError ? 'error' : 'success',
+                autoDismissMs: isError ? 8000 : 4000,
+            })
+            if (!isError) {
+                setLastSyncedAt(Date.now())
+                fetchFigmaStatus()
+            }
+        } catch {
+            push({
+                type: 'error',
+                title: 'Push failed',
+                message: 'Could not reach the governance engine. Check your MCP connection.',
+                severity: 'error',
+                autoDismissMs: 8000,
+            })
+        } finally {
+            setSyncOp(null)
+        }
+    }, [syncOp, isFigmaConnected, push, fetchFigmaStatus])
 
     // ── Beta distribution state ─────────────────────────────────────────────
     const [betaInfo, setBetaInfo] = useState<BetaInfo | null>(null)
@@ -491,6 +568,58 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject }: StatusBarP
                                 <p className="text-[10px] text-emerald-400">Copied!</p>
                             )}
                         </div>
+
+                        {/* Separator */}
+                        <div className="my-2.5 border-t border-zinc-800" />
+
+                        {/* S7.4: Pull / Push sync buttons */}
+                        <div className="flex gap-2">
+                            <button
+                                type="button"
+                                onClick={handleSyncPull}
+                                disabled={!isFigmaConnected || syncOp !== null}
+                                className={`flex flex-1 items-center justify-center gap-1.5 rounded px-3 py-1.5 text-xs text-white transition-colors ${
+                                    !isFigmaConnected || syncOp !== null
+                                        ? 'bg-indigo-600 opacity-50 cursor-not-allowed'
+                                        : 'bg-indigo-600 hover:bg-indigo-500'
+                                }`}
+                                title={!isFigmaConnected ? 'Connect to Figma first' : 'Pull token changes from Figma to local project'}
+                                data-testid="figma-sync-pull"
+                            >
+                                {syncOp === 'pull' ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                    <Download className="h-3 w-3" />
+                                )}
+                                Pull from Figma
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleSyncPush}
+                                disabled={!isFigmaConnected || syncOp !== null}
+                                className={`flex flex-1 items-center justify-center gap-1.5 rounded px-3 py-1.5 text-xs transition-colors ${
+                                    !isFigmaConnected || syncOp !== null
+                                        ? 'bg-zinc-700 text-zinc-200 opacity-50 cursor-not-allowed'
+                                        : 'bg-zinc-700 text-zinc-200 hover:bg-zinc-600'
+                                }`}
+                                title={!isFigmaConnected ? 'Connect to Figma first' : 'Push local token changes to Figma'}
+                                data-testid="figma-sync-push"
+                            >
+                                {syncOp === 'push' ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                    <Upload className="h-3 w-3" />
+                                )}
+                                Push to Figma
+                            </button>
+                        </div>
+
+                        {/* S7.4: Last synced timestamp */}
+                        {lastSyncedAt != null && (
+                            <p className="mt-1.5 text-[10px] text-zinc-500" data-testid="figma-last-synced">
+                                Last synced: {relativeTime(lastSyncedAt)}
+                            </p>
+                        )}
 
                         {/* Separator */}
                         <div className="my-2.5 border-t border-zinc-800" />
