@@ -397,4 +397,90 @@ describe('TokenPanel', () => {
             })
         })
     })
+
+    // ── MINT.2b: Token Usage Intelligence ────────────────────────────────────
+
+    describe('Token Usage (MINT.2b)', () => {
+        it('shows usage summary when scan returns results', async () => {
+            ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(COLOR_TOKENS)
+            ;(window.flintAPI.tokens.scanUsage as ReturnType<typeof vi.fn>).mockResolvedValue([
+                { tokenName: 'color.primary', cssVar: '--color-primary', usageCount: 3, files: ['a.tsx', 'b.tsx', 'c.tsx'] },
+                { tokenName: 'color.secondary', cssVar: '--color-secondary', usageCount: 1, files: ['a.tsx'] },
+                { tokenName: 'color.accent', cssVar: '--color-accent', usageCount: 0, files: [] },
+            ])
+            render(<TokenPanel />)
+            await waitFor(() => {
+                const summary = screen.getByTestId('token-usage-summary')
+                expect(summary).toBeDefined()
+                expect(summary.textContent).toContain('2 used')
+                expect(summary.textContent).toContain('3 total')
+            })
+        })
+
+        it('shows dead token count when unused tokens exist', async () => {
+            ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(COLOR_TOKENS)
+            ;(window.flintAPI.tokens.scanUsage as ReturnType<typeof vi.fn>).mockResolvedValue([
+                { tokenName: 'color.primary', cssVar: '--color-primary', usageCount: 2, files: ['a.tsx'] },
+                { tokenName: 'color.secondary', cssVar: '--color-secondary', usageCount: 0, files: [] },
+                { tokenName: 'color.accent', cssVar: '--color-accent', usageCount: 0, files: [] },
+            ])
+            render(<TokenPanel />)
+            await waitFor(() => {
+                const deadCount = screen.getByTestId('dead-token-count')
+                expect(deadCount.textContent).toContain('2 unused')
+            })
+        })
+
+        it('shows "Unused" badge on dead color tokens in the grid', async () => {
+            ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(COLOR_TOKENS)
+            ;(window.flintAPI.tokens.scanUsage as ReturnType<typeof vi.fn>).mockResolvedValue([
+                { tokenName: 'color.primary', cssVar: '--color-primary', usageCount: 3, files: ['a.tsx'] },
+                { tokenName: 'color.secondary', cssVar: '--color-secondary', usageCount: 0, files: [] },
+                { tokenName: 'color.accent', cssVar: '--color-accent', usageCount: 0, files: [] },
+            ])
+            render(<TokenPanel />)
+            await waitFor(() => {
+                const deadBadges = document.querySelectorAll('[data-testid="dead-token-badge"]')
+                expect(deadBadges.length).toBe(2)
+                expect(deadBadges[0].textContent).toBe('Unused')
+            })
+        })
+
+        it('shows usage count badge on used color tokens', async () => {
+            ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(COLOR_TOKENS)
+            ;(window.flintAPI.tokens.scanUsage as ReturnType<typeof vi.fn>).mockResolvedValue([
+                { tokenName: 'color.primary', cssVar: '--color-primary', usageCount: 5, files: ['a.tsx'] },
+                { tokenName: 'color.secondary', cssVar: '--color-secondary', usageCount: 1, files: ['b.tsx'] },
+                { tokenName: 'color.accent', cssVar: '--color-accent', usageCount: 0, files: [] },
+            ])
+            render(<TokenPanel />)
+            await waitFor(() => {
+                const usageBadges = document.querySelectorAll('[data-testid="usage-count-badge"]')
+                expect(usageBadges.length).toBe(2)
+            })
+        })
+
+        it('does not show usage summary when scanUsage returns empty', async () => {
+            ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(COLOR_TOKENS)
+            ;(window.flintAPI.tokens.scanUsage as ReturnType<typeof vi.fn>).mockResolvedValue([])
+            render(<TokenPanel />)
+            await waitFor(() => {
+                expect(screen.getByTestId('token-health-bar')).toBeDefined()
+            })
+            // Summary section should not appear
+            expect(document.querySelector('[data-testid="token-usage-summary"]')).toBeNull()
+        })
+
+        it('gracefully handles scanUsage not being available', async () => {
+            ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(COLOR_TOKENS)
+            // Remove scanUsage from mock
+            ;(window.flintAPI.tokens as any).scanUsage = undefined
+            render(<TokenPanel />)
+            await waitFor(() => {
+                expect(screen.getByTestId('token-health-bar')).toBeDefined()
+            })
+            // Should not crash — no usage summary
+            expect(document.querySelector('[data-testid="token-usage-summary"]')).toBeNull()
+        })
+    })
 })

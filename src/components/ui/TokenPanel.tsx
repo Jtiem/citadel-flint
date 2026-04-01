@@ -22,6 +22,7 @@ import { ColorGrid } from './token/ColorGrid'
 import { TypographySpecimen } from './token/TypographySpecimen'
 import { SpacingRuler } from './token/SpacingRuler'
 import { ModeColumns } from './token/ModeColumns'
+import { useTokenUsage } from '../../hooks/useTokenUsage'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -324,6 +325,23 @@ export function TokenPanel() {
     const [showImport, setShowImport] = useState(false)
     const [groupByMode, setGroupByMode] = useState(false)
 
+    // MINT.2b/2c: Token usage intelligence + drift detection
+    const localTokensForDrift = useMemo(
+        () => tokens.map((t) => ({ token_path: t.token_path, token_value: t.token_value })),
+        [tokens],
+    )
+    const { usageMap, deadTokenCount, totalScanned, driftedTokens, isScanning } =
+        useTokenUsage(tokens.length, localTokensForDrift)
+
+    // Build a quick lookup for drift by token_path
+    const driftMap = useMemo(() => {
+        const m = new Map<string, { localValue: string; figmaValue: string }>()
+        for (const d of driftedTokens) {
+            m.set(d.tokenName, { localValue: d.localValue, figmaValue: d.figmaValue })
+        }
+        return m
+    }, [driftedTokens])
+
     useEffect(() => {
         fetchTokens().catch(console.error)
     }, [fetchTokens])
@@ -368,6 +386,35 @@ export function TokenPanel() {
         <div className="relative flex h-full flex-col text-zinc-300">
             {/* ── Health Bar ─────────────────────────────────────────────── */}
             <TokenHealthBar tokens={tokens} />
+
+            {/* ── MINT.2b: Token Usage Summary ──────────────────────────── */}
+            {totalScanned > 0 && (
+                <div className="shrink-0 border-b border-zinc-800 bg-zinc-900/40 px-3 py-2" data-testid="token-usage-summary">
+                    <div className="flex items-center gap-3">
+                        <span className="text-[10px] text-zinc-400">
+                            {totalScanned - deadTokenCount} used
+                        </span>
+                        <span className="text-[10px] text-zinc-600">/</span>
+                        <span className="text-[10px] text-zinc-400">
+                            {totalScanned} total
+                        </span>
+                        {deadTokenCount > 0 && (
+                            <span className="text-[10px] text-red-400" data-testid="dead-token-count">
+                                {deadTokenCount} unused
+                            </span>
+                        )}
+                        {driftedTokens.length > 0 && (
+                            <span className="flex items-center gap-1 text-[10px] text-amber-400" data-testid="drift-count">
+                                <span className="inline-block h-2 w-2 rounded-full bg-amber-400" aria-hidden="true" />
+                                {driftedTokens.length} drifted
+                            </span>
+                        )}
+                        {isScanning && (
+                            <span className="text-[10px] text-zinc-600">Scanning...</span>
+                        )}
+                    </div>
+                </div>
+            )}
 
             {/* ── Toolbar ─────────────────────────────────────────────────── */}
             <div className="flex shrink-0 items-center gap-2 border-b border-zinc-800 px-3 py-2">
@@ -500,7 +547,9 @@ export function TokenPanel() {
                                     </h3>
 
                                     {/* Visual renderers per type */}
-                                    {tokenType === 'color' && <ColorGrid tokens={group} />}
+                                    {tokenType === 'color' && (
+                                        <ColorGrid tokens={group} usageMap={usageMap} driftMap={driftMap} />
+                                    )}
                                     {isTypographyType(tokenType) && <TypographySpecimen tokens={group} />}
                                     {isSpacingType(tokenType) && <SpacingRuler tokens={group} />}
 
