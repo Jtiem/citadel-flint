@@ -53,6 +53,8 @@ import { Settings2, SlidersHorizontal, Palette, BarChart2, MoreHorizontal, Chevr
 import { OnboardingNudge } from './components/ui/OnboardingNudge'
 import { CommandPalette } from './components/ui/CommandPalette'
 import { ComponentPanel } from './components/ui/ComponentPanel'
+import { DetectionBanner } from './components/ui/DetectionBanner'
+import type { ProjectEnvironment } from './types/flint-api'
 
 // ── Panel width constraints ───────────────────────────────────────────────────
 const PANEL_MIN = 160
@@ -114,6 +116,9 @@ function App() {
     const [betaInfo, setBetaInfo] = useState<{ buildId: string; daysRemaining: number | null } | null>(null)
     // Phase ING.2: true when Import Summary panel takes over the right sidebar
     const importSummaryPanelMode = useImportSummaryStore((s) => s.isPanelMode)
+
+    // ── FORGE.2d: Project environment detection state ─────────────────────────
+    const [detectedEnvironment, setDetectedEnvironment] = useState<ProjectEnvironment | null>(null)
 
     // ── GLASS.3.2: Resizable + collapsible panel widths (from canvasStore) ──
     const leftWidth          = useCanvasStore((s) => s.leftPanelWidth)
@@ -715,6 +720,24 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [setupComplete, betaWelcomeDone])
 
+    // ── FORGE.2d: Trigger environment detection when a project opens ──────────
+    useEffect(() => {
+        if (!workspaceFiles) {
+            setDetectedEnvironment(null)
+            return
+        }
+        let cancelled = false
+        window.flintAPI.project?.detectEnvironment?.()
+            .then((env) => {
+                if (!cancelled && env) setDetectedEnvironment(env as ProjectEnvironment)
+            })
+            .catch(() => {
+                // Detection is best-effort — do not block the UI
+            })
+        return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [workspaceFiles])
+
     // While checking first-launch status, render nothing (avoids flash)
     if (setupComplete === null) return null
 
@@ -950,8 +973,19 @@ function App() {
                     </>
                 )}
 
-                {/* Center: Infinite canvas */}
+                {/* Center: Detection banner + Infinite canvas */}
                 <section className="flex min-h-0 flex-1 flex-col">
+                    <DetectionBanner
+                        environment={detectedEnvironment}
+                        onRunAudit={() => {
+                            // Trigger a full audit via MCP and update the banner
+                            window.flintAPI.project?.detectEnvironment?.()
+                                .then((env) => {
+                                    if (env) setDetectedEnvironment(env as ProjectEnvironment)
+                                })
+                                .catch(() => { /* best-effort */ })
+                        }}
+                    />
                     <PanelErrorBoundary panelName="Canvas">
                         <MithrilProvider>
                             <XYCanvas />
