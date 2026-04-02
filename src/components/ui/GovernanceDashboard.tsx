@@ -28,7 +28,7 @@
  */
 
 import { useMemo, useState, useEffect, useCallback, useRef } from 'react'
-import { ChevronDown, ChevronRight, Loader2, Play, ShieldOff, ShieldCheck, Wand2, SendHorizonal, Copy, Check, Activity, Pin, AlertTriangle, Flag, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, Loader2, Play, ShieldOff, ShieldCheck, Wand2, SendHorizonal, Copy, Check, Activity, Pin, AlertTriangle, Flag, X, CheckCircle2, ClipboardList, TrendingUp, TrendingDown } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
 import { useCanvasStore } from '../../store/canvasStore'
 import { useGovernanceStore } from '../../store/governanceStore'
@@ -104,9 +104,11 @@ function getNodeName(id: string): string {
 interface ScoreRingProps {
     score: number
     grade: 'A' | 'B' | 'C' | 'D' | 'F'
+    /** COUNSEL.4.4: Animate a green pulse on the ring when true */
+    pulse?: boolean
 }
 
-function ScoreRing({ score, grade }: ScoreRingProps) {
+function ScoreRing({ score, grade, pulse }: ScoreRingProps) {
     const RADIUS = 34
     const CIRCUMFERENCE = 2 * Math.PI * RADIUS
     const filled = (score / 100) * CIRCUMFERENCE
@@ -117,9 +119,10 @@ function ScoreRing({ score, grade }: ScoreRingProps) {
             width={80}
             height={80}
             viewBox="0 0 80 80"
-            className="shrink-0"
+            className={`shrink-0${pulse ? ' animate-pulse' : ''}`}
             aria-label={`Health score ${score} out of 100`}
             role="img"
+            data-testid="score-ring"
         >
             {/* Track */}
             <circle
@@ -383,6 +386,35 @@ function relativeTime(isoDate: string): string {
     return `${days}d ago`
 }
 
+// ── COUNSEL.2.3: Resurface time helper ──────────────────────────────────────
+// Computes how much time remains until a deferred violation resurfaces.
+// Returns null when expiresAt is null (manual defer — never auto-resurfaces).
+
+function resurfaceLabel(expiresAtMs: number | null): { text: string; overdue: boolean } | null {
+    if (expiresAtMs === null) return null
+    const remaining = expiresAtMs - Date.now()
+    if (remaining <= 0) return { text: 'Resurface due', overdue: true }
+    const mins = Math.floor(remaining / 60000)
+    if (mins < 60) return { text: `Resurfaces in ${mins}m`, overdue: false }
+    const hrs = Math.floor(mins / 60)
+    if (hrs < 24) {
+        const leftoverMins = mins % 60
+        return { text: leftoverMins > 0 ? `Resurfaces in ${hrs}h ${leftoverMins}m` : `Resurfaces in ${hrs}h`, overdue: false }
+    }
+    const days = Math.floor(hrs / 24)
+    return { text: `Resurfaces in ${days} ${days === 1 ? 'day' : 'days'}`, overdue: false }
+}
+
+// ── COUNSEL.4.5: Audit log entry type ───────────────────────────────────────
+
+interface AuditLogEntry {
+    id: number | string
+    timestamp: string
+    action: string
+    filePath: string
+    description: string
+}
+
 // ── Impact colour helpers ───────────────────────────────────────────────────
 
 const IMPACT_COLOR: Record<string, string> = {
@@ -632,6 +664,37 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
         }
     }, [])
 
+    // ── COUNSEL.2.3: Deferred violations with expiresAt for resurface labels ──
+    // Map from cardKey → expiresAt unix-ms (null = manual / never)
+    const [deferredExpiresAt, setDeferredExpiresAt] = useState<Map<string, number | null>>(new Map())
+    // Tick counter refreshed every 60s so resurface labels stay current
+    const [resurfaceTick, setResurfaceTick] = useState(0)
+
+    useEffect(() => {
+        const id = setInterval(() => setResurfaceTick((t) => t + 1), 60_000)
+        return () => clearInterval(id)
+    }, [])
+
+    // ── COUNSEL.4.4: Animated pulse on zero-violation ring ───────────────────
+    // Pulse for 3 seconds when the total drops to 0 (celebration state)
+    const [ringPulse, setRingPulse] = useState(false)
+    const prevTotalRef = useRef<number | null>(null)
+    // totalViolations is computed below from mithrilCount + a11yCount but we
+    // reference it reactively here via a separate effect after deriving it.
+
+    // ── COUNSEL.4.5: Audit log ────────────────────────────────────────────────
+    const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([])
+    const [isAuditLogOpen, setIsAuditLogOpen] = useState(false)
+
+    useEffect(() => {
+        const api = window.flintAPI.governance
+        if (api.getAuditLog) {
+            void api.getAuditLog({ limit: 50 })
+                .then(setAuditLog)
+                .catch(() => setAuditLog([]))
+        }
+    }, [])
+
     // ── COUNSEL.2.2 + COUNSEL.2.4: effort framing text (excludes flagged violations) ──
     const unflaggedLinterWarnings = useMemo(
         () => effectiveLinterWarnings.filter((w) => !flaggedCardKeys.has(`m-${w.id}`)),
@@ -648,6 +711,17 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
         if (autoFixableCount > 0) return `${autoFixableCount} auto-fixable — Autopilot can resolve ${autoFixableCount === 1 ? 'it' : 'them'} in one click`
         return `${total} ${total === 1 ? 'issue' : 'issues'} need your input to resolve`
     })()
+
+    // ── COUNSEL.4.4: Trigger ring pulse when total drops to 0 ────────────────
+    const totalViolations = mithrilCount + a11yCount
+    useEffect(() => {
+        if (prevTotalRef.current !== null && prevTotalRef.current > 0 && totalViolations === 0) {
+            setRingPulse(true)
+            const t = setTimeout(() => setRingPulse(false), 3000)
+            return () => clearTimeout(t)
+        }
+        prevTotalRef.current = totalViolations
+    }, [totalViolations])
 
     // ── Shared health signal (sub-scores for breakdown labels) ──────────────
     const healthSignal = useMemo(
@@ -1012,6 +1086,14 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
         setDeferFormOpen((prev) => { const n = new Set(prev); n.delete(key); return n })
         // G4: mark the row as deferred so the badge persists after the toast dismisses
         setDeferredCardKeys((prev) => new Set([...prev, key]))
+        // COUNSEL.2.3: store the computed expiresAt for the resurface label
+        const { computeExpiresAt: computeExp } = await import('../../../shared/deferralUtils')
+        const expiresMs: number | null = (() => {
+            if (duration === 'Manually') return null
+            const expStr = computeExp(duration as Parameters<typeof computeExp>[0])
+            return expStr ? new Date(expStr).getTime() : null
+        })()
+        setDeferredExpiresAt((prev) => new Map([...prev, [key, expiresMs]]))
         setTimeout(() => {
             setDeferSuccess((prev) => { const n = new Set(prev); n.delete(key); return n })
         }, 4000)
@@ -1400,6 +1482,26 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                 </div>
             )}
 
+            {/* ── COUNSEL.4.4: Zero-violation celebration state ─────────── */}
+            {tokenCount > 0 && totalViolations === 0 && !overridesExist && (
+                <div
+                    className="flex flex-col items-center gap-3 px-6 py-8 border-b border-zinc-800 text-center"
+                    data-testid="zero-violation-state"
+                >
+                    <CheckCircle2
+                        className={`h-9 w-9 text-emerald-400${ringPulse ? ' animate-pulse' : ''}`}
+                        aria-hidden="true"
+                        data-testid="zero-violation-icon"
+                    />
+                    <div>
+                        <p className="text-sm font-medium text-emerald-300">No issues found</p>
+                        <p className="mt-1 text-xs text-zinc-500 max-w-[220px] leading-relaxed">
+                            Your component meets all governance standards. You&apos;re clear to export.
+                        </p>
+                    </div>
+                </div>
+            )}
+
             {/* ── VIOLATIONS SECTION — primary job surface ─────────────── */}
             {tokenCount > 0 && (mithrilCount > 0 || a11yCount > 0 || overridesExist) && (
                 <div ref={violationsSectionRef}>
@@ -1501,6 +1603,11 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                             const isDeferred = deferredCardKeys.has(cardKey)
                             const isFlagged = flaggedCardKeys.has(cardKey)
                             const provenance = provenanceMap[w.id]
+                            // COUNSEL.2.3: resurface label for deferred violations
+                            // resurfaceTick is read to ensure the label refreshes every 60s
+                            void resurfaceTick
+                            const deferExpMs = deferredExpiresAt.get(cardKey) ?? null
+                            const resurface = isDeferred ? resurfaceLabel(deferExpMs) : null
                             return (
                                 <div key={cardKey} className={`border-b border-zinc-800/30 last:border-0${isDeferred ? ' opacity-50' : isFlagged ? ' opacity-70' : ''}${isFlagged ? ' border-l-2 border-l-amber-500/60' : ''}`}>
                                     {/* Summary row — always visible. Expand toggle and action buttons are siblings. */}
@@ -1541,6 +1648,25 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                                             Needs input
                                                         </span>
                                                     ) : null}
+                                                    {/* COUNSEL.3.4: Risk trend badge */}
+                                                    {w.riskTrend === 'rising' && (
+                                                        <span
+                                                            data-testid={`risk-trend-rising-${w.id}`}
+                                                            className="inline-flex items-center gap-0.5 rounded-full border border-red-500/40 bg-red-900/20 px-1.5 py-px text-[9px] font-medium text-red-400 leading-none"
+                                                        >
+                                                            <TrendingUp size={8} aria-hidden="true" />
+                                                            Rising
+                                                        </span>
+                                                    )}
+                                                    {w.riskTrend === 'falling' && (
+                                                        <span
+                                                            data-testid={`risk-trend-falling-${w.id}`}
+                                                            className="inline-flex items-center gap-0.5 rounded-full border border-emerald-500/40 bg-emerald-900/20 px-1.5 py-px text-[9px] font-medium text-emerald-400 leading-none"
+                                                        >
+                                                            <TrendingDown size={8} aria-hidden="true" />
+                                                            Improving
+                                                        </span>
+                                                    )}
                                                 </div>
                                                 {/* S5.10: line-clamp-2 instead of truncate — shows 2 lines before ellipsis */}
                                                 <p className="text-[10px] text-zinc-500 line-clamp-2" title={w.message}>
@@ -1614,12 +1740,27 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                                 </button>
                                             )}
                                             {/* COUNSEL.2.1: Defer form toggle / G4: Deferred badge */}
+                                            {/* COUNSEL.2.3: Snoozed badge with resurface label */}
                                             {isDeferred ? (
-                                                <span
-                                                    data-testid={`deferred-badge-${w.id}`}
-                                                    className="text-xs text-amber-400 bg-amber-400/10 rounded px-1.5 py-0.5"
-                                                >
-                                                    Deferred
+                                                <span className="flex items-center gap-1">
+                                                    <span
+                                                        data-testid={`deferred-badge-${w.id}`}
+                                                        className="text-xs text-amber-400 bg-amber-400/10 rounded px-1.5 py-0.5"
+                                                    >
+                                                        Snoozed
+                                                    </span>
+                                                    {resurface && (
+                                                        <span
+                                                            data-testid={`resurface-label-${w.id}`}
+                                                            className={`text-[10px] rounded px-1.5 py-0.5 ${
+                                                                resurface.overdue
+                                                                    ? 'text-amber-300 bg-amber-500/20'
+                                                                    : 'text-zinc-500 bg-zinc-800/50'
+                                                            }`}
+                                                        >
+                                                            {resurface.text}
+                                                        </span>
+                                                    )}
                                                 </span>
                                             ) : !isFlagged ? (
                                                 <button
@@ -2223,7 +2364,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                             )}
                             <div className="flex items-center gap-4 px-4 py-4" title={scoreTrendHint ?? undefined}>
                                 <div className="flex flex-col items-center gap-1">
-                                    <ScoreRing score={score} grade={grade} />
+                                    <ScoreRing score={score} grade={grade} pulse={ringPulse} />
                                     {/* COUNSEL.4.2: Compliance trajectory sparkline */}
                                     {healthHistory.length >= 2 && <Sparkline data={healthHistory} />}
                                 </div>
@@ -2591,6 +2732,64 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                     )}
                 </div>
             )}
+
+            {/* ── COUNSEL.4.5: Audit Log ──────────────────────────────────── */}
+            <div className="border-t border-zinc-800" data-testid="audit-log-section">
+                <button
+                    type="button"
+                    onClick={() => setIsAuditLogOpen((v) => !v)}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-zinc-800/30 transition-colors"
+                    aria-expanded={isAuditLogOpen}
+                    aria-controls="audit-log-accordion"
+                    data-testid="audit-log-toggle"
+                >
+                    {isAuditLogOpen
+                        ? <ChevronDown size={12} className="shrink-0 text-zinc-500" aria-hidden="true" />
+                        : <ChevronRight size={12} className="shrink-0 text-zinc-500" aria-hidden="true" />}
+                    <ClipboardList size={11} className="shrink-0 text-zinc-500" aria-hidden="true" />
+                    <span className="flex-1 text-xs text-zinc-400">Audit Log</span>
+                    {auditLog.length > 0 && (
+                        <span className="text-[10px] text-zinc-600">{auditLog.length}</span>
+                    )}
+                </button>
+                {isAuditLogOpen && (
+                    <div
+                        id="audit-log-accordion"
+                        className="overflow-y-auto"
+                        style={{ maxHeight: 240 }}
+                        data-testid="audit-log-list"
+                    >
+                        {auditLog.length === 0 ? (
+                            <p className="px-4 py-4 text-xs text-zinc-600 text-center" data-testid="audit-log-empty">
+                                No audit events yet
+                            </p>
+                        ) : (
+                            <div className="divide-y divide-zinc-800/40">
+                                {auditLog.map((entry) => (
+                                    <div
+                                        key={entry.id}
+                                        className="flex items-start gap-2 px-3 py-2 hover:bg-zinc-800/30 transition-colors"
+                                        data-testid={`audit-log-entry-${entry.id}`}
+                                    >
+                                        <div className="min-w-0 flex-1">
+                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                                <span className="text-[10px] font-medium text-zinc-300">{entry.action}</span>
+                                                <span className="text-[10px] font-mono text-zinc-600 truncate max-w-[100px]" title={entry.filePath}>
+                                                    {entry.filePath.split('/').pop() ?? entry.filePath}
+                                                </span>
+                                            </div>
+                                            <p className="text-[10px] text-zinc-500 line-clamp-1">{entry.description}</p>
+                                        </div>
+                                        <span className="shrink-0 text-[10px] text-zinc-700 tabular-nums">
+                                            {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
 
             {/* ── Compliance Coverage (ERM) ──────────────────────────────── */}
             <CoverageBar coverages={jurisdictionCoverage} isLoading={isLoadingConfig} />

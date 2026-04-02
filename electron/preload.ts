@@ -993,6 +993,18 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
          */
         rejectMutation: (id: number): Promise<void> =>
             ipcRenderer.invoke('governance:reject-mutation', id),
+
+        /**
+         * COUNSEL.4.5: Returns the last N governance events for the Audit Log tab.
+         */
+        getAuditLog: (opts: { limit?: number } = {}): Promise<Array<{
+            id: number | string
+            timestamp: string
+            action: string
+            filePath: string
+            description: string
+        }>> =>
+            ipcRenderer.invoke('governance:get-audit-log', opts),
     },
 
     // ── Phase ACX.5: Context Sync Pipeline ────────────────────────────────────

@@ -3432,6 +3432,46 @@ app.whenReady().then(async () => {
         } catch { /* table may not exist */ }
     })
 
+    // ── COUNSEL.4.5: Audit Log IPC Handler ───────────────────────────────────
+    // Returns the last N governance events for the Audit Log tab in
+    // GovernanceDashboard. Queries governance_events ordered by created_at DESC.
+    // Gracefully returns [] when the table does not exist (fresh install).
+
+    ipcMain.handle('governance:get-audit-log', (_event, opts: unknown): Array<{
+        id: number | string
+        timestamp: string
+        action: string
+        filePath: string
+        description: string
+    }> => {
+        const limit = typeof (opts as Record<string, unknown>)?.limit === 'number'
+            ? (opts as Record<string, unknown>).limit as number
+            : 50
+        try {
+            const rows = db.prepare(`
+                SELECT
+                    id,
+                    created_at  AS timestamp,
+                    event_type  AS action,
+                    COALESCE(file_path, '')   AS filePath,
+                    COALESCE(description, event_type) AS description
+                FROM governance_events
+                ORDER BY created_at DESC
+                LIMIT ?
+            `).all(limit) as Array<{
+                id: number | string
+                timestamp: string
+                action: string
+                filePath: string
+                description: string
+            }>
+            return rows
+        } catch {
+            // governance_events table may not exist on first launch
+            return []
+        }
+    })
+
     // ── Delta Mode: Baseline IPC Handlers ────────────────────────────────────
     //
     // violation_baselines table lives in the shared flint.db (store.ts).

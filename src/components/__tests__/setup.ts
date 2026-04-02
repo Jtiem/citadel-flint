@@ -176,6 +176,8 @@ export function createMockFlintAPI() {
             getPendingMutations: vi.fn().mockResolvedValue([]),
             approveMutation: vi.fn().mockResolvedValue(undefined),
             rejectMutation: vi.fn().mockResolvedValue(undefined),
+            // COUNSEL.4.5: Audit log
+            getAuditLog: vi.fn().mockResolvedValue([]),
         },
         figma: {
             status: vi.fn().mockResolvedValue({ running: false, lastWebhookAt: null, tokenCount: 0, port: 4545 }),
