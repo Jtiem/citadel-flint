@@ -150,7 +150,7 @@ describe('applyUndo', () => {
         // historyStore starts empty (reset in beforeEach).
         expect(useHistoryStore.getState().past).toHaveLength(0)
 
-        await expect(applyUndo()).resolves.toBeUndefined()
+        await expect(applyUndo()).resolves.toBe(false)
     })
 
     it('leaves rawCode unchanged when history is empty', async () => {
@@ -227,7 +227,7 @@ describe('applyUndo', () => {
         useEditorStore.setState({ rawCode: ORIGINAL_CODE })
         useHistoryStore.getState().push(zombieInversions, [])
 
-        await expect(applyUndo()).resolves.toBeUndefined()
+        await expect(applyUndo()).resolves.toBe(true)
     })
 })
 
@@ -258,7 +258,7 @@ describe('applyRedo', () => {
         useEditorStore.setState({ rawCode: ORIGINAL_CODE })
 
         // future is empty — applyRedo must return without throwing.
-        await expect(applyRedo()).resolves.toBeUndefined()
+        await expect(applyRedo()).resolves.toBe(false)
 
         // Code must be unchanged.
         expect(useEditorStore.getState().rawCode).toBe(ORIGINAL_CODE)

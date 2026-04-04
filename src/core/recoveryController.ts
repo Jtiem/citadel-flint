@@ -53,9 +53,9 @@ import { useASTBufferStore } from '../store/astBufferStore'
  * Pops the most-recent history entry (or batch group) and reverts the
  * affected file(s) to their pre-mutation state.
  */
-export async function applyUndo(): Promise<void> {
+export async function applyUndo(): Promise<boolean> {
     const entry = useHistoryStore.getState().popUndo()
-    if (entry === null) return
+    if (entry === null) return false
 
     // Collect all sibling entries in the same atomic batch (cross-file moves
     // push multiple entries with a shared batchId).
@@ -77,6 +77,7 @@ export async function applyUndo(): Promise<void> {
     } else {
         applySingleFileUndo(entry)
     }
+    return true
 }
 
 // ── Single-file undo ───────────────────────────────────────────────────────────
@@ -163,19 +164,20 @@ async function applyCrossFileUndo(group: HistoryEntry[]): Promise<void> {
  * Single-file redo delegates to `editorStore.applyBatch`, which handles code
  * generation, auto-save, and pushing a fresh inversion onto `past`.
  */
-export async function applyRedo(): Promise<void> {
+export async function applyRedo(): Promise<boolean> {
     const entry = useHistoryStore.getState().popRedo()
-    if (entry === null) return
+    if (entry === null) return false
 
     // Cross-file redo: re-invoke the original operation via its RedoPlan.
     if (entry.redoPlan !== undefined) {
         await applyRedoPlan(entry.redoPlan)
-        return
+        return true
     }
 
     // Single-file redo: re-apply original mutations.
-    if (entry.redoMutations.length === 0) return
+    if (entry.redoMutations.length === 0) return false
     useEditorStore.getState().applyBatch(entry.redoMutations)
+    return true
 }
 
 // ── Cross-file redo ─────────────────────────────────────────────────────────

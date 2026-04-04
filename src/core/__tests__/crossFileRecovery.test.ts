@@ -235,8 +235,8 @@ describe('applyCrossFileUndo (J6.3)', () => {
         const loadBuffer = vi.fn(async () => undefined)
         useASTBufferStore.setState({ buffers: new Map(), evictBuffer, loadBuffer } as any)
 
-        // Should not throw
-        await expect(applyUndo()).resolves.toBeUndefined()
+        // Should not throw — still returns true because the undo was attempted
+        await expect(applyUndo()).resolves.toBe(true)
 
         // Buffers should NOT be evicted since the save failed
         expect(evictBuffer).not.toHaveBeenCalled()
@@ -247,7 +247,7 @@ describe('applyUndo — empty history (J6 guard)', () => {
     beforeEach(resetStores)
 
     it('is a silent no-op when past is empty', async () => {
-        await expect(applyUndo()).resolves.toBeUndefined()
+        await expect(applyUndo()).resolves.toBe(false)
         expect(useHistoryStore.getState().future).toHaveLength(0)
     })
 })
@@ -256,7 +256,7 @@ describe('applyRedo — empty future (J6 guard)', () => {
     beforeEach(resetStores)
 
     it('is a silent no-op when future is empty', async () => {
-        await expect(applyRedo()).resolves.toBeUndefined()
+        await expect(applyRedo()).resolves.toBe(false)
         expect(useHistoryStore.getState().past).toHaveLength(0)
     })
 })

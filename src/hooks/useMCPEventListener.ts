@@ -33,6 +33,52 @@ import type { MCPEvent, FileTreeNode } from '../types/flint-api'
 /** Events older than this threshold (in ms) are ignored on startup catch-up. */
 const CATCH_UP_THRESHOLD_MS = 60_000
 
+// ── GovernanceDelta helpers (S7.5) ────────────────────────────────────────────
+
+/**
+ * A governance delta snapshot produced after an audit or fix cycle.
+ * `fixed` = number of violations resolved, `violations` = number remaining.
+ */
+export interface GovernanceDelta {
+    /** Violation count before the event. */
+    before: number
+    /** Violation count after the event. */
+    after: number
+    /** Number of violations that were resolved in this cycle. */
+    fixed: number
+    /** Number of violations that remain after this cycle. */
+    violations: number
+}
+
+/**
+ * Formats a `GovernanceDelta` into a human-readable summary string.
+ *
+ * Output cases:
+ *   - `null` / `undefined`               → `''`
+ *   - fixed > 0 && violations === 0      → `'All issues resolved'`
+ *   - fixed > 0 && violations > 0        → `'N issue(s) fixed, M remaining'`
+ *   - fixed === 0 && violations > 0      → `'N issue(s) detected'`
+ *   - fixed === 0 && violations === 0    → `''`
+ */
+export function formatGovernanceDelta(delta: GovernanceDelta | null | undefined): string {
+    if (!delta) return ''
+    const { fixed, violations } = delta
+
+    if (fixed > 0 && violations === 0) return 'All issues resolved'
+
+    if (fixed > 0) {
+        const fixedLabel = fixed === 1 ? '1 issue fixed' : `${fixed} issues fixed`
+        const remainLabel = violations === 1 ? '1 remaining' : `${violations} remaining`
+        return `${fixedLabel}, ${remainLabel}`
+    }
+
+    if (violations > 0) {
+        return violations === 1 ? '1 issue detected' : `${violations} issues detected`
+    }
+
+    return ''
+}
+
 /**
  * Subscribes to MCP push events and dispatches them to the appropriate stores.
  *
