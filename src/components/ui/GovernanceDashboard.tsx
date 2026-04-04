@@ -119,7 +119,7 @@ function ScoreRing({ score, grade, pulse }: ScoreRingProps) {
             width={80}
             height={80}
             viewBox="0 0 80 80"
-            className={`shrink-0${pulse ? ' animate-pulse' : ''}`}
+            className={`shrink-0${pulse ? ' motion-safe:animate-pulse' : ''}`}
             aria-label={`Health score ${score} out of 100`}
             role="img"
             data-testid="score-ring"
@@ -208,6 +208,14 @@ interface FixGuide {
     snippet?: string
 }
 
+/** A11y rules where Warden cannot auto-fix — requires human intervention. */
+const A11Y_NOT_AUTO_FIXABLE = new Set([
+    'A11Y-008', 'A11Y-010', 'A11Y-014', 'A11Y-015', 'A11Y-016', 'A11Y-017',
+    'A11Y-021', 'A11Y-022', 'A11Y-031', 'A11Y-032', 'A11Y-035',
+    'A11Y-050', 'A11Y-051', 'A11Y-052', 'A11Y-053',
+    'A11Y-060', 'A11Y-061', 'A11Y-062', 'A11Y-072', 'A11Y-090',
+])
+
 const A11Y_FIX_GUIDE: Record<string, FixGuide> = {
     'A11Y-001': {
         wcag: 'WCAG 1.1.1 Non-text Content',
@@ -271,6 +279,17 @@ const A11Y_FIX_GUIDE: Record<string, FixGuide> = {
             'Use the Flint focus-ring token (e.g., ring-indigo-500) instead of outline: none',
         ],
         snippet: 'focus-visible:ring-2 focus-visible:ring-indigo-500',
+    },
+    'A11Y-010': {
+        wcag: 'WCAG 1.3.1 Info and Relationships',
+        wcagRef: '1.3.1',
+        why: 'Screen readers use heading levels to build a page outline. Skipping levels (e.g. h1 → h3) breaks that outline and confuses users navigating by headings.',
+        steps: [
+            'Check the heading hierarchy — each level should follow the previous (h1 → h2 → h3)',
+            'Change the skipped heading to the correct level (e.g. <h3> → <h2>)',
+            'Use CSS to style heading size independently from the semantic level',
+        ],
+        snippet: '<h2 className="text-lg font-semibold">Section title</h2>',
     },
 }
 
@@ -367,7 +386,7 @@ function Sparkline({ data }: { data: Array<{ score: number }> }) {
     const trend = scores[scores.length - 1] - scores[0]
     const color = trend > 2 ? '#34d399' : trend < -2 ? '#f87171' : '#fbbf24'
     return (
-        <svg width={w} height={h} className="shrink-0" aria-label="Health trend" data-testid="sparkline">
+        <svg width={w} height={h} className="shrink-0" aria-label="Health trend" role="img" data-testid="sparkline">
             <polyline fill="none" stroke={color} strokeWidth="1.5" points={points} />
         </svg>
     )
@@ -946,8 +965,18 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
             })
             return
         }
+        if (!window.flintAPI.mcp?.callTool) {
+            useNotificationStore.getState().push({
+                type: 'violation',
+                title: 'Fix unavailable',
+                message: 'Flint MCP is not connected — start the MCP server to enable auto-fix',
+                severity: 'warning',
+                autoDismissMs: 5000,
+            })
+            return
+        }
         try {
-            await window.flintAPI.mcp?.callTool('flint_fix', { filePath, ruleId, dry_run: false })
+            await window.flintAPI.mcp.callTool('flint_fix', { file: filePath, ruleId, dry_run: false })
             // Re-sync editor store so in-memory AST matches what MCP wrote to disk
             try {
                 const content = await window.flintAPI.readFile(filePath)
@@ -1461,7 +1490,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                 </span>
                             )}
                         </div>
-                        <span className="text-[10px] text-zinc-500 leading-snug">
+                        <span className="text-[10px] text-zinc-400 leading-snug">
                             Auto-fixes Tier-1 drift as you work
                         </span>
                     </div>
@@ -1489,13 +1518,13 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                     data-testid="zero-violation-state"
                 >
                     <CheckCircle2
-                        className={`h-9 w-9 text-emerald-400${ringPulse ? ' animate-pulse' : ''}`}
+                        className={`h-9 w-9 text-emerald-400${ringPulse ? ' motion-safe:animate-pulse' : ''}`}
                         aria-hidden="true"
                         data-testid="zero-violation-icon"
                     />
                     <div>
                         <p className="text-sm font-medium text-emerald-300">No issues found</p>
-                        <p className="mt-1 text-xs text-zinc-500 max-w-[220px] leading-relaxed">
+                        <p className="mt-1 text-xs text-zinc-400 max-w-[220px] leading-relaxed">
                             Your component meets all governance standards. You&apos;re clear to export.
                         </p>
                     </div>
@@ -1669,7 +1698,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                                     )}
                                                 </div>
                                                 {/* S5.10: line-clamp-2 instead of truncate — shows 2 lines before ellipsis */}
-                                                <p className="text-[10px] text-zinc-500 line-clamp-2" title={w.message}>
+                                                <p className="text-[10px] text-zinc-400 line-clamp-2" title={w.message}>
                                                     {w.message.replace(/^[A-Z0-9-]+:\s*/, '')}
                                                 </p>
                                                 {/* COUNSEL.3.2: Provenance chip */}
@@ -1802,7 +1831,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                             {isDiffLoading || !diffData ? (
                                                 <div className="flex items-center justify-center gap-2 py-3">
                                                     <Loader2 size={12} className="animate-spin text-zinc-500" aria-hidden="true" />
-                                                    <span className="text-[10px] text-zinc-500">Loading diff...</span>
+                                                    <span className="text-[10px] text-zinc-400">Loading diff...</span>
                                                 </div>
                                             ) : (
                                                 <>
@@ -1828,7 +1857,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                                                 />
                                                             )}
                                                             <code className="text-[10px] text-emerald-400 font-mono">{diffData.proposed}</code>
-                                                            <p className="mt-0.5 text-[9px] text-zinc-500">{diffData.tokenName}</p>
+                                                            <p className="mt-0.5 text-[9px] text-zinc-400">{diffData.tokenName}</p>
                                                         </div>
                                                     </div>
                                                     <div className="flex items-center gap-2 border-t border-zinc-800 px-3 py-1.5">
@@ -1936,7 +1965,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                                 <>
                                                     {/* Why it matters */}
                                                     <div className="rounded border border-zinc-800 bg-zinc-900 px-3 py-2">
-                                                        <p className="text-[10px] text-zinc-500 leading-relaxed">
+                                                        <p className="text-[10px] text-zinc-400 leading-relaxed">
                                                             <span className="text-zinc-400 font-medium">Why: </span>{guide.why}
                                                         </p>
                                                         {guide.wcag && (
@@ -1948,7 +1977,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                                         <p className="mb-1 text-[10px] font-medium text-zinc-400">How to fix:</p>
                                                         <ol className="space-y-1 list-none">
                                                             {guide.steps.map((step, si) => (
-                                                                <li key={si} className="flex items-start gap-2 text-[10px] text-zinc-500">
+                                                                <li key={si} className="flex items-start gap-2 text-[10px] text-zinc-400">
                                                                     <span className="mt-px shrink-0 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-zinc-700 text-[9px] text-zinc-600 font-mono">{si + 1}</span>
                                                                     <span>{step}</span>
                                                                 </li>
@@ -1978,8 +2007,8 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                             const cardKey = `a-${w.id}-${i}`
                             const isOpen = expandedViolations.has(cardKey) || pinnedViolations.has(cardKey)
                             const isPinned = pinnedViolations.has(cardKey)
-                            // COUNSEL.1.5: a11y auto-fixable = has nearestToken or is a known auto-fixable rule
-                            const isAutoFixable = w.nearestToken !== null || ['A11Y-001', 'A11Y-002'].includes(ruleId)
+                            // COUNSEL.1.5: a11y auto-fixable — use the canonical non-fixable set from Warden rules
+                            const isAutoFixable = !A11Y_NOT_AUTO_FIXABLE.has(ruleId)
                             const isDeferOpen = deferFormOpen.has(cardKey)
                             const isDeferSuccess = deferSuccess.has(cardKey)
                             const isDeferred = deferredCardKeys.has(cardKey)
@@ -2026,7 +2055,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                                     ) : null}
                                                 </div>
                                                 {/* S5.10: line-clamp-2 shows 2 lines before truncating */}
-                                                <p className="text-[10px] text-zinc-500 line-clamp-2" title={w.message}>
+                                                <p className="text-[10px] text-zinc-400 line-clamp-2" title={w.message}>
                                                     {w.message.replace(/^[A-Z0-9-]+:\s*/, '')}
                                                 </p>
                                                 {/* COUNSEL.3.2: Provenance chip */}
@@ -2045,15 +2074,32 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                         </button>
                                         {/* Fix + Flag + Defer + Pin actions for a11y violations */}
                                         <div className="flex shrink-0 items-center gap-1 self-center mr-2">
-                                            <button
-                                                type="button"
-                                                onClick={() => void handleA11yFix(ruleId)}
-                                                className="rounded border border-indigo-500/30 bg-indigo-900/20 px-2 py-0.5 text-[10px] text-indigo-400 hover:bg-indigo-900/40 transition-colors"
-                                                aria-label={`Fix ${ruleId} gap`}
-                                                data-testid={`a11y-fix-btn-${ruleId}`}
-                                            >
-                                                Fix
-                                            </button>
+                                            {isAutoFixable ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => void handleA11yFix(ruleId)}
+                                                    className="rounded border border-indigo-500/30 bg-indigo-900/20 px-2 py-0.5 text-[10px] text-indigo-400 hover:bg-indigo-900/40 transition-colors"
+                                                    aria-label={`Fix ${ruleId} gap`}
+                                                    data-testid={`a11y-fix-btn-${ruleId}`}
+                                                >
+                                                    Fix
+                                                </button>
+                                            ) : (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => toggleViolation(cardKey)}
+                                                    className={`rounded border px-2 py-0.5 text-[10px] transition-colors ${
+                                                        isOpen
+                                                            ? 'border-indigo-500/50 bg-indigo-900/30 text-indigo-300'
+                                                            : 'border-indigo-500/30 bg-indigo-900/20 text-indigo-400 hover:bg-indigo-900/40'
+                                                    }`}
+                                                    aria-label={`How to fix ${ruleId}`}
+                                                    aria-expanded={isOpen}
+                                                    data-testid={`a11y-howto-btn-${ruleId}`}
+                                                >
+                                                    How to fix
+                                                </button>
+                                            )}
                                             {/* COUNSEL.2.2: Flag for review button */}
                                             {!isDeferred && !isFlagged && (
                                                 <button
@@ -2191,7 +2237,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                             {guide ? (
                                                 <>
                                                     <div className="rounded border border-zinc-800 bg-zinc-900 px-3 py-2">
-                                                        <p className="text-[10px] text-zinc-500 leading-relaxed">
+                                                        <p className="text-[10px] text-zinc-400 leading-relaxed">
                                                             <span className="text-zinc-400 font-medium">Why: </span>{guide.why}
                                                         </p>
                                                         <p className="mt-1 text-[10px] text-red-400/80">{guide.wcag}</p>
@@ -2200,7 +2246,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                                         <p className="mb-1 text-[10px] font-medium text-zinc-400">How to fix:</p>
                                                         <ol className="space-y-1 list-none">
                                                             {guide.steps.map((step, si) => (
-                                                                <li key={si} className="flex items-start gap-2 text-[10px] text-zinc-500">
+                                                                <li key={si} className="flex items-start gap-2 text-[10px] text-zinc-400">
                                                                     <span className="mt-px shrink-0 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-zinc-700 text-[9px] text-zinc-600 font-mono">{si + 1}</span>
                                                                     <span>{step}</span>
                                                                 </li>
@@ -2225,7 +2271,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                 <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" aria-hidden="true" />
                                 <div className="flex-1">
                                     <p className="text-[10px] text-zinc-300 font-medium">Unapplied Overrides</p>
-                                    <p className="text-[10px] text-zinc-500">Property overrides are blocking export. Apply or revert them to unblock.</p>
+                                    <p className="text-[10px] text-zinc-400">Property overrides are blocking export. Apply or revert them to unblock.</p>
                                 </div>
                             </div>
                         )}
@@ -2294,7 +2340,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                         {isScoreOpen ? <ChevronDown size={12} className="shrink-0 text-zinc-500" aria-hidden="true" /> : <ChevronRight size={12} className="shrink-0 text-zinc-500" aria-hidden="true" />}
                         <span className="flex-1 text-xs text-zinc-400">Health Score</span>
                         <span className={`text-xs font-bold ${GRADE_TEXT[grade]}`} aria-hidden="true">{grade}</span>
-                        <span className="font-mono text-xs text-zinc-500" aria-label={`Score ${score} out of 100`}>{score}</span>
+                        <span className="font-mono text-xs text-zinc-400" aria-label={`Score ${score} out of 100`}>{score}</span>
                     </button>
                     {isScoreOpen && (
                         <div id="score-accordion">
@@ -2370,9 +2416,9 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                 </div>
                                 <div className="flex flex-col gap-0.5">
                                     <span className={`text-6xl font-bold leading-none ${GRADE_TEXT[grade]}`} aria-label={`Grade ${grade}`}>{grade}</span>
-                                    <span className="text-xs text-zinc-500">{isBaselineSet ? 'Delta Score (new issues only)' : 'Governance Health'}</span>
+                                    <span className="text-xs text-zinc-400">{isBaselineSet ? 'Delta Score (new issues only)' : 'Governance Health'}</span>
                                     {scoreTrendHint && <span className="text-xs text-zinc-300 mt-0.5" data-testid="score-trend-hint">{scoreTrendHint}</span>}
-                                    <p className="text-xs text-zinc-500 mt-1" data-testid="next-step-prompt">{nextStep.text}</p>
+                                    <p className="text-xs text-zinc-400 mt-1" data-testid="next-step-prompt">{nextStep.text}</p>
                                     {/* COUNSEL.3.1: Rewind to clean link */}
                                     {score < 95 && lastCleanState && (
                                         <button
@@ -2421,7 +2467,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                 </button>
                                 {isScoreExpanded && (
                                     <div id="score-formula" className="mt-2 rounded border border-zinc-800 bg-zinc-950 px-3 py-2.5 space-y-1.5">
-                                        <ul className="space-y-1 text-[10px] text-zinc-500">
+                                        <ul className="space-y-1 text-[10px] text-zinc-400">
                                             <li className="flex items-center justify-between"><span>Critical violations</span><span className="font-mono text-red-400">−10 per issue</span></li>
                                             <li className="flex items-center justify-between"><span>Amber violations</span><span className="font-mono text-amber-400">−3 per issue</span></li>
                                             <li className="flex items-center justify-between"><span>Advisory violations</span><span className="font-mono text-zinc-400">−1 per issue</span></li>
@@ -2574,7 +2620,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                         {mcpActivityEvents.length === 0 ? (
                             <div className="flex flex-col items-center justify-center gap-2 py-6 text-center">
                                 <Activity className="h-5 w-5 text-zinc-600" aria-hidden="true" />
-                                <p className="text-sm text-zinc-500">
+                                <p className="text-sm text-zinc-400">
                                     This feed tracks AI agent actions. Connect an MCP client to start seeing activity.
                                 </p>
                             </div>
@@ -2598,7 +2644,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                         <div className="min-w-0 flex-1">
                                             <p className="truncate text-xs text-zinc-300">{event.title}</p>
                                             {event.message && (
-                                                <p className="truncate text-[10px] text-zinc-500">{event.message}</p>
+                                                <p className="truncate text-[10px] text-zinc-400">{event.message}</p>
                                             )}
                                         </div>
                                         {/* S5.11: "Undo this" link for mutation-type events that changed code */}
@@ -2699,7 +2745,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                                     {m.riskTier}
                                                 </span>
                                                 {m.agentId && (
-                                                    <span className="text-[10px] text-zinc-500 truncate">
+                                                    <span className="text-[10px] text-zinc-400 truncate">
                                                         Agent: {m.agentId}
                                                     </span>
                                                 )}
@@ -2778,7 +2824,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                                     {entry.filePath.split('/').pop() ?? entry.filePath}
                                                 </span>
                                             </div>
-                                            <p className="text-[10px] text-zinc-500 line-clamp-1">{entry.description}</p>
+                                            <p className="text-[10px] text-zinc-400 line-clamp-1">{entry.description}</p>
                                         </div>
                                         <span className="shrink-0 text-[10px] text-zinc-700 tabular-nums">
                                             {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}

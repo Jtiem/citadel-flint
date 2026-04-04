@@ -356,7 +356,7 @@ describe('GovernanceDashboard', () => {
         fireEvent.click(screen.getByTestId('a11y-fix-btn-A11Y-001'))
         await waitFor(() => {
             expect(mockCallTool).toHaveBeenCalledWith('flint_fix', {
-                filePath: '/project/src/Button.tsx',
+                file: '/project/src/Button.tsx',
                 ruleId: 'A11Y-001',
                 dry_run: false,
             })
