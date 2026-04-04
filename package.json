@@ -31,7 +31,7 @@
     "build:linux": "npm run build && npx electron-builder --linux --config electron-builder.yml",
     "build:all": "npm run build && npx electron-builder -mwl --config electron-builder.yml",
     "release:beta": "npm run build && FLINT_BETA_EXPIRY=$(node -p \"new Date(Date.now()+(${FLINT_BETA_DAYS:-90})*864e5).toISOString().split('T')[0]+'T00:00:00Z'\") FLINT_BETA_BUILD_ID=beta-$(node -p \"require('./package.json').version\")-$(date +%Y%m%d) npx electron-builder --publish always --config electron-builder.yml",
-    "dev:web": "npm rebuild better-sqlite3 2>/dev/null; npx tsx server/cli.ts & vite --config vite.config.web.ts --open",
+    "dev:web": "npm rebuild better-sqlite3 2>/dev/null; npx tsx server/cli.ts --no-open & vite --config vite.config.web.ts --open",
     "build:web": "vite build --config vite.config.web.ts --mode production",
     "start:web": "npm rebuild better-sqlite3 2>/dev/null; npx tsx server/cli.ts --open",
     "build:server": "node_modules/.bin/esbuild server/cli.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist-server/cli.mjs --packages=external --log-level=warning",
