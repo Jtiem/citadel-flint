@@ -230,6 +230,23 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject, onManageFigm
         return () => { document.removeEventListener('mousedown', handler) }
     }, [popoverOpen])
 
+    // W-15: Auto-focus first button when popover opens
+    useEffect(() => {
+        if (popoverOpen) {
+            popoverRef.current?.querySelector<HTMLElement>('button')?.focus()
+        }
+    }, [popoverOpen])
+
+    // W-15: Close popover on Escape key
+    useEffect(() => {
+        if (!popoverOpen) return
+        const handler = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setPopoverOpen(false)
+        }
+        document.addEventListener('keydown', handler)
+        return () => document.removeEventListener('keydown', handler)
+    }, [popoverOpen])
+
     // ── Copy helper ───────────────────────────────────────────────────────────
     const handleCopy = (field: 'endpoint', value: string) => {
         void navigator.clipboard.writeText(value).then(() => {
@@ -463,7 +480,7 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject, onManageFigm
                         setRightTab('governance')
                     }
                 }}
-                className={`flex flex-shrink-0 items-center gap-1.5 text-xs transition-colors ${
+                className={`flex flex-shrink-0 min-h-[24px] items-center gap-1.5 text-xs transition-colors ${
                     canExport
                         ? 'text-emerald-500 hover:text-emerald-400'
                         : 'text-amber-400 hover:text-amber-300'
@@ -501,7 +518,7 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject, onManageFigm
                         }
                         setPopoverOpen((v) => !v)
                     }}
-                    className={`flex cursor-pointer items-center gap-1.5 rounded px-1.5 py-0.5 text-xs transition-colors hover:bg-gray-800 hover:text-gray-200 ${hasNoTokens ? 'text-amber-400' : 'text-gray-400'}`}
+                    className={`flex cursor-pointer min-h-[24px] items-center gap-1.5 rounded px-1.5 py-0.5 text-xs transition-colors hover:bg-gray-800 hover:text-gray-200 ${hasNoTokens ? 'text-amber-400' : 'text-gray-400'}`}
                     title={figmaButtonTitle}
                 >
                     {/* S4.1: Removed shadow-lg shadow-emerald-400/40 from the emerald-state dot.
@@ -519,7 +536,7 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject, onManageFigm
                             <button
                                 type="button"
                                 onClick={() => { setPopoverOpen(false) }}
-                                className="rounded p-0.5 text-zinc-500 hover:text-zinc-300"
+                                className="rounded p-0.5 text-zinc-400 hover:text-zinc-300"
                                 aria-label="Close Figma status popover"
                             >
                                 <X className="h-3 w-3" />
@@ -529,13 +546,13 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject, onManageFigm
                         {/* Status rows */}
                         <dl className="space-y-1.5 text-xs">
                             <div className="flex items-center justify-between">
-                                <dt className="text-zinc-500">Last sync</dt>
+                                <dt className="text-zinc-400">Last sync</dt>
                                 <dd className="text-zinc-300">
                                     {relativeTime(figmaStatus?.lastWebhookAt ?? null)}
                                 </dd>
                             </div>
                             <div className="flex items-center justify-between">
-                                <dt className="text-zinc-500">Tokens</dt>
+                                <dt className="text-zinc-400">Tokens</dt>
                                 <dd className="text-zinc-300">
                                     {figmaStatus?.tokenCount ?? 0}
                                 </dd>
@@ -547,7 +564,7 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject, onManageFigm
 
                         {/* Endpoint copy row */}
                         <div className="mb-2 space-y-1">
-                            <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">Endpoint</p>
+                            <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-400">Endpoint</p>
                             <div className="flex items-center gap-1.5 rounded border border-zinc-800 bg-zinc-950 px-2 py-1">
                                 <code className="flex-1 truncate font-mono text-[11px] text-zinc-300">
                                     {endpoint}
@@ -555,7 +572,7 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject, onManageFigm
                                 <button
                                     type="button"
                                     onClick={() => { handleCopy('endpoint', `http://${endpoint}`) }}
-                                    className="shrink-0 rounded p-0.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
+                                    className="shrink-0 rounded p-0.5 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
                                     title={copying === 'endpoint' ? 'Copied!' : 'Copy endpoint'}
                                     aria-label={copying === 'endpoint' ? 'Copied!' : 'Copy endpoint'}
                                 >
@@ -618,7 +635,7 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject, onManageFigm
 
                         {/* S7.4: Last synced timestamp */}
                         {lastSyncedAt != null && (
-                            <p className="mt-1.5 text-[10px] text-zinc-500" data-testid="figma-last-synced">
+                            <p className="mt-1.5 text-[10px] text-zinc-400" data-testid="figma-last-synced">
                                 Last synced: {relativeTime(lastSyncedAt)}
                             </p>
                         )}
@@ -800,8 +817,11 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject, onManageFigm
                 <button
                     type="button"
                     onClick={() => { setAutopilotEnabled(!autopilotEnabled) }}
-                    className={`text-xs px-2 py-0.5 rounded transition-colors ${autopilotEnabled ? 'bg-emerald-600/20 text-emerald-400' : 'text-zinc-500 hover:text-zinc-300'}`}
-                    title="Toggle Governance Autopilot (Cmd+Shift+G to apply fixes)"
+                    className={`text-xs px-2 py-0.5 rounded transition-colors ${autopilotEnabled ? 'bg-emerald-600/20 text-emerald-400' : 'text-zinc-400 hover:text-zinc-300'}`}
+                    aria-label={autopilotEnabled ? 'Autopilot: On' : 'Autopilot: Off'}
+                    title={autopilotEnabled
+                        ? 'Autopilot is active — Flint will automatically fix safe issues as you work'
+                        : 'Enable Autopilot to let Flint auto-fix safe issues in the background'}
                 >
                     Autopilot
                 </button>
@@ -815,7 +835,7 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject, onManageFigm
                     title={governedFixCount > 0 ? `Apply ${governedFixCount} governance fixes (Cmd+Shift+G)` : 'Autopilot active — watching for drift'}
                 >
                     <span className={`h-2 w-2 rounded-full ${governedFixCount > 0 ? 'animate-pulse bg-emerald-400' : 'bg-zinc-500'}`} />
-                    <span className={governedFixCount > 0 ? 'text-emerald-400' : 'text-zinc-500'}>
+                    <span className={governedFixCount > 0 ? 'text-emerald-400' : 'text-zinc-400'}>
                         {governedFixCount > 0 ? `${governedFixCount} fixes ready` : 'Autopilot'}
                     </span>
                 </button>

@@ -1022,6 +1022,8 @@ export function LivePreview() {
       {transformError !== null && (
         <div
           data-testid="transform-error"
+          role="alert"
+          aria-live="assertive"
           className="shrink-0 border-b border-red-700/40 bg-red-900/10 rounded p-3"
         >
           <div className="flex items-start gap-2">
@@ -1048,6 +1050,7 @@ export function LivePreview() {
                 <button
                   type="button"
                   data-testid="error-expand-toggle"
+                  aria-expanded={errorExpanded}
                   onClick={() => setErrorExpanded((prev) => !prev)}
                   className="mt-1 text-[10px] text-red-300/70 underline hover:text-red-300"
                 >

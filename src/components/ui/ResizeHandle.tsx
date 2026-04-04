@@ -96,16 +96,20 @@ export function ResizeHandle({ onDrag, onDoubleClick }: ResizeHandleProps) {
                 'group',
                 'relative z-10',
                 'flex shrink-0 cursor-col-resize items-center justify-center',
-                'w-1',         // 4px
+                'w-6',         // 24px — meets WCAG 2.5.5 minimum touch target (W-23)
                 'self-stretch',
                 'bg-transparent',
                 'transition-colors duration-100',
-                'hover:bg-indigo-500/20',
-                'data-[dragging=true]:bg-indigo-500/30',
             ].join(' ')}
         >
-            {/* Wider invisible hit area so the 4px bar is easy to grab */}
-            <div className="absolute inset-y-0 -inset-x-1.5" />
+            {/* Narrow 4px visual bar centered inside the 24px hit area */}
+            <div className={[
+                'w-px h-full',
+                'bg-transparent',
+                'transition-colors duration-100',
+                'group-hover:bg-indigo-500/20',
+                'group-data-[dragging=true]:bg-indigo-500/30',
+            ].join(' ')} />
         </div>
     )
 }

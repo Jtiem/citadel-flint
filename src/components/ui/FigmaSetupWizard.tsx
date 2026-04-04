@@ -62,7 +62,7 @@ function StepIndicator({ index, label, status }: StepIndicatorProps) {
                     <CheckCircle2 size={18} className="text-emerald-400" />
                 ) : status === 'current' ? (
                     <>
-                        <div className="absolute h-5 w-5 animate-pulse rounded-full bg-indigo-500/30" />
+                        <div className="absolute h-5 w-5 motion-safe:animate-pulse rounded-full bg-indigo-500/30" />
                         <div className="h-3 w-3 rounded-full bg-indigo-400" />
                     </>
                 ) : (
@@ -313,7 +313,7 @@ export function FigmaSetupWizard({ visible, onClose }: FigmaSetupWizardProps) {
 
             {step === 'checking' && (
                 <div className="flex items-center gap-2 text-xs text-zinc-400">
-                    <Loader2 size={13} className="animate-spin text-indigo-400" />
+                    <Loader2 size={13} className="motion-safe:animate-spin text-indigo-400" />
                     Checking server status…
                 </div>
             )}
@@ -358,7 +358,7 @@ export function FigmaSetupWizard({ visible, onClose }: FigmaSetupWizardProps) {
             {step === 'waiting' && (
                 <div className="space-y-2">
                     <div className="flex items-center gap-2 text-xs text-zinc-400">
-                        <Loader2 size={13} className="animate-spin text-indigo-400" />
+                        <Loader2 size={13} className="motion-safe:animate-spin text-indigo-400" />
                         Waiting for first sync from Figma…
                     </div>
                     <p className="text-[11px] text-zinc-500">

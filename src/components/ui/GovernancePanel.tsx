@@ -199,7 +199,7 @@ function RuleRow({ rule, override, onToggle, onReset, isFocused, rowRef }: RuleR
 
             <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                    <span className="font-mono text-[10px] text-zinc-500">{rule.id}</span>
+                    <span className="font-mono text-[10px] text-zinc-400">{rule.id}</span>
                     {isModified && (
                         <button
                             type="button"
@@ -245,7 +245,7 @@ function CategorySidebar({ activeCategory, counts, onChange }: CategorySidebarPr
     return (
         <aside className="flex w-40 shrink-0 flex-col border-r border-zinc-800 overflow-y-auto">
             <div className="shrink-0 border-b border-zinc-800 px-3 py-2">
-                <h3 className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                <h3 className="text-[10px] font-medium uppercase tracking-wider text-zinc-400">
                     Categories
                 </h3>
             </div>
@@ -261,7 +261,7 @@ function CategorySidebar({ activeCategory, counts, onChange }: CategorySidebarPr
                             key={cat}
                             type="button"
                             onClick={() => onChange(cat)}
-                            className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-xs transition-colors hover:bg-zinc-800/40 ${
+                            className={`flex w-full items-center justify-between px-3 py-2 text-left text-xs transition-colors hover:bg-zinc-800/40 ${
                                 isActive
                                     ? 'bg-indigo-600/20 text-indigo-300'
                                     : 'text-zinc-400'
@@ -455,7 +455,7 @@ export function GovernancePanel({ onClose, focusRuleId }: GovernancePanelProps) 
                         >
                             Governance Rules
                         </h2>
-                        <p className="mt-0.5 text-xs text-zinc-500">
+                        <p className="mt-0.5 text-xs text-zinc-400">
                             {GOVERNANCE_RULES_MANIFEST.length} rules
                             {modifiedCount > 0 && (
                                 <span className="ml-1.5 text-indigo-400">
@@ -468,7 +468,7 @@ export function GovernancePanel({ onClose, focusRuleId }: GovernancePanelProps) 
                         type="button"
                         onClick={onClose}
                         aria-label="Close governance panel"
-                        className="shrink-0 rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
+                        className="shrink-0 rounded p-1 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
                     >
                         <X className="h-4 w-4" />
                     </button>
@@ -516,7 +516,7 @@ export function GovernancePanel({ onClose, focusRuleId }: GovernancePanelProps) 
                             className={`border-b-2 px-3 py-2 text-xs font-medium transition-colors ${
                                 activeTab === tab.id
                                     ? 'border-indigo-500 text-indigo-300'
-                                    : 'border-transparent text-zinc-500 hover:text-zinc-300'
+                                    : 'border-transparent text-zinc-400 hover:text-zinc-300'
                             }`}
                         >
                             {tab.label}
@@ -590,7 +590,7 @@ export function GovernancePanel({ onClose, focusRuleId }: GovernancePanelProps) 
                                         <button
                                             type="button"
                                             onClick={() => setShowPlanned((v) => !v)}
-                                            className="flex w-full items-center gap-1.5 px-4 py-2.5 text-left text-[11px] text-zinc-500 hover:text-zinc-400 transition-colors"
+                                            className="flex w-full items-center gap-1.5 px-4 py-2.5 text-left text-[11px] text-zinc-400 hover:text-zinc-300 transition-colors"
                                         >
                                             <span className={`transition-transform duration-150 ${showPlanned ? 'rotate-90' : ''}`}>▸</span>
                                             Also coming ({plannedRules.length})

@@ -246,7 +246,7 @@ export function ComponentPanel() {
             <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
                 {isLoading && (
                     <div className="flex items-center justify-center py-8" data-testid="component-panel-loading">
-                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-700 border-t-indigo-500" />
+                        <div className="h-4 w-4 motion-safe:animate-spin rounded-full border-2 border-zinc-700 border-t-indigo-500" />
                     </div>
                 )}
 

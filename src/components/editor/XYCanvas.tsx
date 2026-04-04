@@ -43,10 +43,46 @@ import { LivePreview } from './LivePreview'
 import { GhostCodeSnippet } from './GhostCodeSnippet'
 import { useCanvasStore } from '../../store/canvasStore'
 import { useASTBufferStore } from '../../store/astBufferStore'
+import { useAnnotationStore } from '../../store/annotationStore'
 
 // ── Custom node: LivePreview ────────────────────────────────────────────────
 
 type LivePreviewData = Record<string, never>
+
+/**
+ * AnnotationBadge — exported for testability.
+ *
+ * Reads open annotations from annotationStore and renders a count badge.
+ * Returns null when there are no open annotations.
+ * Exported so tests can render it in isolation without XYFlow dependencies.
+ */
+export function AnnotationBadge() {
+    const annotations = useAnnotationStore((s) => s.annotations)
+    const openCount = annotations.filter((a) => a.status === 'open').length
+
+    if (openCount === 0) return null
+
+    const label = openCount === 1 ? '1 open annotation' : `${openCount} open annotations`
+
+    return (
+        <button
+            type="button"
+            className="group absolute left-2 top-2 z-10 flex items-center gap-1 rounded-full bg-indigo-600 px-2 py-0.5 text-[10px] text-white shadow-sm"
+            data-testid="annotation-badge"
+            aria-label={label}
+            onClick={() => { useCanvasStore.getState().setRightTab('activity') }}
+        >
+            {openCount}
+            {/* Tooltip on hover */}
+            <span
+                className="pointer-events-none absolute left-0 top-full mt-1 whitespace-nowrap rounded bg-zinc-800 px-2 py-1 text-[10px] text-zinc-200 opacity-0 shadow-lg transition-opacity group-hover:opacity-100"
+                data-testid="annotation-badge-tooltip"
+            >
+                {label}
+            </span>
+        </button>
+    )
+}
 
 /**
  * S8.1: Violation indicator dot for canvas nodes.
@@ -73,16 +109,19 @@ function ViolationIndicator() {
     if (count === 0) return null
 
     return (
-        <div
+        <button
+            type="button"
             className="group absolute right-2 top-2 z-10"
             data-testid="violation-indicator"
+            aria-label={label}
+            onClick={() => { useCanvasStore.getState().setRightTab('governance') }}
         >
             <span className={`block h-3 w-3 rounded-full ${color} shadow-sm`} />
             {/* Tooltip on hover */}
             <span className="pointer-events-none absolute right-0 top-full mt-1 whitespace-nowrap rounded bg-zinc-800 px-2 py-1 text-[10px] text-zinc-200 opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
                 {label}
             </span>
-        </div>
+        </button>
     )
 }
 
@@ -107,6 +146,9 @@ function LivePreviewNode() {
                 /* `drag-handle` is the class React Flow uses when nodeDragThreshold
                    and dragHandle are set to .drag-handle on the parent node.     */
                 className="drag-handle group flex shrink-0 cursor-grab items-center justify-center gap-2 border-b border-gray-800 bg-gray-900 px-4 py-2 active:cursor-grabbing"
+                tabIndex={0}
+                role="button"
+                aria-label="Drag to reposition preview panel. Use arrow keys when focused."
             >
                 <GripHorizontal size={14} className="text-zinc-600 transition-colors group-hover:text-zinc-400" />
                 <span className="text-[10px] text-zinc-600 opacity-0 transition-colors group-hover:text-zinc-400 group-hover:opacity-100">
