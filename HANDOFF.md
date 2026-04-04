@@ -6,6 +6,87 @@
 
 ---
 
+## Session: 2026-04-04 — UX Redesign Waves 2–6 + A11y Burndown + Anvil CLI (COMPLETE)
+
+**Goal:** Complete the three parallel UX redesign tracks (Mint, Forge, Counsel) through Wave 6, then run the UX audit a11y burndown on Flint's own Glass components, and land the Anvil CLI scaffold.
+
+**What shipped:**
+
+### Forge (Project Initiation Redesign) — Waves 2–5
+
+- **Wave 2 (FORGE.1a–1f):** 3-path LaunchScreen (new/open/demo), handoff CTA, orientation setup step, SetupWizard a11y fixes.
+- **Wave 4 (FORGE.2a–2d):** IPC `project:detect-environment` reads `package.json`, auto-writes `.flint/detected-environment.json`, best-effort baseline MCP audit on open, `DetectionBanner` component shows stack summary.
+- **Wave 5 (FORGE.4b–4d):** IPC `project:get-health-grade` reads `.flint/debt-snapshot.json`, LaunchScreen renders colored grade pills, `DetectionBanner` scan progress bar, smart post-audit recommendations.
+
+### Mint (Token UX Redesign) — Waves 1–6
+
+- **Wave 1 (MINT.1d):** Token UI set to read-only view (CRUD moved to Figma source).
+- **Wave 4 (MINT.2a–2d):** IPC `tokens:scan-usage` scans `.tsx/.jsx/.css` for CSS var refs, `useTokenUsage` hook with drift detection, usage count badges on ColorGrid, amber drift dots with local-vs-Figma tooltip, `TokenTabBadge` drift count on Tokens tab.
+- **Wave 5 (MINT.3a–3c + 4d):** Inline WCAG contrast computation (sRGB linearization), `useContrastAudit` hook, "Contrast Audit" section with AA pass/fail summary, `TokenApprovalStaging` component for pending tokens, `TokenDetailView` 320px slide-out with swatch/usage/contrast/drift/provenance.
+- **Wave 6 (MINT.3d + 4a–4c + 4e):** Verified already implemented from prior waves (first-sync banner, export token emission row, modal improvements).
+
+### Counsel (Governance Experience Redesign) — Waves 1–6
+
+- **Wave 1 (COUNSEL.1.1–1.3):** Category chips, delta-mode auto-enable, health score formula unified. Six broken UI primitives deleted.
+- **Wave 2 (COUNSEL.1.1–1.2 + 2.1 + 2.4):** Category chips, delta-mode wiring, effort framing labels.
+- **Wave 3 (COUNSEL.2.1):** Defer button with duration/expiry on violation rows in Dashboard + ExportModal.
+- **Wave 4 (COUNSEL.2.2 + 3.2 + 3.3):** Flagged-for-review violations, provenance chips on violation rows, anomaly banner in GovernanceDashboard.
+- **Wave 5 (COUNSEL.3.1 + 4.1–4.2 + S8.3):** Rewind-to-clean link (score < 95 + clean state exists), token impact preview collapsible, compliance trajectory SVG sparkline (7 data points), MRS pending-approval badge with per-mutation approve/reject.
+- **Wave 6 (COUNSEL.4.5):** `governance:get-audit-log` IPC handler + preload bridge + audit log accordion section in GovernanceDashboard. All other Wave 6 items verified already implemented.
+
+### Glass Cross-Track — Waves 4–6
+
+- **Wave 4 (S7.4):** Pull/push sync buttons in Figma StatusBar popover.
+- **Wave 5 (S7.1–7.3 + S8.1):** `FigmaConnectionPanel` 4-section management panel, per-token sync badges (Synced/Local only/Drifted/Figma only), `ConflictResolutionPanel` three-way diff, ViolationIndicator dot on LivePreview canvas node.
+- **Wave 6 (S7.5 + S8.2):** Verified already implemented.
+
+### IPC Surface — Waves 4–5
+
+- 12 new preload methods across `project/tokens/governance` namespaces.
+- New types: `HealthGrade`, `ContrastPair`, `PendingToken`, `CleanStateInfo`, `PendingMutation`.
+- Edit/Write permissions added to `.claude/settings.json` for `src/electron/shared/server/flint-ci` dirs.
+
+### A11y Burndown (2026-04-04 UX Audit)
+
+Motion-safe, touch targets (WCAG 2.5.5), contrast bumps, and ARIA attribute fixes across 9 Glass components: `GovernanceDashboard`, `GovernancePanel`, `StatusBar`, `LivePreview`, `XYCanvas`, `ComponentPanel`, `ExportModal`, `FigmaConnectionPanel`, `FigmaSetupWizard`.
+
+### GovernanceDashboard Bug Fixes
+
+- `flint_fix` call corrected: param was `filePath`, must be `file`.
+- MCP-not-connected guard added (no-op gracefully when MCP client absent).
+- `A11Y_NOT_AUTO_FIXABLE` rule set added to prevent auto-fix calls on ARIA rules.
+
+### Governance Delta + Recovery Controller
+
+- `GovernanceDelta` type defined and wired.
+- `recoveryController` undo/redo now returns boolean success values.
+
+### Anvil CLI (New)
+
+- `flint-ci/src/commands/diff.ts` — diff command scaffolded.
+- `flint-ci/src/commands/interactive.ts` — interactive fix command.
+- Health and render utility helpers.
+
+### Review Ceremony Artifacts
+
+15 review files written to `.flint-context/reviews/` covering Waves 3–6 (UX, code, accessibility), plus `docs/strategy/UX-AUDIT-2026-04-04.md` (22 issues, 7 areas, P0–P3).
+
+### Dev Fix
+
+`dev:web` no longer opens both ports in the browser simultaneously.
+
+**Commits:** `a260233`..`45c4ba0` (9 new commits in this session, 15 prior wave commits)
+
+**What remains:**
+
+- `tests/e2e/` directory — untracked E2E test scaffolds, not yet committed.
+- Anvil CLI `diff` and `interactive-fix` commands are scaffolded but not fully tested.
+- Recovery controller boolean return type change — downstream callers should be audited.
+- UX audit P0 issues (see `docs/strategy/UX-AUDIT-2026-04-04.md`) — not yet addressed.
+- Sprint Clarity + Sprint Clarity 2 contracts (written 2026-03-29) — implementation still pending.
+
+---
+
 ## Session: 2026-03-30 — Counsel Wave 1 Credibility Fixes (COMPLETE)
 
 **Goal:** Fix the three active defects that would undermine trust with real beta users, plus wire the a11y pass on Flint's own governance UI.
