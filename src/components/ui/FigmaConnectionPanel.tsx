@@ -194,6 +194,28 @@ export function FigmaConnectionPanel({ onClose }: FigmaConnectionPanelProps) {
                     </dl>
                 </section>
 
+                {/* MINT.4a: First-sync banner — shown when connected but never synced */}
+                {isConnected && figmaStatus?.lastWebhookAt === null && (
+                    <section
+                        className="border-b border-indigo-800/40 bg-indigo-900/10 px-4 py-3"
+                        data-testid="first-sync-banner"
+                    >
+                        <p className="mb-2 text-xs text-indigo-300">
+                            Your Figma tokens haven&apos;t been synced yet. Pull from Figma to bring your design tokens into the project.
+                        </p>
+                        <button
+                            type="button"
+                            onClick={() => void handleSync('pull')}
+                            disabled={syncOp !== null}
+                            className="flex items-center gap-1.5 rounded bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+                            data-testid="first-sync-pull-btn"
+                        >
+                            <Download className="h-3.5 w-3.5" />
+                            Pull tokens from Figma
+                        </button>
+                    </section>
+                )}
+
                 {/* ── 2. Sync Actions ──────────────────────────────────────────── */}
                 <section className="border-b border-zinc-800/60 px-4 py-3">
                     <h3 className="mb-2 text-[10px] font-medium uppercase tracking-wider text-zinc-500">Sync Actions</h3>

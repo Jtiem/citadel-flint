@@ -38,11 +38,18 @@ const DEFER_DURATIONS: DeferDuration[] = ['1 day', '3 days', '1 week', '1 sprint
 
 interface ExportModalProps {
     onClose: () => void
+    /**
+     * MINT.4b: Number of pending Scout token changes awaiting approval.
+     * - `undefined` = token emission not configured
+     * - `0`         = all tokens up to date
+     * - `> 0`       = changes pending approval
+     */
+    pendingTokenCount?: number
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function ExportModal({ onClose }: ExportModalProps) {
+export function ExportModal({ onClose, pendingTokenCount }: ExportModalProps) {
     const mithrilViolations = useCanvasStore((s) => s.mithrilViolations)
     const a11yViolations = useCanvasStore((s) => s.a11yViolations)
     const setActiveSelection = useCanvasStore((s) => s.setActiveSelection)
@@ -361,7 +368,7 @@ export function ExportModal({ onClose }: ExportModalProps) {
                             : 'border-amber-700/40 bg-amber-900/10'
                     }`}>
                     {loading ? (
-                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-600 border-t-indigo-400" />
+                        <div className="h-4 w-4 motion-safe:animate-spin rounded-full border-2 border-gray-600 border-t-indigo-400" />
                     ) : canExport ? (
                         <ShieldCheck className="h-5 w-5 text-emerald-400" />
                     ) : hasCriticalMithril ? (
@@ -412,6 +419,51 @@ export function ExportModal({ onClose }: ExportModalProps) {
                                         ? 'Fetching compliance summary…'
                                         : 'Finalizing audit…'}
                             </p>
+                        </div>
+                    )}
+
+                    {/* MINT.4b: Token emission status row */}
+                    {!loading && (
+                        <div
+                            className="mb-4 flex items-center justify-between rounded border border-zinc-800 bg-zinc-900/60 px-3 py-2"
+                            data-testid="token-emission-row"
+                        >
+                            <span className="text-[10px] text-zinc-400">Token emission</span>
+                            <span className="flex items-center gap-1.5 text-[10px]">
+                                {pendingTokenCount === undefined ? (
+                                    <>
+                                        <span
+                                            className="h-2 w-2 rounded-full bg-zinc-500"
+                                            data-testid="token-emission-dot-gray"
+                                        />
+                                        <span className="text-zinc-500">Not configured</span>
+                                    </>
+                                ) : pendingTokenCount === 0 ? (
+                                    <>
+                                        <span
+                                            className="h-2 w-2 rounded-full bg-emerald-500"
+                                            data-testid="token-emission-dot-green"
+                                        />
+                                        <span className="text-emerald-400">Up to date</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <span
+                                            className="h-2 w-2 rounded-full bg-amber-400"
+                                            data-testid="token-emission-dot-amber"
+                                        />
+                                        <span className="text-amber-300">
+                                            Pending changes
+                                            {' '}
+                                            <span data-testid="token-emission-pending-count">
+                                                {pendingTokenCount === 1
+                                                    ? '1 token change pending approval'
+                                                    : `${pendingTokenCount} token changes pending approval`}
+                                            </span>
+                                        </span>
+                                    </>
+                                )}
+                            </span>
                         </div>
                     )}
 
@@ -676,7 +728,7 @@ export function ExportModal({ onClose }: ExportModalProps) {
                                                         title={`Auto-fix: apply token ${warning?.nearestToken ?? ''}`}
                                                     >
                                                         {fixingIds.has(id) ? (
-                                                            <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                                                            <Loader2 className="h-2.5 w-2.5 motion-safe:animate-spin" />
                                                         ) : (
                                                             <Wrench className="h-2.5 w-2.5" />
                                                         )}
