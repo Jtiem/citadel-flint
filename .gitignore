@@ -39,3 +39,14 @@ shared/*.d.ts.map
 
 # Storybook (stale template — revive or delete later)
 src/stories/
+
+# SQLite WAL/SHM (runtime)
+*.db-shm
+*.db-wal
+
+# Test output artifacts
+test-results/
+**/playwright-report/
+
+# Flint runtime context (written every 200ms)
+.flint/context.json
