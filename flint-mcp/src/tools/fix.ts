@@ -600,6 +600,32 @@ export async function handleFlintFix(
         },
     })
 
+    // ── Pass 4 — A11y Auto-Fixes ─────────────────────────────────────────────
+    // Uses the same fixer pipeline as flint_accessibility_report.
+    // Only applies safe updateProp mutations (adding missing attributes).
+    try {
+        const { audit: a11yAudit } = await import('../core/a11y/runner.js')
+        const { applyFixes: a11yApplyFixes, applyFixMutationToAst } = await import('../core/a11y/fixer.js')
+        const { getRegisteredRules } = await import('../core/a11y/runner.js')
+
+        const a11yResult = await a11yAudit(ast, { filePath: filePath! })
+        const fixableViolations = a11yResult.violations.filter((v: { fixable: boolean }) => v.fixable)
+
+        if (fixableViolations.length > 0) {
+            const rules = getRegisteredRules()
+            const fixResult = a11yApplyFixes(fixableViolations, ast as import('@babel/types').File, rules)
+
+            for (const mutation of fixResult.mutations) {
+                if (mutation.type === 'updateProp') {
+                    applyFixMutationToAst(ast as import('@babel/types').File, mutation)
+                }
+            }
+            totalFixes += fixResult.fixed.length
+        }
+    } catch {
+        // A11y fix is best-effort — never block the Mithril fix result
+    }
+
     // Generate fixed source from mutated AST
     let fixedSource = source
     try {

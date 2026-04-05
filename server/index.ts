@@ -25,6 +25,7 @@ import {
   readFileSync,
   writeFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
   watch as fsWatch,
 } from 'node:fs'
@@ -119,7 +120,15 @@ async function scanDirectory(dirPath: string): Promise<FileTreeNode> {
 function isWithinHome(filePath: string): boolean {
   const home = os.homedir()
   const resolved = path.resolve(filePath)
-  return resolved === home || resolved.startsWith(home + path.sep)
+  if (resolved === home || resolved.startsWith(home + path.sep)) return true
+  // Allow OS temp directory — demo projects are copied there by beta:load-demo-project.
+  // realpathSync resolves macOS /tmp → /private/tmp symlink so the prefix check works.
+  try {
+    const resolvedReal = realpathSync(resolved)
+    const tmpReal = realpathSync(os.tmpdir())
+    if (resolvedReal.startsWith(tmpReal + path.sep)) return true
+  } catch { /* path doesn't exist yet — fall through to false */ }
+  return false
 }
 
 function validateFilePath(filePath: unknown, requireSourceExt = true): string {
@@ -665,6 +674,15 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     }
     const validated = validateFilePath(filePath)
     await atomicWrite(validated, content)
+    // Register newly saved files with the workspace watcher so future
+    // external edits are detected without a full rescan.
+    const tracked = (globalThis as Record<string, unknown>).__flintWebTrackedFiles as Map<string, number> | undefined
+    if (tracked && !tracked.has(validated)) {
+      try {
+        const stat = await fs.stat(validated)
+        tracked.set(validated, stat.mtimeMs)
+      } catch { /* file may not be flushed yet — watcher will pick it up on next scan */ }
+    }
   })
 
   handlers.set('ast:save-batch', async (batch: unknown) => {
@@ -693,9 +711,17 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     if (typeof code !== 'string') {
       return { js: null, error: 'code must be a string' }
     }
+    // Bail early on empty input — nothing to transform. Returning an error
+    // string here lets the client distinguish "empty source" from "valid JS
+    // with no default export", which would also produce js=''. The client
+    // guards against js.trim()=='' separately.
+    if (code.trim() === '') {
+      return { js: null, error: 'empty source' }
+    }
     try {
       const result = transformSync(code, {
         filename: 'App.tsx',
+        sourceType: 'module',
         plugins: [
           ['@babel/plugin-transform-typescript', { isTSX: true, allExtensions: true }],
           injectFlintIdPlugin,
@@ -715,8 +741,11 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
       // Strip ES module import statements — React will be a global in the iframe
       js = js.replace(/^import\s[^\n]*\n?/gm, '')
 
-      // Rewrite `export default function/class Foo` -> `function/class Foo`
+      // ── Detect component name from export statements ──────────────────
+      // Priority: export default > first named export function/class
       let componentName: string | null = null
+
+      // 1. Rewrite `export default function/class Foo` -> `function/class Foo`
       js = js.replace(
         /\bexport\s+default\s+(function|class)\s+(\w+)/,
         (_m: string, kw: string, name: string) => {
@@ -725,7 +754,7 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
         },
       )
 
-      // Fallback: `export default Foo`
+      // 2. Fallback: `export default Foo`
       if (componentName === null) {
         js = js.replace(
           /^export\s+default\s+(\w+)\s*;?\s*$/m,
@@ -735,6 +764,24 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
           },
         )
       }
+
+      // 3. No default export — capture the first named export function/class
+      //    as the component to render. This handles files like
+      //    `export function PatientForm() {}` (common in demos and libraries).
+      if (componentName === null) {
+        const namedMatch = js.match(/^export\s+(?:async\s+)?(function|class)\s+(\w+)/m)
+        if (namedMatch) {
+          componentName = namedMatch[2]
+        }
+      }
+
+      // Strip named export declarations — `export function Foo`, `export class Foo`,
+      // `export const/let/var`, `export { Foo }`, `export * from '...'`.
+      // These are all invalid inside `new Function()` (non-module script context).
+      js = js.replace(/^export\s+\{[^}]*\}\s*(?:from\s+['"][^'"]*['"])?\s*;?\n?/gm, '') // export { Foo } / export { Foo } from '...'
+      js = js.replace(/^export\s+\*\s*(?:from\s+['"][^'"]*['"])?\s*;?\n?/gm, '')          // export * / export * from '...'
+      js = js.replace(/^export\s+((?:async\s+)?function|class)\s+/gm, '$1 ')              // export function/class Foo → function/class Foo
+      js = js.replace(/^export\s+(const|let|var)\s+/gm, '$1 ')                            // export const/let/var → const/let/var
 
       if (componentName !== null) {
         js += `\nwindow.__AppComponent = ${componentName};`
@@ -788,6 +835,7 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
       registryUpsert.run(randomUUID(), projectName, normalized)
       activeProjectRoot = normalized
       sessionExplicitlyOpened = true
+      void (globalThis as Record<string, unknown>).__flintWebStartFileWatcher?.()
       return tree
     } catch {
       return null
@@ -858,6 +906,7 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     registryUpsert.run(randomUUID(), projectName, targetPath)
     activeProjectRoot = targetPath
     sessionExplicitlyOpened = true
+    void (globalThis as Record<string, unknown>).__flintWebStartFileWatcher?.()
 
     // Start MCP for the new project
     void mcp.start(targetPath).catch(() => {})
@@ -952,6 +1001,7 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     registryUpsert.run(randomUUID(), projectName, targetPath)
     activeProjectRoot = targetPath
     sessionExplicitlyOpened = true
+    void (globalThis as Record<string, unknown>).__flintWebStartFileWatcher?.()
     void mcp.start(targetPath).catch(() => {})
 
     return scanDirectory(targetPath)
@@ -1510,6 +1560,74 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
       }
     } catch { /* file missing — ok */ }
   })
+
+  // ── Workspace file watcher ─────────────────────────────────────────────────
+  // Stat-polls .tsx/.ts/.jsx/.js files and broadcasts changes via WebSocket so
+  // the Glass-in-browser LivePreview updates without a manual refresh.
+  {
+    let fileWatchInterval: ReturnType<typeof setInterval> | null = null
+    const trackedFiles = new Map<string, number>() // filePath → lastMtimeMs
+
+    async function scanWorkspaceFiles(root: string): Promise<string[]> {
+      const results: string[] = []
+      const SKIP = new Set(['node_modules', '.git', 'dist', 'build', '.next', 'out', '.flint'])
+      const MAX_FILES = 100
+
+      async function walk(dir: string): Promise<void> {
+        if (results.length >= MAX_FILES) return
+        let entries
+        try { entries = await fs.readdir(dir, { withFileTypes: true }) } catch { return }
+        for (const entry of entries) {
+          if (results.length >= MAX_FILES) return
+          if (SKIP.has(entry.name)) continue
+          const full = path.join(dir, entry.name)
+          if (entry.isDirectory()) {
+            await walk(full)
+          } else if (/\.(tsx?|jsx?)$/.test(entry.name)) {
+            results.push(full)
+          }
+        }
+      }
+      await walk(root)
+      return results
+    }
+
+    async function startWebFileWatcher(): Promise<void> {
+      if (fileWatchInterval) clearInterval(fileWatchInterval)
+      trackedFiles.clear()
+      if (!activeProjectRoot) return
+
+      const files = await scanWorkspaceFiles(activeProjectRoot)
+      for (const f of files) {
+        try {
+          const stat = await fs.stat(f)
+          trackedFiles.set(f, stat.mtimeMs)
+        } catch { /* file may not exist */ }
+      }
+
+      fileWatchInterval = setInterval(() => {
+        void (async () => {
+          for (const [filePath, lastMtime] of trackedFiles) {
+            try {
+              const stat = await fs.stat(filePath)
+              if (stat.mtimeMs > lastMtime) {
+                trackedFiles.set(filePath, stat.mtimeMs)
+                const content = await fs.readFile(filePath, 'utf-8')
+                broadcast('flint:file-changed', { filePath, content })
+              }
+            } catch { /* file deleted or inaccessible */ }
+          }
+        })()
+      }, 1_000)
+    }
+
+    // Expose for use after project open
+    ;(globalThis as Record<string, unknown>).__flintWebStartFileWatcher = startWebFileWatcher
+    ;(globalThis as Record<string, unknown>).__flintWebTrackedFiles = trackedFiles
+
+    // Start immediately for the CLI-supplied project root
+    void startWebFileWatcher()
+  }
 
   // ── Setup Wizard ───────────────────────────────────────────────────────────
 
@@ -2418,7 +2536,11 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     if (typeof projectRoot !== 'string') {
       return { error: 'preview:start — projectRoot must be a string' }
     }
-    return previewService.start(projectRoot)
+    // In web mode, the srcdoc + code:transform pipeline is the correct preview
+    // mechanism. Starting a separate Vite dev server hijacks the iframe with
+    // src= which makes all srcdoc writes invisible. Return an error so
+    // LivePreview stays in srcdoc mode.
+    return { error: 'Vite preview server disabled in web mode — using srcdoc preview' }
   })
 
   handlers.set('preview:stop', async () => {
@@ -2563,6 +2685,10 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
   // ── IPC Dispatch Route ─────────────────────────────────────────────────────
 
   app.post('/api/ipc', async (req, res) => {
+    if (!req.body || typeof req.body !== 'object') {
+      res.status(400).json({ result: null, error: 'Request body not parsed — check Content-Type header' })
+      return
+    }
     const { channel, args } = req.body
     if (typeof channel !== 'string') {
       res.json({ result: null, error: 'Missing channel' })

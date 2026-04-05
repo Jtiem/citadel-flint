@@ -370,6 +370,11 @@ export const useEditorStore = create<EditorStore>((set, get) => {
                 ast: parsed,
                 visualTree: adapter.buildVisualTree(parsed),
             })
+            // Run a11y audit on external file changes (same as setCode).
+            // No auto-save: external changes are already on disk.
+            // No history clear: external changes should not reset undo.
+            const a11yViolations = A11yLinter.audit(parsed as import('@babel/types').File)
+            useCanvasStore.getState().setA11yViolations(a11yViolations)
         },
 
         clearAST: () => {

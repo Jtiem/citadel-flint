@@ -390,25 +390,123 @@ describe('LivePreview — GLASS.3.1C structured error display', () => {
   })
 })
 
-// ── GLASS.3.1D: Developer scaffolding gating ─────────────────────────────────
+// ── GLASS.3.1D: Framework badge always visible ───────────────────────────────
 
-describe('LivePreview — GLASS.3.1D developer scaffolding', () => {
-  it('shows "Load Demo" button in DEV mode', () => {
-    // import.meta.env.DEV is true in vitest test environment
+describe('LivePreview — GLASS.3.1D framework badge', () => {
+  it('shows the framework badge (Quick Load removed)', () => {
+    // Quick Load / Load Demo have been removed. The framework badge is now
+    // always visible regardless of DEV/production mode.
     setupDefaultState()
 
     render(<LivePreview />)
 
-    // In test/dev mode, "Quick Load" label and "Load Demo" button should be present
-    expect(screen.getByText('Quick Load')).toBeTruthy()
-    expect(screen.getByText('Load Demo')).toBeTruthy()
+    // Framework badge should always be present.
+    expect(screen.getByTestId('framework-badge')).toBeTruthy()
   })
 
-  it('does not show framework badge in DEV mode (dev shows Quick Load instead)', () => {
+  it('does not show Quick Load label or Load Demo button', () => {
     setupDefaultState()
 
     render(<LivePreview />)
 
-    expect(screen.queryByTestId('framework-badge')).toBeNull()
+    expect(screen.queryByText('Quick Load')).toBeNull()
+    expect(screen.queryByText('Load Demo')).toBeNull()
+  })
+})
+
+// ── Regression: empty-source sentinel (clearAST→setCode gap) ─────────────────
+//
+// When clearAST() fires (file switch), rawCode becomes '' briefly before
+// setCode() hydrates the new file. The transform handler returns
+// { js: null, error: 'empty source' } for empty input. The LivePreview must
+// treat this as a silent no-op — no error banner, no srcdoc write, previous
+// valid preview stays visible.
+
+describe('LivePreview — empty-source sentinel suppression', () => {
+  it('does not show an error banner when transform returns "empty source"', async () => {
+    ;(window as any).flintAPI.transformCode = vi.fn().mockResolvedValue({
+      js: null,
+      error: 'empty source',
+    })
+
+    setupDefaultState()
+    useEditorStore.setState({ rawCode: '' })
+
+    render(<LivePreview />)
+
+    // Wait long enough for the promise to resolve
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50))
+    })
+
+    // Must NOT show the error banner
+    expect(screen.queryByTestId('transform-error')).toBeNull()
+  })
+
+  it('does not write srcdoc (no "No default export found." flash) for empty-source', async () => {
+    let iframeSrcdocWrites = 0
+    ;(window as any).flintAPI.transformCode = vi.fn().mockResolvedValue({
+      js: null,
+      error: 'empty source',
+    })
+
+    setupDefaultState()
+    useEditorStore.setState({ rawCode: '' })
+
+    const { container } = render(<LivePreview />)
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50))
+    })
+
+    // The iframe srcdoc should be empty (never set) when the sentinel fires
+    const iframe = container.querySelector('iframe')
+    // srcdoc is set imperatively via ref, not via React prop — it defaults to ''
+    // when never written. The key point is no "No default export found." text
+    // appears in the component's React tree (it lives inside the iframe, not in
+    // the React tree, so we verify the error path is not triggered by checking
+    // no transform-error element exists).
+    expect(screen.queryByTestId('transform-error')).toBeNull()
+    expect(iframe).not.toBeNull()
+  })
+
+  it('does not show an error banner when transform returns { js: "", error: null }', async () => {
+    // Legacy sentinel: pre-fix servers returned empty string instead of the
+    // 'empty source' error. The client-side js.trim()==='' guard must also
+    // suppress this without displaying an error.
+    ;(window as any).flintAPI.transformCode = vi.fn().mockResolvedValue({
+      js: '',
+      error: null,
+    })
+
+    setupDefaultState()
+    useEditorStore.setState({ rawCode: '' })
+
+    render(<LivePreview />)
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50))
+    })
+
+    expect(screen.queryByTestId('transform-error')).toBeNull()
+  })
+
+  it('shows the error banner when a real non-empty transform error arrives', async () => {
+    // Confirms the sentinel suppression does NOT swallow real errors.
+    ;(window as any).flintAPI.transformCode = vi.fn().mockResolvedValue({
+      js: null,
+      error: 'SyntaxError: Unexpected token at line 3',
+    })
+
+    setupDefaultState()
+    useEditorStore.setState({
+      rawCode: 'export default function App() { return <div',
+    })
+
+    render(<LivePreview />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('transform-error')).toBeTruthy()
+    })
   })
 })

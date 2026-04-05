@@ -208,6 +208,7 @@ export function GhostCodeSnippet() {
     const activeFilePath = useCanvasStore((s) => s.activeFilePath)
 
     const [dismissed, setDismissed] = useState(false)
+    const [manualOpen, setManualOpen] = useState(false)
 
     // Drag-to-resize state. 240px ≈ max-h-52 (208px) with a bit of headroom.
     const MIN_HEIGHT = 160
@@ -216,12 +217,22 @@ export function GhostCodeSnippet() {
     const dragStartY = useRef<number | null>(null)
     const dragStartHeight = useRef<number>(240)
 
-    // Track the last-seen node id to reset dismissal on selection change.
+    // Track the last-seen node id to reset dismissal and manualOpen on selection change.
     const [lastSeenId, setLastSeenId] = useState<string | null>(null)
     if (selectedNodeId !== lastSeenId) {
         setLastSeenId(selectedNodeId)
         if (dismissed) setDismissed(false)
+        if (manualOpen) setManualOpen(false)
     }
+
+    // Listen for programmatic open requests from other surfaces.
+    useEffect(() => {
+        function handleShowSnippet() {
+            setManualOpen(true)
+        }
+        window.addEventListener('flint:show-code-snippet', handleShowSnippet)
+        return () => window.removeEventListener('flint:show-code-snippet', handleShowSnippet)
+    }, [])
 
     // ── Drag-to-resize handlers ────────────────────────────────────────────────
 
@@ -248,9 +259,9 @@ export function GhostCodeSnippet() {
         window.addEventListener('mouseup', onMouseUp)
     }, [codeHeight])
 
-    // Dismiss on Escape key.
+    // Dismiss on Escape key — returns to pill, not full hide.
     const handleKeyDown = useCallback((e: KeyboardEvent) => {
-        if (e.key === 'Escape') setDismissed(true)
+        if (e.key === 'Escape') setManualOpen(false)
     }, [])
 
     useEffect(() => {
@@ -273,6 +284,21 @@ export function GhostCodeSnippet() {
 
     // The tag name is the first segment of the node id.
     const tagLabel = selectedNodeId.split(':')[0] ?? 'element'
+
+    // Pill button: shown when a node is selected but the panel has not been opened.
+    if (!manualOpen) {
+        return (
+            <button
+                type="button"
+                onClick={() => setManualOpen(true)}
+                className="pointer-events-auto absolute bottom-6 left-1/2 z-50 -translate-x-1/2 flex items-center gap-1.5 rounded-full border border-zinc-700/50 bg-zinc-900/90 px-3 py-1.5 text-[10px] text-zinc-400 shadow-lg backdrop-blur-sm hover:text-zinc-200 hover:border-zinc-600 transition-colors"
+                aria-label="View source code"
+            >
+                <Code2 size={10} />
+                View Source
+            </button>
+        )
+    }
 
     return (
         <div
@@ -312,7 +338,7 @@ export function GhostCodeSnippet() {
 
                 <button
                     type="button"
-                    onClick={() => setDismissed(true)}
+                    onClick={() => setManualOpen(false)}
                     className="shrink-0 rounded p-0.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-100 ml-2"
                     title="Dismiss snippet (Esc)"
                     aria-label="Dismiss code snippet"
@@ -342,7 +368,7 @@ export function GhostCodeSnippet() {
             {/* ── Footer hint ───────────────────────────────────────── */}
             <div className="border-t border-zinc-800 px-3 py-1.5">
                 <p className="text-[10px] text-zinc-500 leading-tight">
-                    Press <kbd className="rounded bg-zinc-800 px-1 py-0.5 text-zinc-400">Esc</kbd> to dismiss.
+                    Press <kbd className="rounded bg-zinc-800 px-1 py-0.5 text-zinc-400">Esc</kbd> to collapse.
                     Deselecting the node also closes this panel.
                 </p>
             </div>

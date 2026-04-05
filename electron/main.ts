@@ -477,6 +477,8 @@ ipcMain.handle(
         void mcpClient.start(folderPath).catch((err) => {
             console.error(`${BRAND.logPrefix} mcpClient.start failed after openFolder:`, err)
         })
+        // File watcher: restart scan for new project root
+        void (globalThis as Record<string, unknown>)['__flintStartFileWatcher']?.()
         // CV2.2: Initialize thumbnail generator for the new project root
         getThumbnailGenerator(folderPath)
         // CK.1: Seed RAG store with component docs + tokens
@@ -519,9 +521,16 @@ ipcMain.handle('code:transform', (_event, code: unknown): { js: string | null; e
     if (typeof code !== 'string') {
         return { js: null, error: 'code must be a string' }
     }
+    // Bail early on empty input — nothing to transform. This prevents the
+    // clearAST→setCode gap from producing a blank srcdoc that shows
+    // "No default export found." in the iframe.
+    if (code.trim() === '') {
+        return { js: null, error: 'empty source' }
+    }
     try {
         const result = transformSync(code, {
             filename: 'App.tsx',
+            sourceType: 'module',
             plugins: [
                 ['@babel/plugin-transform-typescript', { isTSX: true, allExtensions: true }],
                 injectFlintIdPlugin,
@@ -541,9 +550,11 @@ ipcMain.handle('code:transform', (_event, code: unknown): { js: string | null; e
         // Strip ES module import statements — React etc. will be globals in the iframe.
         js = js.replace(/^import\s[^\n]*\n?/gm, '')
 
-        // Rewrite `export default function/class Foo` → `function/class Foo`
-        // and record the component name so we can assign it to window.__AppComponent.
+        // ── Detect component name from export statements ──────────────
+        // Priority: export default > first named export function/class
         let componentName: string | null = null
+
+        // 1. Rewrite `export default function/class Foo` → `function/class Foo`
         js = js.replace(
             /\bexport\s+default\s+(function|class)\s+(\w+)/,
             (_m: string, kw: string, name: string) => {
@@ -552,7 +563,7 @@ ipcMain.handle('code:transform', (_event, code: unknown): { js: string | null; e
             }
         )
 
-        // Fallback: `export default Foo` (bare identifier after a declaration above)
+        // 2. Fallback: `export default Foo` (bare identifier after a declaration above)
         if (componentName === null) {
             js = js.replace(
                 /^export\s+default\s+(\w+)\s*;?\s*$/m,
@@ -562,6 +573,24 @@ ipcMain.handle('code:transform', (_event, code: unknown): { js: string | null; e
                 }
             )
         }
+
+        // 3. No default export — capture the first named export function/class
+        //    as the component to render. This handles files like
+        //    `export function PatientForm() {}` (common in demos and libraries).
+        if (componentName === null) {
+            const namedMatch = js.match(/^export\s+(?:async\s+)?(function|class)\s+(\w+)/m)
+            if (namedMatch) {
+                componentName = namedMatch[2]
+            }
+        }
+
+        // Strip named export declarations — `export function Foo`, `export class Foo`,
+        // `export const/let/var`, `export { Foo }`, `export * from '...'`.
+        // These are all invalid inside `new Function()` (non-module script context).
+        js = js.replace(/^export\s+\{[^}]*\}\s*(?:from\s+['"][^'"]*['"])?\s*;?\n?/gm, '') // export { Foo } / export { Foo } from '...'
+        js = js.replace(/^export\s+\*\s*(?:from\s+['"][^'"]*['"])?\s*;?\n?/gm, '')          // export * / export * from '...'
+        js = js.replace(/^export\s+((?:async\s+)?function|class)\s+/gm, '$1 ')              // export function/class Foo → function/class Foo
+        js = js.replace(/^export\s+(const|let|var)\s+/gm, '$1 ')                            // export const/let/var → const/let/var
 
         if (componentName !== null) {
             js += `\nwindow.__AppComponent = ${componentName};`
@@ -1214,6 +1243,17 @@ app.whenReady().then(async () => {
 
         // CV2.2: Auto-invalidate thumbnail when a component file is saved
         void autoInvalidateThumbnail(filePath)
+
+        // File watcher: register newly created files so they are stat-polled
+        // going forward. Uses the shared trackedFiles map exposed on globalThis
+        // by the workspace file watcher block (initialised after app:ready).
+        const tracked = (globalThis as Record<string, unknown>)['__flintTrackedFiles'] as Map<string, number> | undefined
+        if (tracked && !tracked.has(filePath)) {
+            try {
+                const { mtimeMs } = await fsStat(filePath)
+                tracked.set(filePath, mtimeMs)
+            } catch { /* ignore — file may have been deleted immediately */ }
+        }
     })
 
     // ── Batch Save Handler ─────────────────────────────────────────────────────
@@ -1583,6 +1623,8 @@ app.whenReady().then(async () => {
         void mcpClient.start(targetPath).catch((err) => {
             console.error(`${BRAND.logPrefix} mcpClient.start failed after create-scratchpad:`, err)
         })
+        // File watcher: restart scan for new project root
+        void (globalThis as Record<string, unknown>)['__flintStartFileWatcher']?.()
         // CV2.2: Initialize thumbnail generator for the new project root
         getThumbnailGenerator(targetPath)
         // CK.1: Seed RAG store with component docs + tokens
@@ -1661,6 +1703,8 @@ app.whenReady().then(async () => {
             void mcpClient.start(normalized).catch((err) => {
                 console.error(`${BRAND.logPrefix} mcpClient.start failed after openPath:`, err)
             })
+            // File watcher: restart scan for new project root
+            void (globalThis as Record<string, unknown>)['__flintStartFileWatcher']?.()
             // CV2.2: Initialize thumbnail generator for the new project root
             getThumbnailGenerator(normalized)
             // CK.1: Seed RAG store with component docs + tokens
@@ -2693,6 +2737,103 @@ app.whenReady().then(async () => {
 
         app.on('will-quit', () => {
             if (annotationsPollInterval) clearInterval(annotationsPollInterval)
+        })
+    }
+
+    // ── Workspace File Watcher ────────────────────────────────────────────────
+    // Stat-polls every .tsx/.ts/.jsx/.js file in the active project workspace
+    // and broadcasts ipcChannel('file-changed') to all windows when an mtime
+    // changes. This closes the core workflow loop: AI writes file → Glass
+    // updates LivePreview automatically.
+    //
+    // Uses the same stat-poll pattern as the annotations watcher to avoid
+    // fsevents crashes on macOS 26 during environment cleanup. Native fs.watch
+    // is intentionally avoided for the same reason.
+    //
+    // Limits: max 100 files, skips node_modules / .git / dist / build dirs.
+    // Interval: 1 000ms (1 second) — fast enough for responsive preview.
+    {
+        let fileWatchInterval: ReturnType<typeof setInterval> | null = null
+        const trackedFiles = new Map<string, number>() // filePath → lastMtimeMs
+
+        /**
+         * Recursively scans `root` for source files, respecting the skip-list
+         * and the 100-file hard cap. Returns absolute file paths.
+         */
+        async function scanWorkspaceFiles(root: string): Promise<string[]> {
+            const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.next', 'out', '.flint'])
+            const results: string[] = []
+
+            async function walk(dir: string): Promise<void> {
+                if (results.length >= 100) return
+                let entries: Awaited<ReturnType<typeof readdir>>
+                try {
+                    entries = await readdir(dir, { withFileTypes: true })
+                } catch { return }
+                for (const entry of entries) {
+                    if (results.length >= 100) break
+                    if (entry.isDirectory()) {
+                        if (!SKIP_DIRS.has(entry.name)) {
+                            await walk(path.join(dir, entry.name))
+                        }
+                    } else if (entry.isFile() && /\.(tsx?|jsx?)$/.test(entry.name)) {
+                        results.push(path.join(dir, entry.name))
+                    }
+                }
+            }
+
+            await walk(root)
+            return results
+        }
+
+        /**
+         * (Re)starts the workspace file watcher. Clears any existing interval,
+         * re-scans the workspace, initialises mtimes, then polls every second.
+         * Called once on launch and again whenever activeProjectRoot changes.
+         */
+        async function startFileWatcher(): Promise<void> {
+            if (fileWatchInterval) clearInterval(fileWatchInterval)
+            trackedFiles.clear()
+
+            if (!activeProjectRoot) return
+
+            const files = await scanWorkspaceFiles(activeProjectRoot)
+            for (const f of files) {
+                try {
+                    const { mtimeMs } = await fsStat(f)
+                    trackedFiles.set(f, mtimeMs)
+                } catch { /* file may not exist */ }
+            }
+
+            fileWatchInterval = setInterval(() => {
+                void (async () => {
+                    for (const [filePath, lastMtime] of trackedFiles) {
+                        try {
+                            const { mtimeMs } = await fsStat(filePath)
+                            if (mtimeMs > lastMtime) {
+                                trackedFiles.set(filePath, mtimeMs)
+                                const content = await readFile(filePath, 'utf-8')
+                                for (const win of BrowserWindow.getAllWindows()) {
+                                    win.webContents.send(ipcChannel('file-changed'), { filePath, content })
+                                }
+                            }
+                        } catch { /* file deleted or inaccessible — skip silently */ }
+                    }
+                })()
+            }, 1_000)
+        }
+
+        // Hoist startFileWatcher and trackedFiles onto globalThis so that the
+        // ast:save-file handler (defined before this block runs) can register
+        // newly created files for tracking without a shared closure.
+        ;(globalThis as Record<string, unknown>)['__flintStartFileWatcher'] = startFileWatcher
+        ;(globalThis as Record<string, unknown>)['__flintTrackedFiles'] = trackedFiles
+
+        // Start for the initial project root (may be null on first launch).
+        void startFileWatcher()
+
+        app.on('will-quit', () => {
+            if (fileWatchInterval) clearInterval(fileWatchInterval)
         })
     }
 
@@ -4532,6 +4673,8 @@ app.whenReady().then(async () => {
         void mcpClient.start(targetPath).catch((err) => {
             console.error(`${BRAND.logPrefix} mcpClient.start failed for auto-scratchpad:`, err)
         })
+        // File watcher: restart scan for auto-scratchpad project root
+        void (globalThis as Record<string, unknown>)['__flintStartFileWatcher']?.()
     }
 
     app.on('activate', () => {

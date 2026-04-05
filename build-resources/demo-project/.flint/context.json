@@ -1,0 +1,36 @@
+{
+  "timestamp": 1775363902180,
+  "activeFile": null,
+  "selectedNodeId": null,
+  "cursorPosition": null,
+  "violations": {
+    "mithrilCount": 6,
+    "a11yCount": 0,
+    "criticalCount": 0,
+    "nodeIds": [
+      "card-root",
+      "card-price",
+      "card-cta",
+      "card-title",
+      "card-description",
+      "card-image"
+    ]
+  },
+  "saveState": "idle",
+  "canvasMode": "design",
+  "openFiles": [],
+  "healthScore": null,
+  "healthGrade": null,
+  "overrideCount": 0,
+  "importSummary": null,
+  "sourceExcerpt": "import React from 'react';\n\n/**\n * DemoCard — A product card with intentional design system violations.\n *\n * This component is bundled with beta builds so testers can immediately\n * see Flint's governance engine in action. It contains:\n *\n *   1. Color drift  — #0055EE instead of token color.primary (#0066FF)\n *   2. Typography   — arbitrary font-size 15px instead of spacing token\n *   3. Spacing      — hardcoded p-[20px] instead of token spacing.lg (24px)\n *   4. A11y         — missing alt text on the image\n *   5. A11y         — button with no accessible label\n *   6. Hardcoded    — inline style with arbitrary shadow\n *\n * After opening this file in Flint, the governance panel should light up\n * with violations. Click \"Auto-Fix\" to watch Flint resolve them.\n */\n\ninterface DemoCardProps {\n  title: string;\n  description: string;\n  price: string;\n  imageUrl?: string;\n  onAddToCart: () => void;\n}\n\nexport default function DemoCard({\n  title,\n  description,\n  price,\n  onAddToCart,\n}: DemoCardProps) {\n  return (\n    <div\n      data-flint-id=\"card-root\"\n      className=\"bg-[#FEFEFE] rounded-[10px] p-[20px] max-w-[360px] border border-[#E0E0E0]\"\n      style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}\n    >\n      {/* Violation: img missing alt attribute (A11Y-001) */}\n      <img\n        data-flint-id=\"card-image\"\n        src=\"/placeholder.png\"\n        className=\"w-full h-[200px] object-cover rounded-[8px] mb-[16px]\"\n      />\n\n      <h3\n        data-flint-id=\"card-title\"\n        className=\"text-[#111827] text-[20px] font-bold leading-[1.3] m-0\"\n      >\n        {title}\n      </h3>\n\n      {/* Violation: arbitrary font-size 15px, not in token set */}\n      <p\n        data-flint-id=\"card-description\"\n        className=\"text-[#6B7280] text-[15px] leading-[1.5] mt-[8px] mb-[16px]\"\n      >\n        {description}\n      </p>\n\n      <div\n        data-flint-id=\"card-footer\"\n        className=\"flex items-center justify-between\"\n      >\n        {/* Violation: #0055EE is not token color.primary (#0066FF) — ΔE drift */}\n        <span\n          data-flint-id=\"card-price\"\n          className=\"text-[#0055EE] text-[24px] font-bold\"\n        >\n          {price}\n        </span>\n\n        {/* Violation: button missing accessible name for icon-only button */}\n        <button\n          data-flint-id=\"card-cta\"\n          onClick={onAddToCart}\n          className=\"px-[20px] py-[10px] bg-[#0055EE] text-[#FFFFFF] rounded-[8px] text-[14px] font-semibold cursor-pointer border-none\"\n        >\n          Add to Cart\n        </button>\n      </div>\n    </div>\n  );\n}\n",
+  "selectedNodeSummary": null,
+  "violationSnapshot": {
+    "total": 6,
+    "criticalCount": 0,
+    "exportBlocked": false,
+    "exportBlockReason": null
+  },
+  "sessionPersona": null,
+  "selectedLibrary": null
+}

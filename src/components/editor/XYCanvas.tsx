@@ -324,7 +324,7 @@ export function XYCanvas() {
                 elementsSelectable={false}
                 zoomOnDoubleClick={false}
                 proOptions={proOptions}
-                className="bg-gray-950"
+                className="bg-gray-900"
             >
                 <Background
                     variant={BackgroundVariant.Dots}

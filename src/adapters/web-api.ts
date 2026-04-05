@@ -118,17 +118,28 @@ function unsubscribeAll(channel: string): void {
  * The server has a single POST /api/ipc endpoint that dispatches by channel name.
  */
 async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
-  const res = await fetch('/api/ipc', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ channel, args }),
-  })
-  if (!res.ok) {
-    throw new Error(`IPC call failed: ${channel} (${res.status})`)
+  // Retry up to 3 times with backoff — the Express server may still be starting
+  // when the browser loads (race condition in dev:web backgrounded process).
+  let lastError: Error | null = null
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch('/api/ipc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel, args }),
+      })
+      if (!res.ok) {
+        throw new Error(`IPC call failed: ${channel} (${res.status})`)
+      }
+      const json = await res.json()
+      if (json.error) throw new Error(json.error)
+      return json.result
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err))
+      if (attempt < 2) await new Promise((r) => setTimeout(r, 500 * (attempt + 1)))
+    }
   }
-  const json = await res.json()
-  if (json.error) throw new Error(json.error)
-  return json.result
+  throw lastError!
 }
 
 // ── FlintAPI implementation ──────────────────────────────────────────────────
@@ -190,6 +201,15 @@ export function createWebFlintAPI() {
     removeTokensUpdatedListener: (): void => {
       unsubscribeAll('flint:tokens-updated')
     },
+
+    // ── File change live sync ───────────────────────────────────────────────
+    onFileChanged: (callback: (data: { filePath: string; content: string }) => void): void => {
+      subscribe('flint:file-changed', callback as (...args: unknown[]) => void)
+    },
+    removeFileChangedListener: (): void => {
+      unsubscribeAll('flint:file-changed')
+    },
+
     watchTokens: (callback: (tokens: unknown[]) => void): (() => void) => {
       const onUpdate = (): void => {
         void (invoke('tokens:read-all') as Promise<unknown[]>).then(callback)

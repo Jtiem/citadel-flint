@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react'
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { BRAND } from '../shared/brand'
 import './index.css'
 // ── Phase N.1: Bootstrap the Abstract Syntax Protocol (ASP) ──────────────────
@@ -33,7 +33,7 @@ import { useTokenStore } from './store/tokenStore'
 import { useNotificationStore } from './store/notificationStore'
 import { useCanvasStore } from './store/canvasStore'
 import { useEditorStore } from './store/editorStore'
-import { useAnnotationStore } from './store/annotationStore'
+import { useAnnotationStore, useAnnotations } from './store/annotationStore'
 import { useComponentCardStore } from './store/componentCardStore'
 import { useOrchestratorStore } from './store/orchestratorStore'
 import type { FileTreeNode } from './types/flint-api'
@@ -49,7 +49,7 @@ import { useContextSync } from './hooks/useContextSync'
 import { useMCPEventListener } from './hooks/useMCPEventListener'
 import { useAutopilot } from './hooks/useAutopilot'
 import { useIDEFileSync } from './hooks/useIDEFileSync'
-import { Settings2, SlidersHorizontal, Palette, BarChart2, MoreHorizontal, ChevronLeft, ChevronRight, Layers, LayoutGrid, Image } from 'lucide-react'
+import { Settings2, SlidersHorizontal, Palette, BarChart2, MoreHorizontal, ChevronLeft, ChevronRight, Layers, LayoutGrid, Image, Search, MessageSquare, Play, Loader2 } from 'lucide-react'
 import { OnboardingNudge } from './components/ui/OnboardingNudge'
 import { CommandPalette } from './components/ui/CommandPalette'
 import { ComponentPanel } from './components/ui/ComponentPanel'
@@ -190,6 +190,29 @@ function App() {
     }, [markTabSeen, setRightTab])
 
     const activeFileName = activeFilePath ? activeFilePath.split('/').pop() ?? null : null
+
+    // ── T2.7: Annotation count badge ─────────────────────────────────────────
+    const annotations = useAnnotations()
+    const openAnnotationCount = useMemo(
+        () => annotations.filter((a) => a.status === 'open').length,
+        [annotations],
+    )
+
+    // ── T2.3/Governance tab: violation selectors ─────────────────────────────
+    const mithrilViolations = useCanvasStore((s) => s.mithrilViolations)
+    const a11yViolations    = useCanvasStore((s) => s.a11yViolations)
+    const governanceIssueCount = mithrilViolations.length + Object.keys(a11yViolations).length
+
+    // ── Run Audit header button ───────────────────────────────────────────────
+    const [isAuditingGlobal, setIsAuditingGlobal] = useState(false)
+    const handleGlobalRunAudit = useCallback(async () => {
+        const file = useCanvasStore.getState().activeFilePath
+        if (!file || !window.flintAPI.mcp?.callTool) return
+        setIsAuditingGlobal(true)
+        try { await window.flintAPI.mcp.callTool('flint_audit', { file }) }
+        catch { /* best-effort */ }
+        finally { setIsAuditingGlobal(false) }
+    }, [])
 
     // ── Context Flint (Phase 1A) ─────────────────────────────────────────────
     useContextSync()
@@ -345,7 +368,11 @@ function App() {
                 const tree = await window.flintAPI.project.openPath(result.projectPath)
                 if (tree) {
                     await hydrateWorkspace(tree as FileTreeNode)
+                } else {
+                    setDemoLoadError('Demo project created but could not be opened. Try again.')
                 }
+            } else if (result && 'error' in result) {
+                setDemoLoadError(`Demo project couldn't load: ${(result as { error: string }).error}`)
             }
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err)
@@ -853,7 +880,7 @@ function App() {
                                 className={`inline-block h-1.5 w-1.5 rounded-full ${saveState === 'editing'
                                     ? 'bg-amber-400'
                                     : saveState === 'saving'
-                                        ? 'animate-pulse bg-blue-400'
+                                        ? 'motion-safe:animate-pulse bg-blue-400'
                                         : 'bg-emerald-400'
                                     }`}
                             />
@@ -861,6 +888,45 @@ function App() {
                                 {saveState === 'editing' ? 'Editing…' : saveState === 'saving' ? 'Saving…' : 'Saved'}
                             </span>
                         </div>
+                    )}
+
+                    {/* T2.7: Open annotation count badge */}
+                    {openAnnotationCount > 0 && (
+                        <button
+                            type="button"
+                            onClick={() => { useCanvasStore.getState().setRightTab('properties') }}
+                            className="flex items-center gap-1 rounded border border-indigo-500/30 bg-indigo-900/10 px-2 py-1 text-indigo-400 transition-colors hover:bg-indigo-900/20"
+                            aria-label={`${openAnnotationCount} open annotations`}
+                        >
+                            <MessageSquare size={12} />
+                            <span className="text-[10px] font-medium">{openAnnotationCount}</span>
+                        </button>
+                    )}
+
+                    {/* T2.3: Wider command palette search bar */}
+                    <button
+                        type="button"
+                        onClick={() => useCanvasStore.getState().setCommandPaletteOpen(true)}
+                        aria-label="Command palette (⌘K)"
+                        className="flex items-center gap-2 rounded border border-gray-700 bg-gray-800 px-3 py-1.5 text-gray-400 transition-colors hover:border-indigo-500/50 hover:bg-gray-700 hover:text-white min-w-[180px]"
+                    >
+                        <Search size={14} />
+                        <span className="text-xs text-zinc-400">Search...</span>
+                        <kbd className="ml-auto text-[9px] font-mono text-zinc-500">⌘K</kbd>
+                    </button>
+
+                    {/* Run Audit button */}
+                    {activeFilePath && (
+                        <button
+                            type="button"
+                            onClick={() => void handleGlobalRunAudit()}
+                            disabled={isAuditingGlobal}
+                            className="flex items-center gap-1 rounded border border-indigo-500/30 bg-indigo-900/20 px-2 py-1 text-xs text-indigo-400 transition-colors hover:bg-indigo-900/40 hover:text-indigo-300 disabled:opacity-40 disabled:cursor-not-allowed"
+                            aria-label={isAuditingGlobal ? 'Auditing in progress' : 'Run governance audit'}
+                        >
+                            {isAuditingGlobal ? <Loader2 size={12} className="motion-safe:animate-spin" /> : <Play size={12} />}
+                            {isAuditingGlobal ? 'Auditing...' : 'Audit'}
+                        </button>
                     )}
 
                     <button
@@ -932,7 +998,7 @@ function App() {
                             style={{ width: leftWidth, minWidth: PANEL_MIN, maxWidth: PANEL_MAX }}
                             className="flex min-h-0 shrink-0 flex-col border-r border-gray-800"
                         >
-                            <div role="tablist" className="flex shrink-0 border-b border-gray-800">
+                            <div role="tablist" aria-label="Left sidebar sections" className="flex shrink-0 border-b border-gray-800">
                                 {/* OPP-11: Left panel progressive tabs — filter by unlocked set */}
                                 {/* GLASS.1b: Components tab added between Layers and Assets */}
                                 {(['layers', 'components', 'assets'] as const)
@@ -1030,7 +1096,7 @@ function App() {
                                 onStartEditing={() => handleSetRightTab('properties')}
                             />
 
-                            <div role="tablist" className="flex shrink-0 border-b border-gray-800">
+                            <div role="tablist" aria-label="Right sidebar sections" className="flex shrink-0 border-b border-gray-800">
                                 {/* OPP-10: Right panel progressive tabs — filter by unlocked set,
                                     show one-time indigo dot on newly-unlocked tabs */}
                                 {([
@@ -1077,7 +1143,7 @@ function App() {
                                         )
                                     })}
                             </div>
-                            <div className="min-h-0 flex-1 overflow-y-auto">
+                            <div role="tabpanel" id={`right-tabpanel-${rightTab}`} aria-labelledby={`right-tab-${rightTab}`} className="min-h-0 flex-1 overflow-y-auto">
                                 {/* Phase ING.2: Import Summary panel takes priority */}
                                 {importSummaryPanelMode ? (
                                     <ImportSummaryPanelView />

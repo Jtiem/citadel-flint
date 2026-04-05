@@ -21,5 +21,9 @@ export default defineConfig({
       name: 'demo-smoke',
       testMatch: 'tests/demo/**/*.spec.ts',
     },
+    {
+      name: 'web-e2e',
+      testMatch: 'tests/e2e/**/*.spec.ts',
+    },
   ],
 })

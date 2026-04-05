@@ -1917,17 +1917,19 @@ export interface FlintAPI {
      */
     enrichment?: EnrichmentAPI
 
-    // ── Phase 1C: File watcher (optional — not yet in preload) ───────────────
+    // ── File watcher (IPC channel: flint:file-changed) ───────────────────────
 
     /**
-     * Subscribes to file-change events pushed by the main process.
-     * Returns void. Optional-chained by callers since this IPC channel
-     * may not yet be wired in preload.ts.
+     * Subscribes to file-change events pushed by the workspace file watcher in
+     * the main process. Fires whenever a tracked source file's mtime increases.
+     * The renderer uses this to keep LivePreview in sync without polling.
+     *
+     * Call `removeFileChangedListener()` in cleanup to avoid duplicate listeners.
      */
-    onFileChanged?: (callback: (data: { filePath: string; content: string }) => void) => void
+    onFileChanged: (callback: (data: { filePath: string; content: string }) => void) => void
 
-    /** Removes the file-changed listener. Optional. */
-    removeFileChangedListener?: () => void
+    /** Removes all listeners registered for the file-changed channel. */
+    removeFileChangedListener: () => void
 
     // ── Phase Q: Asset Management Hub (optional) ─────────────────────────────
 

@@ -325,7 +325,8 @@ describe('GovernanceDashboard', () => {
     // ── Fix 1: A11y Fix button via MCP ───────────────────────────────────────
 
     // 22. Fix button renders for an a11y violation
-    it('renders a Fix button for an a11y violation', async () => {
+    // 22. A11y violations show "How to fix" button (not "Fix") since they require human input
+    it('renders a "How to fix" button for an a11y violation (not Fix)', async () => {
         seedTokens([makeToken()])
         useCanvasStore.setState({
             activeFilePath: '/project/src/Button.tsx',
@@ -335,15 +336,14 @@ describe('GovernanceDashboard', () => {
         })
         render(<GovernanceDashboard />)
         await waitFor(() => {
-            expect(screen.getByTestId('a11y-fix-btn-A11Y-001')).toBeDefined()
+            expect(screen.getByTestId('a11y-howto-btn-A11Y-001')).toBeDefined()
         })
+        // Fix button should NOT exist for a11y violations
+        expect(screen.queryByTestId('a11y-fix-btn-A11Y-001')).toBeNull()
     })
 
-    // 23. Clicking the Fix button calls flint_fix with correct arguments
-    it('clicking Fix calls flint_fix with filePath, ruleId, dry_run: false', async () => {
-        const mockCallTool = vi.fn().mockResolvedValue({ ok: true })
-        ;(window.flintAPI as Record<string, unknown>).mcp = { callTool: mockCallTool }
-
+    // 23. Clicking "How to fix" expands the card to show guidance
+    it('clicking "How to fix" expands the a11y violation card', async () => {
         seedTokens([makeToken()])
         useCanvasStore.setState({
             activeFilePath: '/project/src/Button.tsx',
@@ -352,14 +352,10 @@ describe('GovernanceDashboard', () => {
             },
         })
         render(<GovernanceDashboard />)
-        await waitFor(() => screen.getByTestId('a11y-fix-btn-A11Y-001'))
-        fireEvent.click(screen.getByTestId('a11y-fix-btn-A11Y-001'))
+        await waitFor(() => screen.getByTestId('a11y-howto-btn-A11Y-001'))
+        fireEvent.click(screen.getByTestId('a11y-howto-btn-A11Y-001'))
         await waitFor(() => {
-            expect(mockCallTool).toHaveBeenCalledWith('flint_fix', {
-                file: '/project/src/Button.tsx',
-                ruleId: 'A11Y-001',
-                dry_run: false,
-            })
+            expect(screen.getByTestId('a11y-howto-btn-A11Y-001').getAttribute('aria-expanded')).toBe('true')
         })
     })
 

@@ -129,14 +129,13 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject, onManageFigm
     // ── Scratchpad indicator ──────────────────────────────────────────────────
     const isScratchpad = isScratchpadPath(activeFilePath)
 
+    const totalIssues = mithrilViolations.length + Object.keys(a11yViolations).length
     const gateLabel = (() => {
         if (canExport) return null
-        if (mithrilViolations.length > 0) {
-            // EDU-01: plain-language label — "Design drift" instead of "Mithril"
-            return `${mithrilViolations.length} Design Drift ${mithrilViolations.length > 1 ? 'Issues' : 'Issue'}`
+        if (totalIssues > 0) {
+            return `${totalIssues} ${totalIssues === 1 ? 'Issue' : 'Issues'}`
         }
-        // EDU-01: plain-language label — clarify what "overrides" means for export
-        return 'Unapplied Style Changes'
+        return 'Overrides Active'
     })()
 
     // GOV.2 override badge relocated to GovernanceDashboard (GLASS.3.4-B)
@@ -480,7 +479,7 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject, onManageFigm
                         setRightTab('governance')
                     }
                 }}
-                className={`flex flex-shrink-0 min-h-[24px] items-center gap-1.5 text-xs transition-colors ${
+                className={`flex flex-shrink-0 min-h-[24px] cursor-pointer items-center gap-1.5 text-xs transition-colors ${
                     canExport
                         ? 'text-emerald-500 hover:text-emerald-400'
                         : 'text-amber-400 hover:text-amber-300'
@@ -729,9 +728,11 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject, onManageFigm
                     ].join(' ')}
                     aria-hidden="true"
                 />
-                <span className="text-xs text-zinc-300">
-                    {mcpConnected === null ? 'Flint…' : mcpConnected ? 'Flint' : 'Flint'}
-                </span>
+                {!mcpConnected && (
+                    <span className="text-xs text-zinc-300">
+                        {mcpConnected === null ? 'Connecting…' : 'Offline'}
+                    </span>
+                )}
                 {mcpConnected === false && (
                     <button
                         type="button"

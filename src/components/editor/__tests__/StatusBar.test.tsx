@@ -71,12 +71,11 @@ describe('StatusBar', () => {
 
     // 4. Shows violation count text via Export Gate chip
     it('renders violation count text in the center section', async () => {
-        // StatusBar reads canvasStore.mithrilViolations, not editorStore.linterWarnings.
-        // EDU-01 renamed "1 Mithril Violation" to "1 Design Drift Issue".
+        // StatusBar reads canvasStore.mithrilViolations + a11yViolations for total issue count.
         useCanvasStore.setState({ mithrilViolations: ['node-1'], overridesExist: false })
         render(<StatusBar />)
         await waitFor(() => {
-            expect(screen.getByText('1 Design Drift Issue')).toBeDefined()
+            expect(screen.getByText('1 Issue')).toBeDefined()
         })
     })
 
@@ -313,10 +312,12 @@ describe('StatusBar', () => {
         render(<StatusBar />)
         await waitFor(() => {
             expect(screen.getByText('Figma')).toBeDefined()
-            expect(screen.getByText('Flint')).toBeDefined()
+            // When connected, only the green dot is shown — no text label.
+            // Verify the MCP indicator container is present via its tooltip.
+            expect(screen.getByTitle('Governance engine — connected. Flint is actively checking your code.')).toBeDefined()
         })
         const figmaBtn = screen.getByTitle('Figma connection — click for details')
-        const flintIndicator = screen.getByText('Flint').closest('div')!
+        const flintIndicator = screen.getByTitle('Governance engine — connected. Flint is actively checking your code.')
         // figmaBtn should precede flintIndicator in the document
         const position = figmaBtn.compareDocumentPosition(flintIndicator)
         expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
@@ -327,7 +328,7 @@ describe('StatusBar', () => {
         useCanvasStore.setState({ mithrilViolations: ['n1', 'n2'], overridesExist: false })
         render(<StatusBar />)
         await waitFor(() => {
-            expect(screen.getByText('2 Design Drift Issues')).toBeDefined()
+            expect(screen.getByText('2 Issues')).toBeDefined()
         })
         // The gate button itself is the first meaningful item — verify it is amber
         const gateBtn = document.querySelector('button.text-amber-400')

@@ -251,6 +251,24 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
     },
 
     /**
+     * Subscribes to file-change events pushed by the workspace file watcher in
+     * the main process. Fires whenever a tracked source file's mtime increases
+     * (typically after an AI write or a manual disk save). The renderer uses
+     * this to keep LivePreview in sync without polling.
+     *
+     * Call `removeFileChangedListener()` in cleanup to avoid duplicate
+     * listeners across React re-renders.
+     */
+    onFileChanged: (callback: (data: { filePath: string; content: string }) => void): void => {
+        ipcRenderer.on(ipcChannel('file-changed'), (_event, data: { filePath: string; content: string }) => callback(data))
+    },
+
+    /** Removes all listeners registered for the file-changed channel. */
+    removeFileChangedListener: (): void => {
+        ipcRenderer.removeAllListeners(ipcChannel('file-changed'))
+    },
+
+    /**
      * Subscribes to live design token updates from the SQLite database.
      *
      * On call, immediately invokes `callback` with the current token list so

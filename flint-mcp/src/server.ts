@@ -138,6 +138,18 @@ import {
     handleFlintQuickstart,
     FLINT_QUICKSTART_TOOL,
 } from "./tools/quickstart.js";
+import {
+    handleListRulePacks,
+    handleEnablePack,
+    handleDisablePack,
+    handleSetRuleMode,
+    handleComplianceCoverage,
+    FLINT_LIST_RULE_PACKS_TOOL,
+    FLINT_ENABLE_PACK_TOOL,
+    FLINT_DISABLE_PACK_TOOL,
+    FLINT_SET_RULE_MODE_TOOL,
+    FLINT_COMPLIANCE_COVERAGE_TOOL,
+} from "./tools/rulePacks.js";
 
 // @ts-ignore
 const generate = _generate.default || _generate;
@@ -412,7 +424,7 @@ export function detectReturningUser(projectRoot: string): boolean {
  * Returns a reasonable static count derived from the CLAUDE.md tool table (54 registered).
  * This is intentionally static — the count is known at build time and avoids circular deps.
  */
-const REGISTERED_TOOL_COUNT = 54;
+const REGISTERED_TOOL_COUNT = 59;
 
 /**
  * Build the MCP server instructions string.
@@ -1187,6 +1199,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             FLINT_PACK_IMPORT_TOOL,
             FLINT_PACK_ROLLBACK_TOOL,
             FLINT_DEFER_VIOLATION_TOOL,
+            FLINT_LIST_RULE_PACKS_TOOL,
+            FLINT_ENABLE_PACK_TOOL,
+            FLINT_DISABLE_PACK_TOOL,
+            FLINT_SET_RULE_MODE_TOOL,
+            FLINT_COMPLIANCE_COVERAGE_TOOL,
         ],
     };
 });
@@ -3976,6 +3993,52 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         case "flint_quickstart": {
             const qsArgs = request.params.arguments as { outputDir?: string } ?? {};
             return handleFlintQuickstart(qsArgs, flintConfig);
+        }
+
+        // -----------------------------------------------------------------
+        // ERM.1 — Rule Pack Management
+        // -----------------------------------------------------------------
+
+        case "flint_list_rule_packs": {
+            const listPackArgs = (request.params.arguments ?? {}) as {
+                domain?: string;
+                jurisdiction?: string;
+                status?: string;
+            };
+            return handleListRulePacks(listPackArgs);
+        }
+
+        case "flint_enable_pack": {
+            const enablePackArgs = request.params.arguments as {
+                pack_id: string;
+                projectRoot?: string;
+            };
+            return handleEnablePack(enablePackArgs);
+        }
+
+        case "flint_disable_pack": {
+            const disablePackArgs = request.params.arguments as {
+                pack_id: string;
+                projectRoot?: string;
+            };
+            return handleDisablePack(disablePackArgs);
+        }
+
+        case "flint_set_rule_mode": {
+            const setRuleModeArgs = request.params.arguments as {
+                rule_id: string;
+                mode: "coercive" | "normative" | "advisory" | "off";
+                projectRoot?: string;
+            };
+            return handleSetRuleMode(setRuleModeArgs);
+        }
+
+        case "flint_compliance_coverage": {
+            const coverageArgs = (request.params.arguments ?? {}) as {
+                jurisdictions?: string[];
+                projectRoot?: string;
+            };
+            return handleComplianceCoverage(coverageArgs);
         }
 
         default:

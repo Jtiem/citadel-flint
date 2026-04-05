@@ -47,6 +47,7 @@ import { useCanvasStore } from '../../store/canvasStore'
 import { RuleCatalogPanel } from './RuleCatalogPanel'
 import { ComplianceProfileSelector } from './ComplianceProfileSelector'
 import { useGovernanceConfig } from '../../hooks/useGovernanceConfig'
+import { SwitchToggle } from './SwitchToggle'
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -88,37 +89,6 @@ function SeverityBadge({ severity }: SeverityBadgeProps) {
         <span className="rounded border border-zinc-700/50 bg-zinc-800 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
             Info
         </span>
-    )
-}
-
-// ── Toggle switch ─────────────────────────────────────────────────────────────
-
-interface ToggleProps {
-    enabled: boolean
-    onChange: (value: boolean) => void
-    label: string
-}
-
-function Toggle({ enabled, onChange, label }: ToggleProps) {
-    return (
-        <button
-            type="button"
-            role="switch"
-            aria-checked={enabled}
-            aria-label={label}
-            onClick={() => onChange(!enabled)}
-            className={`relative inline-flex h-4 w-7 shrink-0 cursor-pointer items-center rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900 ${
-                enabled
-                    ? 'border-indigo-500/50 bg-indigo-600'
-                    : 'border-zinc-700 bg-zinc-800'
-            }`}
-        >
-            <span
-                className={`inline-block h-2.5 w-2.5 rounded-full bg-white shadow-sm transition-transform ${
-                    enabled ? 'translate-x-3.5' : 'translate-x-0.5'
-                }`}
-            />
-        </button>
     )
 }
 
@@ -191,10 +161,11 @@ function RuleRow({ rule, override, onToggle, onReset, isFocused, rowRef }: RuleR
                 isFocused ? 'ring-1 ring-inset ring-indigo-500/40 bg-indigo-900/10' : ''
             }`}
         >
-            <Toggle
-                enabled={isEnabled}
-                onChange={(val) => onToggle(rule.id, val)}
-                label={`Toggle ${rule.name}`}
+            <SwitchToggle
+                checked={isEnabled}
+                onChange={(val: boolean) => onToggle(rule.id, val)}
+                aria-label={`Toggle ${rule.name}`}
+                size="sm"
             />
 
             <div className="min-w-0 flex-1">
@@ -356,17 +327,24 @@ export function GovernancePanel({ onClose, focusRuleId }: GovernancePanelProps) 
 
     const handleToggle = useCallback(
         (ruleId: string, enabled: boolean) => {
-            const override: RuleOverride = { enabled }
-            setOverride(ruleId, override)
-            // GOV.2: fire-and-forget telemetry — do not await
+            const rule = GOVERNANCE_RULES_MANIFEST.find((r) => r.id === ruleId)
+            const currentOverride = overrides[ruleId]
+            const isReturningToDefault = enabled && (!currentOverride?.severity || currentOverride.severity === rule?.defaultSeverity)
+
+            if (isReturningToDefault) {
+                resetOverride(ruleId)
+            } else {
+                setOverride(ruleId, { enabled })
+            }
+
             window.flintAPI.governance.recordOverride({
                 ruleId,
-                action: enabled ? 'enable' : 'disable',
-                newValue: override,
+                action: isReturningToDefault ? 'reset' : enabled ? 'enable' : 'disable',
+                newValue: isReturningToDefault ? null : { enabled },
                 filePath: activeFilePath ?? '',
             })
         },
-        [setOverride, activeFilePath]
+        [setOverride, resetOverride, overrides, activeFilePath]
     )
 
     const handleResetRule = useCallback(

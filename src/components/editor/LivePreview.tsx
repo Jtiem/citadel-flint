@@ -43,7 +43,6 @@ import { BREAKPOINT_WIDTHS } from '../../store/canvasStore'
 import { useImportSummaryStore } from '../../store/importSummaryStore'
 import type { DropPosition } from '../../utils/astModifier'
 import { generateTailwindConfig } from '../../utils/tokenAdapter'
-import { PAYMENT_CALCULATOR_CODE } from '../../templates/paymentCalculator'
 import {
   parseCodeToAST,
   injectFlintIds,
@@ -119,7 +118,7 @@ export function buildSrcdoc(
   ${libraryShims ? `<style>${libraryShims.cssVars}<\/style>` : ''}
   <style>${FLINT_INTERACTION_STYLES}<\/style>
 </head>
-<body>
+<body style="margin:0;background:#fff">
   <div id="root"></div>
   <script id="__code" type="application/json">${safeJson}<\/script>
   <script>
@@ -175,7 +174,7 @@ export function buildSrcdoc(
  * URL with the locally-vendored tailwind-cdn.js (same as buildSrcdoc does).
  */
 export function buildHtmlSrcdoc(htmlCode: string, tailwindConfigJson: string): string {
-  // Extract <body> inner content to avoid duplicating the outer <html>/<head>.
+  // Extract <body style="margin:0;background:#fff"> inner content to avoid duplicating the outer <html>/<head>.
   const bodyMatch = htmlCode.match(/<body[^>]*>([\u200b\s\S]*?)<\/body>/i)
   const bodyContent = bodyMatch ? bodyMatch[1] : htmlCode
 
@@ -188,7 +187,7 @@ export function buildHtmlSrcdoc(htmlCode: string, tailwindConfigJson: string): s
   <script>tailwind.config = ${tailwindConfigJson};<\/script>
   <style>${FLINT_INTERACTION_STYLES}<\/style>
 <\/head>
-<body>
+<body style="margin:0;background:#fff">
   ${bodyContent}
   <script>${FLINT_INTERACTION_SCRIPT}<\/script>
 <\/body>
@@ -231,7 +230,7 @@ export function buildVueSrcdoc(
   <style>${FLINT_INTERACTION_STYLES}<\/style>
   ${css ? `<style>${css}<\/style>` : ''}
 <\/head>
-<body>
+<body style="margin:0;background:#fff">
   <div id="app"></div>
   <script id="__vue_code" type="application/json">${safeJson}<\/script>
   <script>
@@ -297,7 +296,7 @@ export function buildSvelteSrcdoc(
   <style>${FLINT_INTERACTION_STYLES}<\/style>
   ${css ? `<style>${css}<\/style>` : ''}
 <\/head>
-<body>
+<body style="margin:0;background:#fff">
   <div id="app"></div>
   <script id="__svelte_code" type="application/json">${safeJson}<\/script>
   <script>
@@ -338,7 +337,7 @@ export function buildPlaceholderSrcdoc(framework: string): string {
     body { margin: 0; background: #111827; color: #f9fafb; font-family: system-ui, sans-serif; }
   <\/style>
 <\/head>
-<body>
+<body style="margin:0;background:#fff">
   <div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#9ca3af;font-family:system-ui">
     <p>${framework} preview \u2014 install @vue/compiler-sfc or svelte to enable</p>
   <\/div>
@@ -355,10 +354,8 @@ export function LivePreview() {
   const hoveredId = useEditorStore((state) => state.hoveredId)
   const setHoveredId = useEditorStore((state) => state.setHoveredId)
   const tokens = useTokenStore((state) => state.tokens)
-  const ensureDemoTokens = useTokenStore((state) => state.ensureDemoTokens)
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const [transformError, setTransformError] = useState<string | null>(null)
-  const [demoLoading, setDemoLoading] = useState(false)
 
   // ── GLASS.3.1A: Transform loading indicator ──────────────────────────────
   const [isTransforming, setIsTransforming] = useState(false)
@@ -519,17 +516,6 @@ export function LivePreview() {
     }
   }, [workspaceFiles?.path])
 
-  async function handleLoadDemo(): Promise<void> {
-    setDemoLoading(true)
-    try {
-      // Seeds baseline tokens if the DB is empty so token classes resolve
-      await ensureDemoTokens()
-      setCode(PAYMENT_CALCULATOR_CODE)
-    } finally {
-      setDemoLoading(false)
-    }
-  }
-
   // Re-compute only when the token list changes, not on every render.
   const tailwindConfigJson = useMemo(() => generateTailwindConfig(tokens), [tokens])
 
@@ -658,13 +644,28 @@ export function LivePreview() {
           .then(({ js, error }) => {
             if (cancelled) return
             setIsTransforming(false)
+            // 'empty source' is a sentinel the transform handlers return when
+            // rawCode is '' (the clearAST → setCode gap). It is expected and
+            // should not be shown as a visible error — just leave the previous
+            // srcdoc in place until the real file content arrives.
+            if (error === 'empty source') return
             if (error !== null || js === null) {
               setTransformError(error ?? 'Transform failed')
               return
             }
+            // Guard against an empty JS string (legacy: old server versions
+            // returned { js: '', error: null } for empty input instead of the
+            // 'empty source' sentinel). An empty string passed to buildSrcdoc
+            // renders "No default export found." without any visible error.
+            if (js.trim() === '') return
             setTransformError(null)
             if (iframeRef.current !== null) {
-              const executeCode = js.replace(/import\s+.*?from\s+['"].*?['"];?/g, '')
+              // The server already strips ES module imports. This client-side
+              // strip is a safety net for Electron's Babel transform which may
+              // leave multi-line import statements intact. The regex uses
+              // [\s\S]*? (cross-line) because imports can span multiple lines.
+              // Safe here because the server output should contain zero imports.
+              const executeCode = js.replace(/^import\s[\s\S]*?from\s*['"][^'"]*['"]\s*;?\n?/gm, '')
               const libraryShims = getLibraryShims(activeLibrary)
               iframeRef.current.srcdoc = buildSrcdoc(executeCode, tailwindConfigJson, libraryShims)
               renderedVersionRef.current = thisVersion
@@ -982,32 +983,13 @@ export function LivePreview() {
           </button>
         </div>
 
-        {/* GLASS.3.1D: Dev-only Quick Load / Load Demo — hidden in production */}
-        {import.meta.env.DEV && (
-          <>
-            <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
-              Quick Load
-            </span>
-            <button
-              type="button"
-              disabled={demoLoading}
-              onClick={() => { handleLoadDemo().catch(console.error) }}
-              className="rounded border border-gray-700 px-2.5 py-0.5 text-[10px] text-gray-500 transition-colors hover:border-indigo-600/60 hover:text-indigo-400 disabled:cursor-wait disabled:opacity-40"
-            >
-              {demoLoading ? 'Compiling AST\u2026' : 'Load Demo'}
-            </button>
-          </>
-        )}
-
-        {/* GLASS.3.1D: Framework badge — shown in production where Quick Load was */}
-        {!import.meta.env.DEV && (
-          <span
-            data-testid="framework-badge"
-            className="ml-1 rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] font-medium text-zinc-400"
-          >
-            {detectedFramework}
-          </span>
-        )}
+        {/* GLASS.3.1D: Framework badge */}
+        <span
+          data-testid="framework-badge"
+          className="ml-1 rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] font-medium text-zinc-400"
+        >
+          {detectedFramework}
+        </span>
 
         {/* GLASS.3.1B: Stale preview indicator */}
         {isStale && !isTransforming && (

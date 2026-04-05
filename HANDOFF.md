@@ -6,6 +6,42 @@
 
 ---
 
+## Session: 2026-04-05 — Web Build Stabilization + LivePreview Fix + A11y UX (COMPLETE)
+
+**Goal:** Fix the critical path for web build: LivePreview rendering, demo loading, and a11y violation UX.
+
+**What shipped:**
+
+### LivePreview Rendering (P0)
+- **`sourceType: 'module'`** added to Babel `transformSync` in both `server/index.ts` and `electron/main.ts` — fixes "export declarations may only appear at top level" SyntaxError.
+- **Named export stripping** — 4 new regex passes strip `export function/class/const/let/var`, `export { }`, `export *` so all export forms work inside `new Function()` iframe execution.
+- **Named export component detection** — components using `export function Foo` (not just `export default`) are now captured for `window.__AppComponent` assignment.
+- **Empty source guard** — `code:transform` returns `{ js: null, error: 'empty source' }` for empty input instead of producing a blank preview. Client silently ignores this sentinel.
+- **`preview:start` disabled in web mode** — prevents Vite preview server from hijacking the iframe with `src=` mode. Iframe stays in `srcdoc` mode where `code:transform` output renders.
+- **White background** — all 5 `buildSrcdoc` variants (React, HTML, Vue, Svelte, placeholder) now default to `background:#fff`.
+- **Client import regex fix** — multi-line import strip regex updated to handle cross-line imports.
+
+### Demo Loading (P0)
+- **`isWithinHome` tmpdir fix** — `project:openPath` now allows `os.tmpdir()` paths (resolved via `realpathSync` for macOS `/tmp` → `/private/tmp` symlink). Demo projects copied to tmpdir can now be opened.
+- **Error feedback** — `handleLoadDemo` in App.tsx now shows an error message if `openPath` returns null instead of failing silently.
+
+### IPC Reliability (P1)
+- **`req.body` guard** — IPC dispatch route returns 400 with clear message if body isn't parsed (prevents TypeError 500 crash).
+- **Retry with backoff** — `web-api.ts` `invoke()` retries up to 3 times with 500ms/1s delays, handling the race condition where browser opens before Express server finishes starting.
+
+### A11y Violation UX (P1)
+- **All a11y violations show "How to fix"** — removed misleading "Fix" button from all a11y violations. A11y issues require human judgment (label text, heading structure, alt text), so Glass shows step-by-step guidance instead of a dead auto-fix button.
+- **"Needs input" badge** replaces "Auto-fixable" badge for all a11y violations.
+- **A11Y-010 fix guide added** — heading skip level violations now have proper guidance with copyable code snippet.
+- **MCP disconnect feedback** — toast notification when Fix is attempted but MCP isn't connected.
+
+### Architecture Decision
+- **Web build is primary target** — Electron tree preserved but deprioritized. All fixes applied to `server/index.ts` first, mirrored to `electron/main.ts` for preservation.
+
+**Files changed:** `server/index.ts`, `electron/main.ts`, `src/components/editor/LivePreview.tsx`, `src/components/ui/GovernanceDashboard.tsx`, `src/adapters/web-api.ts`, `src/App.tsx`, + test files.
+
+---
+
 ## Session: 2026-04-04 — UX Redesign Waves 2–6 + A11y Burndown + Anvil CLI (COMPLETE)
 
 **Goal:** Complete the three parallel UX redesign tracks (Mint, Forge, Counsel) through Wave 6, then run the UX audit a11y burndown on Flint's own Glass components, and land the Anvil CLI scaffold.

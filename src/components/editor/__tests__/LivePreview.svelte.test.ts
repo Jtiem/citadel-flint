@@ -52,7 +52,7 @@ describe('buildSvelteSrcdoc — document structure', () => {
     expect(html).toContain('<!DOCTYPE html>')
     expect(html).toContain('<html')
     expect(html).toContain('<head>')
-    expect(html).toContain('<body>')
+    expect(html).toContain('<body ')
     expect(html).toContain('</html>')
   })
 

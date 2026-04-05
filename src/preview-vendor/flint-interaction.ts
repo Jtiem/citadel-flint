@@ -26,6 +26,15 @@ export const FLINT_INTERACTION_STYLES: string = `
     .flint-drop-inside { outline: 2px solid #3b82f6 !important; background: rgba(59, 130, 246, 0.2) !important; }
     .flint-hovered { outline: 2px dashed #94a3b8 !important; background: rgba(148, 163, 184, 0.1) !important; cursor: default; z-index: 40; transition: all 0.1s; }
     #flint-ghost { position: fixed; pointer-events: none; border: 2px solid #3b82f6; background: rgba(59,130,246,0.12); border-radius: 4px; z-index: 9999; display: none; width: 80px; height: 40px; }
+    .flint-highlight-pulse {
+        outline: 2px solid #818cf8 !important;
+        outline-offset: 2px !important;
+        animation: flint-pulse 1s ease-in-out 2;
+    }
+    @keyframes flint-pulse {
+        0%, 100% { outline-color: #818cf8; }
+        50% { outline-color: #4f46e5; }
+    }
 `
 
 /**
@@ -94,6 +103,17 @@ export const FLINT_INTERACTION_SCRIPT: string = `
         document.querySelectorAll('.flint-hovered').forEach(function(el) {
           el.classList.remove('flint-hovered');
         });
+        return;
+      }
+      if (type === 'HIGHLIGHT_NODE') {
+        var existing = document.querySelector('.flint-highlight-pulse');
+        if (existing) existing.classList.remove('flint-highlight-pulse');
+        var el = document.querySelector('[data-flint-id="' + e.data.nodeId + '"]');
+        if (el) {
+          el.classList.add('flint-highlight-pulse');
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          setTimeout(function() { el.classList.remove('flint-highlight-pulse'); }, 2000);
+        }
         return;
       }
       if (type === 'DRAG_MOVE') {

@@ -38,6 +38,7 @@ import type { LinterWarning, BaselineEntry, ProvenanceInfo, AnomalyAlert, Pendin
 import { auditDelta } from '../../utils/deltaAudit'
 import { CoverageBar } from './CoverageBar'
 import { InheritanceChain } from './InheritanceChain'
+import { Modal } from './Modal'
 import { useGovernanceConfig } from '../../hooks/useGovernanceConfig'
 import { useUserPrefs } from '../../hooks/useUserPrefs'
 import { FixPreviewDrawer, type FixableItem } from './FixPreviewDrawer'
@@ -209,11 +210,15 @@ interface FixGuide {
 }
 
 /** A11y rules where Warden cannot auto-fix — requires human intervention. */
+// A11y rules that CANNOT be auto-fixed — these require manual structural
+// changes that can't be safely automated (context-dependent, structural injection).
+// Rules NOT in this set have deterministic updateProp fixes in fixer.ts.
 const A11Y_NOT_AUTO_FIXABLE = new Set([
-    'A11Y-008', 'A11Y-010', 'A11Y-014', 'A11Y-015', 'A11Y-016', 'A11Y-017',
-    'A11Y-021', 'A11Y-022', 'A11Y-031', 'A11Y-032', 'A11Y-035',
-    'A11Y-050', 'A11Y-051', 'A11Y-052', 'A11Y-053',
-    'A11Y-060', 'A11Y-061', 'A11Y-062', 'A11Y-072', 'A11Y-090',
+    'A11Y-008', 'A11Y-010', 'A11Y-012', 'A11Y-014', 'A11Y-015', 'A11Y-016',
+    'A11Y-017', 'A11Y-021', 'A11Y-022', 'A11Y-030', 'A11Y-031', 'A11Y-032',
+    'A11Y-035', 'A11Y-050', 'A11Y-051', 'A11Y-052', 'A11Y-053',
+    'A11Y-060', 'A11Y-061', 'A11Y-062', 'A11Y-070', 'A11Y-072', 'A11Y-073',
+    'A11Y-090',
 ])
 
 const A11Y_FIX_GUIDE: Record<string, FixGuide> = {
@@ -542,8 +547,8 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
         return unsubscribe
     }, [fetchOverrideCount])
 
-    // EDU-08: "How is this calculated?" collapsible — collapsed by default
-    const [isScoreExpanded, setIsScoreExpanded] = useState(false)
+    // EDU-08: "How is this calculated?" — opens as a modal
+    const [isScoreModalOpen, setIsScoreModalOpen] = useState(false)
 
     // ── Delta Mode state ──────────────────────────────────────────────────────
     const [isBaselineSet, setIsBaselineSet] = useState(false)
@@ -976,7 +981,24 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
             return
         }
         try {
-            await window.flintAPI.mcp.callTool('flint_fix', { file: filePath, ruleId, dry_run: false })
+            const result = await window.flintAPI.mcp.callTool('flint_fix', { file: filePath, ruleId, dry_run: false })
+            // Check whether the tool actually applied any fixes.
+            // MCP callTool returns { content: [{ type, text }] } — parse the JSON text.
+            let fixCount = 0
+            try {
+                const text = result?.content?.[0]?.text
+                if (text) { fixCount = JSON.parse(text)?.fixesApplied ?? 0 }
+            } catch { /* parse failure — treat as 0 fixes */ }
+            if (fixCount === 0) {
+                useNotificationStore.getState().push({
+                    type: 'violation',
+                    title: 'No auto-fix available',
+                    message: `${ruleId} requires a manual fix — add the missing attribute in your editor`,
+                    severity: 'warning',
+                    autoDismissMs: 5000,
+                })
+                return
+            }
             // Re-sync editor store so in-memory AST matches what MCP wrote to disk
             try {
                 const content = await window.flintAPI.readFile(filePath)
@@ -1277,10 +1299,11 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
     }, [])
 
     // ── COUNSEL.1.6: A11y auto-fixable entries ────────────────────────────────
+    // A11y violations that have deterministic updateProp fixes in fixer.ts
     const autoFixableA11yEntries = useMemo(
         () => effectiveA11yWarnings.filter((w) => {
             const ruleId = extractRuleIdFromMsg(w.message) ?? ''
-            return w.nearestToken !== null || ['A11Y-001', 'A11Y-002'].includes(ruleId)
+            return !A11Y_NOT_AUTO_FIXABLE.has(ruleId)
         }),
         [effectiveA11yWarnings],
     )
@@ -1391,6 +1414,21 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                         <span className="text-xs text-amber-400" aria-label={`${govOverrideCount} governance rule ${govOverrideCount === 1 ? 'override' : 'overrides'} recorded this session`}>
                             {govOverrideCount} {govOverrideCount === 1 ? 'override' : 'overrides'}
                         </span>
+                    )}
+                    {totalViolations > 0 && (
+                        <button
+                            type="button"
+                            data-testid="autopilot-header-toggle"
+                            onClick={() => setAutopilotEnabled(!autopilotEnabled)}
+                            className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium transition ${
+                                autopilotEnabled
+                                    ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30'
+                                    : 'bg-zinc-800 text-zinc-500 border border-zinc-700'
+                            }`}
+                        >
+                            <span className={`h-1.5 w-1.5 rounded-full ${autopilotEnabled ? 'bg-indigo-400' : 'bg-zinc-600'}`} />
+                            Autopilot {autopilotEnabled ? 'On' : 'Off'}
+                        </button>
                     )}
                 </div>
             </div>
@@ -2037,22 +2075,15 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                                             Flagged for Review
                                                         </span>
                                                     )}
-                                                    {/* COUNSEL.1.5: fixability badge */}
-                                                    {!isFlagged && isAutoFixable ? (
-                                                        <span
-                                                            data-testid={`badge-auto-fixable-a11y-${w.id}`}
-                                                            className="rounded-full border border-emerald-500/30 bg-emerald-900/20 px-1.5 py-px text-[9px] font-medium text-emerald-400 leading-none"
-                                                        >
-                                                            Auto-fixable
-                                                        </span>
-                                                    ) : !isFlagged ? (
+                                                    {/* A11y violations always need human input (label text, heading order, etc.) */}
+                                                    {!isFlagged && (
                                                         <span
                                                             data-testid={`badge-needs-input-a11y-${w.id}`}
                                                             className="rounded-full border border-amber-500/30 bg-amber-900/20 px-1.5 py-px text-[9px] font-medium text-amber-400 leading-none"
                                                         >
                                                             Needs input
                                                         </span>
-                                                    ) : null}
+                                                    )}
                                                 </div>
                                                 {/* S5.10: line-clamp-2 shows 2 lines before truncating */}
                                                 <p className="text-[10px] text-zinc-400 line-clamp-2" title={w.message}>
@@ -2072,34 +2103,24 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                                 ? <ChevronDown size={10} className="shrink-0 mt-1 text-zinc-600" aria-hidden="true" />
                                                 : <ChevronRight size={10} className="shrink-0 mt-1 text-zinc-600" aria-hidden="true" />}
                                         </button>
-                                        {/* Fix + Flag + Defer + Pin actions for a11y violations */}
+                                        {/* How to fix + Flag + Defer + Pin actions for a11y violations */}
+                                        {/* A11y issues require human judgment (label text, heading structure, etc.) */}
+                                        {/* so we always show guidance instead of a one-click Fix button. */}
                                         <div className="flex shrink-0 items-center gap-1 self-center mr-2">
-                                            {isAutoFixable ? (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => void handleA11yFix(ruleId)}
-                                                    className="rounded border border-indigo-500/30 bg-indigo-900/20 px-2 py-0.5 text-[10px] text-indigo-400 hover:bg-indigo-900/40 transition-colors"
-                                                    aria-label={`Fix ${ruleId} gap`}
-                                                    data-testid={`a11y-fix-btn-${ruleId}`}
-                                                >
-                                                    Fix
-                                                </button>
-                                            ) : (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => toggleViolation(cardKey)}
-                                                    className={`rounded border px-2 py-0.5 text-[10px] transition-colors ${
-                                                        isOpen
-                                                            ? 'border-indigo-500/50 bg-indigo-900/30 text-indigo-300'
-                                                            : 'border-indigo-500/30 bg-indigo-900/20 text-indigo-400 hover:bg-indigo-900/40'
-                                                    }`}
-                                                    aria-label={`How to fix ${ruleId}`}
-                                                    aria-expanded={isOpen}
-                                                    data-testid={`a11y-howto-btn-${ruleId}`}
-                                                >
-                                                    How to fix
-                                                </button>
-                                            )}
+                                            <button
+                                                type="button"
+                                                onClick={() => toggleViolation(cardKey)}
+                                                className={`rounded border px-2 py-0.5 text-[10px] transition-colors ${
+                                                    isOpen
+                                                        ? 'border-indigo-500/50 bg-indigo-900/30 text-indigo-300'
+                                                        : 'border-indigo-500/30 bg-indigo-900/20 text-indigo-400 hover:bg-indigo-900/40'
+                                                }`}
+                                                aria-label={`How to fix ${ruleId}`}
+                                                aria-expanded={isOpen}
+                                                data-testid={`a11y-howto-btn-${ruleId}`}
+                                            >
+                                                How to fix
+                                            </button>
                                             {/* COUNSEL.2.2: Flag for review button */}
                                             {!isDeferred && !isFlagged && (
                                                 <button
@@ -2415,7 +2436,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                     {healthHistory.length >= 2 && <Sparkline data={healthHistory} />}
                                 </div>
                                 <div className="flex flex-col gap-0.5">
-                                    <span className={`text-6xl font-bold leading-none ${GRADE_TEXT[grade]}`} aria-label={`Grade ${grade}`}>{grade}</span>
+                                    <span className={`text-3xl font-bold leading-none ${GRADE_TEXT[grade]}`} aria-label={`Grade ${grade}`}>{grade}</span>
                                     <span className="text-xs text-zinc-400">{isBaselineSet ? 'Delta Score (new issues only)' : 'Governance Health'}</span>
                                     {scoreTrendHint && <span className="text-xs text-zinc-300 mt-0.5" data-testid="score-trend-hint">{scoreTrendHint}</span>}
                                     <p className="text-xs text-zinc-400 mt-1" data-testid="next-step-prompt">{nextStep.text}</p>
@@ -2457,25 +2478,48 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                             <div className="px-3 py-2 border-t border-zinc-800/50">
                                 <button
                                     type="button"
-                                    onClick={() => setIsScoreExpanded((v) => !v)}
+                                    onClick={() => setIsScoreModalOpen(true)}
                                     className="flex items-center gap-1 text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors"
-                                    aria-expanded={isScoreExpanded}
-                                    aria-controls="score-formula"
                                 >
-                                    {isScoreExpanded ? <ChevronDown className="h-3 w-3" aria-hidden="true" /> : <ChevronRight className="h-3 w-3" aria-hidden="true" />}
+                                    <ChevronRight className="h-3 w-3" aria-hidden="true" />
                                     How is this calculated?
                                 </button>
-                                {isScoreExpanded && (
-                                    <div id="score-formula" className="mt-2 rounded border border-zinc-800 bg-zinc-950 px-3 py-2.5 space-y-1.5">
-                                        <ul className="space-y-1 text-[10px] text-zinc-400">
-                                            <li className="flex items-center justify-between"><span>Critical violations</span><span className="font-mono text-red-400">−10 per issue</span></li>
-                                            <li className="flex items-center justify-between"><span>Amber violations</span><span className="font-mono text-amber-400">−3 per issue</span></li>
-                                            <li className="flex items-center justify-between"><span>Advisory violations</span><span className="font-mono text-zinc-400">−1 per issue</span></li>
-                                            <li className="flex items-center justify-between"><span>Unapplied overrides</span><span className="font-mono text-amber-400">−3 per change</span></li>
-                                        </ul>
-                                        <p className="text-[10px] font-mono text-zinc-600">A (90–100) · B (80–89) · C (70–79) · D (60–69) · F (&lt;60)</p>
+                                <Modal
+                                    isOpen={isScoreModalOpen}
+                                    onClose={() => setIsScoreModalOpen(false)}
+                                    title="How Your Score Is Calculated"
+                                    size="sm"
+                                    data-testid="score-formula-modal"
+                                >
+                                    <div className="space-y-4">
+                                        <div>
+                                            <p className="text-xs font-medium text-zinc-400 mb-2">Deductions</p>
+                                            <ul className="space-y-1.5">
+                                                <li className="flex items-center justify-between text-sm"><span className="text-zinc-300">Critical violations</span><span className="font-mono text-red-400">−10 per issue</span></li>
+                                                <li className="flex items-center justify-between text-sm"><span className="text-zinc-300">Amber violations</span><span className="font-mono text-amber-400">−3 per issue</span></li>
+                                                <li className="flex items-center justify-between text-sm"><span className="text-zinc-300">Advisory violations</span><span className="font-mono text-zinc-400">−1 per issue</span></li>
+                                                <li className="flex items-center justify-between text-sm"><span className="text-zinc-300">Unapplied overrides</span><span className="font-mono text-amber-400">−3 per change</span></li>
+                                            </ul>
+                                        </div>
+                                        <div>
+                                            <p className="text-xs font-medium text-zinc-400 mb-2">Grade Scale</p>
+                                            <ul className="space-y-1.5">
+                                                <li className="flex items-center justify-between text-sm"><span className="text-emerald-400 font-medium">A</span><span className="text-zinc-400">90–100</span></li>
+                                                <li className="flex items-center justify-between text-sm"><span className="text-emerald-400 font-medium">B</span><span className="text-zinc-400">80–89</span></li>
+                                                <li className="flex items-center justify-between text-sm"><span className="text-amber-400 font-medium">C</span><span className="text-zinc-400">70–79</span></li>
+                                                <li className="flex items-center justify-between text-sm"><span className="text-amber-400 font-medium">D</span><span className="text-zinc-400">60–69</span></li>
+                                                <li className="flex items-center justify-between text-sm"><span className="text-red-400 font-medium">F</span><span className="text-zinc-400">&lt;60</span></li>
+                                            </ul>
+                                        </div>
+                                        <div>
+                                            <p className="text-xs font-medium text-zinc-400 mb-2">Live Sub-scores</p>
+                                            <ul className="space-y-1.5">
+                                                <li className="flex items-center justify-between text-sm"><span className="text-zinc-300">Fidelity</span><span className="font-mono text-zinc-300">{healthSignal.fidelityScore}</span></li>
+                                                <li className="flex items-center justify-between text-sm"><span className="text-zinc-300">Accessibility</span><span className="font-mono text-zinc-300">{healthSignal.a11yScore}</span></li>
+                                            </ul>
+                                        </div>
                                     </div>
-                                )}
+                                </Modal>
                             </div>
                         </div>
                     )}

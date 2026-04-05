@@ -116,49 +116,66 @@ describe('GhostCodeSnippet', () => {
         expect(screen.queryByTestId('ghost-code-snippet')).toBeNull()
     })
 
-    it('renders the snippet card when a node is selected and code is available', () => {
+    it('renders the snippet card when a node is selected and code is available (after clicking View Source)', () => {
         act(() => {
             useEditorStore.setState({ selectedNodeId: 'div:5:4', rawCode: SAMPLE_CODE })
             useCanvasStore.setState({ activeFilePath: '/project/src/Card.tsx' })
         })
         render(<GhostCodeSnippet />)
+        // Pill is shown first; click it to open the full panel.
+        const pill = within(document.body).getByRole('button', { name: /view source code/i, hidden: true })
+        fireEvent.click(pill)
         expect(screen.getByTestId('ghost-code-snippet')).toBeTruthy()
     })
 
-    it('displays the file path label', () => {
+    it('displays the file path label (after clicking View Source)', () => {
         act(() => {
             useEditorStore.setState({ selectedNodeId: 'div:5:4', rawCode: SAMPLE_CODE })
             useCanvasStore.setState({ activeFilePath: '/project/src/Card.tsx' })
         })
         render(<GhostCodeSnippet />)
+        const pill = within(document.body).getByRole('button', { name: /view source code/i, hidden: true })
+        fireEvent.click(pill)
         expect(screen.getByText(/src\/Card\.tsx/)).toBeTruthy()
     })
 
-    it('displays the line number', () => {
+    it('displays the line number (after clicking View Source)', () => {
         act(() => {
             useEditorStore.setState({ selectedNodeId: 'div:5:4', rawCode: SAMPLE_CODE })
         })
         render(<GhostCodeSnippet />)
+        const pill = within(document.body).getByRole('button', { name: /view source code/i, hidden: true })
+        fireEvent.click(pill)
         expect(screen.getByText('line 5')).toBeTruthy()
     })
 
-    it('dismisses on close button click', () => {
+    it('closes full panel on close button click (returns to pill)', () => {
         act(() => {
             useEditorStore.setState({ selectedNodeId: 'div:5:4', rawCode: SAMPLE_CODE })
         })
         render(<GhostCodeSnippet />)
-        // Portal renders inside an aria-hidden backdrop (correct — scrim is decorative).
-        // Use { hidden: true } to query elements within aria-hidden subtrees.
+        // Open the full panel first.
+        const pill = within(document.body).getByRole('button', { name: /view source code/i, hidden: true })
+        fireEvent.click(pill)
+        expect(screen.getByTestId('ghost-code-snippet')).toBeTruthy()
+        // Now dismiss — should return to pill state (full panel gone).
         const btn = within(document.body).getByRole('button', { name: /dismiss code snippet/i, hidden: true })
         fireEvent.click(btn)
         expect(screen.queryByTestId('ghost-code-snippet')).toBeNull()
+        // Pill should now be visible again.
+        expect(within(document.body).getByRole('button', { name: /view source code/i, hidden: true })).toBeTruthy()
     })
 
-    it('dismisses on Escape key', () => {
+    it('collapses full panel to pill on Escape key', () => {
         act(() => {
             useEditorStore.setState({ selectedNodeId: 'div:5:4', rawCode: SAMPLE_CODE })
         })
         render(<GhostCodeSnippet />)
+        // Open the full panel first.
+        const pill = within(document.body).getByRole('button', { name: /view source code/i, hidden: true })
+        fireEvent.click(pill)
+        expect(screen.getByTestId('ghost-code-snippet')).toBeTruthy()
+        // Escape collapses the full panel back to pill.
         fireEvent.keyDown(window, { key: 'Escape' })
         expect(screen.queryByTestId('ghost-code-snippet')).toBeNull()
     })
