@@ -1677,15 +1677,15 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                             const resurface = isDeferred ? resurfaceLabel(deferExpMs) : null
                             return (
                                 <div key={cardKey} className={`border-b border-zinc-800/30 last:border-0${isDeferred ? ' opacity-50' : isFlagged ? ' opacity-70' : ''}${isFlagged ? ' border-l-2 border-l-amber-500/60' : ''}`}>
-                                    {/* Summary row — always visible. Expand toggle and action buttons are siblings. */}
-                                    <div className="flex w-full items-start hover:bg-zinc-800/30 transition-colors">
-                                        <button
-                                            type="button"
-                                            onClick={() => toggleViolation(cardKey)}
-                                            className="flex flex-1 items-start gap-2 px-3 py-2 text-left min-w-0"
-                                            aria-expanded={isOpen}
-                                            aria-controls={`v-m-${w.id}`}
-                                        >
+                                    {/* Expand toggle — full width so message text has room to breathe */}
+                                    <button
+                                        type="button"
+                                        onClick={() => toggleViolation(cardKey)}
+                                        className="flex w-full items-start gap-2 px-3 pt-2.5 pb-1.5 text-left hover:bg-zinc-800/30 transition-colors"
+                                        aria-expanded={isOpen}
+                                        aria-controls={`v-m-${w.id}`}
+                                        aria-label={`${isOpen ? 'Collapse' : 'Expand'} ${ruleId} violation detail`}
+                                    >
                                             <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${SEVERITY_DOT[w.severity]}`} aria-hidden="true" />
                                             <div className="min-w-0 flex-1">
                                                 <div className="flex items-center gap-1.5 flex-wrap">
@@ -1752,16 +1752,19 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                             {isOpen
                                                 ? <ChevronDown size={10} className="shrink-0 mt-1 text-zinc-600" aria-hidden="true" />
                                                 : <ChevronRight size={10} className="shrink-0 mt-1 text-zinc-600" aria-hidden="true" />}
-                                        </button>
-                                        {/* Action buttons: Preview Fix / Fix / Defer / Pin */}
-                                        <div className="flex shrink-0 items-center gap-1 self-center mr-2">
-                                            {/* COUNSEL.1.4: Preview fix button */}
+                                    </button>
+
+                                    {/* Action footer — primary fix actions left, triage right.
+                                         justify-end when no primary action so triage doesn't sit orphaned on the right. */}
+                                    <div className={`flex items-center gap-2 px-3 pb-3 pt-0 ${canFix ? 'justify-between' : 'justify-end'}`}>
+                                        {/* Primary: Preview fix + Fix */}
+                                        <div className="flex items-center gap-2">
                                             {canFix && (
                                                 <button
                                                     type="button"
                                                     onClick={() => void toggleInlineDiff(cardKey, ruleId, activeFilePath)}
                                                     data-testid={`preview-fix-btn-${w.id}`}
-                                                    className={`rounded border px-2 py-0.5 text-[10px] transition-colors ${
+                                                    className={`rounded border px-3 py-1.5 text-xs font-medium transition-colors ${
                                                         isDiffOpen
                                                             ? 'border-indigo-500/50 bg-indigo-900/30 text-indigo-300'
                                                             : 'border-indigo-500/30 bg-indigo-900/20 text-indigo-400 hover:bg-indigo-900/40'
@@ -1769,57 +1772,37 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                                     aria-label={isDiffOpen ? 'Close diff preview' : `Preview fix for ${ruleId}`}
                                                     aria-expanded={isDiffOpen}
                                                 >
-                                                    {isDiffLoading ? <Loader2 size={8} className="animate-spin inline mr-0.5" aria-hidden="true" /> : null}
-                                                    {isDiffOpen ? 'Close' : 'Preview fix'}
+                                                    {isDiffLoading ? <Loader2 size={10} className="animate-spin inline mr-1" aria-hidden="true" /> : null}
+                                                    {isDiffOpen ? 'Close preview' : 'Preview fix'}
                                                 </button>
                                             )}
                                             {canFix && (
                                                 <button
                                                     type="button"
                                                     onClick={() => handleFixSingle(fixItem!)}
-                                                    className="rounded border border-indigo-500/30 bg-indigo-900/20 px-2 py-0.5 text-[10px] text-indigo-400 hover:bg-indigo-900/40 transition-colors"
+                                                    className="rounded border border-indigo-500/40 bg-indigo-900/25 px-3 py-1.5 text-xs font-medium text-indigo-400 hover:bg-indigo-900/50 transition-colors"
                                                     aria-label={`Fix drift on element ${w.id}`}
                                                 >
                                                     Fix
                                                 </button>
                                             )}
-                                            {/* COUNSEL.2.2: Flag for review button */}
-                                            {!isDeferred && !isFlagged && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => void handleFlag(cardKey, ruleId, w.id)}
-                                                    data-testid={`flag-btn-${w.id}`}
-                                                    className="rounded border border-amber-500/30 bg-amber-900/20 px-2 py-0.5 text-[10px] text-amber-400 hover:bg-amber-900/40 transition-colors"
-                                                    aria-label={`Flag ${ruleId} for review`}
-                                                >
-                                                    Flag
-                                                </button>
-                                            )}
-                                            {isFlagged && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleUnflag(cardKey)}
-                                                    data-testid={`unflag-btn-${w.id}`}
-                                                    className="rounded border border-amber-500/40 bg-amber-900/20 px-2 py-0.5 text-[10px] text-amber-300 hover:bg-amber-900/40 transition-colors"
-                                                    aria-label={`Remove flag from ${ruleId}`}
-                                                >
-                                                    Unflag
-                                                </button>
-                                            )}
-                                            {/* COUNSEL.2.1: Defer form toggle / G4: Deferred badge */}
+                                        </div>
+
+                                        {/* Triage: Deferred state / Flag / Defer / Pin */}
+                                        <div className="flex items-center gap-2">
                                             {/* COUNSEL.2.3: Snoozed badge with resurface label */}
-                                            {isDeferred ? (
-                                                <span className="flex items-center gap-1">
+                                            {isDeferred && (
+                                                <span className="flex items-center gap-1.5">
                                                     <span
                                                         data-testid={`deferred-badge-${w.id}`}
-                                                        className="text-xs text-amber-400 bg-amber-400/10 rounded px-1.5 py-0.5"
+                                                        className="text-xs text-amber-400 bg-amber-400/10 rounded px-2 py-1"
                                                     >
                                                         Snoozed
                                                     </span>
                                                     {resurface && (
                                                         <span
                                                             data-testid={`resurface-label-${w.id}`}
-                                                            className={`text-[10px] rounded px-1.5 py-0.5 ${
+                                                            className={`text-xs rounded px-2 py-1 ${
                                                                 resurface.overdue
                                                                     ? 'text-amber-300 bg-amber-500/20'
                                                                     : 'text-zinc-500 bg-zinc-800/50'
@@ -1829,33 +1812,61 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                                         </span>
                                                     )}
                                                 </span>
-                                            ) : !isFlagged ? (
+                                            )}
+                                            {/* COUNSEL.2.2: Flag / Unflag */}
+                                            {!isDeferred && !isFlagged && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => void handleFlag(cardKey, ruleId, w.id)}
+                                                    data-testid={`flag-btn-${w.id}`}
+                                                    className="rounded border border-zinc-700/60 px-3 py-1.5 text-xs text-zinc-400 hover:border-zinc-500 hover:text-zinc-200 transition-colors"
+                                                    aria-label={`Flag ${ruleId} for review`}
+                                                    title="Set aside for later review — won't count toward your fix estimate"
+                                                >
+                                                    Flag
+                                                </button>
+                                            )}
+                                            {isFlagged && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleUnflag(cardKey)}
+                                                    data-testid={`unflag-btn-${w.id}`}
+                                                    className="rounded border border-amber-500/30 px-3 py-1.5 text-xs text-amber-400 hover:border-amber-500/60 hover:text-amber-300 transition-colors"
+                                                    aria-label={`Remove flag from ${ruleId}`}
+                                                    title="Remove flag and return to active issues"
+                                                >
+                                                    Unflag
+                                                </button>
+                                            )}
+                                            {/* COUNSEL.2.1: Defer button */}
+                                            {!isDeferred && !isFlagged && (
                                                 <button
                                                     type="button"
                                                     onClick={() => toggleDeferForm(cardKey)}
-                                                    className={`rounded border px-2 py-0.5 text-[10px] transition-colors ${
+                                                    className={`rounded border px-3 py-1.5 text-xs transition-colors ${
                                                         isDeferOpen
-                                                            ? 'border-zinc-600 bg-zinc-700 text-zinc-300'
-                                                            : 'border-zinc-700 bg-zinc-800 text-zinc-500 hover:bg-zinc-700 hover:text-zinc-300'
+                                                            ? 'border-zinc-600 text-zinc-300'
+                                                            : 'border-zinc-700/60 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200'
                                                     }`}
                                                     aria-label={isDeferOpen ? 'Cancel defer' : `Defer ${ruleId} issue`}
                                                     aria-expanded={isDeferOpen}
+                                                    title="Snooze this issue — it will come back after the time you choose"
                                                 >
                                                     Defer
                                                 </button>
-                                            ) : null}
-                                            {/* S5.9: Pin — keeps the detail panel open while working */}
+                                            )}
+                                            {/* S5.9: Pin */}
                                             <button
                                                 type="button"
                                                 onClick={() => {
                                                     togglePin(cardKey)
                                                     if (!isPinned) setExpandedViolations((prev) => { const n = new Set(prev); n.add(cardKey); return n })
                                                 }}
-                                                className={`rounded p-0.5 transition-colors ${isPinned ? 'text-indigo-400 hover:text-indigo-300' : 'text-zinc-600 hover:text-zinc-400'}`}
+                                                className={`rounded p-2 transition-colors ${isPinned ? 'text-indigo-400 hover:text-indigo-300' : 'text-zinc-600 hover:text-zinc-400'}`}
                                                 aria-label={isPinned ? 'Unpin issue detail' : 'Pin issue detail open'}
                                                 title={isPinned ? 'Unpin' : 'Pin open while working'}
                                             >
-                                                <Pin size={9} aria-hidden="true" />
+                                                <Pin size={12} aria-hidden="true" />
                                             </button>
                                         </div>
                                     </div>
@@ -2054,14 +2065,15 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                             const provenance = provenanceMap[w.id]
                             return (
                                 <div key={cardKey} className={`border-b border-zinc-800/30 last:border-0${isDeferred ? ' opacity-50' : isFlagged ? ' opacity-70' : ''}${isFlagged ? ' border-l-2 border-l-amber-500/60' : ''}`}>
-                                    <div className="flex w-full items-start hover:bg-zinc-800/30 transition-colors">
-                                        <button
-                                            type="button"
-                                            onClick={() => toggleViolation(cardKey)}
-                                            className="flex flex-1 items-start gap-2 px-3 py-2 text-left min-w-0"
-                                            aria-expanded={isOpen}
-                                            aria-controls={`v-a-${w.id}-${i}`}
-                                        >
+                                    {/* Expand toggle — full width; tap to see WCAG guidance */}
+                                    <button
+                                        type="button"
+                                        onClick={() => toggleViolation(cardKey)}
+                                        className="flex w-full items-start gap-2 px-3 pt-2.5 pb-1.5 text-left hover:bg-zinc-800/30 transition-colors"
+                                        aria-expanded={isOpen}
+                                        aria-controls={`v-a-${w.id}-${i}`}
+                                        aria-label={`${isOpen ? 'Collapse' : 'Expand'} ${ruleId} violation detail`}
+                                    >
                                             <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-red-400" aria-hidden="true" />
                                             <div className="min-w-0 flex-1">
                                                 <div className="flex items-center gap-1.5 flex-wrap">
@@ -2102,33 +2114,38 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                             {isOpen
                                                 ? <ChevronDown size={10} className="shrink-0 mt-1 text-zinc-600" aria-hidden="true" />
                                                 : <ChevronRight size={10} className="shrink-0 mt-1 text-zinc-600" aria-hidden="true" />}
-                                        </button>
-                                        {/* How to fix + Flag + Defer + Pin actions for a11y violations */}
-                                        {/* A11y issues require human judgment (label text, heading structure, etc.) */}
-                                        {/* so we always show guidance instead of a one-click Fix button. */}
-                                        <div className="flex shrink-0 items-center gap-1 self-center mr-2">
-                                            <button
-                                                type="button"
-                                                onClick={() => toggleViolation(cardKey)}
-                                                className={`rounded border px-2 py-0.5 text-[10px] transition-colors ${
-                                                    isOpen
-                                                        ? 'border-indigo-500/50 bg-indigo-900/30 text-indigo-300'
-                                                        : 'border-indigo-500/30 bg-indigo-900/20 text-indigo-400 hover:bg-indigo-900/40'
-                                                }`}
-                                                aria-label={`How to fix ${ruleId}`}
-                                                aria-expanded={isOpen}
-                                                data-testid={`a11y-howto-btn-${ruleId}`}
-                                            >
-                                                How to fix
-                                            </button>
-                                            {/* COUNSEL.2.2: Flag for review button */}
+                                    </button>
+
+                                    {/* Action footer — guidance hint left, triage right */}
+                                    <div className="flex items-center justify-between gap-2 px-3 pb-3 pt-0">
+                                        {/* Left: hint pointing to the expand affordance */}
+                                        <p
+                                            className="text-[11px] text-zinc-500 select-none shrink-0"
+                                            data-testid={`a11y-howto-btn-${ruleId}`}
+                                        >
+                                            {isOpen ? 'Guidance below ↑' : 'Tap to see how to fix ↑'}
+                                        </p>
+
+                                        {/* Triage actions */}
+                                        <div className="flex items-center gap-2">
+                                            {/* COUNSEL.2.3: Snoozed badge */}
+                                            {isDeferred && (
+                                                <span
+                                                    data-testid={`deferred-badge-a11y-${w.id}`}
+                                                    className="text-xs text-amber-400 bg-amber-400/10 rounded px-2 py-1"
+                                                >
+                                                    Snoozed
+                                                </span>
+                                            )}
+                                            {/* COUNSEL.2.2: Flag / Unflag */}
                                             {!isDeferred && !isFlagged && (
                                                 <button
                                                     type="button"
                                                     onClick={() => void handleFlag(cardKey, ruleId, w.id)}
                                                     data-testid={`flag-btn-a11y-${w.id}`}
-                                                    className="rounded border border-amber-500/30 bg-amber-900/20 px-2 py-0.5 text-[10px] text-amber-400 hover:bg-amber-900/40 transition-colors"
+                                                    className="rounded border border-zinc-700/60 px-3 py-1.5 text-xs text-zinc-400 hover:border-zinc-500 hover:text-zinc-200 transition-colors"
                                                     aria-label={`Flag ${ruleId} for review`}
+                                                    title="Set aside for later review — won't count toward your fix estimate"
                                                 >
                                                     Flag
                                                 </button>
@@ -2138,46 +2155,42 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                                     type="button"
                                                     onClick={() => handleUnflag(cardKey)}
                                                     data-testid={`unflag-btn-a11y-${w.id}`}
-                                                    className="rounded border border-amber-500/40 bg-amber-900/20 px-2 py-0.5 text-[10px] text-amber-300 hover:bg-amber-900/40 transition-colors"
+                                                    className="rounded border border-amber-500/30 px-3 py-1.5 text-xs text-amber-400 hover:border-amber-500/60 hover:text-amber-300 transition-colors"
                                                     aria-label={`Remove flag from ${ruleId}`}
+                                                    title="Remove flag and return to active issues"
                                                 >
                                                     Unflag
                                                 </button>
                                             )}
-                                            {/* COUNSEL.2.1: Defer form toggle / G4: Deferred badge */}
-                                            {isDeferred ? (
-                                                <span
-                                                    data-testid={`deferred-badge-a11y-${w.id}`}
-                                                    className="text-xs text-amber-400 bg-amber-400/10 rounded px-1.5 py-0.5"
-                                                >
-                                                    Deferred
-                                                </span>
-                                            ) : !isFlagged ? (
+                                            {/* COUNSEL.2.1: Defer button */}
+                                            {!isDeferred && !isFlagged && (
                                                 <button
                                                     type="button"
                                                     onClick={() => toggleDeferForm(cardKey)}
-                                                    className={`rounded border px-2 py-0.5 text-[10px] transition-colors ${
+                                                    className={`rounded border px-3 py-1.5 text-xs transition-colors ${
                                                         isDeferOpen
-                                                            ? 'border-zinc-600 bg-zinc-700 text-zinc-300'
-                                                            : 'border-zinc-700 bg-zinc-800 text-zinc-500 hover:bg-zinc-700 hover:text-zinc-300'
+                                                            ? 'border-zinc-600 text-zinc-300'
+                                                            : 'border-zinc-700/60 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200'
                                                     }`}
                                                     aria-label={isDeferOpen ? 'Cancel defer' : `Defer ${ruleId} issue`}
                                                     aria-expanded={isDeferOpen}
+                                                    title="Snooze this issue — it will come back after the time you choose"
                                                 >
                                                     Defer
                                                 </button>
-                                            ) : null}
+                                            )}
+                                            {/* S5.9: Pin */}
                                             <button
                                                 type="button"
                                                 onClick={() => {
                                                     togglePin(cardKey)
                                                     if (!isPinned) setExpandedViolations((prev) => { const n = new Set(prev); n.add(cardKey); return n })
                                                 }}
-                                                className={`rounded p-0.5 transition-colors ${isPinned ? 'text-indigo-400 hover:text-indigo-300' : 'text-zinc-600 hover:text-zinc-400'}`}
+                                                className={`rounded p-2 transition-colors ${isPinned ? 'text-indigo-400 hover:text-indigo-300' : 'text-zinc-600 hover:text-zinc-400'}`}
                                                 aria-label={isPinned ? 'Unpin issue detail' : 'Pin issue detail open'}
                                                 title={isPinned ? 'Unpin' : 'Pin open while working'}
                                             >
-                                                <Pin size={9} aria-hidden="true" />
+                                                <Pin size={12} aria-hidden="true" />
                                             </button>
                                         </div>
                                     </div>

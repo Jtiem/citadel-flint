@@ -352,10 +352,13 @@ describe('GovernanceDashboard', () => {
             },
         })
         render(<GovernanceDashboard />)
+        // The hint element exists (footer label)
         await waitFor(() => screen.getByTestId('a11y-howto-btn-A11Y-001'))
-        fireEvent.click(screen.getByTestId('a11y-howto-btn-A11Y-001'))
+        // Click the expand button — identified by its aria-controls pointing to the a11y panel
+        const expandBtn = document.querySelector('button[aria-controls="v-a-node-a1-0"]') as HTMLElement
+        fireEvent.click(expandBtn)
         await waitFor(() => {
-            expect(screen.getByTestId('a11y-howto-btn-A11Y-001').getAttribute('aria-expanded')).toBe('true')
+            expect(expandBtn.getAttribute('aria-expanded')).toBe('true')
         })
     })
 
