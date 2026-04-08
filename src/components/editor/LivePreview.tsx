@@ -383,8 +383,8 @@ export function LivePreview() {
       .then((result: { library: string | null }) => {
         setActiveLibrary(result?.library ?? null)
       })
-      .catch(() => {
-        // Non-fatal: fall back to generic stubs
+      .catch((err) => {
+        console.warn('[Flint] LivePreview: failed to load active library', err)
       })
   }, [])
 
@@ -960,9 +960,9 @@ export function LivePreview() {
   return (
     <div className="relative flex h-full w-full flex-col">
       {/* ── Preview toolbar ─────────────────────────────────── */}
-      <div className="flex shrink-0 items-center gap-2 border-b border-gray-800/60 bg-gray-900/40 px-3 py-1.5">
+      <div className="flex shrink-0 items-center gap-2 border-b border-zinc-800/60 bg-zinc-900/40 px-3 py-1.5">
         {/* Mode toggle: Design vs Interact */}
-        <div className="flex items-center rounded border border-gray-700/60 p-0.5">
+        <div className="flex items-center rounded border border-zinc-700/60 p-0.5">
           <button
             type="button"
             title="Design mode: click to select AST nodes"
@@ -1337,7 +1337,7 @@ export function LivePreview() {
           key={previewUrl ?? 'srcdoc'}
           ref={iframeRef}
           title="Live Preview"
-          className={`absolute inset-0 h-full w-full bg-gray-900 ${showGoverned && governedCode ? 'border-2 border-emerald-500/30' : 'border-0'}`}
+          className={`absolute inset-0 h-full w-full bg-zinc-900 ${showGoverned && governedCode ? 'border-2 border-emerald-500/30' : 'border-0'}`}
           // SEC.1: Sandbox prevents injected code from accessing window.parent.flintAPI.
           // allow-scripts is required for the new Function() preview execution path.
           // allow-forms is included so user components with <form> elements remain

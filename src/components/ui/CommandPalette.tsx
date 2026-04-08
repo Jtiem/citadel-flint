@@ -296,7 +296,7 @@ export function CommandPalette({ onOpenExportModal, onOpenGovernancePanel, onOpe
                     } else {
                         // Fallback: fire-and-forget MCP reconnect (mirrors StatusBar behaviour)
                         window.flintAPI.mcp?.reconnect?.()
-                            .catch(() => { /* reconnect is fire-and-forget */ })
+                            .catch((err) => console.warn('[Flint] CommandPalette: MCP reconnect failed', err))
                     }
                 }),
             },

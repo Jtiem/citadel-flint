@@ -86,10 +86,10 @@ function ensureWS(): WebSocket {
       const listeners = channelListeners.get(channel)
       if (listeners) {
         listeners.forEach((cb) => {
-          try { cb(data) } catch { /* listener errors don't crash transport */ }
+          try { cb(data) } catch (err) { console.warn('[Flint] web-api: listener callback error on channel', channel, err) }
         })
       }
-    } catch { /* malformed message */ }
+    } catch (err) { console.warn('[Flint] web-api: malformed WebSocket message', err) }
   }
 
   ws.onclose = () => {

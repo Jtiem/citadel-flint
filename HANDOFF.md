@@ -6,6 +6,99 @@
 
 ---
 
+## Session: 2026-04-08 — IDE Chat UX A+ Sprint 1 (COMPLETE)
+
+**Goal:** Bring the IDE chat experience from B+ to A+ — humanize tool descriptions, fix cold-start messaging, add error visibility across the codebase.
+
+### What was built
+
+| Feature | What it does |
+|---------|-------------|
+| **toolError() helper** | New `flint-mcp/src/core/errorResponse.ts` — standardized MCP error responses with "common causes" + "try this" recovery steps. 7 pre-built hint sets. 33 tests. |
+| **Humanized tool descriptions** | Rewrote 10 jargon-heavy MCP tool descriptions in plain English (removed unexplained "AST", "ledger", "sigma", "epistemic") |
+| **Cold-start welcome** | `flint_status` now returns a quick-start launchpad with 5 natural-language actions instead of terse jargon |
+| **JSON intro sentences** | 5 resources/tools prepend a plain-English summary line before JSON dumps (session-context, dashboard, agent-risk, anomalies, get_context) |
+| **Warnings array** | `audit_ui_component` and `flint_query_registry` now surface partial-failure warnings (token parse failures, registry unavailable, RAG fallback) |
+| **Error breadcrumbs** | 14 MCP error sites migrated to `toolError()` with causes + recovery steps |
+| **Silent catch audit** | 42 silent `catch(() => {})` blocks across 18 renderer files now have `console.warn('[Flint] Component: context', err)` |
+| **IPC error propagation** | 4 fixes in electron/main.ts and server/index.ts — shadow-commit catches upgraded, MCP startup errors surfaced |
+| **Review-found bug fixes** | Removed 4 `as any` casts hiding type mismatches in summary-line code (wrong field names, wrong types) |
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `flint-mcp/src/core/errorResponse.ts` | NEW — toolError() helper + HINTS constants |
+| `flint-mcp/src/core/__tests__/errorResponse.test.ts` | NEW — 33 tests |
+| `flint-mcp/src/server.ts` | Tool descriptions, status, intro sentences, warnings, error breadcrumbs, as-any fixes |
+| `electron/main.ts` | 2 shadow-commit catches: console.error → console.warn with context |
+| `server/index.ts` | 2 MCP startup .catch(() => {}) → console.error with context |
+| `src/App.tsx` | 7 silent catches → console.warn |
+| `src/components/ui/GovernanceDashboard.tsx` | 11 silent catches → console.warn |
+| `src/components/ui/ExportModal.tsx` | 3 silent catches → console.warn |
+| `src/components/editor/LivePreview.tsx` | 1 silent catch → console.warn |
+| `src/components/editor/StatusBar.tsx` | 4 silent catches → console.warn |
+| `src/components/ui/FigmaConnectionPanel.tsx` | 3 silent catches → console.warn |
+| `src/components/ui/CommandPalette.tsx` | 1 silent catch → console.warn |
+| `src/components/ui/TokenManager.tsx` | 2 silent catches → console.warn |
+| `src/components/ui/BetaFeedbackModal.tsx` | 1 silent catch → console.warn |
+| `src/components/ui/ConflictResolutionPanel.tsx` | 2 silent catches → console.warn |
+| `src/components/ui/TokenPanel.tsx` | 2 silent catches → console.warn |
+| `src/components/ui/SyncStatus.tsx` | 1 silent catch → console.warn |
+| `src/components/ui/FigmaSetupWizard.tsx` | 1 silent catch → console.warn |
+| `src/components/ui/SetupWizard.tsx` | 1 silent catch → console.warn |
+| `src/hooks/useContrastAudit.ts` | 1 silent catch → console.warn |
+| `src/hooks/useContextSync.ts` | 1 silent catch → console.warn |
+| `src/hooks/useTokenUsage.ts` | 1 silent catch → console.warn |
+| `src/adapters/web-api.ts` | 2 silent catches → console.warn |
+
+### Validation
+
+```
+TSC:   0 errors
+MCP:   4298/4326 passing (33 new) — 28 pre-existing in suggestedAction.test.ts
+Glass: 1905/1910 passing (0 new) — 5 pre-existing in buildSrcdoc/previewDispatch/vuePreview
+Core:  1358/1361 passing (0 new) — 3 pre-existing in mithrilParity.test.ts
+Review: SHIP — 0 critical, 0 major, 2 minor warnings (accepted)
+```
+
+### What remains (Sprint 2, not started)
+
+- Store error patterns (tokenStore `String(err)` → proper Error handling, optimistic rollback)
+- Notification integration (toast notifications for 5-8 user-visible errors)
+
+---
+
+## Session: 2026-04-07 — Counsel.4 Completion (COMPLETE)
+
+**Goal:** Complete the last 2 Counsel items to bring the Governance Experience Redesign to 20/20 ONLINE.
+
+### What was done
+
+| Item | Status | Detail |
+|------|--------|--------|
+| COUNSEL.4.1 | **ONLINE** | Was already complete upon inspection — IPC handler (`governance:preview-token-impact`), preload bridge, accordion UI with impact color/border, affected file count, and guidance text all existed and tested. Reclassified from PARTIAL to ONLINE. |
+| COUNSEL.4.3 | **ONLINE** | Navigation footer UI already existed in GovernanceDashboard (Manage rules / Policy settings buttons) but props were never wired from App.tsx. Added: `initialTab` prop on GovernancePanel, `governancePanelTab` state in App.tsx, wired `onManageRules` (→ rules tab) and `onPolicySettings` (→ profiles tab). 6 new tests. |
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `src/App.tsx` | Added `governancePanelTab` state, wired `onManageRules`/`onPolicySettings` props, passed `initialTab` to GovernancePanel |
+| `src/components/ui/GovernancePanel.tsx` | Added `initialTab` prop, moved `PanelTab` type above props interface |
+| `src/components/ui/__tests__/GovernanceDashboard.counsel.test.tsx` | +3 tests for navigation pathway links |
+| `src/components/ui/__tests__/GovernancePanel.test.tsx` | +3 tests for `initialTab` prop |
+
+### Validation
+
+```
+TSC:   0 errors
+Glass: 1905/1905 passing (6 new, 5 pre-existing failures in buildSrcdoc/previewDispatch/vuePreview)
+Review: SHIP — 0 critical, 0 major, 0 minor
+```
+
+---
+
 ## Session: 2026-04-07 — Forge.2 Smart Open Completion (COMPLETE)
 
 **Goal:** Complete the remaining 20% of Forge.2 — auto-configuration, full baseline audit, and web parity.

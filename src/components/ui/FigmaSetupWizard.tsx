@@ -215,7 +215,8 @@ export function FigmaSetupWizard({ visible, onClose }: FigmaSetupWizardProps) {
                     setStep('error')
                 }
             })
-            .catch(() => {
+            .catch((err) => {
+                console.warn('[Flint] FigmaSetupWizard: OAuth launch failed', err)
                 if (!cancelled) setStep('error')
             })
 

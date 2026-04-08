@@ -106,7 +106,7 @@ const STATE_CONFIG: Record<SyncState, BadgeConfig> = {
         title: 'Local SQLite (better-sqlite3) is connected and ready',
     },
     OFFLINE_MODE: {
-        dot: 'bg-gray-500',
+        dot: 'bg-zinc-500',
         label: 'Sync: Offline',
         title: 'No backend configured — operating on local SQLite only',
     },
@@ -147,7 +147,8 @@ export function SyncStatus() {
                 setSyncState('CONNECTED')
                 unsubscribe = initSync()
             })
-            .catch(() => {
+            .catch((err) => {
+                console.warn('[Flint] SyncStatus: ping failed, entering offline mode', err)
                 setSyncState('OFFLINE_MODE')
             })
 
@@ -160,7 +161,7 @@ export function SyncStatus() {
 
     return (
         <span
-            className="flex items-center gap-1.5 text-xs text-gray-500"
+            className="flex items-center gap-1.5 text-xs text-zinc-500"
             title={cfg.title}
         >
             <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${cfg.dot}`} />

@@ -130,14 +130,16 @@ export function ExportModal({ onClose, pendingTokenCount }: ExportModalProps) {
         overridesPromise.then((rows) => {
             setOverrideRows(rows)
             setAuditProgress((p) => ({ ...p, current: 1 }))
-        }).catch(() => {
+        }).catch((err) => {
+            console.warn('[Flint] ExportModal: failed to load overrides', err)
             setAuditProgress((p) => ({ ...p, current: 1 }))
         })
 
         summaryPromise.then((summary) => {
             setComplianceSummary(summary)
             setAuditProgress((p) => ({ ...p, current: 2 }))
-        }).catch(() => {
+        }).catch((err) => {
+            console.warn('[Flint] ExportModal: failed to load compliance summary', err)
             setAuditProgress((p) => ({ ...p, current: 2 }))
         })
 
@@ -162,7 +164,7 @@ export function ExportModal({ onClose, pendingTokenCount }: ExportModalProps) {
                     const ids = new Set(rows.map((r) => `${r.file_path}::${r.rule_id}::${r.node_id ?? ''}`))
                     setDeferredIds(ids)
                 })
-                .catch(() => { /* best-effort */ })
+                .catch((err) => console.warn('[Flint] ExportModal: failed to load deferred violations', err))
         }
 
         return () => clearTimeout(minDisplayTimer)
@@ -356,11 +358,11 @@ export function ExportModal({ onClose, pendingTokenCount }: ExportModalProps) {
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="export-modal-title"
-                className="relative flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-xl border border-gray-700 bg-gray-900 shadow-2xl"
+                className="relative flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl"
             >
                 {/* Header */}
                 <div className={`flex shrink-0 items-center gap-3 border-b px-5 py-4 ${loading
-                    ? 'border-gray-700'
+                    ? 'border-zinc-700'
                     : canExport
                         ? 'border-emerald-700/40 bg-emerald-900/10'
                         : hasCriticalMithril
@@ -368,7 +370,7 @@ export function ExportModal({ onClose, pendingTokenCount }: ExportModalProps) {
                             : 'border-amber-700/40 bg-amber-900/10'
                     }`}>
                     {loading ? (
-                        <div className="h-4 w-4 motion-safe:animate-spin rounded-full border-2 border-gray-600 border-t-indigo-400" />
+                        <div className="h-4 w-4 motion-safe:animate-spin rounded-full border-2 border-zinc-600 border-t-indigo-400" />
                     ) : canExport ? (
                         <ShieldCheck className="h-5 w-5 text-emerald-400" />
                     ) : hasCriticalMithril ? (
@@ -376,7 +378,7 @@ export function ExportModal({ onClose, pendingTokenCount }: ExportModalProps) {
                     ) : (
                         <ShieldAlert className="h-5 w-5 text-amber-400" />
                     )}
-                    <h2 id="export-modal-title" className="flex-1 text-sm font-semibold text-gray-100">
+                    <h2 id="export-modal-title" className="flex-1 text-sm font-semibold text-zinc-100">
                         {loading
                             ? 'Running pre-flight audit…'
                             : canExport
@@ -389,7 +391,7 @@ export function ExportModal({ onClose, pendingTokenCount }: ExportModalProps) {
                         type="button"
                         onClick={onClose}
                         aria-label="Close export modal"
-                        className="rounded p-1 text-gray-500 transition-colors hover:text-gray-300"
+                        className="rounded p-1 text-zinc-500 transition-colors hover:text-zinc-300"
                     >
                         <X className="h-4 w-4" />
                     </button>
@@ -475,13 +477,13 @@ export function ExportModal({ onClose, pendingTokenCount }: ExportModalProps) {
                                 This file is fully export-ready.
                             </p>
                             {/* Source preview */}
-                            <div className="rounded border border-gray-700 bg-gray-950">
-                                <div className="flex items-center justify-between border-b border-gray-700 px-3 py-1.5">
-                                    <span className="font-mono text-[10px] text-gray-500">Source</span>
+                            <div className="rounded border border-zinc-700 bg-zinc-950">
+                                <div className="flex items-center justify-between border-b border-zinc-700 px-3 py-1.5">
+                                    <span className="font-mono text-[10px] text-zinc-500">Source</span>
                                     <button
                                         type="button"
                                         onClick={() => { void handleCopy() }}
-                                        className="flex items-center gap-1.5 rounded px-2 py-0.5 text-[10px] text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+                                        className="flex items-center gap-1.5 rounded px-2 py-0.5 text-[10px] text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
                                     >
                                         {copied ? (
                                             <><Check className="h-3 w-3 text-emerald-400" /> Copied!</>
@@ -490,7 +492,7 @@ export function ExportModal({ onClose, pendingTokenCount }: ExportModalProps) {
                                         )}
                                     </button>
                                 </div>
-                                <pre className="max-h-60 overflow-y-auto p-3 font-mono text-[10px] leading-relaxed text-gray-300">
+                                <pre className="max-h-60 overflow-y-auto p-3 font-mono text-[10px] leading-relaxed text-zinc-300">
                                     {rawCode}
                                 </pre>
                             </div>
@@ -516,6 +518,35 @@ export function ExportModal({ onClose, pendingTokenCount }: ExportModalProps) {
                                 )
                             })()}
 
+                            {/* Sprint 3C: fixability summary counts */}
+                            {(() => {
+                                const autoFixableCount = mithrilViolations.filter(
+                                    (id) => (linterWarnings.get(id)?.nearestToken ?? null) !== null
+                                ).length
+                                // a11y violations carry no fixable metadata — all are manual
+                                const a11yCount = Object.values(a11yViolations).reduce((acc, msgs) => acc + msgs.length, 0)
+                                const manualCount =
+                                    mithrilViolations.length - autoFixableCount + a11yCount
+                                const overrideCount = overrideRows.length
+                                if (autoFixableCount + manualCount + overrideCount === 0) return null
+                                return (
+                                    <p className="text-[11px] text-zinc-500" data-testid="fixability-summary">
+                                        <span className="text-emerald-400 font-medium">{autoFixableCount}</span>
+                                        {' '}auto-fixable
+                                        {' · '}
+                                        <span className="text-amber-400 font-medium">{manualCount}</span>
+                                        {' '}need manual review
+                                        {overrideCount > 0 && (
+                                            <>
+                                                {' · '}
+                                                <span className="text-red-400 font-medium">{overrideCount}</span>
+                                                {' '}override{overrideCount !== 1 ? 's' : ''}
+                                            </>
+                                        )}
+                                    </p>
+                                )
+                            })()}
+
                             <p className="text-xs text-zinc-400">
                                 Click a node ID to navigate directly to it.
                             </p>
@@ -527,14 +558,14 @@ export function ExportModal({ onClose, pendingTokenCount }: ExportModalProps) {
                                         <AlertTriangle className="h-3 w-3" />
                                         Unapplied Style Changes ({overrideRows.length})
                                     </h3>
-                                    <p className="mb-2 text-[11px] text-gray-400">
+                                    <p className="mb-2 text-[11px] text-zinc-400">
                                         Values you manually changed that differ from the design system. Reset them in the Properties panel or apply the design token to clear.
                                     </p>
                                     <ul className="space-y-1.5">
                                         {overrideRows.map((row) => (
                                             <li
                                                 key={`${row.flint_id}::${row.property_key}`}
-                                                className="rounded border border-gray-700 bg-gray-800/60 px-3 py-2"
+                                                className="rounded border border-zinc-700 bg-zinc-800/60 px-3 py-2 border-l-2 border-l-amber-500/50"
                                             >
                                                 <div className="flex items-start justify-between gap-2">
                                                     <div className="min-w-0 flex-1">
@@ -547,7 +578,7 @@ export function ExportModal({ onClose, pendingTokenCount }: ExportModalProps) {
                                                             {row.flint_id}
                                                         </button>
                                                         <p className="mt-0.5 font-mono text-[10px] text-zinc-400">
-                                                            <span className="text-gray-400">{row.property_key}</span>
+                                                            <span className="text-zinc-400">{row.property_key}</span>
                                                             {' → '}
                                                             <span className="text-amber-500/80">{row.property_value.slice(0, 60)}{row.property_value.length > 60 ? '…' : ''}</span>
                                                         </p>
@@ -589,6 +620,13 @@ export function ExportModal({ onClose, pendingTokenCount }: ExportModalProps) {
                                                             >
                                                                 {flintId}
                                                             </button>
+                                                            {/* Sprint 3C: fixability indicator — a11y rules carry no auto-fix metadata */}
+                                                            <span
+                                                                className="shrink-0 rounded-full border border-amber-500/30 bg-amber-900/20 px-1.5 py-px text-[10px] font-medium text-amber-400"
+                                                                data-testid="fixability-badge-manual"
+                                                            >
+                                                                Manual fix
+                                                            </span>
                                                             {isAlreadyDeferred ? (
                                                                 <span className="text-xs text-amber-400 bg-amber-400/10 rounded px-1.5 py-0.5">
                                                                     Deferred
@@ -633,7 +671,7 @@ export function ExportModal({ onClose, pendingTokenCount }: ExportModalProps) {
                                                                                 onChange={() => setDeferDurations((prev) => new Map([...prev, [rowKey, d]]))}
                                                                                 className="sr-only"
                                                                             />
-                                                                            <span className={`rounded-full border px-2 py-0.5 text-[9px] font-medium cursor-pointer transition-colors ${(deferDurations.get(rowKey) ?? '1 day') === d ? 'border-indigo-500/50 bg-indigo-900/30 text-indigo-300' : 'border-zinc-700 bg-zinc-800 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'}`}>
+                                                                            <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium cursor-pointer transition-colors ${(deferDurations.get(rowKey) ?? '1 day') === d ? 'border-indigo-500/50 bg-indigo-900/30 text-indigo-300' : 'border-zinc-700 bg-zinc-800 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'}`}>
                                                                                 {d}
                                                                             </span>
                                                                         </label>
@@ -710,6 +748,22 @@ export function ExportModal({ onClose, pendingTokenCount }: ExportModalProps) {
                                                 >
                                                     {id}
                                                 </button>
+                                                {/* Sprint 3C: fixability indicator pill */}
+                                                {isFixable ? (
+                                                    <span
+                                                        className="shrink-0 rounded-full border border-emerald-500/30 bg-emerald-900/20 px-1.5 py-px text-[10px] font-medium text-emerald-400"
+                                                        data-testid="fixability-badge-auto"
+                                                    >
+                                                        Auto-fixable
+                                                    </span>
+                                                ) : (
+                                                    <span
+                                                        className="shrink-0 rounded-full border border-amber-500/30 bg-amber-900/20 px-1.5 py-px text-[10px] font-medium text-amber-400"
+                                                        data-testid="fixability-badge-manual"
+                                                    >
+                                                        Manual fix
+                                                    </span>
+                                                )}
                                                 {/* EDU-02: severity badge tooltip */}
                                                 {isCritical && (
                                                     <span
@@ -789,7 +843,7 @@ export function ExportModal({ onClose, pendingTokenCount }: ExportModalProps) {
                                                                     onChange={() => setDeferDurations((prev) => new Map([...prev, [rowKey, d]]))}
                                                                     className="sr-only"
                                                                 />
-                                                                <span className={`rounded-full border px-2 py-0.5 text-[9px] font-medium cursor-pointer transition-colors ${(deferDurations.get(rowKey) ?? '1 day') === d ? 'border-indigo-500/50 bg-indigo-900/30 text-indigo-300' : 'border-zinc-700 bg-zinc-800 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'}`}>
+                                                                <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium cursor-pointer transition-colors ${(deferDurations.get(rowKey) ?? '1 day') === d ? 'border-indigo-500/50 bg-indigo-900/30 text-indigo-300' : 'border-zinc-700 bg-zinc-800 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'}`}>
                                                                     {d}
                                                                 </span>
                                                             </label>
@@ -942,7 +996,7 @@ export function ExportModal({ onClose, pendingTokenCount }: ExportModalProps) {
 
                 {/* Footer */}
                 {!loading && (
-                    <div className="flex shrink-0 items-center justify-between gap-2 border-t border-gray-800 px-5 py-3">
+                    <div className="flex shrink-0 items-center justify-between gap-2 border-t border-zinc-800 px-5 py-3">
                         {/* Left: DBOM download */}
                         <div className="flex items-center gap-2">
                             <button
@@ -966,7 +1020,7 @@ export function ExportModal({ onClose, pendingTokenCount }: ExportModalProps) {
                             <button
                                 type="button"
                                 onClick={onClose}
-                                className="rounded border border-gray-700 px-3 py-1.5 text-xs text-gray-400 transition-colors hover:border-gray-600 hover:text-gray-200"
+                                className="rounded border border-zinc-700 px-3 py-1.5 text-xs text-zinc-400 transition-colors hover:border-zinc-600 hover:text-zinc-200"
                             >
                                 {canExport ? 'Close' : 'Dismiss'}
                             </button>

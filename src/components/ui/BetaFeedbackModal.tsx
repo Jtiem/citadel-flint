@@ -79,7 +79,7 @@ export function BetaFeedbackModal({ open, onClose }: BetaFeedbackModalProps) {
         if (!open) return
         window.flintAPI.beta?.getInfo()
             .then(setBetaInfo)
-            .catch(() => { /* beta API may not be available */ })
+            .catch((err) => console.warn('[Flint] BetaFeedbackModal: failed to load beta info', err))
     }, [open])
 
     // Reset form when reopened

@@ -39,7 +39,7 @@ export function useContrastAudit(): ContrastAuditData {
         setIsAuditing(true)
         fn()
             .then(setPairs)
-            .catch(() => {})
+            .catch((err) => console.warn('[Flint] useContrastAudit: contrast audit failed', err))
             .finally(() => setIsAuditing(false))
     }, [])
 

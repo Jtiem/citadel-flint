@@ -46,6 +46,9 @@ import { applyUndo } from '../../core/recoveryController'
 import { formatHealthSignal } from '../../../shared/healthSignal'
 import type { DeferDuration } from '../../../shared/deferralUtils'
 import { useGovernanceHealth, gradeFromScore } from '../../hooks/useGovernanceHealth'
+import { ScoreSection } from './governance/ScoreSection'
+import { ViolationCard, extractHardcodedClassFromMsg as _extractHardcodedClass, extractRuleIdFromMsg as _extractRuleId, A11Y_NOT_AUTO_FIXABLE as _A11Y_NOT_AUTO_FIXABLE } from './governance/ViolationCard'
+import { BatchActionBar } from './governance/BatchActionBar'
 
 // ── Grade → token colour maps ─────────────────────────────────────────────────
 
@@ -536,7 +539,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
     const fetchOverrideCount = useCallback(() => {
         window.flintAPI.governance.getOverrideCount()
             .then(setGovOverrideCount)
-            .catch(() => { /* governance IPC may not be ready on first paint */ })
+            .catch((err) => console.warn('[Flint] GovernanceDashboard: failed to fetch override count', err))
     }, [])
 
     useEffect(() => {
@@ -648,7 +651,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                     duration: 'Manually',
                 })
             }
-        } catch { /* best-effort persistence */ }
+        } catch (err) { console.warn('[Flint] GovernanceDashboard: failed to persist flag', err) }
     }, [activeFilePath])
 
     const handleUnflag = useCallback((key: string) => {
@@ -988,7 +991,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
             try {
                 const text = result?.content?.[0]?.text
                 if (text) { fixCount = JSON.parse(text)?.fixesApplied ?? 0 }
-            } catch { /* parse failure — treat as 0 fixes */ }
+            } catch (err) { console.warn('[Flint] GovernanceDashboard: failed to parse fix result', err) }
             if (fixCount === 0) {
                 useNotificationStore.getState().push({
                     type: 'violation',
@@ -1003,7 +1006,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
             try {
                 const content = await window.flintAPI.readFile(filePath)
                 useEditorStore.getState().syncCode(content)
-            } catch { /* best-effort — file watcher will catch it on next poll */ }
+            } catch (err) { console.warn('[Flint] GovernanceDashboard: failed to re-sync editor after fix', err) }
             useNotificationStore.getState().push({
                 type: 'mutation',
                 title: 'Fix applied',
@@ -1012,7 +1015,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                 autoDismissMs: 3000,
             })
             // Trigger re-audit so violations refresh
-            void window.flintAPI.mcp?.callTool('flint_audit', { file: filePath }).catch(() => { /* best-effort */ })
+            void window.flintAPI.mcp?.callTool('flint_audit', { file: filePath }).catch((err) => console.warn('[Flint] GovernanceDashboard: post-fix re-audit failed', err))
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err)
             useNotificationStore.getState().push({
@@ -1120,7 +1123,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                 await window.flintAPI.deferViolation(activeFilePath ?? '', ruleId, nodeId, reason, duration)
                 deferred = true
             }
-        } catch { /* best-effort */ }
+        } catch (err) { console.warn('[Flint] GovernanceDashboard: deferViolation IPC failed', err) }
         if (!deferred) {
             useNotificationStore.getState().push({
                 type: 'violation',
@@ -1246,10 +1249,10 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                     if (api.getHealthHistory) {
                         void api.getHealthHistory()
                             .then(setHealthHistory)
-                            .catch(() => {})
+                            .catch((err) => console.warn('[Flint] GovernanceDashboard: failed to refresh health history', err))
                     }
                 })
-                .catch(() => {})
+                .catch((err) => console.warn('[Flint] GovernanceDashboard: failed to record health score', err))
         }
     }, [score, grade, tokenCount])
 
@@ -1279,7 +1282,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                 severity: 'info',
                 autoDismissMs: 3000,
             })
-        } catch { /* best-effort */ }
+        } catch (err) { console.warn('[Flint] GovernanceDashboard: approve mutation failed', err) }
     }, [])
 
     const handleRejectMutation = useCallback(async (id: number) => {
@@ -1295,7 +1298,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                 severity: 'warning',
                 autoDismissMs: 3000,
             })
-        } catch { /* best-effort */ }
+        } catch (err) { console.warn('[Flint] GovernanceDashboard: reject mutation failed', err) }
     }, [])
 
     // ── COUNSEL.1.6: A11y auto-fixable entries ────────────────────────────────
@@ -1323,7 +1326,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
             } else {
                 for (const w of autoFixableA11yEntries) {
                     const rId = extractRuleIdFromMsg(w.message) ?? 'A11Y'
-                    await handleA11yFix(rId).catch(() => { /* best-effort */ })
+                    await handleA11yFix(rId).catch((err) => console.warn('[Flint] GovernanceDashboard: a11y batch fix item failed', err))
                 }
             }
             useNotificationStore.getState().push({
@@ -1484,37 +1487,8 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                 </div>
             )}
 
-            {/* ── EXPORT GATE BANNER — first contextual signal ─────────── */}
-            {tokenCount > 0 && exportBlocked && (
-                <div className="px-3 py-2 border-b border-zinc-800">
-                    <div className="flex items-center gap-2 rounded border border-red-700/40 bg-red-900/10 px-3 py-2" role="alert">
-                        <span className="h-2 w-2 rounded-full bg-red-400 shrink-0" aria-hidden="true" />
-                        <span className="flex-1 text-xs font-medium text-red-300">
-                            Export blocked — {mithrilCount + a11yCount} {mithrilCount + a11yCount !== 1 ? 'issues' : 'issue'}
-                            {overridesExist ? ' + overrides' : ''}
-                        </span>
-                    </div>
-                </div>
-            )}
-            {tokenCount > 0 && !exportBlocked && (
-                <div className="px-3 py-2 border-b border-zinc-800">
-                    <div className="flex items-center gap-2 rounded border border-emerald-500/40 bg-emerald-900/10 px-3 py-2">
-                        <ShieldCheck size={13} className="shrink-0 text-emerald-400" aria-hidden="true" />
-                        <span className="flex-1 text-xs font-medium text-emerald-300">
-                            {isBaselineSet ? 'No new issues — export ready' : 'All clear — export ready'}
-                        </span>
-                        <button
-                            type="button"
-                            onClick={() => onOpenExportModal?.()}
-                            className="flex items-center gap-1 rounded bg-emerald-600/20 px-2.5 py-1 text-[11px] font-medium text-emerald-400 hover:bg-emerald-600/30 transition-colors"
-                            aria-label="Open export modal"
-                        >
-                            Export
-                            <SendHorizonal size={10} aria-hidden="true" />
-                        </button>
-                    </div>
-                </div>
-            )}
+            {/* ── Export gate banner — rendered by ScoreSection below ─── */}
+            {/* (moved to ScoreSection sub-component) */}
 
             {/* ── AUTOPILOT TOGGLE ──────────────────────────────────────── */}
             {tokenCount > 0 && (
@@ -1572,76 +1546,27 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
             {/* ── VIOLATIONS SECTION — primary job surface ─────────────── */}
             {tokenCount > 0 && (mithrilCount > 0 || a11yCount > 0 || overridesExist) && (
                 <div ref={violationsSectionRef}>
-                    {/* Section header + batch fix CTAs */}
-                    <div className="flex flex-wrap items-center gap-2 border-b border-zinc-800 px-3 py-2">
-                        <h4 className="flex-1 text-xs font-medium uppercase tracking-wider text-zinc-400">
-                            Issues
-                            {isBaselineSet && <span className="ml-1.5 text-indigo-400">(new only)</span>}
-                        </h4>
-                        {/* COUNSEL.2.5: Session fix progress indicator */}
-                        {sessionInitialCount > 0 && (
-                            <span
-                                data-testid="session-progress-indicator"
-                                className="text-[10px] text-zinc-600"
-                                aria-live="polite"
-                            >
-                                {Math.max(0, sessionInitialCount - mithrilCount - a11yCount)} of {sessionInitialCount} fixed this session
-                            </span>
-                        )}
-                        {/* COUNSEL.1.4: Apply accepted fixes queue button */}
-                        {acceptedFixes.length > 0 && (
-                            <button
-                                type="button"
-                                onClick={applyAcceptedFixes}
-                                data-testid="apply-accepted-fixes-button"
-                                className="flex items-center gap-1 rounded border border-emerald-500/30 bg-emerald-900/20 px-2.5 py-1 text-[10px] text-emerald-400 hover:bg-emerald-900/40 hover:text-emerald-300 transition-colors"
-                                aria-label={`Apply ${acceptedFixes.length} accepted ${acceptedFixes.length === 1 ? 'fix' : 'fixes'}`}
-                            >
-                                <Check size={9} aria-hidden="true" />
-                                Apply {acceptedFixes.length} {acceptedFixes.length === 1 ? 'fix' : 'fixes'}
-                            </button>
-                        )}
-                        {autoFixableEntries.length > 0 && (
-                            <button
-                                type="button"
-                                onClick={handleFixAll}
-                                className="flex items-center gap-1 rounded border border-indigo-500/30 bg-indigo-900/20 px-2.5 py-1 text-[10px] text-indigo-400 hover:bg-indigo-900/40 hover:text-indigo-300 transition-colors"
-                                aria-label={`Fix all ${autoFixableEntries.length} auto-fixable issues`}
-                            >
-                                <Wand2 size={9} aria-hidden="true" />
-                                Auto-fix {autoFixableEntries.length} {autoFixableEntries.length === 1 ? 'issue' : 'issues'}
-                            </button>
-                        )}
-                        {/* COUNSEL.1.6: Fix all a11y batch button + Review N manually link */}
-                        {autoFixableA11yEntries.length > 0 && (
-                            <button
-                                type="button"
-                                onClick={() => void handleBatchFixA11y()}
-                                data-testid="fix-all-a11y-button"
-                                className="flex items-center gap-1 rounded border border-red-500/30 bg-red-900/20 px-2.5 py-1 text-[10px] text-red-400 hover:bg-red-900/40 hover:text-red-300 transition-colors"
-                                aria-label={`Fix all ${autoFixableA11yEntries.length} auto-fixable accessibility issues`}
-                            >
-                                <Wand2 size={9} aria-hidden="true" />
-                                Fix all a11y ({autoFixableA11yEntries.length})
-                            </button>
-                        )}
-                        {manualA11yEntries.length > 0 && (
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    manualA11yEntries.forEach((w) => {
-                                        const k = `a-${w.id}-${effectiveA11yWarnings.indexOf(w)}`
-                                        setExpandedViolations((prev) => { const n = new Set(prev); n.add(k); return n })
-                                    })
-                                }}
-                                data-testid="review-manual-a11y-button"
-                                className="text-[10px] text-zinc-500 underline-offset-2 hover:text-zinc-300 hover:underline transition-colors"
-                                aria-label={`Review ${manualA11yEntries.length} accessibility issues that need manual input`}
-                            >
-                                Review {manualA11yEntries.length} manually
-                            </button>
-                        )}
-                    </div>
+                    {/* BatchActionBar — batch fix CTAs */}
+                    <BatchActionBar
+                        acceptedCount={acceptedFixes.length}
+                        autoFixableCount={autoFixableEntries.length}
+                        a11yFixableCount={autoFixableA11yEntries.length}
+                        manualCount={manualA11yEntries.length}
+                        onApplyAccepted={applyAcceptedFixes}
+                        onAutoFixMithril={handleFixAll}
+                        onFixAllA11y={() => void handleBatchFixA11y()}
+                        onReviewManual={() => {
+                            manualA11yEntries.forEach((w) => {
+                                const k = `a-${w.id}-${effectiveA11yWarnings.indexOf(w)}`
+                                setExpandedViolations((prev) => { const n = new Set(prev); n.add(k); return n })
+                            })
+                        }}
+                        sessionProgress={sessionInitialCount > 0 ? {
+                            fixed: Math.max(0, sessionInitialCount - mithrilCount - a11yCount),
+                            total: sessionInitialCount,
+                        } : undefined}
+                        isBaselineSet={isBaselineSet}
+                    />
 
                     {/* Violation cards — expandable action items */}
                     <div className="divide-y divide-zinc-800/50" data-testid="violations-list">
@@ -1655,647 +1580,102 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                 hardcodedClass: hardcoded,
                                 tokenClass: token,
                             } : null
-                            const guide = getFixGuide(w.type, w.message)
-                            const ruleId = extractRuleIdFromMsg(w.message) ?? w.type
                             const cardKey = `m-${w.id}`
-                            const isOpen = expandedViolations.has(cardKey) || pinnedViolations.has(cardKey)
                             const isPinned = pinnedViolations.has(cardKey)
-                            // COUNSEL.1.5: auto-fixable badge — Mithril violations with a nearestToken are auto-fixable
-                            const isAutoFixable = canFix
-                            const isDiffOpen = inlineDiffOpen.has(cardKey)
-                            const isDiffLoading = inlineDiffLoading.has(cardKey)
-                            const diffData = inlineDiffData.get(cardKey)
-                            const isDeferOpen = deferFormOpen.has(cardKey)
-                            const isDeferSuccess = deferSuccess.has(cardKey)
-                            const isDeferred = deferredCardKeys.has(cardKey)
                             const isFlagged = flaggedCardKeys.has(cardKey)
-                            const provenance = provenanceMap[w.id]
-                            // COUNSEL.2.3: resurface label for deferred violations
-                            // resurfaceTick is read to ensure the label refreshes every 60s
+                            // resurfaceTick is read to ensure resurface labels inside ViolationCard refresh every 60s
                             void resurfaceTick
-                            const deferExpMs = deferredExpiresAt.get(cardKey) ?? null
-                            const resurface = isDeferred ? resurfaceLabel(deferExpMs) : null
                             return (
-                                <div key={cardKey} className={`border-b border-zinc-800/30 last:border-0${isDeferred ? ' opacity-50' : isFlagged ? ' opacity-70' : ''}${isFlagged ? ' border-l-2 border-l-amber-500/60' : ''}`}>
-                                    {/* Expand toggle — full width so message text has room to breathe */}
-                                    <button
-                                        type="button"
-                                        onClick={() => toggleViolation(cardKey)}
-                                        className="flex w-full items-start gap-2 px-3 pt-2.5 pb-1.5 text-left hover:bg-zinc-800/30 transition-colors"
-                                        aria-expanded={isOpen}
-                                        aria-controls={`v-m-${w.id}`}
-                                        aria-label={`${isOpen ? 'Collapse' : 'Expand'} ${ruleId} violation detail`}
-                                    >
-                                            <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${SEVERITY_DOT[w.severity]}`} aria-hidden="true" />
-                                            <div className="min-w-0 flex-1">
-                                                <div className="flex items-center gap-1.5 flex-wrap">
-                                                    <p className="text-[10px] text-zinc-300 font-medium">{ruleId}</p>
-                                                    {/* COUNSEL.2.2: Flagged badge */}
-                                                    {isFlagged && (
-                                                        <span
-                                                            data-testid={`flagged-badge-${w.id}`}
-                                                            className="rounded-full border border-amber-500/40 bg-amber-900/20 px-1.5 py-px text-[9px] font-medium text-amber-400 leading-none"
-                                                        >
-                                                            Flagged for Review
-                                                        </span>
-                                                    )}
-                                                    {/* COUNSEL.1.5: fixability badge */}
-                                                    {!isFlagged && isAutoFixable ? (
-                                                        <span
-                                                            data-testid={`badge-auto-fixable-${w.id}`}
-                                                            className="rounded-full border border-emerald-500/30 bg-emerald-900/20 px-1.5 py-px text-[9px] font-medium text-emerald-400 leading-none"
-                                                        >
-                                                            Auto-fixable
-                                                        </span>
-                                                    ) : !isFlagged ? (
-                                                        <span
-                                                            data-testid={`badge-needs-input-${w.id}`}
-                                                            className="rounded-full border border-amber-500/30 bg-amber-900/20 px-1.5 py-px text-[9px] font-medium text-amber-400 leading-none"
-                                                        >
-                                                            Needs input
-                                                        </span>
-                                                    ) : null}
-                                                    {/* COUNSEL.3.4: Risk trend badge */}
-                                                    {w.riskTrend === 'rising' && (
-                                                        <span
-                                                            data-testid={`risk-trend-rising-${w.id}`}
-                                                            className="inline-flex items-center gap-0.5 rounded-full border border-red-500/40 bg-red-900/20 px-1.5 py-px text-[9px] font-medium text-red-400 leading-none"
-                                                        >
-                                                            <TrendingUp size={8} aria-hidden="true" />
-                                                            Rising
-                                                        </span>
-                                                    )}
-                                                    {w.riskTrend === 'falling' && (
-                                                        <span
-                                                            data-testid={`risk-trend-falling-${w.id}`}
-                                                            className="inline-flex items-center gap-0.5 rounded-full border border-emerald-500/40 bg-emerald-900/20 px-1.5 py-px text-[9px] font-medium text-emerald-400 leading-none"
-                                                        >
-                                                            <TrendingDown size={8} aria-hidden="true" />
-                                                            Improving
-                                                        </span>
-                                                    )}
-                                                </div>
-                                                {/* S5.10: line-clamp-2 instead of truncate — shows 2 lines before ellipsis */}
-                                                <p className="text-[10px] text-zinc-400 line-clamp-2" title={w.message}>
-                                                    {w.message.replace(/^[A-Z0-9-]+:\s*/, '')}
-                                                </p>
-                                                {/* COUNSEL.3.2: Provenance chip */}
-                                                {provenance && (
-                                                    <span
-                                                        data-testid={`provenance-chip-${w.id}`}
-                                                        className="mt-0.5 inline-block text-[10px] text-zinc-500 bg-zinc-800/50 rounded px-1.5 py-0.5"
-                                                    >
-                                                        Introduced by {provenance.source === 'human' ? 'you' : provenance.agentId ?? provenance.source}
-                                                    </span>
-                                                )}
-                                            </div>
-                                            {isOpen
-                                                ? <ChevronDown size={10} className="shrink-0 mt-1 text-zinc-600" aria-hidden="true" />
-                                                : <ChevronRight size={10} className="shrink-0 mt-1 text-zinc-600" aria-hidden="true" />}
-                                    </button>
-
-                                    {/* Action footer — primary fix actions left, triage right.
-                                         justify-end when no primary action so triage doesn't sit orphaned on the right. */}
-                                    <div className={`flex items-center gap-2 px-3 pb-3 pt-0 ${canFix ? 'justify-between' : 'justify-end'}`}>
-                                        {/* Primary: Preview fix + Fix */}
-                                        <div className="flex items-center gap-2">
-                                            {canFix && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => void toggleInlineDiff(cardKey, ruleId, activeFilePath)}
-                                                    data-testid={`preview-fix-btn-${w.id}`}
-                                                    className={`rounded border px-3 py-1.5 text-xs font-medium transition-colors ${
-                                                        isDiffOpen
-                                                            ? 'border-indigo-500/50 bg-indigo-900/30 text-indigo-300'
-                                                            : 'border-indigo-500/30 bg-indigo-900/20 text-indigo-400 hover:bg-indigo-900/40'
-                                                    }`}
-                                                    aria-label={isDiffOpen ? 'Close diff preview' : `Preview fix for ${ruleId}`}
-                                                    aria-expanded={isDiffOpen}
-                                                >
-                                                    {isDiffLoading ? <Loader2 size={10} className="animate-spin inline mr-1" aria-hidden="true" /> : null}
-                                                    {isDiffOpen ? 'Close preview' : 'Preview fix'}
-                                                </button>
-                                            )}
-                                            {canFix && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleFixSingle(fixItem!)}
-                                                    className="rounded border border-indigo-500/40 bg-indigo-900/25 px-3 py-1.5 text-xs font-medium text-indigo-400 hover:bg-indigo-900/50 transition-colors"
-                                                    aria-label={`Fix drift on element ${w.id}`}
-                                                >
-                                                    Fix
-                                                </button>
-                                            )}
-                                        </div>
-
-                                        {/* Triage: Deferred state / Flag / Defer / Pin */}
-                                        <div className="flex items-center gap-2">
-                                            {/* COUNSEL.2.3: Snoozed badge with resurface label */}
-                                            {isDeferred && (
-                                                <span className="flex items-center gap-1.5">
-                                                    <span
-                                                        data-testid={`deferred-badge-${w.id}`}
-                                                        className="text-xs text-amber-400 bg-amber-400/10 rounded px-2 py-1"
-                                                    >
-                                                        Snoozed
-                                                    </span>
-                                                    {resurface && (
-                                                        <span
-                                                            data-testid={`resurface-label-${w.id}`}
-                                                            className={`text-xs rounded px-2 py-1 ${
-                                                                resurface.overdue
-                                                                    ? 'text-amber-300 bg-amber-500/20'
-                                                                    : 'text-zinc-500 bg-zinc-800/50'
-                                                            }`}
-                                                        >
-                                                            {resurface.text}
-                                                        </span>
-                                                    )}
-                                                </span>
-                                            )}
-                                            {/* COUNSEL.2.2: Flag / Unflag */}
-                                            {!isDeferred && !isFlagged && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => void handleFlag(cardKey, ruleId, w.id)}
-                                                    data-testid={`flag-btn-${w.id}`}
-                                                    className="rounded border border-zinc-700/60 px-3 py-1.5 text-xs text-zinc-400 hover:border-zinc-500 hover:text-zinc-200 transition-colors"
-                                                    aria-label={`Flag ${ruleId} for review`}
-                                                    title="Set aside for later review — won't count toward your fix estimate"
-                                                >
-                                                    Flag
-                                                </button>
-                                            )}
-                                            {isFlagged && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleUnflag(cardKey)}
-                                                    data-testid={`unflag-btn-${w.id}`}
-                                                    className="rounded border border-amber-500/30 px-3 py-1.5 text-xs text-amber-400 hover:border-amber-500/60 hover:text-amber-300 transition-colors"
-                                                    aria-label={`Remove flag from ${ruleId}`}
-                                                    title="Remove flag and return to active issues"
-                                                >
-                                                    Unflag
-                                                </button>
-                                            )}
-                                            {/* COUNSEL.2.1: Defer button */}
-                                            {!isDeferred && !isFlagged && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => toggleDeferForm(cardKey)}
-                                                    className={`rounded border px-3 py-1.5 text-xs transition-colors ${
-                                                        isDeferOpen
-                                                            ? 'border-zinc-600 text-zinc-300'
-                                                            : 'border-zinc-700/60 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200'
-                                                    }`}
-                                                    aria-label={isDeferOpen ? 'Cancel defer' : `Defer ${ruleId} issue`}
-                                                    aria-expanded={isDeferOpen}
-                                                    title="Snooze this issue — it will come back after the time you choose"
-                                                >
-                                                    Defer
-                                                </button>
-                                            )}
-                                            {/* S5.9: Pin */}
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    togglePin(cardKey)
-                                                    if (!isPinned) setExpandedViolations((prev) => { const n = new Set(prev); n.add(cardKey); return n })
-                                                }}
-                                                className={`rounded p-2 transition-colors ${isPinned ? 'text-indigo-400 hover:text-indigo-300' : 'text-zinc-600 hover:text-zinc-400'}`}
-                                                aria-label={isPinned ? 'Unpin issue detail' : 'Pin issue detail open'}
-                                                title={isPinned ? 'Unpin' : 'Pin open while working'}
-                                            >
-                                                <Pin size={12} aria-hidden="true" />
-                                            </button>
-                                        </div>
-                                    </div>
-
-                                    {/* COUNSEL.1.4: Inline diff preview panel */}
-                                    {isDiffOpen && (
-                                        <div
-                                            data-testid={`inline-diff-${w.id}`}
-                                            className="mx-3 mb-2 rounded border border-zinc-700 bg-zinc-950 overflow-hidden"
-                                        >
-                                            {isDiffLoading || !diffData ? (
-                                                <div className="flex items-center justify-center gap-2 py-3">
-                                                    <Loader2 size={12} className="animate-spin text-zinc-500" aria-hidden="true" />
-                                                    <span className="text-[10px] text-zinc-400">Loading diff...</span>
-                                                </div>
-                                            ) : (
-                                                <>
-                                                    <div className="grid grid-cols-2 divide-x divide-zinc-800">
-                                                        <div className="px-3 py-2">
-                                                            <p className="mb-1 text-[9px] font-medium uppercase tracking-wider text-zinc-600">Current</p>
-                                                            {diffData.isColor && (
-                                                                <span
-                                                                    className="mb-1 block h-4 w-4 rounded border border-zinc-700"
-                                                                    style={{ backgroundColor: diffData.current }}
-                                                                    aria-hidden="true"
-                                                                />
-                                                            )}
-                                                            <code className="text-[10px] text-red-400 font-mono">{diffData.current}</code>
-                                                        </div>
-                                                        <div className="px-3 py-2">
-                                                            <p className="mb-1 text-[9px] font-medium uppercase tracking-wider text-zinc-600">Proposed</p>
-                                                            {diffData.isColor && (
-                                                                <span
-                                                                    className="mb-1 block h-4 w-4 rounded border border-zinc-700"
-                                                                    style={{ backgroundColor: diffData.proposed }}
-                                                                    aria-hidden="true"
-                                                                />
-                                                            )}
-                                                            <code className="text-[10px] text-emerald-400 font-mono">{diffData.proposed}</code>
-                                                            <p className="mt-0.5 text-[9px] text-zinc-400">{diffData.tokenName}</p>
-                                                        </div>
-                                                    </div>
-                                                    <div className="flex items-center gap-2 border-t border-zinc-800 px-3 py-1.5">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => acceptInlineFix(cardKey, fixItem!)}
-                                                            data-testid={`accept-fix-btn-${w.id}`}
-                                                            className="rounded border border-emerald-500/30 bg-emerald-900/20 px-2.5 py-1 text-[10px] text-emerald-400 hover:bg-emerald-900/40 transition-colors"
-                                                            aria-label="Accept this fix"
-                                                        >
-                                                            Accept
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => skipInlineFix(cardKey)}
-                                                            data-testid={`skip-fix-btn-${w.id}`}
-                                                            className="rounded border border-zinc-700 bg-zinc-800 px-2.5 py-1 text-[10px] text-zinc-500 hover:bg-zinc-700 hover:text-zinc-300 transition-colors"
-                                                            aria-label="Skip this fix"
-                                                        >
-                                                            Skip
-                                                        </button>
-                                                    </div>
-                                                </>
-                                            )}
-                                        </div>
-                                    )}
-
-                                    {/* COUNSEL.2.1: Inline defer form */}
-                                    {isDeferOpen && (
-                                        <div
-                                            data-testid={`defer-form-${w.id}`}
-                                            className="mx-3 mb-2 rounded border border-zinc-700 bg-zinc-950 px-3 py-2.5 space-y-2"
-                                        >
-                                            <p className="text-[10px] font-medium text-zinc-400">Defer this issue</p>
-                                            <textarea
-                                                rows={2}
-                                                placeholder="Reason (optional)"
-                                                value={deferReasons.get(cardKey) ?? ''}
-                                                onChange={(e) => setDeferReasons((prev) => new Map([...prev, [cardKey, e.target.value]]))}
-                                                className="w-full resize-none rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-[10px] text-zinc-300 placeholder-zinc-600 focus:border-indigo-500/60 focus:outline-none"
-                                                aria-label="Defer reason"
-                                            />
-                                            <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Defer duration">
-                                                {(['1 day', '3 days', '1 week', '1 sprint', 'Manually'] as const).map((d) => (
-                                                    <label key={d} className="flex items-center gap-1 cursor-pointer">
-                                                        <input
-                                                            type="radio"
-                                                            name={`defer-duration-${cardKey}`}
-                                                            value={d}
-                                                            checked={(deferDurations.get(cardKey) ?? '1 day') === d}
-                                                            onChange={() => setDeferDurations((prev) => new Map([...prev, [cardKey, d]]))}
-                                                            className="sr-only"
-                                                        />
-                                                        <span
-                                                            className={`rounded-full border px-2 py-0.5 text-[9px] font-medium cursor-pointer transition-colors ${
-                                                                (deferDurations.get(cardKey) ?? '1 day') === d
-                                                                    ? 'border-indigo-500/50 bg-indigo-900/30 text-indigo-300'
-                                                                    : 'border-zinc-700 bg-zinc-800 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'
-                                                            }`}
-                                                        >
-                                                            {d}
-                                                        </span>
-                                                    </label>
-                                                ))}
-                                            </div>
-                                            <div className="flex items-center gap-2">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => void submitDefer(cardKey, ruleId, w.id)}
-                                                    data-testid={`defer-submit-${w.id}`}
-                                                    className="rounded border border-zinc-600 bg-zinc-800 px-2.5 py-1 text-[10px] text-zinc-300 hover:bg-zinc-700 transition-colors"
-                                                    aria-label="Submit defer"
-                                                >
-                                                    Defer issue
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => toggleDeferForm(cardKey)}
-                                                    data-testid={`defer-cancel-${w.id}`}
-                                                    className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors"
-                                                    aria-label="Cancel defer"
-                                                >
-                                                    Cancel
-                                                </button>
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Defer success confirmation */}
-                                    {isDeferSuccess && (
-                                        <div
-                                            data-testid={`defer-success-${w.id}`}
-                                            className="mx-3 mb-2 flex items-center gap-2 rounded border border-indigo-500/30 bg-indigo-900/20 px-3 py-1.5"
-                                            role="status"
-                                        >
-                                            <Check size={10} className="shrink-0 text-indigo-400" aria-hidden="true" />
-                                            <span className="text-[10px] text-indigo-300">{deferSuccessMsg.get(cardKey)}</span>
-                                        </div>
-                                    )}
-
-                                    {/* Expanded guide */}
-                                    {isOpen && (
-                                        <div id={`v-m-${w.id}`} className="px-3 pb-3 space-y-2.5 bg-zinc-950/60">
-                                            {guide ? (
-                                                <>
-                                                    {/* Why it matters */}
-                                                    <div className="rounded border border-zinc-800 bg-zinc-900 px-3 py-2">
-                                                        <p className="text-[10px] text-zinc-400 leading-relaxed">
-                                                            <span className="text-zinc-400 font-medium">Why: </span>{guide.why}
-                                                        </p>
-                                                        {guide.wcag && (
-                                                            <p className="mt-1 text-[10px] text-indigo-400">{guide.wcag}</p>
-                                                        )}
-                                                    </div>
-                                                    {/* Fix steps */}
-                                                    <div>
-                                                        <p className="mb-1 text-[10px] font-medium text-zinc-400">How to fix:</p>
-                                                        <ol className="space-y-1 list-none">
-                                                            {guide.steps.map((step, si) => (
-                                                                <li key={si} className="flex items-start gap-2 text-[10px] text-zinc-400">
-                                                                    <span className="mt-px shrink-0 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-zinc-700 text-[9px] text-zinc-600 font-mono">{si + 1}</span>
-                                                                    <span>{step}</span>
-                                                                </li>
-                                                            ))}
-                                                        </ol>
-                                                    </div>
-                                                    {/* Copy snippet */}
-                                                    {guide.snippet && (
-                                                        <CopySnippet snippet={guide.snippet} />
-                                                    )}
-                                                </>
-                                            ) : (
-                                                <p className="text-[10px] text-zinc-600">No fix guide available for this rule.</p>
-                                            )}
-                                            {/* Element ref */}
-                                            <p className="font-mono text-[10px] text-zinc-700">Element: {getNodeName(w.id)}</p>
-                                        </div>
-                                    )}
-                                </div>
+                                <ViolationCard
+                                    key={cardKey}
+                                    issue={w}
+                                    type="mithril"
+                                    cardKey={cardKey}
+                                    isPinned={isPinned}
+                                    isFlagged={isFlagged}
+                                    isDeferred={deferredCardKeys.has(cardKey)}
+                                    deferExpiresAtMs={deferredExpiresAt.get(cardKey) ?? null}
+                                    isDeferSuccess={deferSuccess.has(cardKey)}
+                                    deferSuccessMsg={deferSuccessMsg.get(cardKey)}
+                                    resurfaceTick={resurfaceTick}
+                                    isExpanded={expandedViolations.has(cardKey)}
+                                    isDiffOpen={inlineDiffOpen.has(cardKey)}
+                                    isDiffLoading={inlineDiffLoading.has(cardKey)}
+                                    diffData={inlineDiffData.get(cardKey) ?? null}
+                                    isDeferFormOpen={deferFormOpen.has(cardKey)}
+                                    fixItem={fixItem}
+                                    provenance={provenanceMap[w.id] ?? null}
+                                    deferReason={deferReasons.get(cardKey) ?? ''}
+                                    deferDuration={deferDurations.get(cardKey) ?? '1 day'}
+                                    onToggleExpand={() => toggleViolation(cardKey)}
+                                    onFix={() => handleFixSingle(fixItem!)}
+                                    onPreviewFix={() => void toggleInlineDiff(cardKey, extractRuleIdFromMsg(w.message) ?? w.type, activeFilePath)}
+                                    onAcceptFix={() => acceptInlineFix(cardKey, fixItem!)}
+                                    onSkipFix={() => skipInlineFix(cardKey)}
+                                    onFlag={() => void handleFlag(cardKey, extractRuleIdFromMsg(w.message) ?? w.type, w.id)}
+                                    onUnflag={() => handleUnflag(cardKey)}
+                                    onDefer={(d) => setDeferDurations((prev) => new Map([...prev, [cardKey, d]]))}
+                                    onDeferReasonChange={(r) => setDeferReasons((prev) => new Map([...prev, [cardKey, r]]))}
+                                    onDeferDurationChange={(d) => setDeferDurations((prev) => new Map([...prev, [cardKey, d]]))}
+                                    onSubmitDefer={() => void submitDefer(cardKey, extractRuleIdFromMsg(w.message) ?? w.type, w.id)}
+                                    onCancelDefer={() => toggleDeferForm(cardKey)}
+                                    onPin={() => {
+                                        togglePin(cardKey)
+                                        if (!isPinned) setExpandedViolations((prev) => { const n = new Set(prev); n.add(cardKey); return n })
+                                    }}
+                                    getNodeName={getNodeName}
+                                    activeFilePath={activeFilePath}
+                                />
                             )
                         })}
 
                         {/* A11y violation cards */}
                         {visibleA11yWarnings.map((w, i) => {
-                            const guide = getFixGuide('a11y', w.message)
-                            const ruleId = extractRuleIdFromMsg(w.message) ?? 'A11Y'
                             const cardKey = `a-${w.id}-${i}`
-                            const isOpen = expandedViolations.has(cardKey) || pinnedViolations.has(cardKey)
-                            const isPinned = pinnedViolations.has(cardKey)
-                            // COUNSEL.1.5: a11y auto-fixable — use the canonical non-fixable set from Warden rules
-                            const isAutoFixable = !A11Y_NOT_AUTO_FIXABLE.has(ruleId)
-                            const isDeferOpen = deferFormOpen.has(cardKey)
-                            const isDeferSuccess = deferSuccess.has(cardKey)
-                            const isDeferred = deferredCardKeys.has(cardKey)
-                            const isFlagged = flaggedCardKeys.has(cardKey)
-                            const provenance = provenanceMap[w.id]
+                            void resurfaceTick
                             return (
-                                <div key={cardKey} className={`border-b border-zinc-800/30 last:border-0${isDeferred ? ' opacity-50' : isFlagged ? ' opacity-70' : ''}${isFlagged ? ' border-l-2 border-l-amber-500/60' : ''}`}>
-                                    {/* Expand toggle — full width; tap to see WCAG guidance */}
-                                    <button
-                                        type="button"
-                                        onClick={() => toggleViolation(cardKey)}
-                                        className="flex w-full items-start gap-2 px-3 pt-2.5 pb-1.5 text-left hover:bg-zinc-800/30 transition-colors"
-                                        aria-expanded={isOpen}
-                                        aria-controls={`v-a-${w.id}-${i}`}
-                                        aria-label={`${isOpen ? 'Collapse' : 'Expand'} ${ruleId} violation detail`}
-                                    >
-                                            <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-red-400" aria-hidden="true" />
-                                            <div className="min-w-0 flex-1">
-                                                <div className="flex items-center gap-1.5 flex-wrap">
-                                                    <p className="text-[10px] text-zinc-300 font-medium">{ruleId}</p>
-                                                    {/* COUNSEL.2.2: Flagged badge */}
-                                                    {isFlagged && (
-                                                        <span
-                                                            data-testid={`flagged-badge-a11y-${w.id}`}
-                                                            className="rounded-full border border-amber-500/40 bg-amber-900/20 px-1.5 py-px text-[9px] font-medium text-amber-400 leading-none"
-                                                        >
-                                                            Flagged for Review
-                                                        </span>
-                                                    )}
-                                                    {/* A11y violations always need human input (label text, heading order, etc.) */}
-                                                    {!isFlagged && (
-                                                        <span
-                                                            data-testid={`badge-needs-input-a11y-${w.id}`}
-                                                            className="rounded-full border border-amber-500/30 bg-amber-900/20 px-1.5 py-px text-[9px] font-medium text-amber-400 leading-none"
-                                                        >
-                                                            Needs input
-                                                        </span>
-                                                    )}
-                                                </div>
-                                                {/* S5.10: line-clamp-2 shows 2 lines before truncating */}
-                                                <p className="text-[10px] text-zinc-400 line-clamp-2" title={w.message}>
-                                                    {w.message.replace(/^[A-Z0-9-]+:\s*/, '')}
-                                                </p>
-                                                {/* COUNSEL.3.2: Provenance chip */}
-                                                {provenance && (
-                                                    <span
-                                                        data-testid={`provenance-chip-a11y-${w.id}`}
-                                                        className="mt-0.5 inline-block text-[10px] text-zinc-500 bg-zinc-800/50 rounded px-1.5 py-0.5"
-                                                    >
-                                                        Introduced by {provenance.source === 'human' ? 'you' : provenance.agentId ?? provenance.source}
-                                                    </span>
-                                                )}
-                                            </div>
-                                            {isOpen
-                                                ? <ChevronDown size={10} className="shrink-0 mt-1 text-zinc-600" aria-hidden="true" />
-                                                : <ChevronRight size={10} className="shrink-0 mt-1 text-zinc-600" aria-hidden="true" />}
-                                    </button>
-
-                                    {/* Action footer — guidance hint left, triage right */}
-                                    <div className="flex items-center justify-between gap-2 px-3 pb-3 pt-0">
-                                        {/* Left: hint pointing to the expand affordance */}
-                                        <p
-                                            className="text-[11px] text-zinc-500 select-none shrink-0"
-                                            data-testid={`a11y-howto-btn-${ruleId}`}
-                                        >
-                                            {isOpen ? 'Guidance below ↑' : 'Tap to see how to fix ↑'}
-                                        </p>
-
-                                        {/* Triage actions */}
-                                        <div className="flex items-center gap-2">
-                                            {/* COUNSEL.2.3: Snoozed badge */}
-                                            {isDeferred && (
-                                                <span
-                                                    data-testid={`deferred-badge-a11y-${w.id}`}
-                                                    className="text-xs text-amber-400 bg-amber-400/10 rounded px-2 py-1"
-                                                >
-                                                    Snoozed
-                                                </span>
-                                            )}
-                                            {/* COUNSEL.2.2: Flag / Unflag */}
-                                            {!isDeferred && !isFlagged && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => void handleFlag(cardKey, ruleId, w.id)}
-                                                    data-testid={`flag-btn-a11y-${w.id}`}
-                                                    className="rounded border border-zinc-700/60 px-3 py-1.5 text-xs text-zinc-400 hover:border-zinc-500 hover:text-zinc-200 transition-colors"
-                                                    aria-label={`Flag ${ruleId} for review`}
-                                                    title="Set aside for later review — won't count toward your fix estimate"
-                                                >
-                                                    Flag
-                                                </button>
-                                            )}
-                                            {isFlagged && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleUnflag(cardKey)}
-                                                    data-testid={`unflag-btn-a11y-${w.id}`}
-                                                    className="rounded border border-amber-500/30 px-3 py-1.5 text-xs text-amber-400 hover:border-amber-500/60 hover:text-amber-300 transition-colors"
-                                                    aria-label={`Remove flag from ${ruleId}`}
-                                                    title="Remove flag and return to active issues"
-                                                >
-                                                    Unflag
-                                                </button>
-                                            )}
-                                            {/* COUNSEL.2.1: Defer button */}
-                                            {!isDeferred && !isFlagged && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => toggleDeferForm(cardKey)}
-                                                    className={`rounded border px-3 py-1.5 text-xs transition-colors ${
-                                                        isDeferOpen
-                                                            ? 'border-zinc-600 text-zinc-300'
-                                                            : 'border-zinc-700/60 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200'
-                                                    }`}
-                                                    aria-label={isDeferOpen ? 'Cancel defer' : `Defer ${ruleId} issue`}
-                                                    aria-expanded={isDeferOpen}
-                                                    title="Snooze this issue — it will come back after the time you choose"
-                                                >
-                                                    Defer
-                                                </button>
-                                            )}
-                                            {/* S5.9: Pin */}
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    togglePin(cardKey)
-                                                    if (!isPinned) setExpandedViolations((prev) => { const n = new Set(prev); n.add(cardKey); return n })
-                                                }}
-                                                className={`rounded p-2 transition-colors ${isPinned ? 'text-indigo-400 hover:text-indigo-300' : 'text-zinc-600 hover:text-zinc-400'}`}
-                                                aria-label={isPinned ? 'Unpin issue detail' : 'Pin issue detail open'}
-                                                title={isPinned ? 'Unpin' : 'Pin open while working'}
-                                            >
-                                                <Pin size={12} aria-hidden="true" />
-                                            </button>
-                                        </div>
-                                    </div>
-
-                                    {/* COUNSEL.2.1: Inline defer form */}
-                                    {isDeferOpen && (
-                                        <div
-                                            data-testid={`defer-form-a11y-${w.id}`}
-                                            className="mx-3 mb-2 rounded border border-zinc-700 bg-zinc-950 px-3 py-2.5 space-y-2"
-                                        >
-                                            <p className="text-[10px] font-medium text-zinc-400">Defer this issue</p>
-                                            <textarea
-                                                rows={2}
-                                                placeholder="Reason (optional)"
-                                                value={deferReasons.get(cardKey) ?? ''}
-                                                onChange={(e) => setDeferReasons((prev) => new Map([...prev, [cardKey, e.target.value]]))}
-                                                className="w-full resize-none rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-[10px] text-zinc-300 placeholder-zinc-600 focus:border-indigo-500/60 focus:outline-none"
-                                                aria-label="Defer reason"
-                                            />
-                                            <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Defer duration">
-                                                {(['1 day', '3 days', '1 week', '1 sprint', 'Manually'] as const).map((d) => (
-                                                    <label key={d} className="flex items-center gap-1 cursor-pointer">
-                                                        <input
-                                                            type="radio"
-                                                            name={`defer-duration-${cardKey}`}
-                                                            value={d}
-                                                            checked={(deferDurations.get(cardKey) ?? '1 day') === d}
-                                                            onChange={() => setDeferDurations((prev) => new Map([...prev, [cardKey, d]]))}
-                                                            className="sr-only"
-                                                        />
-                                                        <span
-                                                            className={`rounded-full border px-2 py-0.5 text-[9px] font-medium cursor-pointer transition-colors ${
-                                                                (deferDurations.get(cardKey) ?? '1 day') === d
-                                                                    ? 'border-indigo-500/50 bg-indigo-900/30 text-indigo-300'
-                                                                    : 'border-zinc-700 bg-zinc-800 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'
-                                                            }`}
-                                                        >
-                                                            {d}
-                                                        </span>
-                                                    </label>
-                                                ))}
-                                            </div>
-                                            <div className="flex items-center gap-2">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => void submitDefer(cardKey, ruleId, w.id)}
-                                                    data-testid={`defer-submit-a11y-${w.id}`}
-                                                    className="rounded border border-zinc-600 bg-zinc-800 px-2.5 py-1 text-[10px] text-zinc-300 hover:bg-zinc-700 transition-colors"
-                                                    aria-label="Submit defer"
-                                                >
-                                                    Defer issue
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => toggleDeferForm(cardKey)}
-                                                    className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors"
-                                                    aria-label="Cancel defer"
-                                                >
-                                                    Cancel
-                                                </button>
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Defer success confirmation */}
-                                    {isDeferSuccess && (
-                                        <div
-                                            className="mx-3 mb-2 flex items-center gap-2 rounded border border-indigo-500/30 bg-indigo-900/20 px-3 py-1.5"
-                                            role="status"
-                                        >
-                                            <Check size={10} className="shrink-0 text-indigo-400" aria-hidden="true" />
-                                            <span className="text-[10px] text-indigo-300">{deferSuccessMsg.get(cardKey)}</span>
-                                        </div>
-                                    )}
-
-                                    {isOpen && (
-                                        <div id={`v-a-${w.id}-${i}`} className="px-3 pb-3 space-y-2.5 bg-zinc-950/60">
-                                            {guide ? (
-                                                <>
-                                                    <div className="rounded border border-zinc-800 bg-zinc-900 px-3 py-2">
-                                                        <p className="text-[10px] text-zinc-400 leading-relaxed">
-                                                            <span className="text-zinc-400 font-medium">Why: </span>{guide.why}
-                                                        </p>
-                                                        <p className="mt-1 text-[10px] text-red-400/80">{guide.wcag}</p>
-                                                    </div>
-                                                    <div>
-                                                        <p className="mb-1 text-[10px] font-medium text-zinc-400">How to fix:</p>
-                                                        <ol className="space-y-1 list-none">
-                                                            {guide.steps.map((step, si) => (
-                                                                <li key={si} className="flex items-start gap-2 text-[10px] text-zinc-400">
-                                                                    <span className="mt-px shrink-0 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-zinc-700 text-[9px] text-zinc-600 font-mono">{si + 1}</span>
-                                                                    <span>{step}</span>
-                                                                </li>
-                                                            ))}
-                                                        </ol>
-                                                    </div>
-                                                    {guide.snippet && <CopySnippet snippet={guide.snippet} />}
-                                                </>
-                                            ) : (
-                                                <p className="text-[10px] text-zinc-600">Click the element on the canvas to inspect it in Properties.</p>
-                                            )}
-                                            <p className="font-mono text-[10px] text-zinc-700">Element: {getNodeName(w.id)}</p>
-                                        </div>
-                                    )}
-                                </div>
+                                <ViolationCard
+                                    key={cardKey}
+                                    issue={w}
+                                    type="a11y"
+                                    cardKey={cardKey}
+                                    indexInList={i}
+                                    isPinned={pinnedViolations.has(cardKey)}
+                                    isFlagged={flaggedCardKeys.has(cardKey)}
+                                    isDeferred={deferredCardKeys.has(cardKey)}
+                                    deferExpiresAtMs={deferredExpiresAt.get(cardKey) ?? null}
+                                    isDeferSuccess={deferSuccess.has(cardKey)}
+                                    deferSuccessMsg={deferSuccessMsg.get(cardKey)}
+                                    resurfaceTick={resurfaceTick}
+                                    isExpanded={expandedViolations.has(cardKey) || pinnedViolations.has(cardKey)}
+                                    isDeferFormOpen={deferFormOpen.has(cardKey)}
+                                    fixItem={null}
+                                    diffData={null}
+                                    isDiffOpen={false}
+                                    isDiffLoading={false}
+                                    provenance={provenanceMap[w.id] ?? null}
+                                    deferReason={deferReasons.get(cardKey) ?? ''}
+                                    deferDuration={deferDurations.get(cardKey) ?? '1 day'}
+                                    onToggleExpand={() => toggleViolation(cardKey)}
+                                    onFix={() => { /* a11y violations use handleA11yFix */ }}
+                                    onPreviewFix={() => { /* no inline diff for a11y */ }}
+                                    onAcceptFix={() => { /* no inline diff for a11y */ }}
+                                    onSkipFix={() => { /* no inline diff for a11y */ }}
+                                    onFlag={() => void handleFlag(cardKey, extractRuleIdFromMsg(w.message) ?? 'A11Y', w.id)}
+                                    onUnflag={() => handleUnflag(cardKey)}
+                                    onDefer={(d) => setDeferDurations((prev) => new Map([...prev, [cardKey, d]]))}
+                                    onDeferReasonChange={(r) => setDeferReasons((prev) => new Map([...prev, [cardKey, r]]))}
+                                    onDeferDurationChange={(d) => setDeferDurations((prev) => new Map([...prev, [cardKey, d]]))}
+                                    onSubmitDefer={() => void submitDefer(cardKey, extractRuleIdFromMsg(w.message) ?? 'A11Y', w.id)}
+                                    onCancelDefer={() => toggleDeferForm(cardKey)}
+                                    onPin={() => {
+                                        const isPinned = pinnedViolations.has(cardKey)
+                                        togglePin(cardKey)
+                                        if (!isPinned) setExpandedViolations((prev) => { const n = new Set(prev); n.add(cardKey); return n })
+                                    }}
+                                    getNodeName={getNodeName}
+                                    activeFilePath={activeFilePath}
+                                />
                             )
                         })}
 
@@ -2363,180 +1743,37 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
 
             {/* ── ACCORDION: Health Score ────────────────────────────────── */}
             {tokenCount > 0 && (
-                <div className="border-t border-zinc-800">
-                    <button
-                        type="button"
-                        onClick={() => setIsScoreOpen((v) => !v)}
-                        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-zinc-800/30 transition-colors"
-                        aria-expanded={isScoreOpen}
-                        aria-controls="score-accordion"
-                    >
-                        {isScoreOpen ? <ChevronDown size={12} className="shrink-0 text-zinc-500" aria-hidden="true" /> : <ChevronRight size={12} className="shrink-0 text-zinc-500" aria-hidden="true" />}
-                        <span className="flex-1 text-xs text-zinc-400">Health Score</span>
-                        <span className={`text-xs font-bold ${GRADE_TEXT[grade]}`} aria-hidden="true">{grade}</span>
-                        <span className="font-mono text-xs text-zinc-400" aria-label={`Score ${score} out of 100`}>{score}</span>
-                    </button>
-                    {isScoreOpen && (
-                        <div id="score-accordion">
-                            {/* COUNSEL.2.4: Effort framing — must appear before the score ring (DOM order) */}
-                            {tokenCount > 0 && (
-                                <p className="px-4 pt-3 pb-1 text-xs text-zinc-400" data-testid="effort-framing">
-                                    {effortText}
-                                </p>
-                            )}
-                            {/* COUNSEL.1.1: Category split chips */}
-                            {tokenCount > 0 && (
-                                <div className="flex items-center gap-1.5 px-4 pb-2" data-testid="category-chips">
-                                    <button
-                                        type="button"
-                                        aria-pressed={activeCategory === 'design-system'}
-                                        onClick={() => setActiveCategory(activeCategory === 'design-system' ? null : 'design-system')}
-                                        className="flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] transition-colors border-zinc-700 bg-zinc-800/50 text-zinc-400 hover:text-zinc-200 aria-pressed:border-amber-500/50 aria-pressed:bg-amber-900/20 aria-pressed:text-amber-300"
-                                        data-testid="chip-design-system"
-                                    >
-                                        Design System {mithrilCount}
-                                    </button>
-                                    <button
-                                        type="button"
-                                        aria-pressed={activeCategory === 'accessibility'}
-                                        onClick={() => setActiveCategory(activeCategory === 'accessibility' ? null : 'accessibility')}
-                                        className="flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] transition-colors border-zinc-700 bg-zinc-800/50 text-zinc-400 hover:text-zinc-200 aria-pressed:border-red-500/50 aria-pressed:bg-red-900/20 aria-pressed:text-red-300"
-                                        data-testid="chip-accessibility"
-                                    >
-                                        Accessibility {a11yCount}
-                                    </button>
-                                    <button
-                                        type="button"
-                                        aria-pressed={activeCategory === 'token-sync'}
-                                        onClick={() => setActiveCategory(activeCategory === 'token-sync' ? null : 'token-sync')}
-                                        className="flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] transition-colors border-zinc-700 bg-zinc-800/50 text-zinc-400 hover:text-zinc-200 aria-pressed:border-indigo-500/50 aria-pressed:bg-indigo-900/20 aria-pressed:text-indigo-300"
-                                        data-testid="chip-token-sync"
-                                    >
-                                        Token Sync {syncCount}
-                                    </button>
-                                </div>
-                            )}
-                            {/* COUNSEL.1.2: Delta mode auto-enable banner */}
-                            {tokenCount > 0 && (initialViolationCount ?? 0) > 10 && isBaselineSet && !bannerDismissed && (
-                                <div className="mx-3 mb-2 rounded border border-indigo-500/30 bg-indigo-900/10 px-3 py-2" data-testid="delta-mode-auto-banner">
-                                    <p className="text-[10px] text-indigo-300">
-                                        Delta mode active — showing new issues only. There are {initialViolationCount} existing violations being filtered.
-                                    </p>
-                                    <div className="mt-1.5 flex items-center gap-2">
-                                        <button
-                                            type="button"
-                                            aria-label="Show all violations"
-                                            onClick={() => void window.flintAPI.baseline?.clear?.()}
-                                            className="text-[10px] text-indigo-400 hover:text-indigo-300 underline"
-                                        >
-                                            Show all violations
-                                        </button>
-                                        <button
-                                            type="button"
-                                            aria-label="Dismiss delta mode banner"
-                                            onClick={() => setBannerDismissed(true)}
-                                            className="text-[10px] text-zinc-500 hover:text-zinc-400"
-                                        >
-                                            Dismiss
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-                            <div className="flex items-center gap-4 px-4 py-4" title={scoreTrendHint ?? undefined}>
-                                <div className="flex flex-col items-center gap-1">
-                                    <ScoreRing score={score} grade={grade} pulse={ringPulse} />
-                                    {/* COUNSEL.4.2: Compliance trajectory sparkline */}
-                                    {healthHistory.length >= 2 && <Sparkline data={healthHistory} />}
-                                </div>
-                                <div className="flex flex-col gap-0.5">
-                                    <span className={`text-3xl font-bold leading-none ${GRADE_TEXT[grade]}`} aria-label={`Grade ${grade}`}>{grade}</span>
-                                    <span className="text-xs text-zinc-400">{isBaselineSet ? 'Delta Score (new issues only)' : 'Governance Health'}</span>
-                                    {scoreTrendHint && <span className="text-xs text-zinc-300 mt-0.5" data-testid="score-trend-hint">{scoreTrendHint}</span>}
-                                    <p className="text-xs text-zinc-400 mt-1" data-testid="next-step-prompt">{nextStep.text}</p>
-                                    {/* COUNSEL.3.1: Rewind to clean link */}
-                                    {score < 95 && lastCleanState && (
-                                        <button
-                                            type="button"
-                                            onClick={() => void handleRewindToClean()}
-                                            className="mt-1 text-left text-xs text-indigo-400 underline underline-offset-2 hover:text-indigo-300 transition-colors"
-                                            data-testid="rewind-to-clean"
-                                        >
-                                            Rewind to clean (score {lastCleanState.score}, {relativeTime(lastCleanState.timestamp)})
-                                        </button>
-                                    )}
-                                </div>
-                            </div>
-                            {(mithrilCount > 0 || a11yCount > 0 || overrideCount > 0) && (
-                                <div className="px-3 py-2 space-y-1.5 border-t border-zinc-800/50">
-                                    {mithrilCount > 0 && (
-                                        <div className="flex items-center gap-2 text-xs text-zinc-400" data-testid="fidelity-score-row">
-                                            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" aria-hidden="true" />
-                                            <span className="flex-1">Fidelity Score: {healthSignal.fidelityScore}/100 — fixing {mithrilCount} design system {mithrilCount !== 1 ? 'issues' : 'issue'} would raise your score by {mithrilCount * 5} pts</span>
-                                        </div>
-                                    )}
-                                    {a11yCount > 0 && (
-                                        <div className="flex items-center gap-2 text-xs text-zinc-400" data-testid="a11y-score-row">
-                                            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-400" aria-hidden="true" />
-                                            <span className="flex-1">Accessibility Score: {healthSignal.a11yScore}/100 — fixing {a11yCount} accessibility {a11yCount !== 1 ? 'issues' : 'issue'} would raise your score by {a11yCount * 10} pts</span>
-                                        </div>
-                                    )}
-                                    {overrideCount > 0 && (
-                                        <div className="flex items-center gap-2 text-xs text-zinc-400" data-testid="override-score-row">
-                                            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" aria-hidden="true" />
-                                            <span className="flex-1">Fixing {overrideCount} unapplied style {overrideCount !== 1 ? 'overrides' : 'override'} would raise your score by {overrideCount * 3} pts</span>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-                            <div className="px-3 py-2 border-t border-zinc-800/50">
-                                <button
-                                    type="button"
-                                    onClick={() => setIsScoreModalOpen(true)}
-                                    className="flex items-center gap-1 text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors"
-                                >
-                                    <ChevronRight className="h-3 w-3" aria-hidden="true" />
-                                    How is this calculated?
-                                </button>
-                                <Modal
-                                    isOpen={isScoreModalOpen}
-                                    onClose={() => setIsScoreModalOpen(false)}
-                                    title="How Your Score Is Calculated"
-                                    size="sm"
-                                    data-testid="score-formula-modal"
-                                >
-                                    <div className="space-y-4">
-                                        <div>
-                                            <p className="text-xs font-medium text-zinc-400 mb-2">Deductions</p>
-                                            <ul className="space-y-1.5">
-                                                <li className="flex items-center justify-between text-sm"><span className="text-zinc-300">Critical violations</span><span className="font-mono text-red-400">−10 per issue</span></li>
-                                                <li className="flex items-center justify-between text-sm"><span className="text-zinc-300">Amber violations</span><span className="font-mono text-amber-400">−3 per issue</span></li>
-                                                <li className="flex items-center justify-between text-sm"><span className="text-zinc-300">Advisory violations</span><span className="font-mono text-zinc-400">−1 per issue</span></li>
-                                                <li className="flex items-center justify-between text-sm"><span className="text-zinc-300">Unapplied overrides</span><span className="font-mono text-amber-400">−3 per change</span></li>
-                                            </ul>
-                                        </div>
-                                        <div>
-                                            <p className="text-xs font-medium text-zinc-400 mb-2">Grade Scale</p>
-                                            <ul className="space-y-1.5">
-                                                <li className="flex items-center justify-between text-sm"><span className="text-emerald-400 font-medium">A</span><span className="text-zinc-400">90–100</span></li>
-                                                <li className="flex items-center justify-between text-sm"><span className="text-emerald-400 font-medium">B</span><span className="text-zinc-400">80–89</span></li>
-                                                <li className="flex items-center justify-between text-sm"><span className="text-amber-400 font-medium">C</span><span className="text-zinc-400">70–79</span></li>
-                                                <li className="flex items-center justify-between text-sm"><span className="text-amber-400 font-medium">D</span><span className="text-zinc-400">60–69</span></li>
-                                                <li className="flex items-center justify-between text-sm"><span className="text-red-400 font-medium">F</span><span className="text-zinc-400">&lt;60</span></li>
-                                            </ul>
-                                        </div>
-                                        <div>
-                                            <p className="text-xs font-medium text-zinc-400 mb-2">Live Sub-scores</p>
-                                            <ul className="space-y-1.5">
-                                                <li className="flex items-center justify-between text-sm"><span className="text-zinc-300">Fidelity</span><span className="font-mono text-zinc-300">{healthSignal.fidelityScore}</span></li>
-                                                <li className="flex items-center justify-between text-sm"><span className="text-zinc-300">Accessibility</span><span className="font-mono text-zinc-300">{healthSignal.a11yScore}</span></li>
-                                            </ul>
-                                        </div>
-                                    </div>
-                                </Modal>
-                            </div>
-                        </div>
-                    )}
-                </div>
+                <ScoreSection
+                    score={score}
+                    grade={grade}
+                    trend={healthHistory.length >= 2
+                        ? healthHistory[healthHistory.length - 1].score - healthHistory[0].score
+                        : 0}
+                    exportBlocked={exportBlocked}
+                    mithrilCount={mithrilCount}
+                    a11yCount={a11yCount}
+                    overridesExist={overridesExist}
+                    overrideCount={overrideCount}
+                    onRunAudit={() => void handleRunAudit()}
+                    baselineMode={isBaselineSet}
+                    onToggleBaseline={isBaselineSet ? () => void handleClearBaseline() : () => void handleSetBaseline()}
+                    healthHistory={healthHistory}
+                    scoreTrendHint={scoreTrendHint}
+                    nextStep={nextStep}
+                    effortText={effortText}
+                    ringPulse={ringPulse}
+                    lastCleanState={lastCleanState}
+                    onRewindToClean={() => void handleRewindToClean()}
+                    activeCategory={activeCategory}
+                    onSetCategory={setActiveCategory}
+                    syncCount={syncCount}
+                    initialViolationCount={initialViolationCount}
+                    isBaselineSet={isBaselineSet}
+                    bannerDismissed={bannerDismissed}
+                    onDismissBanner={() => setBannerDismissed(true)}
+                    onShowAllViolations={() => void window.flintAPI.baseline?.clear?.()}
+                    onOpenExportModal={onOpenExportModal}
+                />
             )}
 
             {/* ── ACCORDION: Top Triggered Rules ─────────────────────────── */}

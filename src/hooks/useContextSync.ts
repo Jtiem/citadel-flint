@@ -49,7 +49,7 @@ export function useContextSync(): void {
     useEffect(() => {
         window.flintAPI?.scope?.getActiveLibrary?.()
             .then((result) => setSelectedLibrary(result.library))
-            .catch(() => { /* non-fatal */ })
+            .catch((err) => console.warn('[Flint] useContextSync: context sync write failed', err))
     }, [activeFilePath]) // re-read when active file changes (project may change)
 
     // Ref-based debounce timer — stable across re-renders, no state needed.

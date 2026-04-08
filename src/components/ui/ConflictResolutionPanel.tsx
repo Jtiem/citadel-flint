@@ -82,9 +82,9 @@ export function ConflictResolutionPanel({ onClose, conflicts: initialConflicts }
                         }))
                         setConflicts(parsed)
                     }
-                } catch { /* parse failure */ }
+                } catch (err) { console.warn('[Flint] ConflictResolutionPanel: failed to parse conflict data', err) }
             })
-            .catch(() => { /* MCP unavailable */ })
+            .catch((err) => console.warn('[Flint] ConflictResolutionPanel: failed to fetch conflicts via MCP', err))
             .finally(() => setIsLoading(false))
     }, [])
 
@@ -247,7 +247,7 @@ export function ConflictResolutionPanel({ onClose, conflicts: initialConflicts }
                         <div className="grid grid-cols-3 gap-2 text-center">
                             {/* Base */}
                             <div className="rounded border border-zinc-800 bg-zinc-900/50 px-2 py-2">
-                                <p className="mb-1 text-[9px] font-medium uppercase tracking-wider text-zinc-600">Base</p>
+                                <p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-zinc-600">Base</p>
                                 {conflict.baseValue != null ? (
                                     <div className="flex flex-col items-center gap-1">
                                         <ColorSwatch value={conflict.baseValue} />
@@ -262,7 +262,7 @@ export function ConflictResolutionPanel({ onClose, conflicts: initialConflicts }
 
                             {/* Local */}
                             <div className="rounded border border-zinc-700 bg-zinc-900/80 px-2 py-2">
-                                <p className="mb-1 text-[9px] font-medium uppercase tracking-wider text-zinc-500">Local</p>
+                                <p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-zinc-500">Local</p>
                                 <div className="flex flex-col items-center gap-1">
                                     <ColorSwatch value={conflict.localValue} />
                                     <p className="truncate font-mono text-[10px] text-zinc-300" title={conflict.localValue}>
@@ -273,7 +273,7 @@ export function ConflictResolutionPanel({ onClose, conflicts: initialConflicts }
 
                             {/* Remote (Figma) */}
                             <div className="rounded border border-indigo-700/30 bg-indigo-900/10 px-2 py-2">
-                                <p className="mb-1 text-[9px] font-medium uppercase tracking-wider text-indigo-400">Figma</p>
+                                <p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-indigo-400">Figma</p>
                                 <div className="flex flex-col items-center gap-1">
                                     <ColorSwatch value={conflict.remoteValue} />
                                     <p className="truncate font-mono text-[10px] text-indigo-300" title={conflict.remoteValue}>

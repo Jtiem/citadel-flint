@@ -98,7 +98,7 @@ export function useTokenUsage(
                 if (typeof api?.readFile === 'function') {
                     try {
                         figmaTokensRaw = await api.readFile('.flint/figma-tokens.json')
-                    } catch { /* file doesn't exist */ }
+                    } catch (err) { console.warn('[Flint] useTokenUsage: failed to read figma-tokens.json', err) }
                 }
 
                 if (!figmaTokensRaw) {

@@ -64,13 +64,13 @@ function TokenHealthBar({ tokens }: TokenHealthBarProps) {
         if (typeof api?.tokens?.getSyncSummary === 'function') {
             api.tokens.getSyncSummary()
                 .then((s: SyncSummary) => setSyncSummary(s))
-                .catch(() => { /* not wired yet — silent */ })
+                .catch((err) => console.warn('[Flint] TokenPanel: sync summary fetch failed', err))
         }
 
         // Figma connection status via existing figma.status IPC
         window.flintAPI.figma.status()
             .then((s) => setFigmaRunning(s.running))
-            .catch(() => { /* best-effort */ })
+            .catch((err) => console.warn('[Flint] TokenPanel: Figma status fetch failed', err))
     }, [tokens.length])
 
     // Count tokens by category
@@ -310,7 +310,7 @@ function GenericTokenRow({ token }: { token: DesignToken }) {
                 </p>
             </div>
             {/* Type badge */}
-            <span className="shrink-0 rounded border border-zinc-700 px-1 py-0.5 text-[9px] uppercase tracking-wider text-zinc-500">
+            <span className="shrink-0 rounded border border-zinc-700 px-1 py-0.5 text-[10px] uppercase tracking-wider text-zinc-500">
                 {TYPE_LABEL[token.token_type] ?? token.token_type}
             </span>
             {token.mode !== 'default' && (

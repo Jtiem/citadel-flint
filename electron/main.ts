@@ -1238,7 +1238,7 @@ app.whenReady().then(async () => {
 
         // Commandment 13: Must shadowCommit only after fileTransactionManager resolves
         await gitManager.shadowCommit(path.dirname(filePath)).catch((err: Error) => {
-            console.error(`${BRAND.logPrefix} main.ts: ast:save-file shadowCommit failed`, err)
+            console.warn(`${BRAND.logPrefix} ast:save-file: shadowCommit failed (file saved, version snapshot unavailable) —`, err instanceof Error ? err.message : err)
         })
 
         // CV2.2: Auto-invalidate thumbnail when a component file is saved
@@ -1293,7 +1293,7 @@ app.whenReady().then(async () => {
         const firstPath = [...validated.keys()][0]
         if (firstPath) {
             await gitManager.shadowCommit(path.dirname(firstPath)).catch((err: Error) => {
-                console.error(`${BRAND.logPrefix} main.ts: ast:save-batch shadowCommit failed`, err)
+                console.warn(`${BRAND.logPrefix} ast:save-batch: shadowCommit failed (files saved, version snapshot unavailable) —`, err instanceof Error ? err.message : err)
             })
         }
 

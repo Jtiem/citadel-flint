@@ -97,6 +97,8 @@ function App() {
     const [showGovernancePanel, setShowGovernancePanel] = useState(false)
     // OPP-15: rule ID to focus when GovernancePanel opens via "Configure rule" link
     const [governanceFocusRuleId, setGovernanceFocusRuleId] = useState<string | undefined>(undefined)
+    // COUNSEL.4.3: Which tab to open GovernancePanel to
+    const [governancePanelTab, setGovernancePanelTab] = useState<'rules' | 'packs' | 'profiles' | undefined>(undefined)
     const [showProjectMenu, setShowProjectMenu] = useState(false)
     const [isLoadingProject, setIsLoadingProject] = useState(false)
 
@@ -214,7 +216,7 @@ function App() {
         if (!file || !window.flintAPI.mcp?.callTool) return
         setIsAuditingGlobal(true)
         try { await window.flintAPI.mcp.callTool('flint_audit', { file }) }
-        catch { /* best-effort */ }
+        catch (err) { console.warn('[Flint] App: global audit failed', err) }
         finally { setIsAuditingGlobal(false) }
     }, [])
 
@@ -681,7 +683,8 @@ function App() {
                 // users who close immediately get the demo again on next launch.
                 setSetupComplete(true)
             })
-            .catch(() => {
+            .catch((err) => {
+                console.warn('[Flint] App: setup wizard IPC failed', err)
                 clearTimeout(timer)
                 // On IPC failure skip to LaunchScreen so the app isn't blocked
                 setSetupComplete(true)
@@ -705,7 +708,7 @@ function App() {
                     setBetaWelcomeDone(false)
                 }
             })
-            .catch(() => { /* not a beta build or API unavailable */ })
+            .catch((err) => console.warn('[Flint] App: beta info check failed', err))
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
@@ -739,7 +742,7 @@ function App() {
                         }
                     }
                 }
-            } catch { /* fall through to session restore */ }
+            } catch (err) { console.warn('[Flint] App: project open failed, falling through to session restore', err) }
 
             // Phase LAUNCH.2 — Restore last saved session
             try {
@@ -782,14 +785,14 @@ function App() {
                                     prev ? { ...prev, auditSummary: { violations: result.violations, grade: result.grade } } : prev
                                 )
                             }
-                        }).catch(() => {
-                            // Baseline is best-effort — do not block the UI
+                        }).catch((err) => {
+                            console.warn('[Flint] App: baseline audit failed', err)
                         })
                     }
                 }
             })
-            .catch(() => {
-                // Detection is best-effort — do not block the UI
+            .catch((err) => {
+                console.warn('[Flint] App: environment detection failed', err)
             })
             .finally(() => {
                 if (!cancelled) setIsScanning(false)
@@ -837,7 +840,6 @@ function App() {
             <>
                 <LaunchScreen
                     onOpenFolder={() => handleOpenFolder()}
-                    onNewProject={() => handleNewProject()}
                     onOpenRecent={(p) => handleOpenRecent(p)}
                     onLoadDemo={(demoName) => handleLoadDemo(demoName)}
                     onConnectIDE={() => setShowSetupWizardModal(true)}
@@ -1084,7 +1086,7 @@ function App() {
                                 .then((env) => {
                                     if (env) setDetectedEnvironment(env as ProjectEnvironment)
                                 })
-                                .catch(() => { /* best-effort */ })
+                                .catch((err) => console.warn('[Flint] App: re-scan environment detection failed', err))
                                 .finally(() => { setIsScanning(false) })
                         }}
                     />
@@ -1190,7 +1192,9 @@ function App() {
                                             <PanelErrorBoundary panelName="Governance">
                                                 <GovernanceDashboard
                                                     onOpenExportModal={() => setShowExportModal(true)}
-                                                    onOpenGovernancePanel={() => { setGovernanceFocusRuleId(undefined); setShowGovernancePanel(true) }}
+                                                    onOpenGovernancePanel={() => { setGovernanceFocusRuleId(undefined); setGovernancePanelTab(undefined); setShowGovernancePanel(true) }}
+                                                    onManageRules={() => { setGovernanceFocusRuleId(undefined); setGovernancePanelTab('rules'); setShowGovernancePanel(true) }}
+                                                    onPolicySettings={() => { setGovernanceFocusRuleId(undefined); setGovernancePanelTab('profiles'); setShowGovernancePanel(true) }}
                                                 />
                                             </PanelErrorBoundary>
                                         )}
@@ -1260,8 +1264,10 @@ function App() {
                 onClose={() => {
                     setShowGovernancePanel(false)
                     setGovernanceFocusRuleId(undefined)
+                    setGovernancePanelTab(undefined)
                 }}
                 focusRuleId={governanceFocusRuleId}
+                initialTab={governancePanelTab}
             />
         )}
         {/* WS1: SetupWizard as non-blocking modal, triggered from StatusBar "Connect IDE".

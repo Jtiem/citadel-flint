@@ -909,7 +909,9 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     void (globalThis as Record<string, unknown>).__flintWebStartFileWatcher?.()
 
     // Start MCP for the new project
-    void mcp.start(targetPath).catch(() => {})
+    void mcp.start(targetPath).catch((err: unknown) => {
+      console.error(`${BRAND.logPrefix} project:initialize: MCP server failed to start —`, err instanceof Error ? err.message : err)
+    })
 
     return scanDirectory(targetPath)
   })
@@ -1002,7 +1004,9 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     activeProjectRoot = targetPath
     sessionExplicitlyOpened = true
     void (globalThis as Record<string, unknown>).__flintWebStartFileWatcher?.()
-    void mcp.start(targetPath).catch(() => {})
+    void mcp.start(targetPath).catch((err: unknown) => {
+      console.error(`${BRAND.logPrefix} project:openPath: MCP server failed to start —`, err instanceof Error ? err.message : err)
+    })
 
     return scanDirectory(targetPath)
   })

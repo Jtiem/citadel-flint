@@ -150,6 +150,7 @@ import {
     FLINT_SET_RULE_MODE_TOOL,
     FLINT_COMPLIANCE_COVERAGE_TOOL,
 } from "./tools/rulePacks.js";
+import { toolError, HINTS } from "./core/errorResponse.js";
 
 // @ts-ignore
 const generate = _generate.default || _generate;
@@ -558,7 +559,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             {
                 name: "hydrate_figma_data",
-                description: "Convert a Figma AST payload into component code snippets.",
+                description: "Convert a Figma design payload into React component code snippets.",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -590,7 +591,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             {
                 name: toolName("ast_mutate"),
-                description: "Apply a batch of structural mutations to a file AST. Supported types: move, inject, fixToken, assembleLayout, updateProp, updateClassName, updateTextContent, delete, wrap, emitImport, emitHook, emitHandler, emitCallback, emitConditional, emitMap, composeSlot. This is the only approved way to modify code.",
+                description: "Make code changes safely — move elements, inject components, fix tokens, update props, and more. This is the only approved way to modify code.",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -631,7 +632,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             {
                 name: toolName("query_registry"),
-                description: "Searches the " + BRAND.product + " UI component registry using both vector semantic search and text relevance. Returns a Shadow Storybook artifact with TypeScript interfaces and import paths.",
+                description: "Find existing components in your design system. Returns matching components with TypeScript interfaces and import paths.",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -664,7 +665,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             FLINT_PLAN_TOOL,
             {
                 name: toolName("mutation_provenance"),
-                description: "Query the mutation provenance ledger. Returns who or what caused each AST mutation: human, agent, auto-heal, auto-fix, or import. Supports summary and per-file audit trail.",
+                description: "See who changed each piece of code and why — track human edits, auto-fixes, imports, and AI agent actions.",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -704,7 +705,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             {
                 name: toolName("override_telemetry"),
-                description: "Query override telemetry. Returns every governance rule bypass, disable, or severity downgrade. Supports summary, by_session, and by_rule queries.",
+                description: "See which governance rules have been bypassed or turned down, and by whom. Useful for compliance reviews.",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -735,7 +736,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             {
                 name: toolName("agent_risk"),
-                description: "Query per-agent risk profiles — mutation counts, average risk scores, red/amber/green tier breakdown, override counts. Supports 'summary' (all agents) and 'by_agent' (single agent).",
+                description: "Check an AI agent's safety track record — how many changes it made, its risk score, and whether it has been flagged.",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -762,7 +763,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             {
                 name: toolName("anomaly_report"),
-                description: "Detect statistical anomalies in governance data (3-sigma threshold). Flags override spikes, violation surges, velocity spikes, risk drift, and agent behavior changes.",
+                description: "Spot unusual patterns — spikes in overrides, sudden violation surges, or agents behaving differently than normal.",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -790,9 +791,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             {
                 name: toolName("consensus_report"),
                 description:
-                    "Query the epistemic consensus gate records. Returns disagreement rate, " +
-                    "outcome distribution, and recent disagreements. Use this to assess whether " +
-                    "the AI agent is consistently proposing safe mutations or triggering reviewer disagreements.",
+                    "Check whether AI agents are agreeing or disagreeing on code safety. High disagreement means something needs human review.",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -821,7 +820,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             {
                 name: toolName("risk_score"),
-                description: "Compute mutation risk scores (0-100, 5-factor weighted). Actions: 'score_mutation' (single mutation), 'file_profile' (per-file aggregate), 'project_summary' (project-wide risk distribution).",
+                description: "Check how risky a code change is (0-100 score). Can score a single change, a file, or the whole project.",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -1166,7 +1165,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             {
                 name: toolName("migrate_ds"),
-                description: "Migrate between design system versions. Diffs two DTCG token files and updates consuming code via AST. Returns per-file migration report with warnings.",
+                description: "Migrate between design system versions. Compares two token files and updates all consuming components. Returns a per-file migration report with warnings.",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -1362,11 +1361,17 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
 
     if (request.params.uri === resourceUri("dashboard")) {
         const dashboard = generateDashboard(projectRoot);
+        const dbGrade = dashboard.grade ?? "?";
+        const dbScore = dashboard.healthScore ?? 0;
+        const dbTrend = dashboard.history.length >= 2
+            ? (dashboard.history[0].healthScore > dashboard.history[1].healthScore ? "improving" : dashboard.history[0].healthScore < dashboard.history[1].healthScore ? "declining" : "stable")
+            : "stable";
+        const dbSummary = `Health: ${dbGrade} (${dbScore}/100) | Trend: ${dbTrend}`;
         return {
             contents: [{
                 uri: resourceUri("dashboard"),
                 mimeType: "application/json",
-                text: JSON.stringify(dashboard, null, 2),
+                text: `${dbSummary}\n\n${JSON.stringify(dashboard, null, 2)}`,
             }]
         };
     }
@@ -1400,11 +1405,16 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
 
     if (request.params.uri === resourceUri("session-context")) {
         const sessionCtx = await assembleSessionContext(projectRoot);
+        const scGrade = sessionCtx.healthGrade ?? "?";
+        const scScore = sessionCtx.healthScore ?? 0;
+        const scViolationCount = (sessionCtx.violations?.mithrilCount ?? 0) + (sessionCtx.violations?.a11yCount ?? 0);
+        const scActiveFile = sessionCtx.activeFilePath ?? "none";
+        const scSummary = `Project: ${path.basename(projectRoot)} | Health: ${scGrade} (${scScore}/100) | ${scViolationCount} violations | Active: ${scActiveFile}`;
         return {
             contents: [{
                 uri: resourceUri("session-context"),
                 mimeType: "application/json",
-                text: JSON.stringify(sessionCtx, null, 2),
+                text: `${scSummary}\n\n${JSON.stringify(sessionCtx, null, 2)}`,
             }]
         };
     }
@@ -1435,11 +1445,14 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
         try {
             const svc = getAgentRiskService(projectRoot);
             const summary = svc.getAgentRiskSummary(projectRoot);
+            const arAgents = summary.agents ?? [];
+            const arRedCount = arAgents.filter(a => a.redCount > 0).length;
+            const arSummary = `${arAgents.length} agents tracked | ${arRedCount} red flag${arRedCount !== 1 ? "s" : ""}`;
             return {
                 contents: [{
                     uri: resourceUri("agent-risk"),
                     mimeType: "application/json",
-                    text: JSON.stringify(summary, null, 2),
+                    text: `${arSummary}\n\n${JSON.stringify(summary, null, 2)}`,
                 }]
             };
         } catch {
@@ -1447,7 +1460,7 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
                 contents: [{
                     uri: resourceUri("agent-risk"),
                     mimeType: "application/json",
-                    text: JSON.stringify({ agents: [], topRiskiest: [], period: "last_7_days" }, null, 2),
+                    text: `0 agents tracked | 0 red flags\n\n${JSON.stringify({ agents: [], topRiskiest: [], period: "last_7_days" }, null, 2)}`,
                 }]
             };
         }
@@ -1457,11 +1470,15 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
         try {
             const svc = getAnomalyDetectionService(projectRoot);
             const history = svc.getAnomalyHistory(projectRoot, 10);
+            const anomalyData = { count: history.length, anomalies: history };
+            const anomalySummary = history.length > 0
+                ? `${history.length} anomal${history.length !== 1 ? "ies" : "y"} detected`
+                : "No anomalies — all clear.";
             return {
                 contents: [{
                     uri: resourceUri("anomalies"),
                     mimeType: "application/json",
-                    text: JSON.stringify({ count: history.length, anomalies: history }, null, 2),
+                    text: `${anomalySummary}\n\n${JSON.stringify(anomalyData, null, 2)}`,
                 }]
             };
         } catch {
@@ -1469,7 +1486,7 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
                 contents: [{
                     uri: resourceUri("anomalies"),
                     mimeType: "application/json",
-                    text: JSON.stringify({ count: 0, anomalies: [] }, null, 2),
+                    text: `No anomalies — all clear.\n\n${JSON.stringify({ count: 0, anomalies: [] }, null, 2)}`,
                 }]
             };
         }
@@ -1657,16 +1674,22 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         case "flint_get_context": {
             const { projectRoot: ctxRoot } = request.params.arguments as { projectRoot: string };
             if (!ctxRoot || typeof ctxRoot !== "string") {
-                return {
-                    isError: true,
-                    content: [{ type: "text", text: "flint_get_context: 'projectRoot' parameter is required." }],
-                };
+                return toolError("flint_get_context", new Error("'projectRoot' parameter is required."), {
+                    causes: ["The projectRoot parameter was not provided"],
+                    recovery: ["Pass the absolute path to your project root directory"],
+                });
             }
             const sessionCtx = await assembleSessionContext(ctxRoot);
+            // Build plain-English summary line before the JSON
+            const ctxGrade = sessionCtx.healthGrade ?? "?";
+            const ctxScore = sessionCtx.healthScore ?? 0;
+            const ctxViolationCount = (sessionCtx.violations?.mithrilCount ?? 0) + (sessionCtx.violations?.a11yCount ?? 0);
+            const ctxActiveFile = sessionCtx.activeFilePath ?? "none";
+            const ctxSummary = `Project: ${path.basename(ctxRoot)} | Health: ${ctxGrade} (${ctxScore}/100) | ${ctxViolationCount} violations | Active: ${ctxActiveFile}`;
             return {
                 content: [{
                     type: "text",
-                    text: JSON.stringify(sessionCtx, null, 2),
+                    text: `${ctxSummary}\n\n${JSON.stringify(sessionCtx, null, 2)}`,
                 }],
             };
         }
@@ -1714,7 +1737,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 content: [
                     {
                         type: "text",
-                        text: `${BRAND.product} Protocol Active: Standalone Mode. Mithril, A11y, Figma Hydration, and AST Mutation engines ready.`,
+                        text: [
+                            `${BRAND.product} governance engine active — ${REGISTERED_TOOL_COUNT} tools ready.`,
+                            "",
+                            "Quick start:",
+                            "• 'audit my component' — scan a file for violations",
+                            "• 'fix it' — auto-remediate detected violations",
+                            "• 'check accessibility' — WCAG 2.1 AA compliance",
+                            "• 'show health' — design debt score and grade",
+                            "• 'what can you do?' — full capability tour",
+                            "",
+                            "New here? Say 'onboard my project' to get set up.",
+                        ].join("\n"),
                     },
                 ],
             }, 'cached', 0, 1.0);
@@ -1727,7 +1761,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             const componentPath = file && path.isAbsolute(file) ? file : path.resolve(process.cwd(), file ?? '');
 
             if (!fs.existsSync(componentPath)) {
-                throw new Error(`File not found: ${componentPath}`);
+                return toolError("audit_ui_component", new Error(`File not found: ${componentPath}`), HINTS.fileNotFound);
             }
 
             const code = fs.readFileSync(componentPath, "utf-8");
@@ -1740,6 +1774,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
             const tokensPath = path.join(projectRoot, configPath("design-tokens.json"));
             let tokens: DesignToken[] = [];
+            const auditWarnings: string[] = [];
 
             if (fs.existsSync(tokensPath)) {
                 try {
@@ -1747,6 +1782,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                     tokens = Array.isArray(rawTokens) ? rawTokens : Object.values(rawTokens);
                 } catch (e) {
                     console.error("Failed to parse design-tokens.json", e);
+                    auditWarnings.push("Token file couldn't be read — token coverage skipped. Check .flint/design-tokens.json.");
                 }
             }
 
@@ -1766,7 +1802,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                         if (components && typeof components === 'object' && Object.keys(components).length > 0) {
                             auditRegistry = components
                         }
-                    } catch { /* manifest unreadable — skip registry audit */ }
+                    } catch {
+                        auditWarnings.push("Component registry unavailable — registry membership check skipped. Run flint_reindex_registry to rebuild.");
+                    }
                 }
 
                 const policyOpts = {
@@ -1852,9 +1890,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                     auditRecommendation = 'Clean audit — this component is fully compliant.';
                 }
 
+                const warningNote = auditWarnings.length > 0
+                    ? `\n\nWarnings:\n${auditWarnings.map(w => `• ${w}`).join("\n")}`
+                    : "";
                 return finishAudit({
                     content: [
-                        { type: "text", text: `${finalSummary}\n\nRecommendation: ${auditRecommendation}\n\n${finalFormatted}` },
+                        { type: "text", text: `${finalSummary}\n\nRecommendation: ${auditRecommendation}\n\n${finalFormatted}${warningNote}` },
                     ],
                 });
             } catch (err: any) {
@@ -1865,15 +1906,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                     metadata: JSON.stringify({ error: err.message })
                 });
 
-                return {
-                    isError: true,
-                    content: [
-                        {
-                            type: "text",
-                            text: `Parsing Error: ${err.message}`,
-                        },
-                    ],
-                };
+                return toolError("audit_ui_component", err, HINTS.parseError);
             }
         }
 
@@ -2303,10 +2336,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                     : buildAtomicSyncPlan(intent);
                 return { content: [{ type: "text", text: plan }] };
             } catch (err: any) {
-                return {
-                    isError: true,
-                    content: [{ type: "text", text: `Failed to read intent file: ${err.message}` }],
-                };
+                return toolError("read_design_intent", err, HINTS.parseError);
             }
         }
 
@@ -2349,10 +2379,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
             // Primary: RAG search (standalone vector search)
             let matches: any[] = [];
+            const registryWarnings: string[] = [];
             try {
                 matches = await queryRAGRegistry(query, limit);
             } catch (err) {
                 console.error(`${logTag("Registry")} RAG search failed, falling back to manifest relevance`, err);
+                registryWarnings.push("Semantic search unavailable — results are from keyword matching only. Run flint_reindex_registry to restore full search.");
 
                 const manifestPath = path.join(projectRoot, BRAND.manifestFile);
                 let components: Record<string, any> = {};
@@ -2363,13 +2395,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                         components = raw.components ?? {};
                     } catch (err: any) {
                         console.error("Failed to parse manifest for fallback", err);
+                        registryWarnings.push("Component registry unavailable — run flint_reindex_registry to rebuild.");
                     }
                 }
                 matches = queryRegistry(components, query, Math.max(1, Math.min(limit, 10)));
             }
 
             const artifact = formatShadowStorybook(matches, query);
-            return finishRegistry({ content: [{ type: "text", text: artifact }] });
+            const registryWarningNote = registryWarnings.length > 0
+                ? `\n\nWarnings:\n${registryWarnings.map(w => `• ${w}`).join("\n")}`
+                : "";
+            return finishRegistry({ content: [{ type: "text", text: `${artifact}${registryWarningNote}` }] });
         }
 
 
@@ -2640,13 +2676,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
                 case "update": {
                     if (!policyUpdate || typeof policyUpdate !== "object") {
-                        return {
-                            isError: true,
-                            content: [{
-                                type: "text",
-                                text: "flint_set_policy: 'update' action requires a 'policy' object with partial policy fields.",
-                            }],
-                        };
+                        return toolError("flint_set_policy", new Error("'update' action requires a 'policy' object with partial policy fields."), HINTS.missingParam("flint_set_policy action='update' policy={\"mithril\":{\"mode\":\"advisory\"}}"));
                     }
                     const merged = mergePolicy(projectRoot, policyUpdate);
                     // Reload into active config so subsequent audits use new thresholds
@@ -2783,13 +2813,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             };
 
             if (!provArgs.projectRoot || !fs.existsSync(provArgs.projectRoot)) {
-                return {
-                    isError: true,
-                    content: [{
-                        type: "text",
-                        text: "flint_mutation_provenance: 'projectRoot' must be an existing directory.",
-                    }],
-                };
+                return toolError("flint_mutation_provenance", new Error("'projectRoot' must be an existing directory."), HINTS.fileNotFound);
             }
 
             const provSvc = getProvenanceService(provArgs.projectRoot);
@@ -2804,13 +2828,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
                 case "audit_trail": {
                     if (!provArgs.filePath) {
-                        return {
-                            isError: true,
-                            content: [{
-                                type: "text",
-                                text: "flint_mutation_provenance: action='audit_trail' requires 'filePath'.",
-                            }],
-                        };
+                        return toolError("flint_mutation_provenance", new Error("action='audit_trail' requires 'filePath'."), HINTS.missingParam("flint_mutation_provenance action='audit_trail' filePath='/path/to/file.tsx'"));
                     }
                     const trail = provSvc.getAuditTrail(
                         provArgs.filePath,
@@ -2824,13 +2842,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
                 case "by_source": {
                     if (!provArgs.source) {
-                        return {
-                            isError: true,
-                            content: [{
-                                type: "text",
-                                text: "flint_mutation_provenance: action='by_source' requires 'source'.",
-                            }],
-                        };
+                        return toolError("flint_mutation_provenance", new Error("action='by_source' requires 'source'."), HINTS.missingParam("flint_mutation_provenance action='by_source' source='agent'"));
                     }
                     const records = provSvc.getProvenanceBySource(
                         provArgs.source,
@@ -2862,13 +2874,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             };
 
             if (!arArgs.projectRoot || !fs.existsSync(arArgs.projectRoot)) {
-                return {
-                    isError: true,
-                    content: [{
-                        type: "text",
-                        text: "flint_agent_risk: 'projectRoot' must be an existing directory.",
-                    }],
-                };
+                return toolError("flint_agent_risk", new Error("'projectRoot' must be an existing directory."), HINTS.fileNotFound);
             }
 
             const arSvc = getAgentRiskService(arArgs.projectRoot);
@@ -2883,13 +2889,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
                 case "by_agent": {
                     if (!arArgs.agentId) {
-                        return {
-                            isError: true,
-                            content: [{
-                                type: "text",
-                                text: "flint_agent_risk: action='by_agent' requires 'agentId'.",
-                            }],
-                        };
+                        return toolError("flint_agent_risk", new Error("action='by_agent' requires 'agentId'."), HINTS.missingParam("flint_agent_risk action='by_agent' agentId='my-agent'"));
                     }
                     const profile = arSvc.getAgentProfile(arArgs.agentId, arArgs.projectRoot, arArgs.periodDays ?? 7);
                     if (!profile) {
@@ -2927,13 +2927,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             };
 
             if (!ovrArgs.projectRoot || !fs.existsSync(ovrArgs.projectRoot)) {
-                return {
-                    isError: true,
-                    content: [{
-                        type: "text",
-                        text: "flint_override_telemetry: 'projectRoot' must be an existing directory.",
-                    }],
-                };
+                return toolError("flint_override_telemetry", new Error("'projectRoot' must be an existing directory."), HINTS.fileNotFound);
             }
 
             const ovrSvc = getOverrideTelemetryService(ovrArgs.projectRoot);
@@ -2948,13 +2942,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
                 case "by_session": {
                     if (!ovrArgs.sessionId) {
-                        return {
-                            isError: true,
-                            content: [{
-                                type: "text",
-                                text: "flint_override_telemetry: action='by_session' requires 'sessionId'.",
-                            }],
-                        };
+                        return toolError("flint_override_telemetry", new Error("action='by_session' requires 'sessionId'."), HINTS.missingParam("flint_override_telemetry action='by_session' sessionId='<uuid>'"));
                     }
                     const sessionOverrides = ovrSvc.getOverridesBySession(
                         ovrArgs.sessionId,
@@ -2967,13 +2955,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
                 case "by_rule": {
                     if (!ovrArgs.ruleId) {
-                        return {
-                            isError: true,
-                            content: [{
-                                type: "text",
-                                text: "flint_override_telemetry: action='by_rule' requires 'ruleId'.",
-                            }],
-                        };
+                        return toolError("flint_override_telemetry", new Error("action='by_rule' requires 'ruleId'."), HINTS.missingParam("flint_override_telemetry action='by_rule' ruleId='A11Y-001'"));
                     }
                     const ruleOverrides = ovrSvc.getOverridesByRule(
                         ovrArgs.ruleId,
@@ -3005,13 +2987,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             };
 
             if (!anomArgs.projectRoot || !fs.existsSync(anomArgs.projectRoot)) {
-                return {
-                    isError: true,
-                    content: [{
-                        type: "text",
-                        text: "flint_anomaly_report: 'projectRoot' must be an existing directory.",
-                    }],
-                };
+                return toolError("flint_anomaly_report", new Error("'projectRoot' must be an existing directory."), HINTS.fileNotFound);
             }
 
             const anomSvc = getAnomalyDetectionService(anomArgs.projectRoot);
@@ -3072,13 +3048,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             };
 
             if (!riskArgs.projectRoot || !fs.existsSync(riskArgs.projectRoot)) {
-                return {
-                    isError: true,
-                    content: [{
-                        type: "text",
-                        text: "flint_risk_score: 'projectRoot' must be an existing directory.",
-                    }],
-                };
+                return toolError("flint_risk_score", new Error("'projectRoot' must be an existing directory."), HINTS.fileNotFound);
             }
 
             const riskSvc = getRiskScoringService(riskArgs.projectRoot);
@@ -3086,13 +3056,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             switch (riskArgs.action) {
                 case "score_mutation": {
                     if (!riskArgs.mutationId) {
-                        return {
-                            isError: true,
-                            content: [{
-                                type: "text",
-                                text: "flint_risk_score: action='score_mutation' requires 'mutationId'.",
-                            }],
-                        };
+                        return toolError("flint_risk_score", new Error("action='score_mutation' requires 'mutationId'."), HINTS.missingParam("flint_risk_score action='score_mutation' mutationId='<uuid>'"));
                     }
                     const result = riskSvc.scoreMutation(riskArgs.mutationId, {
                         violationCount: riskArgs.violationCount,
@@ -3100,13 +3064,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                         wasAutoFixedFromCritical: riskArgs.wasAutoFixedFromCritical,
                     });
                     if (result === null) {
-                        return {
-                            isError: true,
-                            content: [{
-                                type: "text",
-                                text: `flint_risk_score: no ledger entry found for mutationId '${riskArgs.mutationId}'.`,
-                            }],
-                        };
+                        return toolError("flint_risk_score", new Error(`No record found for mutationId '${riskArgs.mutationId}'.`), {
+                            causes: ["The mutationId was not found in the change history", "The record may have been pruned or belongs to a different project"],
+                            recovery: ["Check the mutation ID from flint_mutation_provenance action='summary'", "Verify the projectRoot matches the project where the mutation was made"],
+                        });
                     }
                     // CLARITY-2: recommendation based on risk tier
                     const mutationRec = result.tier === 'low'
@@ -3123,13 +3084,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
                 case "file_profile": {
                     if (!riskArgs.filePath) {
-                        return {
-                            isError: true,
-                            content: [{
-                                type: "text",
-                                text: "flint_risk_score: action='file_profile' requires 'filePath'.",
-                            }],
-                        };
+                        return toolError("flint_risk_score", new Error("action='file_profile' requires 'filePath'."), HINTS.missingParam("flint_risk_score action='file_profile' filePath='/path/to/file.tsx'"));
                     }
                     const profile = riskSvc.getFileRiskProfile(riskArgs.filePath);
                     if (profile === null) {
@@ -3482,28 +3437,28 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         case "flint_sync_pull": {
             const args = request.params.arguments as { projectRoot: string };
             if (!args.projectRoot || !fs.existsSync(args.projectRoot)) {
-                return { isError: true, content: [{ type: "text", text: "flint_sync_pull: 'projectRoot' must be an existing directory." }] };
+                return toolError("flint_sync_pull", new Error("'projectRoot' must be an existing directory."), HINTS.fileNotFound);
             }
             try {
                 const engine = getSyncEngine(args.projectRoot);
                 const result = await engine.executePull(args.projectRoot);
                 return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
             } catch (err: unknown) {
-                return { isError: true, content: [{ type: "text", text: `flint_sync_pull failed: ${(err as Error).message}` }] };
+                return toolError("flint_sync_pull", err, HINTS.noFigmaConnection);
             }
         }
 
         case "flint_sync_push": {
             const args = request.params.arguments as { projectRoot: string };
             if (!args.projectRoot || !fs.existsSync(args.projectRoot)) {
-                return { isError: true, content: [{ type: "text", text: "flint_sync_push: 'projectRoot' must be an existing directory." }] };
+                return toolError("flint_sync_push", new Error("'projectRoot' must be an existing directory."), HINTS.fileNotFound);
             }
             try {
                 const engine = getSyncEngine(args.projectRoot);
                 const result = await engine.executePush(args.projectRoot);
                 return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
             } catch (err: unknown) {
-                return { isError: true, content: [{ type: "text", text: `flint_sync_push failed: ${(err as Error).message}` }] };
+                return toolError("flint_sync_push", err, HINTS.noFigmaConnection);
             }
         }
 
@@ -3767,13 +3722,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
                 case "by_session": {
                     if (!consensusArgs.sessionId) {
-                        return {
-                            isError: true,
-                            content: [{
-                                type: "text",
-                                text: "flint_consensus_report: mode='by_session' requires 'sessionId'.",
-                            }],
-                        };
+                        return toolError("flint_consensus_report", new Error("mode='by_session' requires 'sessionId'."), HINTS.missingParam("flint_consensus_report mode='by_session' sessionId='<uuid>'"));
                     }
                     const result = consensusSvc.getBySession(consensusArgs.sessionId, consensusArgs.limit);
                     return {
@@ -3783,13 +3732,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
                 case "by_agent": {
                     if (!consensusArgs.agentId) {
-                        return {
-                            isError: true,
-                            content: [{
-                                type: "text",
-                                text: "flint_consensus_report: mode='by_agent' requires 'agentId'.",
-                            }],
-                        };
+                        return toolError("flint_consensus_report", new Error("mode='by_agent' requires 'agentId'."), HINTS.missingParam("flint_consensus_report mode='by_agent' agentId='my-agent'"));
                     }
                     const result = consensusSvc.getByAgent(consensusArgs.agentId, consensusArgs.limit);
                     return {

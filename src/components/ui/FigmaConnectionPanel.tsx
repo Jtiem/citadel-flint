@@ -62,7 +62,7 @@ export function FigmaConnectionPanel({ onClose }: FigmaConnectionPanelProps) {
     const fetchStatus = useCallback(() => {
         window.flintAPI.figma?.status()
             .then(setFigmaStatus)
-            .catch(() => { /* server may not be ready */ })
+            .catch((err) => console.warn('[Flint] FigmaConnectionPanel: failed to fetch Figma status', err))
     }, [])
 
     const fetchTokenCounts = useCallback(() => {
@@ -80,9 +80,9 @@ export function FigmaConnectionPanel({ onClose }: FigmaConnectionPanelProps) {
                             orphaned: data.orphanedTokens ?? data.orphaned ?? 0,
                         })
                     }
-                } catch { /* parse error — keep defaults */ }
+                } catch (err) { console.warn('[Flint] FigmaConnectionPanel: failed to parse sync check result', err) }
             })
-            .catch(() => { /* MCP not available */ })
+            .catch((err) => console.warn('[Flint] FigmaConnectionPanel: sync check MCP call failed', err))
     }, [])
 
     useEffect(() => {

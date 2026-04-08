@@ -187,7 +187,8 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                     setSelectedIDE(firstDetected)
                 },
             )
-            .catch(() => {
+            .catch((err) => {
+                console.warn('[Flint] SetupWizard: IDE detection failed', err)
                 // On IPC failure, show empty list so user can skip
                 setDetectedIDEs([])
             })

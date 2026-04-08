@@ -304,9 +304,9 @@ export function TokenManager() {
                                     }
                                 }
                                 setFigmaTokens(map)
-                            } catch { /* parse error — ignore */ }
+                            } catch (err) { console.warn('[Flint] TokenManager: failed to parse Figma token data', err) }
                         })
-                        .catch(() => { /* MCP not available */ })
+                        .catch((err) => console.warn('[Flint] TokenManager: Figma sync check MCP call failed', err))
                 }
             })
             .catch(() => setFigmaConnected(false))
