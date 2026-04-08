@@ -492,11 +492,35 @@ export interface ProjectAPI {
     detectEnvironment: () => Promise<ProjectEnvironment | null>
 
     /**
+     * FORGE.2b: Reads .flint/detected-environment.json and calls MCP tools to
+     * configure the project. Calls flint_set_library (when a component library
+     * was detected) and flint_reindex_registry. All MCP calls are best-effort.
+     * Returns { configured: false } when MCP is not connected or no project is open.
+     */
+    autoConfigureProject: () => Promise<{ configured: boolean; library: string | null; reindexed: boolean }>
+
+    /**
      * FORGE.4b: Reads the cached debt snapshot for a project and returns
      * its health grade letter, numeric score, and last-updated timestamp.
      * Returns null when the snapshot file is missing or malformed.
      */
     getHealthGrade?: (projectPath: string) => Promise<{ grade: string; score: number; updatedAt: string } | null>
+
+    /**
+     * FORGE.2c: Runs a full project-wide audit via flint_swarm_audit_fix,
+     * then fetches the debt report via flint_debt_report, and writes the
+     * result to .flint/debt-snapshot.json.
+     *
+     * Progress is emitted via `onBaselineProgress`. Returns null when no
+     * project is open or MCP is not connected.
+     */
+    runBaseline?: () => Promise<{ violations: number; grade: string; score: number; filesAudited: number } | null>
+
+    /**
+     * FORGE.2c: Subscribes to progress events emitted during `runBaseline`.
+     * Returns an unsubscribe function for useEffect cleanup.
+     */
+    onBaselineProgress?: (callback: (data: { phase: string; percent: number }) => void) => () => void
 }
 
 /** IPC surface for native OS menu events pushed by the main process. */

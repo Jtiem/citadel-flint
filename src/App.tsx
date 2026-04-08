@@ -55,6 +55,7 @@ import { CommandPalette } from './components/ui/CommandPalette'
 import { ComponentPanel } from './components/ui/ComponentPanel'
 import { DetectionBanner } from './components/ui/DetectionBanner'
 import type { ProjectEnvironment } from './types/flint-api'
+import { AnnotationList } from './components/ui/AnnotationList'
 
 // ── Panel width constraints ───────────────────────────────────────────────────
 const PANEL_MIN = 160
@@ -191,6 +192,9 @@ function App() {
 
     const activeFileName = activeFilePath ? activeFilePath.split('/').pop() ?? null : null
 
+    // ── Notes tab: selected node for annotation context ───────────────────────
+    const selectedNodeId = useEditorStore((s) => s.selectedNode)
+
     // ── T2.7: Annotation count badge ─────────────────────────────────────────
     const annotations = useAnnotations()
     const openAnnotationCount = useMemo(
@@ -238,6 +242,11 @@ function App() {
     useEffect(() => {
         if (tokenCount > 0) unlockTab('tokens')
     }, [tokenCount, unlockTab])
+
+    // notes tab — always visible (annotations are a core workflow, not progressive)
+    useEffect(() => {
+        unlockTab('notes')
+    }, [unlockTab])
 
     // ── OPP-11: Left panel tab unlock triggers ────────────────────────────────
 
@@ -760,7 +769,24 @@ function App() {
         setIsScanning(true)
         window.flintAPI.project?.detectEnvironment?.()
             .then((env) => {
-                if (!cancelled && env) setDetectedEnvironment(env as ProjectEnvironment)
+                if (!cancelled && env) {
+                    setDetectedEnvironment(env as ProjectEnvironment)
+                    // FORGE.2c: If detection succeeded but auditSummary is missing
+                    // (MCP was not connected during detection), kick off a full
+                    // baseline audit in the background. Non-blocking, best-effort.
+                    const detected = env as ProjectEnvironment
+                    if (!detected.auditSummary) {
+                        window.flintAPI.project?.runBaseline?.().then((result) => {
+                            if (result && !cancelled) {
+                                setDetectedEnvironment((prev) =>
+                                    prev ? { ...prev, auditSummary: { violations: result.violations, grade: result.grade } } : prev
+                                )
+                            }
+                        }).catch(() => {
+                            // Baseline is best-effort — do not block the UI
+                        })
+                    }
+                }
             })
             .catch(() => {
                 // Detection is best-effort — do not block the UI
@@ -830,22 +856,22 @@ function App() {
     return (
         <>
         <div
-            className="flex h-screen flex-col bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950"
+            className="flex h-screen flex-col bg-zinc-950"
             aria-hidden={isAnyModalOpen || undefined}
         >
             {/* ── Project loading overlay (non-destructive — keeps workspace mounted) */}
             {isLoadingProject && (
-                <div className="absolute inset-0 z-[100] flex items-center justify-center bg-gray-950/60 backdrop-blur-sm">
-                    <div className="flex items-center gap-3 rounded-lg border border-gray-800 bg-gray-900/95 px-5 py-3 shadow-2xl">
-                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-700 border-t-indigo-500" />
-                        <p className="text-xs text-gray-400">Opening project…</p>
+                <div className="absolute inset-0 z-[100] flex items-center justify-center bg-zinc-950/60 backdrop-blur-sm">
+                    <div className="flex items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900/95 px-5 py-3 shadow-2xl">
+                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-700 border-t-indigo-500" />
+                        <p className="text-xs text-zinc-400">Opening project…</p>
                     </div>
                 </div>
             )}
             {/* ── Top bar ────────────────────────────────────────────────── */}
-            <header className="flex shrink-0 items-center justify-between border-b border-gray-800 px-6 py-3">
+            <header className="flex shrink-0 items-center justify-between border-b border-zinc-800 px-6 py-2">
                 <div className="flex flex-col">
-                    <h1 className="bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-xl font-bold tracking-tight text-transparent">
+                    <h1 className="text-xl font-bold tracking-tight text-indigo-400">
                         {BRAND.viewerTitle}
                     </h1>
                     {activeFileName && (
@@ -860,14 +886,14 @@ function App() {
 
                 {/* IPC health pill — dev-only debug telemetry (GLASS.3.4-A) */}
                 {import.meta.env.DEV && (
-                <div className="flex items-center gap-3 rounded-xl border border-gray-800 bg-gray-900/60 px-4 py-2">
+                <div className="flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-2">
                     <span
                         className={`inline-block h-2.5 w-2.5 rounded-full ${ipcOk
                             ? 'bg-emerald-400 shadow-lg shadow-emerald-400/40'
                             : 'animate-pulse bg-amber-400'
                             }`}
                     />
-                    <span className="font-mono text-xs text-gray-300">
+                    <span className="font-mono text-xs text-zinc-300">
                         {ipcStatus}
                     </span>
                 </div>
@@ -884,7 +910,7 @@ function App() {
                                         : 'bg-emerald-400'
                                     }`}
                             />
-                            <span className="font-mono text-[10px] text-gray-400">
+                            <span className="font-mono text-[10px] text-zinc-400">
                                 {saveState === 'editing' ? 'Editing…' : saveState === 'saving' ? 'Saving…' : 'Saved'}
                             </span>
                         </div>
@@ -908,11 +934,11 @@ function App() {
                         type="button"
                         onClick={() => useCanvasStore.getState().setCommandPaletteOpen(true)}
                         aria-label="Command palette (⌘K)"
-                        className="flex items-center gap-2 rounded border border-gray-700 bg-gray-800 px-3 py-1.5 text-gray-400 transition-colors hover:border-indigo-500/50 hover:bg-gray-700 hover:text-white min-w-[180px]"
+                        className="flex items-center gap-2 rounded border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-zinc-400 transition-colors hover:border-indigo-500/50 hover:bg-zinc-700 hover:text-white min-w-[180px]"
                     >
                         <Search size={14} />
                         <span className="text-xs text-zinc-400">Search...</span>
-                        <kbd className="ml-auto text-[9px] font-mono text-zinc-500">⌘K</kbd>
+                        <kbd className="ml-auto text-[10px] font-mono text-zinc-500">⌘K</kbd>
                     </button>
 
                     {/* Run Audit button */}
@@ -934,7 +960,7 @@ function App() {
                         onClick={() => { setGovernanceFocusRuleId(undefined); setShowGovernancePanel(true) }}
                         title="Governance Rules"
                         aria-label="Governance Rules"
-                        className="flex items-center rounded border border-gray-700 bg-gray-800 px-2 py-1 text-gray-300 transition-colors hover:border-indigo-500/50 hover:bg-gray-700 hover:text-white"
+                        className="flex items-center rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-zinc-300 transition-colors hover:border-indigo-500/50 hover:bg-zinc-700 hover:text-white"
                     >
                         <Settings2 className="h-3.5 w-3.5" />
                     </button>
@@ -946,7 +972,7 @@ function App() {
                             onClick={() => setShowProjectMenu((v) => !v)}
                             title="Project options"
                             aria-label="Project options"
-                            className="flex items-center rounded border border-gray-700 bg-gray-800 px-2 py-1 text-gray-300 transition-colors hover:border-indigo-500/50 hover:bg-gray-700 hover:text-white"
+                            className="flex items-center rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-zinc-300 transition-colors hover:border-indigo-500/50 hover:bg-zinc-700 hover:text-white"
                         >
                             <MoreHorizontal size={14} />
                         </button>
@@ -996,9 +1022,9 @@ function App() {
                         {/* Left panel: Navigation (Layers / Assets) */}
                         <section
                             style={{ width: leftWidth, minWidth: PANEL_MIN, maxWidth: PANEL_MAX }}
-                            className="flex min-h-0 shrink-0 flex-col border-r border-gray-800"
+                            className="flex min-h-0 shrink-0 flex-col border-r border-zinc-800"
                         >
-                            <div role="tablist" aria-label="Left sidebar sections" className="flex shrink-0 border-b border-gray-800">
+                            <div role="tablist" aria-label="Left sidebar sections" className="flex shrink-0 border-b border-zinc-800">
                                 {/* OPP-11: Left panel progressive tabs — filter by unlocked set */}
                                 {/* GLASS.1b: Components tab added between Layers and Assets */}
                                 {(['layers', 'components', 'assets'] as const)
@@ -1018,7 +1044,7 @@ function App() {
                                                     }`}
                                             >
                                                 <LeftTabIcon size={12} />
-                                                <span className="mt-0.5 text-[9px] font-medium leading-none">{label}</span>
+                                                <span className="mt-0.5 text-[10px] font-medium leading-none">{label}</span>
                                             </button>
                                         )
                                     })}
@@ -1088,7 +1114,7 @@ function App() {
                         {/* Right panel: Inspection (Governance / Properties / Tokens) */}
                         <section
                             style={{ width: rightWidth, minWidth: PANEL_MIN, maxWidth: PANEL_MAX }}
-                            className="flex min-h-0 shrink-0 flex-col border-l border-gray-800"
+                            className="flex min-h-0 shrink-0 flex-col border-l border-zinc-800"
                         >
                             {/* Onboarding nudge — shown above the tab bar for fresh projects */}
                             <OnboardingNudge
@@ -1096,14 +1122,15 @@ function App() {
                                 onStartEditing={() => handleSetRightTab('properties')}
                             />
 
-                            <div role="tablist" aria-label="Right sidebar sections" className="flex shrink-0 border-b border-gray-800">
+                            <div role="tablist" aria-label="Right sidebar sections" className="flex shrink-0 border-b border-zinc-800">
                                 {/* OPP-10: Right panel progressive tabs — filter by unlocked set,
                                     show one-time indigo dot on newly-unlocked tabs */}
                                 {([
-                                    /* GLASS.1a: Consolidated right sidebar — 3 tabs only */
+                                    /* GLASS.1a: Consolidated right sidebar tabs */
                                     { tab: 'governance',  Icon: BarChart2,         label: 'Governance' },
                                     { tab: 'properties',  Icon: SlidersHorizontal, label: 'Properties' },
                                     { tab: 'tokens',      Icon: Palette,           label: 'Tokens'     },
+                                    { tab: 'notes',       Icon: MessageSquare,     label: 'Notes'      },
                                 ] as const)
                                     .filter(({ tab }) => isTabUnlocked(tab))
                                     .map(({ tab, Icon, label }) => {
@@ -1122,7 +1149,7 @@ function App() {
                                                     }`}
                                             >
                                                 <Icon size={14} />
-                                                <span className="text-[9px] font-medium leading-none">{label}</span>
+                                                <span className="text-[10px] font-medium leading-none">{label}</span>
                                                 {/* OPP-10: One-time "new" dot — indigo, 4px, top-right of icon */}
                                                 {isTabNew(tab) && (
                                                     <span
@@ -1166,6 +1193,19 @@ function App() {
                                                     onOpenGovernancePanel={() => { setGovernanceFocusRuleId(undefined); setShowGovernancePanel(true) }}
                                                 />
                                             </PanelErrorBoundary>
+                                        )}
+                                        {rightTab === 'notes' && (
+                                            <div className="flex-1 overflow-y-auto">
+                                                {selectedNodeId ? (
+                                                    <AnnotationList nodeId={selectedNodeId} />
+                                                ) : (
+                                                    <div className="flex flex-col items-center justify-center px-4 py-8 text-center">
+                                                        <MessageSquare className="h-6 w-6 text-zinc-600 mb-2" />
+                                                        <p className="text-[11px] font-medium text-zinc-400">No notes yet</p>
+                                                        <p className="text-[10px] text-zinc-600 mt-1">Select a layer to view or add notes</p>
+                                                    </div>
+                                                )}
+                                            </div>
                                         )}
                                     </>
                                 )}

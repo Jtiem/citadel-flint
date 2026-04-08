@@ -1039,6 +1039,337 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     return scanDirectory(targetPath)
   })
 
+  // ── project:detect-environment (FORGE.2a–2c) ─────────────────────────────
+  // Detects the project's UI framework, CSS framework, token format, TypeScript,
+  // and component library by reading package.json and checking for config files.
+  // Writes the result to .flint/detected-environment.json and runs a best-effort
+  // baseline audit via MCP if connected.
+  handlers.set('project:detect-environment', async () => {
+    if (!activeProjectRoot) return null
+
+    const root = activeProjectRoot
+
+    interface DetectedEnvironment {
+      uiFramework: string
+      cssFramework: string
+      tokenFormat: string | null
+      typescript: boolean
+      componentLibrary: string | null
+      detectedAt: string
+      auditSummary?: { violations: number; grade: string }
+    }
+
+    let uiFramework = 'Unknown'
+    let cssFramework = 'Unknown'
+    let tokenFormat: string | null = null
+    let componentLibrary: string | null = null
+    let typescript = false
+
+    // Read package.json deps
+    let allDeps: Record<string, string> = {}
+    try {
+      const pkgRaw = await fs.readFile(path.join(root, 'package.json'), 'utf-8')
+      const pkg = JSON.parse(pkgRaw) as {
+        dependencies?: Record<string, string>
+        devDependencies?: Record<string, string>
+      }
+      allDeps = { ...pkg.dependencies, ...pkg.devDependencies }
+    } catch {
+      // No package.json or parse error — continue with defaults
+    }
+
+    // Detect UI framework
+    if (allDeps['react'] || allDeps['react-dom'] || allDeps['next']) {
+      uiFramework = 'React'
+    } else if (allDeps['vue'] || allDeps['nuxt']) {
+      uiFramework = 'Vue'
+    } else if (allDeps['svelte'] || allDeps['@sveltejs/kit']) {
+      uiFramework = 'Svelte'
+    } else if (allDeps['@angular/core']) {
+      uiFramework = 'Angular'
+    }
+
+    // Detect CSS framework
+    const hasTwConfig = existsSync(path.join(root, 'tailwind.config.ts'))
+      || existsSync(path.join(root, 'tailwind.config.js'))
+      || existsSync(path.join(root, 'tailwind.config.mjs'))
+      || existsSync(path.join(root, 'tailwind.config.cjs'))
+    if (allDeps['tailwindcss']) {
+      const twVersion = allDeps['tailwindcss']
+      if (twVersion.match(/^[\^~>=]*4/)) {
+        cssFramework = 'Tailwind v4'
+      } else {
+        cssFramework = 'Tailwind v3'
+      }
+    } else if (hasTwConfig) {
+      cssFramework = 'Tailwind'
+    }
+
+    // Detect token format
+    if (existsSync(path.join(root, '.flint', 'design-tokens.json'))) {
+      try {
+        const tokenRaw = await fs.readFile(path.join(root, '.flint', 'design-tokens.json'), 'utf-8')
+        if (tokenRaw.includes('"$type"') || tokenRaw.includes('"$value"')) {
+          tokenFormat = 'DTCG'
+        }
+      } catch {
+        // Ignore read errors
+      }
+    }
+    if (!tokenFormat && existsSync(path.join(root, 'tokens.json'))) {
+      tokenFormat = 'Tokens Studio'
+    }
+
+    // Detect TypeScript
+    typescript = existsSync(path.join(root, 'tsconfig.json'))
+
+    // Detect component library
+    if (allDeps['@mui/material'] || allDeps['@mui/core']) {
+      componentLibrary = 'MUI'
+    } else if (allDeps['primeng'] || allDeps['@primeng/themes']) {
+      componentLibrary = 'PrimeNG'
+    } else if (allDeps['@radix-ui/react-slot'] || allDeps['class-variance-authority']) {
+      componentLibrary = 'shadcn'
+    } else if (allDeps['antd']) {
+      componentLibrary = 'Ant Design'
+    } else if (allDeps['@chakra-ui/react']) {
+      componentLibrary = 'Chakra UI'
+    }
+
+    const result: DetectedEnvironment = {
+      uiFramework,
+      cssFramework,
+      tokenFormat,
+      typescript,
+      componentLibrary,
+      detectedAt: new Date().toISOString(),
+    }
+
+    // Write detection result to .flint/
+    try {
+      const flintDir = path.join(root, '.flint')
+      if (!existsSync(flintDir)) {
+        await fs.mkdir(flintDir, { recursive: true })
+      }
+      await atomicWrite(
+        path.join(flintDir, 'detected-environment.json'),
+        JSON.stringify(result, null, 2),
+      )
+    } catch (err) {
+      console.error(`${BRAND.logPrefix} FORGE.2b: Failed to write detected-environment.json:`, err)
+    }
+
+    // Best-effort baseline audit via MCP
+    try {
+      if (mcp.status().connected) {
+        let auditFile: string | null = null
+        const candidates = ['src/App.tsx', 'src/app.tsx', 'src/index.tsx', 'src/main.tsx', 'pages/index.tsx']
+        for (const c of candidates) {
+          const full = path.join(root, c)
+          if (existsSync(full)) {
+            auditFile = full
+            break
+          }
+        }
+
+        if (auditFile) {
+          const rawResult = await mcp.callTool('audit_ui_component', { file: auditFile })
+          if (rawResult?.content?.[0]?.text) {
+            try {
+              const auditData = JSON.parse(rawResult.content[0].text as string) as {
+                violations?: unknown[]
+                summary?: { grade?: string; totalViolations?: number }
+              }
+              const violations = auditData.summary?.totalViolations
+                ?? (auditData.violations as unknown[] | undefined)?.length
+                ?? 0
+              const grade = auditData.summary?.grade ?? 'N/A'
+              result.auditSummary = { violations, grade }
+            } catch {
+              // Audit result was not valid JSON — skip
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error(`${BRAND.logPrefix} FORGE.2c: Baseline audit failed (non-blocking):`, err)
+    }
+
+    // Best-effort auto-configure side-effect
+    try {
+      if (mcp.status().connected && result.componentLibrary) {
+        await mcp.callTool('flint_set_library', { library: result.componentLibrary })
+          .catch((err: unknown) => {
+            console.error(`${BRAND.logPrefix} FORGE.2b: flint_set_library failed (non-blocking):`, err)
+          })
+      }
+      if (mcp.status().connected) {
+        await mcp.callTool('flint_reindex_registry', {})
+          .catch((err: unknown) => {
+            console.error(`${BRAND.logPrefix} FORGE.2b: flint_reindex_registry failed (non-blocking):`, err)
+          })
+      }
+    } catch {
+      // swallow — detection result is still returned even if auto-config fails
+    }
+
+    return result
+  })
+
+  // ── project:get-health-grade (FORGE.4b) ───────────────────────────────────
+  // Reads the cached debt snapshot for a project and returns its health grade.
+  handlers.set('project:get-health-grade', async (projectPath: unknown) => {
+    if (typeof projectPath !== 'string') return null
+    try {
+      validateFilePath(projectPath, false)
+      const snapshotPath = path.join(projectPath, '.flint', 'debt-snapshot.json')
+      const raw = await fs.readFile(snapshotPath, 'utf-8')
+      const data = JSON.parse(raw) as { grade?: string; score?: number; timestamp?: string }
+      if (!data.grade || data.score == null) return null
+      return { grade: data.grade, score: data.score, updatedAt: data.timestamp ?? new Date().toISOString() }
+    } catch { return null }
+  })
+
+  // ── project:auto-configure (FORGE.2b) ─────────────────────────────────────
+  // Reads detected environment and calls MCP tools to configure the project.
+  handlers.set('project:auto-configure', async () => {
+    if (!activeProjectRoot) {
+      return { configured: false, library: null, reindexed: false }
+    }
+    if (!mcp.status().connected) {
+      return { configured: false, library: null, reindexed: false }
+    }
+
+    const root = activeProjectRoot
+    let library: string | null = null
+    let librarySet = false
+    let reindexed = false
+
+    // Read the detected environment written by project:detect-environment
+    try {
+      const envPath = path.join(root, '.flint', 'detected-environment.json')
+      const raw = await fs.readFile(envPath, 'utf-8')
+      const env = JSON.parse(raw) as { componentLibrary?: string | null }
+      library = env.componentLibrary ?? null
+    } catch {
+      // No detected-environment.json yet — proceed without library config
+    }
+
+    // Call flint_set_library if a component library was detected
+    if (library) {
+      try {
+        await mcp.callTool('flint_set_library', { library })
+        librarySet = true
+      } catch (err) {
+        console.error(`${BRAND.logPrefix} FORGE.2b: flint_set_library failed (non-blocking):`, err)
+      }
+    }
+
+    // Always re-index the registry after configuring
+    try {
+      await mcp.callTool('flint_reindex_registry', {})
+      reindexed = true
+    } catch (err) {
+      console.error(`${BRAND.logPrefix} FORGE.2b: flint_reindex_registry failed (non-blocking):`, err)
+    }
+
+    const configured = librarySet || reindexed
+    return { configured, library, reindexed }
+  })
+
+  // ── project:run-baseline (FORGE.4a) ───────────────────────────────────────
+  // Runs a full governance audit + debt report across src/**/*.tsx via MCP.
+  // Sends progress updates over WebSocket and writes debt-snapshot.json.
+  handlers.set('project:run-baseline', async () => {
+    if (!activeProjectRoot) return null
+    if (!mcp.status().connected) return null
+
+    const root = activeProjectRoot
+
+    // Progress helper
+    const sendProgress = (phase: string, percent: number) => {
+      broadcast('project:baseline-progress', { phase, percent })
+    }
+
+    let violations = 0
+    let grade = 'N/A'
+    let score = 0
+    let filesAudited = 0
+
+    // Phase 1: Audit
+    sendProgress('audit', 10)
+    try {
+      const auditResult = await mcp.callTool('flint_swarm_audit_fix', {
+        glob: 'src/**/*.tsx',
+        autoFix: false,
+      })
+      sendProgress('audit', 60)
+
+      if (auditResult?.content?.[0]?.text) {
+        try {
+          const data = JSON.parse(auditResult.content[0].text as string) as {
+            totalViolations?: number
+            filesAudited?: number
+          }
+          violations = data.totalViolations ?? 0
+          filesAudited = data.filesAudited ?? 0
+        } catch {
+          // Non-JSON audit result — continue
+        }
+      }
+    } catch (err) {
+      console.error(`${BRAND.logPrefix} FORGE.4a: Swarm audit failed:`, err)
+    }
+
+    // Phase 2: Debt report
+    sendProgress('debt', 70)
+    try {
+      const debtResult = await mcp.callTool('flint_debt_report', {
+        glob: 'src/**/*.tsx',
+        format: 'json',
+      })
+      sendProgress('debt', 90)
+
+      if (debtResult?.content?.[0]?.text) {
+        try {
+          const debtData = JSON.parse(debtResult.content[0].text as string) as {
+            grade?: string
+            score?: number
+          }
+          grade = debtData.grade ?? 'N/A'
+          score = debtData.score ?? 0
+        } catch {
+          // Non-JSON debt result — continue
+        }
+      }
+    } catch (err) {
+      console.error(`${BRAND.logPrefix} FORGE.4a: Debt report failed:`, err)
+    }
+
+    // Write debt-snapshot.json
+    try {
+      const flintDir = path.join(root, '.flint')
+      if (!existsSync(flintDir)) {
+        await fs.mkdir(flintDir, { recursive: true })
+      }
+      await atomicWrite(
+        path.join(flintDir, 'debt-snapshot.json'),
+        JSON.stringify({
+          grade,
+          score,
+          violations,
+          filesAudited,
+          timestamp: new Date().toISOString(),
+        }, null, 2),
+      )
+    } catch (err) {
+      console.error(`${BRAND.logPrefix} FORGE.4a: Failed to write debt-snapshot.json:`, err)
+    }
+
+    sendProgress('complete', 100)
+    return { violations, grade, score, filesAudited }
+  })
+
   handlers.set('project:reindex', async () => {
     try {
       // 1. Run component indexer (Babel AST scan — Commandment 13)

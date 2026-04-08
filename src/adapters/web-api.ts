@@ -267,6 +267,9 @@ export function createWebFlintAPI() {
       createScratchpad: () => invoke('project:create-scratchpad') as Promise<unknown>,
       reindex: () => invoke('project:reindex') as Promise<{ components: number; ragChunks: number }>,
       getHealthGrade: (projectPath: string) => invoke('project:get-health-grade', projectPath) as Promise<{ grade: string; score: number; updatedAt: string } | null>,
+      detectEnvironment: () => invoke('project:detect-environment') as Promise<unknown>,
+      autoConfigureProject: () => invoke('project:auto-configure') as Promise<{ configured: boolean; library: string | null; reindexed: boolean }>,
+      runBaseline: () => invoke('project:run-baseline') as Promise<{ violations: number; grade: string; score: number; filesAudited: number } | null>,
     },
 
     // ── File read / git ─────────────────────────────────────────────────────

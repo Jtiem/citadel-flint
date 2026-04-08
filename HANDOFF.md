@@ -6,6 +6,41 @@
 
 ---
 
+## Session: 2026-04-07 — Forge.2 Smart Open Completion (COMPLETE)
+
+**Goal:** Complete the remaining 20% of Forge.2 — auto-configuration, full baseline audit, and web parity.
+
+### What was built
+
+| Feature | What it does |
+|---------|-------------|
+| **FORGE.2b: Auto-Configuration** | After detecting React+Tailwind+shadcn, automatically calls `flint_set_library` and `flint_reindex_registry` via MCP. Runs as side-effect of detection. |
+| **FORGE.2c: Full Baseline Audit** | `project:run-baseline` sweeps all `src/**/*.tsx` files via `flint_swarm_audit_fix`, runs `flint_debt_report`, writes `.flint/debt-snapshot.json`. Progress streamed to Glass. |
+| **Web Parity** | All 4 handlers (`detect-environment`, `get-health-grade`, `auto-configure`, `run-baseline`) mirrored in Express server with WebSocket progress. |
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `electron/main.ts` | +2 IPC handlers: `project:auto-configure`, `project:run-baseline` + auto-config in detection |
+| `electron/preload.ts` | Exposed `autoConfigureProject`, `runBaseline`, `onBaselineProgress` |
+| `src/types/flint-api.d.ts` | Added 3 methods to `ProjectAPI` interface |
+| `src/App.tsx` | Auto-triggers `runBaseline()` when detection has no audit summary |
+| `server/index.ts` | +4 web parity handlers mirroring Electron IPC |
+| `src/adapters/web-api.ts` | +3 method mappings for web build |
+| `electron/__tests__/projectAutoConfig.test.ts` | 22 new tests |
+| `electron/__tests__/projectBaseline.test.ts` | 28 new tests |
+
+### Validation
+
+```
+Core:  1358/1358 passing (50 new)
+Glass: 1901/1901 passing
+TSC:   0 errors
+```
+
+---
+
 ## Session: 2026-04-07 — LaunchScreen Restoration (COMPLETE)
 
 **Goal:** Restore the LaunchScreen JTBD tile layout and New Project button that were accidentally dropped during Forge wave5 (commit `92ef188`).

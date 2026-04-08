@@ -1973,7 +1973,187 @@ app.whenReady().then(async () => {
             console.error(`${logTag('FORGE.2c')} Baseline audit failed (non-blocking):`, err)
         }
 
+        // ── FORGE.2b: Auto-configure from detection result ───────────────────
+        // Best-effort: call flint_set_library + flint_reindex_registry now that
+        // we have a fresh detected environment. Errors are logged and swallowed.
+        try {
+            if (mcpClient.status().connected) {
+                if (result.componentLibrary) {
+                    await mcpClient.callTool('flint_set_library', { library: result.componentLibrary })
+                        .catch((err: unknown) => {
+                            console.error(`${logTag('FORGE.2b')} flint_set_library failed (non-blocking):`, err)
+                        })
+                }
+                await mcpClient.callTool('flint_reindex_registry', {})
+                    .catch((err: unknown) => {
+                        console.error(`${logTag('FORGE.2b')} flint_reindex_registry failed (non-blocking):`, err)
+                    })
+            }
+        } catch (err) {
+            console.error(`${logTag('FORGE.2b')} Auto-configure side-effect failed (non-blocking):`, err)
+        }
+
         return result
+    })
+
+    // ── project:auto-configure (FORGE.2b) ────────────────────────────────────
+    // Reads the detected environment (or accepts it inline) and calls MCP tools
+    // to configure the project: flint_set_library + flint_reindex_registry.
+    // All MCP calls are best-effort — errors are logged, never thrown.
+    ipcMain.handle('project:auto-configure', async (): Promise<{
+        configured: boolean
+        library: string | null
+        reindexed: boolean
+    }> => {
+        if (!activeProjectRoot) {
+            return { configured: false, library: null, reindexed: false }
+        }
+
+        if (!mcpClient.status().connected) {
+            return { configured: false, library: null, reindexed: false }
+        }
+
+        const root = activeProjectRoot
+        let library: string | null = null
+        let librarySet = false
+        let reindexed = false
+
+        // Read the detected environment written by project:detect-environment
+        try {
+            const envPath = path.join(root, '.flint', 'detected-environment.json')
+            const raw = await readFile(envPath, 'utf-8')
+            const env = JSON.parse(raw) as { componentLibrary?: string | null }
+            library = env.componentLibrary ?? null
+        } catch {
+            // No detected-environment.json yet — proceed without library config
+        }
+
+        // Call flint_set_library if a component library was detected
+        if (library) {
+            try {
+                await mcpClient.callTool('flint_set_library', { library })
+                librarySet = true
+            } catch (err) {
+                console.error(`${logTag('FORGE.2b')} flint_set_library failed (non-blocking):`, err)
+            }
+        }
+
+        // Always re-index the registry after configuring
+        try {
+            await mcpClient.callTool('flint_reindex_registry', {})
+            reindexed = true
+        } catch (err) {
+            console.error(`${logTag('FORGE.2b')} flint_reindex_registry failed (non-blocking):`, err)
+        }
+
+        const configured = librarySet || reindexed
+        return { configured, library, reindexed }
+    })
+
+    // ── project:run-baseline (FORGE.2c) ──────────────────────────────────────
+    // Runs a full project-wide audit via MCP and writes a debt snapshot to
+    // .flint/debt-snapshot.json. Emits progress events via BrowserWindow so the
+    // UI can show a progress indicator. All MCP calls are best-effort — errors
+    // are caught and partial results are returned.
+    ipcMain.handle('project:run-baseline', async (): Promise<{
+        violations: number; grade: string; score: number; filesAudited: number
+    } | null> => {
+        if (!activeProjectRoot) return null
+        if (!mcpClient.status().connected) return null
+
+        const root = activeProjectRoot
+        const flintDir = path.join(root, '.flint')
+
+        const emitProgress = (phase: string, percent: number): void => {
+            const win = BrowserWindow.getAllWindows()[0]
+            if (win) {
+                win.webContents.send('project:baseline-progress', { phase, percent })
+            }
+        }
+
+        let violations = 0
+        let filesAudited = 0
+        let grade = 'N/A'
+        let score = 0
+
+        // Phase 1 — full swarm audit
+        try {
+            emitProgress('auditing', 20)
+            const swarmResult = await mcpClient.callTool('flint_swarm_audit_fix', {
+                glob: 'src/**/*.tsx',
+                autoFix: false,
+            })
+            emitProgress('auditing', 50)
+            if (swarmResult?.content?.[0]?.text) {
+                try {
+                    const swarmData = JSON.parse(swarmResult.content[0].text as string) as {
+                        totalViolations?: number
+                        filesAudited?: number
+                        summary?: { totalViolations?: number; filesAudited?: number }
+                    }
+                    violations = swarmData.totalViolations
+                        ?? swarmData.summary?.totalViolations
+                        ?? 0
+                    filesAudited = swarmData.filesAudited
+                        ?? swarmData.summary?.filesAudited
+                        ?? 0
+                } catch {
+                    // Swarm result was not valid JSON — skip
+                }
+            }
+        } catch (err) {
+            console.error(`${logTag('FORGE.2c')} flint_swarm_audit_fix failed (non-blocking):`, err)
+        }
+
+        // Phase 2 — debt report
+        try {
+            emitProgress('scoring', 70)
+            const debtResult = await mcpClient.callTool('flint_debt_report', {
+                glob: 'src/**/*.tsx',
+                format: 'json',
+            })
+            emitProgress('scoring', 80)
+            if (debtResult?.content?.[0]?.text) {
+                try {
+                    const debtData = JSON.parse(debtResult.content[0].text as string) as {
+                        grade?: string
+                        score?: number
+                        healthScore?: number
+                        summary?: { grade?: string; score?: number; healthScore?: number }
+                    }
+                    grade = debtData.grade ?? debtData.summary?.grade ?? 'N/A'
+                    score = debtData.score
+                        ?? debtData.healthScore
+                        ?? debtData.summary?.score
+                        ?? debtData.summary?.healthScore
+                        ?? 0
+
+                    // Write debt snapshot so project:get-health-grade can read it later
+                    try {
+                        if (!existsSync(flintDir)) {
+                            await mkdir(flintDir, { recursive: true })
+                        }
+                        await writeFile(
+                            path.join(flintDir, 'debt-snapshot.json'),
+                            JSON.stringify({
+                                grade, score, violations, filesAudited,
+                                timestamp: new Date().toISOString(),
+                            }, null, 2),
+                            'utf-8',
+                        )
+                    } catch (writeErr) {
+                        console.error(`${logTag('FORGE.2c')} Failed to write debt-snapshot.json:`, writeErr)
+                    }
+                } catch {
+                    // Debt result was not valid JSON — skip
+                }
+            }
+        } catch (err) {
+            console.error(`${logTag('FORGE.2c')} flint_debt_report failed (non-blocking):`, err)
+        }
+
+        emitProgress('done', 100)
+        return { violations, grade, score, filesAudited }
     })
 
     // ── project:get-health-grade (FORGE.4b) ──────────────────────────────────

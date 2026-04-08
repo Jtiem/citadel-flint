@@ -495,12 +495,45 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
             ipcRenderer.invoke('project:detect-environment'),
 
         /**
+         * FORGE.2b: Calls MCP tools to configure the project from the previously
+         * detected environment. Reads .flint/detected-environment.json, calls
+         * flint_set_library (if a library was detected) and flint_reindex_registry.
+         * All MCP calls are best-effort. Returns whether configuration succeeded.
+         */
+        autoConfigureProject: (): Promise<{ configured: boolean; library: string | null; reindexed: boolean }> =>
+            ipcRenderer.invoke('project:auto-configure'),
+
+        /**
          * FORGE.4b: Reads the cached debt snapshot for a project and returns
          * its health grade letter, numeric score, and last-updated timestamp.
          * Returns null when the snapshot file is missing or malformed.
          */
         getHealthGrade: (projectPath: string): Promise<{ grade: string; score: number; updatedAt: string } | null> =>
             ipcRenderer.invoke('project:get-health-grade', projectPath),
+
+        /**
+         * FORGE.2c: Runs a full project-wide audit via flint_swarm_audit_fix,
+         * then fetches the debt report via flint_debt_report, and writes the
+         * result to .flint/debt-snapshot.json.
+         *
+         * Progress events are emitted on 'project:baseline-progress' (use
+         * `onBaselineProgress` to subscribe). Returns null when no project is
+         * open or MCP is not connected.
+         */
+        runBaseline: (): Promise<{ violations: number; grade: string; score: number; filesAudited: number } | null> =>
+            ipcRenderer.invoke('project:run-baseline'),
+
+        /**
+         * FORGE.2c: Subscribes to progress events emitted during `runBaseline`.
+         * Returns an unsubscribe function for useEffect cleanup.
+         */
+        onBaselineProgress: (callback: (data: { phase: string; percent: number }) => void): (() => void) => {
+            const listener = (_event: Electron.IpcRendererEvent, data: { phase: string; percent: number }) => callback(data)
+            ipcRenderer.on('project:baseline-progress', listener)
+            return () => {
+                ipcRenderer.removeListener('project:baseline-progress', listener)
+            }
+        },
     },
 
     /**
