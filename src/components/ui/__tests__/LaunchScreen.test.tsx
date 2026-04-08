@@ -1,17 +1,14 @@
 /**
  * LaunchScreen.test.tsx
  *
- * Tests for the FORGE.1a Three-Path LaunchScreen.
+ * Tests for the restored LaunchScreen with JTBD tiles.
  *
  * Verifies:
- *   - Exactly 3 primary CTAs: "Try Flint", "Open My Project", "Audit a Folder"
- *   - No 4th primary CTA (new-project blank scratchpad, from-Figma, governance dashboard tiles)
- *   - Demo scenario picker opens/closes via "Try Flint" toggle
- *   - Scenario cards load demos when clicked
+ *   - "New Project" primary CTA calls onNewProject
+ *   - 4 JTBD tiles: From Figma, Connect codebase, Audit a folder, Governance dashboard
+ *   - Demo section: primary CTA + collapsible gallery
  *   - Recent projects visible with optional health grades
  *   - MCP connected banner shown when connected
- *   - "Open My Project" calls onOpenFolder
- *   - "Audit a Folder" calls onOpenFolder
  *   - Remove-from-recent wiring
  *   - Demo load error banner
  *   - "Connect to IDE" footer affordance
@@ -41,161 +38,108 @@ function defaultProps() {
     }
 }
 
-describe('LaunchScreen — FORGE.1a Three-Path', () => {
+describe('LaunchScreen — JTBD Tiles', () => {
 
-    // ── 3 primary paths present ───────────────────────────────────────────────
+    // ── New Project primary CTA ──────────────────────────────────────────────
 
-    it('renders "Try Flint" primary CTA', async () => {
+    it('renders "New Project" primary CTA', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
         render(<LaunchScreen {...defaultProps()} />)
         await waitFor(() => {
-            expect(screen.getByText('Try Flint')).toBeDefined()
+            expect(screen.getByText('New Project')).toBeDefined()
         })
     })
 
-    it('renders "Open My Project" primary CTA', async () => {
-        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        render(<LaunchScreen {...defaultProps()} />)
-        await waitFor(() => {
-            expect(screen.getByText('Open My Project')).toBeDefined()
-        })
-    })
-
-    it('renders "Audit a Folder" secondary link', async () => {
-        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        render(<LaunchScreen {...defaultProps()} />)
-        await waitFor(() => {
-            expect(screen.getByText('Audit a Folder')).toBeDefined()
-        })
-    })
-
-    // ── No 4th primary CTA ────────────────────────────────────────────────────
-
-    it('does not render "New Project" blank scratchpad tile', async () => {
-        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        render(<LaunchScreen {...defaultProps()} />)
-        await waitFor(() => {
-            expect(screen.getByText('Try Flint')).toBeDefined()
-        })
-        expect(screen.queryByText('New Project')).toBeNull()
-    })
-
-    it('does not render "From Figma" tile as a primary option', async () => {
-        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        render(<LaunchScreen {...defaultProps()} />)
-        await waitFor(() => {
-            expect(screen.getByText('Try Flint')).toBeDefined()
-        })
-        expect(screen.queryByText('From Figma')).toBeNull()
-    })
-
-    it('does not render "Governance dashboard" tile as a primary option', async () => {
-        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        render(<LaunchScreen {...defaultProps()} />)
-        await waitFor(() => {
-            expect(screen.getByText('Try Flint')).toBeDefined()
-        })
-        expect(screen.queryByText('Governance dashboard')).toBeNull()
-    })
-
-    it('does not render "Connect codebase" tile as a primary option', async () => {
-        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        render(<LaunchScreen {...defaultProps()} />)
-        await waitFor(() => {
-            expect(screen.getByText('Try Flint')).toBeDefined()
-        })
-        expect(screen.queryByText('Connect codebase')).toBeNull()
-    })
-
-    // ── "Try Flint" opens scenario picker ─────────────────────────────────────
-
-    it('clicking "Try Flint" reveals the demo scenario picker', async () => {
-        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        render(<LaunchScreen {...defaultProps()} />)
-        await waitFor(() => screen.getByText('Try Flint'))
-        fireEvent.click(screen.getByText('Try Flint'))
-        await waitFor(() => {
-            expect(screen.getByTestId('demo-scenario-picker')).toBeDefined()
-        })
-    })
-
-    it('clicking "Try Flint" again collapses the scenario picker', async () => {
-        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        render(<LaunchScreen {...defaultProps()} />)
-        await waitFor(() => screen.getByText('Try Flint'))
-        fireEvent.click(screen.getByText('Try Flint'))
-        await waitFor(() => screen.getByTestId('demo-scenario-picker'))
-        fireEvent.click(screen.getByText('Try Flint'))
-        await waitFor(() => {
-            expect(screen.queryByTestId('demo-scenario-picker')).toBeNull()
-        })
-    })
-
-    it('scenario picker shows 4 demo cards', async () => {
-        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        render(<LaunchScreen {...defaultProps()} />)
-        await waitFor(() => screen.getByText('Try Flint'))
-        fireEvent.click(screen.getByText('Try Flint'))
-        await waitFor(() => {
-            expect(screen.getByText('A11y Audit')).toBeDefined()
-            expect(screen.getByText('Token Drift')).toBeDefined()
-            expect(screen.getByText('DS Migration')).toBeDefined()
-            expect(screen.getByText('Full App Scan')).toBeDefined()
-        })
-    })
-
-    it('clicking a demo scenario calls onLoadDemo with the correct name', async () => {
+    it('clicking "New Project" calls onNewProject', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
         const props = defaultProps()
         render(<LaunchScreen {...props} />)
-        await waitFor(() => screen.getByText('Try Flint'))
-        fireEvent.click(screen.getByText('Try Flint'))
-        await waitFor(() => screen.getByText('A11y Audit'))
-        fireEvent.click(screen.getByRole('button', { name: /Load A11y Audit demo/i }))
+        await waitFor(() => screen.getByText('New Project'))
+        fireEvent.click(screen.getByTestId('new-project-cta'))
+        await waitFor(() => {
+            expect(props.onNewProject).toHaveBeenCalled()
+        })
+    })
+
+    // ── 4 JTBD tiles present ─────────────────────────────────────────────────
+
+    it('renders "From Figma" tile', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        render(<LaunchScreen {...defaultProps()} />)
+        await waitFor(() => {
+            expect(screen.getByText('From Figma')).toBeDefined()
+        })
+    })
+
+    it('renders "Connect codebase" tile', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        render(<LaunchScreen {...defaultProps()} />)
+        await waitFor(() => {
+            expect(screen.getByText('Connect codebase')).toBeDefined()
+        })
+    })
+
+    it('renders "Audit a folder" tile', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        render(<LaunchScreen {...defaultProps()} />)
+        await waitFor(() => {
+            expect(screen.getByText('Audit a folder')).toBeDefined()
+        })
+    })
+
+    it('renders "Governance dashboard" tile', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        render(<LaunchScreen {...defaultProps()} />)
+        await waitFor(() => {
+            expect(screen.getByText('Governance dashboard')).toBeDefined()
+        })
+    })
+
+    // ── Demo section ─────────────────────────────────────────────────────────
+
+    it('renders "Try the demo" primary demo CTA', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        render(<LaunchScreen {...defaultProps()} />)
+        await waitFor(() => {
+            expect(screen.getByText('Try the demo')).toBeDefined()
+        })
+    })
+
+    it('clicking "Try the demo" calls onLoadDemo with a11y-audit', async () => {
+        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        const props = defaultProps()
+        render(<LaunchScreen {...props} />)
+        await waitFor(() => screen.getByText('Try the demo'))
+        fireEvent.click(screen.getByTestId('try-demo-cta'))
         await waitFor(() => {
             expect(props.onLoadDemo).toHaveBeenCalledWith('a11y-audit')
         })
     })
 
-    it('"Try Flint" button has aria-expanded attribute', async () => {
+    it('clicking "More demos" reveals the demo gallery', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
         render(<LaunchScreen {...defaultProps()} />)
-        await waitFor(() => screen.getByText('Try Flint'))
-        const btn = screen.getByTestId('try-flint-cta')
-        expect(btn.getAttribute('aria-expanded')).toBe('false')
-        fireEvent.click(btn)
+        await waitFor(() => screen.getByText('More demos'))
+        fireEvent.click(screen.getByText('More demos'))
         await waitFor(() => {
-            expect(btn.getAttribute('aria-expanded')).toBe('true')
+            expect(screen.getByTestId('more-demos-section')).toBeDefined()
         })
     })
 
-    // ── "Open My Project" calls onOpenFolder ─────────────────────────────────
-
-    it('clicking "Open My Project" calls onOpenFolder', async () => {
+    it('demo gallery shows 4 demo cards', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        const props = defaultProps()
-        render(<LaunchScreen {...props} />)
-        await waitFor(() => screen.getByText('Open My Project'))
-        fireEvent.click(screen.getByText('Open My Project'))
+        render(<LaunchScreen {...defaultProps()} />)
+        await waitFor(() => screen.getByText('More demos'))
+        fireEvent.click(screen.getByText('More demos'))
         await waitFor(() => {
-            expect(props.onOpenFolder).toHaveBeenCalled()
+            expect(screen.getByText('Token Drift')).toBeDefined()
+            expect(screen.getByText('A11y Audit')).toBeDefined()
+            expect(screen.getByText('DS Migration')).toBeDefined()
+            expect(screen.getByText('Full App Scan')).toBeDefined()
         })
     })
 
-    // ── "Audit a Folder" calls onOpenFolder ───────────────────────────────────
-
-    it('clicking "Audit a Folder" calls onOpenFolder', async () => {
-        ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
-        const props = defaultProps()
-        render(<LaunchScreen {...props} />)
-        await waitFor(() => screen.getByText('Audit a Folder'))
-        fireEvent.click(screen.getByText('Audit a Folder'))
-        await waitFor(() => {
-            expect(props.onOpenFolder).toHaveBeenCalled()
-        })
-    })
-
-    // ── Recent projects ────────────────────────────────────────────────────────
+    // ── Recent projects ──────────────────────────────────────────────────────
 
     it('shows recent projects when available', async () => {
         const projects = [makeProject({ name: 'Alpha App' }), makeProject({ name: 'Beta Site' })]
@@ -253,7 +197,6 @@ describe('LaunchScreen — FORGE.1a Three-Path', () => {
     it('renders health grade badge when getHealthGrade returns a grade', async () => {
         const project = makeProject({ name: 'Healthy App', path: '/tmp/healthy' })
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([project])
-        // Mock the IPC that fetches health grades (FORGE.4b)
         ;(window.flintAPI as Record<string, unknown>).project = {
             ...(window.flintAPI.project ?? {}),
             getHealthGrade: vi.fn().mockResolvedValue({ grade: 'A+', score: 95, updatedAt: '2026-04-01T00:00:00Z' }),
@@ -267,18 +210,16 @@ describe('LaunchScreen — FORGE.1a Three-Path', () => {
     it('does not render a grade badge when getHealthGrade returns null', async () => {
         const project = makeProject({ name: 'Gradeless App' })
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([project])
-        // Mock returning null (no snapshot)
         ;(window.flintAPI as Record<string, unknown>).project = {
             ...(window.flintAPI.project ?? {}),
             getHealthGrade: vi.fn().mockResolvedValue(null),
         }
         render(<LaunchScreen {...defaultProps()} />)
         await waitFor(() => screen.getByText('Gradeless App'))
-        // No grade badge (no A-F text beside the project name)
         expect(screen.queryByLabelText(/Health grade/i)).toBeNull()
     })
 
-    // ── MCP connected banner ───────────────────────────────────────────────────
+    // ── MCP connected banner ─────────────────────────────────────────────────
 
     it('shows MCP connected banner when mcp.status returns connected: true', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
@@ -298,7 +239,7 @@ describe('LaunchScreen — FORGE.1a Three-Path', () => {
         })
     })
 
-    // ── Demo load error banner ─────────────────────────────────────────────────
+    // ── Demo load error banner ────────────────────────────────────────────────
 
     it('renders amber error banner when demoError prop is set', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
@@ -313,7 +254,7 @@ describe('LaunchScreen — FORGE.1a Three-Path', () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
         render(<LaunchScreen {...defaultProps()} />)
         await waitFor(() => {
-            expect(screen.getByText('Try Flint')).toBeDefined()
+            expect(screen.getByText('New Project')).toBeDefined()
         })
         expect(screen.queryByRole('alert')).toBeNull()
     })
@@ -330,7 +271,7 @@ describe('LaunchScreen — FORGE.1a Three-Path', () => {
         })
     })
 
-    // ── Connect to IDE affordance ──────────────────────────────────────────────
+    // ── Connect to IDE affordance ────────────────────────────────────────────
 
     it('renders "Connect to IDE" footer button when onConnectIDE is provided', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
@@ -354,12 +295,12 @@ describe('LaunchScreen — FORGE.1a Three-Path', () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
         render(<LaunchScreen {...defaultProps()} />)
         await waitFor(() => {
-            expect(screen.getByText('Try Flint')).toBeDefined()
+            expect(screen.getByText('New Project')).toBeDefined()
         })
         expect(screen.queryByText('Connect to IDE')).toBeNull()
     })
 
-    // ── A11y structural checks ─────────────────────────────────────────────────
+    // ── A11y structural checks ───────────────────────────────────────────────
 
     it('header has aria-label', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])

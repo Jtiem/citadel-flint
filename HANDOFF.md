@@ -6,6 +6,98 @@
 
 ---
 
+## Session: 2026-04-07 — LaunchScreen Restoration (COMPLETE)
+
+**Goal:** Restore the LaunchScreen JTBD tile layout and New Project button that were accidentally dropped during Forge wave5 (commit `92ef188`).
+
+### What was restored
+- **"New Project" primary CTA** — top-level button with Zap icon, calls `onNewProject`
+- **4 JTBD tiles** — From Figma, Connect codebase, Audit a folder, Governance dashboard
+- **Inline expanded flow** — Figma setup wizard, folder picker, progress/done steps per tile
+- **Demo section** — "Try the demo" CTA + collapsible "More demos" gallery (4 scenario cards)
+- **Footer links** — "Open any folder..." + "Connect to IDE"
+
+### What was preserved from later commits
+- FORGE.4b health grade badges on recent projects (from wave5)
+- All a11y improvements: `aria-hidden`, `aria-label`, `role="status/alert"`, `aria-expanded`
+- Web mode path input support
+- `motion-safe:animate-spin` on loader
+
+### Files changed
+| File | Change |
+|------|--------|
+| `src/components/ui/LaunchScreen.tsx` | Restored from v0.2.0 (`2b59a49`) + Forge wave5 health grades |
+| `src/components/ui/__tests__/LaunchScreen.test.tsx` | Rewritten for JTBD layout (27 tests) |
+| `src/components/ui/__tests__/NewProjectFlow.test.tsx` | 4 assertions updated to match restored design |
+
+### Validation
+```
+TSC:   0 errors
+Glass: 1897/1906 passing (5 pre-existing failures in buildSrcdoc/previewDispatch/vuePreview)
+Review: SHIP — 0 critical, 0 major, 2 minor warnings
+```
+
+---
+
+## Session: 2026-04-07 — UX Figma Benchmark Audit + A+ Polish (4 Sprints) (COMPLETE)
+
+**Goal:** Bring Flint Glass from C+ to A+ quality against the Figma desktop app benchmark.
+
+### UX Audit
+
+3 parallel UX critics reviewed every Glass panel against Figma screenshots. Composite grade: **C+**. Worst area: color palette consistency (D — gray/zinc mixing). Full audit: `docs/strategy/UX-AUDIT-FIGMA-BENCHMARK-2026-04-06.md`.
+
+### Sprint 1: Systemic Consistency (COMPLETE)
+- Global `gray-*` -> `zinc-*` across all production `.tsx` files (0 remaining)
+- Global `text-[9px]` -> `text-[10px]` floor (0 remaining)
+- Section header standardization: `text-[11px] font-medium uppercase tracking-wider text-zinc-400`
+- Sparkline hex values centralized into `TREND_COLORS` constant
+- Top bar gradient removed — single-color `text-indigo-400` wordmark, padding reduced
+
+### Sprint 2: Interaction Upgrades (COMPLETE)
+- **Custom listbox** replacing native `<select>` — portal-rendered dropdown, keyboard nav (ArrowUp/Down/Home/End/Enter/Escape), text search for 8+ items, Check icon for selection, ARIA combobox/listbox roles. 15 new tests.
+- **Status bar thinned** to 4 primary items (Export Gate, Figma, MCP, contextual). Secondary items (Beta, Update, Autopilot, Connect IDE, Demo) move to overflow popover with attention badge.
+- **Spatial properties header** (FrameHeader) — shows tag name, sizing classes, and flint-id at top of PropertiesPanel
+- **Improved empty state** — file name + token count summary when no element selected
+
+### Sprint 3: Governance UX Overhaul (COMPLETE)
+- **GovernanceDashboard decomposed** from 2800 lines into 3 sub-components:
+  - `governance/ScoreSection.tsx` (416 lines) — health ring, grade, sparkline, export gate
+  - `governance/ViolationCard.tsx` (793 lines) — violation cards with hover-reveal secondary actions
+  - `governance/BatchActionBar.tsx` (116 lines) — batch fix buttons, session progress
+  - 74 new tests across 3 test files
+- **Typography vertical layout** — font family full-width, weight+size side-by-side, labels w-14 at text-[11px]
+- **ExportModal fixability badges** — Auto-fixable (emerald) / Manual fix (amber) on all violation rows, override left border accent, summary counts
+
+### Sprint 4: Polish Pass (COMPLETE)
+- **Accordion animation** — 150ms `grid-template-rows` transition (content always in DOM, visually collapsed)
+- **Color picker grouping** — tokens grouped by first path segment, compact swatch grid (6 columns), grid/list toggle
+- **LivePreview chrome invisible** — drag handle hidden by default, appears on hover (opacity transition)
+- **Canvas controls floating** — `bg-zinc-950` + `ring-1 ring-zinc-800` + `shadow-lg` for depth
+- **Resize handle 1px layout** — 24px absolute overlay hit area, 1px visual bar (no more 23px void)
+- **Notes empty state** — MessageSquare icon + "No notes yet" guidance
+
+### Files Created
+
+| File | Purpose |
+| ---- | ------- |
+| `governance/ScoreSection.tsx` | Health score ring, grade, sparkline |
+| `governance/ViolationCard.tsx` | Violation card with hover-reveal actions |
+| `governance/BatchActionBar.tsx` | Batch fix buttons |
+| `governance/__tests__/*.test.tsx` | 74 tests (24 + 33 + 17) |
+| `docs/strategy/UX-AUDIT-FIGMA-BENCHMARK-2026-04-06.md` | Full UX audit |
+
+### Validation
+
+```
+TSC:   0 errors
+gray-: 0 in production code
+text-[9px]: 0 anywhere
+Glass: ~1905 passing (89 new tests this session)
+```
+
+---
+
 ## Session: 2026-04-05 — Web Build Stabilization + LivePreview Fix + A11y UX (COMPLETE)
 
 **Goal:** Fix the critical path for web build: LivePreview rendering, demo loading, and a11y violation UX.

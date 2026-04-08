@@ -70,24 +70,22 @@ function defaultLaunchProps() {
 
 // ── #33: LaunchScreen "New Project" button calls onNewProject ─────────────────
 
-// FORGE.1a: "From Figma" is no longer a primary tile — Figma is a contextual flow.
-// Tests updated to reflect the 3-path LaunchScreen design.
-describe('#33 — LaunchScreen "From Figma" path (FORGE.1a: demoted from primary tile)', () => {
-    it('does NOT render "From Figma" as a primary tile (it is a contextual flow now)', async () => {
+// Restored JTBD tile layout: "From Figma" is a tile, "New Project" is primary CTA.
+describe('#33 — LaunchScreen JTBD tiles + New Project CTA', () => {
+    it('renders "From Figma" as a JTBD tile', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
         const props = defaultLaunchProps()
         render(<LaunchScreen {...props} />)
         await waitFor(() => {
-            expect(screen.getByText('Try Flint')).toBeDefined()
+            expect(screen.getByText('From Figma')).toBeDefined()
         })
-        expect(screen.queryByText('From Figma')).toBeNull()
     })
 
     it('does NOT call onOpenFolder or onLoadDemo when screen first loads', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
         const props = defaultLaunchProps()
         render(<LaunchScreen {...props} />)
-        await waitFor(() => screen.getByText('Try Flint'))
+        await waitFor(() => screen.getByText('New Project'))
         expect(props.onOpenFolder).not.toHaveBeenCalled()
         expect(props.onLoadDemo).not.toHaveBeenCalled()
     })
@@ -182,27 +180,28 @@ describe('#40 — First-run nudge: renders when conditions are met', () => {
         expect(localStorage.getItem('flint-onboarding-nudge-dismissed')).toBeNull()
     })
 
-    // FORGE.1a: LaunchScreen now has 3 paths, not the old 4-tile grid.
-    it('renders "Try Flint" as the primary demo-entry CTA on first visit', async () => {
+    // Restored JTBD layout: "New Project" CTA + 4 tiles + demo section.
+    it('renders "New Project" as the primary CTA on first visit', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
 
         render(<LaunchScreen {...defaultLaunchProps()} />)
 
         await waitFor(() => {
-            expect(screen.getByText('Try Flint')).toBeDefined()
+            expect(screen.getByText('New Project')).toBeDefined()
         })
     })
 
-    it('renders the 3 primary paths when workspaceFiles is null (no project loaded)', async () => {
+    it('renders the JTBD tiles and demo section when no project is loaded', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
 
         const props = defaultLaunchProps()
         render(<LaunchScreen {...props} />)
 
         await waitFor(() => {
-            expect(screen.getByText('Try Flint')).toBeDefined()
-            expect(screen.getByText('Open My Project')).toBeDefined()
-            expect(screen.getByText('Audit a Folder')).toBeDefined()
+            expect(screen.getByText('New Project')).toBeDefined()
+            expect(screen.getByText('From Figma')).toBeDefined()
+            expect(screen.getByText('Governance dashboard')).toBeDefined()
+            expect(screen.getByText('Try the demo')).toBeDefined()
         })
     })
 })
