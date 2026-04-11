@@ -143,6 +143,17 @@ export type ASTMutation =
     | EmitMapMutation
     | ComposeSlotMutation
 
+// ── Side Effect Types ────────────────────────────────────────────────────────
+
+/**
+ * A deferred side effect produced by `applyMutationBatch`.
+ * The batch engine is pure (parse → mutate → generate) and must not perform
+ * IPC calls. Instead it returns side effect descriptors that the caller
+ * (e.g. editorStore.applyBatch) executes after the batch completes.
+ */
+export type BatchSideEffect =
+    | { type: 'clearOverride'; nodeId: string }
+
 // ── Inverse Mutation Types (Phase D) ─────────────────────────────────────────
 
 /**
@@ -353,13 +364,14 @@ function applyDeleteNode(
 export function applyMutationBatch(
     code: string,
     mutations: ASTMutation[]
-): { code: string; inversions: InverseMutation[] } {
-    if (mutations.length === 0) return { code, inversions: [] }
+): { code: string; inversions: InverseMutation[]; sideEffects: BatchSideEffect[] } {
+    if (mutations.length === 0) return { code, inversions: [], sideEffects: [] }
 
     const ast = parseCodeToAST(code)
-    if (ast === null) return { code, inversions: [] }
+    if (ast === null) return { code, inversions: [], sideEffects: [] }
 
     const inversions: InverseMutation[] = []
+    const sideEffects: BatchSideEffect[] = []
 
     for (const mutation of mutations) {
         switch (mutation.op) {
@@ -411,14 +423,11 @@ export function applyMutationBatch(
                 inversions.push({ op: 'restoreCode', code: generateCodeFromAST(ast) })
                 applyDeleteNode(ast, mutation.nodeId)
                 // Garbage Collection (Phase E — Commandment 12):
-                // After a successful AST deletion, fire the IPC cleanup so the
-                // main process can remove any dangling component_overrides row for
-                // this flint ID, preventing a "Zombie" export lock.
-                // Optional-chained: degrades gracefully until the main-process
-                // handler is registered. Guarded against headless test environments.
-                if (typeof window !== 'undefined') {
-                    void window.flintAPI.tokens.clearOverride?.(mutation.nodeId)
-                }
+                // Signal the caller to clear any dangling component_overrides row
+                // for this flint ID, preventing a "Zombie" export lock.
+                // The actual IPC call is executed by the caller (editorStore.applyBatch)
+                // after the batch completes — not inside this pure engine.
+                sideEffects.push({ type: 'clearOverride', nodeId: mutation.nodeId })
                 break
             }
 
@@ -455,12 +464,12 @@ export function applyMutationBatch(
 
             default: {
                 const _exhaustive: never = mutation
-                throw new Error(`Unhandled mutation type: ${(_exhaustive as any).type}`)
+                throw new Error(`Unhandled mutation op: ${(_exhaustive as any).op}`)
             }
         }
     }
 
-    return { code: generateCodeFromAST(ast), inversions }
+    return { code: generateCodeFromAST(ast), inversions, sideEffects }
 }
 
 // ── Pre-flight Zombie Check (Phase D) ─────────────────────────────────────────

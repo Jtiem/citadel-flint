@@ -25,10 +25,16 @@ import { LanguageRegistry } from '../core/adapters/types'
 import type { VisualLayer } from '../core/ast-parser'
 import type { DropPosition } from '../utils/astModifier'
 import type { ASTMutation } from '../core/ASTService'
-import { useCanvasStore } from './canvasStore'
-import { useHistoryStore } from './historyStore'
 import type { LinterWarning } from '../types/flint-api'
 import { A11yLinter } from '../core/A11yLinter'
+// TODO: Extract cross-store coordination to a service/hook layer.
+// These imports create a tight coupling web (editorStore -> canvasStore -> editorStore).
+// The circular dependency is currently broken by canvasStore's dynamic import.
+import { useCanvasStore } from './canvasStore'
+import { useHistoryStore } from './historyStore'
+
+// Track the last file path for history-clear-on-file-switch (REVIEW FIX).
+let editorStore_lastFilePath: string | null = null
 
 // ── Seed content ──────────────────────────────────────────────────────────────
 // A realistic React component with JSX nesting, TypeScript interfaces, and
@@ -254,7 +260,13 @@ export const useEditorStore = create<EditorStore>((set, get) => {
                 useCanvasStore.getState().setA11yViolations(a11yViolations)
 
                 // Clear undo/redo history when loading a different file.
-                if (code !== previousCode) {
+                // ── REVIEW FIX (2026-04-10): Only clear history on FILE SWITCH ──
+                // Previously compared code content (cleared on every keystroke).
+                // Now tracks the file path — history resets only when loading a
+                // different file, not when the user types a character.
+                const currentFilePath = useCanvasStore.getState().activeFilePath
+                if ((editorStore_lastFilePath ?? null) !== (currentFilePath ?? null)) {
+                    editorStore_lastFilePath = currentFilePath
                     useHistoryStore.getState().clear()
                 }
             } else {
@@ -309,7 +321,7 @@ export const useEditorStore = create<EditorStore>((set, get) => {
             const activeFilePath = useCanvasStore.getState().activeFilePath ?? 'file.tsx'
             const adapter = LanguageRegistry.getAdapter(activeFilePath)
 
-            const { code: newCode, inversions } = adapter.applyMutationBatch(
+            const { code: newCode, inversions, sideEffects } = adapter.applyMutationBatch(
                 get().rawCode,
                 mutations
             )
@@ -358,6 +370,18 @@ export const useEditorStore = create<EditorStore>((set, get) => {
 
             // Record inverse for undo/redo.
             useHistoryStore.getState().push(inversions, mutations)
+
+            // Execute deferred side effects (IPC calls that must not live inside
+            // the pure batch engine). Guarded against headless test environments.
+            if (typeof window !== 'undefined' && sideEffects.length > 0) {
+                for (const effect of sideEffects) {
+                    switch (effect.type) {
+                        case 'clearOverride':
+                            void window.flintAPI?.tokens?.clearOverride?.(effect.nodeId)
+                            break
+                    }
+                }
+            }
         },
 
         syncCode: (code: string) => {

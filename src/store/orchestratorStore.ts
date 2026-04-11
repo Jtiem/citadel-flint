@@ -15,8 +15,15 @@
 
 import { create } from 'zustand'
 import type { ChatMessage } from '../types/flint-api'
-import { useEditorStore } from './editorStore'
-import { useCanvasStore } from './canvasStore'
+
+// ── REVIEW FIX (2026-04-10): Cross-store imports removed ────────────────────
+// Previously imported useEditorStore and useCanvasStore directly, which is the
+// documented architectural anti-pattern. Now accepts needed values as parameters
+// or reads them lazily via dynamic import where unavoidable.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Maximum number of messages to retain in conversation history. */
+const MAX_MESSAGES = 500
 
 // ── Phase M: Read-Only Tool Auto-Execution ────────────────────────────────────
 //
@@ -32,6 +39,11 @@ const READ_ONLY_TOOLS = new Set([
     'flint_search_design_system',
 ])
 
+// ── Lazy cross-store reference (avoids module-level import) ──────────────────
+// Populated on first _dispatchChat call via dynamic import. Used synchronously
+// in _addToolCallMessage for DiffCard snapshots.
+let _cachedEditorStore: { getState: () => { rawCode: string | null } } | null = null
+
 interface PendingReadOnlyTool {
     toolName: string
     toolUseId: string
@@ -39,37 +51,48 @@ interface PendingReadOnlyTool {
 }
 
 /**
- * Executes a read-only tool and returns the result string.
- * All data is read from renderer-side Zustand stores or IPC.
+ * Context bag passed into executeReadOnlyTool so it does not import
+ * editorStore / canvasStore directly (cross-store anti-pattern fix).
  */
-async function executeReadOnlyTool(toolName: string, toolInput: Record<string, unknown>): Promise<string> {
+interface ReadOnlyToolContext {
+    rawCode: string | null
+    linterWarnings: Map<string, unknown>
+    mithrilViolations: string[]
+    a11yViolations: Record<string, string[]>
+}
+
+/**
+ * Executes a read-only tool and returns the result string.
+ * Store values are passed in via `ctx` — no cross-store imports.
+ */
+async function executeReadOnlyTool(
+    toolName: string,
+    toolInput: Record<string, unknown>,
+    ctx: ReadOnlyToolContext,
+): Promise<string> {
     switch (toolName) {
         case 'flint_read_code': {
-            const code = useEditorStore.getState().rawCode
-            return code || '(no file open)'
+            return ctx.rawCode || '(no file open)'
         }
         case 'flint_read_tokens': {
-            const tokens = await window.flintAPI.tokens.readAll()
+            const tokens = await window.flintAPI.tokens.readAll() // TODO: extract to service layer
             return JSON.stringify(tokens, null, 2)
         }
         case 'flint_audit_mithril': {
-            const warnings = useEditorStore.getState().linterWarnings
-            const violations = useCanvasStore.getState().mithrilViolations
             return JSON.stringify({
-                violationCount: violations.length,
-                violations: violations.map((id) => {
-                    const w = warnings.get(id)
+                violationCount: ctx.mithrilViolations.length,
+                violations: ctx.mithrilViolations.map((id) => {
+                    const w = ctx.linterWarnings.get(id)
                     return w ? { ...w } : { id, type: 'unknown', severity: 'amber' }
                 }),
             }, null, 2)
         }
         case 'flint_audit_a11y': {
-            const a11y = useCanvasStore.getState().a11yViolations
-            return JSON.stringify(a11y, null, 2)
+            return JSON.stringify(ctx.a11yViolations, null, 2)
         }
         case 'flint_search_design_system': {
             const query = typeof toolInput.query === 'string' ? toolInput.query : ''
-            if (!window.flintAPI.ai.queryRAG) return '(RAG not configured)'
+            if (!window.flintAPI.ai.queryRAG) return '(RAG not configured)' // TODO: extract to service layer
             const results = await window.flintAPI.ai.queryRAG(query)
             return JSON.stringify(results, null, 2)
         }
@@ -149,7 +172,7 @@ interface OrchestratorActions {
     // Internal helpers (called by the chunk listener)
     _appendTextDelta: (text: string) => void
     _flushAssistantTurn: () => void
-    _addToolCallMessage: (toolName: string, toolUseId: string, input: Record<string, unknown>) => void
+    _addToolCallMessage: (toolName: string, toolUseId: string, input: Record<string, unknown>, beforeSnapshot?: string) => void
     _finishStream: () => void
     _addErrorMessage: (text: string) => void
 }
@@ -158,6 +181,12 @@ interface OrchestratorActions {
 
 function uid(): string {
     return crypto.randomUUID()
+}
+
+/** Trims the messages array from the front if it exceeds MAX_MESSAGES. */
+function trimMessages(messages: AgentMessage[]): AgentMessage[] {
+    if (messages.length <= MAX_MESSAGES) return messages
+    return messages.slice(messages.length - MAX_MESSAGES)
 }
 
 // Builds the minimal message array to send to the API including tool_calls and tool_results
@@ -187,14 +216,55 @@ function buildApiMessages(messages: AgentMessage[]): ChatMessage[] {
 
 // ── Core send logic (shared by sendMessage / resubmitMessage / retryLast) ─────
 
+/** Recursion depth guard — prevents infinite loops from validation errors
+ *  or read-only tool chains. Shared across all recursive _dispatchChat paths. */
+let _chatDepth = 0
+const MAX_CHAT_DEPTH = 10
+
+/**
+ * Lazily reads store values from editorStore and canvasStore for read-only
+ * tool execution, avoiding module-level cross-store imports.
+ */
+async function _getReadOnlyToolContext(): Promise<ReadOnlyToolContext> {
+    const { useEditorStore } = await import('./editorStore')
+    const { useCanvasStore } = await import('./canvasStore')
+    // Cache for synchronous access in _addToolCallMessage
+    if (!_cachedEditorStore) _cachedEditorStore = useEditorStore
+    const editorState = useEditorStore.getState()
+    const canvasState = useCanvasStore.getState()
+    return {
+        rawCode: editorState.rawCode,
+        linterWarnings: editorState.linterWarnings,
+        mithrilViolations: canvasState.mithrilViolations,
+        a11yViolations: canvasState.a11yViolations,
+    }
+}
+
 async function _dispatchChat(
     get: () => OrchestratorState & OrchestratorActions,
     set: (partial: Partial<OrchestratorState & OrchestratorActions>) => void,
 ) {
+    // ── Recursion depth guard ────────────────────────────────────────────────
+    _chatDepth++
+    if (_chatDepth > MAX_CHAT_DEPTH) {
+        _chatDepth--
+        console.error(`[Flint] _dispatchChat recursion limit (${MAX_CHAT_DEPTH}) reached — aborting`)
+        set({ isThinking: false, activeStatus: '', _abortController: null })
+        return
+    }
+
     const controller = new AbortController()
     set({ isThinking: true, streamBuffer: '', activeStatus: 'Contacting API...', _abortController: controller })
 
-    window.flintAPI.ai.removeChunkListener()
+    // Ensure lazy editorStore cache is populated for snapshot capture
+    if (!_cachedEditorStore) {
+        try {
+            const { useEditorStore } = await import('./editorStore')
+            _cachedEditorStore = useEditorStore
+        } catch { /* not critical — snapshots will be undefined */ }
+    }
+
+    window.flintAPI.ai.removeChunkListener() // TODO: extract to service layer
 
     // ── Phase M: Collect read-only tool calls during streaming ────────────────
     // Deduplicates by toolUseId (backend emits tool_call at content_block_start
@@ -222,9 +292,19 @@ async function _dispatchChat(
                 pendingReadOnly.push({ toolName, toolUseId, toolInput: chunk.toolInput ?? {} })
             } else if (chunk.toolInput && Object.keys(chunk.toolInput).length > 0) {
                 // Mutation tool — queue for user approval
+                // Capture rawCode snapshot for DiffCard before/after comparison.
+                // Uses _cachedEditorStore (lazy-loaded) to avoid module-level import.
                 set({ activeStatus: `Preparing tool: ${toolName}` })
                 store._flushAssistantTurn()
-                store._addToolCallMessage(toolName, toolUseId, chunk.toolInput ?? {})
+                const MUTATION_TOOL_NAMES_SET = new Set([
+                    'flint_update_props', 'flint_update_text', 'flint_insert_node',
+                    'flint_wrap_node', 'flint_delete_node', 'flint_add_class', 'flint_remove_class',
+                ])
+                let snapshot: string | undefined
+                if (MUTATION_TOOL_NAMES_SET.has(toolName) && _cachedEditorStore) {
+                    snapshot = _cachedEditorStore.getState().rawCode ?? undefined
+                }
+                store._addToolCallMessage(toolName, toolUseId, chunk.toolInput ?? {}, snapshot)
             }
         } else if (chunk.type === 'validation_error') {
             // ── Phase M Commandment 16: Invisible AI Recovery Loop ────────────
@@ -255,10 +335,11 @@ async function _dispatchChat(
             if (pendingReadOnly.length > 0) {
                 // ── Phase M: Auto-execute read-only tools, then re-prompt ─────
                 void (async () => {
+                    const ctx = await _getReadOnlyToolContext()
                     for (const tool of pendingReadOnly) {
                         set({ activeStatus: `Executing: ${tool.toolName}...` })
                         try {
-                            const result = await executeReadOnlyTool(tool.toolName, tool.toolInput)
+                            const result = await executeReadOnlyTool(tool.toolName, tool.toolInput, ctx)
                             const toolData: PendingToolCall = {
                                 id: tool.toolUseId,
                                 toolName: tool.toolName,
@@ -320,7 +401,11 @@ async function _dispatchChat(
     })
 
     const apiMessages = buildApiMessages(get().messages)
-    await window.flintAPI.ai.chat(apiMessages, {})
+    try {
+        await window.flintAPI.ai.chat(apiMessages, {}) // TODO: extract to service layer
+    } finally {
+        _chatDepth--
+    }
 }
 
 // ── Store ─────────────────────────────────────────────────────────────────────
@@ -341,17 +426,17 @@ export const useOrchestratorStore = create<OrchestratorState & OrchestratorActio
     // ── Config ────────────────────────────────────────────────────────────────
 
     initConfig: async () => {
-        const cfg = await window.flintAPI.ai.getConfig()
+        const cfg = await window.flintAPI.ai.getConfig() // TODO: extract to service layer
         set({ hasConfig: cfg.hasKey, currentProvider: cfg.provider, currentModel: cfg.model, currentBaseURL: cfg.baseURL })
     },
 
     saveApiKey: async (key: string) => {
-        await window.flintAPI.ai.saveConfig({ apiKey: key, provider: 'anthropic' })
+        await window.flintAPI.ai.saveConfig({ apiKey: key, provider: 'anthropic' }) // TODO: extract to service layer
         set({ hasConfig: true })
     },
 
     saveSettings: async (settings: { provider: 'anthropic' | 'openai' | 'gemini'; apiKey?: string; model?: string; baseURL?: string }) => {
-        await window.flintAPI.ai.saveConfig(settings)
+        await window.flintAPI.ai.saveConfig(settings) // TODO: extract to service layer
         set({ currentProvider: settings.provider })
         if (settings.apiKey) set({ hasConfig: true })
         if (settings.model) set({ currentModel: settings.model })
@@ -368,7 +453,7 @@ export const useOrchestratorStore = create<OrchestratorState & OrchestratorActio
             content: text,
             timestamp: Date.now(),
         }
-        set((s) => ({ messages: [...s.messages, userMsg] }))
+        set((s) => ({ messages: trimMessages([...s.messages, userMsg]) }))
         await _dispatchChat(get, set)
     },
 
@@ -485,7 +570,7 @@ export const useOrchestratorStore = create<OrchestratorState & OrchestratorActio
             }
 
             if (mutations.length > 0) {
-                await window.flintAPI.applyBatch(mutations)
+                await window.flintAPI.applyBatch(mutations) // TODO: extract to service layer
                 const reasoning = typeof input.reasoning === 'string' ? input.reasoning : ''
                 set((s) => ({
                     messages: [
@@ -551,17 +636,7 @@ export const useOrchestratorStore = create<OrchestratorState & OrchestratorActio
         }))
     },
 
-    _addToolCallMessage: (toolName: string, toolUseId: string, input: Record<string, unknown>) => {
-        // Capture rawCode before any mutations are applied so DiffCard can
-        // show a before/after comparison. Read-only tools don't need this.
-        const MUTATION_TOOL_NAMES_SET = new Set([
-            'flint_update_props', 'flint_update_text', 'flint_insert_node',
-            'flint_wrap_node', 'flint_delete_node', 'flint_add_class', 'flint_remove_class',
-        ])
-        const beforeSnapshot = MUTATION_TOOL_NAMES_SET.has(toolName)
-            ? (useEditorStore.getState().rawCode ?? undefined)
-            : undefined
-
+    _addToolCallMessage: (toolName: string, toolUseId: string, input: Record<string, unknown>, beforeSnapshot?: string) => {
         const call: PendingToolCall = {
             id: toolUseId,
             toolName,
@@ -571,7 +646,7 @@ export const useOrchestratorStore = create<OrchestratorState & OrchestratorActio
         }
         set((s) => ({
             pendingToolCalls: [...s.pendingToolCalls, call],
-            messages: [
+            messages: trimMessages([
                 ...s.messages,
                 {
                     id: uid(),
@@ -580,7 +655,7 @@ export const useOrchestratorStore = create<OrchestratorState & OrchestratorActio
                     toolData: call,
                     timestamp: Date.now(),
                 },
-            ],
+            ]),
         }))
     },
 
@@ -590,7 +665,7 @@ export const useOrchestratorStore = create<OrchestratorState & OrchestratorActio
 
     _addErrorMessage: (text: string) => {
         set((s) => ({
-            messages: [
+            messages: trimMessages([
                 ...s.messages,
                 {
                     id: uid(),
@@ -598,7 +673,7 @@ export const useOrchestratorStore = create<OrchestratorState & OrchestratorActio
                     content: text,
                     timestamp: Date.now(),
                 },
-            ],
+            ]),
             isThinking: false,
             activeStatus: '',
             _abortController: null,

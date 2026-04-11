@@ -86,6 +86,8 @@ export interface NodeLayout {
 // ── Store shape ────────────────────────────────────────────────────────────────
 
 interface CanvasState {
+    // --- Workspace & Files ---
+
     /** The data-flint-id of the element being dragged, or null when idle. */
     dragSourceId: string | null
     /** The data-flint-id of the element currently selected in the canvas, or null. */
@@ -104,6 +106,9 @@ interface CanvasState {
     governedTimestamp: number | null
     /** True when the ⌘K command palette overlay is open. */
     commandPaletteOpen: boolean
+
+    // --- Governance & Violations ---
+
     /**
      * Flint IDs of elements whose current style value produces a CIEDE2000 ΔE > 2.0
      * against the closest design token. Empty array = no violations.
@@ -134,6 +139,8 @@ interface CanvasState {
      * An empty object means the file passes all accessibility checks.
      */
     a11yViolations: Record<string, string[]>
+    // --- Canvas Layout & UI ---
+
     /**
      * Current interaction mode for the Live Preview canvas.
      *   'design'   — IDE selection active; clicks select AST nodes.
@@ -152,6 +159,8 @@ interface CanvasState {
      * without prop-drilling through LivePreview → ShieldOverlay.
      */
     rightTab: RightTab
+    // --- Figma & Sync ---
+
     /**
      * Cached governance policy from `.flint/policy.json`.
      * Loaded via `policy:get` IPC on project open; null when no project is open
@@ -207,6 +216,18 @@ interface CanvasState {
      * clicks a top-violated-rules row. Cleared by setting to null.
      */
     governanceRuleFilter: LinterWarning['type'] | null
+
+    // ── T5.2: LivePreview node size (persisted across sessions) ─────────────
+    /**
+     * Width of the LivePreview node on the XY canvas, in pixels.
+     * Defaults to 900. Persisted to localStorage so the size survives reloads.
+     */
+    previewWidth: number
+    /**
+     * Height of the LivePreview node on the XY canvas, in pixels.
+     * Defaults to 600. Persisted to localStorage so the size survives reloads.
+     */
+    previewHeight: number
 
     // ── GLASS.3.2: Panel collapse/expand state ──────────────────────────────
     /** Current width of the left panel. Default: 224 (w-56). */
@@ -375,6 +396,13 @@ interface CanvasActions {
      * Pass null to clear the filter and show all violations.
      */
     setGovernanceRuleFilter: (type: LinterWarning['type'] | null) => void
+    // ── T5.2: LivePreview node size ────────────────────────────────────────────
+    /**
+     * Updates the LivePreview node dimensions and persists them to localStorage
+     * so the size is restored on the next session.
+     */
+    setPreviewSize: (width: number, height: number) => void
+
     // ── GLASS.3.2: Panel collapse/expand actions ──────────────────────────────
     /** Sets the left panel width explicitly (e.g. from a resize drag). */
     setLeftPanelWidth: (w: number) => void
@@ -407,6 +435,48 @@ interface CanvasActions {
 
 let _saveTimer: ReturnType<typeof setTimeout> | null = null
 
+// Sequence counter for setActiveFile — prevents interleaved async calls from
+// showing wrong content. Each call increments, then checks after each await.
+let _setActiveFileSeq = 0
+
+// ── Panel width defaults ───────────────────────────────────────────────────────
+
+const DEFAULT_LEFT_PANEL_WIDTH = 224
+const DEFAULT_RIGHT_PANEL_WIDTH = 288
+
+// ── T5.2: LivePreview size persistence ────────────────────────────────────────
+
+const PREVIEW_SIZE_KEY = 'flint:previewSize'
+
+function readPersistedPreviewSize(): { width: number; height: number } {
+    try {
+        const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(PREVIEW_SIZE_KEY) : null
+        if (raw) {
+            const parsed = JSON.parse(raw) as unknown
+            if (
+                parsed !== null &&
+                typeof parsed === 'object' &&
+                'width' in parsed &&
+                'height' in parsed &&
+                typeof (parsed as Record<string, unknown>).width === 'number' &&
+                typeof (parsed as Record<string, unknown>).height === 'number'
+            ) {
+                const { width, height } = parsed as { width: number; height: number }
+                // Clamp to sane bounds: 300–3840 × 200–2160
+                return {
+                    width: Math.max(300, Math.min(3840, width)),
+                    height: Math.max(200, Math.min(2160, height)),
+                }
+            }
+        }
+    } catch {
+        // Silently ignore storage errors (private mode, etc.)
+    }
+    return { width: 900, height: 600 }
+}
+
+const _initialPreviewSize = readPersistedPreviewSize()
+
 // ── Store ─────────────────────────────────────────────────────────────────────
 
 export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => ({
@@ -434,6 +504,10 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     unlockedLeftTabs: new Set<string>(DEFAULT_UNLOCKED_LEFT_TABS),
     hasUsedBreakpoint: false,
 
+    // T5.2: LivePreview node size — restore from localStorage or use defaults
+    previewWidth: _initialPreviewSize.width,
+    previewHeight: _initialPreviewSize.height,
+
     // GLASS.1d: Violation scroll target
     scrollToViolationId: null,
 
@@ -441,12 +515,12 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     governanceRuleFilter: null,
 
     // GLASS.3.2: Panel collapse/expand defaults
-    leftPanelWidth: 224,
-    rightPanelWidth: 288,
+    leftPanelWidth: DEFAULT_LEFT_PANEL_WIDTH,
+    rightPanelWidth: DEFAULT_RIGHT_PANEL_WIDTH,
     leftPanelCollapsed: false,
     rightPanelCollapsed: false,
-    _leftPanelSavedWidth: 224,
-    _rightPanelSavedWidth: 288,
+    _leftPanelSavedWidth: DEFAULT_LEFT_PANEL_WIDTH,
+    _rightPanelSavedWidth: DEFAULT_RIGHT_PANEL_WIDTH,
 
     startDrag: (sourceId) => set({ dragSourceId: sourceId }),
     endDrag: () => set({ dragSourceId: null }),
@@ -466,12 +540,17 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
         }),
 
     setActiveFile: async (filePath: string) => {
+        // Increment sequence counter — if another setActiveFile call arrives
+        // while we're awaiting, our seq will be stale and we bail out.
+        const seq = ++_setActiveFileSeq
+
         const { saveState, activeFilePath } = get()
 
         // ── Dirty-file flush ─────────────────────────────────────────────────
         // If the current file has uncommitted edits, save them before switching
         // so no work is lost. This is the "Atomic Write Check" from Task 4.
-        if (saveState === 'editing' && activeFilePath) {
+        if (saveState === 'editing' && activeFilePath &&
+            !activeFilePath.startsWith('/var/folders/') && !activeFilePath.startsWith('/tmp/')) {
             if (_saveTimer !== null) {
                 clearTimeout(_saveTimer)
                 _saveTimer = null
@@ -479,6 +558,7 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
             // Lazy import to avoid a circular module dependency:
             // canvasStore ← editorStore ← canvasStore.
             const { useEditorStore } = await import('./editorStore')
+            if (seq !== _setActiveFileSeq) return // superseded
             const currentCode = useEditorStore.getState().rawCode
             if (currentCode) {
                 try {
@@ -491,12 +571,14 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
                 }
             }
         }
+        if (seq !== _setActiveFileSeq) return // superseded
 
         // ── Clean Slate Protocol (Mithril Rule) ──────────────────────────────
         // Wipe the AST and all layer-tree state BEFORE setting the new path.
         // This removes every data-flint-id overlay from the previous file
         // immediately, preventing "Ghost Layers".
         const { useEditorStore } = await import('./editorStore')
+        if (seq !== _setActiveFileSeq) return // superseded
         useEditorStore.getState().clearAST()
 
         set({ activeFilePath: filePath, saveState: 'idle' })
@@ -504,6 +586,7 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
         // ── Hydrate editor with new file content ─────────────────────────────
         try {
             const content = await window.flintAPI.readFile(filePath)
+            if (seq !== _setActiveFileSeq) return // superseded — don't set stale content
             useEditorStore.getState().setCode(content)
         } catch (err) {
             console.error('[Flint] Failed to read file:', err)
@@ -589,6 +672,19 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     // GLASS.1e: Governance rule filter
     setGovernanceRuleFilter: (type) => set({ governanceRuleFilter: type }),
 
+    // ── T5.2: LivePreview node size ────────────────────────────────────────────
+    setPreviewSize: (width, height) => {
+        if (width === get().previewWidth && height === get().previewHeight) return
+        set({ previewWidth: width, previewHeight: height })
+        try {
+            if (typeof localStorage !== 'undefined') {
+                localStorage.setItem(PREVIEW_SIZE_KEY, JSON.stringify({ width, height }))
+            }
+        } catch {
+            // Silently ignore storage errors
+        }
+    },
+
     // ── GLASS.3.2: Panel collapse/expand ────────────────────────────────────
     setLeftPanelWidth: (w) => set({ leftPanelWidth: w }),
     setRightPanelWidth: (w) => set({ rightPanelWidth: w }),
@@ -655,12 +751,12 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
             scrollToViolationId: null,
             governanceRuleFilter: null,
             // GLASS.3.2: Reset panel collapse state
-            leftPanelWidth: 224,
-            rightPanelWidth: 288,
+            leftPanelWidth: DEFAULT_LEFT_PANEL_WIDTH,
+            rightPanelWidth: DEFAULT_RIGHT_PANEL_WIDTH,
             leftPanelCollapsed: false,
             rightPanelCollapsed: false,
-            _leftPanelSavedWidth: 224,
-            _rightPanelSavedWidth: 288,
+            _leftPanelSavedWidth: DEFAULT_LEFT_PANEL_WIDTH,
+            _rightPanelSavedWidth: DEFAULT_RIGHT_PANEL_WIDTH,
         })
     },
 
@@ -699,6 +795,9 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
             // between the debounce start and the timer firing.
             const filePath = get().activeFilePath
             if (!filePath) return
+            // Never auto-save into temp dirs — macOS cleans these up and the
+            // subsequent ENOENT from atomicWrite floods the server log.
+            if (filePath.startsWith('/var/folders/') || filePath.startsWith('/tmp/')) return
 
             set({ saveState: 'saving' })
             window.flintAPI

@@ -25,6 +25,7 @@ import {
     TIER2_DELTA_E,
     type LabTokenEntry,
 } from './colorDistance.js'
+import { classifyDataName } from './componentClassification.js'
 
 // CJS/ESM interop (same pattern as tailwindMigrator.ts)
 const traverse =
@@ -697,55 +698,10 @@ function getDataNodeId(element: t.JSXElement): string | null {
 
 /**
  * Classify a data-name string to a component type.
- * Same logic as figmaMcpParser but inline to avoid circular deps.
+ * Delegates to the shared componentClassification module (no circular deps).
  */
 function classifyName(dataName: string): string | null {
-    const lower = dataName.toLowerCase().trim()
-
-    const directMap: Record<string, string> = {
-        'input': 'input',
-        'textfield': 'input',
-        'text field': 'input',
-        'select': 'select',
-        'dropdown': 'select',
-        'textarea': 'textarea',
-        'text area': 'textarea',
-        'button': 'button',
-        'btn': 'button',
-        'card': 'card',
-        'avatar': 'avatar',
-        'badge': 'badge',
-        'chip': 'badge',
-        'tabs': 'tabs',
-        'tab': 'tabs',
-        '.tab item': 'tabs',
-        'separator': 'separator',
-        'divider': 'separator',
-        'label': 'label',
-    }
-
-    if (directMap[lower]) return directMap[lower]
-
-    // Substring match
-    const orderedKeys = [
-        'textarea', 'text area',
-        'textfield', 'text field',
-        'dropdown',
-        'input',
-        'select',
-        'button', 'btn',
-        'card',
-        'avatar',
-        'badge', 'chip',
-        'tabs', 'tab',
-        'separator', 'divider',
-    ]
-
-    for (const key of orderedKeys) {
-        if (lower.includes(key)) return directMap[key]
-    }
-
-    return null
+    return classifyDataName(dataName)
 }
 
 // ---------------------------------------------------------------------------

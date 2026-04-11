@@ -7,6 +7,11 @@ import { getEmitterForLibrary, type LibraryCodeEmitter } from './hydroPaste-emit
 import { hexToLab, findNearestToken, TIER2_DELTA_E, type LabTokenEntry } from './colorDistance.js';
 import { analyzeLayout, layoutClassesToString } from './layoutAnalyzer.js';
 import { HTML_INTRINSIC_TAGS, REACT_BUILTINS } from './htmlIntrinsics.js';
+import {
+    classifyComponentName,
+    type ComponentType as SharedComponentType,
+    type ComponentClassification as SharedComponentClassification,
+} from './componentClassification.js';
 
 // Internal normalised shape used only within this module
 interface NormalisedToken {
@@ -243,26 +248,12 @@ export type FrameClassification =
 
 /**
  * Library-agnostic component type returned by classifyComponent.
- * Maps to library-specific markup via emitNamedComponent.
+ * Re-exported from the shared componentClassification module.
  */
-export type ComponentType =
-    | 'input'
-    | 'textarea'
-    | 'select'
-    | 'checkbox'
-    | 'switch'
-    | 'avatar'
-    | 'badge'
-    | 'tabs'
-    | 'separator'
-    | 'alert'
+export type ComponentType = SharedComponentType
 
-/** Full result from classifyComponent — null when no keyword matched. */
-export interface ComponentClassification {
-    type: ComponentType
-    /** Keywords that triggered this match */
-    matchedKeywords: string[]
-}
+/** Full result from classifyComponent — re-exported from shared module. */
+export type ComponentClassification = SharedComponentClassification
 
 /**
  * Combined classification result from classifyFrame.
@@ -364,102 +355,7 @@ export function classifyFrame(node: FigmaNode, depth: number): FrameClassificati
  * Evaluated in order — first match wins.
  */
 export function classifyComponent(name: string, componentType?: string): ComponentClassification | null {
-    // High-confidence path: componentType set by Figma MCP data-name enrichment
-    if (componentType) {
-        return { type: componentType as ComponentType, matchedKeywords: [`data-name:${componentType}`] }
-    }
-
-    const lower = name.toLowerCase()
-
-    // textarea before input — "text-field" contains "field" but "text-area" / "textarea" is more specific
-    if (lower.includes('textarea') || lower.includes('text-area') || lower.includes('multiline')) {
-        const matched: string[] = []
-        if (lower.includes('textarea')) matched.push('textarea')
-        if (lower.includes('text-area')) matched.push('text-area')
-        if (lower.includes('multiline')) matched.push('multiline')
-        return { type: 'textarea', matchedKeywords: matched }
-    }
-
-    // input — "input" or "field" (but not preceded by "text-" which was caught above)
-    if (lower.includes('input') || lower.includes('field') || lower.includes('textfield') || lower.includes('text-field')) {
-        const matched: string[] = []
-        if (lower.includes('input')) matched.push('input')
-        if (lower.includes('field')) matched.push('field')
-        if (lower.includes('textfield')) matched.push('textfield')
-        if (lower.includes('text-field')) matched.push('text-field')
-        return { type: 'input', matchedKeywords: matched }
-    }
-
-    // select / dropdown / combobox
-    if (lower.includes('select') || lower.includes('dropdown') || lower.includes('combobox')) {
-        const matched: string[] = []
-        if (lower.includes('select')) matched.push('select')
-        if (lower.includes('dropdown')) matched.push('dropdown')
-        if (lower.includes('combobox')) matched.push('combobox')
-        return { type: 'select', matchedKeywords: matched }
-    }
-
-    // checkbox / check-box
-    if (lower.includes('checkbox') || lower.includes('check-box')) {
-        const matched: string[] = []
-        if (lower.includes('checkbox')) matched.push('checkbox')
-        if (lower.includes('check-box')) matched.push('check-box')
-        return { type: 'checkbox', matchedKeywords: matched }
-    }
-
-    // switch / toggle
-    if (lower.includes('switch') || lower.includes('toggle')) {
-        const matched: string[] = []
-        if (lower.includes('switch')) matched.push('switch')
-        if (lower.includes('toggle')) matched.push('toggle')
-        return { type: 'switch', matchedKeywords: matched }
-    }
-
-    // avatar / profile-pic
-    if (lower.includes('avatar') || lower.includes('profile-pic')) {
-        const matched: string[] = []
-        if (lower.includes('avatar')) matched.push('avatar')
-        if (lower.includes('profile-pic')) matched.push('profile-pic')
-        return { type: 'avatar', matchedKeywords: matched }
-    }
-
-    // badge / tag / chip
-    if (lower.includes('badge') || lower.includes('tag') || lower.includes('chip')) {
-        const matched: string[] = []
-        if (lower.includes('badge')) matched.push('badge')
-        if (lower.includes('tag')) matched.push('tag')
-        if (lower.includes('chip')) matched.push('chip')
-        return { type: 'badge', matchedKeywords: matched }
-    }
-
-    // tabs — but NOT "table"
-    // Guard: "table" contains "tab" so we must exclude it explicitly
-    if ((lower.includes('tab') && !lower.includes('table')) || lower === 'tabs') {
-        const matched: string[] = []
-        if (lower.includes('tab')) matched.push('tab')
-        return { type: 'tabs', matchedKeywords: matched }
-    }
-
-    // separator / divider / hr
-    if (lower.includes('separator') || lower.includes('divider') || lower === 'hr') {
-        const matched: string[] = []
-        if (lower.includes('separator')) matched.push('separator')
-        if (lower.includes('divider')) matched.push('divider')
-        if (lower === 'hr') matched.push('hr')
-        return { type: 'separator', matchedKeywords: matched }
-    }
-
-    // alert / message / notification / toast (per D2C.4 contract)
-    if (lower.includes('alert') || lower.includes('message') || lower.includes('notification') || lower.includes('toast')) {
-        const matched: string[] = []
-        if (lower.includes('alert')) matched.push('alert')
-        if (lower.includes('message')) matched.push('message')
-        if (lower.includes('notification')) matched.push('notification')
-        if (lower.includes('toast')) matched.push('toast')
-        return { type: 'alert', matchedKeywords: matched }
-    }
-
-    return null
+    return classifyComponentName(name, componentType)
 }
 
 // ---------------------------------------------------------------------------
@@ -536,6 +432,12 @@ function isLikelyHeading(node: FigmaNode, depth: number): boolean {
 // ---------------------------------------------------------------------------
 
 /**
+ * Maximum recursion depth for Figma tree walkers.
+ * Prevents call-stack overflow on deeply nested Figma trees (100+ levels).
+ */
+const MAX_DEPTH = 50;
+
+/**
  * Generic (no-library) JSX generation.
  * Produces plain div/button/h2/p output with Tailwind utility classes.
  */
@@ -546,6 +448,12 @@ function generateJSX(
     tokenMappings: Record<string, string>,
     depth = 0,
 ): string {
+    // Guard against deeply nested Figma trees
+    if (depth > MAX_DEPTH) {
+        const indent = "  ".repeat(depth);
+        return `${indent}<div>{/* Depth limit (${MAX_DEPTH}) exceeded */}</div>`;
+    }
+
     const indent = "  ".repeat(depth);
     const nodeType = node.type ?? "FRAME";
     const name = node.name ?? "Element";
@@ -614,6 +522,11 @@ function generateJSXWithEmitter(
     emitter: LibraryCodeEmitter,
     depth = 0
 ): string {
+    // Guard against deeply nested Figma trees
+    if (depth > MAX_DEPTH) {
+        return emitter.wrapContainer('', `{/* Depth limit (${MAX_DEPTH}) exceeded */}`, depth);
+    }
+
     const nodeType = node.type ?? "FRAME";
     const nodeName = node.name ?? "Element";
 
@@ -734,14 +647,17 @@ function componentNameFromNode(node: FigmaNode): string {
 function applyClassificationOverrides(
     node: FigmaNode,
     overrides: Map<string, string>,
+    depth = 0,
 ): void {
+    if (depth > MAX_DEPTH) return
+
     const name = node.name ?? ''
     if (name && overrides.has(name)) {
         node.componentType = overrides.get(name)
     }
     if (node.children) {
         for (const child of node.children) {
-            applyClassificationOverrides(child, overrides)
+            applyClassificationOverrides(child, overrides, depth + 1)
         }
     }
 }

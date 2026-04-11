@@ -345,8 +345,17 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
                 // ── FIGMA-MAP.2: Extract and persist component ID mappings ────────
                 try {
                     const parsedPayload = typeof healedPayload === 'string' ? JSON.parse(healedPayload) : healedPayload
+                    /** Minimal structural interface for Figma ingestion nodes. */
+                    interface FigmaIngestionNode {
+                        figmaComponentId?: string
+                        figmaComponent?: string
+                        figmaFileKey?: string
+                        children?: FigmaIngestionNode[]
+                        [key: string]: unknown
+                    }
+
                     const figmaComponents: Array<{ id: string; name: string; fileKey: string }> = []
-                    const extractIds = (node: any) => {
+                    const extractIds = (node: FigmaIngestionNode) => {
                         if (node?.figmaComponentId && node?.figmaComponent) {
                             figmaComponents.push({
                                 id: node.figmaComponentId,
@@ -358,7 +367,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
                             for (const child of node.children) extractIds(child)
                         }
                     }
-                    extractIds(parsedPayload)
+                    extractIds(parsedPayload as FigmaIngestionNode)
 
                     if (figmaComponents.length > 0) {
                         // Persist mappings to SQLite

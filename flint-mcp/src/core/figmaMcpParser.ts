@@ -6,164 +6,124 @@
 // and enriches the FigmaNode tree so the D2C emitters produce correct components.
 // ---------------------------------------------------------------------------
 
+import { parse as babelParse } from '@babel/parser'
+import _babelTraverse from '@babel/traverse'
+import * as t from '@babel/types'
+import { classifyDataName as _classifyDataName } from './componentClassification.js'
+
+// CJS/ESM interop
+const babelTraverse = (typeof _babelTraverse === 'function' ? _babelTraverse : (_babelTraverse as unknown as { default: typeof _babelTraverse }).default) as typeof _babelTraverse
+
 export interface ComponentHint {
     dataName: string
     componentType: string | null
 }
 
-// Map well-known Figma data-name values to component types
-const DATA_NAME_MAP: Record<string, string> = {
-    'input': 'input',
-    'textfield': 'input',
-    'text field': 'input',
-    'select': 'select',
-    'dropdown': 'select',
-    'textarea': 'textarea',
-    'text area': 'textarea',
-    'button': 'button',
-    'btn': 'button',
-    'card': 'card',
-    'avatar': 'avatar',
-    'badge': 'badge',
-    'chip': 'badge',
-    'tabs': 'tabs',
-    'tab': 'tabs',
-    '.tab item': 'tabs',
-    'separator': 'separator',
-    'divider': 'separator',
-    'label': 'label',
-    'header': 'header',
-    'footer': 'footer',
-    'nav': 'nav',
-    'navbar': 'nav',
-    'navigation': 'nav',
-    'checkbox': 'checkbox',
-    'switch': 'switch',
-    'toggle': 'switch',
-    'alert': 'alert',
-    'dialog': 'dialog',
-    'modal': 'dialog',
-}
-
-// Names to ignore (decorative or structural)
-const SKIP_NAMES = new Set(['icon', 'vector', 'shape', 'ellipse', 'rectangle', 'line', 'frame', 'group', 'auto layout'])
-
 /**
  * Classify a data-name string into a component type.
- * Exact match first, then substring search, then null.
+ * Delegates to the shared componentClassification module.
  */
 export function classifyDataName(dataName: string): string | null {
-    const lower = dataName.toLowerCase().trim()
-
-    // Skip decorative/structural names
-    if (SKIP_NAMES.has(lower)) return null
-
-    // Exact match
-    if (DATA_NAME_MAP[lower]) return DATA_NAME_MAP[lower]
-
-    // Substring match — check if any key appears in the name
-    // Order matters: check more specific first
-    const orderedKeys = [
-        'textarea', 'text area',  // before 'input'
-        'textfield', 'text field',
-        'checkbox',
-        'dropdown',
-        'input',
-        'select',
-        'button', 'btn',
-        'card',
-        'avatar',
-        'badge', 'chip',
-        'tabs', 'tab',
-        'separator', 'divider',
-        'switch', 'toggle',
-        'alert',
-        'dialog', 'modal',
-        'navbar', 'navigation', 'nav',
-        'header',
-        'footer',
-    ]
-
-    for (const key of orderedKeys) {
-        if (lower.includes(key)) return DATA_NAME_MAP[key]
-    }
-
-    return null
+    return _classifyDataName(dataName)
 }
 
 /**
  * Parse raw JSX from Figma MCP get_design_context.
- * Extracts data-name and data-node-id pairs.
+ * Extracts data-name and data-node-id pairs using Babel AST traversal.
+ *
+ * Commandment 13: Uses Babel parser with JSX plugin instead of regex,
+ * ensuring robust handling of multi-line elements and edge cases.
  */
 export function parseFigmaMcpResponse(jsxCode: string): Map<string, ComponentHint> {
     const hints = new Map<string, ComponentHint>()
     if (!jsxCode) return hints
 
-    // Match data-node-id="..." and data-name="..." in any order within the same element
-    // Strategy: find all opening tags with data-node-id, then extract data-name from same tag
-    const tagRegex = /<[a-zA-Z][^>]*data-node-id="([^"]+)"[^>]*>/g
-    const nameRegex = /data-name="([^"]+)"/
+    // Wrap in a function so Babel can parse standalone JSX fragments
+    const wrapped = `function _wrapper() { return (<>${jsxCode}</>); }`
 
-    let match: RegExpExecArray | null
-    while ((match = tagRegex.exec(jsxCode)) !== null) {
-        const fullTag = match[0]
-        const nodeId = match[1]
-
-        const nameMatch = fullTag.match(nameRegex)
-        if (nameMatch) {
-            const dataName = nameMatch[1]
-            const componentType = classifyDataName(dataName)
-            hints.set(nodeId, { dataName, componentType })
-        }
+    let ast: ReturnType<typeof babelParse>
+    try {
+        ast = babelParse(wrapped, {
+            sourceType: 'module',
+            plugins: ['jsx', 'typescript'],
+            errorRecovery: true,
+        })
+    } catch {
+        // If Babel cannot parse at all, return empty hints rather than crashing
+        return hints
     }
 
-    // Also handle tags where data-name appears before data-node-id
-    const reverseRegex = /<[a-zA-Z][^>]*data-name="([^"]+)"[^>]*data-node-id="([^"]+)"[^>]*>/g
-    while ((match = reverseRegex.exec(jsxCode)) !== null) {
-        const dataName = match[1]
-        const nodeId = match[2]
-        if (!hints.has(nodeId)) {
-            const componentType = classifyDataName(dataName)
-            hints.set(nodeId, { dataName, componentType })
-        }
-    }
+    babelTraverse(ast, {
+        JSXOpeningElement(path) {
+            const attrs = path.node.attributes
+            let nodeId: string | null = null
+            let dataName: string | null = null
+
+            for (const attr of attrs) {
+                if (!t.isJSXAttribute(attr) || !t.isJSXIdentifier(attr.name)) continue
+                if (attr.name.name === 'data-node-id' && t.isStringLiteral(attr.value)) {
+                    nodeId = attr.value.value
+                }
+                if (attr.name.name === 'data-name' && t.isStringLiteral(attr.value)) {
+                    dataName = attr.value.value
+                }
+            }
+
+            if (nodeId && dataName && !hints.has(nodeId)) {
+                const componentType = classifyDataName(dataName)
+                hints.set(nodeId, { dataName, componentType })
+            }
+        },
+    })
 
     return hints
 }
 
 /**
+ * Normalize a Figma node ID for lookup: strip leading "I" prefix and
+ * take only the base segment (before semicolons for instance IDs).
+ */
+function normalizeNodeId(id: string): string {
+    const stripped = id.startsWith('I') ? id.slice(1) : id
+    return stripped.split(';')[0]
+}
+
+/**
  * Walk a FigmaNode tree and set componentType from hints.
  * Matches on node IDs (supports Figma's "I" prefix for instances).
+ *
+ * Performance: builds a normalized-ID lookup map from hints before walking,
+ * reducing the inner loop from O(n*m) to O(n) with O(m) pre-processing.
  */
 export function enrichFigmaNodes(
     nodes: Array<Record<string, unknown>>,
     hints: Map<string, ComponentHint>,
 ): void {
-    function walk(node: Record<string, unknown>): void {
-        // Try to match node ID against hints
-        const nodeId = node['id'] as string | undefined
-        const nodeName = node['name'] as string | undefined
-
-        if (nodeId && hints.has(nodeId)) {
-            const hint = hints.get(nodeId)!
-            if (hint.componentType) {
-                node['componentType'] = hint.componentType
-            }
+    // Pre-build a normalized-ID lookup map: normalizedBaseId → ComponentHint
+    const normalizedHintMap = new Map<string, ComponentHint>()
+    for (const [hintId, hint] of hints) {
+        if (hint.componentType) {
+            normalizedHintMap.set(normalizeNodeId(hintId), hint)
         }
+    }
 
-        // Also try matching by data-node-id format (Figma uses "1234:5678")
-        // The Figma MCP sometimes prefixes instance IDs with "I"
+    function walk(node: Record<string, unknown>): void {
+        const nodeId = node['id'] as string | undefined
+
         if (nodeId) {
-            // Try with and without "I" prefix
-            for (const [hintId, hint] of hints) {
-                const normalizedHintId = hintId.startsWith('I') ? hintId.slice(1) : hintId
-                const normalizedNodeId = nodeId.startsWith('I') ? nodeId.slice(1) : nodeId
+            // Direct match first (O(1) lookup)
+            if (hints.has(nodeId)) {
+                const hint = hints.get(nodeId)!
+                if (hint.componentType) {
+                    node['componentType'] = hint.componentType
+                }
+            }
 
-                // Match on the base ID (before semicolons for instance IDs)
-                const baseHintId = normalizedHintId.split(';')[0]
-                const baseNodeId = normalizedNodeId.split(';')[0]
-
-                if (baseHintId === baseNodeId && hint.componentType && !node['componentType']) {
+            // Normalized match via pre-built map (O(1) lookup instead of O(m) scan)
+            if (!node['componentType']) {
+                const normalizedId = normalizeNodeId(nodeId)
+                const hint = normalizedHintMap.get(normalizedId)
+                if (hint) {
                     node['componentType'] = hint.componentType
                 }
             }

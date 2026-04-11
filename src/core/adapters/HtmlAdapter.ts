@@ -198,11 +198,12 @@ export class HtmlAdapter implements IFlintAdapter {
     applyMutationBatch(
         code: string,
         mutations: ASTMutation[]
-    ): { code: string; inversions: InverseMutation[] } {
+    ): { code: string; inversions: InverseMutation[]; sideEffects: import('../ASTService').BatchSideEffect[] } {
         const ast = this.parse(code)
-        if (ast === null) return { code, inversions: [] }
+        if (ast === null) return { code, inversions: [], sideEffects: [] }
 
         const inversions: InverseMutation[] = []
+        const sideEffects: import('../ASTService').BatchSideEffect[] = []
 
         for (const mutation of mutations) {
             switch (mutation.op) {
@@ -300,7 +301,7 @@ export class HtmlAdapter implements IFlintAdapter {
             }
         }
 
-        return { code: this.generate(ast), inversions }
+        return { code: this.generate(ast), inversions, sideEffects }
     }
 
     /**

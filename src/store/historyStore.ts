@@ -152,6 +152,11 @@ interface HistoryActions {
     clear: () => void
 }
 
+// ── REVIEW FIX (2026-04-10): Bounded stacks ─────────────────────────────────
+// Each entry can hold a full file snapshot (restoreCode). Cap at 100 to prevent
+// unbounded memory growth during long editing sessions.
+const MAX_HISTORY = 100
+
 // ── Store ─────────────────────────────────────────────────────────────────────
 
 export const useHistoryStore = create<HistoryState & HistoryActions>((set, get) => ({
@@ -165,7 +170,11 @@ export const useHistoryStore = create<HistoryState & HistoryActions>((set, get) 
         if (filePath !== undefined) entry.filePath = filePath
         if (batchId !== undefined) entry.batchId = batchId
         if (redoPlan !== undefined) entry.redoPlan = redoPlan
-        const newPast = [...get().past, entry]
+        let newPast = [...get().past, entry]
+        // Evict oldest entries when the stack exceeds MAX_HISTORY
+        if (newPast.length > MAX_HISTORY) {
+            newPast = newPast.slice(newPast.length - MAX_HISTORY)
+        }
         set({ past: newPast, future: [], canUndo: true, canRedo: false })
     },
 
@@ -174,7 +183,10 @@ export const useHistoryStore = create<HistoryState & HistoryActions>((set, get) 
         if (filePath !== undefined) entry.filePath = filePath
         if (batchId !== undefined) entry.batchId = batchId
         if (redoPlan !== undefined) entry.redoPlan = redoPlan
-        const newPast = [...get().past, entry]
+        let newPast = [...get().past, entry]
+        if (newPast.length > MAX_HISTORY) {
+            newPast = newPast.slice(newPast.length - MAX_HISTORY)
+        }
         set({ past: newPast, canUndo: true })
     },
 

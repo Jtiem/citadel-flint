@@ -6,6 +6,73 @@
 
 ---
 
+## Session: A+ Audit Sweep — Sprint 2 (Electron, Stores, Figma, AST) (2026-04-10) — IN PROGRESS
+
+**Goal:** Run A+ code reviews across 4 more areas and fix all criticals and majors found.
+
+### Areas audited
+
+| Area | Grade | Criticals | Majors |
+| ---- | ----- | --------- | ------ |
+| Electron Main Process | B+ | 2 | 4 |
+| Zustand Stores | B | 2 | 4 |
+| Figma Pipeline | B+ | 0 | 5 |
+| AST Surgery | A- | 0 | 3 |
+
+Total: 4 criticals, 16 majors across 4 areas.
+
+### Finding summary
+
+#### Electron Main Process (B+)
+
+- CRITICAL: 7 raw `fs.writeFile` calls bypassing FileTransactionManager (Commandment 14 violation)
+- CRITICAL: 30 `any` types in HydroPaste (loses type safety on Figma node traversal)
+- MAJOR: Path validation gaps (user-supplied paths not sanitized before IPC handler use)
+- MAJOR: `shadowCommit` scope too broad (commits unrelated tracked files)
+- MAJOR: Null check ordering (dereference before guard in 3 handlers)
+
+#### Zustand Stores (B)
+
+- CRITICAL: `orchestratorStore` directly imports `window.flintAPI` (IPC belongs in components/hooks — Commandment 9)
+- CRITICAL: `editorStore` cross-imports `historyStore` + wipes undo stack on file switch without confirmation
+- MAJOR: IPC calls inside store actions (4 stores)
+- MAJOR: `canvasStore` too broad — 800+ lines, needs splitting
+- MAJOR: 4 stores have zero test coverage
+- MAJOR: Unbounded arrays in `notificationStore` and `annotationStore`
+
+#### Figma Pipeline (B+)
+
+- MAJOR: Component classification logic duplicated 3x (hydroPaste, figmaJsxTransformer, d2cRefinement)
+- MAJOR: No depth guard on recursive Figma node traversal (stack overflow on deep trees)
+- MAJOR: `any` type on Figma node input — no shared `FigmaNode` interface
+- MAJOR: O(n*m) token-lookup loop in transformer (should be O(1) map)
+- MAJOR: Regex used to detect JSX in figmaMcpParser (Commandment 13 violation)
+
+#### AST Surgery (A-)
+
+- MAJOR: Ancestor-to-descendant move not detected — produces corrupt AST silently
+- MAJOR: IPC call inside `recoveryController` pure function
+- MAJOR: ~800 lines of mutation logic duplicated between `ast-modifier.ts` and `ASTService.ts`
+
+### Fix agents deployed
+
+Fix agents have been deployed for all criticals and majors. Work in progress.
+
+### Review reports
+
+- `.flint-context/reviews/electron-main-aplus-review-2026-04-10.md`
+- `.flint-context/reviews/zustand-stores-aplus-review-2026-04-10.md`
+- `.flint-context/reviews/figma-pipeline-aplus-review-2026-04-10.md`
+- `.flint-context/reviews/ast-surgery-aplus-review-2026-04-10.md`
+
+### Next steps
+
+- Confirm fix agents have resolved all 4 criticals before marking COMPLETE
+- Re-run full test suite after fixes land and record results here
+- If all criticals clear: mark session COMPLETE and proceed to Sprint 3 areas
+
+---
+
 ## Session: A+ Audit Sweep — CI Gate, Forge, MCP Engine, Web Build (2026-04-10) — COMPLETE
 
 **Goal:** Run A+ code reviews across 4 previously unaudited areas and fix all criticals and majors found.

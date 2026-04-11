@@ -18,12 +18,12 @@
 // These types are language-agnostic commands representing user / AI intent.
 // Adapters receive these commands and translate them into framework-specific
 // AST mutations.
-export type { ASTMutation, InverseMutation } from '../ASTService'
+export type { ASTMutation, InverseMutation, BatchSideEffect } from '../ASTService'
 export type { VisualLayer } from '../ast-parser'
 
 // ── IFlintAdapter ────────────────────────────────────────────────────────────
 
-import type { ASTMutation, InverseMutation } from '../ASTService'
+import type { ASTMutation, InverseMutation, BatchSideEffect } from '../ASTService'
 import type { VisualLayer } from '../ast-parser'
 
 /**
@@ -68,7 +68,7 @@ export interface IFlintAdapter {
     applyMutationBatch(
         code: string,
         mutations: ASTMutation[]
-    ): { code: string; inversions: InverseMutation[] }
+    ): { code: string; inversions: InverseMutation[]; sideEffects: BatchSideEffect[] }
 
     /**
      * Returns `true` when the element identified by `flintId`

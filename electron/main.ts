@@ -1109,9 +1109,9 @@ app.whenReady().then(async () => {
             const token = pending.find((t) => t.name === tokenName)
             if (!token) return { ok: false }
 
-            // Remove from pending
+            // Remove from pending (Commandment 12: atomic write via FTM)
             const remaining = pending.filter((t) => t.name !== tokenName)
-            await writeFile(pendingPath, JSON.stringify(remaining, null, 2), 'utf8')
+            await fileTransactionManager.write(pendingPath, JSON.stringify(remaining, null, 2))
 
             // Add to design-tokens.json
             let designTokens: Record<string, unknown> = {}
@@ -1134,7 +1134,7 @@ app.whenReady().then(async () => {
                 $type: token.type,
             }
 
-            await writeFile(tokensPath, JSON.stringify(designTokens, null, 2), 'utf8')
+            await fileTransactionManager.write(tokensPath, JSON.stringify(designTokens, null, 2))
             return { ok: true }
         } catch {
             return { ok: false }
@@ -1149,7 +1149,7 @@ app.whenReady().then(async () => {
             const raw = await readFile(pendingPath, 'utf8')
             const pending = JSON.parse(raw) as Array<{ name: string }>
             const remaining = pending.filter((t) => t.name !== tokenName)
-            await writeFile(pendingPath, JSON.stringify(remaining, null, 2), 'utf8')
+            await fileTransactionManager.write(pendingPath, JSON.stringify(remaining, null, 2))
             return { ok: true }
         } catch {
             return { ok: false }
@@ -2161,6 +2161,9 @@ app.whenReady().then(async () => {
     // Used by LaunchScreen to display grade badges on recent projects.
     ipcMain.handle('project:get-health-grade', async (_e, projectPath: unknown): Promise<{ grade: string; score: number; updatedAt: string } | null> => {
         if (typeof projectPath !== 'string') return null
+        // Path validation: must be absolute and within user home directory
+        const home = app.getPath('home')
+        if (!path.isAbsolute(projectPath) || !projectPath.startsWith(home + path.sep)) return null
         try {
             const snapshotPath = path.join(projectPath, '.flint', 'debt-snapshot.json')
             const raw = await readFile(snapshotPath, 'utf-8')
@@ -2335,6 +2338,80 @@ app.whenReady().then(async () => {
     ipcMain.handle('ai:apply-batch', (): { ok: boolean } => ({ ok: true }))
 
     // ── Phase N: Figma-to-Flint AST Hydration (hydroPaste) ───────────────
+
+    /** Figma node styles extracted from the plugin payload. */
+    interface HydroFigmaStyles {
+        layoutMode?: string
+        itemSpacing?: number
+        paddingTop?: number
+        paddingRight?: number
+        paddingBottom?: number
+        paddingLeft?: number
+        primaryAxisAlignItems?: string
+        counterAxisAlignItems?: string
+        width?: number
+        height?: number
+        fillColor?: string
+        fillOpacity?: number
+        strokeColor?: string
+        strokeWeight?: number
+        cornerRadius?: number
+        opacity?: number
+        fontSize?: number
+        fontStyle?: string
+        textColor?: string
+        letterSpacing?: number
+        lineHeight?: number
+    }
+
+    /** A single node in the Figma-to-Flint hydration payload. */
+    interface HydroNodeData {
+        figmaComponent?: string
+        props?: Record<string, string | number | boolean>
+        styles?: HydroFigmaStyles
+        children?: HydroNodeData[]
+    }
+
+    /** A resolver entry from flint-manifest.json. */
+    interface HydroResolver {
+        match: Record<string, string[]>
+        detect?: string[]
+        excludeDetect?: string[]
+        skip?: boolean
+        componentName: string
+        importPath: string
+        propMap?: Record<string, string>
+        defaultProps?: Record<string, string | number | boolean>
+        leafComponent?: boolean
+        wrapperTag?: string
+        variantToProp?: { field: string; map: Record<string, Record<string, string | number | boolean>> }
+    }
+
+    /** A resolved component definition produced by resolveComponent(). */
+    interface HydroResolvedDef {
+        componentName: string
+        importPath: string
+        propMap: Record<string, string>
+        defaultProps: Record<string, string | number | boolean>
+        leafComponent?: boolean
+        _resolvedVia: 'exact' | 'resolver' | 'fuzzy'
+        _wrapperTag?: string
+        _skip?: boolean
+    }
+
+    /** The manifest shape relevant to HydroPaste. */
+    interface HydroManifest {
+        components: Record<string, HydroResolvedDef>
+        resolvers?: HydroResolver[]
+    }
+
+    /** Result of generateJsxElement — a Babel JSXElement with metadata. */
+    interface HydroGeneratedElement {
+        element: import('@babel/types').JSXElement | import('@babel/types').JSXText
+        name: string
+        import?: string
+    }
+
     ipcMain.handle(ipcChannel('hydro-paste'), async (_event, payloadStr: unknown) => {
         if (typeof payloadStr !== 'string') return { error: 'Invalid payload' }
 
@@ -2342,7 +2419,7 @@ app.whenReady().then(async () => {
             const payload = JSON.parse(payloadStr)
 
             // Read manifest — try project root first, then home dir
-            let manifest: any = { components: {} }
+            let manifest: HydroManifest = { components: {} }
             const searchPaths = [
                 activeProjectRoot ? path.join(activeProjectRoot, BRAND.manifestFile) : null,
                 path.join(app.getPath('home'), BRAND.manifestFile),
@@ -2370,11 +2447,11 @@ app.whenReady().then(async () => {
             }
 
             const components = manifest.components || {}
-            const resolvers: any[] = manifest.resolvers || []
+            const resolvers: HydroResolver[] = manifest.resolvers || []
             const requiredImports = new Set<string>()
 
             // ── Figma styles → Tailwind class converter ────────────────────
-            function stylesToTailwind(styles: Record<string, any> | undefined): string {
+            function stylesToTailwind(styles: HydroFigmaStyles | undefined): string {
                 if (!styles) return ''
                 const cls: string[] = []
 
@@ -2507,7 +2584,7 @@ app.whenReady().then(async () => {
 
             // ── Resolver matcher ───────────────────────────────────────────
             // Matches a parsed variant descriptor + props against the resolvers array
-            function resolveComponent(nodeData: any): any | null {
+            function resolveComponent(nodeData: HydroNodeData): HydroResolvedDef | null {
                 const descriptor = nodeData.figmaComponent || ''
                 const parsed = parseVariantDescriptor(descriptor)
                 const props = nodeData.props || {}
@@ -2547,11 +2624,11 @@ app.whenReady().then(async () => {
                     if (resolver.skip) return { _skip: true }
 
                     // Build resolved def
-                    const def: any = {
+                    const def: HydroResolvedDef = {
                         componentName: resolver.componentName,
                         importPath: resolver.importPath,
-                        propMap: { ...resolver.propMap },
-                        defaultProps: { ...resolver.defaultProps },
+                        propMap: { ...(resolver.propMap ?? {}) },
+                        defaultProps: { ...(resolver.defaultProps ?? {}) },
                         leafComponent: resolver.leafComponent || false,
                         _resolvedVia: 'resolver',
                         _wrapperTag: resolver.wrapperTag,
@@ -2579,7 +2656,7 @@ app.whenReady().then(async () => {
                 return null
             }
 
-            async function generateJsxElement(nodeData: any): Promise<any> {
+            async function generateJsxElement(nodeData: HydroNodeData): Promise<HydroGeneratedElement | null> {
                 const t = await import('@babel/types')
 
                 // Handle raw text nodes from Figma (type "_TextNode")
@@ -2599,7 +2676,7 @@ app.whenReady().then(async () => {
 
                 // Handle _Frame wrapper nodes with layout styles
                 if (nodeData.figmaComponent === '_Frame') {
-                    const childNodes: any[] = []
+                    const childNodes: HydroGeneratedElement[] = []
                     if (nodeData.children && Array.isArray(nodeData.children)) {
                         for (const child of nodeData.children) {
                             const generated = await generateJsxElement(child)
@@ -2620,9 +2697,9 @@ app.whenReady().then(async () => {
                 if (componentDef?._skip) return null
 
                 // Handle wrapper/container nodes — emit a <div> and recurse children
-                if (componentDef?._wrapperTag || (!componentDef && nodeData.children?.length > 0)) {
+                if (componentDef?._wrapperTag || (!componentDef && nodeData.children?.length)) {
                     const tag = componentDef?._wrapperTag || 'div'
-                    const childNodes: any[] = []
+                    const childNodes: HydroGeneratedElement[] = []
                     if (nodeData.children && Array.isArray(nodeData.children)) {
                         for (const child of nodeData.children) {
                             const generated = await generateJsxElement(child)
@@ -2649,8 +2726,8 @@ app.whenReady().then(async () => {
                 requiredImports.add(elementImport)
 
                 const jsxName = t.jsxIdentifier(componentDef.componentName)
-                const attributes: any[] = []
-                let childNodes: any[] = []
+                const attributes: import('@babel/types').JSXAttribute[] = []
+                let childNodes: HydroGeneratedElement[] = []
                 let textContent = ""
 
                 // Apply defaultProps from manifest/resolver (e.g., variant: "secondary", as: 3)
@@ -2685,7 +2762,7 @@ app.whenReady().then(async () => {
                             continue
                         }
 
-                        let attrValue: any = t.stringLiteral(String(value))
+                        let attrValue: import('@babel/types').StringLiteral | import('@babel/types').JSXExpressionContainer | null = t.stringLiteral(String(value))
                         if (value === "true") attrValue = null
                         if (value === "false") {
                             attrValue = t.jsxExpressionContainer(t.booleanLiteral(false))
@@ -2715,7 +2792,7 @@ app.whenReady().then(async () => {
                 const opening = t.jsxOpeningElement(jsxName, attributes, childNodes.length === 0 && !textContent)
                 const closing = childNodes.length === 0 && !textContent ? null : t.jsxClosingElement(jsxName)
 
-                const childrenBlock: any[] = childNodes.map((c: any) => c.element)
+                const childrenBlock: Array<import('@babel/types').JSXElement | import('@babel/types').JSXText> = childNodes.map((c) => c.element)
                 if (textContent) {
                     childrenBlock.unshift(t.jsxText(textContent))
                 }
@@ -2727,15 +2804,15 @@ app.whenReady().then(async () => {
             const rootElements = rawElements.filter(Boolean)
             if (rootElements.length === 0) return { error: 'No valid components found in payload' }
 
-            const _genMod: any = await import('@babel/generator')
-            const generate: any =
-                typeof _genMod === 'function' ? _genMod
-                : typeof _genMod.default === 'function' ? _genMod.default
-                : typeof _genMod.default?.default === 'function' ? _genMod.default.default
-                : _genMod.generate
+            const _genMod = await import('@babel/generator')
+            const generate: (node: import('@babel/types').Node) => { code: string } =
+                typeof _genMod === 'function' ? _genMod as unknown as (node: import('@babel/types').Node) => { code: string }
+                : typeof _genMod.default === 'function' ? _genMod.default as unknown as (node: import('@babel/types').Node) => { code: string }
+                : typeof (_genMod.default as Record<string, unknown>)?.default === 'function' ? (_genMod.default as Record<string, unknown>).default as unknown as (node: import('@babel/types').Node) => { code: string }
+                : (_genMod as Record<string, unknown>).generate as (node: import('@babel/types').Node) => { code: string }
 
             // Generate per-element snippets paired with their imports
-            const elements = rootElements.map((result: any) => {
+            const elements = rootElements.map((result: HydroGeneratedElement) => {
                 const { code } = generate(result.element)
                 return {
                     code,
@@ -3530,6 +3607,42 @@ app.whenReady().then(async () => {
         },
     )
 
+    // ── governance:apply-fix ──────────────────────────────────────────────────
+    //
+    // Calls flint_fix with dryRun:false to apply all Mithril + A11y fixes to a
+    // file and write the result to disk. Used by GovernanceDashboard "Fix all"
+    // batch action. Bypasses the renderer MCP allowlist intentionally — the
+    // main process owns the write path.
+    //
+    // Payload: (filePath: string)
+    // Return:  { fixesApplied: number; status: string } | null on error
+    ipcMain.handle(
+        'governance:apply-fix',
+        async (_event, filePath: unknown): Promise<{ fixesApplied: number; status: string } | null> => {
+            if (typeof filePath !== 'string') return null
+            const home = os.homedir()
+            if (filePath !== home && !filePath.startsWith(home + path.sep)) return null
+            try {
+                if (!mcpClient.status().connected) return null
+                const rawResult = await mcpClient.callTool('flint_fix', {
+                    file: filePath,
+                    dryRun: false,
+                })
+                if (!rawResult.content?.length || !rawResult.content[0].text) return null
+                const parsed = JSON.parse(rawResult.content[0].text) as {
+                    fixesApplied?: number
+                    status?: string
+                }
+                return {
+                    fixesApplied: parsed.fixesApplied ?? 0,
+                    status: parsed.status ?? 'unknown',
+                }
+            } catch {
+                return null
+            }
+        },
+    )
+
     // ── COUNSEL.3.2: governance:get-provenance-summary ─────────────────────────
     //
     // Returns a map of nodeId → { source, agentId?, timestamp } for all
@@ -3711,7 +3824,7 @@ app.whenReady().then(async () => {
         if (entries.length > 90) entries = entries.slice(-90)
         try {
             await mkdir(path.join(activeProjectRoot, '.flint'), { recursive: true })
-            await writeFile(histPath, JSON.stringify(entries, null, 2), 'utf-8')
+            await fileTransactionManager.write(histPath, JSON.stringify(entries, null, 2))
         } catch { /* best-effort */ }
     })
 
@@ -4311,6 +4424,11 @@ app.whenReady().then(async () => {
     ipcMain.handle(
         'setup:write-mcp-config',
         (_event, ideName: string, configPath: string, mcpServerPath: string) => {
+            // Path validation: configPath must be absolute and within user home directory
+            const home = os.homedir()
+            if (!path.isAbsolute(configPath) || !configPath.startsWith(home + path.sep)) {
+                throw new Error('setup:write-mcp-config — configPath must be within user home directory')
+            }
             // Ensure parent directory exists
             mkdirSync(path.dirname(configPath), { recursive: true })
 
@@ -5360,6 +5478,9 @@ ipcMain.handle('auto-update:install', () => {
 ipcMain.handle('auto-update:get-channel', () => getUpdateChannel())
 
 ipcMain.handle('auto-update:set-channel', (_event, payload: unknown) => {
+    if (typeof payload !== 'object' || payload === null) {
+        throw new Error('auto-update:set-channel — payload must be an object with a "channel" property')
+    }
     const { channel } = payload as { channel: string }
     if (channel !== 'stable' && channel !== 'beta') {
         throw new Error('auto-update:set-channel — invalid channel; must be "stable" or "beta"')

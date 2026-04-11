@@ -145,16 +145,24 @@ export class GitManager {
         if (!gitRoot) return
 
         const id = batchId ?? randomUUID()
-        // Only stage .flint/ files — NOT the entire working tree.
-        // `git add .` stages vite.config.ts and other source files, which
-        // updates the git index stat cache. Vite's config file watcher then
-        // detects a ctime change on vite.config.ts → full server restart →
-        // Electron restart → shadowCommit → git add . → loop forever.
+        // Stage .flint/ metadata files (always).
         // Guard: if .flint/ does not exist yet, git add will throw — skip.
         try {
             await execFileAsync('git', ['add', '.flint/'], { cwd: gitRoot })
         } catch {
             // .flint/ not present or nothing to add — treat as no-op
+        }
+
+        // Stage source files so Rewind/Time Machine can recover code changes.
+        // We use targeted glob patterns instead of `git add .` to avoid staging
+        // vite.config.ts (which would trigger Vite's file watcher → restart loop).
+        const sourcePatterns = ['src/', '*.tsx', '*.ts', '*.jsx', '*.js', '*.css']
+        for (const pattern of sourcePatterns) {
+            try {
+                await execFileAsync('git', ['add', pattern], { cwd: gitRoot })
+            } catch {
+                // Pattern didn't match any files — harmless, continue
+            }
         }
 
         // Avoid empty commits — check for staged changes first.

@@ -38,6 +38,7 @@ import {
 } from '@babel/types'
 import * as t from '@babel/types'
 import type { NodePath } from '@babel/traverse'
+import { isAncestorOf } from '../../shared/ast-utils'
 
 // ── CJS interop ───────────────────────────────────────────────────────────────
 // Same guard as ast-parser.ts — @babel/traverse is a CJS module.
@@ -157,6 +158,15 @@ export function moveNode(
     if (src.parentChildren === null) return fileAST
     const srcIdx = src.parentChildren.indexOf(src.node)
     if (srcIdx === -1) return fileAST
+
+    // Guard: ancestor-to-descendant moves cause data loss.
+    // Removing an ancestor from the tree also removes the target (its descendant),
+    // leaving the source node orphaned.
+    if (isAncestorOf(src.node, tgt.node)) {
+        throw new Error(
+            `moveNode: cannot move "${sourceId}" inside its own descendant "${targetId}" — this would cause data loss`
+        )
+    }
 
     // Pre-validate target constraints before any mutation.
     if (position === 'inside') {

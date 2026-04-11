@@ -16,7 +16,7 @@
  */
 
 import type { IFlintAdapter } from './types'
-import type { ASTMutation, InverseMutation } from '../ASTService'
+import type { ASTMutation, InverseMutation, BatchSideEffect } from '../ASTService'
 import type { VisualLayer } from '../ast-parser'
 
 // ── Pull in all Babel-backed implementations ──────────────────────────────────
@@ -85,7 +85,7 @@ export class ReactAdapter implements IFlintAdapter {
     applyMutationBatch(
         code: string,
         mutations: ASTMutation[]
-    ): { code: string; inversions: InverseMutation[] } {
+    ): { code: string; inversions: InverseMutation[]; sideEffects: BatchSideEffect[] } {
         return babelApplyMutationBatch(code, mutations)
     }
 
