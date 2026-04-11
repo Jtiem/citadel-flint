@@ -6,7 +6,9 @@
 
 ---
 
-## Session: COUNSEL.1 — Governance Experience Triage Foundation (2026-04-11) — IN PROGRESS
+## Session: COUNSEL.1 — Governance Experience Triage Foundation (2026-04-11) — COMPLETE
+
+All 7 tasks implemented. Committed as 9470eb8. Glass: 1961/1961, MCP: 4411/4411, TSC: 0 errors.
 
 **Goal:** Transform governance UX from verdict-first to guidance-first.
 
@@ -14,32 +16,44 @@
 
 | Task | Name | Priority | Status |
 | ---- | ---- | -------- | ------ |
-| COUNSEL.1.1 | Category Split Header | P0 | IN PROGRESS |
-| COUNSEL.1.2 | New-Code-First Default (Delta auto-enable) | P0 | IN PROGRESS |
-| COUNSEL.1.3 | Health Score Formula Unification | P0 | IN PROGRESS |
-| COUNSEL.1.4 | Violation Card Inline Diff | P1 | IN PROGRESS |
-| COUNSEL.1.5 | Auto-Fixable Label | P1 | IN PROGRESS |
-| COUNSEL.1.6 | A11y Batch Fix Button | P1 | IN PROGRESS |
-| COUNSEL.1.7 | 26 A11y Compliance Fixes | P0 | IN PROGRESS |
+| COUNSEL.1.1 | Category Split Header | P0 | COMPLETE |
+| COUNSEL.1.2 | New-Code-First Default (Delta auto-enable) | P0 | COMPLETE |
+| COUNSEL.1.3 | Health Score Formula Unification | P0 | COMPLETE |
+| COUNSEL.1.4 | Violation Card Inline Diff | P1 | COMPLETE |
+| COUNSEL.1.5 | Auto-Fixable Label | P1 | COMPLETE |
+| COUNSEL.1.6 | A11y Batch Fix Button | P1 | COMPLETE |
+| COUNSEL.1.7 | 26 A11y Compliance Fixes | P0 | COMPLETE |
 
-### Files in scope
+---
 
+## Session: FORGE.2 — Smart Project Detection + Auto-Audit (2026-04-11) — IN PROGRESS
+
+**Goal:** Open a project and get instant framework detection plus an automatic baseline audit — zero configuration required.
+
+### Tasks in scope
+
+| Task | Name | Priority |
+| ---- | ---- | -------- |
+| FORGE.2a | Project Environment Detection | P0 |
+| FORGE.2b | Auto-Configuration from Detection | P1 |
+| FORGE.2c | Baseline Audit on Open | P0 |
+| FORGE.2d | Detection Banner in Glass | P1 |
+
+### FORGE.2 files in scope
+
+- `electron/projectDetector.ts` (new)
+- `electron/main.ts`
+- `electron/preload.ts`
+- `src/adapters/web-api.ts`
 - `src/components/ui/GovernanceDashboard.tsx`
-- `src/components/ui/governance/ScoreSection.tsx`
-- `src/components/ui/governance/ViolationCard.tsx`
-- `src/components/ui/governance/BatchActionBar.tsx`
-- `src/components/ui/GovernancePanel.tsx`
-- `src/components/ui/PolicySettings.tsx`
-- `src/components/ui/ExportModal.tsx`
 - `src/components/editor/StatusBar.tsx`
-- `src/hooks/useGovernanceHealth.ts`
-- `shared/healthSignal.ts`
-- `src/App.tsx`
+- `server/index.ts`
 
 ### Next steps
 
-- Complete all 7 tasks above
-- After COUNSEL.1: FORGE.2 (smart detection), then MINT.1 (token foundation)
+- Complete FORGE.2a (detection) and FORGE.2c (baseline audit) first as P0 blockers
+- Then FORGE.2b (auto-config) and FORGE.2d (banner)
+- After FORGE.2: P0+P1c (Mutation Planner + Tailwind version drift) then MINT.1
 
 ---
 

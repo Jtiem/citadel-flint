@@ -28,11 +28,17 @@ import { DetectionBanner } from '../DetectionBanner'
 import type { ProjectEnvironment } from '../../../types/flint-api'
 
 const baseEnv: ProjectEnvironment = {
-    uiFramework: 'React',
-    cssFramework: 'Tailwind v4',
+    framework: { name: 'react', version: '19.1.0' },
+    cssFramework: { name: 'tailwindcss', version: '4.0.0' },
+    componentLibrary: null,
+    hasDesignTokens: false,
+    tokenSource: null,
+    componentCount: 0,
+    uiFramework: 'React 19',
+    cssFrameworkLabel: 'Tailwind v4',
     tokenFormat: null,
     typescript: true,
-    componentLibrary: null,
+    componentLibraryLabel: null,
     detectedAt: '2026-03-31T12:00:00.000Z',
 }
 
@@ -42,9 +48,8 @@ describe('DetectionBanner', () => {
         render(<DetectionBanner environment={baseEnv} />)
         const banner = screen.getByTestId('detection-banner')
         expect(banner).toBeTruthy()
-        expect(banner.textContent).toContain('React')
+        expect(banner.textContent).toContain('React 19')
         expect(banner.textContent).toContain('Tailwind v4')
-        expect(banner.textContent).toContain('TypeScript')
     })
 
     // DB-02: Does not render when environment is null
@@ -95,20 +100,22 @@ describe('DetectionBanner', () => {
         expect(screen.queryByText('Run full audit')).toBeNull()
     })
 
-    // DB-08: TypeScript appears in stack summary
-    it('DB-08: includes TypeScript in the stack summary when detected', () => {
-        render(<DetectionBanner environment={baseEnv} />)
-        expect(screen.getByTestId('detection-banner').textContent).toContain('TypeScript')
+    // DB-08: Component count appears in banner
+    it('DB-08: shows component count when componentCount > 0', () => {
+        const env: ProjectEnvironment = { ...baseEnv, componentCount: 89 }
+        render(<DetectionBanner environment={env} />)
+        expect(screen.getByTestId('component-count')!.textContent).toContain('89 components')
     })
 
     // DB-09: Component library appears in stack summary
     it('DB-09: includes component library in the stack summary', () => {
         const env: ProjectEnvironment = {
             ...baseEnv,
-            componentLibrary: 'shadcn',
+            componentLibrary: { name: 'shadcn', version: '0.8.0' },
+            componentLibraryLabel: 'shadcn/ui',
         }
         render(<DetectionBanner environment={env} />)
-        expect(screen.getByTestId('detection-banner').textContent).toContain('shadcn')
+        expect(screen.getByTestId('detection-banner').textContent).toContain('shadcn/ui')
     })
 
     // DB-10: Singular "issue" text for count = 1

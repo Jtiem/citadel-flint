@@ -45,6 +45,7 @@ import type { NodePath } from '@babel/traverse'
 import { fileURLToPath } from 'node:url'
 import { createPreviewServer } from './services/previewServer.js'
 import { ideFileSyncTick, type IDEFileSyncState } from './ideFileSyncTick.js'
+import { detectProjectEnvironment, type DetectorFS } from '../shared/projectDetector.js'
 
 const execFileAsync = promisify(execFile)
 const __filename = fileURLToPath(import.meta.url)
@@ -1144,101 +1145,13 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
 
     const root = activeProjectRoot
 
-    interface DetectedEnvironment {
-      uiFramework: string
-      cssFramework: string
-      tokenFormat: string | null
-      typescript: boolean
-      componentLibrary: string | null
-      detectedAt: string
-      auditSummary?: { violations: number; grade: string }
+    // ── FORGE.2a: Detect via shared projectDetector ───────────────────
+    const detectorFs: DetectorFS = {
+      readFile: (fp: string, enc: 'utf-8') => fs.readFile(fp, enc),
+      exists: (fp: string) => existsSync(fp),
     }
 
-    let uiFramework = 'Unknown'
-    let cssFramework = 'Unknown'
-    let tokenFormat: string | null = null
-    let componentLibrary: string | null = null
-    let typescript = false
-
-    // Read package.json deps
-    let allDeps: Record<string, string> = {}
-    try {
-      const pkgRaw = await fs.readFile(path.join(root, 'package.json'), 'utf-8')
-      const pkg = JSON.parse(pkgRaw) as {
-        dependencies?: Record<string, string>
-        devDependencies?: Record<string, string>
-      }
-      allDeps = { ...pkg.dependencies, ...pkg.devDependencies }
-    } catch {
-      // No package.json or parse error — continue with defaults
-    }
-
-    // Detect UI framework
-    if (allDeps['react'] || allDeps['react-dom'] || allDeps['next']) {
-      uiFramework = 'React'
-    } else if (allDeps['vue'] || allDeps['nuxt']) {
-      uiFramework = 'Vue'
-    } else if (allDeps['svelte'] || allDeps['@sveltejs/kit']) {
-      uiFramework = 'Svelte'
-    } else if (allDeps['@angular/core']) {
-      uiFramework = 'Angular'
-    }
-
-    // Detect CSS framework
-    const hasTwConfig = existsSync(path.join(root, 'tailwind.config.ts'))
-      || existsSync(path.join(root, 'tailwind.config.js'))
-      || existsSync(path.join(root, 'tailwind.config.mjs'))
-      || existsSync(path.join(root, 'tailwind.config.cjs'))
-    if (allDeps['tailwindcss']) {
-      const twVersion = allDeps['tailwindcss']
-      if (twVersion.match(/^[\^~>=]*4/)) {
-        cssFramework = 'Tailwind v4'
-      } else {
-        cssFramework = 'Tailwind v3'
-      }
-    } else if (hasTwConfig) {
-      cssFramework = 'Tailwind'
-    }
-
-    // Detect token format
-    if (existsSync(path.join(root, '.flint', 'design-tokens.json'))) {
-      try {
-        const tokenRaw = await fs.readFile(path.join(root, '.flint', 'design-tokens.json'), 'utf-8')
-        if (tokenRaw.includes('"$type"') || tokenRaw.includes('"$value"')) {
-          tokenFormat = 'DTCG'
-        }
-      } catch {
-        // Ignore read errors
-      }
-    }
-    if (!tokenFormat && existsSync(path.join(root, 'tokens.json'))) {
-      tokenFormat = 'Tokens Studio'
-    }
-
-    // Detect TypeScript
-    typescript = existsSync(path.join(root, 'tsconfig.json'))
-
-    // Detect component library
-    if (allDeps['@mui/material'] || allDeps['@mui/core']) {
-      componentLibrary = 'MUI'
-    } else if (allDeps['primeng'] || allDeps['@primeng/themes']) {
-      componentLibrary = 'PrimeNG'
-    } else if (allDeps['@radix-ui/react-slot'] || allDeps['class-variance-authority']) {
-      componentLibrary = 'shadcn'
-    } else if (allDeps['antd']) {
-      componentLibrary = 'Ant Design'
-    } else if (allDeps['@chakra-ui/react']) {
-      componentLibrary = 'Chakra UI'
-    }
-
-    const result: DetectedEnvironment = {
-      uiFramework,
-      cssFramework,
-      tokenFormat,
-      typescript,
-      componentLibrary,
-      detectedAt: new Date().toISOString(),
-    }
+    const result = await detectProjectEnvironment(root, detectorFs)
 
     // Write detection result to .flint/
     try {
@@ -1292,8 +1205,9 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
 
     // Best-effort auto-configure side-effect
     try {
-      if (mcp.status().connected && result.componentLibrary) {
-        await mcp.callTool('flint_set_library', { library: result.componentLibrary })
+      const libName = result.componentLibrary?.name
+      if (mcp.status().connected && libName) {
+        await mcp.callTool('flint_set_library', { library: libName })
           .catch((err: unknown) => {
             console.error(`${BRAND.logPrefix} FORGE.2b: flint_set_library failed (non-blocking):`, err)
           })
@@ -1344,8 +1258,15 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     try {
       const envPath = path.join(root, '.flint', 'detected-environment.json')
       const raw = await fs.readFile(envPath, 'utf-8')
-      const env = JSON.parse(raw) as { componentLibrary?: string | null }
-      library = env.componentLibrary ?? null
+      const env = JSON.parse(raw) as {
+        componentLibrary?: { name: string; version: string } | string | null
+      }
+      // Handle both new format (object) and legacy format (string)
+      if (typeof env.componentLibrary === 'object' && env.componentLibrary !== null) {
+        library = env.componentLibrary.name
+      } else if (typeof env.componentLibrary === 'string') {
+        library = env.componentLibrary
+      }
     } catch {
       // No detected-environment.json yet — proceed without library config
     }

@@ -408,16 +408,31 @@ export interface RegistryAPI {
  * and component library detected in the active project root.
  */
 export interface ProjectEnvironment {
-    /** UI framework detected from package.json (e.g. 'React', 'Vue', 'Svelte', 'Angular', 'Unknown'). */
+    // ── FORGE.2a enhanced fields ──────────────────────────────────────────
+    /** Detected UI framework with name and version (e.g. { name: 'react', version: '19.1.0' }). */
+    framework: { name: string; version: string } | null
+    /** Detected CSS framework with name and version. */
+    cssFramework: { name: string; version: string } | null
+    /** Detected component library with name and version. */
+    componentLibrary: { name: string; version: string } | null
+    /** True when any design token file is found. */
+    hasDesignTokens: boolean
+    /** Source of design tokens when detected. */
+    tokenSource: 'flint' | 'style-dictionary' | 'tokens-studio' | null
+    /** Number of component files (.tsx/.vue/.svelte) found under src/. */
+    componentCount: number
+
+    // ── Legacy fields (backward-compat with DetectionBanner) ──────────────
+    /** UI framework detected from package.json (e.g. 'React 19', 'Vue 3', 'Unknown'). */
     uiFramework: string
-    /** CSS framework detected from config files and deps (e.g. 'Tailwind v4', 'Tailwind v3', 'CSS Custom Properties', 'Unknown'). */
-    cssFramework: string
+    /** Human-readable CSS framework label (e.g. 'Tailwind v4'). */
+    cssFrameworkLabel: string
     /** Token format detected from project files (e.g. 'DTCG', 'Tokens Studio', null). */
     tokenFormat: string | null
     /** Whether TypeScript is configured (tsconfig.json present). */
     typescript: boolean
-    /** Component library detected from package.json (e.g. 'shadcn', 'MUI', 'PrimeNG', null). */
-    componentLibrary: string | null
+    /** Human-readable component library name (e.g. 'shadcn/ui', 'MUI', null). */
+    componentLibraryLabel: string | null
     /** ISO 8601 timestamp when detection ran. */
     detectedAt: string
     /** Optional baseline audit summary, present when MCP was connected at detection time. */

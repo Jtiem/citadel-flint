@@ -42,20 +42,19 @@ export function DetectionBanner({ environment, onRunAudit, isScanning, scanProgr
     if (environment.uiFramework !== 'Unknown') {
         parts.push(environment.uiFramework)
     }
-    if (environment.cssFramework !== 'Unknown') {
-        parts.push(environment.cssFramework)
+    if (environment.cssFrameworkLabel && environment.cssFrameworkLabel !== 'Unknown') {
+        parts.push(environment.cssFrameworkLabel)
     }
-    if (environment.typescript) {
-        parts.push('TypeScript')
-    }
-    if (environment.componentLibrary) {
-        parts.push(environment.componentLibrary)
-    }
-    if (environment.tokenFormat) {
-        parts.push(environment.tokenFormat)
+    if (environment.componentLibraryLabel) {
+        parts.push(environment.componentLibraryLabel)
     }
 
     const stackSummary = parts.length > 0 ? parts.join(' + ') : 'no known frameworks'
+
+    // Component count badge (e.g. "89 components")
+    const componentCountLabel = environment.componentCount > 0
+        ? `${environment.componentCount} component${environment.componentCount !== 1 ? 's' : ''}`
+        : null
 
     const hasAudit = environment.auditSummary != null
     // Switch to vertical layout when we have extra content to show
@@ -74,9 +73,14 @@ export function DetectionBanner({ environment, onRunAudit, isScanning, scanProgr
             <div className="flex items-center gap-3">
                 <span className="flex-1">
                     Flint detected: {stackSummary}
+                    {componentCountLabel && (
+                        <span className="ml-1 text-zinc-400" data-testid="component-count">
+                            {' \u00B7 '}{componentCountLabel}
+                        </span>
+                    )}
                     {hasAudit && (
-                        <span className="ml-2 text-zinc-400">
-                            — {environment.auditSummary!.violations} issue{environment.auditSummary!.violations !== 1 ? 's' : ''} found
+                        <span className="ml-1 text-zinc-400">
+                            {' \u00B7 '}{environment.auditSummary!.violations} issue{environment.auditSummary!.violations !== 1 ? 's' : ''} found
                         </span>
                     )}
                 </span>
