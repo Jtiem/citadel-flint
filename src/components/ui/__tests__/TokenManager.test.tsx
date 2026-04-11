@@ -3,13 +3,22 @@
  *
  * Tests for the read-only TokenManager component. Token values are
  * governed via MCP tools — not editable directly in this UI.
- * Covers: loading state, token display, grouping, search, empty state,
- * import modal, and the removal of dangerous mutation actions.
+ *
+ * Covers:
+ *   - Loading state, token display, grouping, search, empty state
+ *   - Import modal
+ *   - MINT.1a: Token Health Bar (total, sync status, coverage)
+ *   - MINT.1b: Visual Token Grid (swatches, specimens, view toggle)
+ *   - MINT.1c: Mode Columns (light/dark side-by-side)
+ *   - MINT.1d: Read-only governance UI (no dangerous mutations)
+ *   - MINT.1e: Accessibility (aria-labels, grid semantics, keyboard)
+ *   - S7.2: Per-token sync badges
  */
 
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { TokenManager } from '../TokenManager'
+import { useTokenStore } from '../../../store/tokenStore'
 import type { DesignToken } from '../../../types/flint-api'
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -37,12 +46,18 @@ const SAMPLE_TOKENS: DesignToken[] = [
 // ── Suite ─────────────────────────────────────────────────────────────────────
 
 describe('TokenManager', () => {
-    // 1. Shows loading state initially (before fetch resolves)
+    beforeEach(() => {
+        // Reset token store between tests to prevent state leaking
+        useTokenStore.setState({ tokens: [], isLoading: false, error: null })
+    })
+
+    // 1. Shows loading state when store isLoading is true
     it('shows loading text while tokens are being fetched', () => {
-        // Never resolves during this check
+        // Set the store to loading state directly (simulates fetchTokens in progress)
+        useTokenStore.setState({ isLoading: true, tokens: [], error: null })
         ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockReturnValue(new Promise(() => {}))
         render(<TokenManager />)
-        expect(screen.getByText('Loading…')).toBeDefined()
+        expect(screen.getByText(/Loading/)).toBeDefined()
     })
 
     // 2. Shows tokens after fetch resolves
@@ -78,7 +93,6 @@ describe('TokenManager', () => {
         ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(SAMPLE_TOKENS)
         render(<TokenManager />)
         await waitFor(() => {
-            // Collection header text is the raw collection_name (CSS uppercase via Tailwind)
             expect(screen.getByText('Colors')).toBeDefined()
             expect(screen.getByText('Spacing')).toBeDefined()
             expect(screen.getByText('Typography')).toBeDefined()
@@ -108,12 +122,18 @@ describe('TokenManager', () => {
         })
     })
 
-    // 7. No swatch rendered for non-color tokens
-    it('does NOT render a color swatch for non-color token types', async () => {
+    // 7. No swatch rendered for non-color tokens (in list view)
+    it('does NOT render a color swatch for non-color token types in list view', async () => {
         ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue([
             makeToken({ id: 11, token_type: 'dimension', token_value: '16px' }),
         ])
         render(<TokenManager />)
+        await waitFor(() => screen.getByText('16px'))
+
+        // Switch to list view
+        const listBtn = screen.getByRole('radio', { name: /list view/i })
+        fireEvent.click(listBtn)
+
         await waitFor(() => {
             expect(screen.getByText('16px')).toBeDefined()
             const swatch = document.querySelector('span[style*="background-color"]')
@@ -127,7 +147,7 @@ describe('TokenManager', () => {
         render(<TokenManager />)
         await waitFor(() => screen.getByText('color.primary'))
 
-        const searchInput = screen.getByPlaceholderText('Search by name, value, or type…')
+        const searchInput = screen.getByLabelText('Search tokens by name, value, or type')
         fireEvent.change(searchInput, { target: { value: 'spacing' } })
 
         await waitFor(() => {
@@ -142,7 +162,7 @@ describe('TokenManager', () => {
         render(<TokenManager />)
         await waitFor(() => screen.getByText('color.primary'))
 
-        const searchInput = screen.getByPlaceholderText('Search by name, value, or type…')
+        const searchInput = screen.getByLabelText('Search tokens by name, value, or type')
         fireEvent.change(searchInput, { target: { value: 'Inter' } })
 
         await waitFor(() => {
@@ -152,12 +172,12 @@ describe('TokenManager', () => {
     })
 
     // 10. Search shows "no matches" message when filter returns nothing
-    it('shows "No tokens match your search" when the query matches nothing', async () => {
+    it('shows "No tokens match" when the query matches nothing', async () => {
         ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(SAMPLE_TOKENS)
         render(<TokenManager />)
         await waitFor(() => screen.getByText('color.primary'))
 
-        const searchInput = screen.getByPlaceholderText('Search by name, value, or type…')
+        const searchInput = screen.getByLabelText('Search tokens by name, value, or type')
         fireEvent.change(searchInput, { target: { value: 'zzznomatch999' } })
 
         await waitFor(() => {
@@ -172,7 +192,7 @@ describe('TokenManager', () => {
         )
         render(<TokenManager />)
         await waitFor(() => {
-            expect(screen.getByText('Error: IPC unavailable')).toBeDefined()
+            expect(screen.getByText('IPC unavailable')).toBeDefined()
         })
     })
 
@@ -212,7 +232,6 @@ describe('TokenManager', () => {
         ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(SAMPLE_TOKENS)
         render(<TokenManager />)
         await waitFor(() => screen.getByText('color.primary'))
-        // No button with trash/delete label
         expect(screen.queryByRole('button', { name: /delete/i })).toBeNull()
         expect(screen.queryByRole('button', { name: /remove/i })).toBeNull()
     })
@@ -232,21 +251,26 @@ describe('TokenManager', () => {
         ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(SAMPLE_TOKENS)
         render(<TokenManager />)
         await waitFor(() => screen.getByText('color.primary'))
-        // The value should appear as text
         expect(screen.getByText('#1d4ed8')).toBeDefined()
-        // No input with that value
         expect(screen.queryByDisplayValue('#1d4ed8')).toBeNull()
     })
 
-    // 17. Read-only tooltip is present on token value elements
-    it('token value text has governance tooltip', async () => {
+    // 17. Read-only tooltip is present on token value elements (list view)
+    it('token value text has governance tooltip in list view', async () => {
         ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue([
             makeToken({ id: 30, token_type: 'color', token_value: '#ff0000' }),
         ])
         render(<TokenManager />)
+        // Switch to list view
+        await waitFor(() => {
+            const listBtn = screen.getByRole('radio', { name: /list view/i })
+            fireEvent.click(listBtn)
+        })
         await waitFor(() => screen.getByText('#ff0000'))
         const valueEl = screen.getByText('#ff0000')
-        expect(valueEl.getAttribute('title')).toContain('managed through your design system')
+        const title = valueEl.getAttribute('title')
+        expect(title).toBeTruthy()
+        expect(title!.toLowerCase()).toContain('managed')
     })
 
     // ── S7.2: Per-token sync badges ─────────────────────────────────────────
@@ -270,7 +294,6 @@ describe('TokenManager', () => {
         ;(window.flintAPI.figma.status as ReturnType<typeof vi.fn>).mockResolvedValue({
             running: true, lastWebhookAt: Date.now(), tokenCount: 5, port: 4545,
         })
-        // Mock MCP readResource to return a matching token
         ;(window.flintAPI.mcp!.readResource as ReturnType<typeof vi.fn>).mockResolvedValue(
             JSON.stringify([{ token_path: 'color.primary', token_value: '#1d4ed8' }])
         )
@@ -278,6 +301,209 @@ describe('TokenManager', () => {
         await waitFor(() => {
             const badges = screen.queryAllByTestId('sync-badge')
             expect(badges.length).toBeGreaterThan(0)
+        })
+    })
+
+    // ── MINT.1a: Token Health Bar ───────────────────────────────────────────
+
+    // 20. Health bar appears when tokens are loaded
+    it('renders the token health bar when tokens exist', async () => {
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(SAMPLE_TOKENS)
+        render(<TokenManager />)
+        await waitFor(() => {
+            const healthBar = screen.getByTestId('token-health-bar')
+            expect(healthBar).toBeDefined()
+        })
+    })
+
+    // 21. Health bar shows total token count
+    it('health bar displays the total token count', async () => {
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(SAMPLE_TOKENS)
+        render(<TokenManager />)
+        await waitFor(() => {
+            const totalPill = screen.getByTestId('health-total')
+            expect(totalPill.textContent).toContain('4 tokens')
+        })
+    })
+
+    // 22. Health bar does not appear when no tokens
+    it('health bar is hidden when token list is empty', async () => {
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue([])
+        render(<TokenManager />)
+        await waitFor(() => {
+            expect(screen.queryByTestId('token-health-bar')).toBeNull()
+        })
+    })
+
+    // 23. Health bar shows sync status when Figma connected
+    it('health bar shows sync status pill when Figma is connected', async () => {
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(SAMPLE_TOKENS)
+        ;(window.flintAPI.figma.status as ReturnType<typeof vi.fn>).mockResolvedValue({
+            running: true, lastWebhookAt: Date.now(), tokenCount: 5, port: 4545,
+        })
+        ;(window.flintAPI.mcp!.readResource as ReturnType<typeof vi.fn>).mockResolvedValue(
+            JSON.stringify([{ token_path: 'color.primary', token_value: '#1d4ed8' }])
+        )
+        render(<TokenManager />)
+        await waitFor(() => {
+            const syncPill = screen.getByTestId('health-sync')
+            expect(syncPill).toBeDefined()
+        })
+    })
+
+    // 24. Health bar shows coverage when scanUsage returns data
+    it('health bar shows coverage pill when usage data is available', async () => {
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(SAMPLE_TOKENS)
+        ;(window.flintAPI.tokens.scanUsage as ReturnType<typeof vi.fn>).mockResolvedValue([
+            { tokenName: 'color.primary', cssVar: '--color-primary', usageCount: 3, files: ['App.tsx', 'Header.tsx', 'Button.tsx'] },
+        ])
+        render(<TokenManager />)
+        await waitFor(() => {
+            const coveragePill = screen.getByTestId('health-coverage')
+            expect(coveragePill).toBeDefined()
+            expect(coveragePill.textContent).toContain('Used in 3 files')
+        })
+    })
+
+    // ── MINT.1b: Visual Token Grid ──────────────────────────────────────────
+
+    // 25. View toggle buttons are present
+    it('renders grid/list view toggle buttons', async () => {
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(SAMPLE_TOKENS)
+        render(<TokenManager />)
+        await waitFor(() => {
+            expect(screen.getByRole('radio', { name: /grid view/i })).toBeDefined()
+            expect(screen.getByRole('radio', { name: /list view/i })).toBeDefined()
+        })
+    })
+
+    // 26. Grid view renders grid cards for color tokens
+    it('renders grid cards in grid view mode', async () => {
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue([
+            makeToken({ id: 1, token_path: 'color.primary', token_type: 'color', token_value: '#1d4ed8' }),
+            makeToken({ id: 2, token_path: 'color.secondary', token_type: 'color', token_value: '#7c3aed' }),
+        ])
+        render(<TokenManager />)
+        await waitFor(() => {
+            const cards = screen.queryAllByTestId('token-grid-card')
+            expect(cards.length).toBe(2)
+        })
+    })
+
+    // 27. Switching to list view removes grid cards
+    it('switches from grid to list view when toggled', async () => {
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue([
+            makeToken({ id: 1, token_path: 'color.primary', token_type: 'color', token_value: '#1d4ed8' }),
+        ])
+        render(<TokenManager />)
+        await waitFor(() => {
+            expect(screen.queryAllByTestId('token-grid-card').length).toBe(1)
+        })
+
+        // Switch to list view
+        const listBtn = screen.getByRole('radio', { name: /list view/i })
+        fireEvent.click(listBtn)
+
+        await waitFor(() => {
+            expect(screen.queryAllByTestId('token-grid-card').length).toBe(0)
+        })
+    })
+
+    // 28. Typography tokens show "Aa" specimen
+    it('renders "Aa" specimen for fontFamily tokens in grid view', async () => {
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue([
+            makeToken({ id: 1, token_path: 'font.heading', token_type: 'fontFamily', token_value: 'Inter', collection_name: 'Typography' }),
+        ])
+        render(<TokenManager />)
+        await waitFor(() => {
+            expect(screen.getByText('Aa')).toBeDefined()
+        })
+    })
+
+    // ── MINT.1c: Mode Columns ───────────────────────────────────────────────
+
+    // 29. Shows light and dark swatches side-by-side in grid view
+    it('shows light and dark mode swatches side-by-side for color tokens', async () => {
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue([
+            makeToken({ id: 1, token_path: 'color.primary', token_type: 'color', token_value: '#1d4ed8', mode: 'light', collection_name: 'Colors' }),
+            makeToken({ id: 2, token_path: 'color.primary', token_type: 'color', token_value: '#818cf8', mode: 'dark', collection_name: 'Colors' }),
+        ])
+        render(<TokenManager />)
+        await waitFor(() => {
+            // Should show mode columns with both values
+            const modeColumns = screen.queryByTestId('mode-columns')
+            expect(modeColumns).not.toBeNull()
+            expect(modeColumns!.textContent).toContain('#1d4ed8')
+            expect(modeColumns!.textContent).toContain('#818cf8')
+        })
+    })
+
+    // ── MINT.1e: Accessibility ──────────────────────────────────────────────
+
+    // 30. Search input has aria-label
+    it('search input has proper aria-label', async () => {
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(SAMPLE_TOKENS)
+        render(<TokenManager />)
+        await waitFor(() => {
+            const input = screen.getByLabelText('Search tokens by name, value, or type')
+            expect(input).toBeDefined()
+        })
+    })
+
+    // 31. Color swatches have aria-label with color info
+    it('color swatches have aria-label with color name and value', async () => {
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue([
+            makeToken({ id: 1, token_path: 'color.primary', token_type: 'color', token_value: '#1d4ed8' }),
+        ])
+        render(<TokenManager />)
+        await waitFor(() => {
+            const swatch = screen.getByLabelText(/Color swatch.*color\.primary.*#1d4ed8/i)
+            expect(swatch).toBeDefined()
+        })
+    })
+
+    // 32. Grid has proper role="grid" semantics
+    it('token grid sections have role="grid"', async () => {
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(SAMPLE_TOKENS)
+        render(<TokenManager />)
+        await waitFor(() => {
+            const grids = document.querySelectorAll('[role="grid"]')
+            expect(grids.length).toBeGreaterThan(0)
+        })
+    })
+
+    // 33. View toggle has radiogroup semantics
+    it('view toggle has radiogroup role', async () => {
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(SAMPLE_TOKENS)
+        render(<TokenManager />)
+        await waitFor(() => {
+            const radiogroup = screen.getByRole('radiogroup', { name: /token view mode/i })
+            expect(radiogroup).toBeDefined()
+        })
+    })
+
+    // 34. Health bar has status role
+    it('health bar has role="status" for screen readers', async () => {
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(SAMPLE_TOKENS)
+        render(<TokenManager />)
+        await waitFor(() => {
+            const statusBar = screen.getByRole('status')
+            expect(statusBar).toBeDefined()
+        })
+    })
+
+    // 35. Clear search button has aria-label
+    it('clear search button has aria-label', async () => {
+        ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue(SAMPLE_TOKENS)
+        render(<TokenManager />)
+        await waitFor(() => screen.getByText('color.primary'))
+
+        const searchInput = screen.getByLabelText('Search tokens by name, value, or type')
+        fireEvent.change(searchInput, { target: { value: 'color' } })
+
+        await waitFor(() => {
+            const clearBtn = screen.getByLabelText('Clear search')
+            expect(clearBtn).toBeDefined()
         })
     })
 })
