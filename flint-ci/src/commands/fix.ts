@@ -113,8 +113,11 @@ export async function fixCommand(
         return mcpResult
     }
 
-    // Fallback: audit-only mode with fixability report
-    return auditAndReport(filePaths, tokens, policy, projectRoot, dryRun)
+    // Fallback: audit-only mode — MCP engine not available
+    console.log(
+        `${ANSI.yellow}⚠ MCP engine unavailable — showing suggestions only (no files modified)${ANSI.reset}`,
+    )
+    return auditAndReport(filePaths, tokens, policy, projectRoot)
 }
 
 // ── MCP engine fix attempt ───────────────────────────────────────────────────
@@ -188,7 +191,6 @@ async function auditAndReport(
     tokens: import('../engine.js').DesignToken[],
     policy: FlintPolicy,
     projectRoot: string,
-    dryRun: boolean,
 ): Promise<number> {
     const fixResults: FixResult[] = []
     let totalFixable = 0
@@ -228,7 +230,7 @@ async function auditAndReport(
             const isFixable = isAutoFixableWarning(w)
             if (isFixable) {
                 fixes.push(
-                    `${dryRun ? 'Would fix' : 'Fix'}: ${w.message}${w.nearestToken ? ` -> ${w.nearestToken}` : ''}`,
+                    `Suggestion: ${w.message}${w.nearestToken ? ` -> ${w.nearestToken}` : ''}`,
                 )
             }
         }
@@ -262,7 +264,7 @@ async function auditAndReport(
     console.log()
     console.log(`${ANSI.bold}${divider}${ANSI.reset}`)
     console.log(
-        `${ANSI.bold}  Flint Auto-Fix ${dryRun ? '(Dry Run)' : '(Applied)'}${ANSI.reset}`,
+        `${ANSI.bold}  Flint Auto-Fix (Suggestions Only — MCP unavailable)${ANSI.reset}`,
     )
     console.log(`${ANSI.bold}${divider}${ANSI.reset}`)
     console.log()
@@ -280,7 +282,7 @@ async function auditAndReport(
         console.log()
     }
 
-    printFixSummary(totalFixable, totalUnfixable, dryRun)
+    printFixSummary(totalFixable, totalUnfixable, true)
     return totalUnfixable > 0 ? 1 : 0
 }
 

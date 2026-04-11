@@ -9,6 +9,24 @@
  * exactly as before.
  */
 
+import { useNotificationStore } from '../store/notificationStore'
+
+// ── MCP connection failure toast (P0) ─────────────────────────────────────────
+// Only fire once per page load — reconnect attempts should not spam the user.
+let _mcpOfflineToastFired = false
+
+function notifyMcpOffline(): void {
+  if (_mcpOfflineToastFired) return
+  _mcpOfflineToastFired = true
+  useNotificationStore.getState().push({
+    type: 'error',
+    severity: 'error',
+    title: 'Governance engine offline',
+    message: 'Could not connect to the Flint MCP server. Audit and fix tools are unavailable.',
+    autoDismissMs: 8000,
+  })
+}
+
 // ── Web-mode open-folder signal ──────────────────────────────────────────────
 //
 // In Electron, `openFolder()` shows a native OS directory picker.
@@ -73,12 +91,31 @@ export function hasWebOpenFolderPending(): boolean {
 let ws: WebSocket | null = null
 const channelListeners = new Map<string, Set<(...args: unknown[]) => void>>()
 let wsReconnectTimer: ReturnType<typeof setTimeout> | null = null
+let _wsReconnectAttempts = 0
+const WS_MAX_ATTEMPTS = 50
+const WS_BASE_DELAY_MS = 2000
+const WS_MAX_DELAY_MS = 60_000
+
+// Session token for authenticated WebSocket connections.
+// Fetched once from /api/ws-token on first ensureWS() call.
+let _wsToken: string | null = null
+let _wsTokenPromise: Promise<string | null> | null = null
+
+async function fetchWsToken(): Promise<string | null> {
+  try {
+    const res = await fetch('/api/ws-token')
+    if (!res.ok) return null
+    const json = await res.json()
+    return json.token ?? null
+  } catch { return null }
+}
 
 function ensureWS(): WebSocket {
   if (ws && ws.readyState === WebSocket.OPEN) return ws
 
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-  ws = new WebSocket(`${protocol}//${location.host}/ws`)
+  const tokenParam = _wsToken ? `?token=${_wsToken}` : ''
+  ws = new WebSocket(`${protocol}//${location.host}/ws${tokenParam}`)
 
   ws.onmessage = (event) => {
     try {
@@ -92,9 +129,24 @@ function ensureWS(): WebSocket {
     } catch (err) { console.warn('[Flint] web-api: malformed WebSocket message', err) }
   }
 
+  ws.onopen = () => {
+    _mcpOfflineToastFired = false
+    _wsReconnectAttempts = 0
+  }
+
+  ws.onerror = () => {
+    notifyMcpOffline()
+  }
+
   ws.onclose = () => {
     if (wsReconnectTimer) clearTimeout(wsReconnectTimer)
-    wsReconnectTimer = setTimeout(() => ensureWS(), 2000)
+    if (_wsReconnectAttempts >= WS_MAX_ATTEMPTS) {
+      console.warn('[Flint WS] Max reconnect attempts reached. Giving up.')
+      return
+    }
+    const delay = Math.min(WS_BASE_DELAY_MS * Math.pow(1.5, _wsReconnectAttempts), WS_MAX_DELAY_MS)
+    _wsReconnectAttempts++
+    wsReconnectTimer = setTimeout(() => ensureWS(), delay)
   }
 
   return ws
@@ -114,12 +166,39 @@ function unsubscribeAll(channel: string): void {
 }
 
 /**
+ * Server readiness gate. The Express server starts ~3s after Vite in dev mode.
+ * All IPC calls wait for this promise before hitting the network, preventing
+ * the ECONNREFUSED flood that previously filled the Vite proxy logs.
+ */
+let _serverReady: Promise<void> | null = null
+
+function waitForServer(): Promise<void> {
+  if (_serverReady) return _serverReady
+  _serverReady = (async () => {
+    for (let i = 0; i < 30; i++) {
+      try {
+        const res = await fetch('/api/ipc', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ channel: 'ping', args: [] }),
+        })
+        if (res.ok) return
+      } catch { /* server not up yet */ }
+      await new Promise((r) => setTimeout(r, 500))
+    }
+    console.warn('[Flint] Server did not become ready after 15s')
+  })()
+  return _serverReady
+}
+
+/**
  * Universal IPC-over-HTTP call. Mirrors ipcRenderer.invoke(channel, ...args).
  * The server has a single POST /api/ipc endpoint that dispatches by channel name.
  */
 async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
-  // Retry up to 3 times with backoff — the Express server may still be starting
-  // when the browser loads (race condition in dev:web backgrounded process).
+  // Wait for server readiness on first call — prevents ECONNREFUSED flood
+  await waitForServer()
+
   let lastError: Error | null = null
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
@@ -146,8 +225,11 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
 // Mirrors electron/preload.ts exactly — same shape, same method signatures.
 
 export function createWebFlintAPI() {
-  // Connect WebSocket eagerly
-  ensureWS()
+  // Fetch WS auth token then connect eagerly
+  if (!_wsTokenPromise) {
+    _wsTokenPromise = fetchWsToken().then((t) => { _wsToken = t; return t })
+  }
+  void _wsTokenPromise.then(() => ensureWS())
 
   return {
     // ── Health check ────────────────────────────────────────────────────────
@@ -184,6 +266,11 @@ export function createWebFlintAPI() {
       upsertOverride: (flintId: string, propertyKey: string, propertyValue: string) =>
         invoke('tokens:upsert-override', flintId, propertyKey, propertyValue) as Promise<void>,
       readOverrides: () => invoke('tokens:read-overrides') as Promise<unknown[]>,
+      scanUsage: () => invoke('tokens:scan-usage') as Promise<Array<{ tokenName: string; cssVar: string; usageCount: number; files: string[] }>>,
+      auditContrast: () => invoke('tokens:audit-contrast') as Promise<Array<{ fg: string; bg: string; fgValue: string; bgValue: string; ratio: number; passAA: boolean; passAAA: boolean }>>,
+      getPendingApprovals: () => invoke('tokens:get-pending-approvals') as Promise<unknown[]>,
+      approveToken: (tokenName: string) => invoke('tokens:approve-token', tokenName) as Promise<{ ok: boolean }>,
+      rejectToken: (tokenName: string) => invoke('tokens:reject-token', tokenName) as Promise<{ ok: boolean }>,
     },
 
     // ── Code transforms ─────────────────────────────────────────────────────
@@ -266,10 +353,14 @@ export function createWebFlintAPI() {
       resetToDemo: (targetPath: string) => invoke('project:reset-to-demo', targetPath) as Promise<unknown>,
       createScratchpad: () => invoke('project:create-scratchpad') as Promise<unknown>,
       reindex: () => invoke('project:reindex') as Promise<{ components: number; ragChunks: number }>,
+      findRootForFile: (filePath: string) => invoke('project:findRootForFile', filePath) as Promise<string | null>,
       getHealthGrade: (projectPath: string) => invoke('project:get-health-grade', projectPath) as Promise<{ grade: string; score: number; updatedAt: string } | null>,
       detectEnvironment: () => invoke('project:detect-environment') as Promise<unknown>,
       autoConfigureProject: () => invoke('project:auto-configure') as Promise<{ configured: boolean; library: string | null; reindexed: boolean }>,
       runBaseline: () => invoke('project:run-baseline') as Promise<{ violations: number; grade: string; score: number; filesAudited: number } | null>,
+      getActiveRoot: () => invoke('project:get-active-root') as Promise<{ projectRoot: string }>,
+      onBaselineProgress: (callback: (progress: { current: number; total: number; phase: string }) => void): (() => void) =>
+        subscribe('flint:baseline-progress', callback as (...args: unknown[]) => void),
     },
 
     // ── File read / git ─────────────────────────────────────────────────────
@@ -290,7 +381,7 @@ export function createWebFlintAPI() {
     },
 
     // ── AI Orchestration ────────────────────────────────────────────────────
-    applyBatch: (_mutations: unknown[]) => invoke('ai:apply-batch') as Promise<{ ok: boolean }>,
+    applyBatch: (mutations: unknown[]) => invoke('ai:apply-batch', mutations) as Promise<{ ok: boolean }>,
 
     ai: {
       chat: (messages: unknown[], context: unknown) =>
@@ -329,11 +420,18 @@ export function createWebFlintAPI() {
     },
 
     // ── IDE file sync ───────────────────────────────────────────────────────
-    onIDEFileSelected: (cb: (filePath: string) => void): void => {
-      subscribe('flint:ide-file-selected', cb as (...args: unknown[]) => void)
+    onIDEFileSelected: (cb: (filePath: string) => void): (() => void) => {
+      return subscribe('flint:ide-file-selected', cb as (...args: unknown[]) => void)
     },
     removeIDEFileSelectedListener: (): void => {
       unsubscribeAll('flint:ide-file-selected')
+    },
+
+    // ── Project opened externally (e.g. from demo script or CLI) ───────────
+    onProjectOpened: (cb: (data: { path: string }) => void): (() => void) =>
+      subscribe('flint:project-opened', cb as (...args: unknown[]) => void),
+    removeProjectOpenedListener: (): void => {
+      unsubscribeAll('flint:project-opened')
     },
 
     // ── MCP integration ─────────────────────────────────────────────────────
@@ -343,6 +441,7 @@ export function createWebFlintAPI() {
       readResource: (uri: string) => invoke('mcp:read-resource', uri) as Promise<unknown>,
       status: () => invoke('mcp:status') as Promise<{ connected: boolean; serverPid: number | null }>,
       reconnect: () => invoke('mcp:reconnect') as Promise<void>,
+      getRecentFileFocus: () => invoke('mcp:get-recent-file-focus') as Promise<string | null>,
       onEvent: (callback: (events: unknown[]) => void): void => {
         subscribe('flint:mcp-event', callback as (...args: unknown[]) => void)
       },
@@ -383,6 +482,28 @@ export function createWebFlintAPI() {
         invoke('governance:compliance-summary', ruleIds) as Promise<unknown>,
       onOverrideRecorded: (cb: () => void): (() => void) =>
         subscribe('flint:governance-override-recorded', cb),
+      applyFix: (filePath: string) =>
+        invoke('governance:apply-fix', filePath) as Promise<{ fixesApplied: number; status: string } | null>,
+      getProvenanceSummary: (filePath: string) =>
+        invoke('governance:get-provenance-summary', filePath) as Promise<Record<string, { source: string; agentId?: string; timestamp: string }>>,
+      getAnomalies: () =>
+        invoke('governance:get-anomalies') as Promise<Array<{ type: string; severity: string; message: string; detected_at: string }>>,
+      getLastCleanState: () =>
+        invoke('governance:get-last-clean-state') as Promise<{ timestamp: string; score: number } | null>,
+      previewTokenImpact: (tokenName: string, newValue: string) =>
+        invoke('governance:preview-token-impact', tokenName, newValue) as Promise<{ affectedFiles: number; estimatedImpact: 'low' | 'medium' | 'high' }>,
+      getHealthHistory: () =>
+        invoke('governance:get-health-history') as Promise<Array<{ date: string; score: number; grade: string }>>,
+      recordHealth: (entry: { score: number; grade: string }) =>
+        invoke('governance:record-health', entry) as Promise<void>,
+      getPendingMutations: () =>
+        invoke('governance:get-pending-mutations') as Promise<Array<{ id: number; type: string; filePath: string; riskScore: number; riskTier: string; agentId?: string }>>,
+      approveMutation: (id: number) =>
+        invoke('governance:approve-mutation', id) as Promise<void>,
+      rejectMutation: (id: number) =>
+        invoke('governance:reject-mutation', id) as Promise<void>,
+      getAuditLog: (opts?: { limit?: number }) =>
+        invoke('governance:get-audit-log', opts) as Promise<Array<{ id: number | string; timestamp: string; action: string; filePath: string; description: string }>>,
     },
 
     // ── Context sync ────────────────────────────────────────────────────────

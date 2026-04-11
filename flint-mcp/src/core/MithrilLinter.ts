@@ -27,6 +27,7 @@ import type Database from 'better-sqlite3'
 import type { DesignToken, LinterWarning, TokenCoverage } from '../types.js'
 import { getErrorEntryByRuleId } from './errorTaxonomy.js'
 import { checkSyncViolations, type DesignTokenFileEntry } from './sync/syncViolationChecker.js'
+import { hexToLab, deltaE2000 } from './colorMath.js'
 
 // CJS/ESM interop
 const traverse =
@@ -34,7 +35,7 @@ const traverse =
         ? _traverse
         : (_traverse as unknown as { default: typeof _traverse }).default
 
-// ── CIEDE2000 engine (inlined from tokenMatcher) ──────────────────────────────
+// ── CIEDE2000 engine — shared via colorMath.ts ──────────────────────────────
 
 export const MITHRIL_THRESHOLD = 2.0
 
@@ -49,124 +50,6 @@ export interface PolicyOptions {
     deltaE_critical_threshold?: number
     /** Per-rule policy modes from POL.1. 'off' skips the visitor, 'advisory' downgrades severity. */
     ruleModes?: Record<string, 'blocking' | 'advisory' | 'off'>
-}
-
-function hexToRgb(hex: string): [number, number, number] | null {
-    const s = hex.trim().replace(/^#/, '')
-    const expanded = s.length === 3
-        ? s[0] + s[0] + s[1] + s[1] + s[2] + s[2]
-        : s
-    if (!/^[0-9a-fA-F]{6}$/.test(expanded)) return null
-    return [
-        parseInt(expanded.slice(0, 2), 16),
-        parseInt(expanded.slice(2, 4), 16),
-        parseInt(expanded.slice(4, 6), 16),
-    ]
-}
-
-function srgbToLinear(c: number): number {
-    const n = c / 255
-    return n <= 0.04045 ? n / 12.92 : Math.pow((n + 0.055) / 1.055, 2.4)
-}
-
-function linearRgbToXyz(r: number, g: number, b: number): [number, number, number] {
-    return [
-        r * 0.4124564 + g * 0.3575761 + b * 0.1804375,
-        r * 0.2126729 + g * 0.7151522 + b * 0.0721750,
-        r * 0.0193339 + g * 0.1191920 + b * 0.9503041,
-    ]
-}
-
-function xyzToLab(x: number, y: number, z: number): [number, number, number] {
-    const Xn = 0.95047, Yn = 1.00000, Zn = 1.08883
-    const epsilon = 0.008856
-    const kappa = 903.3
-    function f(val: number): number {
-        return val > epsilon ? Math.pow(val, 1 / 3) : (kappa * val + 16) / 116
-    }
-    const fx = f(x / Xn), fy = f(y / Yn), fz = f(z / Zn)
-    return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)]
-}
-
-function hexToLab(hex: string): [number, number, number] | null {
-    const rgb = hexToRgb(hex)
-    if (rgb === null) return null
-    const [lr, lg, lb] = rgb.map(srgbToLinear) as [number, number, number]
-    const [x, y, z] = linearRgbToXyz(lr, lg, lb)
-    return xyzToLab(x, y, z)
-}
-
-const RAD = Math.PI / 180
-
-function deltaE2000(
-    lab1: [number, number, number],
-    lab2: [number, number, number],
-): number {
-    const [L1, a1, b1] = lab1
-    const [L2, a2, b2] = lab2
-
-    const C1 = Math.sqrt(a1 * a1 + b1 * b1)
-    const C2 = Math.sqrt(a2 * a2 + b2 * b2)
-    const avgC7 = Math.pow((C1 + C2) / 2, 7)
-    const G = 0.5 * (1 - Math.sqrt(avgC7 / (avgC7 + Math.pow(25, 7))))
-
-    const a1p = a1 * (1 + G)
-    const a2p = a2 * (1 + G)
-    const C1p = Math.sqrt(a1p * a1p + b1 * b1)
-    const C2p = Math.sqrt(a2p * a2p + b2 * b2)
-
-    let h1p = Math.atan2(b1, a1p) / RAD
-    if (h1p < 0) h1p += 360
-    let h2p = Math.atan2(b2, a2p) / RAD
-    if (h2p < 0) h2p += 360
-
-    const dLp = L2 - L1
-    const dCp = C2p - C1p
-
-    let dhp: number
-    if (C1p * C2p === 0) {
-        dhp = 0
-    } else if (Math.abs(h2p - h1p) <= 180) {
-        dhp = h2p - h1p
-    } else {
-        dhp = h2p > h1p ? h2p - h1p - 360 : h2p - h1p + 360
-    }
-    const dHp = 2 * Math.sqrt(C1p * C2p) * Math.sin((dhp / 2) * RAD)
-
-    const avgLp = (L1 + L2) / 2
-    const avgCp = (C1p + C2p) / 2
-    const avgCp7 = Math.pow(avgCp, 7)
-
-    let avghp: number
-    if (C1p * C2p === 0) {
-        avghp = h1p + h2p
-    } else if (Math.abs(h1p - h2p) <= 180) {
-        avghp = (h1p + h2p) / 2
-    } else {
-        avghp = h1p + h2p < 360 ? (h1p + h2p + 360) / 2 : (h1p + h2p - 360) / 2
-    }
-
-    const T =
-        1
-        - 0.17 * Math.cos((avghp - 30) * RAD)
-        + 0.24 * Math.cos(2 * avghp * RAD)
-        + 0.32 * Math.cos((3 * avghp + 6) * RAD)
-        - 0.20 * Math.cos((4 * avghp - 63) * RAD)
-
-    const SL = 1 + (0.015 * (avgLp - 50) * (avgLp - 50)) / Math.sqrt(20 + (avgLp - 50) * (avgLp - 50))
-    const SC = 1 + 0.045 * avgCp
-    const SH = 1 + 0.015 * avgCp * T
-
-    const dTheta = 30 * Math.exp(-Math.pow((avghp - 275) / 25, 2))
-    const RC = 2 * Math.sqrt(avgCp7 / (avgCp7 + Math.pow(25, 7)))
-    const RT = -Math.sin(2 * dTheta * RAD) * RC
-
-    return Math.sqrt(
-        Math.pow(dLp / SL, 2) +
-        Math.pow(dCp / SC, 2) +
-        Math.pow(dHp / SH, 2) +
-        RT * (dCp / SC) * (dHp / SH),
-    )
 }
 
 interface TokenMatch {
@@ -286,14 +169,63 @@ export const INLINE_SHADOW_PROPS = new Set(['boxShadow', 'textShadow'])
 // ── CSS color value parser ─────────────────────────────────────────────────────
 
 /**
+ * The 16 basic CSS named colors that matter for CIEDE2000 comparison.
+ * Does not attempt to cover all 140+ CSS named colors — only the ones
+ * common enough to appear as hardcoded design values.
+ */
+const CSS_NAMED_COLORS: Record<string, string> = {
+    black: '#000000',
+    white: '#ffffff',
+    red: '#ff0000',
+    green: '#008000',
+    blue: '#0000ff',
+    yellow: '#ffff00',
+    cyan: '#00ffff',
+    magenta: '#ff00ff',
+    orange: '#ffa500',
+    purple: '#800080',
+    pink: '#ffc0cb',
+    gray: '#808080',
+    grey: '#808080',
+    brown: '#a52a2a',
+    lime: '#00ff00',
+    navy: '#000080',
+}
+
+/**
+ * Converts an HSL(A) color to a hex string.
+ * Handles both comma-separated (`hsl(H, S%, L%)`) and CSS4 space-separated
+ * (`hsl(H S% L%)`) forms. Alpha component is ignored for CIEDE2000 purposes.
+ */
+function hslToHex(h: number, s: number, l: number): string {
+    const sNorm = s / 100
+    const lNorm = l / 100
+    const a = sNorm * Math.min(lNorm, 1 - lNorm)
+    const f = (n: number): string => {
+        const k = (n + h / 30) % 12
+        const color = lNorm - a * Math.max(Math.min(k - 3, 9 - k, 1), -1)
+        return Math.round(255 * color).toString(16).padStart(2, '0')
+    }
+    return `#${f(0)}${f(8)}${f(4)}`
+}
+
+/**
  * Converts a CSS color string to hex for CIEDE2000 comparison.
- * Handles: #RGB, #RRGGBB, #RRGGBBAA, rgb(r,g,b), rgba(r,g,b,a), CSS4 space-sep rgb().
- * Returns null for: named colors, currentColor, inherit, var(), hsl() — these are
- * either semantically correct (token reference, system color) or too dynamic to flag.
+ * Handles: #RGB, #RRGGBB, #RRGGBBAA, rgb(r,g,b), rgba(r,g,b,a), CSS4 space-sep rgb(),
+ *          hsl(H,S%,L%), hsla(H,S%,L%,A), CSS4 space-sep hsl(H S% L%),
+ *          16 basic CSS named colors.
+ * Returns null for: currentColor, inherit, var() — these are token references or
+ *          dynamic values that cannot be statically evaluated.
+ * Returns null for: oklch(), oklab() — modern perceptual color spaces that require
+ *          a full color science library to convert; treated as skipped-dynamic.
  */
 export function parseCssColorToHex(value: string): string | null {
     const trimmed = value.trim()
+
+    // Hex literals
     if (/^#[0-9a-fA-F]{3,8}$/.test(trimmed)) return trimmed
+
+    // rgb() / rgba() — comma-separated or CSS4 space-separated
     const rgbMatch = /^rgba?\(\s*(\d+)\s*[,\s]\s*(\d+)\s*[,\s]\s*(\d+)/i.exec(trimmed)
     if (rgbMatch !== null) {
         const r = parseInt(rgbMatch[1], 10).toString(16).padStart(2, '0')
@@ -301,6 +233,40 @@ export function parseCssColorToHex(value: string): string | null {
         const b = parseInt(rgbMatch[3], 10).toString(16).padStart(2, '0')
         return `#${r}${g}${b}`
     }
+
+    // hsl() / hsla() — comma-separated and CSS4 space-separated forms
+    // Alpha is ignored; only H, S, L are used for CIEDE2000 comparison.
+    const hslMatch = /^hsla?\(\s*([\d.]+)\s*[,\s]\s*([\d.]+)%\s*[,\s]\s*([\d.]+)%/i.exec(trimmed)
+    if (hslMatch !== null) {
+        const h = parseFloat(hslMatch[1])
+        const s = parseFloat(hslMatch[2])
+        const l = parseFloat(hslMatch[3])
+        if (!isNaN(h) && !isNaN(s) && !isNaN(l)) {
+            return hslToHex(h, s, l)
+        }
+    }
+
+    // oklch() / oklab() — modern perceptual color spaces. A full conversion
+    // requires gamut-mapping and a CIE matrix that is out of scope here.
+    // Return null so the caller treats these as skipped-dynamic.
+    if (/^oklch\s*\(/i.test(trimmed) || /^oklab\s*\(/i.test(trimmed)) return null
+
+    // CSS var() references — attempt to extract fallback value first.
+    // var(--token, <fallback>) — the fallback is a hardcoded literal that should be flagged
+    // if it drifts from tokens. Recurse through the same parser so nested forms like
+    // var(--x, hsl(0, 100%, 50%)) and var(--a, var(--b, #0000ff)) also resolve.
+    if (/^var\s*\(/i.test(trimmed)) {
+        const varFallbackMatch = /^var\([^,]+,\s*(.+)\)$/.exec(trimmed)
+        if (varFallbackMatch !== null) {
+            return parseCssColorToHex(varFallbackMatch[1].trim())
+        }
+        return null
+    }
+
+    // CSS named colors (16 basic set)
+    const named = CSS_NAMED_COLORS[trimmed.toLowerCase()]
+    if (named !== undefined) return named
+
     return null
 }
 
@@ -829,6 +795,10 @@ export interface InlineStyleCoverage {
     inlinePropsScanned: number
     inlinePropsSkipped: number
     inlineViolations: number
+    /** Props skipped because their value was dynamic (conditional, logical, spread,
+     *  template literal with expressions, MemberExpression, Identifier, CallExpression).
+     *  A superset of inlinePropsSkipped — reported separately for coverage transparency. */
+    skippedDynamic: number
 }
 
 export function visitInlineStyles(
@@ -840,6 +810,7 @@ export function visitInlineStyles(
     let inlinePropsScanned = 0
     let inlinePropsSkipped = 0
     let inlineViolations = 0
+    let skippedDynamic = 0
 
     traverse(ast, {
         JSXAttribute(path) {
@@ -862,20 +833,114 @@ export function visitInlineStyles(
 
             const entries: StylePropEntry[] = []
             for (const prop of expr.properties) {
-                if (!t.isObjectProperty(prop)) continue // skip SpreadElement
+                // SpreadElement — attempt same-file resolution; otherwise count as skipped-dynamic
+                if (t.isSpreadElement(prop)) {
+                    if (t.isIdentifier(prop.argument)) {
+                        const binding = path.scope.getBinding(prop.argument.name)
+                        if (
+                            binding !== undefined &&
+                            t.isVariableDeclarator(binding.path.node) &&
+                            t.isObjectExpression(binding.path.node.init)
+                        ) {
+                            // Extract literal properties from the resolved same-file object
+                            for (const spreadProp of binding.path.node.init.properties) {
+                                if (!t.isObjectProperty(spreadProp)) continue
+                                if (!t.isIdentifier(spreadProp.key) && !t.isStringLiteral(spreadProp.key)) continue
+                                const spreadPropName = t.isIdentifier(spreadProp.key)
+                                    ? spreadProp.key.name
+                                    : (spreadProp.key as t.StringLiteral).value
+                                const spreadPropValue = spreadProp.value
+                                if (t.isStringLiteral(spreadPropValue)) {
+                                    inlinePropsScanned++
+                                    entries.push({ prop: spreadPropName, stringValue: spreadPropValue.value, numericValue: null })
+                                } else if (t.isNumericLiteral(spreadPropValue)) {
+                                    inlinePropsScanned++
+                                    entries.push({ prop: spreadPropName, stringValue: null, numericValue: spreadPropValue.value })
+                                } else {
+                                    skippedDynamic++
+                                }
+                            }
+                        } else {
+                            // Binding not found, imported, or not a plain object literal — skipped-dynamic
+                            skippedDynamic++
+                        }
+                    } else {
+                        // Non-identifier spread (e.g. CallExpression) — cannot resolve statically
+                        skippedDynamic++
+                    }
+                    continue
+                }
+                if (!t.isObjectProperty(prop)) continue
                 if (!t.isIdentifier(prop.key) && !t.isStringLiteral(prop.key)) continue
                 const propName = t.isIdentifier(prop.key)
                     ? prop.key.name
                     : (prop.key as t.StringLiteral).value
                 const propValue = prop.value
+
                 if (t.isStringLiteral(propValue)) {
                     inlinePropsScanned++
                     entries.push({ prop: propName, stringValue: propValue.value, numericValue: null })
                 } else if (t.isNumericLiteral(propValue)) {
                     inlinePropsScanned++
                     entries.push({ prop: propName, stringValue: null, numericValue: propValue.value })
+                } else if (t.isConditionalExpression(propValue)) {
+                    // Ternary: extract both branches if they are literals; otherwise count as dynamic
+                    const { consequent, alternate } = propValue
+                    const consLit = t.isStringLiteral(consequent) || t.isNumericLiteral(consequent)
+                    const altLit = t.isStringLiteral(alternate) || t.isNumericLiteral(alternate)
+                    if (consLit) {
+                        inlinePropsScanned++
+                        entries.push({
+                            prop: propName,
+                            stringValue: t.isStringLiteral(consequent) ? consequent.value : null,
+                            numericValue: t.isNumericLiteral(consequent) ? consequent.value : null,
+                        })
+                    }
+                    if (altLit) {
+                        inlinePropsScanned++
+                        entries.push({
+                            prop: propName,
+                            stringValue: t.isStringLiteral(alternate) ? alternate.value : null,
+                            numericValue: t.isNumericLiteral(alternate) ? alternate.value : null,
+                        })
+                    }
+                    if (!consLit || !altLit) {
+                        // At least one branch is dynamic
+                        skippedDynamic++
+                        inlinePropsSkipped++
+                    }
+                } else if (t.isLogicalExpression(propValue)) {
+                    // Logical (&&, ||, ??): extract right operand if it is a literal
+                    const { right } = propValue
+                    if (t.isStringLiteral(right)) {
+                        inlinePropsScanned++
+                        entries.push({ prop: propName, stringValue: right.value, numericValue: null })
+                    } else if (t.isNumericLiteral(right)) {
+                        inlinePropsScanned++
+                        entries.push({ prop: propName, stringValue: null, numericValue: right.value })
+                    } else {
+                        skippedDynamic++
+                        inlinePropsSkipped++
+                    }
+                } else if (t.isTemplateLiteral(propValue)) {
+                    // Template literal with zero expressions is a static string
+                    if (propValue.expressions.length === 0 && propValue.quasis.length === 1) {
+                        const cooked = propValue.quasis[0].value.cooked
+                        if (cooked !== null && cooked !== undefined) {
+                            inlinePropsScanned++
+                            entries.push({ prop: propName, stringValue: cooked, numericValue: null })
+                        } else {
+                            skippedDynamic++
+                            inlinePropsSkipped++
+                        }
+                    } else {
+                        // Has interpolated expressions — dynamic
+                        skippedDynamic++
+                        inlinePropsSkipped++
+                    }
                 } else {
-                    // MemberExpression, Identifier, CallExpression, TemplateLiteral → skip (uses tokens)
+                    // MemberExpression, Identifier, CallExpression → skip (uses tokens)
+                    skippedDynamic++
                     inlinePropsSkipped++
                 }
             }
@@ -895,7 +960,7 @@ export function visitInlineStyles(
         },
     })
 
-    return { warnings, coverage: { inlinePropsScanned, inlinePropsSkipped, inlineViolations } }
+    return { warnings, coverage: { inlinePropsScanned, inlinePropsSkipped, inlineViolations, skippedDynamic } }
 }
 
 // ── Phase 1: buildTokenCoverage helper ───────────────────────────────────────

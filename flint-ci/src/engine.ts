@@ -256,7 +256,14 @@ export function auditFile(
         try {
             const options = policyToOptions(policy)
             const warnings = auditAll(ast, tokens, options)
-            result.mithrilWarnings = Array.from(warnings.values())
+            // Defensive: auditAll should return a Map, but handle array or other shapes
+            if (warnings instanceof Map) {
+                result.mithrilWarnings = Array.from(warnings.values())
+            } else if (Array.isArray(warnings)) {
+                result.mithrilWarnings = warnings
+            } else {
+                throw new Error(`auditAll returned unexpected type: ${typeof warnings}`)
+            }
         } catch (err) {
             // Non-fatal: log but continue
             const msg = err instanceof Error ? err.message : String(err)
@@ -645,7 +652,7 @@ export function buildSarifReport(summary: AuditSummary): SarifReport {
 
     return {
         $schema:
-            'https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json',
+            'https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/os/schemas/sarif-schema-2.1.0.json',
         version: '2.1.0',
         runs: [
             {

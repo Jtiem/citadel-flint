@@ -1309,7 +1309,7 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     if (request.params.uri === resourceUri("tokens")) {
         const tokensPath = path.join(projectRoot, configPath("design-tokens.json"));
         if (!fs.existsSync(tokensPath)) {
-            throw new Error(`Design tokens file not found at ${tokensPath}`);
+            throw new Error(`Design tokens file not found: ${path.basename(tokensPath)}`);
         }
         return {
             contents: [{
@@ -1323,7 +1323,7 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     if (request.params.uri === resourceUri("manifest")) {
         const manifestPath = path.join(projectRoot, BRAND.manifestFile);
         if (!fs.existsSync(manifestPath)) {
-            throw new Error(`Manifest file not found at ${manifestPath}`);
+            throw new Error(`Manifest file not found: ${path.basename(manifestPath)}`);
         }
         return {
             contents: [{
@@ -1517,7 +1517,7 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     if (request.params.uri.startsWith(resourceUri("violations/"))) {
         const filePath = "/" + request.params.uri.replace(resourceUri("violations/"), "");
         if (!fs.existsSync(filePath)) {
-            throw new Error(`File not found: ${filePath}`);
+            throw new Error(`File not found: ${path.basename(filePath)}`);
         }
         const source = fs.readFileSync(filePath, "utf-8");
         const auditResult = await handleFlintAudit({ source, filePath }, flintConfig);
@@ -1704,10 +1704,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 projectRoot?: string;
             };
             if (!complexityArgs.taskDescription) {
-                return {
-                    isError: true,
-                    content: [{ type: "text", text: "flint_assess_complexity: 'taskDescription' parameter is required." }],
-                };
+                return toolError("flint_assess_complexity", new Error("'taskDescription' parameter is required."), HINTS.missingParam("flint_assess_complexity taskDescription='Migrate all buttons to use design tokens'"));
             }
             let ctxForComplexity: SessionContext | null = null;
             if (complexityArgs.projectRoot) {
@@ -1761,14 +1758,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             const componentPath = file && path.isAbsolute(file) ? file : path.resolve(process.cwd(), file ?? '');
 
             if (!fs.existsSync(componentPath)) {
-                return toolError("audit_ui_component", new Error(`File not found: ${componentPath}`), HINTS.fileNotFound);
+                console.error(`[audit_ui_component] File not found: ${componentPath}`);
+                return toolError("audit_ui_component", new Error(`File not found: ${path.basename(componentPath)}`), HINTS.fileNotFound);
             }
 
             const code = fs.readFileSync(componentPath, "utf-8");
 
             const projectRoot = findProjectRoot(componentPath);
             if (!projectRoot) {
-                throw new Error(`Could not find project root (${BRAND.configDir} directory)`);
+                return toolError("audit_ui_component", new Error(`Could not find project root (${BRAND.configDir} directory)`), HINTS.fileNotFound);
             }
             const telemetry = new TelemetryLogger(projectRoot);
 
@@ -1914,7 +1912,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             const { figmaPayload, projectRoot } = request.params.arguments as { figmaPayload: string; projectRoot: string };
 
             if (!fs.existsSync(projectRoot)) {
-                throw new Error(`Project root not found: ${projectRoot}`);
+                return toolError("hydrate_figma_data", new Error(`Project root not found: ${path.basename(projectRoot)}`), HINTS.fileNotFound);
             }
 
             const manifestPath = path.join(projectRoot, BRAND.manifestFile);
@@ -1963,12 +1961,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             const effectiveWriteFile = dryRunMutate ? false : !!writeFile;
 
             if (!fs.existsSync(targetPath)) {
-                throw new Error(`File not found: ${targetPath}`);
+                console.error(`[flint_ast_mutate] File not found: ${targetPath}`);
+                return toolError("flint_ast_mutate", new Error(`File not found: ${path.basename(targetPath)}`), HINTS.fileNotFound);
             }
 
             const projectRoot = findProjectRoot(targetPath);
             if (!projectRoot) {
-                throw new Error(`Could not find project root (${BRAND.configDir} directory)`);
+                return toolError("flint_ast_mutate", new Error(`Could not find project root (${BRAND.configDir} directory)`), HINTS.fileNotFound);
             }
             const telemetry = new TelemetryLogger(projectRoot);
 
@@ -1986,7 +1985,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                     outcome: `Blocked: Parsing Error ${err.message}`,
                     metadata: JSON.stringify({ error: err.message })
                 });
-                throw new Error(`Failed to parse target file: ${err.message}`);
+                return toolError("flint_ast_mutate", new Error(`Failed to parse target file: ${err.message}`), HINTS.parseError);
             }
 
             for (const mutation of mutations) {
@@ -2315,7 +2314,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             const { projectRoot } = request.params.arguments as { projectRoot: string };
 
             if (!projectRoot || !fs.existsSync(projectRoot)) {
-                throw new Error(`Project root not found or not specified: ${projectRoot}`);
+                return toolError("read_design_intent", new Error("'projectRoot' must be an existing directory."), HINTS.fileNotFound);
             }
 
             const intentPath = path.join(projectRoot, configPath('current-intent.json'));
@@ -2353,11 +2352,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             const projectRoot = projectRootArg ?? process.cwd();
 
             if (!query) {
-                throw new Error("Missing required parameter: query or semantic_query");
+                return toolError("flint_query_registry", new Error("Missing required parameter: query or semantic_query"), HINTS.missingParam("flint_query_registry query='button component'"));
             }
 
             if (!fs.existsSync(projectRoot)) {
-                throw new Error(`Project root not found: ${projectRoot}`);
+                return toolError("flint_query_registry", new Error("'projectRoot' must be an existing directory."), HINTS.fileNotFound);
             }
 
             // Hydrate the RAG cache with the local manifest so freshly-opened
@@ -2418,6 +2417,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 severity?: "info" | "warning" | "critical";
                 healOnAudit?: boolean;
             };
+
+            // MAJOR-5: Runtime validation — reject early with actionable error
+            if (!auditArgs.filePaths?.length && (!auditArgs.source || !auditArgs.filePath)) {
+                return toolError(
+                    "flint_audit",
+                    new Error("Missing required parameters: provide either `filePaths` (batch) or both `source` and `filePath` (single file)."),
+                    HINTS.missingParam('flint_audit({ source: "<jsx code>", filePath: "src/App.tsx" })'),
+                );
+            }
+
             if (auditArgs.filePaths && auditArgs.filePaths.length > 0) {
                 const batchResult = await handleFlintAuditBatch(
                     auditArgs.filePaths,
@@ -2479,19 +2488,39 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 // Override telemetry is best-effort — never block audit result
             }
 
+            // MAJOR-4: Prepend human-readable _summary so IDE agents don't need to parse JSON
+            const auditSummaryPreamble = buildAuditSummary(auditResult, auditArgs.filePath);
             return {
-                content: [{ type: "text", text: enrichedAuditText }],
+                content: [{ type: "text", text: `${auditSummaryPreamble}\n\n${enrichedAuditText}` }],
             };
         }
 
         case "flint_fix": {
             const fixArgs = request.params.arguments as {
-                source: string;
-                filePath: string;
+                file?: string;
+                source?: string;
+                filePath?: string;
                 violationIds?: string[];
                 dryRun?: boolean;
             };
-            const fixResult = await handleFlintFix(fixArgs, flintConfig);
+            const fixResult = await handleFlintFix(fixArgs as Parameters<typeof handleFlintFix>[0], flintConfig);
+
+            // Write fixed source to disk when fixes were applied and not in dry-run mode.
+            // handleFlintFix resolves the path internally (supporting both `file` and `filePath`
+            // shorthands) but does not write — the server is responsible for persistence.
+            // This mirrors the behaviour of flint_swarm_audit_fix (swarm.ts:246).
+            const resolvedFixPath = fixArgs.filePath ?? fixArgs.file;
+            if (fixResult.fixesApplied > 0 && !fixResult.dryRun && resolvedFixPath) {
+                try {
+                    // Commandment 12: atomic write via .tmp → rename
+                    const tmpFixPath = resolvedFixPath + '.flint-tmp-' + crypto.randomUUID().slice(0, 8);
+                    fs.writeFileSync(tmpFixPath, fixResult.fixedSource, "utf-8");
+                    fs.renameSync(tmpFixPath, resolvedFixPath);
+                } catch (writeErr) {
+                    console.warn("[flint_fix] Failed to write fixed source to disk:", writeErr);
+                }
+            }
+
             const fixResultText = JSON.stringify(fixResult, null, 2);
             // ACX.3: Prepend node context preamble to fix results
             let enrichedFixText = fixResultText;
@@ -2507,9 +2536,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             }
 
             // V.2-mp: Record provenance when flint_fix actually applied fixes.
-            if (fixResult.fixesApplied > 0 && !fixArgs.dryRun) {
+            if (fixResult.fixesApplied > 0 && !fixArgs.dryRun && resolvedFixPath) {
                 try {
-                    const fixProjectRoot = findProjectRoot(fixArgs.filePath) ?? flintConfig.projectRoot;
+                    const fixProjectRoot = findProjectRoot(resolvedFixPath) ?? flintConfig.projectRoot;
                     const provSvc = getProvenanceService(fixProjectRoot);
                     const fixMutationId = crypto.randomUUID();
                     provSvc.recordProvenance(
@@ -2517,7 +2546,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                         "auto-fix",
                         "flint_fix",
                         null,
-                        `flint_fix applied ${fixResult.fixesApplied} token fix(es) to ${path.basename(fixArgs.filePath)}`,
+                        `flint_fix applied ${fixResult.fixesApplied} token fix(es) to ${path.basename(resolvedFixPath)}`,
                         null,
                     );
                 } catch {
@@ -2528,9 +2557,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             // GOV.2: Record override telemetry when flint_fix applies token corrections.
             // Each fix represents an override of the design system that was corrected.
             // Fire-and-forget — never blocks the fix response.
-            if (fixResult.fixesApplied > 0) {
+            if (fixResult.fixesApplied > 0 && resolvedFixPath) {
                 try {
-                    const fixProjectRoot = findProjectRoot(fixArgs.filePath) ?? flintConfig.projectRoot;
+                    const fixProjectRoot = findProjectRoot(resolvedFixPath) ?? flintConfig.projectRoot;
                     const ovrSvc = getOverrideTelemetryService(fixProjectRoot);
                     ovrSvc.recordOverride({
                         id: crypto.randomUUID(),
@@ -2540,15 +2569,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                         agentId: "flint_fix",
                         timestamp: new Date().toISOString(),
                         projectRoot: fixProjectRoot,
-                        reason: `${fixResult.fixesApplied} token override(s) corrected in ${path.basename(fixArgs.filePath)}${fixArgs.dryRun ? " (dry run)" : ""}`,
+                        reason: `${fixResult.fixesApplied} token override(s) corrected in ${path.basename(resolvedFixPath)}${fixArgs.dryRun ? " (dry run)" : ""}`,
                     });
                 } catch {
                     // Override telemetry is best-effort — never block fix result
                 }
             }
 
+            // MAJOR-4: Prepend human-readable _summary so IDE agents don't need to parse JSON
+            const fixSummaryPreamble = `## Flint Fix Result\n\n${fixResult.summary}\n\n**Recommendation:** ${fixResult.recommendation}`;
             return {
-                content: [{ type: "text", text: enrichedFixText }],
+                content: [{ type: "text", text: `${fixSummaryPreamble}\n\n${enrichedFixText}` }],
             };
         }
 
@@ -2745,13 +2776,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 }
 
                 default:
-                    return {
-                        isError: true,
-                        content: [{
-                            type: "text",
-                            text: `flint_set_policy: unknown action '${action}'. Must be 'read', 'update', or 'reset'.`,
-                        }],
-                    };
+                    return toolError("flint_set_policy", new Error(`unknown action '${action}'. Must be 'read', 'update', or 'reset'.`), HINTS.missingParam("flint_set_policy action='read' projectRoot='...'"));
             }
         }
 
@@ -2854,13 +2879,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 }
 
                 default: {
-                    return {
-                        isError: true,
-                        content: [{
-                            type: "text",
-                            text: `flint_mutation_provenance: unknown action '${(provArgs as { action: string }).action}'. Must be 'summary', 'audit_trail', or 'by_source'.`,
-                        }],
-                    };
+                    return toolError("flint_mutation_provenance", new Error(`unknown action '${(provArgs as { action: string }).action}'. Must be 'summary', 'audit_trail', or 'by_source'.`), HINTS.missingParam("flint_mutation_provenance action='summary' projectRoot='...'"));
                 }
             }
         }
@@ -2906,13 +2925,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 }
 
                 default: {
-                    return {
-                        isError: true,
-                        content: [{
-                            type: "text",
-                            text: `flint_agent_risk: unknown action '${(arArgs as { action: string }).action}'. Must be 'summary' or 'by_agent'.`,
-                        }],
-                    };
+                    return toolError("flint_agent_risk", new Error(`unknown action '${(arArgs as { action: string }).action}'. Must be 'summary' or 'by_agent'.`), HINTS.missingParam("flint_agent_risk action='summary' projectRoot='...'"));
                 }
             }
         }
@@ -2967,13 +2980,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 }
 
                 default: {
-                    return {
-                        isError: true,
-                        content: [{
-                            type: "text",
-                            text: `flint_override_telemetry: unknown action '${(ovrArgs as { action: string }).action}'. Must be 'summary', 'by_session', or 'by_rule'.`,
-                        }],
-                    };
+                    return toolError("flint_override_telemetry", new Error(`unknown action '${(ovrArgs as { action: string }).action}'. Must be 'summary', 'by_session', or 'by_rule'.`), HINTS.missingParam("flint_override_telemetry action='summary' projectRoot='...'"));
                 }
             }
         }
@@ -3025,13 +3032,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 }
 
                 default: {
-                    return {
-                        isError: true,
-                        content: [{
-                            type: "text",
-                            text: `flint_anomaly_report: unknown action '${(anomArgs as { action: string }).action}'. Must be 'detect', 'history', or 'baseline'.`,
-                        }],
-                    };
+                    return toolError("flint_anomaly_report", new Error(`unknown action '${(anomArgs as { action: string }).action}'. Must be 'detect', 'history', or 'baseline'.`), HINTS.missingParam("flint_anomaly_report action='detect' projectRoot='...'"));
                 }
             }
         }
@@ -3120,13 +3121,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 }
 
                 default: {
-                    return {
-                        isError: true,
-                        content: [{
-                            type: "text",
-                            text: `flint_risk_score: unknown action '${(riskArgs as { action: string }).action}'. Must be 'score_mutation', 'file_profile', or 'project_summary'.`,
-                        }],
-                    };
+                    return toolError("flint_risk_score", new Error(`unknown action '${(riskArgs as { action: string }).action}'. Must be 'score_mutation', 'file_profile', or 'project_summary'.`), HINTS.missingParam("flint_risk_score action='project_summary' projectRoot='...'"));
                 }
             }
         }
@@ -3152,18 +3147,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
             // Prevent path traversal in glob patterns
             if (twArgs.glob && (twArgs.glob.includes('..') || path.isAbsolute(twArgs.glob))) {
-                throw new Error('Invalid glob: path traversal and absolute paths are not permitted');
+                return toolError("flint_migrate_tw", new Error("Invalid glob: path traversal and absolute paths are not permitted"), HINTS.missingParam("flint_migrate_tw filePaths=['src/**/*.tsx']"));
             }
 
-
             if (!Array.isArray(twArgs.filePaths) || twArgs.filePaths.length === 0) {
-                return {
-                    isError: true,
-                    content: [{
-                        type: "text",
-                        text: "flint_migrate_tw: 'filePaths' must be a non-empty array of absolute file paths.",
-                    }],
-                };
+                return toolError("flint_migrate_tw", new Error("'filePaths' must be a non-empty array of absolute file paths."), HINTS.missingParam("flint_migrate_tw filePaths=['/abs/path/to/component.tsx']"));
             }
 
             const dryRun = twArgs.dryRun !== false; // default true
@@ -3267,13 +3255,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             };
 
             if (!trustArgs.projectRoot || !fs.existsSync(trustArgs.projectRoot)) {
-                return {
-                    isError: true,
-                    content: [{
-                        type: "text",
-                        text: "flint_agent_trust: 'projectRoot' must be an existing directory.",
-                    }],
-                };
+                return toolError("flint_agent_trust", new Error("'projectRoot' must be an existing directory."), HINTS.fileNotFound);
             }
 
             const trustSvc = getTrustTierService(trustArgs.projectRoot);
@@ -3288,10 +3270,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
                 case "profile": {
                     if (!trustArgs.agentId) {
-                        return {
-                            isError: true,
-                            content: [{ type: "text", text: "flint_agent_trust: action='profile' requires 'agentId'." }],
-                        };
+                        return toolError("flint_agent_trust", new Error("action='profile' requires 'agentId'."), HINTS.missingParam("flint_agent_trust action='profile' agentId='my-agent' projectRoot='...'"));
                     }
                     const profile = trustSvc.getAgentTrustProfile(trustArgs.agentId);
                     return {
@@ -3301,10 +3280,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
                 case "promote": {
                     if (!trustArgs.agentId || !trustArgs.targetTier) {
-                        return {
-                            isError: true,
-                            content: [{ type: "text", text: "flint_agent_trust: action='promote' requires 'agentId' and 'targetTier'." }],
-                        };
+                        return toolError("flint_agent_trust", new Error("action='promote' requires 'agentId' and 'targetTier'."), HINTS.missingParam("flint_agent_trust action='promote' agentId='my-agent' targetTier='trusted' projectRoot='...'"));
                     }
                     // Load YAML config promotion gates and pass them to evaluatePromotion.
                     // If the behavioral evaluation already qualifies the agent, use that result;
@@ -3328,10 +3304,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
                 case "demote": {
                     if (!trustArgs.agentId) {
-                        return {
-                            isError: true,
-                            content: [{ type: "text", text: "flint_agent_trust: action='demote' requires 'agentId'." }],
-                        };
+                        return toolError("flint_agent_trust", new Error("action='demote' requires 'agentId'."), HINTS.missingParam("flint_agent_trust action='demote' agentId='my-agent' projectRoot='...'"));
                     }
                     const demoted = trustSvc.manualDemote(trustArgs.agentId);
                     return {
@@ -3341,10 +3314,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
                 case "reset": {
                     if (!trustArgs.agentId) {
-                        return {
-                            isError: true,
-                            content: [{ type: "text", text: "flint_agent_trust: action='reset' requires 'agentId'." }],
-                        };
+                        return toolError("flint_agent_trust", new Error("action='reset' requires 'agentId'."), HINTS.missingParam("flint_agent_trust action='reset' agentId='my-agent' projectRoot='...'"));
                     }
                     const resetResult = trustSvc.resetTrust(trustArgs.agentId);
                     return {
@@ -3353,13 +3323,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 }
 
                 default: {
-                    return {
-                        isError: true,
-                        content: [{
-                            type: "text",
-                            text: `flint_agent_trust: unknown action '${(trustArgs as { action: string }).action}'. Must be 'profile', 'list', 'promote', 'demote', or 'reset'.`,
-                        }],
-                    };
+                    return toolError("flint_agent_trust", new Error(`unknown action '${(trustArgs as { action: string }).action}'. Must be 'profile', 'list', 'promote', 'demote', or 'reset'.`), HINTS.missingParam("flint_agent_trust action='list' projectRoot='...'"));
                 }
             }
         }
@@ -3374,13 +3338,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             };
 
             if (!syncArgs.projectRoot || !fs.existsSync(syncArgs.projectRoot)) {
-                return {
-                    isError: true,
-                    content: [{
-                        type: "text",
-                        text: "flint_figma_connect: 'projectRoot' must be an existing directory.",
-                    }],
-                };
+                return toolError("flint_figma_connect", new Error("'projectRoot' must be an existing directory."), HINTS.fileNotFound);
             }
 
             const connSvc = getSyncConnectionService(syncArgs.projectRoot);
@@ -3388,10 +3346,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             switch (syncArgs.action) {
                 case "connect": {
                     if (!syncArgs.fileKey || !syncArgs.accessToken) {
-                        return {
-                            isError: true,
-                            content: [{ type: "text", text: "flint_figma_connect: action='connect' requires 'fileKey' and 'accessToken'." }],
-                        };
+                        return toolError("flint_figma_connect", new Error("action='connect' requires 'fileKey' and 'accessToken'."), HINTS.noFigmaConnection);
                     }
                     const conn = connSvc.createConnection(
                         syncArgs.projectRoot,
@@ -3419,13 +3374,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 }
 
                 default: {
-                    return {
-                        isError: true,
-                        content: [{
-                            type: "text",
-                            text: `flint_figma_connect: unknown action '${(syncArgs as { action: string }).action}'. Must be 'connect', 'disconnect', or 'status'.`,
-                        }],
-                    };
+                    return toolError("flint_figma_connect", new Error(`unknown action '${(syncArgs as { action: string }).action}'. Must be 'connect', 'disconnect', or 'status'.`), HINTS.missingParam("flint_figma_connect action='connect' projectRoot='...' fileKey='...' accessToken='...'"));
                 }
             }
         }
@@ -3465,10 +3414,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         case "flint_resolve_conflict": {
             const args = request.params.arguments as { conflictId: string; resolution: "local" | "remote" | "merged"; mergedValue?: string };
             if (!args.conflictId || !args.resolution) {
-                return { isError: true, content: [{ type: "text", text: "flint_resolve_conflict: 'conflictId' and 'resolution' are required." }] };
+                return toolError("flint_resolve_conflict", new Error("'conflictId' and 'resolution' are required."), HINTS.missingParam("flint_resolve_conflict conflictId='<id>' resolution='local'"));
             }
             if (args.resolution === "merged" && !args.mergedValue) {
-                return { isError: true, content: [{ type: "text", text: "flint_resolve_conflict: 'mergedValue' is required when resolution is 'merged'." }] };
+                return toolError("flint_resolve_conflict", new Error("'mergedValue' is required when resolution is 'merged'."), HINTS.missingParam("flint_resolve_conflict conflictId='<id>' resolution='merged' mergedValue='...'"));
             }
             // We need a projectRoot to get the engine. Look up conflict across all engines, or require projectRoot.
             // For simplicity, iterate cached engines to find the conflict.
@@ -3483,10 +3432,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         case "flint_resolve_all": {
             const args = request.params.arguments as { projectRoot: string; resolution: "local" | "remote" };
             if (!args.projectRoot || !fs.existsSync(args.projectRoot)) {
-                return { isError: true, content: [{ type: "text", text: "flint_resolve_all: 'projectRoot' must be an existing directory." }] };
+                return toolError("flint_resolve_all", new Error("'projectRoot' must be an existing directory."), HINTS.fileNotFound);
             }
             if (!args.resolution || !["local", "remote"].includes(args.resolution)) {
-                return { isError: true, content: [{ type: "text", text: "flint_resolve_all: 'resolution' must be 'local' or 'remote'." }] };
+                return toolError("flint_resolve_all", new Error("'resolution' must be 'local' or 'remote'."), HINTS.missingParam("flint_resolve_all projectRoot='...' resolution='local'"));
             }
             const engine = getSyncEngine(args.projectRoot);
             const result = engine.resolveAllConflicts(args.projectRoot, args.resolution);
@@ -3496,7 +3445,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         case "flint_sync_check": {
             const args = request.params.arguments as { projectRoot: string };
             if (!args.projectRoot || !fs.existsSync(args.projectRoot)) {
-                return { isError: true, content: [{ type: "text", text: "flint_sync_check: 'projectRoot' must be an existing directory." }] };
+                return toolError("flint_sync_check", new Error("'projectRoot' must be an existing directory."), HINTS.fileNotFound);
             }
             const checkSvc = getSyncCheckService(args.projectRoot);
             const report = checkSvc.runSyncCheck(args.projectRoot);
@@ -3513,7 +3462,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         case "flint_sync_history": {
             const args = request.params.arguments as { projectRoot: string; format?: "json" | "csv" };
             if (!args.projectRoot || !fs.existsSync(args.projectRoot)) {
-                return { isError: true, content: [{ type: "text", text: "flint_sync_history: 'projectRoot' must be an existing directory." }] };
+                return toolError("flint_sync_history", new Error("'projectRoot' must be an existing directory."), HINTS.fileNotFound);
             }
             const historySvc = getSyncHistoryService(args.projectRoot);
             const exported = historySvc.exportHistory(args.projectRoot, args.format ?? "json");
@@ -3528,24 +3477,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 filePaths?: string[];
             };
             if (!args.projectRoot || !fs.existsSync(args.projectRoot)) {
-                return { isError: true, content: [{ type: "text", text: "flint_validate_themes: 'projectRoot' must be an existing directory." }] };
+                return toolError("flint_validate_themes", new Error("'projectRoot' must be an existing directory."), HINTS.fileNotFound);
             }
             if (!Array.isArray(args.themeFiles)) {
-                return { isError: true, content: [{ type: "text", text: "flint_validate_themes: 'themeFiles' must be an array of token file paths." }] };
+                return toolError("flint_validate_themes", new Error("'themeFiles' must be an array of token file paths."), HINTS.missingParam("flint_validate_themes projectRoot='...' themeFiles=['tokens/light.json','tokens/dark.json']"));
             }
             // SEC.5-style path traversal check: all themeFiles must resolve within projectRoot
             const resolvedRoot_vt = path.resolve(args.projectRoot);
             for (const tf of args.themeFiles) {
                 const resolved = path.resolve(resolvedRoot_vt, tf);
                 if (!resolved.startsWith(resolvedRoot_vt + path.sep) && resolved !== resolvedRoot_vt) {
-                    return { isError: true, content: [{ type: "text", text: `flint_validate_themes: path '${tf}' escapes projectRoot.` }] };
+                    return toolError("flint_validate_themes", new Error(`path '${tf}' escapes projectRoot.`), undefined);
                 }
             }
             if (args.filePaths) {
                 for (const fp of args.filePaths) {
                     const resolved = path.resolve(resolvedRoot_vt, fp);
                     if (!resolved.startsWith(resolvedRoot_vt + path.sep) && resolved !== resolvedRoot_vt) {
-                        return { isError: true, content: [{ type: "text", text: `flint_validate_themes: path '${fp}' escapes projectRoot.` }] };
+                        return toolError("flint_validate_themes", new Error(`path '${fp}' escapes projectRoot.`), undefined);
                     }
                 }
             }
@@ -3569,31 +3518,33 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 dryRun?: boolean;
             };
             if (!args.projectRoot || !fs.existsSync(args.projectRoot)) {
-                return { isError: true, content: [{ type: "text", text: "flint_migrate_ds: 'projectRoot' must be an existing directory." }] };
+                return toolError("flint_migrate_ds", new Error("'projectRoot' must be an existing directory."), HINTS.fileNotFound);
             }
             // SEC.5-style path traversal check
             const resolvedRoot_md = path.resolve(args.projectRoot);
             const oldPath = path.resolve(resolvedRoot_md, args.oldTokens);
             const newPath = path.resolve(resolvedRoot_md, args.newTokens);
             if (!oldPath.startsWith(resolvedRoot_md + path.sep) && oldPath !== resolvedRoot_md) {
-                return { isError: true, content: [{ type: "text", text: `flint_migrate_ds: oldTokens path '${args.oldTokens}' escapes projectRoot.` }] };
+                return toolError("flint_migrate_ds", new Error(`oldTokens path '${args.oldTokens}' escapes projectRoot.`), undefined);
             }
             if (!newPath.startsWith(resolvedRoot_md + path.sep) && newPath !== resolvedRoot_md) {
-                return { isError: true, content: [{ type: "text", text: `flint_migrate_ds: newTokens path '${args.newTokens}' escapes projectRoot.` }] };
+                return toolError("flint_migrate_ds", new Error(`newTokens path '${args.newTokens}' escapes projectRoot.`), undefined);
             }
             if (args.filePaths) {
                 for (const fp of args.filePaths) {
                     const resolved = path.resolve(resolvedRoot_md, fp);
                     if (!resolved.startsWith(resolvedRoot_md + path.sep) && resolved !== resolvedRoot_md) {
-                        return { isError: true, content: [{ type: "text", text: `flint_migrate_ds: filePath '${fp}' escapes projectRoot.` }] };
+                        return toolError("flint_migrate_ds", new Error(`filePath '${fp}' escapes projectRoot.`), undefined);
                     }
                 }
             }
             if (!fs.existsSync(oldPath)) {
-                return { isError: true, content: [{ type: "text", text: `flint_migrate_ds: old tokens file not found: ${oldPath}` }] };
+                console.error(`[flint_migrate_ds] old tokens file not found: ${oldPath}`);
+                return toolError("flint_migrate_ds", new Error(`old tokens file not found: ${path.basename(oldPath)}`), HINTS.fileNotFound);
             }
             if (!fs.existsSync(newPath)) {
-                return { isError: true, content: [{ type: "text", text: `flint_migrate_ds: new tokens file not found: ${newPath}` }] };
+                console.error(`[flint_migrate_ds] new tokens file not found: ${newPath}`);
+                return toolError("flint_migrate_ds", new Error(`new tokens file not found: ${path.basename(newPath)}`), HINTS.fileNotFound);
             }
             const migPlan = computeTokenDiff(oldPath, newPath);
             const migFiles = (args.filePaths ?? []).map(fp => path.isAbsolute(fp) ? fp : path.join(args.projectRoot, fp));
@@ -3621,10 +3572,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 overwrite?: boolean;
             };
             if (!enrichArgs.projectRoot || typeof enrichArgs.projectRoot !== "string") {
-                return {
-                    isError: true,
-                    content: [{ type: "text", text: "flint_enrich_registry: 'projectRoot' parameter is required." }],
-                };
+                return toolError("flint_enrich_registry", new Error("'projectRoot' parameter is required."), HINTS.missingParam("flint_enrich_registry projectRoot='/path/to/project'"));
             }
             const enrichResult = handleEnrichRegistry(enrichArgs);
             return {
@@ -3646,29 +3594,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 };
             };
             if (!approveArgs.projectRoot || typeof approveArgs.projectRoot !== "string") {
-                return {
-                    isError: true,
-                    content: [{ type: "text", text: "flint_approve_enrichment: 'projectRoot' parameter is required." }],
-                };
+                return toolError("flint_approve_enrichment", new Error("'projectRoot' parameter is required."), HINTS.missingParam("flint_approve_enrichment projectRoot='...' componentName='Button' action='approve'"));
             }
             if (!approveArgs.componentName || typeof approveArgs.componentName !== "string") {
-                return {
-                    isError: true,
-                    content: [{ type: "text", text: "flint_approve_enrichment: 'componentName' parameter is required." }],
-                };
+                return toolError("flint_approve_enrichment", new Error("'componentName' parameter is required."), HINTS.missingParam("flint_approve_enrichment projectRoot='...' componentName='Button' action='approve'"));
             }
             if (approveArgs.action !== "approve" && approveArgs.action !== "dismiss") {
-                return {
-                    isError: true,
-                    content: [{ type: "text", text: "flint_approve_enrichment: 'action' must be 'approve' or 'dismiss'." }],
-                };
+                return toolError("flint_approve_enrichment", new Error("'action' must be 'approve' or 'dismiss'."), HINTS.missingParam("flint_approve_enrichment projectRoot='...' componentName='Button' action='approve'"));
             }
             const approveResult = handleApproveEnrichment(approveArgs);
             if (!approveResult.ok) {
-                return {
-                    isError: true,
-                    content: [{ type: "text", text: approveResult.error ?? "flint_approve_enrichment: unknown error." }],
-                };
+                return toolError("flint_approve_enrichment", new Error(approveResult.error ?? "unknown error."), undefined);
             }
             return {
                 content: [{ type: "text", text: JSON.stringify(approveResult, null, 2) }],
@@ -3681,17 +3617,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 srcDir?: string;
             };
             if (!reindexArgs.projectRoot || typeof reindexArgs.projectRoot !== "string") {
-                return {
-                    isError: true,
-                    content: [{ type: "text", text: "flint_reindex_registry: 'projectRoot' parameter is required." }],
-                };
+                return toolError("flint_reindex_registry", new Error("'projectRoot' parameter is required."), HINTS.missingParam("flint_reindex_registry projectRoot='/path/to/project'"));
             }
             const reindexResult = await handleReindexRegistry(reindexArgs);
             if (reindexResult.error) {
-                return {
-                    isError: true,
-                    content: [{ type: "text", text: `flint_reindex_registry: ${reindexResult.error}` }],
-                };
+                return toolError("flint_reindex_registry", new Error(reindexResult.error), HINTS.registryEmpty);
             }
             return {
                 content: [{ type: "text", text: JSON.stringify(reindexResult, null, 2) }],
@@ -3748,13 +3678,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 }
 
                 default: {
-                    return {
-                        isError: true,
-                        content: [{
-                            type: "text",
-                            text: `flint_consensus_report: unknown mode '${(consensusArgs as { mode: string }).mode}'. Must be 'summary', 'by_session', 'by_agent', or 'disagreements'.`,
-                        }],
-                    };
+                    return toolError("flint_consensus_report", new Error(`unknown mode '${(consensusArgs as { mode: string }).mode}'. Must be 'summary', 'by_session', 'by_agent', or 'disagreements'.`), HINTS.missingParam("flint_consensus_report mode='summary'"));
                 }
             }
         }
@@ -4113,6 +4037,29 @@ ${injectOps || '(no top-level children to inject)'}
 
 1. Query ${BRAND.registryDb} for each component name to find its file path.
 2. Call \`apply_ast_mutations\` with \`injectComponent\` ops to build the page structure.`;
+}
+
+/**
+ * MAJOR-4: Build a human-readable markdown summary for flint_audit responses.
+ * Prepended to the JSON so IDE agents can relay findings without parsing.
+ */
+function buildAuditSummary(result: { violations: Array<{ ruleId: string; severity: string; message: string }>; mithrilCount: number; a11yCount: number; summary?: string; recommendation?: string; exportBlocked?: boolean }, filePath: string): string {
+    const basename = path.basename(filePath);
+    const verdict = result.exportBlocked ? "BLOCKED" : "APPROVED";
+    const total = result.violations.length;
+    const lines = [`## Flint Audit — ${basename}`, ""];
+    lines.push(`**Verdict:** ${verdict} | **Mithril:** ${result.mithrilCount} | **Warden (a11y):** ${result.a11yCount} | **Total:** ${total}`);
+    if (result.summary) lines.push("", result.summary);
+    if (total > 0) {
+        lines.push("", "### Top violations", "");
+        const top5 = result.violations.slice(0, 5);
+        for (const v of top5) {
+            lines.push(`- **${v.ruleId}** (${v.severity}): ${v.message}`);
+        }
+        if (total > 5) lines.push(`- _...and ${total - 5} more_`);
+    }
+    if (result.recommendation) lines.push("", `**Next step:** ${result.recommendation}`);
+    return lines.join("\n");
 }
 
 function findProjectRoot(startPath: string): string | null {

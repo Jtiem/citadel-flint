@@ -144,22 +144,24 @@ interface DeltaReport {
  * Computes delta by comparing PR violations against base branch versions.
  * Uses `git show <base>:<file>` to get the base version of each file.
  */
-function computeDelta(
+/**
+ * Concurrency limit for parallel git-show + audit operations.
+ * Prevents spawning too many child processes simultaneously.
+ */
+const DELTA_CONCURRENCY = 10
+
+async function computeDelta(
     summary: AuditSummary,
     baseBranch: string,
     tokens: import('./engine.js').DesignToken[],
     policy: import('./engine.js').FlintPolicy,
-): DeltaReport | null {
+): Promise<DeltaReport | null> {
     try {
-        let totalNewViolations = 0
-        let totalFixedViolations = 0
-        let totalUnchanged = 0
-
-        for (const result of summary.results) {
+        // Process files in parallel batches for performance
+        const tasks = summary.results.map((result) => async () => {
             const prViolationCount = result.mithrilWarnings.length +
                 Object.values(result.a11yViolations).reduce((s, a) => s + a.length, 0)
 
-            // Get the base version of this file
             let baseViolationCount = 0
             try {
                 const baseContent = execSync(
@@ -177,17 +179,29 @@ function computeDelta(
                         Object.values(br.a11yViolations).reduce((s, a) => s + a.length, 0)
                 }
             } catch {
-                // File is new in this PR — all violations are new
                 baseViolationCount = 0
             }
 
-            const newInThisFile = Math.max(0, prViolationCount - baseViolationCount)
-            const fixedInThisFile = Math.max(0, baseViolationCount - prViolationCount)
-            const unchanged = Math.min(prViolationCount, baseViolationCount)
+            return {
+                newViolations: Math.max(0, prViolationCount - baseViolationCount),
+                fixedViolations: Math.max(0, baseViolationCount - prViolationCount),
+                unchanged: Math.min(prViolationCount, baseViolationCount),
+            }
+        })
 
-            totalNewViolations += newInThisFile
-            totalFixedViolations += fixedInThisFile
-            totalUnchanged += unchanged
+        // Run with concurrency limit
+        let totalNewViolations = 0
+        let totalFixedViolations = 0
+        let totalUnchanged = 0
+
+        for (let i = 0; i < tasks.length; i += DELTA_CONCURRENCY) {
+            const batch = tasks.slice(i, i + DELTA_CONCURRENCY)
+            const results = await Promise.all(batch.map(fn => fn()))
+            for (const r of results) {
+                totalNewViolations += r.newViolations
+                totalFixedViolations += r.fixedViolations
+                totalUnchanged += r.unchanged
+            }
         }
 
         return {
@@ -534,7 +548,7 @@ export async function run(): Promise<void> {
         if (github.context.payload.pull_request) {
             const baseBranch = github.context.payload.pull_request.base?.ref ?? 'main'
             core.info(`Computing violation delta against ${baseBranch}...`)
-            delta = computeDelta(summary, `origin/${baseBranch}`, tokens, policy)
+            delta = await computeDelta(summary, `origin/${baseBranch}`, tokens, policy)
             if (delta) {
                 core.info(`Delta: ${delta.newViolations} new, ${delta.fixedViolations} fixed`)
             }

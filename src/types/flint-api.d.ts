@@ -517,6 +517,13 @@ export interface ProjectAPI {
     runBaseline?: () => Promise<{ violations: number; grade: string; score: number; filesAudited: number } | null>
 
     /**
+     * Web mode only: returns the server's current activeProjectRoot so Glass can
+     * auto-open the project on startup without requiring the user to select a folder.
+     * Useful when `--project` is passed to the dev:web CLI.
+     */
+    getActiveRoot?: () => Promise<{ projectRoot: string }>
+
+    /**
      * FORGE.2c: Subscribes to progress events emitted during `runBaseline`.
      * Returns an unsubscribe function for useEffect cleanup.
      */
@@ -1982,10 +1989,20 @@ export interface FlintAPI {
      * Registers a callback fired when the VS Code/Cursor extension changes the
      * active file. Glass uses this to auto-follow IDE focus.
      */
-    onIDEFileSelected?: (cb: (filePath: string) => void) => void
+    onIDEFileSelected?: (cb: (filePath: string) => void) => void | (() => void)
 
     /** Removes all `onIDEFileSelected` listeners. */
     removeIDEFileSelectedListener?: () => void
+
+    /**
+     * Fires when the server's active project changes externally (e.g. via
+     * the demo script or a CLI curl call). Glass uses this to re-open the
+     * correct project so IDE sync paths are accepted.
+     */
+    onProjectOpened?: (cb: (data: { path: string }) => void) => (() => void)
+
+    /** Removes all `onProjectOpened` listeners. */
+    removeProjectOpenedListener?: () => void
 
     // ── Phase D2C.2: Design-to-Code LivePreview Integration ───────────────────
 
@@ -2306,6 +2323,25 @@ export interface GovernanceAPI {
      * Rejects a pending mutation by deleting it from the ledger.
      */
     rejectMutation?: (id: number) => Promise<void>
+
+    /**
+     * Runs deterministic auto-fix on all fixable violations in the given file.
+     * Returns the number of fixes applied and the resulting status, or null
+     * when no project is open or the file cannot be read.
+     */
+    applyFix?: (filePath: string) => Promise<{ fixesApplied: number; status: string } | null>
+
+    /**
+     * Returns recent entries from the governance audit log.
+     * Used by GovernanceDashboard to render the activity timeline.
+     */
+    getAuditLog?: (opts?: { limit?: number }) => Promise<Array<{
+        id: number | string
+        timestamp: string
+        action: string
+        filePath: string
+        description: string
+    }>>
 }
 
 // ── S8.3: Pending Mutation Type ──────────────────────────────────────────────

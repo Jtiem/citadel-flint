@@ -14,6 +14,7 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
+import crypto from 'node:crypto'
 import type { FlintConfig } from '../core/config.js'
 import { handleFlintAuditBatch } from './audit.js'
 import { handleFlintFix } from './fix.js'
@@ -243,7 +244,10 @@ export async function handleFlintSwarmAuditFix(
 
             if (fixResult.fixesApplied > 0) {
                 try {
-                    fs.writeFileSync(fileResult.filePath, fixResult.fixedSource, 'utf-8')
+                    // Commandment 12: atomic write via .tmp → rename
+                    const tmpPath = fileResult.filePath + '.flint-tmp-' + crypto.randomUUID().slice(0, 8)
+                    fs.writeFileSync(tmpPath, fixResult.fixedSource, 'utf-8')
+                    fs.renameSync(tmpPath, fileResult.filePath)
                     totalFixesApplied += fixResult.fixesApplied
                     fileFixCounts.set(fileResult.filePath, fixResult.fixesApplied)
                 } catch {

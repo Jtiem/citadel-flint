@@ -159,6 +159,8 @@ export function LaunchScreen({
     const [demoBannerDismissed, setDemoBannerDismissed] = useState(false)
     // Demo gallery — show more / collapse
     const [showMoreDemos, setShowMoreDemos] = useState(false)
+    // MAJOR-4: Double-click guard for New Project
+    const [creating, setCreating] = useState(false)
 
     // FORGE.4b: Map of project path → health grade letter
     const [healthGrades, setHealthGrades] = useState<Map<string, string>>(new Map())
@@ -456,15 +458,25 @@ export function LaunchScreen({
                     <button
                         type="button"
                         data-testid="new-project-cta"
-                        onClick={() => { void onNewProject() }}
+                        disabled={creating}
+                        onClick={() => {
+                            if (creating) return
+                            setCreating(true)
+                            void onNewProject().finally(() => setCreating(false))
+                        }}
                         aria-label="Start a new project"
-                        className="group mb-6 flex w-full items-center gap-3 rounded-xl border border-indigo-500/30 bg-gradient-to-r from-indigo-600/20 to-indigo-500/10 px-5 py-4 text-left transition-all hover:border-indigo-500/50 hover:from-indigo-600/30 hover:to-indigo-500/20"
+                        className={[
+                            'group mb-6 flex w-full items-center gap-3 rounded-xl border border-indigo-500/30 bg-gradient-to-r from-indigo-600/20 to-indigo-500/10 px-5 py-4 text-left transition-all hover:border-indigo-500/50 hover:from-indigo-600/30 hover:to-indigo-500/20',
+                            creating ? 'pointer-events-none opacity-60' : '',
+                        ].join(' ')}
                     >
                         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-600/30 text-indigo-300 transition-colors group-hover:bg-indigo-600/40">
-                            <Zap size={18} aria-hidden="true" />
+                            {creating
+                                ? <Loader2 size={18} aria-hidden="true" className="motion-safe:animate-spin" />
+                                : <Zap size={18} aria-hidden="true" />}
                         </div>
                         <div className="flex-1">
-                            <p className="text-sm font-semibold text-zinc-100">New Project</p>
+                            <p className="text-sm font-semibold text-zinc-100">{creating ? 'Creating...' : 'New Project'}</p>
                             <p className="text-xs text-zinc-400">Start building immediately. No setup required.</p>
                         </div>
                         <ChevronRight size={16} aria-hidden="true" className="shrink-0 text-zinc-600 transition-transform group-hover:translate-x-0.5" />
@@ -504,7 +516,7 @@ export function LaunchScreen({
                                         ].join(' ')}>
                                             {tile.label}
                                         </p>
-                                        <p className="mt-1 text-[11px] leading-none text-zinc-500">
+                                        <p className="mt-1 text-xs leading-none text-zinc-500">
                                             {tile.description}
                                         </p>
                                     </div>
@@ -532,14 +544,9 @@ export function LaunchScreen({
                                         <p className="text-xs font-medium text-amber-300 mb-1">
                                             Install the {BRAND.product} Figma plugin before continuing.
                                         </p>
-                                        <a
-                                            href="https://figma.com/community"
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="text-xs text-amber-400 underline hover:text-amber-300 transition-colors"
-                                        >
-                                            Get plugin →
-                                        </a>
+                                        <p className="text-xs text-amber-400">
+                                            Open Figma → Plugins → Search &ldquo;{BRAND.product}&rdquo; → Install
+                                        </p>
                                     </div>
                                     <StepHeader
                                         number={1}
@@ -613,7 +620,7 @@ export function LaunchScreen({
                                                 </button>
                                             </div>
                                             {webPathError && (
-                                                <p role="alert" className="mt-1.5 text-[11px] text-red-400">{webPathError}</p>
+                                                <p role="alert" className="mt-1.5 text-xs text-red-400">{webPathError}</p>
                                             )}
                                         </div>
                                     )}
@@ -655,7 +662,7 @@ export function LaunchScreen({
 
                     {/* 7. Demo section */}
                     <div className="mt-8">
-                        <p className="mb-3 text-[10px] font-medium uppercase tracking-wider text-zinc-600">
+                        <p className="mb-3 text-xs font-medium uppercase tracking-wider text-zinc-600">
                             Try a demo project
                         </p>
                         {/* Primary demo CTA */}
@@ -678,7 +685,7 @@ export function LaunchScreen({
                         <button
                             type="button"
                             onClick={() => setShowMoreDemos((v) => !v)}
-                            className="mb-2 flex w-full items-center justify-center gap-1 text-[11px] text-zinc-600 transition-colors hover:text-zinc-400"
+                            className="mb-2 flex w-full items-center justify-center gap-1 text-xs text-zinc-600 transition-colors hover:text-zinc-400"
                         >
                             {showMoreDemos ? 'Hide demos' : 'More demos'}
                             <ChevronRight
@@ -696,16 +703,16 @@ export function LaunchScreen({
                                         className="flex w-40 shrink-0 flex-col rounded-lg border border-zinc-800 bg-zinc-900/60 p-3"
                                     >
                                         <p className="text-xs font-semibold text-zinc-200">{demo.title}</p>
-                                        <p className="mt-0.5 text-[11px] text-zinc-500">
+                                        <p className="mt-0.5 text-xs text-zinc-500">
                                             {demo.time} · {demo.topic}
                                         </p>
-                                        <p className="mt-2 flex-1 text-[11px] leading-relaxed text-zinc-400">
+                                        <p className="mt-2 flex-1 text-xs leading-relaxed text-zinc-400">
                                             {demo.outcome}
                                         </p>
                                         <button
                                             type="button"
                                             onClick={() => { void onLoadDemo(demo.name) }}
-                                            className="mt-3 w-full rounded-md border border-zinc-700 bg-zinc-800/60 py-1.5 text-[11px] font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-700/60 hover:text-zinc-100"
+                                            className="mt-3 w-full rounded-md border border-zinc-700 bg-zinc-800/60 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-700/60 hover:text-zinc-100"
                                         >
                                             Load
                                         </button>
@@ -722,7 +729,7 @@ export function LaunchScreen({
                                 <Clock size={11} aria-hidden="true" className="text-zinc-600" />
                                 <span
                                     id="recent-projects-label"
-                                    className="text-[10px] font-medium uppercase tracking-wider text-zinc-500"
+                                    className="text-xs font-medium uppercase tracking-wider text-zinc-500"
                                 >
                                     Reopen a project
                                 </span>
@@ -757,13 +764,13 @@ export function LaunchScreen({
                                                 </span>
                                                 {grade && (
                                                     <span
-                                                        className={`shrink-0 text-[10px] font-bold tabular-nums ${gradeColor(grade)}`}
+                                                        className={`shrink-0 text-xs font-bold tabular-nums ${gradeColor(grade)}`}
                                                         aria-label={`Health grade: ${grade}`}
                                                     >
                                                         {grade}
                                                     </span>
                                                 )}
-                                                <span className="text-[11px] text-zinc-600 truncate min-w-0">
+                                                <span className="text-xs text-zinc-600 truncate min-w-0">
                                                     {displayPath}
                                                 </span>
                                             </button>
@@ -812,7 +819,7 @@ export function LaunchScreen({
                                     </button>
                                 </div>
                                 {webPathError && !selectedPath && (
-                                    <p role="alert" className="mt-1 text-center text-[11px] text-red-400">{webPathError}</p>
+                                    <p role="alert" className="mt-1 text-center text-xs text-red-400">{webPathError}</p>
                                 )}
                             </div>
                         )}
@@ -854,10 +861,10 @@ function StepHeader({ number, title, subtitle }: { number: number; title: string
     return (
         <div className="mb-4">
             <div className="mb-2 flex items-center gap-2">
-                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600/30 text-[10px] font-bold text-indigo-300">
+                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600/30 text-xs font-bold text-indigo-300">
                     {number}
                 </span>
-                <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
                     Step {number}
                 </span>
             </div>
@@ -873,7 +880,7 @@ function SkipLink({ onClick }: { onClick: () => void }) {
             <button
                 type="button"
                 onClick={onClick}
-                className="text-[11px] text-zinc-600 transition-colors hover:text-zinc-400"
+                className="text-xs text-zinc-600 transition-colors hover:text-zinc-400"
             >
                 Skip — open canvas instead
             </button>

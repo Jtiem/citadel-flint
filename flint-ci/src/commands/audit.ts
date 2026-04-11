@@ -339,6 +339,11 @@ export async function auditCommand(
     // Run audit (only on non-cached files)
     let summary = auditFiles(files, tokens, policy)
 
+    // When using cache, totalFiles should reflect ALL files (cached + scanned)
+    if (useCache && cacheHits > 0) {
+        summary = { ...summary, totalFiles: summary.totalFiles + cacheHits }
+    }
+
     // Update cache with new results
     if (useCache) {
         for (const result of summary.results) {

@@ -10,28 +10,7 @@
 
 import path from 'node:path'
 import { ANSI } from '../utils/ansi.js'
-
-// ── Inlined from shared/healthSignal.ts (avoids cross-package rootDir issues) ─
-interface HealthSignal {
-    fidelityScore: number
-    a11yScore: number
-    overrideCount: number
-    overallScore: number
-    grade: 'A' | 'B' | 'C' | 'D' | 'F'
-}
-function formatHealthSignal(mithrilCount: number, a11yCount: number, overrideCount: number): HealthSignal {
-    const fidelityScore = Math.max(0, 100 - mithrilCount * 5)
-    const a11yScore = Math.max(0, 100 - a11yCount * 10)
-    const raw = 100 - mithrilCount * 5 - a11yCount * 10 - overrideCount * 3
-    const overallScore = Math.max(0, Math.min(100, raw))
-    let grade: HealthSignal['grade']
-    if (overallScore >= 90) grade = 'A'
-    else if (overallScore >= 80) grade = 'B'
-    else if (overallScore >= 70) grade = 'C'
-    else if (overallScore >= 60) grade = 'D'
-    else grade = 'F'
-    return { fidelityScore, a11yScore, overrideCount, overallScore, grade }
-}
+import { formatHealthSignal } from '../../../shared/healthSignal.js'
 
 // ── Types (mirrored from MCP for CI portability) ─────────────────────────────
 
@@ -61,16 +40,29 @@ export interface DebtOptions {
 }
 
 export async function debtCommand(
-    _paths: string[],
+    paths: string[],
     opts: DebtOptions,
 ): Promise<number> {
     const projectRoot = path.resolve(opts.projectRoot ?? process.cwd())
     const format = opts.format ?? 'json'
     const track = opts.track ?? false
 
+    const scopeLabel = paths.length > 0 ? paths.join(', ') : projectRoot
     console.log(
-        `${ANSI.dim}Generating design debt report for ${projectRoot}...${ANSI.reset}`,
+        `${ANSI.dim}Generating design debt report for ${scopeLabel}...${ANSI.reset}`,
     )
+
+    // Build glob from paths argument — if paths are given, scope the report
+    const glob = paths.length > 0
+        ? paths.map(p => {
+            // If it looks like a directory, append recursive glob
+            if (!p.includes('*') && !p.match(/\.[a-z]+$/i)) {
+                const normalized = p.replace(/\/+$/, '')
+                return `${normalized}/**/*.tsx`
+            }
+            return p
+        }).join(',')
+        : '**/*.tsx'
 
     // Import the MCP engine's debt report service
     let report: DebtReport
@@ -82,7 +74,7 @@ export async function debtCommand(
         )
         report = debtModule.generateDebtReport({
             projectRoot,
-            glob: '**/*.tsx',
+            glob,
             track,
         })
     } catch (err) {

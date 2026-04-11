@@ -58,10 +58,30 @@ const DEFAULT_HEIGHT = 300
 const THUMBNAIL_DIR = 'thumbnails'
 const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000 // 24 hours
 
-// React UMD URLs (loaded from CDN in the render harness — these are
-// well-known, versioned URLs that provide React as window globals)
-const REACT_UMD = 'https://unpkg.com/react@18/umd/react.production.min.js'
-const REACT_DOM_UMD = 'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js'
+// React UMD scripts — loaded from local node_modules (Commandment 4: 100% offline).
+// We read the files once at service creation time and inline them into the harness.
+let _reactUmdScript: string = ''
+let _reactDomUmdScript: string = ''
+
+function loadReactUmd(): void {
+  if (_reactUmdScript) return
+  try {
+    const reactPath = require.resolve('react/umd/react.production.min.js')
+    const reactDomPath = require.resolve('react-dom/umd/react-dom.production.min.js')
+    _reactUmdScript = readFileSync(reactPath, 'utf8')
+    _reactDomUmdScript = readFileSync(reactDomPath, 'utf8')
+  } catch {
+    // Fallback: try relative node_modules path
+    const nmReact = path.join(__dirname, '..', '..', 'node_modules', 'react', 'umd', 'react.production.min.js')
+    const nmReactDom = path.join(__dirname, '..', '..', 'node_modules', 'react-dom', 'umd', 'react-dom.production.min.js')
+    try {
+      _reactUmdScript = readFileSync(nmReact, 'utf8')
+      _reactDomUmdScript = readFileSync(nmReactDom, 'utf8')
+    } catch {
+      console.warn('[Flint] Could not load React UMD scripts from node_modules — thumbnails may fail')
+    }
+  }
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -157,8 +177,8 @@ function buildRenderHarness(componentCode: string, componentName: string, width:
       justify-content: center;
     }
   </style>
-  <script src="${REACT_UMD}"><\/script>
-  <script src="${REACT_DOM_UMD}"><\/script>
+  <script>${_reactUmdScript}<\/script>
+  <script>${_reactDomUmdScript}<\/script>
 </head>
 <body>
   <div id="root"></div>
@@ -207,6 +227,7 @@ async function loadPlaywright(): Promise<any | null> {
 // ── Factory ────────────────────────────────────────────────────────────────
 
 export function createThumbnailService(): ThumbnailService {
+  loadReactUmd()
   return {
     async generate(options): Promise<{
       componentName: string

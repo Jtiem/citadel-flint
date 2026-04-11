@@ -13,6 +13,7 @@
  */
 
 import { computeExpiresAt, type DeferDuration } from '../shared/deferralUtils'
+import { RENDERER_ALLOWED_MCP_TOOLS } from '../shared/mcp-allowed-tools'
 import express from 'express'
 import { WebSocketServer, WebSocket } from 'ws'
 import http from 'node:http'
@@ -43,6 +44,7 @@ import type { JSXOpeningElement } from '@babel/types'
 import type { NodePath } from '@babel/traverse'
 import { fileURLToPath } from 'node:url'
 import { createPreviewServer } from './services/previewServer.js'
+import { ideFileSyncTick, type IDEFileSyncState } from './ideFileSyncTick.js'
 
 const execFileAsync = promisify(execFile)
 const __filename = fileURLToPath(import.meta.url)
@@ -141,7 +143,12 @@ function validateFilePath(filePath: unknown, requireSourceExt = true): string {
   if (requireSourceExt && !/\.(tsx?|jsx?|html?)$/.test(filePath)) {
     throw new Error('filePath must point to a source file (.tsx/.ts/.jsx/.js/.html)')
   }
-  if (!isWithinHome(filePath)) {
+  const resolved = path.resolve(filePath)
+  // Resolve symlinks to prevent escape via symlink chains.
+  // Falls through to the logical-path check for files that don't exist yet (writes).
+  let realFilePath = resolved
+  try { realFilePath = realpathSync(resolved) } catch { /* file may not exist yet for writes */ }
+  if (!isWithinHome(realFilePath)) {
     throw new Error('path outside user home directory is not permitted')
   }
   return filePath
@@ -151,7 +158,11 @@ function validateFilePath(filePath: unknown, requireSourceExt = true): string {
 // Mirrors FileTransactionManager: write to .tmp, then rename.
 
 async function atomicWrite(filePath: string, content: string): Promise<void> {
-  const tmpPath = filePath + '.tmp'
+  const dir = path.dirname(filePath)
+  await fs.mkdir(dir, { recursive: true })
+  // Use a unique temp name to prevent races when multiple concurrent calls
+  // target the same file — without this, call A's rename can steal call B's .tmp.
+  const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`
   await fs.writeFile(tmpPath, content, 'utf-8')
   await fs.rename(tmpPath, filePath)
 }
@@ -537,11 +548,39 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
 
   // ── WebSocket Setup ────────────────────────────────────────────────────────
 
+  // Generate a per-session token for WebSocket authentication.
+  // The token is served via GET /api/ws-token so the browser can include it
+  // as a query param on the WS upgrade request.
+  const wsSessionToken = randomUUID()
+
   const app = express()
   app.use(express.json({ limit: '10mb' }))
 
+  // Expose the session token to the SPA — only reachable from localhost.
+  app.get('/api/ws-token', (_req, res) => {
+    res.json({ token: wsSessionToken })
+  })
+
   const server = http.createServer(app)
-  const wss = new WebSocketServer({ server, path: '/ws' })
+  const wss = new WebSocketServer({ noServer: true })
+
+  // Authenticate WebSocket upgrades: require ?token=<wsSessionToken>
+  server.on('upgrade', (req, socket, head) => {
+    const url = new URL(req.url ?? '', `http://${req.headers.host}`)
+    if (url.pathname !== '/ws') {
+      socket.destroy()
+      return
+    }
+    const token = url.searchParams.get('token')
+    if (token !== wsSessionToken) {
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
+      socket.destroy()
+      return
+    }
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      wss.emit('connection', ws, req)
+    })
+  })
 
   function broadcast(channel: string, data: unknown): void {
     const message = JSON.stringify({ channel, data })
@@ -673,6 +712,11 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
       throw new TypeError('ast:save-file — content must be a string')
     }
     const validated = validateFilePath(filePath)
+    // Reject writes to temp dirs — macOS cleans these up and the rename step
+    // in atomicWrite produces ENOENT floods that obscure real errors.
+    if (validated.startsWith('/var/folders/') || validated.startsWith('/tmp/')) {
+      throw new Error(`ast:save-file — refusing write to temp dir: ${validated}`)
+    }
     await atomicWrite(validated, content)
     // Register newly saved files with the workspace watcher so future
     // external edits are detected without a full rescan.
@@ -833,9 +877,17 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
       const tree = await scanDirectory(normalized)
       const projectName = path.basename(normalized)
       registryUpsert.run(randomUUID(), projectName, normalized)
+      const previousRoot = activeProjectRoot
       activeProjectRoot = normalized
       sessionExplicitlyOpened = true
       void (globalThis as Record<string, unknown>).__flintWebStartFileWatcher?.()
+      ;(globalThis as Record<string, unknown>).__flintIDEFileSyncStart?.()
+      // Notify all connected Glass clients that the active project changed.
+      // This allows Glass to re-open the correct project when the project is
+      // opened externally (e.g. via the demo script or CLI curl call).
+      if (previousRoot !== normalized) {
+        broadcast('flint:project-opened', { path: normalized })
+      }
       return tree
     } catch {
       return null
@@ -907,6 +959,7 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     activeProjectRoot = targetPath
     sessionExplicitlyOpened = true
     void (globalThis as Record<string, unknown>).__flintWebStartFileWatcher?.()
+    ;(globalThis as Record<string, unknown>).__flintIDEFileSyncStart?.()
 
     // Start MCP for the new project
     void mcp.start(targetPath).catch((err: unknown) => {
@@ -926,11 +979,27 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     // resulting in two competing hydrateWorkspace calls that oscillated
     // workspaceFiles back and forth — the LaunchScreen loop bug.
     if (!sessionExplicitlyOpened) return null
+    // Don't restore temp dir sessions — macOS cleans these up and restoring
+    // them causes ENOENT floods when Glass auto-saves to the dead directory.
+    if (activeProjectRoot.startsWith('/var/folders/') || activeProjectRoot.startsWith('/tmp/')) {
+      return null
+    }
     return {
       path: activeProjectRoot,
       name: path.basename(activeProjectRoot),
       isScratchpad: /Flint Projects\/Untitled/i.test(activeProjectRoot),
     }
+  })
+
+  // ── project:get-active-root ───────────────────────────────────────────────
+  // Returns the server's current activeProjectRoot so Glass can auto-open the
+  // project on startup without requiring the user to select a folder.
+  handlers.set('project:get-active-root', async () => {
+    // Don't expose temp dirs — they get cleaned by macOS and cause ENOENT floods
+    if (activeProjectRoot.startsWith('/var/folders/') || activeProjectRoot.startsWith('/tmp/')) {
+      return { projectRoot: null }
+    }
+    return { projectRoot: activeProjectRoot }
   })
 
   // ── mcp:get-recent-file-focus ─────────────────────────────────────────────
@@ -1004,6 +1073,7 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     activeProjectRoot = targetPath
     sessionExplicitlyOpened = true
     void (globalThis as Record<string, unknown>).__flintWebStartFileWatcher?.()
+    ;(globalThis as Record<string, unknown>).__flintIDEFileSyncStart?.()
     void mcp.start(targetPath).catch((err: unknown) => {
       console.error(`${BRAND.logPrefix} project:openPath: MCP server failed to start —`, err instanceof Error ? err.message : err)
     })
@@ -1050,6 +1120,8 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
   // baseline audit via MCP if connected.
   handlers.set('project:detect-environment', async () => {
     if (!activeProjectRoot) return null
+    // Skip temp dirs — macOS cleans these up, causing ENOENT floods
+    if (activeProjectRoot.startsWith('/var/folders/') || activeProjectRoot.startsWith('/tmp/')) return null
 
     const root = activeProjectRoot
 
@@ -1208,7 +1280,7 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
           })
       }
       if (mcp.status().connected) {
-        await mcp.callTool('flint_reindex_registry', {})
+        await mcp.callTool('flint_reindex_registry', { projectRoot: activeProjectRoot })
           .catch((err: unknown) => {
             console.error(`${BRAND.logPrefix} FORGE.2b: flint_reindex_registry failed (non-blocking):`, err)
           })
@@ -1271,7 +1343,7 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
 
     // Always re-index the registry after configuring
     try {
-      await mcp.callTool('flint_reindex_registry', {})
+      await mcp.callTool('flint_reindex_registry', { projectRoot: activeProjectRoot })
       reindexed = true
     } catch (err) {
       console.error(`${BRAND.logPrefix} FORGE.2b: flint_reindex_registry failed (non-blocking):`, err)
@@ -1663,6 +1735,383 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     }
   })
 
+  // ── governance:apply-fix ────────────────────────────────────────────────────
+  //
+  // Apply all Mithril + A11y auto-fixes to a file and write to disk.
+  // Mirrors the Electron main.ts governance:apply-fix handler.
+  // Bypasses the renderer MCP allowlist — the server owns the write path.
+  handlers.set('governance:apply-fix', async (filePath: unknown): Promise<{ fixesApplied: number; status: string } | null> => {
+    if (typeof filePath !== 'string') return null
+    const home = os.homedir()
+    if (filePath !== home && !filePath.startsWith(home + path.sep)) return null
+    try {
+      const mcpConnected = mcp.status().connected
+      console.log(`[governance:apply-fix] file=${filePath} mcp.connected=${mcpConnected}`)
+      if (!mcpConnected) return null
+      const rawResult = await mcp.callTool('flint_fix', {
+        file: filePath,
+        dryRun: false,
+      })
+      if (!rawResult.content?.length || !rawResult.content[0].text) return null
+      const parsed = JSON.parse(rawResult.content[0].text) as {
+        fixesApplied?: number
+        status?: string
+      }
+      console.log(`[governance:apply-fix] fixesApplied=${parsed.fixesApplied} status=${parsed.status}`)
+      return {
+        fixesApplied: parsed.fixesApplied ?? 0,
+        status: parsed.status ?? 'unknown',
+      }
+    } catch (err) {
+      console.warn('[governance:apply-fix] error:', err)
+      return null
+    }
+  })
+
+  // ── Token Analysis (MINT parity) ────────────────────────────────────────────
+
+  handlers.set('tokens:scan-usage', async () => {
+    if (!activeProjectRoot) return []
+
+    // Load design tokens from .flint/design-tokens.json
+    const tokensPath = path.join(activeProjectRoot, '.flint', 'design-tokens.json')
+    let tokenEntries: { name: string; cssVar: string }[] = []
+    try {
+      const raw = await fs.readFile(tokensPath, 'utf8')
+      const parsed = JSON.parse(raw)
+      function walk(obj: Record<string, unknown>, prefix: string) {
+        for (const [key, val] of Object.entries(obj)) {
+          if (key.startsWith('$')) continue
+          const fullPath = prefix ? `${prefix}-${key}` : key
+          if (val && typeof val === 'object' && '$value' in (val as Record<string, unknown>)) {
+            tokenEntries.push({ name: fullPath, cssVar: `--${fullPath}` })
+          } else if (val && typeof val === 'object') {
+            walk(val as Record<string, unknown>, fullPath)
+          }
+        }
+      }
+      walk(parsed, '')
+    } catch {
+      try {
+        const allTokens = stmtReadAll.all() as Array<{ token_path: string }>
+        tokenEntries = allTokens.map((t) => ({
+          name: t.token_path,
+          cssVar: `--${t.token_path.replace(/\./g, '-')}`,
+        }))
+      } catch { return [] }
+    }
+    if (tokenEntries.length === 0) return []
+
+    // Collect project files
+    const FILE_LIMIT = 500
+    const extensions = new Set(['.tsx', '.jsx', '.css'])
+    const files: string[] = []
+    async function collectFiles(dir: string) {
+      if (files.length >= FILE_LIMIT) return
+      let entries
+      try { entries = await fs.readdir(dir, { withFileTypes: true }) } catch { return }
+      for (const entry of entries) {
+        if (files.length >= FILE_LIMIT) break
+        const fullPath = path.join(dir, entry.name)
+        if (entry.isDirectory()) {
+          if (['node_modules', '.git', 'dist', 'build', '.next'].includes(entry.name)) continue
+          await collectFiles(fullPath)
+        } else if (extensions.has(path.extname(entry.name))) {
+          files.push(fullPath)
+        }
+      }
+    }
+    await collectFiles(activeProjectRoot)
+
+    // Scan files for token references
+    const usageMap = new Map<string, { count: number; files: Set<string> }>()
+    for (const te of tokenEntries) usageMap.set(te.cssVar, { count: 0, files: new Set() })
+    for (const filePath of files) {
+      let content: string
+      try { content = await fs.readFile(filePath, 'utf8') } catch { continue }
+      for (const te of tokenEntries) {
+        if (content.includes(te.cssVar)) {
+          const entry = usageMap.get(te.cssVar)!
+          entry.count++
+          entry.files.add(path.relative(activeProjectRoot, filePath))
+        }
+      }
+    }
+    return tokenEntries.map((te) => {
+      const usage = usageMap.get(te.cssVar)!
+      return { tokenName: te.name, cssVar: te.cssVar, usageCount: usage.count, files: [...usage.files] }
+    })
+  })
+
+  handlers.set('tokens:audit-contrast', async () => {
+    if (!activeProjectRoot) return []
+
+    function hexToRgb(hex: string): [number, number, number] | null {
+      const m = hex.replace('#', '').match(/^([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i)
+      return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : null
+    }
+    function srgbLinear(c: number): number {
+      const s = c / 255
+      return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4)
+    }
+    function luminance(r: number, g: number, b: number): number {
+      return 0.2126 * srgbLinear(r) + 0.7152 * srgbLinear(g) + 0.0722 * srgbLinear(b)
+    }
+    function contrastRatio(l1: number, l2: number): number {
+      const [lighter, darker] = l1 > l2 ? [l1, l2] : [l2, l1]
+      return (lighter + 0.05) / (darker + 0.05)
+    }
+
+    const tokensPath = path.join(activeProjectRoot, '.flint', 'design-tokens.json')
+    const colorTokens: { name: string; value: string }[] = []
+    try {
+      const raw = await fs.readFile(tokensPath, 'utf8')
+      const parsed = JSON.parse(raw)
+      function walk(obj: Record<string, unknown>, prefix: string) {
+        for (const [key, val] of Object.entries(obj)) {
+          if (key.startsWith('$')) continue
+          const fullPath = prefix ? `${prefix}.${key}` : key
+          if (val && typeof val === 'object' && '$value' in (val as Record<string, unknown>)) {
+            const v = (val as Record<string, unknown>).$value
+            const t = (val as Record<string, unknown>).$type
+            if (typeof v === 'string' && t === 'color' && v.startsWith('#')) {
+              colorTokens.push({ name: fullPath, value: v })
+            }
+          } else if (val && typeof val === 'object') {
+            walk(val as Record<string, unknown>, fullPath)
+          }
+        }
+      }
+      walk(parsed, '')
+    } catch {
+      try {
+        const allTokens = stmtReadAll.all() as Array<{ token_path: string; token_value: string; token_type: string }>
+        for (const t of allTokens) {
+          if (t.token_type === 'color' && t.token_value.startsWith('#')) {
+            colorTokens.push({ name: t.token_path, value: t.token_value })
+          }
+        }
+      } catch { return [] }
+    }
+    if (colorTokens.length < 2) return []
+
+    const pairs: Array<{ fg: string; bg: string; fgValue: string; bgValue: string; ratio: number; passAA: boolean; passAAA: boolean }> = []
+    for (let i = 0; i < colorTokens.length; i++) {
+      for (let j = 0; j < colorTokens.length; j++) {
+        if (i === j) continue
+        const fgRgb = hexToRgb(colorTokens[i].value)
+        const bgRgb = hexToRgb(colorTokens[j].value)
+        if (!fgRgb || !bgRgb) continue
+        const fgLum = luminance(...fgRgb)
+        const bgLum = luminance(...bgRgb)
+        const ratio = Math.round(contrastRatio(fgLum, bgLum) * 100) / 100
+        pairs.push({
+          fg: colorTokens[i].name, bg: colorTokens[j].name,
+          fgValue: colorTokens[i].value, bgValue: colorTokens[j].value,
+          ratio, passAA: ratio >= 4.5, passAAA: ratio >= 7.0,
+        })
+      }
+    }
+    return pairs
+  })
+
+  // ── Token Approval Staging ────────────────────────────────────────────────
+
+  handlers.set('tokens:get-pending-approvals', async () => {
+    if (!activeProjectRoot) return []
+    const pendingPath = path.join(activeProjectRoot, '.flint', 'pending-tokens.json')
+    try {
+      const raw = await fs.readFile(pendingPath, 'utf8')
+      return JSON.parse(raw)
+    } catch { return [] }
+  })
+
+  handlers.set('tokens:approve-token', async (tokenName: unknown) => {
+    if (!activeProjectRoot || typeof tokenName !== 'string') return { ok: false }
+    const pendingPath = path.join(activeProjectRoot, '.flint', 'pending-tokens.json')
+    const tokensPath = path.join(activeProjectRoot, '.flint', 'design-tokens.json')
+    try {
+      const raw = await fs.readFile(pendingPath, 'utf8')
+      const pending = JSON.parse(raw) as Array<{ name: string; value: string; type: string }>
+      const token = pending.find((t) => t.name === tokenName)
+      if (!token) return { ok: false }
+      const remaining = pending.filter((t) => t.name !== tokenName)
+      await atomicWrite(pendingPath, JSON.stringify(remaining, null, 2))
+      let designTokens: Record<string, unknown> = {}
+      try { designTokens = JSON.parse(await fs.readFile(tokensPath, 'utf8')) } catch { /* fresh */ }
+      const parts = token.name.split('.')
+      let current: Record<string, unknown> = designTokens
+      for (let i = 0; i < parts.length - 1; i++) {
+        if (!current[parts[i]] || typeof current[parts[i]] !== 'object') current[parts[i]] = {}
+        current = current[parts[i]] as Record<string, unknown>
+      }
+      current[parts[parts.length - 1]] = { $value: token.value, $type: token.type }
+      await atomicWrite(tokensPath, JSON.stringify(designTokens, null, 2))
+      return { ok: true }
+    } catch { return { ok: false } }
+  })
+
+  handlers.set('tokens:reject-token', async (tokenName: unknown) => {
+    if (!activeProjectRoot || typeof tokenName !== 'string') return { ok: false }
+    const pendingPath = path.join(activeProjectRoot, '.flint', 'pending-tokens.json')
+    try {
+      const raw = await fs.readFile(pendingPath, 'utf8')
+      const pending = JSON.parse(raw) as Array<{ name: string }>
+      const remaining = pending.filter((t) => t.name !== tokenName)
+      await atomicWrite(pendingPath, JSON.stringify(remaining, null, 2))
+      return { ok: true }
+    } catch { return { ok: false } }
+  })
+
+  // ── Governance: Provenance, Anomalies, Health, Mutations, Audit Log ───────
+
+  handlers.set('governance:get-provenance-summary', (filePath: unknown): Record<string, { source: string; agentId?: string; timestamp: string }> => {
+    if (typeof filePath !== 'string') return {}
+    try {
+      const rows = db.prepare(`
+        SELECT node_id, provenance_source, provenance_agent_id, created_at
+        FROM mutations_ledger WHERE file_path = ? ORDER BY created_at DESC
+      `).all(filePath) as Array<{ node_id: string; provenance_source: string; provenance_agent_id: string | null; created_at: string }>
+      const result: Record<string, { source: string; agentId?: string; timestamp: string }> = {}
+      for (const row of rows) {
+        if (result[row.node_id]) continue
+        result[row.node_id] = {
+          source: row.provenance_source ?? 'unknown',
+          ...(row.provenance_agent_id ? { agentId: row.provenance_agent_id } : {}),
+          timestamp: row.created_at,
+        }
+      }
+      return result
+    } catch { return {} }
+  })
+
+  handlers.set('governance:get-anomalies', (): Array<{ type: string; severity: string; message: string; detected_at: string }> => {
+    try {
+      return db.prepare(`
+        SELECT type, severity, message, detected_at FROM anomaly_history
+        WHERE detected_at >= datetime('now', '-24 hours') ORDER BY detected_at DESC LIMIT 20
+      `).all() as Array<{ type: string; severity: string; message: string; detected_at: string }>
+    } catch { return [] }
+  })
+
+  handlers.set('governance:get-last-clean-state', async (): Promise<{ timestamp: string; score: number } | null> => {
+    if (activeProjectRoot) {
+      try {
+        const histPath = path.join(activeProjectRoot, '.flint', 'health-history.json')
+        const raw = await fs.readFile(histPath, 'utf-8')
+        const entries = JSON.parse(raw) as Array<{ date: string; score: number; grade: string }>
+        for (let i = entries.length - 1; i >= 0; i--) {
+          if (entries[i].score >= 95) return { timestamp: entries[i].date, score: entries[i].score }
+        }
+      } catch { /* fall through */ }
+    }
+    try {
+      const row = db.prepare(`
+        SELECT created_at, json_extract(payload, '$.score') as score FROM governance_events
+        WHERE json_extract(payload, '$.score') >= 95 ORDER BY created_at DESC LIMIT 1
+      `).get() as { created_at: string; score: number } | undefined
+      if (row) return { timestamp: row.created_at, score: row.score }
+    } catch { /* table may not exist */ }
+    return null
+  })
+
+  handlers.set('governance:preview-token-impact', async (tokenName: unknown, _newValue: unknown): Promise<{ affectedFiles: number; estimatedImpact: 'low' | 'medium' | 'high' }> => {
+    if (typeof tokenName !== 'string') throw new TypeError('governance:preview-token-impact — tokenName must be a string')
+    if (!activeProjectRoot) return { affectedFiles: 0, estimatedImpact: 'low' }
+    const cssVar = `--${(tokenName as string).replace(/\./g, '-')}`
+    let affectedFiles = 0
+    try {
+      const srcDir = path.join(activeProjectRoot, 'src')
+      const scanDir = existsSync(srcDir) ? srcDir : activeProjectRoot
+      const files = await collectSourceFilesForImpact(scanDir)
+      for (const f of files) {
+        try {
+          const content = await fs.readFile(f, 'utf-8')
+          if (content.includes(cssVar) || content.includes(tokenName as string)) affectedFiles++
+        } catch { /* skip */ }
+      }
+    } catch { /* scan failed */ }
+    const estimatedImpact: 'low' | 'medium' | 'high' = affectedFiles <= 2 ? 'low' : affectedFiles <= 5 ? 'medium' : 'high'
+    return { affectedFiles, estimatedImpact }
+  })
+
+  handlers.set('governance:get-health-history', async (): Promise<Array<{ date: string; score: number; grade: string }>> => {
+    if (!activeProjectRoot) return []
+    const histPath = path.join(activeProjectRoot, '.flint', 'health-history.json')
+    try {
+      const raw = await fs.readFile(histPath, 'utf-8')
+      return JSON.parse(raw) as Array<{ date: string; score: number; grade: string }>
+    } catch { return [] }
+  })
+
+  handlers.set('governance:record-health', async (entry: unknown): Promise<void> => {
+    if (!activeProjectRoot) return
+    if (typeof entry !== 'object' || entry === null) return
+    const e = entry as { score?: number; grade?: string }
+    if (typeof e.score !== 'number' || typeof e.grade !== 'string') return
+    const histPath = path.join(activeProjectRoot, '.flint', 'health-history.json')
+    let entries: Array<{ date: string; score: number; grade: string }> = []
+    try { entries = JSON.parse(await fs.readFile(histPath, 'utf-8')) } catch { /* new file */ }
+    entries.push({ date: new Date().toISOString(), score: e.score, grade: e.grade })
+    if (entries.length > 90) entries = entries.slice(-90)
+    try {
+      await fs.mkdir(path.join(activeProjectRoot, '.flint'), { recursive: true })
+      await atomicWrite(histPath, JSON.stringify(entries, null, 2))
+    } catch { /* best-effort */ }
+  })
+
+  handlers.set('governance:get-pending-mutations', (): Array<{ id: number; type: string; filePath: string; riskScore: number; riskTier: string; agentId?: string }> => {
+    try {
+      return db.prepare(`
+        SELECT id, type, file_path as filePath, risk_score as riskScore, risk_tier as riskTier, agent_id as agentId
+        FROM mutations_ledger WHERE risk_tier IN ('Amber', 'Red') AND approved_at IS NULL
+        ORDER BY risk_score DESC LIMIT 50
+      `).all() as Array<{ id: number; type: string; filePath: string; riskScore: number; riskTier: string; agentId?: string }>
+    } catch { return [] }
+  })
+
+  handlers.set('governance:approve-mutation', (id: unknown): void => {
+    if (typeof id !== 'number') throw new TypeError('governance:approve-mutation — id must be a number')
+    try { db.prepare(`UPDATE mutations_ledger SET approved_at = datetime('now') WHERE id = ?`).run(id) } catch { /* table may not exist */ }
+  })
+
+  handlers.set('governance:reject-mutation', (id: unknown): void => {
+    if (typeof id !== 'number') throw new TypeError('governance:reject-mutation — id must be a number')
+    try { db.prepare(`DELETE FROM mutations_ledger WHERE id = ?`).run(id) } catch { /* table may not exist */ }
+  })
+
+  handlers.set('governance:get-audit-log', (opts: unknown): Array<{ id: number | string; timestamp: string; action: string; filePath: string; description: string }> => {
+    const limit = typeof (opts as Record<string, unknown>)?.limit === 'number'
+      ? (opts as Record<string, unknown>).limit as number : 50
+    try {
+      return db.prepare(`
+        SELECT id, created_at AS timestamp, event_type AS action,
+               COALESCE(file_path, '') AS filePath, COALESCE(description, event_type) AS description
+        FROM governance_events ORDER BY created_at DESC LIMIT ?
+      `).all(limit) as Array<{ id: number | string; timestamp: string; action: string; filePath: string; description: string }>
+    } catch { return [] }
+  })
+
+  // Helper: collect source files for token impact scan
+  async function collectSourceFilesForImpact(dir: string): Promise<string[]> {
+    const results: string[] = []
+    const SKIP = new Set(['node_modules', 'dist', 'dist-electron', '.git', '.flint'])
+    try {
+      const entries = await fs.readdir(dir, { withFileTypes: true })
+      for (const entry of entries) {
+        if (entry.name.startsWith('.') && entry.name !== '.') continue
+        if (SKIP.has(entry.name)) continue
+        const full = path.join(dir, entry.name)
+        if (entry.isDirectory()) {
+          results.push(...(await collectSourceFilesForImpact(full)))
+        } else if (/\.(tsx?|jsx?|css)$/.test(entry.name)) {
+          results.push(full)
+        }
+      }
+    } catch { /* directory not readable */ }
+    return results
+  }
+
   // ── Baseline ───────────────────────────────────────────────────────────────
 
   handlers.set('baseline:set', async (violations: unknown) => {
@@ -1725,8 +2174,15 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
   })
 
   handlers.set('mcp:call-tool', async (name: unknown, args: unknown) => {
+    const toolName = name as string
+    if (!RENDERER_ALLOWED_MCP_TOOLS.includes(toolName)) {
+      throw new Error(
+        `mcp:call-tool — tool "${toolName}" is not in the renderer allowlist. ` +
+        `Only these tools can be called from Glass: ${RENDERER_ALLOWED_MCP_TOOLS.join(', ')}`,
+      )
+    }
     return mcp.callTool(
-      name as string,
+      toolName,
       (args ?? {}) as Record<string, unknown>,
     )
   })
@@ -1942,6 +2398,7 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
 
       fileWatchInterval = setInterval(() => {
         void (async () => {
+          // Check for modifications to known files
           for (const [filePath, lastMtime] of trackedFiles) {
             try {
               const stat = await fs.stat(filePath)
@@ -1952,6 +2409,20 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
               }
             } catch { /* file deleted or inaccessible */ }
           }
+          // Check for newly created files not yet in the tracked set
+          try {
+            const currentFiles = await scanWorkspaceFiles(activeProjectRoot)
+            for (const filePath of currentFiles) {
+              if (!trackedFiles.has(filePath)) {
+                try {
+                  const stat = await fs.stat(filePath)
+                  trackedFiles.set(filePath, stat.mtimeMs)
+                  const content = readFileSync(filePath, 'utf-8')
+                  broadcast('flint:file-changed', { filePath, content })
+                } catch { /* file vanished between scan and stat — skip */ }
+              }
+            }
+          } catch { /* scan error — skip new-file detection this tick */ }
         })()
       }, 1_000)
     }
@@ -1962,6 +2433,45 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
 
     // Start immediately for the CLI-supplied project root
     void startWebFileWatcher()
+  }
+
+  // ── IDE→Glass File Sync (IDE.2 parity) ────────────────────────────────────
+  // The VS Code extension writes the active file path to
+  // `.flint/ide-active-file.json` on every editor focus change.
+  // We stat-poll that file (same pattern as Electron's startIDEFileSyncWatcher)
+  // and broadcast `flint:ide-file-selected` to all WebSocket clients so Glass
+  // auto-follows IDE focus without the user touching the Files tab.
+  //
+  // The tick logic lives in server/ideFileSyncTick.ts so it can be unit-tested
+  // without spinning up the full Express server.
+  let ideFileSyncInterval: ReturnType<typeof setInterval> | null = null
+  const ideFileSyncState: IDEFileSyncState = { lastMtime: 0, lastPath: '' }
+
+  {
+    function startIDEFileSyncWatcher(): void {
+      if (ideFileSyncInterval) clearInterval(ideFileSyncInterval)
+      ideFileSyncState.lastMtime = 0
+      ideFileSyncState.lastPath = ''
+
+      ideFileSyncInterval = setInterval(() => {
+        void ideFileSyncTick({
+          activeProjectRoot,
+          state: ideFileSyncState,
+          statFn: (p) => fs.stat(p),
+          readFileFn: (p) => fs.readFile(p, 'utf-8'),
+          broadcastFn: broadcast,
+          configDir: BRAND.configDir,
+        })
+      }, 1_000)
+    }
+
+    // Expose for restart when activeProjectRoot changes
+    ;(globalThis as Record<string, unknown>).__flintIDEFileSyncStart = startIDEFileSyncWatcher
+    ;(globalThis as Record<string, unknown>).__flintIDEFileSyncStop = () => {
+      if (ideFileSyncInterval) { clearInterval(ideFileSyncInterval); ideFileSyncInterval = null }
+    }
+
+    startIDEFileSyncWatcher()
   }
 
   // ── Setup Wizard ───────────────────────────────────────────────────────────
@@ -2034,6 +2544,17 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
   handlers.set('setup:write-mcp-config', async (ideName: unknown, configPath: unknown, mcpServerPath: unknown) => {
     if (typeof configPath !== 'string' || typeof mcpServerPath !== 'string') {
       return { written: false }
+    }
+    // Validate configPath against known-safe destinations to prevent arbitrary file writes.
+    const SAFE_CONFIG_PATHS = [
+      path.join(os.homedir(), '.cursor', 'mcp.json'),
+      path.join(os.homedir(), '.claude', 'mcp.json'),
+      path.join(process.cwd(), '.vscode', 'mcp.json'),
+      path.join(process.cwd(), '.cursor', 'mcp.json'),
+    ]
+    const normalizedConfigPath = path.normalize(configPath)
+    if (!SAFE_CONFIG_PATHS.some((safe) => path.normalize(safe) === normalizedConfigPath)) {
+      throw new Error('Invalid MCP config path')
     }
     try {
       // Read existing config, merge Flint MCP entry
@@ -2145,7 +2666,33 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     )
   })
 
-  handlers.set('ai:apply-batch', async () => ({ ok: true }))
+  // ai:apply-batch — delegate mutations to flint_ast_mutate via MCP.
+  // The Electron counterpart is a sentinel ACK (the renderer handles AST surgery
+  // via editorStore.applyBatch locally). In web mode the renderer cannot call
+  // Electron IPC, so the server must actually apply the mutations via MCP.
+  handlers.set('ai:apply-batch', async (mutations: unknown, filePath: unknown) => {
+    if (!mutations || !filePath) {
+      // No-op ACK when called without arguments (matches Electron sentinel behaviour).
+      return { ok: true }
+    }
+    if (!mcp.status().connected) {
+      console.error('[IPC] ai:apply-batch failed: MCP not connected')
+      return { ok: false, error: 'Operation failed' }
+    }
+    try {
+      const result = await mcp.callTool('flint_ast_mutate', {
+        filePath,
+        mutations,
+        dry_run: false,
+      })
+      const text = result.content?.[0]?.text ?? '{}'
+      const parsed = JSON.parse(text) as Record<string, unknown>
+      return { ok: true, ...parsed }
+    } catch (err) {
+      console.error('[IPC] ai:apply-batch failed:', err)
+      return { ok: false, error: 'Operation failed' }
+    }
+  })
 
   // ── RAG Store ───────────────────────────────────────────────────────────
 
@@ -2229,7 +2776,8 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
 
       return { projectPath: projectDir }
     } catch (err) {
-      return { error: err instanceof Error ? err.message : String(err) }
+      console.error('[IPC] beta:load-demo-project failed:', err)
+      return { error: 'Operation failed' }
     }
   })
 
@@ -2685,7 +3233,8 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
       await fs.rename(tmpPath, policyPath)
       return { ok: true, library: library as string | null, seeded: 0 }
     } catch (err) {
-      return { ok: false, library: null, seeded: 0, error: err instanceof Error ? err.message : String(err) }
+      console.error('[IPC] library:set-active failed:', err)
+      return { ok: false, library: null, seeded: 0, error: 'Operation failed' }
     }
   })
 
@@ -2788,7 +3337,8 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
 
       return { ok: true, remainingDrafts: Object.keys(drafts).length }
     } catch (err) {
-      return { ok: false, remainingDrafts: 0, error: err instanceof Error ? err.message : String(err) }
+      console.error('[IPC] enrichment:approve failed:', err)
+      return { ok: false, remainingDrafts: 0, error: 'Operation failed' }
     }
   })
 
@@ -2802,7 +3352,15 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
         return { ok: false, pageFilePath: '', componentFilePaths: [], workspaceTree: EMPTY_TREE, error: 'Invalid request' }
       }
       const req = request as { pageName: string; components: Array<{ name: string; code: string }>; page: { name: string; code: string }; themeFile?: { filename: string; code: string } }
-      const home = os.homedir()
+
+      // Validate path segments to prevent directory traversal.
+      function isSafePathSegment(s: unknown): s is string {
+        if (typeof s !== 'string' || s.length === 0) return false
+        return !/[/\\]|\.\./.test(s)
+      }
+      if (!isSafePathSegment(req.pageName)) {
+        return { ok: false, pageFilePath: '', componentFilePaths: [], workspaceTree: EMPTY_TREE, error: 'Invalid pageName' }
+      }
 
       // Target directory for generated components
       const targetDir = path.join(activeProjectRoot, 'src', 'components', 'generated', req.pageName)
@@ -2814,15 +3372,21 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
 
       for (const comp of req.components) {
         if (typeof comp.name !== 'string' || typeof comp.code !== 'string') continue
+        if (!isSafePathSegment(comp.name)) {
+          return { ok: false, pageFilePath: '', componentFilePaths: [], workspaceTree: EMPTY_TREE, error: `Invalid component name: ${comp.name}` }
+        }
         const filePath = path.join(targetDir, `${comp.name}.tsx`)
-        if (!filePath.startsWith(home + path.sep)) {
-          return { ok: false, pageFilePath: '', componentFilePaths: [], workspaceTree: EMPTY_TREE, error: `Path outside home: ${filePath}` }
+        if (!filePath.startsWith(activeProjectRoot + path.sep)) {
+          return { ok: false, pageFilePath: '', componentFilePaths: [], workspaceTree: EMPTY_TREE, error: `Path outside project root: ${filePath}` }
         }
         fileBatch.set(filePath, comp.code)
         componentFilePaths.push(filePath)
       }
 
       // Page compositor
+      if (!isSafePathSegment(req.page.name)) {
+        return { ok: false, pageFilePath: '', componentFilePaths: [], workspaceTree: EMPTY_TREE, error: 'Invalid page name' }
+      }
       const pageFilePath = path.join(targetDir, `${req.page.name}.tsx`)
       let pageCode = req.page.code
       if (!/export\s+default\b/.test(pageCode)) {
@@ -2840,18 +3404,20 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
       // Theme file
       if (req.themeFile && typeof req.themeFile.filename === 'string') {
         const themeFilePath = path.join(activeProjectRoot, req.themeFile.filename)
-        if (themeFilePath.startsWith(home + path.sep)) {
-          const tmpPath = themeFilePath + '.tmp'
-          writeFileSync(tmpPath, req.themeFile.code)
-          await fs.rename(tmpPath, themeFilePath)
+        if (!themeFilePath.startsWith(activeProjectRoot + path.sep)) {
+          throw new Error(`d2c:apply — theme file path escapes project root: ${themeFilePath}`)
         }
+        const tmpPath = themeFilePath + '.tmp'
+        writeFileSync(tmpPath, req.themeFile.code)
+        await fs.rename(tmpPath, themeFilePath)
       }
 
       // Re-scan workspace
       const workspaceTree = await scanDirectory(activeProjectRoot)
       return { ok: true, pageFilePath, componentFilePaths, workspaceTree }
     } catch (err) {
-      return { ok: false, pageFilePath: '', componentFilePaths: [], workspaceTree: EMPTY_TREE, error: err instanceof Error ? err.message : String(err) }
+      console.error('[IPC] d2c:apply failed:', err)
+      return { ok: false, pageFilePath: '', componentFilePaths: [], workspaceTree: EMPTY_TREE, error: 'Operation failed' }
     }
   })
 
@@ -2970,7 +3536,8 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
       await mcp.callTool('flint_fix', { file: activeFile, dry_run: false })
       return { ok: true }
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+      console.error('[IPC] import:snap-to-token failed:', err)
+      return { ok: false, error: 'Operation failed' }
     }
   })
 
@@ -2991,7 +3558,8 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
       const text = result.content?.[0]?.text ?? '{}'
       return JSON.parse(text)
     } catch (err) {
-      return { error: err instanceof Error ? err.message : String(err) }
+      console.error('[IPC] flint:hydro-paste failed:', err)
+      return { error: 'Operation failed' }
     }
   })
 
@@ -3015,6 +3583,18 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
 
   handlers.set('thumbnails:invalidate', async (componentName: unknown) => {
     await thumbnails.invalidate(componentName as string, activeProjectRoot)
+  })
+
+  // ── Debug Routes ───────────────────────────────────────────────────────────
+
+  app.get('/api/debug/ide-sync', (_req, res) => {
+    res.json({
+      activeProjectRoot,
+      lastMtime: ideFileSyncState.lastMtime,
+      lastPath: ideFileSyncState.lastPath,
+      tickRunning: true,
+      wsClients: wss.clients.size,
+    })
   })
 
   // ── IPC Dispatch Route ─────────────────────────────────────────────────────
@@ -3053,9 +3633,10 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     try {
       const result = await handler(...(args || []))
       res.json({ result: result ?? null })
-    } catch (e: any) {
-      console.error(`${BRAND.logPrefix} Handler error [${channel}]:`, e.message)
-      res.json({ result: null, error: e.message })
+    } catch (e: unknown) {
+      console.error(`[IPC] ${channel} failed:`, e)
+      const msg = e instanceof Error ? e.message : String(e)
+      res.json({ result: null, error: `${channel}: ${msg}` })
     }
   })
 
@@ -3079,7 +3660,7 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
   // ── Start Server ───────────────────────────────────────────────────────────
 
   return new Promise((resolve) => {
-    server.listen(port, () => {
+    server.listen(port, '127.0.0.1', () => {
       console.log(`${BRAND.logPrefix} Flint Glass Web Server running on http://localhost:${port}`)
       console.log(`${BRAND.logPrefix} Project: ${activeProjectRoot}`)
       console.log(`${BRAND.logPrefix} WebSocket: ws://localhost:${port}/ws`)
@@ -3090,6 +3671,8 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
         wss,
         close: async () => {
           if (autopilotWatcher) { clearInterval(autopilotWatcher); autopilotWatcher = null }
+          const ideStop = (globalThis as Record<string, unknown>).__flintIDEFileSyncStop
+          if (typeof ideStop === 'function') (ideStop as () => void)()
           await ingestion.stop().catch(() => {})
           await mcp.stop().catch(() => {})
           db.close()
