@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { GovernanceDashboard } from '../GovernanceDashboard'
 import { useTokenStore } from '../../../store/tokenStore'
 import type { DesignToken } from '../../../types/flint-api'
@@ -95,11 +95,14 @@ describe('GovernanceDashboard — GOV-FIX-3 no-token state shows no score', () =
             })
         })
 
-        it('renders the Governance Health header even with no tokens', async () => {
+        it('does NOT render a visible Governance Health section header (COUNSEL.1.7: h2 is sr-only)', async () => {
             render(<GovernanceDashboard />)
+            // The old visible h3 label was removed; COUNSEL.1.7 added sr-only h2 for a11y.
+            // Verify no visible h3 exists with that text.
             await waitFor(() => {
-                const matches = screen.getAllByText('Governance Health')
-                expect(matches.length).toBeGreaterThan(0)
+                const h3Elements = document.querySelectorAll('h3')
+                const visibleGovH3 = Array.from(h3Elements).find(el => el.textContent === 'Governance Health')
+                expect(visibleGovH3).toBeUndefined()
             })
         })
     })
@@ -124,8 +127,11 @@ describe('GovernanceDashboard — GOV-FIX-3 no-token state shows no score', () =
             })
         })
 
-        it('renders Top Triggered Rules section', async () => {
+        it('renders Top Triggered Rules section (inside More details disclosure)', async () => {
             render(<GovernanceDashboard />)
+            // GAP-1: Top Triggered Rules is inside the "More details" disclosure
+            await waitFor(() => expect(screen.getByTestId('more-details-toggle')).toBeDefined())
+            fireEvent.click(screen.getByTestId('more-details-toggle'))
             await waitFor(() => {
                 expect(screen.getByText(/Top Triggered Rules/)).toBeDefined()
             })

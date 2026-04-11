@@ -123,7 +123,7 @@ describe('GovernanceDashboard', () => {
             expect(screen.getByText('4 overrides')).toBeDefined()
         })
         // Open the Health Score accordion to see the deduction breakdown
-        const scoreBtn = screen.getByRole('button', { name: /Health Score/i })
+        const scoreBtn = screen.getByRole('button', { name: /Score breakdown/i })
         fireEvent.click(scoreBtn)
         // With 4 overrides × 3 pts = 12 pts deducted — score = 88 not 97
         // The score ring shows 88 (not 97 which would come from boolean coercion)
@@ -172,13 +172,15 @@ describe('GovernanceDashboard', () => {
     // ── Existing baseline tests ───────────────────────────────────────────────
 
     // 10. Score ring renders when tokens are loaded (no empty state)
-    it('renders the Governance Health header when tokens exist', async () => {
+    it('does NOT render a visible Governance Health section header (COUNSEL.1.7: h2 exists but is sr-only for a11y)', async () => {
+        // The old visible h3 "Governance Health" label was removed; the tab itself provides the label.
+        // COUNSEL.1.7 added a sr-only h2 for heading hierarchy, which is correct — check no visible h3.
         seedTokens([makeToken()])
         render(<GovernanceDashboard />)
-        await waitFor(() => {
-            const matches = screen.getAllByText('Governance Health')
-            expect(matches.length).toBeGreaterThan(0)
-        })
+        await waitFor(() => screen.getByTestId('score-ring'))
+        const h3Elements = document.querySelectorAll('h3')
+        const visibleGovH3 = Array.from(h3Elements).find(el => el.textContent === 'Governance Health')
+        expect(visibleGovH3).toBeUndefined()
     })
 
     // 11. Score ring renders numeric score when tokens are loaded
@@ -204,18 +206,25 @@ describe('GovernanceDashboard', () => {
     it('renders score explanation toggle when tokens exist', async () => {
         seedTokens([makeToken()])
         render(<GovernanceDashboard />)
+        // Open the Health Score accordion to reveal the "How is this calculated?" link
+        await waitFor(() => screen.getByTestId('score-ring'))
+        const accordionBtn = document.querySelector('button[aria-controls="score-accordion"]') as HTMLElement
+        fireEvent.click(accordionBtn)
         await waitFor(() => {
             expect(screen.getByText(/How is this calculated/i)).toBeDefined()
         })
     })
 
     // 14. Delta Mode controls render when tokens are loaded (GLASS.1e)
-    // The "Session & Baseline" accordion must be opened first since it's collapsed by default.
+    // Both "More details" and the "Session & Baseline" accordion must be opened first (GAP-1).
     it('renders Delta Mode toggle button when tokens exist', async () => {
         seedTokens([makeToken()])
         ;(window.flintAPI.baseline?.isSet as ReturnType<typeof vi.fn> | undefined)?.mockResolvedValue(false)
         render(<GovernanceDashboard />)
-        // Open the "Session & Baseline" accordion
+        // Open "More details" disclosure first (GAP-1 restructure)
+        fireEvent.click(screen.getByTestId('more-details-toggle'))
+        // Open the "Session & Baseline" accordion inside
+        await waitFor(() => screen.getByRole('button', { name: /Session.*Baseline/i }))
         const sessionBtn = screen.getByRole('button', { name: /Session.*Baseline/i })
         fireEvent.click(sessionBtn)
         await waitFor(() => {
@@ -255,10 +264,12 @@ describe('GovernanceDashboard', () => {
 
     // ── S4.11: Agent Activity feed (empty state + events) ────────────────────
 
-    // 18. Activity accordion toggle is present
+    // 18. Activity accordion toggle is present (inside "More details" disclosure)
     it('renders the Agent Activity accordion toggle button', async () => {
         seedTokens([makeToken()])
         render(<GovernanceDashboard />)
+        // GAP-1: Activity feed is inside "More details" disclosure
+        fireEvent.click(screen.getByTestId('more-details-toggle'))
         await waitFor(() => {
             expect(screen.getByTestId('activity-accordion-toggle')).toBeDefined()
         })
@@ -271,7 +282,8 @@ describe('GovernanceDashboard', () => {
         seedTokens([makeToken()])
         render(<GovernanceDashboard />)
 
-        // Open the accordion
+        // Open "More details" then the accordion
+        fireEvent.click(screen.getByTestId('more-details-toggle'))
         await waitFor(() => screen.getByTestId('activity-accordion-toggle'))
         fireEvent.click(screen.getByTestId('activity-accordion-toggle'))
 
@@ -297,7 +309,8 @@ describe('GovernanceDashboard', () => {
         seedTokens([makeToken()])
         render(<GovernanceDashboard />)
 
-        // Open the accordion
+        // Open "More details" then the accordion
+        fireEvent.click(screen.getByTestId('more-details-toggle'))
         await waitFor(() => screen.getByTestId('activity-accordion-toggle'))
         fireEvent.click(screen.getByTestId('activity-accordion-toggle'))
 
@@ -314,6 +327,7 @@ describe('GovernanceDashboard', () => {
         seedTokens([makeToken()])
         render(<GovernanceDashboard />)
 
+        fireEvent.click(screen.getByTestId('more-details-toggle'))
         await waitFor(() => screen.getByTestId('activity-accordion-toggle'))
         fireEvent.click(screen.getByTestId('activity-accordion-toggle'))
 
@@ -325,7 +339,7 @@ describe('GovernanceDashboard', () => {
     // ── Fix 1: A11y Fix button via MCP ───────────────────────────────────────
 
     // 22. Fix button renders for an a11y violation
-    // 22. A11y violations show "How to fix" button (not "Fix") since they require human input
+    // 22. A11y violations show expand button (not auto-fix "Fix") since they require human input
     it('renders a "How to fix" button for an a11y violation (not Fix)', async () => {
         seedTokens([makeToken()])
         useCanvasStore.setState({
@@ -335,14 +349,15 @@ describe('GovernanceDashboard', () => {
             },
         })
         render(<GovernanceDashboard />)
+        // Wait for the violation card expand button to appear
         await waitFor(() => {
-            expect(screen.getByTestId('a11y-howto-btn-A11Y-001')).toBeDefined()
+            expect(document.querySelector('button[aria-controls="v-a-node-a1-0"]')).not.toBeNull()
         })
-        // Fix button should NOT exist for a11y violations
+        // Auto-fix button should NOT exist for a11y violations
         expect(screen.queryByTestId('a11y-fix-btn-A11Y-001')).toBeNull()
     })
 
-    // 23. Clicking "How to fix" expands the card to show guidance
+    // 23. Clicking the expand button opens the a11y violation card
     it('clicking "How to fix" expands the a11y violation card', async () => {
         seedTokens([makeToken()])
         useCanvasStore.setState({
@@ -352,9 +367,10 @@ describe('GovernanceDashboard', () => {
             },
         })
         render(<GovernanceDashboard />)
-        // The hint element exists (footer label)
-        await waitFor(() => screen.getByTestId('a11y-howto-btn-A11Y-001'))
         // Click the expand button — identified by its aria-controls pointing to the a11y panel
+        await waitFor(() => {
+            expect(document.querySelector('button[aria-controls="v-a-node-a1-0"]')).not.toBeNull()
+        })
         const expandBtn = document.querySelector('button[aria-controls="v-a-node-a1-0"]') as HTMLElement
         fireEvent.click(expandBtn)
         await waitFor(() => {

@@ -457,6 +457,9 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
     const [baselineStatus, setBaselineStatus] = useState<BaselineStatus>('idle')
     const [confirmationMsg, setConfirmationMsg] = useState<string | null>(null)
 
+    // Track whether we've already attempted auto-enable this session
+    const autoBaselineAttempted = useRef(false)
+
     // On mount (and when the active file changes) check whether a baseline is set
     // and fetch entries for the current file.
     useEffect(() => {
@@ -471,6 +474,51 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
             setBaselineEntries([])
         }
     }, [activeFilePath])
+
+    // COUNSEL.1.2: Auto-enable delta mode for legacy projects (> 10 pre-existing violations).
+    // Runs once on mount when initialViolationCount > 10 and no baseline is currently set.
+    useEffect(() => {
+        if (autoBaselineAttempted.current) return
+        if ((initialViolationCount ?? 0) <= 10) return
+        if (isBaselineSet) return // already set, nothing to do
+
+        const api = window.flintAPI.baseline
+        if (!api || !activeFilePath) return
+
+        autoBaselineAttempted.current = true
+
+        // Auto-set baseline with all current violations
+        const allWarnings = [...Array.from(useEditorStore.getState().linterWarnings.values()),
+            ...Object.entries(useCanvasStore.getState().a11yViolations).map(([nodeId, msgs]) => ({
+                id: nodeId,
+                type: 'a11y' as const,
+                severity: 'critical' as const,
+                value: 1,
+                message: msgs.join(', '),
+                nearestToken: null,
+                nearestTokenValue: null,
+            }))]
+
+        if (allWarnings.length === 0) return
+
+        const violations = allWarnings.map((v) => ({
+            nodeId: v.id,
+            ruleId: v.type,
+            severity: v.severity,
+            filePath: activeFilePath,
+            value: String(v.value),
+        }))
+
+        void api.set(violations).then(() =>
+            Promise.all([api.isSet(), api.get(activeFilePath)])
+        ).then(([nowSet, entries]) => {
+            setIsBaselineSet(nowSet)
+            setBaselineEntries(entries)
+        }).catch((err) => {
+            console.warn('[Flint] GovernanceDashboard: auto-baseline failed', err)
+        })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [initialViolationCount, activeFilePath, isBaselineSet])
 
     // ── Flatten linter warnings to an array for delta computation ─────────────
     const allLinterWarnings = useMemo<LinterWarning[]>(
@@ -811,7 +859,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
         const top = topRules[0]
         const label = TYPE_LABEL[top.type]
         // Compute what the next grade would be if those violations were fixed
-        const pointsBack = top.type === 'a11y' ? top.count * 10 : top.count * 5
+        const pointsBack = top.type === 'a11y' ? top.count * 10 : top.count * 3
         const projectedScore = Math.min(100, score + pointsBack)
         const projectedGrade = gradeFromScore(projectedScore)
         if (projectedGrade === grade) {
@@ -1347,7 +1395,10 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
 
     // ── Render ────────────────────────────────────────────────────────────────
     return (
-        <div className="flex flex-col">
+        <div className="flex flex-col" role="region" aria-label="Governance health dashboard">
+
+            {/* COUNSEL.1.7: Screen-reader heading for correct h1 > h2 hierarchy */}
+            <h2 className="sr-only">Governance Health</h2>
 
             {/* ── Header ────────────────────────────────────────────────── */}
             <div className="border-b border-zinc-800 px-3 py-2 flex items-end justify-end">
@@ -1445,10 +1496,73 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                 </div>
             )}
 
-            {/* ── COMPACT SCORE SUMMARY ROW (replaces ScoreSection) ─────── */}
+            {/* ── COMPACT SCORE SUMMARY (replaces ScoreSection) ────────── */}
             {tokenCount > 0 && (
                 <>
-                    {/* One-line summary: mini ring · grade · score · export badge · category chips */}
+                    {/* COUNSEL.1.1: Category chips — first thing visible, ABOVE score ring */}
+                    {(totalViolations > 0 || overridesExist) && (
+                        <div className="flex items-center gap-1.5 px-3 py-2 border-b border-zinc-800" data-testid="category-chips">
+                            {mithrilCount > 0 && (
+                                <button
+                                    type="button"
+                                    aria-pressed={activeCategory === 'design-system'}
+                                    onClick={() => setActiveCategory(activeCategory === 'design-system' ? null : 'design-system')}
+                                    className="flex items-center gap-1 rounded-full bg-zinc-800 border border-zinc-700 px-2.5 py-1 text-[10px] text-zinc-300 hover:text-zinc-100 aria-pressed:border-amber-500/50 aria-pressed:bg-amber-900/20 aria-pressed:text-amber-300 transition-colors"
+                                    data-testid="chip-design-system"
+                                >
+                                    {designSystemBlockingCount > 0 && (
+                                        <span
+                                            className="h-1.5 w-1.5 rounded-full bg-red-400 shrink-0"
+                                            aria-label="blocks export"
+                                            data-testid="chip-design-system-blocking-dot"
+                                            title="Contains violations that block export"
+                                        />
+                                    )}
+                                    Design System {mithrilCount}
+                                </button>
+                            )}
+                            {a11yCount > 0 && (
+                                <button
+                                    type="button"
+                                    aria-pressed={activeCategory === 'accessibility'}
+                                    onClick={() => setActiveCategory(activeCategory === 'accessibility' ? null : 'accessibility')}
+                                    className="flex items-center gap-1 rounded-full bg-zinc-800 border border-zinc-700 px-2.5 py-1 text-[10px] text-zinc-300 hover:text-zinc-100 aria-pressed:border-red-500/50 aria-pressed:bg-red-900/20 aria-pressed:text-red-300 transition-colors"
+                                    data-testid="chip-accessibility"
+                                >
+                                    {a11yBlockingCount > 0 && (
+                                        <span
+                                            className="h-1.5 w-1.5 rounded-full bg-red-400 shrink-0"
+                                            aria-label="blocks export"
+                                            data-testid="chip-accessibility-blocking-dot"
+                                            title="Contains violations that block export"
+                                        />
+                                    )}
+                                    Accessibility {a11yCount}
+                                </button>
+                            )}
+                            {syncCount > 0 && (
+                                <button
+                                    type="button"
+                                    aria-pressed={activeCategory === 'token-sync'}
+                                    onClick={() => setActiveCategory(activeCategory === 'token-sync' ? null : 'token-sync')}
+                                    className="flex items-center gap-1 rounded-full bg-zinc-800 border border-zinc-700 px-2.5 py-1 text-[10px] text-zinc-300 hover:text-zinc-100 aria-pressed:border-indigo-500/50 aria-pressed:bg-indigo-900/20 aria-pressed:text-indigo-300 transition-colors"
+                                    data-testid="chip-token-sync"
+                                >
+                                    {syncBlockingCount > 0 && (
+                                        <span
+                                            className="h-1.5 w-1.5 rounded-full bg-red-400 shrink-0"
+                                            aria-label="blocks export"
+                                            data-testid="chip-token-sync-blocking-dot"
+                                            title="Contains violations that block export"
+                                        />
+                                    )}
+                                    Token Sync {syncCount}
+                                </button>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Score summary row: mini ring + grade + score + export badge */}
                     <div className="flex items-center gap-3 px-3 py-2 border-b border-zinc-800">
                         {/* Mini ring — 32px inline SVG */}
                         {(() => {
@@ -1488,69 +1602,6 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                 : <span className="ml-1 rounded bg-emerald-900/20 border border-emerald-700/30 px-1.5 py-0.5 text-[10px] font-medium text-emerald-400">Ready to export</span>
                             }
                         </div>
-
-                        {/* Category chips — compact, right-aligned; hidden in zero-state */}
-                        {(totalViolations > 0 || overridesExist) && (
-                            <div className="ml-auto flex items-center gap-1" data-testid="category-chips">
-                                {mithrilCount > 0 && (
-                                    <button
-                                        type="button"
-                                        aria-pressed={activeCategory === 'design-system'}
-                                        onClick={() => setActiveCategory(activeCategory === 'design-system' ? null : 'design-system')}
-                                        className="flex items-center gap-0.5 rounded-full bg-zinc-800 border border-zinc-700 px-2 py-0.5 text-[10px] text-zinc-300 hover:text-zinc-100 aria-pressed:border-amber-500/50 aria-pressed:bg-amber-900/20 aria-pressed:text-amber-300 transition-colors"
-                                        data-testid="chip-design-system"
-                                    >
-                                        {designSystemBlockingCount > 0 && (
-                                            <span
-                                                className="h-1.5 w-1.5 rounded-full bg-red-400 shrink-0"
-                                                aria-label="blocks export"
-                                                data-testid="chip-design-system-blocking-dot"
-                                                title="Contains violations that block export"
-                                            />
-                                        )}
-                                        Design System {mithrilCount}
-                                    </button>
-                                )}
-                                {a11yCount > 0 && (
-                                    <button
-                                        type="button"
-                                        aria-pressed={activeCategory === 'accessibility'}
-                                        onClick={() => setActiveCategory(activeCategory === 'accessibility' ? null : 'accessibility')}
-                                        className="flex items-center gap-0.5 rounded-full bg-zinc-800 border border-zinc-700 px-2 py-0.5 text-[10px] text-zinc-300 hover:text-zinc-100 aria-pressed:border-red-500/50 aria-pressed:bg-red-900/20 aria-pressed:text-red-300 transition-colors"
-                                        data-testid="chip-accessibility"
-                                    >
-                                        {a11yBlockingCount > 0 && (
-                                            <span
-                                                className="h-1.5 w-1.5 rounded-full bg-red-400 shrink-0"
-                                                aria-label="blocks export"
-                                                data-testid="chip-accessibility-blocking-dot"
-                                                title="Contains violations that block export"
-                                            />
-                                        )}
-                                        Accessibility {a11yCount}
-                                    </button>
-                                )}
-                                {syncCount > 0 && (
-                                    <button
-                                        type="button"
-                                        aria-pressed={activeCategory === 'token-sync'}
-                                        onClick={() => setActiveCategory(activeCategory === 'token-sync' ? null : 'token-sync')}
-                                        className="flex items-center gap-0.5 rounded-full bg-zinc-800 border border-zinc-700 px-2 py-0.5 text-[10px] text-zinc-300 hover:text-zinc-100 aria-pressed:border-indigo-500/50 aria-pressed:bg-indigo-900/20 aria-pressed:text-indigo-300 transition-colors"
-                                        data-testid="chip-token-sync"
-                                    >
-                                        {syncBlockingCount > 0 && (
-                                            <span
-                                                className="h-1.5 w-1.5 rounded-full bg-red-400 shrink-0"
-                                                aria-label="blocks export"
-                                                data-testid="chip-token-sync-blocking-dot"
-                                                title="Contains violations that block export"
-                                            />
-                                        )}
-                                        Token Sync {syncCount}
-                                    </button>
-                                )}
-                            </div>
-                        )}
                     </div>
 
                     {/* Effort text — appears after summary row, before delta mode banner */}
@@ -1635,7 +1686,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                         {mithrilCount > 0 && (
                                             <div className="flex items-center gap-2 text-xs text-zinc-400" data-testid="fidelity-score-row">
                                                 <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" aria-hidden="true" />
-                                                <span className="flex-1">Fidelity — {mithrilCount} design {mithrilCount !== 1 ? 'issues' : 'issue'} (−{mithrilCount * 5} pts)</span>
+                                                <span className="flex-1">Fidelity — {mithrilCount} design {mithrilCount !== 1 ? 'issues' : 'issue'} (−{mithrilCount * 3} pts)</span>
                                             </div>
                                         )}
                                         {a11yCount > 0 && (

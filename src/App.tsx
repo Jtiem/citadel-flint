@@ -101,6 +101,8 @@ function App() {
     const [governancePanelTab, setGovernancePanelTab] = useState<'rules' | 'packs' | 'profiles' | undefined>(undefined)
     const [showProjectMenu, setShowProjectMenu] = useState(false)
     const [isLoadingProject, setIsLoadingProject] = useState(false)
+    // Server readiness indicator for web mode
+    const [serverConnecting, setServerConnecting] = useState(false)
 
     // ── Setup Wizard gate (ONBOARD.1 / WS1 demo-first) ────────────────────────
     const [setupComplete, setSetupComplete] = useState<boolean | null>(null)
@@ -233,6 +235,21 @@ function App() {
     // Must be called once at App root so the effect is tied to workspace lifetime.
     useAutopilot()
     useIDEFileSync()
+
+    // ── Server readiness overlay (web mode) ──────────────────────────────────
+    useEffect(() => {
+        const onConnecting = () => setServerConnecting(true)
+        const onConnected = () => setServerConnecting(false)
+        const onTimeout = () => setServerConnecting(false)
+        window.addEventListener('flint:server-connecting', onConnecting)
+        window.addEventListener('flint:server-connected', onConnected)
+        window.addEventListener('flint:server-timeout', onTimeout)
+        return () => {
+            window.removeEventListener('flint:server-connecting', onConnecting)
+            window.removeEventListener('flint:server-connected', onConnected)
+            window.removeEventListener('flint:server-timeout', onTimeout)
+        }
+    }, [])
 
     // ── OPP-10: Right panel tab unlock triggers ───────────────────────────────
     // Each effect watches a single data source and unlocks the appropriate tab
@@ -405,17 +422,13 @@ function App() {
             })
     }, [])
 
-    // ── Token sync + Figma notification ───────────────────────────────────────
+    // ── Token sync ────────────────────────────────────────────────────────────
+    // onTokensUpdated fires for ALL token mutations (demo seed, MCP tools,
+    // manual import, Figma ingest). The Figma-specific toast lives in
+    // FigmaSetupWizard.onConnected — don't duplicate it here.
     useEffect(() => {
         window.flintAPI.onTokensUpdated(() => {
             fetchTokens()
-            pushNotification({
-                type: 'sync',
-                title: 'Figma Sync',
-                message: 'Design tokens updated from Figma',
-                severity: 'success',
-                autoDismissMs: 4000,
-            })
         })
 
         const tokens = useTokenStore.getState().tokens
@@ -732,7 +745,10 @@ function App() {
                 const focusFile = await window.flintAPI.mcp?.getRecentFileFocus?.()
                 if (focusFile && window.flintAPI.project?.findRootForFile) {
                     const root = await window.flintAPI.project.findRootForFile(focusFile)
-                    if (root) {
+                    // Skip temp dirs (macOS cleans these up; auto-loading them causes
+                    // ENOENT floods when the demo project has been partially deleted).
+                    const isTempDir = root && (root.startsWith('/var/folders/') || root.startsWith('/tmp/'))
+                    if (root && !isTempDir) {
                         const tree = await window.flintAPI.project.openPath(root)
                         if (tree) {
                             void window.flintAPI.registry?.upsertProject?.({ name: tree.name, path: tree.path })
@@ -750,16 +766,60 @@ function App() {
                 if (!session) return
                 // Don't auto-resume empty scratchpads — let the user choose
                 if (session.isScratchpad) return
+                // Skip temp dir sessions — macOS cleans these up after demo use
+                // and restoring them causes ENOENT floods in auto-save.
+                if (session.path.startsWith('/var/folders/') || session.path.startsWith('/tmp/')) return
                 const tree = await window.flintAPI.project.openPath(session.path)
                 if (tree) await hydrateWorkspace(tree as FileTreeNode)
             } catch {
                 // Path no longer valid — fall through to LaunchScreen
+            }
+
+            // Web mode: if still no project loaded, auto-open the server's active
+            // project root (set via the --project CLI flag or the server's default).
+            // This lets the demo run without requiring a manual folder pick.
+            if (
+                !useCanvasStore.getState().workspaceFiles &&
+                typeof (globalThis as Record<string, unknown>).__FLINT_WEB__ !== 'undefined'
+            ) {
+                try {
+                    const activeRoot = await window.flintAPI.project.getActiveRoot?.()
+                    if (activeRoot?.projectRoot) {
+                        const tree = await window.flintAPI.project.openPath(activeRoot.projectRoot)
+                        if (tree) await hydrateWorkspace(tree as FileTreeNode)
+                    }
+                } catch {
+                    // No active root available — let the LaunchScreen handle it
+                }
             }
         }
 
         void tryAutoResume()
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [setupComplete, betaWelcomeDone])
+
+    // ── IDE.2: React to external project-open events (demo script, CLI curl) ─────
+    // When the server's active project changes via an external HTTP call (not
+    // from the Glass browser), broadcast 'flint:project-opened' arrives here so
+    // Glass can re-open the correct project and unblock IDE sync.
+    useEffect(() => {
+        if (!window.flintAPI?.onProjectOpened) return
+        const unsub = window.flintAPI.onProjectOpened(({ path: projectPath }) => {
+            // Skip if Glass already has this project open
+            if (useCanvasStore.getState().workspaceFiles?.path === projectPath) return
+            void (async () => {
+                try {
+                    const tree = await window.flintAPI.project.openPath(projectPath)
+                    if (tree) await hydrateWorkspace(tree as FileTreeNode)
+                } catch (err) {
+                    console.warn('[Flint] App: auto-open from project-opened event failed', err)
+                }
+            })()
+        })
+        return () => { if (typeof unsub === 'function') unsub() }
+    // hydrateWorkspace is stable (defined in component body, not re-created)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
 
     // ── FORGE.2d: Trigger environment detection when a project opens ──────────
     useEffect(() => {
@@ -861,6 +921,15 @@ function App() {
             className="flex h-screen flex-col bg-zinc-950"
             aria-hidden={isAnyModalOpen || undefined}
         >
+            {/* ── Server connecting overlay (web mode startup) */}
+            {serverConnecting && (
+                <div className="absolute inset-0 z-[110] flex items-center justify-center bg-zinc-950/80 backdrop-blur-sm">
+                    <div className="flex items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900/95 px-5 py-3 shadow-2xl">
+                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-700 border-t-amber-500" />
+                        <p className="text-xs text-zinc-400">Connecting to server…</p>
+                    </div>
+                </div>
+            )}
             {/* ── Project loading overlay (non-destructive — keeps workspace mounted) */}
             {isLoadingProject && (
                 <div className="absolute inset-0 z-[100] flex items-center justify-center bg-zinc-950/60 backdrop-blur-sm">
@@ -1243,11 +1312,15 @@ function App() {
                     }}
                 />
             )}
-            <OnboardingOverlay onDismiss={() => {
-                // Fix #3: Complete first launch when user finishes the onboarding tour.
-                // Users who close before finishing get the demo again on next launch.
-                void window.flintAPI.setup?.completeFirstLaunch()
-            }} />
+            {/* Mutual exclusion: OnboardingOverlay is suppressed while the demo walkthrough
+                is active (demoAutoLoaded) — the two onboarding flows must never overlap. */}
+            {!demoAutoLoaded && (
+                <OnboardingOverlay onDismiss={() => {
+                    // Fix #3: Complete first launch when user finishes the onboarding tour.
+                    // Users who close before finishing get the demo again on next launch.
+                    void window.flintAPI.setup?.completeFirstLaunch()
+                }} />
+            )}
             {/* CP.1 — ⌘K Command Palette */}
             <CommandPalette
                 onOpenExportModal={() => setShowExportModal(true)}

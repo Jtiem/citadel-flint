@@ -623,16 +623,22 @@ export function PolicySettings({ onClose }: PolicySettingsProps) {
     return (
         <div
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+            role="button"
+            tabIndex={0}
             onClick={(e) => {
                 if (e.target === e.currentTarget) onClose()
             }}
-            aria-modal="true"
-            role="dialog"
-            aria-labelledby="policy-settings-title"
+            onKeyDown={(e) => {
+                if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) onClose()
+            }}
+            aria-label="Close"
             data-testid="policy-settings-backdrop"
         >
             <div
                 ref={dialogRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="policy-settings-title"
                 className="flex h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl"
                 onClick={(e) => e.stopPropagation()}
             >

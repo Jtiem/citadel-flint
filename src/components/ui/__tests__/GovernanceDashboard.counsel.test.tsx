@@ -51,16 +51,19 @@ function makeLinterWarning(overrides: Partial<LinterWarning> = {}): LinterWarnin
 
 // Ensure the Health Score accordion is open and its content is visible.
 // The accordion starts open (isScoreOpen = true), so we just wait for
-// the chips to appear. If for some reason the accordion is closed, we open it.
+// the score-accordion panel to appear. If for some reason the accordion is
+// closed, we open it. We use next-step-prompt as the settled signal because
+// it is always present in the accordion body regardless of violation count
+// (unlike category-chips, which are hidden in zero-violation state).
 async function ensureScoreAccordionOpen() {
-    // If chips are already visible (accordion starts open), just return.
-    const chips = document.querySelector('[data-testid="category-chips"]')
-    if (chips) return
+    // If accordion body is already visible, just return.
+    const accordionBody = document.querySelector('#score-accordion')
+    if (accordionBody) return
     // Otherwise open it by clicking the accordion header button.
-    const btn = screen.getByRole('button', { name: /Health Score/i })
+    const btn = screen.getByRole('button', { name: /Score breakdown/i })
     fireEvent.click(btn)
     await waitFor(() => {
-        expect(screen.getByTestId('category-chips')).toBeDefined()
+        expect(screen.getByTestId('next-step-prompt')).toBeDefined()
     }, { timeout: 3000 })
 }
 
@@ -82,13 +85,37 @@ describe('GovernanceDashboard — COUNSEL', () => {
 
     // ── COUNSEL.1.1: Category chips ───────────────────────────────────────────
 
-    it('renders three category chips when tokens are loaded', async () => {
+    it('renders only non-zero category chips when violations exist', async () => {
+        // Phase 1: chips are hidden when their count is zero — seed all three categories
         seedTokens([makeToken()])
+        const dsWarning = makeLinterWarning({ type: 'color-drift', id: 'chip-visibility-ds' })
+        const syncWarning = makeLinterWarning({ type: 'sync', id: 'chip-visibility-sync' })
+        useEditorStore.setState({ linterWarnings: new Map([['chip-visibility-ds', dsWarning], ['chip-visibility-sync', syncWarning]]) })
+        useCanvasStore.setState({ a11yViolations: { 'chip-node': ['A11Y-001: Missing alt text'] } })
         render(<GovernanceDashboard />)
         await ensureScoreAccordionOpen()
         expect(screen.getByTestId('chip-design-system')).toBeDefined()
         expect(screen.getByTestId('chip-accessibility')).toBeDefined()
         expect(screen.getByTestId('chip-token-sync')).toBeDefined()
+    })
+
+    it('hides a category chip when its count is zero', async () => {
+        // Only a11y violation — Design System and Token Sync chips should be hidden
+        seedTokens([makeToken()])
+        useCanvasStore.setState({ a11yViolations: { 'chip-node-2': ['A11Y-001: Missing alt text'] } })
+        render(<GovernanceDashboard />)
+        await ensureScoreAccordionOpen()
+        expect(screen.getByTestId('chip-accessibility')).toBeDefined()
+        expect(screen.queryByTestId('chip-design-system')).toBeNull()
+        expect(screen.queryByTestId('chip-token-sync')).toBeNull()
+    })
+
+    it('hides category chips in zero-violation state (Phase 1 declutter)', async () => {
+        // No violations — chips should not render
+        seedTokens([makeToken()])
+        render(<GovernanceDashboard />)
+        await waitFor(() => screen.getByTestId('score-ring'))
+        expect(screen.queryByTestId('category-chips')).toBeNull()
     })
 
     it('category chips show correct counts for design system violations', async () => {
@@ -124,7 +151,10 @@ describe('GovernanceDashboard — COUNSEL', () => {
     })
 
     it('clicking a category chip sets aria-pressed to true', async () => {
+        // Chips are only rendered when violations exist — seed one to make chips visible
         seedTokens([makeToken()])
+        const warning = makeLinterWarning({ id: 'chip-test-1', type: 'color-drift' })
+        useEditorStore.setState({ linterWarnings: new Map([['chip-test-1', warning]]) })
         render(<GovernanceDashboard />)
         await ensureScoreAccordionOpen()
         const chip = screen.getByTestId('chip-design-system')
@@ -136,7 +166,10 @@ describe('GovernanceDashboard — COUNSEL', () => {
     })
 
     it('clicking the active chip again clears the filter (aria-pressed returns false)', async () => {
+        // Chips are only rendered when violations exist — seed one to make chips visible
         seedTokens([makeToken()])
+        const warning = makeLinterWarning({ id: 'chip-test-2', type: 'color-drift' })
+        useEditorStore.setState({ linterWarnings: new Map([['chip-test-2', warning]]) })
         render(<GovernanceDashboard />)
         await ensureScoreAccordionOpen()
         const chip = screen.getByTestId('chip-design-system')
@@ -232,15 +265,15 @@ describe('GovernanceDashboard — COUNSEL', () => {
         })
     })
 
-    it('effort text appears before the health score ring (DOM order)', async () => {
+    it('effort text appears after the health score ring (DOM order, Phase 1 reposition)', async () => {
         seedTokens([makeToken()])
         render(<GovernanceDashboard />)
         await ensureScoreAccordionOpen()
         const effortEl = screen.getByTestId('effort-framing')
         const ringEl = screen.getByRole('img', { name: /Health score/i })
-        // compareDocumentPosition: 4 = DOCUMENT_POSITION_FOLLOWING (ring comes after effort)
+        // compareDocumentPosition: 2 = DOCUMENT_POSITION_PRECEDING (ring comes before effort)
         const pos = effortEl.compareDocumentPosition(ringEl)
-        expect(pos & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+        expect(pos & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
     })
 
     // ── COUNSEL.1.2: Delta mode auto-enable banner ────────────────────────────
@@ -464,7 +497,7 @@ describe('GovernanceDashboard — COUNSEL', () => {
     it('Health Score accordion button has aria-expanded attribute', async () => {
         seedTokens([makeToken()])
         render(<GovernanceDashboard />)
-        const scoreBtn = screen.getByRole('button', { name: /Health Score/i })
+        const scoreBtn = screen.getByRole('button', { name: /Score breakdown/i })
         expect(scoreBtn.getAttribute('aria-expanded')).toBeDefined()
     })
 })
@@ -716,6 +749,10 @@ describe('GovernanceDashboard — COUNSEL.3.3 Anomaly Alert Banner', () => {
         }
         useEditorStore.setState({ linterWarnings: warnings })
         render(<GovernanceDashboard />)
+        // Open Health Score accordion (starts closed) to reveal rewind-to-clean
+        await waitFor(() => screen.getByTestId('score-ring'))
+        const accordionBtn = document.querySelector('button[aria-controls="score-accordion"]') as HTMLElement
+        fireEvent.click(accordionBtn)
         await waitFor(() => {
             expect(screen.getByTestId('rewind-to-clean')).toBeDefined()
         })
@@ -758,6 +795,10 @@ describe('GovernanceDashboard — COUNSEL.3.3 Anomaly Alert Banner', () => {
             vi.fn().mockResolvedValue(undefined)
         seedTokens([makeToken()])
         render(<GovernanceDashboard />)
+        // Open Health Score accordion (starts closed) to reveal sparkline
+        await waitFor(() => screen.getByTestId('score-ring'))
+        const accordionBtn = document.querySelector('button[aria-controls="score-accordion"]') as HTMLElement
+        fireEvent.click(accordionBtn)
         await waitFor(() => {
             expect(screen.getByTestId('sparkline')).toBeDefined()
         })
@@ -773,16 +814,16 @@ describe('GovernanceDashboard — COUNSEL.3.3 Anomaly Alert Banner', () => {
             vi.fn().mockResolvedValue(undefined)
         seedTokens([makeToken()])
         render(<GovernanceDashboard />)
-        // Allow effects to settle
+        // Use score-ring (always visible with tokens) as settle signal instead of accordion content
         await waitFor(() => {
-            expect(screen.getByTestId('next-step-prompt')).toBeDefined()
+            expect(screen.getByTestId('score-ring')).toBeDefined()
         })
         expect(screen.queryByTestId('sparkline')).toBeNull()
     })
 
     // ── COUNSEL.4.1: Token impact preview ────────────────────────────────────
 
-    it('shows token impact section when sync violations exist', async () => {
+    it('shows token impact section when sync violations exist (inside More details)', async () => {
         ;(window.flintAPI.governance as Record<string, unknown>).previewTokenImpact =
             vi.fn().mockResolvedValue({ affectedFiles: 4, estimatedImpact: 'medium' })
         seedTokens([makeToken()])
@@ -794,6 +835,8 @@ describe('GovernanceDashboard — COUNSEL.3.3 Anomaly Alert Banner', () => {
         })
         useEditorStore.setState({ linterWarnings: new Map([['sync-1', syncWarning]]) })
         render(<GovernanceDashboard />)
+        // GAP-1: token-impact-section is inside "More details" disclosure
+        fireEvent.click(screen.getByTestId('more-details-toggle'))
         await waitFor(() => {
             expect(screen.getByTestId('token-impact-section')).toBeDefined()
         })
@@ -806,9 +849,9 @@ describe('GovernanceDashboard — COUNSEL.3.3 Anomaly Alert Banner', () => {
         const mithrilWarning = makeLinterWarning({ type: 'color-drift', id: 'n1' })
         useEditorStore.setState({ linterWarnings: new Map([['n1', mithrilWarning]]) })
         render(<GovernanceDashboard />)
-        // Allow effects to settle
+        // Use score-ring (always visible with tokens) as settle signal
         await waitFor(() => {
-            expect(screen.getByTestId('next-step-prompt')).toBeDefined()
+            expect(screen.getByTestId('score-ring')).toBeDefined()
         })
         expect(screen.queryByTestId('token-impact-section')).toBeNull()
     })
@@ -823,6 +866,8 @@ describe('GovernanceDashboard — COUNSEL.3.3 Anomaly Alert Banner', () => {
             ])
         seedTokens([makeToken()])
         render(<GovernanceDashboard />)
+        // GAP-1: pending-approvals-section is inside "More details" disclosure
+        fireEvent.click(screen.getByTestId('more-details-toggle'))
         await waitFor(() => {
             expect(screen.getByTestId('pending-approvals-section')).toBeDefined()
         })
@@ -835,10 +880,11 @@ describe('GovernanceDashboard — COUNSEL.3.3 Anomaly Alert Banner', () => {
             vi.fn().mockResolvedValue([])
         seedTokens([makeToken()])
         render(<GovernanceDashboard />)
-        // Allow effects to settle
+        // Use score-ring (always visible with tokens) as settle signal
         await waitFor(() => {
-            expect(screen.getByTestId('next-step-prompt')).toBeDefined()
+            expect(screen.getByTestId('score-ring')).toBeDefined()
         })
+        // Even if More details were open, the section would not render (pendingMutations.length === 0)
         expect(screen.queryByTestId('pending-approvals-section')).toBeNull()
     })
 
@@ -851,6 +897,8 @@ describe('GovernanceDashboard — COUNSEL.3.3 Anomaly Alert Banner', () => {
         ;(window.flintAPI.governance as Record<string, unknown>).approveMutation = approveFn
         seedTokens([makeToken()])
         render(<GovernanceDashboard />)
+        // GAP-1: Open "More details" first
+        fireEvent.click(screen.getByTestId('more-details-toggle'))
         await waitFor(() => {
             expect(screen.getByTestId('pending-approvals-section')).toBeDefined()
         })
@@ -874,6 +922,8 @@ describe('GovernanceDashboard — COUNSEL.3.3 Anomaly Alert Banner', () => {
         ;(window.flintAPI.governance as Record<string, unknown>).rejectMutation = rejectFn
         seedTokens([makeToken()])
         render(<GovernanceDashboard />)
+        // GAP-1: Open "More details" first
+        fireEvent.click(screen.getByTestId('more-details-toggle'))
         await waitFor(() => {
             expect(screen.getByTestId('pending-approvals-section')).toBeDefined()
         })
@@ -885,5 +935,146 @@ describe('GovernanceDashboard — COUNSEL.3.3 Anomaly Alert Banner', () => {
         await waitFor(() => {
             expect(rejectFn).toHaveBeenCalledWith(99)
         })
+    })
+})
+
+// ---------------------------------------------------------------------------
+// COUNSEL.1 Sprint — Additional tests for COUNSEL.1.1 through COUNSEL.1.7
+// ---------------------------------------------------------------------------
+
+describe('GovernanceDashboard — COUNSEL.1 Sprint (additional tests)', () => {
+    beforeEach(() => {
+        useTokenStore.setState({ tokens: [], isLoading: false, error: null })
+        useCanvasStore.setState({ mithrilViolations: [], a11yViolations: {} })
+        useEditorStore.setState({ linterWarnings: new Map() })
+        ;(window.flintAPI as Record<string, unknown>).baseline = {
+            isSet: vi.fn().mockResolvedValue(false),
+            get: vi.fn().mockResolvedValue([]),
+            set: vi.fn().mockResolvedValue(undefined),
+            clear: vi.fn().mockResolvedValue(undefined),
+        }
+        ;(window.flintAPI.governance.getOverrideCount as ReturnType<typeof vi.fn>).mockResolvedValue(0)
+    })
+
+    // ── COUNSEL.1.1: Category chips appear BEFORE score ring (DOM order) ─────
+
+    it('category chips appear before the score ring in DOM order', async () => {
+        seedTokens([makeToken()])
+        const warning = makeLinterWarning({ type: 'color-drift', id: 'dom-order-1' })
+        useEditorStore.setState({ linterWarnings: new Map([['dom-order-1', warning]]) })
+        render(<GovernanceDashboard />)
+        await waitFor(() => {
+            expect(screen.getByTestId('category-chips')).toBeDefined()
+            expect(screen.getByTestId('score-ring')).toBeDefined()
+        })
+        const chipsEl = screen.getByTestId('category-chips')
+        const ringEl = screen.getByTestId('score-ring')
+        // compareDocumentPosition: 4 = DOCUMENT_POSITION_FOLLOWING (ring comes after chips)
+        const pos = chipsEl.compareDocumentPosition(ringEl)
+        expect(pos & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    })
+
+    // ── COUNSEL.1.2: Auto-enable delta mode for legacy projects ──────────────
+
+    it('auto-enables baseline when initialViolationCount > 10', async () => {
+        seedTokens([makeToken()])
+        // Seed 12 warnings so the auto-enable can find them
+        const warnings = new Map<string, LinterWarning>()
+        for (let i = 0; i < 12; i++) {
+            const w = makeLinterWarning({ id: `auto-${i}`, type: 'color-drift' })
+            warnings.set(`auto-${i}`, w)
+        }
+        useEditorStore.setState({ linterWarnings: warnings })
+        useCanvasStore.setState({ activeFilePath: '/test/auto-baseline.tsx' })
+        const setMock = vi.fn().mockResolvedValue(undefined)
+        ;(window.flintAPI as Record<string, unknown>).baseline = {
+            isSet: vi.fn().mockResolvedValue(false),
+            get: vi.fn().mockResolvedValue([]),
+            set: setMock,
+            clear: vi.fn().mockResolvedValue(undefined),
+        }
+        render(<GovernanceDashboard initialViolationCount={15} />)
+        await waitFor(() => {
+            expect(setMock).toHaveBeenCalled()
+        })
+    })
+
+    it('does NOT auto-enable baseline when initialViolationCount <= 10', async () => {
+        seedTokens([makeToken()])
+        const warning = makeLinterWarning({ id: 'no-auto-1', type: 'color-drift' })
+        useEditorStore.setState({ linterWarnings: new Map([['no-auto-1', warning]]) })
+        useCanvasStore.setState({ activeFilePath: '/test/no-auto.tsx' })
+        const setMock = vi.fn().mockResolvedValue(undefined)
+        ;(window.flintAPI as Record<string, unknown>).baseline = {
+            isSet: vi.fn().mockResolvedValue(false),
+            get: vi.fn().mockResolvedValue([]),
+            set: setMock,
+            clear: vi.fn().mockResolvedValue(undefined),
+        }
+        render(<GovernanceDashboard initialViolationCount={5} />)
+        // Wait for any async effects to settle
+        await waitFor(() => screen.getByTestId('score-ring'))
+        // set should NOT have been called
+        expect(setMock).not.toHaveBeenCalled()
+    })
+
+    // ── COUNSEL.1.3: Formula unification — mithril = 3 pts (not 5) ──────────
+
+    it('one amber mithril violation deducts 3 pts (score = 97, not 95)', async () => {
+        seedTokens([makeToken()])
+        const warning = makeLinterWarning({ id: 'formula-1', severity: 'amber', type: 'color-drift' })
+        useEditorStore.setState({ linterWarnings: new Map([['formula-1', warning]]) })
+        render(<GovernanceDashboard />)
+        await waitFor(() => {
+            const body = document.body.textContent ?? ''
+            expect(body).toContain('97')
+        })
+    })
+
+    it('score breakdown shows correct penalty text for mithril (-3 pts)', async () => {
+        seedTokens([makeToken()])
+        const warning = makeLinterWarning({ id: 'penalty-1', severity: 'amber', type: 'color-drift' })
+        useEditorStore.setState({ linterWarnings: new Map([['penalty-1', warning]]) })
+        render(<GovernanceDashboard />)
+        // Open score breakdown accordion
+        await waitFor(() => screen.getByTestId('score-ring'))
+        const accordionBtn = document.querySelector('button[aria-controls="score-accordion"]') as HTMLElement
+        if (accordionBtn) fireEvent.click(accordionBtn)
+        await waitFor(() => {
+            const row = screen.getByTestId('fidelity-score-row')
+            expect(row.textContent).toContain('3 pts')
+        })
+    })
+
+    // ── COUNSEL.1.7: Heading hierarchy ───────────────────────────────────────
+
+    it('renders an h2 heading for screen readers', async () => {
+        seedTokens([makeToken()])
+        render(<GovernanceDashboard />)
+        const heading = document.querySelector('h2')
+        expect(heading).toBeTruthy()
+        expect(heading?.textContent).toContain('Governance Health')
+    })
+
+    it('BatchActionBar uses h3 (not h4) for proper heading hierarchy', async () => {
+        seedTokens([makeToken()])
+        const warning = makeLinterWarning({ id: 'h-test-1', type: 'color-drift' })
+        useEditorStore.setState({ linterWarnings: new Map([['h-test-1', warning]]) })
+        render(<GovernanceDashboard />)
+        await waitFor(() => screen.getByTestId('violations-list'))
+        // h3 should exist in the Issues section (from BatchActionBar)
+        const h3Elements = document.querySelectorAll('h3')
+        const issuesH3 = Array.from(h3Elements).find(el => el.textContent?.includes('Issues'))
+        expect(issuesH3).toBeTruthy()
+        // No h4 elements should exist
+        expect(document.querySelectorAll('h4').length).toBe(0)
+    })
+
+    it('dashboard has role="region" with aria-label', async () => {
+        seedTokens([makeToken()])
+        render(<GovernanceDashboard />)
+        const region = document.querySelector('[role="region"]')
+        expect(region).toBeTruthy()
+        expect(region?.getAttribute('aria-label')).toContain('Governance')
     })
 })

@@ -411,9 +411,15 @@ export function GovernancePanel({ onClose, focusRuleId }: GovernancePanelProps) 
     return (
         <div
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+            role="button"
+            tabIndex={0}
             onClick={(e) => {
                 if (e.target === e.currentTarget) onClose()
             }}
+            onKeyDown={(e) => {
+                if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) onClose()
+            }}
+            aria-label="Close"
         >
             <FocusTrap>
             <div

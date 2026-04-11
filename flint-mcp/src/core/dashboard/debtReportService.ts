@@ -113,26 +113,31 @@ function extractRuleId(message: string): string {
 // ── Health score & grade ────────────────────────────────────────────────────
 
 /**
- * Computes health score using the canonical formula from shared/healthSignal.
- * Formula: clamp(100 - mithrilCount × 5 - a11yCount × 10, 0, 100)
- * Matches GovernanceDashboard formula. overrideCount is always 0 for
- * file-scan reports (override data lives in Glass/SQLite, not static files).
+ * COUNSEL.1.3: Computes health score using the canonical severity-weighted formula.
  *
- * MUST stay in sync with shared/healthSignal.formatHealthSignal.
+ * Formula: clamp(100 - a11yCount × 10 - mithrilCount × 3, 0, 100)
+ *
+ * This matches the canonical formula from useGovernanceHealth.ts:
+ *   score = 100 - criticals × 10 - warnings × 3 - infos × 1
+ * where a11y violations are always 'critical' (penalty 10) and mithril
+ * violations default to 'amber/warning' (penalty 3).
+ *
+ * overrideCount is always 0 for file-scan reports (override data lives
+ * in Glass/SQLite, not static files).
+ *
+ * MUST stay in sync with shared/healthSignal.formatHealthSignal and
+ * src/hooks/useGovernanceHealth.computeCanonicalHealthScore.
  */
 export function computeHealthScoreFromViolationTypes(mithrilCount: number, a11yCount: number): number {
-    const raw = 100 - mithrilCount * 5 - a11yCount * 10
+    const raw = 100 - a11yCount * 10 - mithrilCount * 3
     return Math.max(0, Math.min(100, raw))
 }
 
 /**
- * @deprecated Use computeHealthScoreFromViolationTypes instead.
- * This function uses the old severity-based formula which diverges from the
- * canonical shared/healthSignal formula used by GovernanceDashboard and Glass.
- * Retained for backwards compatibility with external callers; do NOT use for
- * new report generation.
+ * Computes health score from pre-bucketed severity counts.
+ * This is the canonical formula that matches useGovernanceHealth.computeCanonicalHealthScore.
  *
- * Old formula: 100 - (criticals x 10 + warnings x 3 + infos x 1), clamped to [0, 100].
+ * Formula: 100 - (criticals x 10 + warnings x 3 + infos x 1), clamped to [0, 100].
  */
 export function computeHealthScore(
     criticals: number,

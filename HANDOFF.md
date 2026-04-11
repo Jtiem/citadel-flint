@@ -6,7 +6,46 @@
 
 ---
 
-## Session: A+ Audit Sweep — Sprint 3 (Governance, Hooks, VS Code Extension) (2026-04-11) — IN PROGRESS
+## Session: COUNSEL.1 — Governance Experience Triage Foundation (2026-04-11) — IN PROGRESS
+
+**Goal:** Transform governance UX from verdict-first to guidance-first.
+
+### Tasks in scope
+
+| Task | Name | Priority | Status |
+| ---- | ---- | -------- | ------ |
+| COUNSEL.1.1 | Category Split Header | P0 | IN PROGRESS |
+| COUNSEL.1.2 | New-Code-First Default (Delta auto-enable) | P0 | IN PROGRESS |
+| COUNSEL.1.3 | Health Score Formula Unification | P0 | IN PROGRESS |
+| COUNSEL.1.4 | Violation Card Inline Diff | P1 | IN PROGRESS |
+| COUNSEL.1.5 | Auto-Fixable Label | P1 | IN PROGRESS |
+| COUNSEL.1.6 | A11y Batch Fix Button | P1 | IN PROGRESS |
+| COUNSEL.1.7 | 26 A11y Compliance Fixes | P0 | IN PROGRESS |
+
+### Files in scope
+
+- `src/components/ui/GovernanceDashboard.tsx`
+- `src/components/ui/governance/ScoreSection.tsx`
+- `src/components/ui/governance/ViolationCard.tsx`
+- `src/components/ui/governance/BatchActionBar.tsx`
+- `src/components/ui/GovernancePanel.tsx`
+- `src/components/ui/PolicySettings.tsx`
+- `src/components/ui/ExportModal.tsx`
+- `src/components/editor/StatusBar.tsx`
+- `src/hooks/useGovernanceHealth.ts`
+- `shared/healthSignal.ts`
+- `src/App.tsx`
+
+### Next steps
+
+- Complete all 7 tasks above
+- After COUNSEL.1: FORGE.2 (smart detection), then MINT.1 (token foundation)
+
+---
+
+## Session: A+ Audit Sweep — Sprint 3 (Governance, Hooks, VS Code Extension) (2026-04-11) — COMPLETE
+
+All 2 criticals and 17 majors resolved. 28 pre-existing suggestedAction failures also fixed. Committed as c45ef2c. MCP suite fully green: 4411/4411.
 
 **Goal:** Run A+ code reviews across 3 more areas and fix all criticals and majors found.
 

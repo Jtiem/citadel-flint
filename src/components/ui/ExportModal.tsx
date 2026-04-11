@@ -29,6 +29,7 @@ import { useEditorStore } from '../../store/editorStore'
 import { useNotificationStore } from '../../store/notificationStore'
 import { FocusTrap } from './FocusTrap'
 import type { LinterWarning, OverrideRow, ComplianceSummary } from '../../types/flint-api'
+import { sanitiseToastMessage } from '../../utils/sanitiseToastMessage'
 
 // ── COUNSEL.2.1: Defer duration type ─────────────────────────────────────────
 import type { DeferDuration } from '../../../shared/deferralUtils'
@@ -81,6 +82,8 @@ export function ExportModal({ onClose, pendingTokenCount }: ExportModalProps) {
     const [auditProgress, setAuditProgress] = useState<{ current: number; total: number }>({ current: 0, total: 2 })
     // Ensures the loading state is shown for at least 200 ms so the user sees it.
     const minDisplayRef = useRef(false)
+    // P1 toast: fire once per modal open when the pre-flight audit itself errors.
+    const auditErrorToastedRef = useRef(false)
 
     // ── Fetch active overrides + compliance summary on mount ───────────────────
     useEffect(() => {
@@ -94,18 +97,18 @@ export function ExportModal({ onClose, pendingTokenCount }: ExportModalProps) {
         }, 200)
 
         // Collect all unique ruleIds from both violation sources
-        const ruleIds: string[] = []
+        const ruleIdSet = new Set<string>()
         for (const [, warning] of linterWarnings) {
             // Extract ruleId from message prefix (e.g. "MITHRIL-COL: ...")
             const match = warning.message.match(/^([A-Z][-A-Z0-9]+)(?::\s|$)/)
             const ruleId = match?.[1] ?? warning.type.toUpperCase()
-            if (!ruleIds.includes(ruleId)) ruleIds.push(ruleId)
+            ruleIdSet.add(ruleId)
         }
         for (const messages of Object.values(a11yViolations)) {
             for (const msg of messages) {
                 const match = msg.match(/^(A11Y-\d{3})/)
                 const ruleId = match?.[1]
-                if (ruleId && !ruleIds.includes(ruleId)) ruleIds.push(ruleId)
+                if (ruleId) ruleIdSet.add(ruleId)
             }
         }
 
@@ -118,8 +121,8 @@ export function ExportModal({ onClose, pendingTokenCount }: ExportModalProps) {
 
         // Phase 2 — compliance summary
         const summaryPromise: Promise<ComplianceSummary | null> =
-            ruleIds.length > 0
-                ? window.flintAPI.governance.getComplianceSummary(ruleIds)
+            ruleIdSet.size > 0
+                ? window.flintAPI.governance.getComplianceSummary(Array.from(ruleIdSet))
                       .catch((err: Error) => {
                           console.error('[ExportModal] getComplianceSummary error:', err.message)
                           return null
@@ -133,6 +136,16 @@ export function ExportModal({ onClose, pendingTokenCount }: ExportModalProps) {
         }).catch((err) => {
             console.warn('[Flint] ExportModal: failed to load overrides', err)
             setAuditProgress((p) => ({ ...p, current: 1 }))
+            if (!auditErrorToastedRef.current) {
+                auditErrorToastedRef.current = true
+                useNotificationStore.getState().push({
+                    type: 'error',
+                    severity: 'error',
+                    title: 'Export check failed',
+                    message: sanitiseToastMessage(err instanceof Error ? err.message : 'Could not run the pre-flight audit. Check the MCP connection and try again.'),
+                    autoDismissMs: 8000,
+                })
+            }
         })
 
         summaryPromise.then((summary) => {
@@ -350,7 +363,13 @@ export function ExportModal({ onClose, pendingTokenCount }: ExportModalProps) {
         // Backdrop
         <div
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+            role="button"
+            tabIndex={0}
             onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+            onKeyDown={(e) => {
+                if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) onClose()
+            }}
+            aria-label="Close"
         >
             <FocusTrap>
             {/* Modal */}
@@ -501,97 +520,233 @@ export function ExportModal({ onClose, pendingTokenCount }: ExportModalProps) {
 
                     {!loading && !canExport && (
                         <div className="space-y-4">
-                            {/* EDU-11: "Why is export blocked?" explanation */}
+                            {/* GAP-3: Compute fixability counts once for summary + section ordering */}
                             {(() => {
-                                const totalBlocking =
-                                    overrideRows.length +
-                                    Object.keys(a11yViolations).length +
-                                    mithrilViolations.length
-                                return (
-                                    <div className="rounded border border-amber-500/30 bg-amber-900/10 px-3 py-2.5">
-                                        <p className="text-xs text-amber-300 leading-relaxed">
-                                            Export is blocked because{' '}
-                                            <span className="font-medium">{totalBlocking} {totalBlocking !== 1 ? 'issues' : 'issue'}</span>{' '}
-                                            must be resolved first. Fix them below, or override if you have reviewed and accepted the risk.
-                                        </p>
-                                    </div>
-                                )
-                            })()}
-
-                            {/* Sprint 3C: fixability summary counts */}
-                            {(() => {
-                                const autoFixableCount = mithrilViolations.filter(
+                                const autoFixableMithril = mithrilViolations.filter(
                                     (id) => (linterWarnings.get(id)?.nearestToken ?? null) !== null
-                                ).length
-                                // a11y violations carry no fixable metadata — all are manual
-                                const a11yCount = Object.values(a11yViolations).reduce((acc, msgs) => acc + msgs.length, 0)
-                                const manualCount =
-                                    mithrilViolations.length - autoFixableCount + a11yCount
-                                const overrideCount = overrideRows.length
-                                if (autoFixableCount + manualCount + overrideCount === 0) return null
-                                return (
-                                    <p className="text-[11px] text-zinc-500" data-testid="fixability-summary">
-                                        <span className="text-emerald-400 font-medium">{autoFixableCount}</span>
-                                        {' '}auto-fixable
-                                        {' · '}
-                                        <span className="text-amber-400 font-medium">{manualCount}</span>
-                                        {' '}need manual review
-                                        {overrideCount > 0 && (
-                                            <>
-                                                {' · '}
-                                                <span className="text-red-400 font-medium">{overrideCount}</span>
-                                                {' '}override{overrideCount !== 1 ? 's' : ''}
-                                            </>
-                                        )}
-                                    </p>
                                 )
-                            })()}
+                                const manualMithril = mithrilViolations.filter(
+                                    (id) => (linterWarnings.get(id)?.nearestToken ?? null) === null
+                                )
+                                const autoFixableCount = autoFixableMithril.length
+                                const a11yCount = Object.values(a11yViolations).reduce((acc, msgs) => acc + msgs.length, 0)
+                                const manualCount = manualMithril.length + a11yCount
+                                const overrideCount = overrideRows.length
+                                const totalBlocking = overrideCount + a11yCount + mithrilViolations.length
 
-                            <p className="text-xs text-zinc-400">
-                                Click a node ID to navigate directly to it.
-                            </p>
+                                return (
+                                    <>
+                                        {/* EDU-11: "Why is export blocked?" explanation — now with action-first headline */}
+                                        {autoFixableCount > 0 ? (
+                                            <div className="rounded border border-emerald-500/30 bg-emerald-900/10 px-3 py-2.5" data-testid="autofixable-headline">
+                                                <p className="text-xs text-emerald-300 leading-relaxed font-medium">
+                                                    {autoFixableCount === 1
+                                                        ? '1 auto-fixable issue — fix it now and export.'
+                                                        : `${autoFixableCount} auto-fixable issues — fix them now and export.`}
+                                                </p>
+                                                {manualCount + overrideCount > 0 && (
+                                                    <p className="mt-1 text-[11px] text-zinc-400">
+                                                        {manualCount + overrideCount} other {manualCount + overrideCount === 1 ? 'issue requires' : 'issues require'} manual attention.
+                                                    </p>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <div className="rounded border border-amber-500/30 bg-amber-900/10 px-3 py-2.5">
+                                                <p className="text-xs text-amber-300 leading-relaxed">
+                                                    Export is blocked because{' '}
+                                                    <span className="font-medium">{totalBlocking} {totalBlocking !== 1 ? 'issues' : 'issue'}</span>{' '}
+                                                    must be resolved first. Fix them below, or override if you have reviewed and accepted the risk.
+                                                </p>
+                                            </div>
+                                        )}
 
-                            {/* EDU-12: "Unapplied Style Changes" instead of "Property Overrides" */}
-                            {overrideRows.length > 0 && (
-                                <div>
-                                    <h3 className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-amber-400">
-                                        <AlertTriangle className="h-3 w-3" />
-                                        Unapplied Style Changes ({overrideRows.length})
-                                    </h3>
-                                    <p className="mb-2 text-[11px] text-zinc-400">
-                                        Values you manually changed that differ from the design system. Reset them in the Properties panel or apply the design token to clear.
-                                    </p>
-                                    <ul className="space-y-1.5">
-                                        {overrideRows.map((row) => (
-                                            <li
-                                                key={`${row.flint_id}::${row.property_key}`}
-                                                className="rounded border border-zinc-700 bg-zinc-800/60 px-3 py-2 border-l-2 border-l-amber-500/50"
-                                            >
-                                                <div className="flex items-start justify-between gap-2">
-                                                    <div className="min-w-0 flex-1">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleSelectNode(row.flint_id)}
-                                                            className="truncate font-mono text-[10px] text-indigo-400 transition-colors hover:text-indigo-300 hover:underline"
-                                                            title={`Navigate to ${row.flint_id}`}
-                                                        >
-                                                            {row.flint_id}
-                                                        </button>
-                                                        <p className="mt-0.5 font-mono text-[10px] text-zinc-400">
-                                                            <span className="text-zinc-400">{row.property_key}</span>
-                                                            {' → '}
-                                                            <span className="text-amber-500/80">{row.property_value.slice(0, 60)}{row.property_value.length > 60 ? '…' : ''}</span>
+                                        {/* GAP-3: fixability summary counts */}
+                                        {autoFixableCount + manualCount + overrideCount > 0 && (
+                                            <p className="text-[11px] text-zinc-500" data-testid="fixability-summary">
+                                                <span className="text-emerald-400 font-medium">{autoFixableCount}</span>
+                                                {' '}auto-fixable
+                                                {' · '}
+                                                <span className="text-amber-400 font-medium">{manualCount}</span>
+                                                {' '}need manual review
+                                                {overrideCount > 0 && (
+                                                    <>
+                                                        {' · '}
+                                                        <span className="text-red-400 font-medium">{overrideCount}</span>
+                                                        {' '}override{overrideCount !== 1 ? 's' : ''}
+                                                    </>
+                                                )}
+                                            </p>
+                                        )}
+
+                                        <p className="text-xs text-zinc-400">
+                                            Click a node ID to navigate directly to it.
+                                        </p>
+
+                                        {/* GAP-3 section order: (1) auto-fixable Mithril, (2) deferrable a11y, (3) overrides + manual Mithril */}
+
+                                        {/* Section 1: Auto-fixable Mithril violations — one click to unblock */}
+                                        {autoFixableMithril.length > 0 && (() => {
+                                            const renderViolationRow = (id: string) => {
+                                                const warning: LinterWarning | undefined = linterWarnings.get(id)
+                                                const isCritical = warning?.severity === 'critical'
+                                                const deltaE = warning?.type === 'color-drift' && warning.value > 0
+                                                    ? warning.value
+                                                    : null
+                                                const ruleIdMatch = warning?.message?.match(/^([A-Z][-A-Z0-9]+)(?::\s|$)/)
+                                                const ruleId = ruleIdMatch?.[1] ?? warning?.type.toUpperCase() ?? 'MITH'
+                                                const rowKey = `mith::${id}::${ruleId}`
+                                                const compositeId = `${activeFilePath ?? ''}::${ruleId}::${id}`
+                                                const isAlreadyDeferred = deferredIds.has(compositeId)
+                                                const isDeferOpen = deferFormOpen.has(rowKey)
+                                                return (
+                                                    <li
+                                                        key={id}
+                                                        className={`rounded border px-3 py-2 ${isCritical
+                                                            ? 'border-red-700/50 bg-red-900/20'
+                                                            : 'border-amber-900/40 bg-amber-900/10'
+                                                        }${isAlreadyDeferred ? ' opacity-50' : ''}`}
+                                                    >
+                                                        <div className="flex items-center gap-2">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleSelectNode(id)}
+                                                                className={`flex-1 truncate text-left font-mono text-[10px] transition-colors hover:underline ${isCritical
+                                                                    ? 'text-red-400 hover:text-red-300'
+                                                                    : 'text-amber-400 hover:text-amber-300'
+                                                                }`}
+                                                                title={`Navigate to ${id}`}
+                                                            >
+                                                                {id}
+                                                            </button>
+                                                            <span
+                                                                className="shrink-0 rounded-full border border-emerald-500/30 bg-emerald-900/20 px-1.5 py-px text-[10px] font-medium text-emerald-400"
+                                                                data-testid="fixability-badge-auto"
+                                                            >
+                                                                Auto-fixable
+                                                            </span>
+                                                            {isCritical && (
+                                                                <span
+                                                                    className="shrink-0 rounded bg-red-900/60 px-1 py-0.5 text-[10px] font-bold uppercase text-red-300"
+                                                                    title="Blocks export — must be fixed or overridden before you can export."
+                                                                >
+                                                                    Critical
+                                                                </span>
+                                                            )}
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => { void handleFix(id, true) }}
+                                                                disabled={fixingIds.has(id)}
+                                                                className="shrink-0 flex items-center gap-1 rounded border border-indigo-500/30 bg-indigo-900/10 px-1.5 py-0.5 text-[10px] text-indigo-400 transition-colors hover:bg-indigo-900/30 hover:text-indigo-300 disabled:cursor-not-allowed disabled:opacity-50"
+                                                                title={`Auto-fix: apply token ${warning?.nearestToken ?? ''}`}
+                                                            >
+                                                                {fixingIds.has(id) ? (
+                                                                    <Loader2 className="h-2.5 w-2.5 motion-safe:animate-spin" />
+                                                                ) : (
+                                                                    <Wrench className="h-2.5 w-2.5" />
+                                                                )}
+                                                                {fixingIds.has(id) ? 'Fixing…' : 'Fix'}
+                                                            </button>
+                                                            {isAlreadyDeferred ? (
+                                                                <span className="text-xs text-amber-400 bg-amber-400/10 rounded px-1.5 py-0.5">
+                                                                    Deferred
+                                                                </span>
+                                                            ) : (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setDeferFormOpen((prev) => {
+                                                                        const n = new Set(prev)
+                                                                        if (n.has(rowKey)) { n.delete(rowKey) } else { n.add(rowKey) }
+                                                                        return n
+                                                                    })}
+                                                                    className="text-xs text-zinc-400 hover:text-amber-400 ml-auto"
+                                                                    aria-label={`Defer ${ruleId} issue`}
+                                                                >
+                                                                    Defer
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                        <p className="mt-0.5 text-[10px] text-zinc-400">
+                                                            {warning?.message
+                                                                ? warning.message
+                                                                : deltaE !== null
+                                                                    ? `Color drift ΔE ${deltaE.toFixed(1)} — token not applied`
+                                                                    : 'Design system drift — token not applied'
+                                                            }
                                                         </p>
-                                                    </div>
+                                                        {isDeferOpen && (
+                                                            <div className="mt-2 rounded border border-zinc-700 bg-zinc-950 px-3 py-2.5 space-y-2">
+                                                                <textarea
+                                                                    rows={2}
+                                                                    placeholder="Reason (optional)"
+                                                                    value={(deferReasons.get(rowKey) as string | undefined) ?? ''}
+                                                                    onChange={(e) => setDeferReasons((prev) => new Map([...prev, [rowKey, e.target.value]]))}
+                                                                    className="w-full resize-none rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-[10px] text-zinc-300 placeholder-zinc-600 focus:border-indigo-500/60 focus:outline-none"
+                                                                    aria-label="Defer reason"
+                                                                />
+                                                                <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Defer duration">
+                                                                    {DEFER_DURATIONS.map((d) => (
+                                                                        <label key={d} className="flex items-center gap-1 cursor-pointer">
+                                                                            <input
+                                                                                type="radio"
+                                                                                name={`defer-duration-${rowKey}`}
+                                                                                value={d}
+                                                                                checked={(deferDurations.get(rowKey) ?? '1 day') === d}
+                                                                                onChange={() => setDeferDurations((prev) => new Map([...prev, [rowKey, d]]))}
+                                                                                className="sr-only"
+                                                                            />
+                                                                            <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium cursor-pointer transition-colors ${(deferDurations.get(rowKey) ?? '1 day') === d ? 'border-indigo-500/50 bg-indigo-900/30 text-indigo-300' : 'border-zinc-700 bg-zinc-800 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'}`}>
+                                                                                {d}
+                                                                            </span>
+                                                                        </label>
+                                                                    ))}
+                                                                </div>
+                                                                <div className="flex items-center gap-2">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => void submitDeferExport(rowKey, activeFilePath ?? '', ruleId, id)}
+                                                                        className="rounded border border-zinc-600 bg-zinc-800 px-2.5 py-1 text-[10px] text-zinc-300 hover:bg-zinc-700 transition-colors"
+                                                                        aria-label="Submit defer"
+                                                                    >
+                                                                        Defer issue
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => setDeferFormOpen((prev) => { const n = new Set(prev); n.delete(rowKey); return n })}
+                                                                        className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors"
+                                                                        aria-label="Cancel defer"
+                                                                    >
+                                                                        Cancel
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </li>
+                                                )
+                                            }
+                                            return (
+                                                <div>
+                                                    <h3 className={`mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider ${hasCriticalMithril ? 'text-red-400' : 'text-amber-400'}`}>
+                                                        <ShieldAlert className="h-3 w-3" />
+                                                        Design System Violations ({mithrilViolations.length})
+                                                        {hasCriticalMithril && (
+                                                            <span className="rounded bg-red-900/60 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-red-300">
+                                                                Critical
+                                                            </span>
+                                                        )}
+                                                    </h3>
+                                                    <p className="mb-1.5 flex items-center gap-1 text-[10px] font-medium text-indigo-400">
+                                                        <Wrench className="h-2.5 w-2.5" />
+                                                        Auto-fixable ({autoFixableMithril.length})
+                                                    </p>
+                                                    <ul className="space-y-1.5">
+                                                        {autoFixableMithril.map(renderViolationRow)}
+                                                    </ul>
                                                 </div>
-                                            </li>
-                                        ))}
-                                    </ul>
-                                </div>
-                            )}
+                                            )
+                                        })()}
 
-                            {/* Accessibility Issues — EDU-12: "Accessibility Issues" not "A11y Violations" */}
-                            {Object.keys(a11yViolations).length > 0 && (
+                                        {/* Section 2: Accessibility Issues — deferrable, manual effort */}
+                                        {Object.keys(a11yViolations).length > 0 && (
                                 <div>
                                     <h3 className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-red-400">
                                         <AlertTriangle className="h-3 w-3" />
@@ -705,217 +860,201 @@ export function ExportModal({ onClose, pendingTokenCount }: ExportModalProps) {
                                 </div>
                             )}
 
-                            {/* Mithril ΔE violations — OPP-12: sorted by fixability */}
-                            {mithrilViolations.length > 0 && (() => {
-                                const fixable = mithrilViolations.filter(
-                                    (id) => (linterWarnings.get(id)?.nearestToken ?? null) !== null
-                                )
-                                const manual = mithrilViolations.filter(
-                                    (id) => (linterWarnings.get(id)?.nearestToken ?? null) === null
-                                )
-
-                                const renderViolationRow = (id: string) => {
-                                    const warning: LinterWarning | undefined = linterWarnings.get(id)
-                                    const isCritical = warning?.severity === 'critical'
-                                    const isFixable = (warning?.nearestToken ?? null) !== null
-                                    const deltaE = warning?.type === 'color-drift' && warning.value > 0
-                                        ? warning.value
-                                        : null
-                                    // COUNSEL.2.1: extract ruleId from warning message for composite key
-                                    const ruleIdMatch = warning?.message?.match(/^([A-Z][-A-Z0-9]+)(?::\s|$)/)
-                                    const ruleId = ruleIdMatch?.[1] ?? warning?.type.toUpperCase() ?? 'MITH'
-                                    const rowKey = `mith::${id}::${ruleId}`
-                                    const compositeId = `${activeFilePath ?? ''}::${ruleId}::${id}`
-                                    const isAlreadyDeferred = deferredIds.has(compositeId)
-                                    const isDeferOpen = deferFormOpen.has(rowKey)
-                                    return (
-                                        <li
-                                            key={id}
-                                            className={`rounded border px-3 py-2 ${isCritical
-                                                ? 'border-red-700/50 bg-red-900/20'
-                                                : 'border-amber-900/40 bg-amber-900/10'
-                                            }${isAlreadyDeferred ? ' opacity-50' : ''}`}
-                                        >
-                                            <div className="flex items-center gap-2">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleSelectNode(id)}
-                                                    className={`flex-1 truncate text-left font-mono text-[10px] transition-colors hover:underline ${isCritical
-                                                        ? 'text-red-400 hover:text-red-300'
-                                                        : 'text-amber-400 hover:text-amber-300'
-                                                    }`}
-                                                    title={`Navigate to ${id}`}
-                                                >
-                                                    {id}
-                                                </button>
-                                                {/* Sprint 3C: fixability indicator pill */}
-                                                {isFixable ? (
-                                                    <span
-                                                        className="shrink-0 rounded-full border border-emerald-500/30 bg-emerald-900/20 px-1.5 py-px text-[10px] font-medium text-emerald-400"
-                                                        data-testid="fixability-badge-auto"
+                                        {/* Section 3: Manual Mithril violations + Unapplied Style Changes */}
+                                        {(manualMithril.length > 0 || overrideRows.length > 0) && (() => {
+                                            const renderManualMithrilRow = (id: string) => {
+                                                const warning: LinterWarning | undefined = linterWarnings.get(id)
+                                                const isCritical = warning?.severity === 'critical'
+                                                const deltaE = warning?.type === 'color-drift' && warning.value > 0
+                                                    ? warning.value
+                                                    : null
+                                                const ruleIdMatch = warning?.message?.match(/^([A-Z][-A-Z0-9]+)(?::\s|$)/)
+                                                const ruleId = ruleIdMatch?.[1] ?? warning?.type.toUpperCase() ?? 'MITH'
+                                                const rowKey = `mith::${id}::${ruleId}`
+                                                const compositeId = `${activeFilePath ?? ''}::${ruleId}::${id}`
+                                                const isAlreadyDeferred = deferredIds.has(compositeId)
+                                                const isDeferOpen = deferFormOpen.has(rowKey)
+                                                return (
+                                                    <li
+                                                        key={id}
+                                                        className={`rounded border px-3 py-2 ${isCritical
+                                                            ? 'border-red-700/50 bg-red-900/20'
+                                                            : 'border-amber-900/40 bg-amber-900/10'
+                                                        }${isAlreadyDeferred ? ' opacity-50' : ''}`}
                                                     >
-                                                        Auto-fixable
-                                                    </span>
-                                                ) : (
-                                                    <span
+                                                        <div className="flex items-center gap-2">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleSelectNode(id)}
+                                                                className={`flex-1 truncate text-left font-mono text-[10px] transition-colors hover:underline ${isCritical
+                                                                    ? 'text-red-400 hover:text-red-300'
+                                                                    : 'text-amber-400 hover:text-amber-300'
+                                                                }`}
+                                                                title={`Navigate to ${id}`}
+                                                            >
+                                                                {id}
+                                                            </button>
+                                                <span
                                                         className="shrink-0 rounded-full border border-amber-500/30 bg-amber-900/20 px-1.5 py-px text-[10px] font-medium text-amber-400"
                                                         data-testid="fixability-badge-manual"
                                                     >
                                                         Manual fix
                                                     </span>
-                                                )}
-                                                {/* EDU-02: severity badge tooltip */}
-                                                {isCritical && (
-                                                    <span
-                                                        className="shrink-0 rounded bg-red-900/60 px-1 py-0.5 text-[10px] font-bold uppercase text-red-300"
-                                                        title="Blocks export — must be fixed or overridden before you can export."
-                                                    >
-                                                        Critical
-                                                    </span>
-                                                )}
-                                                {isFixable ? (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => { void handleFix(id, true) }}
-                                                        disabled={fixingIds.has(id)}
-                                                        className="shrink-0 flex items-center gap-1 rounded border border-indigo-500/30 bg-indigo-900/10 px-1.5 py-0.5 text-[10px] text-indigo-400 transition-colors hover:bg-indigo-900/30 hover:text-indigo-300 disabled:cursor-not-allowed disabled:opacity-50"
-                                                        title={`Auto-fix: apply token ${warning?.nearestToken ?? ''}`}
-                                                    >
-                                                        {fixingIds.has(id) ? (
-                                                            <Loader2 className="h-2.5 w-2.5 motion-safe:animate-spin" />
-                                                        ) : (
-                                                            <Wrench className="h-2.5 w-2.5" />
-                                                        )}
-                                                        {fixingIds.has(id) ? 'Fixing…' : 'Fix'}
-                                                    </button>
-                                                ) : (
+                                                    {isCritical && (
+                                                        <span
+                                                            className="shrink-0 rounded bg-red-900/60 px-1 py-0.5 text-[10px] font-bold uppercase text-red-300"
+                                                            title="Blocks export — must be fixed or overridden before you can export."
+                                                        >
+                                                            Critical
+                                                        </span>
+                                                    )}
                                                     <span className="shrink-0 rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-500">
                                                         Manual
                                                     </span>
-                                                )}
-                                                {/* COUNSEL.2.1: Defer button / Deferred badge */}
-                                                {isAlreadyDeferred ? (
-                                                    <span className="text-xs text-amber-400 bg-amber-400/10 rounded px-1.5 py-0.5">
-                                                        Deferred
-                                                    </span>
-                                                ) : (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setDeferFormOpen((prev) => {
-                                                            const n = new Set(prev)
-                                                            if (n.has(rowKey)) { n.delete(rowKey) } else { n.add(rowKey) }
-                                                            return n
-                                                        })}
-                                                        className="text-xs text-zinc-400 hover:text-amber-400 ml-auto"
-                                                        aria-label={`Defer ${ruleId} issue`}
-                                                    >
-                                                        Defer
-                                                    </button>
-                                                )}
-                                            </div>
-                                            <p className="mt-0.5 text-[10px] text-zinc-400">
-                                                {warning?.message
-                                                    ? warning.message
-                                                    : deltaE !== null
-                                                        ? `Color drift ΔE ${deltaE.toFixed(1)} — token not applied`
-                                                        : 'Design system drift — token not applied'
-                                                }
-                                            </p>
-                                            {/* COUNSEL.2.1: Inline defer form */}
-                                            {isDeferOpen && (
-                                                <div className="mt-2 rounded border border-zinc-700 bg-zinc-950 px-3 py-2.5 space-y-2">
-                                                    <textarea
-                                                        rows={2}
-                                                        placeholder="Reason (optional)"
-                                                        value={(deferReasons.get(rowKey) as string | undefined) ?? ''}
-                                                        onChange={(e) => setDeferReasons((prev) => new Map([...prev, [rowKey, e.target.value]]))}
-                                                        className="w-full resize-none rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-[10px] text-zinc-300 placeholder-zinc-600 focus:border-indigo-500/60 focus:outline-none"
-                                                        aria-label="Defer reason"
-                                                    />
-                                                    <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Defer duration">
-                                                        {DEFER_DURATIONS.map((d) => (
-                                                            <label key={d} className="flex items-center gap-1 cursor-pointer">
-                                                                <input
-                                                                    type="radio"
-                                                                    name={`defer-duration-${rowKey}`}
-                                                                    value={d}
-                                                                    checked={(deferDurations.get(rowKey) ?? '1 day') === d}
-                                                                    onChange={() => setDeferDurations((prev) => new Map([...prev, [rowKey, d]]))}
-                                                                    className="sr-only"
-                                                                />
-                                                                <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium cursor-pointer transition-colors ${(deferDurations.get(rowKey) ?? '1 day') === d ? 'border-indigo-500/50 bg-indigo-900/30 text-indigo-300' : 'border-zinc-700 bg-zinc-800 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'}`}>
-                                                                    {d}
-                                                                </span>
-                                                            </label>
-                                                        ))}
-                                                    </div>
-                                                    <div className="flex items-center gap-2">
+                                                    {isAlreadyDeferred ? (
+                                                        <span className="text-xs text-amber-400 bg-amber-400/10 rounded px-1.5 py-0.5">
+                                                            Deferred
+                                                        </span>
+                                                    ) : (
                                                         <button
                                                             type="button"
-                                                            onClick={() => void submitDeferExport(rowKey, activeFilePath ?? '', ruleId, id)}
-                                                            className="rounded border border-zinc-600 bg-zinc-800 px-2.5 py-1 text-[10px] text-zinc-300 hover:bg-zinc-700 transition-colors"
-                                                            aria-label="Submit defer"
+                                                            onClick={() => setDeferFormOpen((prev) => {
+                                                                const n = new Set(prev)
+                                                                if (n.has(rowKey)) { n.delete(rowKey) } else { n.add(rowKey) }
+                                                                return n
+                                                            })}
+                                                            className="text-xs text-zinc-400 hover:text-amber-400 ml-auto"
+                                                            aria-label={`Defer ${ruleId} issue`}
                                                         >
-                                                            Defer issue
+                                                            Defer
                                                         </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => setDeferFormOpen((prev) => { const n = new Set(prev); n.delete(rowKey); return n })}
-                                                            className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors"
-                                                            aria-label="Cancel defer"
-                                                        >
-                                                            Cancel
-                                                        </button>
-                                                    </div>
+                                                    )}
                                                 </div>
-                                            )}
-                                        </li>
-                                    )
-                                }
-
-                                return (
-                                    <div>
-                                        {/* EDU-12: "Design System Violations" instead of "Mithril Violations" */}
-                                        <h3 className={`mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider ${hasCriticalMithril ? 'text-red-400' : 'text-amber-400'}`}>
-                                            <ShieldAlert className="h-3 w-3" />
-                                            Design System Violations ({mithrilViolations.length})
-                                            {hasCriticalMithril && (
-                                                <span className="rounded bg-red-900/60 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-red-300">
-                                                    Critical
-                                                </span>
-                                            )}
-                                        </h3>
-
-                                        {/* Auto-fixable group */}
-                                        {fixable.length > 0 && (
-                                            <div className="mb-2">
-                                                <p className="mb-1.5 flex items-center gap-1 text-[10px] font-medium text-indigo-400">
-                                                    <Wrench className="h-2.5 w-2.5" />
-                                                    Auto-fixable ({fixable.length})
+                                                <p className="mt-0.5 text-[10px] text-zinc-400">
+                                                    {warning?.message
+                                                        ? warning.message
+                                                        : deltaE !== null
+                                                            ? `Color drift ΔE ${deltaE.toFixed(1)} — token not applied`
+                                                            : 'Design system drift — token not applied'
+                                                    }
                                                 </p>
-                                                <ul className="space-y-1.5">
-                                                    {fixable.map(renderViolationRow)}
-                                                </ul>
-                                            </div>
-                                        )}
+                                                {isDeferOpen && (
+                                                    <div className="mt-2 rounded border border-zinc-700 bg-zinc-950 px-3 py-2.5 space-y-2">
+                                                        <textarea
+                                                            rows={2}
+                                                            placeholder="Reason (optional)"
+                                                            value={(deferReasons.get(rowKey) as string | undefined) ?? ''}
+                                                            onChange={(e) => setDeferReasons((prev) => new Map([...prev, [rowKey, e.target.value]]))}
+                                                            className="w-full resize-none rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-[10px] text-zinc-300 placeholder-zinc-600 focus:border-indigo-500/60 focus:outline-none"
+                                                            aria-label="Defer reason"
+                                                        />
+                                                        <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Defer duration">
+                                                            {DEFER_DURATIONS.map((d) => (
+                                                                <label key={d} className="flex items-center gap-1 cursor-pointer">
+                                                                    <input
+                                                                        type="radio"
+                                                                        name={`defer-duration-${rowKey}`}
+                                                                        value={d}
+                                                                        checked={(deferDurations.get(rowKey) ?? '1 day') === d}
+                                                                        onChange={() => setDeferDurations((prev) => new Map([...prev, [rowKey, d]]))}
+                                                                        className="sr-only"
+                                                                    />
+                                                                    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium cursor-pointer transition-colors ${(deferDurations.get(rowKey) ?? '1 day') === d ? 'border-indigo-500/50 bg-indigo-900/30 text-indigo-300' : 'border-zinc-700 bg-zinc-800 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'}`}>
+                                                                        {d}
+                                                                    </span>
+                                                                </label>
+                                                            ))}
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => void submitDeferExport(rowKey, activeFilePath ?? '', ruleId, id)}
+                                                                className="rounded border border-zinc-600 bg-zinc-800 px-2.5 py-1 text-[10px] text-zinc-300 hover:bg-zinc-700 transition-colors"
+                                                                aria-label="Submit defer"
+                                                            >
+                                                                Defer issue
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setDeferFormOpen((prev) => { const n = new Set(prev); n.delete(rowKey); return n })}
+                                                                className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors"
+                                                                aria-label="Cancel defer"
+                                                            >
+                                                                Cancel
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                </li>
+                                            )
+                                            }
 
-                                        {/* Divider between groups */}
-                                        {fixable.length > 0 && manual.length > 0 && (
-                                            <div className="my-3 border-t border-zinc-800" />
-                                        )}
+                                            return (
+                                                <div className="space-y-4">
+                                                    {manualMithril.length > 0 && (
+                                                        <div>
+                                                            {autoFixableMithril.length === 0 && (
+                                                                <h3 className={`mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider ${hasCriticalMithril ? 'text-red-400' : 'text-amber-400'}`}>
+                                                                    <ShieldAlert className="h-3 w-3" />
+                                                                    Design System Violations ({mithrilViolations.length})
+                                                                    {hasCriticalMithril && (
+                                                                        <span className="rounded bg-red-900/60 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-red-300">
+                                                                            Critical
+                                                                        </span>
+                                                                    )}
+                                                                </h3>
+                                                            )}
+                                                            <p className="mb-1.5 text-[10px] font-medium text-zinc-500">
+                                                                Manual fix required ({manualMithril.length})
+                                                            </p>
+                                                            <ul className="space-y-1.5">
+                                                                {manualMithril.map(renderManualMithrilRow)}
+                                                            </ul>
+                                                        </div>
+                                                    )}
 
-                                        {/* Manual-fix group */}
-                                        {manual.length > 0 && (
-                                            <div>
-                                                <p className="mb-1.5 text-[10px] font-medium text-zinc-500">
-                                                    Manual fix required ({manual.length})
-                                                </p>
-                                                <ul className="space-y-1.5">
-                                                    {manual.map(renderViolationRow)}
-                                                </ul>
-                                            </div>
-                                        )}
-                                    </div>
+                                                    {/* EDU-12: "Unapplied Style Changes" instead of "Property Overrides" */}
+                                                    {overrideRows.length > 0 && (
+                                                        <div>
+                                                            <h3 className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-amber-400">
+                                                                <AlertTriangle className="h-3 w-3" />
+                                                                Unapplied Style Changes ({overrideRows.length})
+                                                            </h3>
+                                                            <p className="mb-2 text-[11px] text-zinc-400">
+                                                                Values you manually changed that differ from the design system. Reset them in the Properties panel or apply the design token to clear.
+                                                            </p>
+                                                            <ul className="space-y-1.5">
+                                                                {overrideRows.map((row) => (
+                                                                    <li
+                                                                        key={`${row.flint_id}::${row.property_key}`}
+                                                                        className="rounded border border-zinc-700 bg-zinc-800/60 px-3 py-2 border-l-2 border-l-amber-500/50"
+                                                                    >
+                                                                        <div className="flex items-start justify-between gap-2">
+                                                                            <div className="min-w-0 flex-1">
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => handleSelectNode(row.flint_id)}
+                                                                                    className="truncate font-mono text-[10px] text-indigo-400 transition-colors hover:text-indigo-300 hover:underline"
+                                                                                    title={`Navigate to ${row.flint_id}`}
+                                                                                >
+                                                                                    {row.flint_id}
+                                                                                </button>
+                                                                                <p className="mt-0.5 font-mono text-[10px] text-zinc-400">
+                                                                                    <span className="text-zinc-400">{row.property_key}</span>
+                                                                                    {' → '}
+                                                                                    <span className="text-amber-500/80">{row.property_value.slice(0, 60)}{row.property_value.length > 60 ? '…' : ''}</span>
+                                                                                </p>
+                                                                            </div>
+                                                                        </div>
+                                                                    </li>
+                                                                ))}
+                                                            </ul>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )
+                                        })()}
+                                    </>
                                 )
                             })()}
 

@@ -159,27 +159,27 @@ describe('computeHealthScoreFromViolationTypes (canonical formula — COUNSEL.1.
         expect(computeHealthScoreFromViolationTypes(0, 0)).toBe(100)
     })
 
-    it('deducts 5 points per Mithril violation', () => {
-        expect(computeHealthScoreFromViolationTypes(1, 0)).toBe(95)
-        expect(computeHealthScoreFromViolationTypes(4, 0)).toBe(80)
-        expect(computeHealthScoreFromViolationTypes(20, 0)).toBe(0)
+    it('deducts 3 points per Mithril violation (amber/warning severity)', () => {
+        expect(computeHealthScoreFromViolationTypes(1, 0)).toBe(97)
+        expect(computeHealthScoreFromViolationTypes(4, 0)).toBe(88)
+        expect(computeHealthScoreFromViolationTypes(34, 0)).toBe(0)
     })
 
-    it('deducts 10 points per A11y violation', () => {
+    it('deducts 10 points per A11y violation (critical severity)', () => {
         expect(computeHealthScoreFromViolationTypes(0, 1)).toBe(90)
         expect(computeHealthScoreFromViolationTypes(0, 2)).toBe(80)
         expect(computeHealthScoreFromViolationTypes(0, 10)).toBe(0)
     })
 
     it('combines Mithril and A11y deductions', () => {
-        // 100 - 1*5 - 1*10 = 85
-        expect(computeHealthScoreFromViolationTypes(1, 1)).toBe(85)
-        // 100 - 2*5 - 3*10 = 60
-        expect(computeHealthScoreFromViolationTypes(2, 3)).toBe(60)
+        // 100 - 1*3 - 1*10 = 87
+        expect(computeHealthScoreFromViolationTypes(1, 1)).toBe(87)
+        // 100 - 2*3 - 3*10 = 64
+        expect(computeHealthScoreFromViolationTypes(2, 3)).toBe(64)
     })
 
     it('clamps to 0 when deductions exceed 100', () => {
-        expect(computeHealthScoreFromViolationTypes(30, 0)).toBe(0)
+        expect(computeHealthScoreFromViolationTypes(50, 0)).toBe(0)
         expect(computeHealthScoreFromViolationTypes(0, 15)).toBe(0)
         expect(computeHealthScoreFromViolationTypes(50, 50)).toBe(0)
     })
@@ -188,12 +188,11 @@ describe('computeHealthScoreFromViolationTypes (canonical formula — COUNSEL.1.
         expect(computeHealthScoreFromViolationTypes(0, 0)).toBe(100)
     })
 
-    it('matches GovernanceDashboard divergence example: 1 Mithril + 1 A11y = 85', () => {
-        // Old formula: computeHealthScore(1 critical + 1 warning, 0, 0)
-        //   = 100 - (1*10 + 1*3) = 87
-        // New formula: 100 - 1*5 - 1*10 = 85
-        // This test confirms the unification resolves the divergence.
-        expect(computeHealthScoreFromViolationTypes(1, 1)).toBe(85)
+    it('matches useGovernanceHealth canonical formula: 1 Mithril + 1 A11y = 87', () => {
+        // useGovernanceHealth: 1 amber (3 pts) + 1 critical (10 pts) = 87
+        // computeHealthScoreFromViolationTypes: 1*3 + 1*10 = 87
+        // Both formulas now agree.
+        expect(computeHealthScoreFromViolationTypes(1, 1)).toBe(87)
     })
 })
 
@@ -406,12 +405,12 @@ describe('generateDebtReport', () => {
         const report = generateDebtReport({ projectRoot: tmpDir })
 
         // MITHRIL_VIOLATION_TSX has 2 arbitrary colors (bg-[#ff00ff] text-[#00ff00]).
-        // With canonical formula: 100 - 2*5 = 90 (grade A), possibly more violations.
-        // Key assertion: Mithril violations deduct 5pts each, not 3pts.
+        // Canonical formula (COUNSEL.1.3): mithril = amber/warning severity = 3pts each.
+        // Key assertion: Mithril violations deduct 3pts each (matching useGovernanceHealth).
         const mithrilCount = Object.entries(report.byCategory)
             .filter(([k]) => k.startsWith('MITHRIL-'))
             .reduce((sum, [, v]) => sum + v, 0)
-        const expectedScore = Math.max(0, 100 - mithrilCount * 5)
+        const expectedScore = Math.max(0, 100 - mithrilCount * 3)
         expect(report.healthScore).toBe(expectedScore)
     })
 

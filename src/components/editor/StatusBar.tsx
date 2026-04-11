@@ -450,7 +450,7 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject, onManageFigm
         : 'Figma connection — click for details'
 
     return (
-        <footer className="relative flex shrink-0 items-center justify-between border-t border-zinc-800 bg-zinc-950 px-4 py-1">
+        <footer role="contentinfo" aria-label="Application status" className="relative flex shrink-0 items-center justify-between border-t border-zinc-800 bg-zinc-950 px-4 py-1">
             {/* ── Zone 1 (left): Export Gate — visually dominant primary signal ── */}
             <div className="flex flex-shrink-0 items-center">
             {/* ── Priority 1: Export Gate — Commandment 6 (The Gatekeeper Rule)
