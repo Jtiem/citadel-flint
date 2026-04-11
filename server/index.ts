@@ -151,7 +151,9 @@ function validateFilePath(filePath: unknown, requireSourceExt = true): string {
   if (!isWithinHome(realFilePath)) {
     throw new Error('path outside user home directory is not permitted')
   }
-  return filePath
+  // Return the resolved canonical path, not the raw input — prevents path
+  // traversal sequences from reaching downstream fs operations.
+  return resolved
 }
 
 // ── Atomic File Write ────────────────────────────────────────────────────────
@@ -591,6 +593,19 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     })
   }
 
+  // When a new Glass tab connects, push the current IDE file immediately.
+  // This fixes the "tab close + reopen" scenario where the server's lastPath
+  // dedup would otherwise prevent re-broadcasting the active file.
+  wss.on('connection', (clientWs) => {
+    if (ideFileSyncState.lastPath) {
+      const msg = JSON.stringify({
+        channel: 'flint:ide-file-selected',
+        data: { path: ideFileSyncState.lastPath },
+      })
+      clientWs.send(msg)
+    }
+  })
+
   function broadcastTokensUpdated(): void {
     broadcast('flint:tokens-updated', {})
   }
@@ -871,7 +886,11 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     if (typeof folderPath !== 'string') return null
 
     const normalized = path.normalize(folderPath)
-    if (!isWithinHome(normalized)) return null
+    // Resolve symlinks before the home-dir check to prevent symlink escape
+    // (e.g., ~/evil -> /etc would pass the prefix check on the symlink path).
+    let realPath = normalized
+    try { realPath = realpathSync(normalized) } catch { /* dir may not exist */ }
+    if (!isWithinHome(realPath)) return null
 
     try {
       const tree = await scanDirectory(normalized)
@@ -2409,7 +2428,10 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
               }
             } catch { /* file deleted or inaccessible */ }
           }
-          // Check for newly created files not yet in the tracked set
+          // Check for newly created files not yet in the tracked set.
+          // New files broadcast flint:ide-file-selected (not just flint:file-changed)
+          // so Glass auto-switches to the newly created file — this mirrors the
+          // IDE→Glass sync chain where the IDE creates a file and Glass follows.
           try {
             const currentFiles = await scanWorkspaceFiles(activeProjectRoot)
             for (const filePath of currentFiles) {
@@ -2419,6 +2441,8 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
                   trackedFiles.set(filePath, stat.mtimeMs)
                   const content = readFileSync(filePath, 'utf-8')
                   broadcast('flint:file-changed', { filePath, content })
+                  // Also signal Glass to switch active file to the new file
+                  broadcast('flint:ide-file-selected', { path: filePath })
                 } catch { /* file vanished between scan and stat — skip */ }
               }
             }

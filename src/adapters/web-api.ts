@@ -110,11 +110,23 @@ async function fetchWsToken(): Promise<string | null> {
   } catch { return null }
 }
 
-function ensureWS(): WebSocket {
-  if (ws && ws.readyState === WebSocket.OPEN) return ws
+function ensureWS(): WebSocket | null {
+  // Already connected or connecting — nothing to do
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return ws
+
+  // Don't attempt connection without the auth token — the server will 401.
+  // Schedule a single retry once the token arrives.
+  if (!_wsToken) {
+    if (!_wsTokenPromise) {
+      _wsTokenPromise = fetchWsToken().then((t) => { _wsToken = t; return t })
+      // Only schedule ONE retry — not per-subscriber
+      void _wsTokenPromise.then(() => ensureWS())
+    }
+    return ws
+  }
 
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const tokenParam = _wsToken ? `?token=${_wsToken}` : ''
+  const tokenParam = `?token=${_wsToken}`
   ws = new WebSocket(`${protocol}//${location.host}/ws${tokenParam}`)
 
   ws.onmessage = (event) => {
@@ -141,7 +153,16 @@ function ensureWS(): WebSocket {
   ws.onclose = () => {
     if (wsReconnectTimer) clearTimeout(wsReconnectTimer)
     if (_wsReconnectAttempts >= WS_MAX_ATTEMPTS) {
-      console.warn('[Flint WS] Max reconnect attempts reached. Giving up.')
+      console.warn('[Flint WS] Max reconnect attempts reached.')
+      // Show a persistent (non-auto-dismiss) notification so the user knows
+      // live updates have stopped. Includes a retry action.
+      useNotificationStore.getState().push({
+        type: 'error',
+        severity: 'error',
+        title: 'Connection lost',
+        message: 'Glass lost its connection to the server. Live updates (file sync, governance) are paused. Reload the page to reconnect.',
+        autoDismissMs: 0, // persistent — do not auto-dismiss
+      })
       return
     }
     const delay = Math.min(WS_BASE_DELAY_MS * Math.pow(1.5, _wsReconnectAttempts), WS_MAX_DELAY_MS)
@@ -175,6 +196,8 @@ let _serverReady: Promise<void> | null = null
 function waitForServer(): Promise<void> {
   if (_serverReady) return _serverReady
   _serverReady = (async () => {
+    // Signal the UI to show a "Connecting..." overlay
+    window.dispatchEvent(new CustomEvent('flint:server-connecting'))
     for (let i = 0; i < 30; i++) {
       try {
         const res = await fetch('/api/ipc', {
@@ -182,11 +205,22 @@ function waitForServer(): Promise<void> {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ channel: 'ping', args: [] }),
         })
-        if (res.ok) return
+        if (res.ok) {
+          window.dispatchEvent(new CustomEvent('flint:server-connected'))
+          return
+        }
       } catch { /* server not up yet */ }
       await new Promise((r) => setTimeout(r, 500))
     }
     console.warn('[Flint] Server did not become ready after 15s')
+    window.dispatchEvent(new CustomEvent('flint:server-timeout'))
+    useNotificationStore.getState().push({
+      type: 'error',
+      severity: 'error',
+      title: 'Server not responding',
+      message: 'Could not reach the Flint server after 15 seconds. Is `npm run dev:web` running?',
+      autoDismissMs: 0,
+    })
   })()
   return _serverReady
 }

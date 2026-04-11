@@ -17,7 +17,13 @@
  */
 
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+const require = createRequire(import.meta.url)
 import { readFile } from 'node:fs/promises'
 
 // ── Types ──────────────────────────────────────────────────────────────────
