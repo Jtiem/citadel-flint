@@ -64,6 +64,7 @@ const DETERMINISTIC_DRIFT_TYPES = new Set<LinterWarning['type']>([
     'shadow-drift',
     'opacity-drift',
     'inline-style-drift',
+    'tailwind-version-drift',
 ])
 
 // ── Structural element swaps always require confirmation ─────────────────────
