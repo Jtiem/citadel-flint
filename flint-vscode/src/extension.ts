@@ -462,6 +462,10 @@ export async function activate(
     statusBarItem.show();
     context.subscriptions.push(statusBarItem);
 
+    // Track whether we've already shown a Glass sync warning this session.
+    // One warning is enough — don't spam on every file switch.
+    let glassSyncWarningShown = false;
+
     // -- Webview panels --------------------------------------------------------
 
     // MCP tool call wrapper with activity logging
@@ -514,9 +518,30 @@ export async function activate(
             // Runs unconditionally -- Glass sync works even when MCP is not connected.
             const flintDir = path.join(workspaceRoot, '.flint');
             const syncFile = path.join(flintDir, 'ide-active-file.json');
-            fs.promises.mkdir(flintDir, { recursive: true })
-                .then(() => fs.promises.writeFile(syncFile, JSON.stringify({ path: filePath, ts: Date.now() }), 'utf8'))
-                .catch(() => { /* Non-fatal -- Glass just won't auto-follow this editor change */ });
+            const syncPayload = JSON.stringify({ path: filePath, ts: Date.now() });
+            const writeSync = () =>
+                fs.promises.mkdir(flintDir, { recursive: true })
+                    .then(() => fs.promises.writeFile(syncFile, syncPayload, 'utf8'));
+            writeSync().catch(() => {
+                // Retry once after 500ms — handles transient filesystem issues
+                setTimeout(() => {
+                    writeSync().catch((err: unknown) => {
+                        const msg = err instanceof Error ? err.message : String(err);
+                        log(`Glass sync write failed: ${msg}`);
+                        // Show a one-time status bar warning so the user knows
+                        if (!glassSyncWarningShown) {
+                            glassSyncWarningShown = true;
+                            statusBarItem.text = '$(warning) Flint: Glass sync paused';
+                            statusBarItem.tooltip = 'Could not write .flint/ide-active-file.json — Glass will not follow IDE focus. Check the Flint output channel for details.';
+                            // Restore after 10 seconds
+                            setTimeout(() => {
+                                statusBarItem.text = '$(shield) Flint';
+                                statusBarItem.tooltip = 'Flint Governance is active';
+                            }, 10_000);
+                        }
+                    });
+                }, 500);
+            });
 
             // Debounce the governance audit to prevent flooding on rapid tab switching
             if (editorChangeTimer) clearTimeout(editorChangeTimer);
