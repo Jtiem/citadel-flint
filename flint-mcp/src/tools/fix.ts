@@ -26,11 +26,13 @@ import * as t from '@babel/types'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { FlintConfig } from '../core/config.js'
-import type { DesignToken } from '../types.js'
+import type { DesignToken, LinterWarning } from '../types.js'
 import { loadProjectContext } from '../core/projectContext.js'
 import type { ProjectContext } from '../core/projectContext.js'
 import { toolName, configPath } from '../brand.js'
 import { hexToLab, deltaE2000, cssColorToHex, parseDimensionToPx } from '../core/colorMath.js'
+import { planMutations, summarizePlan } from '../core/mutationPlanner.js'
+import type { MutationPlan, PlannedMutation } from '../core/mutationPlanner.js'
 
 export type { ProjectContext }
 
@@ -321,6 +323,23 @@ export interface FixArgs {
     dryRun?: boolean
 }
 
+export interface SemanticErrorPayload {
+    violationId: string
+    ruleId?: string
+    message: string
+    semanticHint: string
+    confidence: number
+}
+
+export interface RiskGatedPayload {
+    violationId: string
+    ruleId?: string
+    message: string
+    mrsScore: number
+    mrsTier: string
+    proposedFix?: { type: string; params: Record<string, unknown> }
+}
+
 export interface FixResult {
     fixedSource: string
     fixesApplied: number
@@ -333,6 +352,14 @@ export interface FixResult {
     project_context?: ProjectContext
     /** Actionable next-step recommendation. CLARITY-2 */
     recommendation: string
+    /** P0: Mutation plan breakdown — deterministic/semantic/riskGated split. */
+    _plan?: MutationPlan
+    /** P0: Human-readable plan summary. */
+    _summary?: string
+    /** P0: Semantic violations that require human/LLM attention. */
+    semanticErrors?: SemanticErrorPayload[]
+    /** P0: High-risk deterministic fixes that need human confirmation. */
+    riskGatedFixes?: RiskGatedPayload[]
 }
 
 // ── CX.1 Summary generation ────────────────────────────────────────────────
@@ -523,6 +550,63 @@ export async function handleFlintFix(
         console.error('[flint_fix] A11y pass failed:', err)
     }
 
+    // ── P0: Mutation Planner — classify all violations ────────────────────────
+    // Run the Mithril audit on the *original* source to get the full violation
+    // set, then classify each violation as deterministic/semantic/riskGated.
+    // The planner runs after fixes are applied so we can report the plan split
+    // alongside the actual fix results.
+    let plan: MutationPlan | undefined
+    try {
+        const { auditAll } = await import('../core/MithrilLinter.js')
+        const originalAst = parse(source, {
+            sourceType: 'module',
+            plugins: ['jsx', 'typescript'],
+        })
+        const mithrilWarnings = auditAll(originalAst as import('@babel/types').File, tokens, {
+            deltaE_threshold: deltaEThreshold,
+        })
+
+        // Gather a11y violations too
+        let a11yViolations: LinterWarning[] = []
+        try {
+            const { audit: a11yAudit } = await import('../core/a11y/runner.js')
+            const a11yResult = await a11yAudit(originalAst, { filePath: filePath! })
+            a11yViolations = a11yResult.violations.map((v: {
+                ruleId: string
+                message: string
+                severity: string
+                fixable: boolean
+                wcag?: string
+                flintId?: string
+            }) => ({
+                id: v.ruleId + '-' + (v.flintId ?? 'unknown'),
+                type: 'a11y' as const,
+                severity: (v.severity === 'critical' ? 'critical' : 'amber') as LinterWarning['severity'],
+                value: 0,
+                message: v.message,
+                nearestToken: null,
+                nearestTokenValue: null,
+                ruleId: v.ruleId,
+                wcag: v.wcag,
+                fixable: v.fixable,
+            }))
+        } catch {
+            // a11y audit is best-effort for planning
+        }
+
+        const allViolations: LinterWarning[] = [
+            ...Array.from(mithrilWarnings.values()),
+            ...a11yViolations,
+        ]
+
+        plan = await planMutations(allViolations, tokens, {
+            projectRoot: config.projectRoot,
+            filePath,
+        })
+    } catch {
+        // Planner is best-effort — never blocks the fix result
+    }
+
     // Generate fixed source from mutated AST
     let fixedSource = source
     try {
@@ -547,6 +631,7 @@ export async function handleFlintFix(
         filePath,
         dryRun,
         projectRoot: config.projectRoot,
+        plan,
     })
 }
 
@@ -559,8 +644,9 @@ function buildFixResult(opts: {
     filePath: string
     dryRun: boolean
     projectRoot: string
+    plan?: MutationPlan
 }): FixResult {
-    const { fixedSource, fixesApplied, status, filePath, dryRun, projectRoot } = opts
+    const { fixedSource, fixesApplied, status, filePath, dryRun, projectRoot, plan } = opts
     const summary = generateFixSummary(filePath, fixesApplied, status, dryRun)
 
     // CLARITY-2: Generate actionable recommendation
@@ -582,6 +668,35 @@ function buildFixResult(opts: {
         summary,
         dryRun,
         recommendation,
+    }
+
+    // P0: Attach mutation plan breakdown
+    if (plan) {
+        result._plan = plan
+        result._summary = summarizePlan(plan)
+
+        // Extract semantic errors as structured payloads
+        if (plan.semantic.length > 0) {
+            result.semanticErrors = plan.semantic.map((pm) => ({
+                violationId: pm.violation.id,
+                ruleId: pm.violation.ruleId,
+                message: pm.violation.message,
+                semanticHint: pm.semanticHint ?? 'Requires manual review.',
+                confidence: pm.confidence,
+            }))
+        }
+
+        // Extract riskGated items with MRS scores
+        if (plan.riskGated.length > 0) {
+            result.riskGatedFixes = plan.riskGated.map((pm) => ({
+                violationId: pm.violation.id,
+                ruleId: pm.violation.ruleId,
+                message: pm.violation.message,
+                mrsScore: pm.riskScore?.score ?? 0,
+                mrsTier: pm.riskScore?.tier ?? 'green',
+                proposedFix: pm.proposedFix,
+            }))
+        }
     }
 
     // CX.1: Attach project_context footer (best-effort, never blocks fix result)

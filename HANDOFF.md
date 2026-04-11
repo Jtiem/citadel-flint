@@ -6,6 +6,37 @@
 
 ---
 
+## Session: Glass↔IDE Pipeline Fix + Sync Resilience (2026-04-11) — COMPLETE
+
+**Goal:** Verify and fix the full IDE→Glass file sync pipeline end-to-end.
+
+### Infrastructure fixes (commit a67b050)
+
+| Fix | File | Impact |
+|-----|------|--------|
+| Server ESM crash (`__dirname` undefined) | `server/services/thumbnailService.ts` | Web server couldn't start |
+| WebSocket auth flood (token not fetched before connect) | `src/adapters/web-api.ts` | Browser flooded with 1400+ failed WS attempts |
+| New files invisible to Glass | `server/index.ts` | File watcher didn't broadcast `flint:ide-file-selected` |
+| JSX tag mismatch (`<h3>` closed as `</h4>`) | `src/components/ui/governance/BatchActionBar.tsx` | Production build broken |
+| E2E test boot sequence | `tests/e2e/helpers.ts` | Tests used raw fetch to bypass demo auto-load race |
+| WS payload shape mismatch | `tests/e2e/*.spec.ts` | Tests expected string, got `{ path: string }` |
+| Test parallelism | `playwright.config.ts` | Sequential workers for shared-server tests |
+
+**E2E results:** 7 passed, 2 skipped (Gap A: WS reconnect test infra, Gap E: ESM import).
+
+### Extension resilience (this session)
+
+| Fix | File | Impact |
+|-----|------|--------|
+| Silent error swallowing on file sync write | `flint-vscode/src/extension.ts` | User sees "Glass sync paused" status bar warning instead of silent failure |
+
+### Verified pipeline (live test)
+```
+VS Code writes ide-active-file.json → server polls (1s) → WS broadcast → Glass setActiveFile → LivePreview renders (2s total)
+```
+
+---
+
 ## Session: COUNSEL.1 — Governance Experience Triage Foundation (2026-04-11) — COMPLETE
 
 All 7 tasks implemented. Committed as 9470eb8. Glass: 1961/1961, MCP: 4411/4411, TSC: 0 errors.
@@ -26,34 +57,47 @@ All 7 tasks implemented. Committed as 9470eb8. Glass: 1961/1961, MCP: 4411/4411,
 
 ---
 
-## Session: FORGE.2 — Smart Project Detection + Auto-Audit (2026-04-11) — IN PROGRESS
+## Session: FORGE.2 — Smart Project Detection + Auto-Audit (2026-04-11) — COMPLETE
+
+All 4 tasks implemented. Committed as d5a9e7f. Core: 1390/1391 (15 new), Glass: 1961/1961, TSC: 0 errors.
 
 **Goal:** Open a project and get instant framework detection plus an automatic baseline audit — zero configuration required.
 
 ### Tasks in scope
 
+| Task | Name | Priority | Status |
+| ---- | ---- | -------- | ------ |
+| FORGE.2a | Project Environment Detection | P0 | COMPLETE |
+| FORGE.2b | Auto-Configuration from Detection | P1 | COMPLETE |
+| FORGE.2c | Baseline Audit on Open | P0 | COMPLETE |
+| FORGE.2d | Detection Banner in Glass | P1 | COMPLETE |
+
+---
+
+## Session: Governor Expansion P0+P1c — Mutation Planner + Tailwind Version Drift (2026-04-11) — IN PROGRESS
+
+**Goal:** Foundation for intelligent auto-fix — deterministic vs semantic triage for mutation planning — plus Tailwind version compliance governance.
+
+### Tasks in scope
+
 | Task | Name | Priority |
 | ---- | ---- | -------- |
-| FORGE.2a | Project Environment Detection | P0 |
-| FORGE.2b | Auto-Configuration from Detection | P1 |
-| FORGE.2c | Baseline Audit on Open | P0 |
-| FORGE.2d | Detection Banner in Glass | P1 |
+| P0 | Mutation Planner + Risk Gate | P0 |
+| P1c | Tailwind Version Drift Governance | P1 |
 
-### FORGE.2 files in scope
+### Files in scope
 
-- `electron/projectDetector.ts` (new)
-- `electron/main.ts`
-- `electron/preload.ts`
-- `src/adapters/web-api.ts`
-- `src/components/ui/GovernanceDashboard.tsx`
-- `src/components/editor/StatusBar.tsx`
-- `server/index.ts`
+- `flint-mcp/src/core/mutationPlanner.ts` (new)
+- `flint-mcp/src/core/tailwindVersionResolver.ts` (new)
+- `flint-mcp/src/tools/fix.ts`
+- `flint-mcp/src/core/MithrilLinter.ts`
+- `flint-mcp/src/server.ts`
 
-### Next steps
+### Sequence
 
-- Complete FORGE.2a (detection) and FORGE.2c (baseline audit) first as P0 blockers
-- Then FORGE.2b (auto-config) and FORGE.2d (banner)
-- After FORGE.2: P0+P1c (Mutation Planner + Tailwind version drift) then MINT.1
+- P0: Mutation Planner + Risk Gate
+- P1c: Tailwind Version Drift Governance
+- After this session: MINT.1 (token foundation) then P2.8 (D2C refinement loop closure)
 
 ---
 

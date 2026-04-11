@@ -303,6 +303,44 @@ const REGISTRY: Record<string, ErrorEntry> = {
         sourceAuthority: 'Flint Commandment 2 (No Hallucinated Styling)',
     },
 
+    // ── Mithril Tailwind Version Drift rules (P1c) ─────────────────────────────
+
+    'FLINT-MITH-016': {
+        code: 'FLINT-MITH-016',
+        ruleId: 'MITHRIL-TW-001',
+        category: 'mithril',
+        severity: 'warning',
+        title: 'Deprecated Tailwind v3 Class in v4 Project',
+        explanation:
+            'This component uses a Tailwind CSS class that was deprecated or renamed in v4. ' +
+            'While it may still render correctly with compatibility layers, it creates silent drift ' +
+            'that will break when compatibility shims are removed. LLMs frequently mix v3 and v4 ' +
+            'classes because they lack version awareness.',
+        recovery:
+            'Replace the deprecated class with its v4 equivalent. For example: ' +
+            '`flex-grow` → `grow`, `bg-opacity-50` → merge with color class as `bg-blue-500/50`, ' +
+            '`bg-gradient-to-r` → `bg-linear-to-r`. Run `flint_migrate_tw` for automated migration.',
+        sourceAuthority: 'Flint Commandment 2 (No Hallucinated Styling) + Tailwind CSS v4 Upgrade Guide',
+    },
+
+    'FLINT-MITH-017': {
+        code: 'FLINT-MITH-017',
+        ruleId: 'MITHRIL-TW-002',
+        category: 'mithril',
+        severity: 'warning',
+        title: 'Tailwind v4 Class in v3 Project',
+        explanation:
+            'This component uses a Tailwind CSS class that only exists in v4, but the project ' +
+            'is configured for Tailwind v3. These classes will have no effect and produce invisible ' +
+            'styling failures. This commonly occurs when LLMs generate code using v4 conventions ' +
+            'for a v3 project.',
+        recovery:
+            'Replace the v4-only class with its v3 equivalent. For example: ' +
+            '`grow` → `flex-grow`, `bg-linear-to-r` → `bg-gradient-to-r`, ' +
+            '`shadow-xs` → `shadow-sm`.',
+        sourceAuthority: 'Flint Commandment 2 (No Hallucinated Styling) + Tailwind CSS v4 Upgrade Guide',
+    },
+
     // ── A11y rules — Names & Labels ────────────────────────────────────────────
 
     'FLINT-A11Y-001': {

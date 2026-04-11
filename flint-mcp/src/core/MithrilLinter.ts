@@ -9,7 +9,7 @@
  * renderer process tree.
  *
  * Exports:
- *   auditAll      — run all six visitors and return merged Map<id, warning>
+ *   auditAll      — run all visitors and return merged Map<id, warning>
  *   visitClassNames, visitTypography, visitSpacing, visitShadows, visitOpacity,
  *   visitInlineStyles
  *   MITHRIL_THRESHOLD — 2.0 ΔE (default, overridable via PolicyOptions)
@@ -28,6 +28,8 @@ import type { DesignToken, LinterWarning, TokenCoverage } from '../types.js'
 import { getErrorEntryByRuleId } from './errorTaxonomy.js'
 import { checkSyncViolations, type DesignTokenFileEntry } from './sync/syncViolationChecker.js'
 import { hexToLab, deltaE2000 } from './colorMath.js'
+import { TW_V3_TO_V4_MAP } from './tailwindMigrator.js'
+import type { TailwindVersion } from './tailwindVersionResolver.js'
 
 // CJS/ESM interop
 const traverse =
@@ -1251,6 +1253,161 @@ export function visitRegistryUsage(
     return warnings
 }
 
+// ── Visitor — Tailwind Version Drift (MITHRIL-TW-001, MITHRIL-TW-002) ────────
+
+/**
+ * Build a reverse map: v4 replacement → v3 original class.
+ * Only includes entries where key !== value (real renames, not identity transforms).
+ */
+const TW_V4_TO_V3_MAP: Readonly<Record<string, string>> = (() => {
+    const rev: Record<string, string> = {}
+    for (const [v3, v4] of Object.entries(TW_V3_TO_V4_MAP)) {
+        if (v3 !== v4) rev[v4] = v3
+    }
+    return rev
+})()
+
+/**
+ * Opacity modifier pattern: matches v3 `bg-opacity-N`, `text-opacity-N`, etc.
+ * Used for the merged fix suggestion (e.g. `bg-blue-500/50`).
+ */
+const OPACITY_MODIFIER_RE = /^(bg|text|border|divide|ring|placeholder)-opacity-(\d+)$/
+
+/**
+ * Color class pattern: matches utility color classes like `bg-blue-500`, `text-red-300`, etc.
+ * Captures the prefix (bg, text, border, etc.) and the color part.
+ */
+const COLOR_CLASS_RE = /^(bg|text|border|divide|ring)-([\w][\w-]*\d{2,3})$/
+
+/**
+ * P1c: Walk JSX elements and flag Tailwind classes that are mismatched with the
+ * project's Tailwind version.
+ *
+ * - MITHRIL-TW-001: v3 deprecated class in a v4 project
+ * - MITHRIL-TW-002: v4-only class in a v3 project
+ *
+ * Handles the opacity modifier edge case: when `bg-opacity-50` is found alongside
+ * a color class like `bg-blue-500`, the fix suggestion merges them to `bg-blue-500/50`.
+ */
+export function visitTailwindVersionDrift(
+    ast: File,
+    tailwindVersion: TailwindVersion,
+    options?: PolicyOptions,
+): Map<string, LinterWarning> {
+    const warnings = new Map<string, LinterWarning>()
+
+    // Respect policy: `mithril.tailwindVersionCheck` maps to both TW-001 and TW-002
+    const tw001Mode = options?.ruleModes?.['MITHRIL-TW-001']
+    const tw002Mode = options?.ruleModes?.['MITHRIL-TW-002']
+
+    // If both are off, skip entirely
+    if (tw001Mode === 'off' && tw002Mode === 'off') return warnings
+
+    const isV4 = tailwindVersion.major === 4
+    const isV3 = tailwindVersion.major === 3
+
+    // Hoist taxonomy lookups
+    const tw001Taxonomy = getErrorEntryByRuleId('MITHRIL-TW-001')
+    const tw002Taxonomy = getErrorEntryByRuleId('MITHRIL-TW-002')
+
+    traverse(ast, {
+        JSXAttribute(path) {
+            if (!t.isJSXIdentifier(path.node.name, { name: 'className' })) return
+            const openEl = path.parentPath?.node
+            if (!t.isJSXOpeningElement(openEl)) return
+            const nodeId = getFlintId(openEl)
+            if (nodeId === null) return
+
+            const classStr = getClassString(path.node)
+            if (classStr === null) return
+
+            const classes = classStr.split(/\s+/).filter(Boolean)
+            const loc = path.node.loc?.start
+
+            // ── v4 project: flag deprecated v3 classes (MITHRIL-TW-001) ──────
+            if (isV4 && tw001Mode !== 'off') {
+                for (const cls of classes) {
+                    const replacement = TW_V3_TO_V4_MAP[cls]
+                    // Identity transforms (key === value) are not real deprecations
+                    if (replacement === undefined || replacement === cls) continue
+
+                    // Check for opacity modifier edge case
+                    const opMatch = OPACITY_MODIFIER_RE.exec(cls)
+                    let fixSuggestion = replacement
+                    if (opMatch) {
+                        const prefix = opMatch[1]     // e.g. 'bg'
+                        const opacity = opMatch[2]    // e.g. '50'
+                        // Find sibling color class with matching prefix
+                        const siblingColor = classes.find(c => {
+                            const cm = COLOR_CLASS_RE.exec(c)
+                            return cm !== null && cm[1] === prefix
+                        })
+                        if (siblingColor) {
+                            fixSuggestion = `${siblingColor}/${opacity} (remove ${cls})`
+                        }
+                    }
+
+                    const warningId = `tw-${nodeId}-${cls}`
+                    const twSeverity: LinterWarning['severity'] = tw001Mode === 'advisory'
+                        ? 'advisory'
+                        : 'amber'
+
+                    warnings.set(warningId, {
+                        id: warningId,
+                        type: 'tailwind-version-drift',
+                        severity: twSeverity,
+                        value: 0,
+                        message: `MITHRIL-TW-001: \`${cls}\` is deprecated in Tailwind v4 — use \`${fixSuggestion}\``,
+                        nearestToken: null,
+                        nearestTokenValue: null,
+                        ruleId: 'MITHRIL-TW-001',
+                        fixable: true,
+                        explanation: tw001Taxonomy?.explanation ??
+                            'This Tailwind class was deprecated or renamed in v4.',
+                        recovery: tw001Taxonomy?.recovery ??
+                            'Replace the deprecated class with its v4 equivalent.',
+                        line: loc?.line,
+                        column: loc?.column,
+                    })
+                }
+            }
+
+            // ── v3 project: flag v4-only classes (MITHRIL-TW-002) ────────────
+            if (isV3 && tw002Mode !== 'off') {
+                for (const cls of classes) {
+                    const v3Original = TW_V4_TO_V3_MAP[cls]
+                    if (v3Original === undefined) continue
+
+                    const warningId = `tw-${nodeId}-${cls}`
+                    const twSeverity: LinterWarning['severity'] = tw002Mode === 'advisory'
+                        ? 'advisory'
+                        : 'amber'
+
+                    warnings.set(warningId, {
+                        id: warningId,
+                        type: 'tailwind-version-drift',
+                        severity: twSeverity,
+                        value: 0,
+                        message: `MITHRIL-TW-002: \`${cls}\` is a v4-only class — use \`${v3Original}\` for Tailwind v3`,
+                        nearestToken: null,
+                        nearestTokenValue: null,
+                        ruleId: 'MITHRIL-TW-002',
+                        fixable: true,
+                        explanation: tw002Taxonomy?.explanation ??
+                            'This Tailwind class only exists in v4.',
+                        recovery: tw002Taxonomy?.recovery ??
+                            'Replace the v4-only class with its v3 equivalent.',
+                        line: loc?.line,
+                        column: loc?.column,
+                    })
+                }
+            }
+        },
+    })
+
+    return warnings
+}
+
 // ── auditAll ──────────────────────────────────────────────────────────────────
 
 /** Minimal component entry shape for registry validation. */
@@ -1267,10 +1424,12 @@ export interface AuditAllOptions extends PolicyOptions {
     projectRoot?: string
     /** CR-SEAL: When provided, enables REG-001 registry membership checking for JSX elements. */
     registry?: Record<string, RegistryComponentEntry>
+    /** P1c: When provided, enables MITHRIL-TW-001/TW-002 Tailwind version drift checking. */
+    tailwindVersion?: TailwindVersion
 }
 
 /**
- * Runs all seven Mithril visitors and merges results into a single
+ * Runs all Mithril visitors (up to nine) and merges results into a single
  * Map<flintId, LinterWarning>. Color drift takes precedence over other
  * dimensions (first-write wins per node).
  *
@@ -1308,6 +1467,14 @@ export function auditAll(ast: File, tokens: DesignToken[], options?: AuditAllOpt
     if (options?.registry && Object.keys(options.registry).length > 0) {
         const regWarnings = visitRegistryUsage(ast, options.registry, options)
         for (const [id, warning] of regWarnings) {
+            if (!merged.has(id)) merged.set(id, warning)
+        }
+    }
+
+    // P1c: Tailwind version drift checking
+    if (options?.tailwindVersion) {
+        const twWarnings = visitTailwindVersionDrift(ast, options.tailwindVersion, options)
+        for (const [id, warning] of twWarnings) {
             if (!merged.has(id)) merged.set(id, warning)
         }
     }

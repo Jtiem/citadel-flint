@@ -2577,7 +2577,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             }
 
             // MAJOR-4: Prepend human-readable _summary so IDE agents don't need to parse JSON
-            const fixSummaryPreamble = `## Flint Fix Result\n\n${fixResult.summary}\n\n**Recommendation:** ${fixResult.recommendation}`;
+            // P0: Include mutation plan summary in the preamble
+            const planSummaryLine = fixResult._summary ? `\n\n**Mutation Plan:** ${fixResult._summary}` : '';
+            const semanticLine = fixResult.semanticErrors?.length
+                ? `\n\n**Semantic issues (${fixResult.semanticErrors.length}):** ${fixResult.semanticErrors.map(e => e.semanticHint).join('; ')}`
+                : '';
+            const riskLine = fixResult.riskGatedFixes?.length
+                ? `\n\n**Risk-gated fixes (${fixResult.riskGatedFixes.length}):** These fixes need human confirmation before applying.`
+                : '';
+            const fixSummaryPreamble = `## Flint Fix Result\n\n${fixResult.summary}\n\n**Recommendation:** ${fixResult.recommendation}${planSummaryLine}${semanticLine}${riskLine}`;
             return {
                 content: [{ type: "text", text: `${fixSummaryPreamble}\n\n${enrichedFixText}` }],
             };
