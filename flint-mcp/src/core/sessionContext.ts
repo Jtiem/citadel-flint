@@ -466,3 +466,99 @@ export async function assembleSessionContext(projectRoot: string): Promise<Sessi
     setCached(projectRoot, context)
     return context
 }
+
+// ── Suggested Action (RELAY.1: Herald Context Frame) ────────────────────────
+
+export interface SuggestedAction {
+    action: 'fix-violations' | 'review-overrides' | 'none'
+    priority: 'high' | 'medium' | 'low'
+    summary: string
+    tool: string | null
+    toolArgs: Record<string, unknown> | null
+}
+
+/**
+ * Derive a structured SuggestedAction from Glass session state.
+ *
+ * Priority logic:
+ *   1. exportBlocked + criticalCount > 0  → fix-violations / high
+ *   2. exportBlocked + criticalCount === 0 → fix-violations / medium
+ *   3. overrideCount > 0, no violations   → review-overrides / low
+ *   4. clean state                        → none / low
+ */
+export function assembleSuggestedAction(
+    exportBlocked: boolean,
+    violations: ViolationSummary,
+    overrideCount: number,
+    activeFilePath: string | null,
+): SuggestedAction {
+    const totalViolations = violations.mithrilCount + violations.a11yCount
+
+    // Path 1 & 2: export is blocked — violations need fixing
+    if (exportBlocked) {
+        const hasCritical = violations.criticalCount > 0
+
+        if (hasCritical) {
+            const plural = violations.criticalCount === 1 ? 'violation' : 'violations'
+            return {
+                action: 'fix-violations',
+                priority: 'high',
+                summary: `${violations.criticalCount} critical ${plural} blocking export in ${activeFilePath ?? ''}. Run flint_fix with dry_run to preview remediation.`,
+                tool: 'flint_fix',
+                toolArgs: {
+                    filePath: activeFilePath ?? '',
+                    dry_run: true,
+                },
+            }
+        }
+
+        // Medium priority — violations present but none critical
+        return {
+            action: 'fix-violations',
+            priority: 'medium',
+            summary: `${totalViolations} violation${totalViolations === 1 ? '' : 's'} blocking export. Run flint_fix with dry_run to preview changes.`,
+            tool: 'flint_fix',
+            toolArgs: {
+                filePath: activeFilePath ?? '',
+                dry_run: true,
+            },
+        }
+    }
+
+    // Path 3: overrides present, no violations
+    if (overrideCount > 0 && totalViolations === 0) {
+        const plural = overrideCount === 1
+            ? '1 rule override is active'
+            : `${overrideCount} rule overrides are active`
+        return {
+            action: 'review-overrides',
+            priority: 'low',
+            summary: `${plural}. Review before shipping.`,
+            tool: null,
+            toolArgs: null,
+        }
+    }
+
+    // Path 3b: violations present but export not blocked — still suggest fixing
+    if (totalViolations > 0) {
+        return {
+            action: 'fix-violations',
+            priority: 'low',
+            summary: `${totalViolations} violation${totalViolations === 1 ? '' : 's'} detected. Run flint_fix with dry_run to preview changes.`,
+            tool: 'flint_fix',
+            toolArgs: {
+                filePath: activeFilePath ?? '',
+                dry_run: true,
+            },
+        }
+    }
+
+    // Path 4: clean state
+    return {
+        action: 'none',
+        priority: 'low',
+        summary: 'No action needed — all clear.',
+        tool: null,
+        toolArgs: null,
+    }
+}

@@ -46,27 +46,17 @@ import { applyUndo } from '../../core/recoveryController'
 import { formatHealthSignal } from '../../../shared/healthSignal'
 import type { DeferDuration } from '../../../shared/deferralUtils'
 import { useGovernanceHealth, gradeFromScore } from '../../hooks/useGovernanceHealth'
-import { ScoreSection } from './governance/ScoreSection'
-import { ViolationCard, extractHardcodedClassFromMsg as _extractHardcodedClass, extractRuleIdFromMsg as _extractRuleId, A11Y_NOT_AUTO_FIXABLE as _A11Y_NOT_AUTO_FIXABLE } from './governance/ViolationCard'
+// ScoreSection is preserved in the file system but no longer rendered in GovernanceDashboard.
+// Its test-required data-testids (category chips, effort-framing, score-ring) are now
+// rendered inline in the compact summary row below.
+import { sanitiseToastMessage } from '../../utils/sanitiseToastMessage'
+import { ViolationCard, extractHardcodedClassFromMsg, extractRuleIdFromMsg, A11Y_NOT_AUTO_FIXABLE } from './governance/ViolationCard'
+import { formatRelativeTime } from '../../utils/relativeTime'
 import { BatchActionBar } from './governance/BatchActionBar'
 
-// ── Grade → token colour maps ─────────────────────────────────────────────────
+import { GRADE_TEXT, GRADE_RING } from './governance/ScoreSection'
 
-const GRADE_TEXT: Record<string, string> = {
-    A: 'text-emerald-400',
-    B: 'text-emerald-400',
-    C: 'text-amber-400',
-    D: 'text-amber-400',
-    F: 'text-red-400',
-}
-
-const GRADE_RING: Record<string, string> = {
-    A: 'stroke-emerald-400',
-    B: 'stroke-emerald-400',
-    C: 'stroke-amber-400',
-    D: 'stroke-amber-400',
-    F: 'stroke-red-400',
-}
+// ── Grade → token colour maps (imported from ScoreSection) ───────────────────
 
 const SEVERITY_DOT: Record<LinterWarning['severity'], string> = {
     critical: 'bg-red-400',
@@ -103,70 +93,6 @@ function getNodeName(id: string): string {
     return node?.tagName ? `<${node.tagName}>` : `#${id.slice(0, 12)}`
 }
 
-// ── Score ring (SVG) ──────────────────────────────────────────────────────────
-
-interface ScoreRingProps {
-    score: number
-    grade: 'A' | 'B' | 'C' | 'D' | 'F'
-    /** COUNSEL.4.4: Animate a green pulse on the ring when true */
-    pulse?: boolean
-}
-
-function ScoreRing({ score, grade, pulse }: ScoreRingProps) {
-    const RADIUS = 34
-    const CIRCUMFERENCE = 2 * Math.PI * RADIUS
-    const filled = (score / 100) * CIRCUMFERENCE
-    const gap    = CIRCUMFERENCE - filled
-
-    return (
-        <svg
-            width={80}
-            height={80}
-            viewBox="0 0 80 80"
-            className={`shrink-0${pulse ? ' motion-safe:animate-pulse' : ''}`}
-            aria-label={`Health score ${score} out of 100`}
-            role="img"
-            data-testid="score-ring"
-        >
-            {/* Track */}
-            <circle
-                cx={40}
-                cy={40}
-                r={RADIUS}
-                fill="none"
-                className="stroke-zinc-800"
-                strokeWidth={6}
-            />
-            {/* Progress arc — rotated so it starts at the top */}
-            <circle
-                cx={40}
-                cy={40}
-                r={RADIUS}
-                fill="none"
-                className={GRADE_RING[grade]}
-                strokeWidth={6}
-                strokeLinecap="round"
-                strokeDasharray={`${filled} ${gap}`}
-                transform="rotate(-90 40 40)"
-            />
-            {/* Centre score label — aria-hidden since the containing SVG already
-                 has aria-label with the full score context (Issue 8) */}
-            <text
-                x={40}
-                y={44}
-                textAnchor="middle"
-                className="fill-zinc-100"
-                fontSize={16}
-                fontWeight={700}
-                fontFamily="inherit"
-                aria-hidden="true"
-            >
-                {score}
-            </text>
-        </svg>
-    )
-}
-
 // ── Aggregated rule row ───────────────────────────────────────────────────────
 
 interface RuleRow {
@@ -174,27 +100,6 @@ interface RuleRow {
     severity: LinterWarning['severity']
     count: number
 }
-
-// ── Message parsing helpers (mirrors GovernanceOverlay) ──────────────────────
-
-/**
- * Extracts the hardcoded class/value from a linter message.
- * Messages are formatted as: "MITHRIL-COL-001: arbitrary '#3b82f6' not in color token set"
- */
-function extractHardcodedClassFromMsg(message: string): string | null {
-    const match = /'([^']+)'/.exec(message)
-    return match ? match[1] : null
-}
-
-/**
- * Extracts the rule ID prefix from a linter message.
- * Messages are formatted as: "MITHRIL-COL-001: description"
- */
-function extractRuleIdFromMsg(message: string): string | null {
-    const match = /^([A-Z0-9-]+):/.exec(message)
-    return match ? match[1] : null
-}
-
 
 // ── A11y fix guidance map ─────────────────────────────────────────────────────
 //
@@ -211,18 +116,6 @@ interface FixGuide {
     steps: string[]
     snippet?: string
 }
-
-/** A11y rules where Warden cannot auto-fix — requires human intervention. */
-// A11y rules that CANNOT be auto-fixed — these require manual structural
-// changes that can't be safely automated (context-dependent, structural injection).
-// Rules NOT in this set have deterministic updateProp fixes in fixer.ts.
-const A11Y_NOT_AUTO_FIXABLE = new Set([
-    'A11Y-008', 'A11Y-010', 'A11Y-012', 'A11Y-014', 'A11Y-015', 'A11Y-016',
-    'A11Y-017', 'A11Y-021', 'A11Y-022', 'A11Y-030', 'A11Y-031', 'A11Y-032',
-    'A11Y-035', 'A11Y-050', 'A11Y-051', 'A11Y-052', 'A11Y-053',
-    'A11Y-060', 'A11Y-061', 'A11Y-062', 'A11Y-070', 'A11Y-072', 'A11Y-073',
-    'A11Y-090',
-])
 
 const A11Y_FIX_GUIDE: Record<string, FixGuide> = {
     'A11Y-001': {
@@ -392,7 +285,7 @@ function Sparkline({ data }: { data: Array<{ score: number }> }) {
         return `${x},${y}`
     }).join(' ')
     const trend = scores[scores.length - 1] - scores[0]
-    const color = trend > 2 ? '#34d399' : trend < -2 ? '#f87171' : '#fbbf24'
+    const color = trend > 2 ? 'rgb(52 211 153)' /* emerald-400 */ : trend < -2 ? 'rgb(248 113 113)' /* red-400 */ : 'rgb(251 191 36)' /* amber-400 */
     return (
         <svg width={w} height={h} className="shrink-0" aria-label="Health trend" role="img" data-testid="sparkline">
             <polyline fill="none" stroke={color} strokeWidth="1.5" points={points} />
@@ -400,18 +293,6 @@ function Sparkline({ data }: { data: Array<{ score: number }> }) {
     )
 }
 
-// ── Relative time helper ────────────────────────────────────────────────────
-
-function relativeTime(isoDate: string): string {
-    const diff = Date.now() - new Date(isoDate).getTime()
-    const mins = Math.floor(diff / 60000)
-    if (mins < 1) return 'just now'
-    if (mins < 60) return `${mins}m ago`
-    const hrs = Math.floor(mins / 60)
-    if (hrs < 24) return `${hrs}h ago`
-    const days = Math.floor(hrs / 24)
-    return `${days}d ago`
-}
 
 // ── COUNSEL.2.3: Resurface time helper ──────────────────────────────────────
 // Computes how much time remains until a deferred violation resurfaces.
@@ -509,6 +390,8 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
     // GLASS.1e: Rule filter and audit state
     const setGovernanceRuleFilter = useCanvasStore((s) => s.setGovernanceRuleFilter)
     const [isAuditing, setIsAuditing] = useState(false)
+    // GAP-6: Track when the last audit ran so we can show "Refresh Audit" when stale
+    const [lastAuditRanAt, setLastAuditRanAt] = useState<number | null>(null)
 
     // Expandable violation cards — tracks which cards are open
     const [expandedViolations, setExpandedViolations] = useState<Set<string>>(new Set())
@@ -536,10 +419,25 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
     // ── GOV.2: Override count (relocated from StatusBar — GLASS.3.4-B) ──────
     const [govOverrideCount, setGovOverrideCount] = useState<number>(0)
 
+    // Ref flag: only toast once per mount when governance data fails to load.
+    const governanceLoadErrorToasted = useRef(false)
+
     const fetchOverrideCount = useCallback(() => {
         window.flintAPI.governance.getOverrideCount()
             .then(setGovOverrideCount)
-            .catch((err) => console.warn('[Flint] GovernanceDashboard: failed to fetch override count', err))
+            .catch((err) => {
+                console.warn('[Flint] GovernanceDashboard: failed to fetch override count', err)
+                if (!governanceLoadErrorToasted.current) {
+                    governanceLoadErrorToasted.current = true
+                    useNotificationStore.getState().push({
+                        type: 'error',
+                        severity: 'error',
+                        title: 'Governance data unavailable',
+                        message: sanitiseToastMessage('Governance tools are unavailable. Check that the Flint MCP server is running.'),
+                        autoDismissMs: 8000,
+                    })
+                }
+            })
     }, [])
 
     useEffect(() => {
@@ -687,7 +585,17 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
         if (api.getAnomalies) {
             void api.getAnomalies()
                 .then(setAnomalies)
-                .catch(() => setAnomalies([]))
+                .catch((err: unknown) => {
+                    console.warn('[Flint] GovernanceDashboard: failed to load anomalies', err)
+                    setAnomalies([])
+                    useNotificationStore.getState().push({
+                        type: 'error',
+                        title: 'Anomaly data unavailable',
+                        message: 'Could not load anomaly alerts. Governance monitoring may be limited.',
+                        severity: 'warning',
+                        autoDismissMs: 5000,
+                    })
+                })
         }
     }, [])
 
@@ -718,7 +626,10 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
         if (api.getAuditLog) {
             void api.getAuditLog({ limit: 50 })
                 .then(setAuditLog)
-                .catch(() => setAuditLog([]))
+                .catch((err: unknown) => {
+                    console.warn('[Flint] GovernanceDashboard: failed to load audit log', err)
+                    setAuditLog([])
+                })
         }
     }, [])
 
@@ -878,8 +789,17 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
         setIsAuditing(true)
         try {
             await window.flintAPI.mcp?.callTool('flint_audit', { file: activeFilePath })
+            setLastAuditRanAt(Date.now())
         } catch (err) {
-            console.error('[GovernanceDashboard] Run Audit failed:', err)
+            const msg = err instanceof Error ? err.message : String(err)
+            console.error('[GovernanceDashboard] Run Audit failed:', msg)
+            useNotificationStore.getState().push({
+                type: 'error',
+                title: 'Audit failed',
+                message: `Could not run the audit — ${msg}`,
+                severity: 'error',
+                autoDismissMs: 8000,
+            })
         } finally {
             setIsAuditing(false)
         }
@@ -1175,7 +1095,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
     const handleRewindToClean = useCallback(async () => {
         if (!lastCleanState) return
         const confirmed = window.confirm(
-            `Rewind to last clean state (score ${lastCleanState.score}, ${relativeTime(lastCleanState.timestamp)})?\n\nThis will undo all changes since that point.`
+            `Rewind to last clean state (score ${lastCleanState.score}, ${formatRelativeTime(lastCleanState.timestamp)})?\n\nThis will undo all changes since that point.`
         )
         if (!confirmed) return
         try {
@@ -1228,7 +1148,10 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
         if (api.getHealthHistory) {
             void api.getHealthHistory()
                 .then(setHealthHistory)
-                .catch(() => setHealthHistory([]))
+                .catch((err: unknown) => {
+                    console.warn('[Flint] GovernanceDashboard: failed to load health history', err)
+                    setHealthHistory([])
+                })
         }
     }, [])
 
@@ -1321,18 +1244,44 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
     const handleBatchFixA11y = useCallback(async () => {
         if (!activeFilePath) return
         try {
-            if (window.flintAPI.governance.batchFixA11y) {
-                await window.flintAPI.governance.batchFixA11y(activeFilePath)
-            } else {
-                for (const w of autoFixableA11yEntries) {
-                    const rId = extractRuleIdFromMsg(w.message) ?? 'A11Y'
-                    await handleA11yFix(rId).catch((err) => console.warn('[Flint] GovernanceDashboard: a11y batch fix item failed', err))
-                }
+            // Route through governance:apply-fix — a dedicated IPC handler that
+            // calls flint_fix server-side, bypassing the renderer MCP allowlist.
+            const result = await window.flintAPI.governance.applyFix(activeFilePath)
+
+            if (result === null) {
+                useNotificationStore.getState().push({
+                    type: 'violation',
+                    title: 'Fix unavailable',
+                    message: 'Flint MCP is not connected — start the MCP server to enable auto-fix',
+                    severity: 'warning',
+                    autoDismissMs: 5000,
+                })
+                return
             }
+
+            const fixCount = result.fixesApplied
+
+            if (fixCount === 0) {
+                useNotificationStore.getState().push({
+                    type: 'violation',
+                    title: 'No auto-fixable issues',
+                    message: 'All violations in this file require manual fixes — see the "How to fix" guide in each card',
+                    severity: 'warning',
+                    autoDismissMs: 5000,
+                })
+                return
+            }
+
+            // Re-sync editor so a11y violations refresh
+            try {
+                const content = await window.flintAPI.readFile(activeFilePath)
+                useEditorStore.getState().syncCode(content)
+            } catch (err) { console.warn('[Flint] GovernanceDashboard: failed to re-sync editor after a11y batch fix', err) }
+
             useNotificationStore.getState().push({
                 type: 'mutation',
-                title: 'A11y batch fix applied',
-                message: `${autoFixableA11yEntries.length} a11y ${autoFixableA11yEntries.length === 1 ? 'issue' : 'issues'} fixed`,
+                title: 'A11y fixes applied',
+                message: `${fixCount} accessibility ${fixCount === 1 ? 'issue' : 'issues'} fixed`,
                 severity: 'info',
                 autoDismissMs: 3000,
             })
@@ -1346,7 +1295,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                 autoDismissMs: 5000,
             })
         }
-    }, [activeFilePath, autoFixableA11yEntries, handleA11yFix])
+    }, [activeFilePath])
 
     // ── Export gate ──────────────────────────────────────────────────────────
     // Use the store's canExport() which respects cachedPolicy mode settings.
@@ -1376,24 +1325,32 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
     const [isActivityOpen, setIsActivityOpen] = useState(false)
 
     // ── Accordion open/close state ───────────────────────────────────────────
-    // Score open by default so users always see the ring on first load
-    const [isScoreOpen, setIsScoreOpen] = useState(true)
+    const [isScoreOpen, setIsScoreOpen] = useState(false)
     const [isTopRulesOpen, setIsTopRulesOpen] = useState(false)
     const [isSessionOpen, setIsSessionOpen] = useState(false)
-    // When violations disappear, open score accordion automatically
-    useEffect(() => {
-        if (!exportBlocked) setIsScoreOpen(true)
-    }, [exportBlocked])
+    // GAP-1: "More details" disclosure — secondary content collapsed by default
+    const [isMoreDetailsOpen, setIsMoreDetailsOpen] = useState(false)
+    // Health Score accordion is user-controlled only — no auto-open
+
+    // ── GAP-11: Per-category export-blocking counts ───────────────────────────
+    // A violation blocks export when severity is 'critical' (a11y always is;
+    // Mithril violations are amber by default, critical when the rule is escalated).
+    const designSystemBlockingCount = useMemo(
+        () => visibleLinterWarnings.filter((w) => w.severity === 'critical' && w.type !== 'sync').length,
+        [visibleLinterWarnings],
+    )
+    const a11yBlockingCount = a11yCount // all a11y violations are critical and block export
+    const syncBlockingCount = useMemo(
+        () => visibleLinterWarnings.filter((w) => w.severity === 'critical' && w.type === 'sync').length,
+        [visibleLinterWarnings],
+    )
 
     // ── Render ────────────────────────────────────────────────────────────────
     return (
         <div className="flex flex-col">
 
             {/* ── Header ────────────────────────────────────────────────── */}
-            <div className="border-b border-zinc-800 px-3 py-2 flex items-center justify-between">
-                <h3 className="text-xs font-medium uppercase tracking-wider text-zinc-400">
-                    Governance Health
-                </h3>
+            <div className="border-b border-zinc-800 px-3 py-2 flex items-end justify-end">
                 <div className="flex items-center gap-1.5">
                     <button
                         type="button"
@@ -1402,10 +1359,14 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                         className="flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 transition-colors disabled:text-zinc-600 disabled:cursor-not-allowed"
                         data-testid="run-audit-button"
                         aria-label={isAuditing ? 'Auditing in progress' : 'Run governance audit'}
-                        title="Run a full governance audit via the AI engine — more thorough than the live linter but requires the MCP engine to be connected"
+                        title="Live linting runs continuously. Run Audit performs a deeper check and syncs results to your IDE."
                     >
                         {isAuditing ? <Loader2 size={10} className="animate-spin" aria-hidden="true" /> : <Play size={10} aria-hidden="true" />}
-                        {isAuditing ? 'Auditing...' : 'Run Audit'}
+                        {isAuditing
+                            ? 'Auditing...'
+                            : (totalViolations > 0 && lastAuditRanAt !== null && Date.now() - lastAuditRanAt > 120_000)
+                                ? 'Refresh Audit'
+                                : 'Run Audit'}
                     </button>
                     {isBaselineSet && (
                         <span className="inline-flex items-center gap-1 rounded border border-indigo-500/40 bg-indigo-900/20 px-1.5 py-0.5 text-[10px] font-medium text-indigo-400" title="New Issues Only — issues present at baseline are excluded">
@@ -1436,39 +1397,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                 </div>
             </div>
 
-            {/* ── COUNSEL.3.3: Flare Anomaly Alert Banner ────────────────── */}
-            {anomalies.length > 0 && !anomalyBannerDismissed && (
-                <div
-                    data-testid="anomaly-alert-banner"
-                    className="mx-3 mt-2 rounded border border-amber-700/40 bg-amber-900/20 px-3 py-2"
-                    role="alert"
-                >
-                    <div className="flex items-start gap-2">
-                        <AlertTriangle size={13} className="shrink-0 mt-0.5 text-amber-400" aria-hidden="true" />
-                        <div className="flex-1 min-w-0">
-                            <p className="text-xs font-medium text-amber-300">
-                                Flare detected {anomalies.length} {anomalies.length === 1 ? 'anomaly' : 'anomalies'}
-                            </p>
-                            <div className="mt-1.5 space-y-1">
-                                {anomalies.map((a, idx) => (
-                                    <p key={idx} className="text-[10px] text-amber-400/80">
-                                        <span className="font-medium text-amber-300">{a.type}:</span> {a.message}
-                                    </p>
-                                ))}
-                            </div>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() => setAnomalyBannerDismissed(true)}
-                            className="shrink-0 rounded p-0.5 text-amber-500 hover:text-amber-300 transition-colors"
-                            aria-label="Dismiss anomaly alert banner"
-                            data-testid="anomaly-banner-dismiss"
-                        >
-                            <X size={12} aria-hidden="true" />
-                        </button>
-                    </div>
-                </div>
-            )}
+            {/* Anomaly banner intentionally moved below violations — see GAP-1 */}
 
             {/* ── No design system ──────────────────────────────────────── */}
             {tokenCount === 0 && (
@@ -1490,38 +1419,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
             {/* ── Export gate banner — rendered by ScoreSection below ─── */}
             {/* (moved to ScoreSection sub-component) */}
 
-            {/* ── AUTOPILOT TOGGLE ──────────────────────────────────────── */}
-            {tokenCount > 0 && (
-                <div className="flex items-center justify-between px-4 py-2.5 border-b border-zinc-800/60">
-                    <div className="flex flex-col gap-0.5">
-                        <div className="flex items-center gap-1.5">
-                            <span className="text-xs font-medium text-zinc-200">Autopilot</span>
-                            {governedFixCount > 0 && (
-                                <span className="rounded bg-indigo-900/30 border border-indigo-500/30 px-1 py-px text-[10px] text-indigo-400 font-medium leading-none">
-                                    {governedFixCount} {governedFixCount === 1 ? 'fix' : 'fixes'} ready
-                                </span>
-                            )}
-                        </div>
-                        <span className="text-[10px] text-zinc-400 leading-snug">
-                            Auto-fixes Tier-1 drift as you work
-                        </span>
-                    </div>
-                    {/* COUNSEL.4.3: Read-only status chip replaces the toggle — autopilot state is
-                         set by the engine policy, not manually toggled from Glass. */}
-                    <span
-                        data-testid="autopilot-status-chip"
-                        className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium ${
-                            autopilotEnabled
-                                ? 'border-emerald-500/30 bg-emerald-900/20 text-emerald-400'
-                                : 'border-zinc-700 bg-zinc-800 text-zinc-500'
-                        }`}
-                        aria-label={autopilotEnabled ? 'Autopilot: On' : 'Autopilot: Off'}
-                    >
-                        <span className={`h-1.5 w-1.5 rounded-full ${autopilotEnabled ? 'bg-emerald-400' : 'bg-zinc-600'}`} aria-hidden="true" />
-                        {autopilotEnabled ? 'On' : 'Off'}
-                    </span>
-                </div>
-            )}
+            {/* AUTOPILOT TOGGLE section removed — toggle is in the header row and StatusBar */}
 
             {/* ── COUNSEL.4.4: Zero-violation celebration state ─────────── */}
             {tokenCount > 0 && totalViolations === 0 && !overridesExist && (
@@ -1535,11 +1433,302 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                         data-testid="zero-violation-icon"
                     />
                     <div>
-                        <p className="text-sm font-medium text-emerald-300">No issues found</p>
+                        <p className="text-sm font-medium text-emerald-300">
+                            {isBaselineSet ? 'No new issues since baseline' : 'No issues found'}
+                        </p>
                         <p className="mt-1 text-xs text-zinc-400 max-w-[220px] leading-relaxed">
-                            Your component meets all governance standards. You&apos;re clear to export.
+                            {isBaselineSet
+                                ? 'No new violations since your baseline was set. You\'re clear to export.'
+                                : 'Your component meets all governance standards. You\'re clear to export.'}
                         </p>
                     </div>
+                </div>
+            )}
+
+            {/* ── COMPACT SCORE SUMMARY ROW (replaces ScoreSection) ─────── */}
+            {tokenCount > 0 && (
+                <>
+                    {/* One-line summary: mini ring · grade · score · export badge · category chips */}
+                    <div className="flex items-center gap-3 px-3 py-2 border-b border-zinc-800">
+                        {/* Mini ring — 32px inline SVG */}
+                        {(() => {
+                            const RADIUS = 13
+                            const CIRCUMFERENCE = 2 * Math.PI * RADIUS
+                            const filled = (score / 100) * CIRCUMFERENCE
+                            const gap = CIRCUMFERENCE - filled
+                            return (
+                                <svg
+                                    width={32}
+                                    height={32}
+                                    viewBox="0 0 32 32"
+                                    className={`shrink-0${ringPulse ? ' motion-safe:animate-pulse' : ''}`}
+                                    aria-label={`Health score ${score} out of 100`}
+                                    role="img"
+                                    data-testid="score-ring"
+                                >
+                                    <circle cx={16} cy={16} r={RADIUS} fill="none" className="stroke-zinc-800" strokeWidth={3} />
+                                    <circle
+                                        cx={16} cy={16} r={RADIUS} fill="none"
+                                        className={GRADE_RING[grade]}
+                                        strokeWidth={3}
+                                        strokeLinecap="round"
+                                        strokeDasharray={`${filled} ${gap}`}
+                                        transform="rotate(-90 16 16)"
+                                    />
+                                </svg>
+                            )
+                        })()}
+
+                        {/* Grade + score */}
+                        <div className="flex items-center gap-1.5 min-w-0">
+                            <span className={`text-sm font-bold ${GRADE_TEXT[grade]}`} aria-label={`Grade ${grade}`}>{grade}</span>
+                            <span className="text-xs text-zinc-500">{score}/100</span>
+                            {exportBlocked
+                                ? <span className="ml-1 rounded bg-red-900/30 border border-red-700/40 px-1.5 py-0.5 text-[10px] font-medium text-red-400">Export blocked</span>
+                                : <span className="ml-1 rounded bg-emerald-900/20 border border-emerald-700/30 px-1.5 py-0.5 text-[10px] font-medium text-emerald-400">Ready to export</span>
+                            }
+                        </div>
+
+                        {/* Category chips — compact, right-aligned; hidden in zero-state */}
+                        {(totalViolations > 0 || overridesExist) && (
+                            <div className="ml-auto flex items-center gap-1" data-testid="category-chips">
+                                {mithrilCount > 0 && (
+                                    <button
+                                        type="button"
+                                        aria-pressed={activeCategory === 'design-system'}
+                                        onClick={() => setActiveCategory(activeCategory === 'design-system' ? null : 'design-system')}
+                                        className="flex items-center gap-0.5 rounded-full bg-zinc-800 border border-zinc-700 px-2 py-0.5 text-[10px] text-zinc-300 hover:text-zinc-100 aria-pressed:border-amber-500/50 aria-pressed:bg-amber-900/20 aria-pressed:text-amber-300 transition-colors"
+                                        data-testid="chip-design-system"
+                                    >
+                                        {designSystemBlockingCount > 0 && (
+                                            <span
+                                                className="h-1.5 w-1.5 rounded-full bg-red-400 shrink-0"
+                                                aria-label="blocks export"
+                                                data-testid="chip-design-system-blocking-dot"
+                                                title="Contains violations that block export"
+                                            />
+                                        )}
+                                        Design System {mithrilCount}
+                                    </button>
+                                )}
+                                {a11yCount > 0 && (
+                                    <button
+                                        type="button"
+                                        aria-pressed={activeCategory === 'accessibility'}
+                                        onClick={() => setActiveCategory(activeCategory === 'accessibility' ? null : 'accessibility')}
+                                        className="flex items-center gap-0.5 rounded-full bg-zinc-800 border border-zinc-700 px-2 py-0.5 text-[10px] text-zinc-300 hover:text-zinc-100 aria-pressed:border-red-500/50 aria-pressed:bg-red-900/20 aria-pressed:text-red-300 transition-colors"
+                                        data-testid="chip-accessibility"
+                                    >
+                                        {a11yBlockingCount > 0 && (
+                                            <span
+                                                className="h-1.5 w-1.5 rounded-full bg-red-400 shrink-0"
+                                                aria-label="blocks export"
+                                                data-testid="chip-accessibility-blocking-dot"
+                                                title="Contains violations that block export"
+                                            />
+                                        )}
+                                        Accessibility {a11yCount}
+                                    </button>
+                                )}
+                                {syncCount > 0 && (
+                                    <button
+                                        type="button"
+                                        aria-pressed={activeCategory === 'token-sync'}
+                                        onClick={() => setActiveCategory(activeCategory === 'token-sync' ? null : 'token-sync')}
+                                        className="flex items-center gap-0.5 rounded-full bg-zinc-800 border border-zinc-700 px-2 py-0.5 text-[10px] text-zinc-300 hover:text-zinc-100 aria-pressed:border-indigo-500/50 aria-pressed:bg-indigo-900/20 aria-pressed:text-indigo-300 transition-colors"
+                                        data-testid="chip-token-sync"
+                                    >
+                                        {syncBlockingCount > 0 && (
+                                            <span
+                                                className="h-1.5 w-1.5 rounded-full bg-red-400 shrink-0"
+                                                aria-label="blocks export"
+                                                data-testid="chip-token-sync-blocking-dot"
+                                                title="Contains violations that block export"
+                                            />
+                                        )}
+                                        Token Sync {syncCount}
+                                    </button>
+                                )}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Effort text — appears after summary row, before delta mode banner */}
+                    <p className="px-3 py-1.5 text-[11px] text-zinc-400" data-testid="effort-framing">
+                        {effortText}
+                    </p>
+
+                    {/* COUNSEL.1.2: Delta mode auto-enable banner */}
+                    {(initialViolationCount ?? 0) > 10 && isBaselineSet && !bannerDismissed && (
+                        <div className="mx-3 mb-1 rounded border border-indigo-500/30 bg-indigo-900/10 px-3 py-2" data-testid="delta-mode-auto-banner">
+                            <p className="text-[10px] text-indigo-300">
+                                Delta mode active — showing new issues only. There are {initialViolationCount} existing violations being filtered.
+                            </p>
+                            <div className="mt-1.5 flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    aria-label="Show all violations"
+                                    onClick={() => void window.flintAPI.baseline?.clear?.()}
+                                    className="text-[10px] text-indigo-400 hover:text-indigo-300 underline"
+                                >
+                                    Show all violations
+                                </button>
+                                <button
+                                    type="button"
+                                    aria-label="Dismiss delta mode banner"
+                                    onClick={() => setBannerDismissed(true)}
+                                    className="text-[10px] text-zinc-500 hover:text-zinc-400"
+                                >
+                                    Dismiss
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Health Score accordion — sub-score details, sparkline, next-step coaching */}
+                    <div className="border-b border-zinc-800/40">
+                        <button
+                            type="button"
+                            onClick={() => setIsScoreOpen((v) => !v)}
+                            className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-zinc-800/30 transition-colors"
+                            aria-expanded={isScoreOpen}
+                            aria-controls="score-accordion"
+                        >
+                            {isScoreOpen
+                                ? <ChevronDown size={12} className="shrink-0 text-zinc-500" aria-hidden="true" />
+                                : <ChevronRight size={12} className="shrink-0 text-zinc-500" aria-hidden="true" />}
+                            <span className="flex-1 text-xs text-zinc-500">Score breakdown</span>
+                            <span className={`text-xs font-bold ${GRADE_TEXT[grade]}`} aria-hidden="true">{grade}</span>
+                        </button>
+                        {isScoreOpen && (
+                            <div id="score-accordion" className="px-3 pb-2 space-y-1.5">
+                                {/* Next-step coaching sentence */}
+                                <p className="text-xs text-zinc-400 pt-1" data-testid="next-step-prompt">{nextStep.text}</p>
+                                {/* Score trend hint */}
+                                {scoreTrendHint && (
+                                    <p className="text-xs text-zinc-300" data-testid="score-trend-hint">{scoreTrendHint}</p>
+                                )}
+                                {/* Sparkline */}
+                                {healthHistory.length >= 2 && <Sparkline data={healthHistory} />}
+                                {/* Rewind to clean */}
+                                {score < 95 && lastCleanState && (
+                                    <button
+                                        type="button"
+                                        onClick={() => void handleRewindToClean()}
+                                        className="text-left text-xs text-indigo-400 underline underline-offset-2 hover:text-indigo-300 transition-colors"
+                                        data-testid="rewind-to-clean"
+                                    >
+                                        Rewind to clean (score {lastCleanState.score}, {(() => {
+                                            const diff = Date.now() - new Date(lastCleanState.timestamp).getTime()
+                                            const mins = Math.floor(diff / 60000)
+                                            if (mins < 1) return 'just now'
+                                            if (mins < 60) return `${mins}m ago`
+                                            const hrs = Math.floor(mins / 60)
+                                            if (hrs < 24) return `${hrs}h ago`
+                                            return `${Math.floor(hrs / 24)}d ago`
+                                        })()})
+                                    </button>
+                                )}
+                                {/* Sub-score breakdown */}
+                                {(mithrilCount > 0 || a11yCount > 0 || overrideCount > 0) && (
+                                    <div className="space-y-1 pt-0.5">
+                                        {mithrilCount > 0 && (
+                                            <div className="flex items-center gap-2 text-xs text-zinc-400" data-testid="fidelity-score-row">
+                                                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" aria-hidden="true" />
+                                                <span className="flex-1">Fidelity — {mithrilCount} design {mithrilCount !== 1 ? 'issues' : 'issue'} (−{mithrilCount * 5} pts)</span>
+                                            </div>
+                                        )}
+                                        {a11yCount > 0 && (
+                                            <div className="flex items-center gap-2 text-xs text-zinc-400" data-testid="a11y-score-row">
+                                                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-400" aria-hidden="true" />
+                                                <span className="flex-1">Accessibility — {a11yCount} {a11yCount !== 1 ? 'issues' : 'issue'} (−{a11yCount * 10} pts)</span>
+                                            </div>
+                                        )}
+                                        {overrideCount > 0 && (
+                                            <div className="flex items-center gap-2 text-xs text-zinc-400" data-testid="override-score-row">
+                                                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" aria-hidden="true" />
+                                                <span className="flex-1">{overrideCount} unapplied {overrideCount !== 1 ? 'overrides' : 'override'} (−{overrideCount * 3} pts)</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                                {/* "How is this calculated?" link + modal */}
+                                <button
+                                    type="button"
+                                    onClick={() => setIsScoreModalOpen(true)}
+                                    className="flex items-center gap-1 text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors"
+                                >
+                                    <ChevronRight className="h-3 w-3" aria-hidden="true" />
+                                    How is this calculated?
+                                </button>
+                                <Modal
+                                    isOpen={isScoreModalOpen}
+                                    onClose={() => setIsScoreModalOpen(false)}
+                                    title="How Your Score Is Calculated"
+                                    size="sm"
+                                    data-testid="score-formula-modal"
+                                >
+                                    <div className="space-y-4">
+                                        <div>
+                                            <p className="text-xs font-medium text-zinc-400 mb-2">Deductions</p>
+                                            <ul className="space-y-1.5">
+                                                <li className="flex items-center justify-between text-sm"><span className="text-zinc-300">Critical violations</span><span className="font-mono text-red-400">−10 per issue</span></li>
+                                                <li className="flex items-center justify-between text-sm"><span className="text-zinc-300">Amber violations</span><span className="font-mono text-amber-400">−3 per issue</span></li>
+                                                <li className="flex items-center justify-between text-sm"><span className="text-zinc-300">Advisory violations</span><span className="font-mono text-zinc-400">−1 per issue</span></li>
+                                                <li className="flex items-center justify-between text-sm"><span className="text-zinc-300">Unapplied overrides</span><span className="font-mono text-amber-400">−3 per change</span></li>
+                                            </ul>
+                                        </div>
+                                        <div>
+                                            <p className="text-xs font-medium text-zinc-400 mb-2">Grade Scale</p>
+                                            <ul className="space-y-1.5">
+                                                <li className="flex items-center justify-between text-sm"><span className="text-emerald-400 font-medium">A</span><span className="text-zinc-400">90–100</span></li>
+                                                <li className="flex items-center justify-between text-sm"><span className="text-emerald-400 font-medium">B</span><span className="text-zinc-400">80–89</span></li>
+                                                <li className="flex items-center justify-between text-sm"><span className="text-amber-400 font-medium">C</span><span className="text-zinc-400">70–79</span></li>
+                                                <li className="flex items-center justify-between text-sm"><span className="text-amber-400 font-medium">D</span><span className="text-zinc-400">60–69</span></li>
+                                                <li className="flex items-center justify-between text-sm"><span className="text-red-400 font-medium">F</span><span className="text-zinc-400">&lt;60</span></li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </Modal>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Export gate — full-width banner when not blocked (Open export modal button) */}
+                    {!exportBlocked && (
+                        <div className="px-3 py-1.5 border-b border-zinc-800/60">
+                            <div className="flex items-center gap-2 rounded border border-emerald-500/40 bg-emerald-900/10 px-3 py-1.5">
+                                <ShieldCheck size={12} className="shrink-0 text-emerald-400" aria-hidden="true" />
+                                <span className="flex-1 text-xs font-medium text-emerald-300">
+                                    {isBaselineSet ? 'No new issues — export ready' : 'All clear — export ready'}
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={() => onOpenExportModal?.()}
+                                    className="flex items-center gap-1 rounded bg-emerald-600/20 px-2.5 py-1 text-[11px] font-medium text-emerald-400 hover:bg-emerald-600/30 transition-colors"
+                                    aria-label="Open export modal"
+                                >
+                                    Export
+                                    <SendHorizonal size={10} aria-hidden="true" />
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </>
+            )}
+
+            {/* ── GAP-1: Primary "Fix all auto-fixable" CTA ─────────────── */}
+            {tokenCount > 0 && autoFixableCount > 0 && (
+                <div className="px-3 py-2 border-b border-zinc-800/60">
+                    <button
+                        type="button"
+                        onClick={handleFixAll}
+                        data-testid="fix-all-autofixable-cta"
+                        className="flex w-full items-center justify-center gap-2 rounded border border-indigo-500/50 bg-indigo-900/20 px-3 py-2 text-xs font-medium text-indigo-300 transition-colors hover:bg-indigo-900/40 hover:text-indigo-200 hover:border-indigo-400/60"
+                    >
+                        <Wand2 size={12} aria-hidden="true" />
+                        Fix {autoFixableCount} auto-fixable {autoFixableCount === 1 ? 'issue' : 'issues'}
+                    </button>
                 </div>
             )}
 
@@ -1731,6 +1920,40 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                 </div>
             )}
 
+            {/* ── GAP-1: Anomaly + delta banners (actionable alerts, below violations) */}
+            {anomalies.length > 0 && !anomalyBannerDismissed && (
+                <div
+                    data-testid="anomaly-alert-banner"
+                    className="mx-3 mt-2 rounded border border-amber-700/40 bg-amber-900/20 px-3 py-2"
+                    role="alert"
+                >
+                    <div className="flex items-start gap-2">
+                        <AlertTriangle size={13} className="shrink-0 mt-0.5 text-amber-400" aria-hidden="true" />
+                        <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-amber-300">
+                                Flare detected {anomalies.length} {anomalies.length === 1 ? 'anomaly' : 'anomalies'}
+                            </p>
+                            <div className="mt-1.5 space-y-1">
+                                {anomalies.map((a, idx) => (
+                                    <p key={idx} className="text-[10px] text-amber-400/80">
+                                        <span className="font-medium text-amber-300">{a.type}:</span> {a.message}
+                                    </p>
+                                ))}
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setAnomalyBannerDismissed(true)}
+                            className="shrink-0 rounded p-0.5 text-amber-500 hover:text-amber-300 transition-colors"
+                            aria-label="Dismiss anomaly alert banner"
+                            data-testid="anomaly-banner-dismiss"
+                        >
+                            <X size={12} aria-hidden="true" />
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {/* ── Fix Preview Drawer (slides in below violations) ───────── */}
             {fixPreviewItems && (
                 <FixPreviewDrawer
@@ -1741,401 +1964,390 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                 />
             )}
 
-            {/* ── ACCORDION: Health Score ────────────────────────────────── */}
-            {tokenCount > 0 && (
-                <ScoreSection
-                    score={score}
-                    grade={grade}
-                    trend={healthHistory.length >= 2
-                        ? healthHistory[healthHistory.length - 1].score - healthHistory[0].score
-                        : 0}
-                    exportBlocked={exportBlocked}
-                    mithrilCount={mithrilCount}
-                    a11yCount={a11yCount}
-                    overridesExist={overridesExist}
-                    overrideCount={overrideCount}
-                    onRunAudit={() => void handleRunAudit()}
-                    baselineMode={isBaselineSet}
-                    onToggleBaseline={isBaselineSet ? () => void handleClearBaseline() : () => void handleSetBaseline()}
-                    healthHistory={healthHistory}
-                    scoreTrendHint={scoreTrendHint}
-                    nextStep={nextStep}
-                    effortText={effortText}
-                    ringPulse={ringPulse}
-                    lastCleanState={lastCleanState}
-                    onRewindToClean={() => void handleRewindToClean()}
-                    activeCategory={activeCategory}
-                    onSetCategory={setActiveCategory}
-                    syncCount={syncCount}
-                    initialViolationCount={initialViolationCount}
-                    isBaselineSet={isBaselineSet}
-                    bannerDismissed={bannerDismissed}
-                    onDismissBanner={() => setBannerDismissed(true)}
-                    onShowAllViolations={() => void window.flintAPI.baseline?.clear?.()}
-                    onOpenExportModal={onOpenExportModal}
-                />
-            )}
-
-            {/* ── ACCORDION: Top Triggered Rules ─────────────────────────── */}
-            {tokenCount > 0 && (
-                <div className="border-t border-zinc-800">
-                    <button
-                        type="button"
-                        onClick={() => setIsTopRulesOpen((v) => !v)}
-                        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-zinc-800/30 transition-colors"
-                        aria-expanded={isTopRulesOpen}
-                        aria-controls="top-rules-accordion"
-                    >
-                        {isTopRulesOpen ? <ChevronDown size={12} className="shrink-0 text-zinc-500" aria-hidden="true" /> : <ChevronRight size={12} className="shrink-0 text-zinc-500" aria-hidden="true" />}
-                        <span className="flex-1 text-xs text-zinc-400">Top Triggered Rules</span>
-                        {topRules.length > 0 && <span className="font-mono text-[10px] text-zinc-600">{topRules.length}</span>}
-                    </button>
-                    {isTopRulesOpen && (
-                        <div id="top-rules-accordion" className="px-3 py-2 space-y-1">
-                            {topRules.length === 0 ? (
-                                <p className="text-xs text-emerald-400">No issues</p>
-                            ) : (
-                                topRules.map((row) => (
-                                    <button
-                                        key={`${row.type}-${row.severity}`}
-                                        type="button"
-                                        onClick={() => handleRuleRowClick(row.type)}
-                                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 cursor-pointer hover:bg-zinc-800/50 transition-colors text-left"
-                                        data-testid={`rule-row-${row.type}`}
-                                        title={`Scroll to ${TYPE_LABEL[row.type]} issues`}
-                                    >
-                                        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${SEVERITY_DOT[row.severity]}`} aria-hidden="true" />
-                                        <span className="flex-1 truncate text-xs text-zinc-300">{TYPE_LABEL[row.type]}</span>
-                                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${SEVERITY_BADGE[row.severity]}`}>{row.severity}</span>
-                                        <span className="text-xs px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 font-mono">{row.count}</span>
-                                    </button>
-                                ))
-                            )}
-                        </div>
-                    )}
-                </div>
-            )}
-
-            {/* ── ACCORDION: Session & Baseline ─────────────────────────── */}
-            {tokenCount > 0 && (
-                <div className="border-t border-zinc-800">
-                    <button
-                        type="button"
-                        onClick={() => setIsSessionOpen((v) => !v)}
-                        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-zinc-800/30 transition-colors"
-                        aria-expanded={isSessionOpen}
-                        aria-controls="session-accordion"
-                    >
-                        {isSessionOpen ? <ChevronDown size={12} className="shrink-0 text-zinc-500" aria-hidden="true" /> : <ChevronRight size={12} className="shrink-0 text-zinc-500" aria-hidden="true" />}
-                        <span className="flex-1 text-xs text-zinc-400">Session &amp; Baseline</span>
-                        {isBaselineSet && <span className="text-[10px] text-indigo-400">Delta on</span>}
-                    </button>
-                    {isSessionOpen && (
-                        <div id="session-accordion" className="px-3 py-2 space-y-2">
-                            {activeFileName ? (
-                                <div className="flex items-center gap-2 rounded px-2 py-1.5 bg-zinc-800/40">
-                                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-indigo-400" aria-hidden="true" />
-                                    <span className="flex-1 truncate font-mono text-xs text-zinc-300" title={activeFilePath ?? ''}>{activeFileName}</span>
-                                    {mithrilCount + a11yCount > 0 && (
-                                        <span className="text-xs px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 font-mono">{mithrilCount + a11yCount}</span>
-                                    )}
-                                </div>
-                            ) : (
-                                <p className="py-1 text-xs text-zinc-600">No file open</p>
-                            )}
-                            <div className="flex items-center gap-2" data-testid="delta-mode-section">
-                                {!isBaselineSet ? (
-                                    <button
-                                        type="button"
-                                        onClick={() => void handleSetBaseline()}
-                                        disabled={baselineStatus !== 'idle' || !activeFilePath}
-                                        className="flex-1 rounded border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs text-zinc-300 transition-colors hover:border-indigo-500/60 hover:bg-indigo-900/20 hover:text-indigo-300 disabled:cursor-not-allowed disabled:opacity-40"
-                                    >
-                                        {baselineStatus === 'setting'
-                                            ? 'Setting baseline...'
-                                            : `Show only new issues${totalRaw > 0 ? ` (${totalRaw} baselined)` : ''}`}
-                                    </button>
-                                ) : (
-                                    <>
-                                        <span className="flex-1 text-xs text-indigo-400">Showing new issues only ({baselineEntries.length} baselined)</span>
-                                        <button
-                                            type="button"
-                                            onClick={() => void handleClearBaseline()}
-                                            disabled={baselineStatus !== 'idle'}
-                                            className="rounded border border-zinc-700 bg-zinc-800 px-2.5 py-1 text-[10px] text-zinc-400 transition-colors hover:border-red-500/40 hover:bg-red-900/10 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-40"
-                                        >
-                                            {baselineStatus === 'clearing' ? 'Clearing...' : 'Show All'}
-                                        </button>
-                                    </>
-                                )}
-                            </div>
-                            {overridesExist && (
-                                <div className="flex items-center gap-2 rounded border border-amber-500/30 bg-amber-900/20 px-3 py-2">
-                                    <span className="flex-1 text-xs text-amber-400">Manual Style Overrides active — export blocked</span>
-                                    <span className="text-xs px-1.5 py-0.5 rounded bg-zinc-800 text-amber-400 font-mono">{overrideCount}</span>
-                                </div>
-                            )}
-                        </div>
-                    )}
-                </div>
-            )}
-
-            {/* ── Confirmation toast ─────────────────────────────────────── */}
-            {confirmationMsg && (
-                <div className="mx-3 mt-2 flex items-center gap-2 rounded border border-indigo-500/40 bg-indigo-900/20 px-3 py-2" role="status" aria-live="polite">
-                    <span className="flex-1 text-xs text-indigo-300">{confirmationMsg}</span>
-                </div>
-            )}
-
-            {/* ── ACCORDION: MCP Activity Feed (S4.11) ──────────────────── */}
-            <div className="border-t border-zinc-800">
+            {/* ── GAP-1: "More details" disclosure — secondary content ─────── */}
+            {tokenCount > 0 && <div className="border-t border-zinc-800" data-testid="more-details-disclosure">
                 <button
                     type="button"
-                    onClick={() => setIsActivityOpen((v) => !v)}
+                    onClick={() => setIsMoreDetailsOpen((v) => !v)}
                     className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-zinc-800/30 transition-colors"
-                    aria-expanded={isActivityOpen}
-                    aria-controls="activity-accordion"
-                    data-testid="activity-accordion-toggle"
+                    aria-expanded={isMoreDetailsOpen}
+                    aria-controls="more-details-panel"
+                    data-testid="more-details-toggle"
                 >
-                    {isActivityOpen
+                    {isMoreDetailsOpen
                         ? <ChevronDown size={12} className="shrink-0 text-zinc-500" aria-hidden="true" />
                         : <ChevronRight size={12} className="shrink-0 text-zinc-500" aria-hidden="true" />}
-                    <span className="flex-1 text-xs text-zinc-400">Agent Activity</span>
-                    {mcpActivityEvents.length > 0 && (
-                        <span className="text-[10px] text-zinc-600">{mcpActivityEvents.length}</span>
-                    )}
+                    <span className="flex-1 text-xs text-zinc-500">More details</span>
+                    {isBaselineSet && <span className="text-[10px] text-indigo-400">Delta on</span>}
                 </button>
-                {isActivityOpen && (
-                    <div
-                        id="activity-accordion"
-                        className="px-3 py-2"
-                        data-testid="activity-feed-section"
-                    >
-                        {mcpActivityEvents.length === 0 ? (
-                            <div className="flex flex-col items-center justify-center gap-2 py-6 text-center">
-                                <Activity className="h-5 w-5 text-zinc-600" aria-hidden="true" />
-                                <p className="text-sm text-zinc-400">
-                                    This feed tracks AI agent actions. Connect an MCP client to start seeing activity.
-                                </p>
-                            </div>
-                        ) : (
-                            <div className="space-y-1">
-                                {mcpActivityEvents.map((event) => (
-                                    <div
-                                        key={event.id}
-                                        className="flex items-start gap-2 rounded px-2 py-1.5 hover:bg-zinc-800/40"
-                                    >
-                                        <span
-                                            className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${
-                                                event.severity === 'error' || event.severity === 'critical'
-                                                    ? 'bg-red-400'
-                                                    : event.severity === 'warning'
-                                                      ? 'bg-amber-400'
-                                                      : 'bg-indigo-400'
-                                            }`}
-                                            aria-hidden="true"
-                                        />
-                                        <div className="min-w-0 flex-1">
-                                            <p className="truncate text-xs text-zinc-300">{event.title}</p>
-                                            {event.message && (
-                                                <p className="truncate text-[10px] text-zinc-400">{event.message}</p>
-                                            )}
-                                        </div>
-                                        {/* S5.11: "Undo this" link for mutation-type events that changed code */}
-                                        {event.type === 'mutation' && (
-                                            <button
-                                                type="button"
-                                                onClick={() => void applyUndo()}
-                                                className="shrink-0 self-center rounded border border-zinc-700 px-2 py-0.5 text-[10px] text-zinc-500 hover:border-indigo-500/40 hover:text-indigo-400 transition-colors"
-                                                aria-label="Undo this agent action"
-                                            >
-                                                Undo this
-                                            </button>
+
+                {isMoreDetailsOpen && (
+                    <div id="more-details-panel">
+
+                        {/* ── ACCORDION: Top Triggered Rules ──────────────────── */}
+                        {tokenCount > 0 && (
+                            <div className="border-t border-zinc-800/60">
+                                <button
+                                    type="button"
+                                    onClick={() => setIsTopRulesOpen((v) => !v)}
+                                    className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-zinc-800/30 transition-colors"
+                                    aria-expanded={isTopRulesOpen}
+                                    aria-controls="top-rules-accordion"
+                                >
+                                    {isTopRulesOpen ? <ChevronDown size={12} className="shrink-0 text-zinc-500" aria-hidden="true" /> : <ChevronRight size={12} className="shrink-0 text-zinc-500" aria-hidden="true" />}
+                                    <span className="flex-1 text-xs text-zinc-400">Top Triggered Rules</span>
+                                    {topRules.length > 0 && <span className="font-mono text-[10px] text-zinc-600">{topRules.length}</span>}
+                                </button>
+                                {isTopRulesOpen && (
+                                    <div id="top-rules-accordion" className="px-3 py-2 space-y-1">
+                                        {topRules.length === 0 ? (
+                                            <p className="text-xs text-emerald-400">No issues</p>
+                                        ) : (
+                                            topRules.map((row) => (
+                                                <button
+                                                    key={`${row.type}-${row.severity}`}
+                                                    type="button"
+                                                    onClick={() => handleRuleRowClick(row.type)}
+                                                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 cursor-pointer hover:bg-zinc-800/50 transition-colors text-left"
+                                                    data-testid={`rule-row-${row.type}`}
+                                                    title={`Scroll to ${TYPE_LABEL[row.type]} issues`}
+                                                >
+                                                    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${SEVERITY_DOT[row.severity]}`} aria-hidden="true" />
+                                                    <span className="flex-1 truncate text-xs text-zinc-300">{TYPE_LABEL[row.type]}</span>
+                                                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${SEVERITY_BADGE[row.severity]}`}>{row.severity}</span>
+                                                    <span className="text-xs px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 font-mono">{row.count}</span>
+                                                </button>
+                                            ))
                                         )}
                                     </div>
-                                ))}
+                                )}
                             </div>
                         )}
-                    </div>
-                )}
-            </div>
 
-            {/* ── COUNSEL.4.1: Token Change Impact Preview ─────────────── */}
-            {tokenImpact && (
-                <div className="border-t border-zinc-800" data-testid="token-impact-section">
-                    <button
-                        type="button"
-                        onClick={() => setIsTokenImpactOpen((v) => !v)}
-                        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-zinc-800/30 transition-colors"
-                        aria-expanded={isTokenImpactOpen}
-                        aria-controls="token-impact-accordion"
-                    >
-                        {isTokenImpactOpen
-                            ? <ChevronDown size={12} className="shrink-0 text-zinc-500" aria-hidden="true" />
-                            : <ChevronRight size={12} className="shrink-0 text-zinc-500" aria-hidden="true" />}
-                        <span className="flex-1 text-xs text-zinc-400">Token Impact</span>
-                        <span className={`text-[10px] font-medium ${IMPACT_COLOR[tokenImpact.estimatedImpact]}`}>
-                            {tokenImpact.estimatedImpact}
-                        </span>
-                    </button>
-                    {isTokenImpactOpen && (
-                        <div id="token-impact-accordion" className="px-3 py-2 space-y-1.5">
-                            <div className={`flex items-start gap-2 rounded border px-3 py-2 ${IMPACT_BORDER[tokenImpact.estimatedImpact]}`}>
-                                <div className="flex-1 min-w-0">
-                                    <p className="text-xs text-zinc-300">
-                                        Changing <span className="font-mono text-indigo-300">{tokenImpact.tokenName}</span> would
-                                        affect <span className={`font-bold ${IMPACT_COLOR[tokenImpact.estimatedImpact]}`}>{tokenImpact.affectedFiles}</span> {tokenImpact.affectedFiles === 1 ? 'file' : 'files'}
-                                    </p>
-                                    <p className={`mt-0.5 text-[10px] ${IMPACT_COLOR[tokenImpact.estimatedImpact]}`}>
-                                        {tokenImpact.estimatedImpact === 'low' && 'Low impact — safe to change'}
-                                        {tokenImpact.estimatedImpact === 'medium' && 'Medium impact — review affected files before changing'}
-                                        {tokenImpact.estimatedImpact === 'high' && 'High impact — this token is widely used, proceed with caution'}
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                </div>
-            )}
-
-            {/* ── S8.3: Pending Approvals (MRS) ────────────────────────────── */}
-            {pendingMutations.length > 0 && (
-                <div className="border-t border-zinc-800" data-testid="pending-approvals-section">
-                    <button
-                        type="button"
-                        onClick={() => setIsPendingOpen((v) => !v)}
-                        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-zinc-800/30 transition-colors"
-                        aria-expanded={isPendingOpen}
-                        aria-controls="pending-approvals-accordion"
-                    >
-                        {isPendingOpen
-                            ? <ChevronDown size={12} className="shrink-0 text-zinc-500" aria-hidden="true" />
-                            : <ChevronRight size={12} className="shrink-0 text-zinc-500" aria-hidden="true" />}
-                        <span className="flex-1 text-xs text-zinc-400">Pending Approvals</span>
-                        <span className="inline-flex items-center gap-1 rounded border border-amber-500/40 bg-amber-900/20 px-1.5 py-0.5 text-[10px] font-medium text-amber-400">
-                            {pendingMutations.length} pending
-                        </span>
-                    </button>
-                    {isPendingOpen && (
-                        <div id="pending-approvals-accordion" className="px-3 py-2 space-y-1.5" data-testid="pending-approvals-list">
-                            {pendingMutations.map((m) => (
-                                <div
-                                    key={m.id}
-                                    className={`rounded border px-3 py-2 ${RISK_TIER_STYLE[m.riskTier] ?? 'border-zinc-700 bg-zinc-800/50 text-zinc-400'}`}
-                                    data-testid={`pending-mutation-${m.id}`}
+                        {/* ── ACCORDION: Session & Baseline ───────────────────── */}
+                        {tokenCount > 0 && (
+                            <div className="border-t border-zinc-800/60">
+                                <button
+                                    type="button"
+                                    onClick={() => setIsSessionOpen((v) => !v)}
+                                    className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-zinc-800/30 transition-colors"
+                                    aria-expanded={isSessionOpen}
+                                    aria-controls="session-accordion"
                                 >
-                                    <div className="flex items-start gap-2">
-                                        <div className="flex-1 min-w-0">
-                                            <p className="text-xs font-medium truncate">
-                                                {m.type} — {m.filePath.split('/').pop() ?? m.filePath}
-                                            </p>
-                                            <div className="flex items-center gap-2 mt-0.5">
-                                                <span className="text-[10px] font-mono">
-                                                    Risk: {m.riskScore}
-                                                </span>
-                                                <span className={`text-[10px] rounded px-1 py-px ${
-                                                    m.riskTier === 'Red' ? 'bg-red-900/40 text-red-300' : 'bg-amber-900/40 text-amber-300'
-                                                }`}>
-                                                    {m.riskTier}
-                                                </span>
-                                                {m.agentId && (
-                                                    <span className="text-[10px] text-zinc-400 truncate">
-                                                        Agent: {m.agentId}
-                                                    </span>
+                                    {isSessionOpen ? <ChevronDown size={12} className="shrink-0 text-zinc-500" aria-hidden="true" /> : <ChevronRight size={12} className="shrink-0 text-zinc-500" aria-hidden="true" />}
+                                    <span className="flex-1 text-xs text-zinc-400">Session &amp; Baseline</span>
+                                    {isBaselineSet && <span className="text-[10px] text-indigo-400">Delta on</span>}
+                                </button>
+                                {isSessionOpen && (
+                                    <div id="session-accordion" className="px-3 py-2 space-y-2">
+                                        {activeFileName ? (
+                                            <div className="flex items-center gap-2 rounded px-2 py-1.5 bg-zinc-800/40">
+                                                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-indigo-400" aria-hidden="true" />
+                                                <span className="flex-1 truncate font-mono text-xs text-zinc-300" title={activeFilePath ?? ''}>{activeFileName}</span>
+                                                {mithrilCount + a11yCount > 0 && (
+                                                    <span className="text-xs px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 font-mono">{mithrilCount + a11yCount}</span>
                                                 )}
                                             </div>
+                                        ) : (
+                                            <p className="py-1 text-xs text-zinc-600">No file open</p>
+                                        )}
+                                        <div className="flex items-center gap-2" data-testid="delta-mode-section">
+                                            {!isBaselineSet ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => void handleSetBaseline()}
+                                                    disabled={baselineStatus !== 'idle' || !activeFilePath}
+                                                    className="flex-1 rounded border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs text-zinc-300 transition-colors hover:border-indigo-500/60 hover:bg-indigo-900/20 hover:text-indigo-300 disabled:cursor-not-allowed disabled:opacity-40"
+                                                >
+                                                    {baselineStatus === 'setting'
+                                                        ? 'Setting baseline...'
+                                                        : `Show only new issues${totalRaw > 0 ? ` (${totalRaw} baselined)` : ''}`}
+                                                </button>
+                                            ) : (
+                                                <>
+                                                    <span className="flex-1 text-xs text-indigo-400">Showing new issues only ({baselineEntries.length} baselined)</span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => void handleClearBaseline()}
+                                                        disabled={baselineStatus !== 'idle'}
+                                                        className="rounded border border-zinc-700 bg-zinc-800 px-2.5 py-1 text-[10px] text-zinc-400 transition-colors hover:border-red-500/40 hover:bg-red-900/10 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-40"
+                                                    >
+                                                        {baselineStatus === 'clearing' ? 'Clearing...' : 'Show All'}
+                                                    </button>
+                                                </>
+                                            )}
                                         </div>
-                                        <div className="flex items-center gap-1 shrink-0">
-                                            <button
-                                                type="button"
-                                                onClick={() => void handleApproveMutation(m.id)}
-                                                className="rounded border border-emerald-500/40 bg-emerald-900/20 px-2 py-0.5 text-[10px] text-emerald-400 hover:bg-emerald-900/40 transition-colors"
-                                                aria-label={`Approve mutation ${m.id}`}
-                                                data-testid={`approve-mutation-${m.id}`}
-                                            >
-                                                Approve
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => void handleRejectMutation(m.id)}
-                                                className="rounded border border-red-500/40 bg-red-900/20 px-2 py-0.5 text-[10px] text-red-400 hover:bg-red-900/40 transition-colors"
-                                                aria-label={`Reject mutation ${m.id}`}
-                                                data-testid={`reject-mutation-${m.id}`}
-                                            >
-                                                Reject
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
-            )}
-
-            {/* ── COUNSEL.4.5: Audit Log ──────────────────────────────────── */}
-            <div className="border-t border-zinc-800" data-testid="audit-log-section">
-                <button
-                    type="button"
-                    onClick={() => setIsAuditLogOpen((v) => !v)}
-                    className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-zinc-800/30 transition-colors"
-                    aria-expanded={isAuditLogOpen}
-                    aria-controls="audit-log-accordion"
-                    data-testid="audit-log-toggle"
-                >
-                    {isAuditLogOpen
-                        ? <ChevronDown size={12} className="shrink-0 text-zinc-500" aria-hidden="true" />
-                        : <ChevronRight size={12} className="shrink-0 text-zinc-500" aria-hidden="true" />}
-                    <ClipboardList size={11} className="shrink-0 text-zinc-500" aria-hidden="true" />
-                    <span className="flex-1 text-xs text-zinc-400">Audit Log</span>
-                    {auditLog.length > 0 && (
-                        <span className="text-[10px] text-zinc-600">{auditLog.length}</span>
-                    )}
-                </button>
-                {isAuditLogOpen && (
-                    <div
-                        id="audit-log-accordion"
-                        className="overflow-y-auto"
-                        style={{ maxHeight: 240 }}
-                        data-testid="audit-log-list"
-                    >
-                        {auditLog.length === 0 ? (
-                            <p className="px-4 py-4 text-xs text-zinc-600 text-center" data-testid="audit-log-empty">
-                                No audit events yet
-                            </p>
-                        ) : (
-                            <div className="divide-y divide-zinc-800/40">
-                                {auditLog.map((entry) => (
-                                    <div
-                                        key={entry.id}
-                                        className="flex items-start gap-2 px-3 py-2 hover:bg-zinc-800/30 transition-colors"
-                                        data-testid={`audit-log-entry-${entry.id}`}
-                                    >
-                                        <div className="min-w-0 flex-1">
-                                            <div className="flex items-center gap-1.5 flex-wrap">
-                                                <span className="text-[10px] font-medium text-zinc-300">{entry.action}</span>
-                                                <span className="text-[10px] font-mono text-zinc-600 truncate max-w-[100px]" title={entry.filePath}>
-                                                    {entry.filePath.split('/').pop() ?? entry.filePath}
-                                                </span>
+                                        {overridesExist && (
+                                            <div className="flex items-center gap-2 rounded border border-amber-500/30 bg-amber-900/20 px-3 py-2">
+                                                <span className="flex-1 text-xs text-amber-400">Manual Style Overrides active — export blocked</span>
+                                                <span className="text-xs px-1.5 py-0.5 rounded bg-zinc-800 text-amber-400 font-mono">{overrideCount}</span>
                                             </div>
-                                            <p className="text-[10px] text-zinc-400 line-clamp-1">{entry.description}</p>
-                                        </div>
-                                        <span className="shrink-0 text-[10px] text-zinc-700 tabular-nums">
-                                            {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                        </span>
+                                        )}
                                     </div>
-                                ))}
+                                )}
                             </div>
                         )}
+
+                        {/* ── Confirmation toast ───────────────────────────────── */}
+                        {confirmationMsg && (
+                            <div className="mx-3 mt-2 flex items-center gap-2 rounded border border-indigo-500/40 bg-indigo-900/20 px-3 py-2" role="status" aria-live="polite">
+                                <span className="flex-1 text-xs text-indigo-300">{confirmationMsg}</span>
+                            </div>
+                        )}
+
+                        {/* ── ACCORDION: MCP Activity Feed (S4.11) ────────────── */}
+                        <div className="border-t border-zinc-800/60">
+                            <button
+                                type="button"
+                                onClick={() => setIsActivityOpen((v) => !v)}
+                                className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-zinc-800/30 transition-colors"
+                                aria-expanded={isActivityOpen}
+                                aria-controls="activity-accordion"
+                                data-testid="activity-accordion-toggle"
+                            >
+                                {isActivityOpen
+                                    ? <ChevronDown size={12} className="shrink-0 text-zinc-500" aria-hidden="true" />
+                                    : <ChevronRight size={12} className="shrink-0 text-zinc-500" aria-hidden="true" />}
+                                <span className="flex-1 text-xs text-zinc-400">Agent Activity</span>
+                                {mcpActivityEvents.length > 0 && (
+                                    <span className="text-[10px] text-zinc-600">{mcpActivityEvents.length}</span>
+                                )}
+                            </button>
+                            {isActivityOpen && (
+                                <div
+                                    id="activity-accordion"
+                                    className="px-3 py-2"
+                                    data-testid="activity-feed-section"
+                                >
+                                    {mcpActivityEvents.length === 0 ? (
+                                        <div className="flex flex-col items-center justify-center gap-2 py-6 text-center">
+                                            <Activity className="h-5 w-5 text-zinc-600" aria-hidden="true" />
+                                            <p className="text-sm text-zinc-400">
+                                                This feed tracks AI agent actions. Connect an MCP client to start seeing activity.
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-1">
+                                            {mcpActivityEvents.map((event) => (
+                                                <div
+                                                    key={event.id}
+                                                    className="flex items-start gap-2 rounded px-2 py-1.5 hover:bg-zinc-800/40"
+                                                >
+                                                    <span
+                                                        className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${
+                                                            event.severity === 'error' || event.severity === 'critical'
+                                                                ? 'bg-red-400'
+                                                                : event.severity === 'warning'
+                                                                  ? 'bg-amber-400'
+                                                                  : 'bg-indigo-400'
+                                                        }`}
+                                                        aria-hidden="true"
+                                                    />
+                                                    <div className="min-w-0 flex-1">
+                                                        <p className="truncate text-xs text-zinc-300">{event.title}</p>
+                                                        {event.message && (
+                                                            <p className="truncate text-[10px] text-zinc-400">{event.message}</p>
+                                                        )}
+                                                    </div>
+                                                    {/* S5.11: "Undo this" link for mutation-type events that changed code */}
+                                                    {event.type === 'mutation' && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => void applyUndo()}
+                                                            className="shrink-0 self-center rounded border border-zinc-700 px-2 py-0.5 text-[10px] text-zinc-500 hover:border-indigo-500/40 hover:text-indigo-400 transition-colors"
+                                                            aria-label="Undo this agent action"
+                                                        >
+                                                            Undo this
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* ── COUNSEL.4.1: Token Change Impact Preview ─────────── */}
+                        {tokenImpact && (
+                            <div className="border-t border-zinc-800/60" data-testid="token-impact-section">
+                                <button
+                                    type="button"
+                                    onClick={() => setIsTokenImpactOpen((v) => !v)}
+                                    className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-zinc-800/30 transition-colors"
+                                    aria-expanded={isTokenImpactOpen}
+                                    aria-controls="token-impact-accordion"
+                                >
+                                    {isTokenImpactOpen
+                                        ? <ChevronDown size={12} className="shrink-0 text-zinc-500" aria-hidden="true" />
+                                        : <ChevronRight size={12} className="shrink-0 text-zinc-500" aria-hidden="true" />}
+                                    <span className="flex-1 text-xs text-zinc-400">Token Impact</span>
+                                    <span className={`text-[10px] font-medium ${IMPACT_COLOR[tokenImpact.estimatedImpact]}`}>
+                                        {tokenImpact.estimatedImpact}
+                                    </span>
+                                </button>
+                                {isTokenImpactOpen && (
+                                    <div id="token-impact-accordion" className="px-3 py-2 space-y-1.5">
+                                        <div className={`flex items-start gap-2 rounded border px-3 py-2 ${IMPACT_BORDER[tokenImpact.estimatedImpact]}`}>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-xs text-zinc-300">
+                                                    Changing <span className="font-mono text-indigo-300">{tokenImpact.tokenName}</span> would
+                                                    affect <span className={`font-bold ${IMPACT_COLOR[tokenImpact.estimatedImpact]}`}>{tokenImpact.affectedFiles}</span> {tokenImpact.affectedFiles === 1 ? 'file' : 'files'}
+                                                </p>
+                                                <p className={`mt-0.5 text-[10px] ${IMPACT_COLOR[tokenImpact.estimatedImpact]}`}>
+                                                    {tokenImpact.estimatedImpact === 'low' && 'Low impact — safe to change'}
+                                                    {tokenImpact.estimatedImpact === 'medium' && 'Medium impact — review affected files before changing'}
+                                                    {tokenImpact.estimatedImpact === 'high' && 'High impact — this token is widely used, proceed with caution'}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* ── S8.3: Pending Approvals (MRS) ──────────────────── */}
+                        {pendingMutations.length > 0 && (
+                            <div className="border-t border-zinc-800/60" data-testid="pending-approvals-section">
+                                <button
+                                    type="button"
+                                    onClick={() => setIsPendingOpen((v) => !v)}
+                                    className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-zinc-800/30 transition-colors"
+                                    aria-expanded={isPendingOpen}
+                                    aria-controls="pending-approvals-accordion"
+                                >
+                                    {isPendingOpen
+                                        ? <ChevronDown size={12} className="shrink-0 text-zinc-500" aria-hidden="true" />
+                                        : <ChevronRight size={12} className="shrink-0 text-zinc-500" aria-hidden="true" />}
+                                    <span className="flex-1 text-xs text-zinc-400">Pending Approvals</span>
+                                    <span className="inline-flex items-center gap-1 rounded border border-amber-500/40 bg-amber-900/20 px-1.5 py-0.5 text-[10px] font-medium text-amber-400">
+                                        {pendingMutations.length} pending
+                                    </span>
+                                </button>
+                                {isPendingOpen && (
+                                    <div id="pending-approvals-accordion" className="px-3 py-2 space-y-1.5" data-testid="pending-approvals-list">
+                                        {pendingMutations.map((m) => (
+                                            <div
+                                                key={m.id}
+                                                className={`rounded border px-3 py-2 ${RISK_TIER_STYLE[m.riskTier] ?? 'border-zinc-700 bg-zinc-800/50 text-zinc-400'}`}
+                                                data-testid={`pending-mutation-${m.id}`}
+                                            >
+                                                <div className="flex items-start gap-2">
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="text-xs font-medium truncate">
+                                                            {m.type} — {m.filePath.split('/').pop() ?? m.filePath}
+                                                        </p>
+                                                        <div className="flex items-center gap-2 mt-0.5">
+                                                            <span className="text-[10px] font-mono">
+                                                                Risk: {m.riskScore}
+                                                            </span>
+                                                            <span className={`text-[10px] rounded px-1 py-px ${
+                                                                m.riskTier === 'Red' ? 'bg-red-900/40 text-red-300' : 'bg-amber-900/40 text-amber-300'
+                                                            }`}>
+                                                                {m.riskTier}
+                                                            </span>
+                                                            {m.agentId && (
+                                                                <span className="text-[10px] text-zinc-400 truncate">
+                                                                    Agent: {m.agentId}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-1 shrink-0">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => void handleApproveMutation(m.id)}
+                                                            className="rounded border border-emerald-500/40 bg-emerald-900/20 px-2 py-0.5 text-[10px] text-emerald-400 hover:bg-emerald-900/40 transition-colors"
+                                                            aria-label={`Approve mutation ${m.id}`}
+                                                            data-testid={`approve-mutation-${m.id}`}
+                                                        >
+                                                            Approve
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => void handleRejectMutation(m.id)}
+                                                            className="rounded border border-red-500/40 bg-red-900/20 px-2 py-0.5 text-[10px] text-red-400 hover:bg-red-900/40 transition-colors"
+                                                            aria-label={`Reject mutation ${m.id}`}
+                                                            data-testid={`reject-mutation-${m.id}`}
+                                                        >
+                                                            Reject
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* ── COUNSEL.4.5: Audit Log ──────────────────────────── */}
+                        <div className="border-t border-zinc-800/60" data-testid="audit-log-section">
+                            <button
+                                type="button"
+                                onClick={() => setIsAuditLogOpen((v) => !v)}
+                                className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-zinc-800/30 transition-colors"
+                                aria-expanded={isAuditLogOpen}
+                                aria-controls="audit-log-accordion"
+                                data-testid="audit-log-toggle"
+                            >
+                                {isAuditLogOpen
+                                    ? <ChevronDown size={12} className="shrink-0 text-zinc-500" aria-hidden="true" />
+                                    : <ChevronRight size={12} className="shrink-0 text-zinc-500" aria-hidden="true" />}
+                                <ClipboardList size={11} className="shrink-0 text-zinc-500" aria-hidden="true" />
+                                <span className="flex-1 text-xs text-zinc-400">Audit Log</span>
+                                {auditLog.length > 0 && (
+                                    <span className="text-[10px] text-zinc-600">{auditLog.length}</span>
+                                )}
+                            </button>
+                            {isAuditLogOpen && (
+                                <div
+                                    id="audit-log-accordion"
+                                    className="overflow-y-auto"
+                                    style={{ maxHeight: 240 }}
+                                    data-testid="audit-log-list"
+                                >
+                                    {auditLog.length === 0 ? (
+                                        <p className="px-4 py-4 text-xs text-zinc-600 text-center" data-testid="audit-log-empty">
+                                            No audit events yet
+                                        </p>
+                                    ) : (
+                                        <div className="divide-y divide-zinc-800/40">
+                                            {auditLog.map((entry) => (
+                                                <div
+                                                    key={entry.id}
+                                                    className="flex items-start gap-2 px-3 py-2 hover:bg-zinc-800/30 transition-colors"
+                                                    data-testid={`audit-log-entry-${entry.id}`}
+                                                >
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                                            <span className="text-[10px] font-medium text-zinc-300">{entry.action}</span>
+                                                            <span className="text-[10px] font-mono text-zinc-600 truncate max-w-[100px]" title={entry.filePath}>
+                                                                {entry.filePath.split('/').pop() ?? entry.filePath}
+                                                            </span>
+                                                        </div>
+                                                        <p className="text-[10px] text-zinc-400 line-clamp-1">{entry.description}</p>
+                                                    </div>
+                                                    <span className="shrink-0 text-[10px] text-zinc-700 tabular-nums">
+                                                        {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                    {/* ── Compliance Coverage (ERM) ─────────────────────── */}
+                    <CoverageBar coverages={jurisdictionCoverage} isLoading={isLoadingConfig} />
+
+                    {/* ── Config Inheritance (ERM) ──────────────────────── */}
+                    <InheritanceChain chain={inheritanceChain} isLoading={isLoadingConfig} />
+
                     </div>
                 )}
-            </div>
-
-            {/* ── Compliance Coverage (ERM) ──────────────────────────────── */}
-            <CoverageBar coverages={jurisdictionCoverage} isLoading={isLoadingConfig} />
-
-            {/* ── Config Inheritance (ERM) ───────────────────────────────── */}
-            <InheritanceChain chain={inheritanceChain} isLoading={isLoadingConfig} />
+            </div>}
         </div>
     )
 }

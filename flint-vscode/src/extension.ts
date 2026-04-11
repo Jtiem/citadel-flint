@@ -314,10 +314,11 @@ export async function activate(
     }
 
     // Create and start the MCP client
+    const nodePath = resolveNodePath();
     client = new FlintClient({ onLog: log });
 
     try {
-        await client.start(serverPath, workspaceRoot);
+        await client.start(serverPath, workspaceRoot, nodePath ?? undefined);
         log('Flint MCP client started successfully');
     } catch (err) {
         const message =
@@ -501,46 +502,52 @@ export async function activate(
         ),
     );
 
-    // Update governance panel when active editor changes
+    // Update governance panel when active editor changes (debounced)
+    let editorChangeTimer: ReturnType<typeof setTimeout> | null = null;
     context.subscriptions.push(
-        vscode.window.onDidChangeActiveTextEditor(async (editor) => {
+        vscode.window.onDidChangeActiveTextEditor((editor) => {
             if (!editor) return;
 
             const filePath = editor.document.uri.fsPath;
 
-            // IDE→Glass file sync: write active file so Flint Glass can follow focus.
-            // Runs unconditionally — Glass sync works even when MCP is not connected.
+            // IDE->Glass file sync: write active file so Flint Glass can follow focus.
+            // Runs unconditionally -- Glass sync works even when MCP is not connected.
             const flintDir = path.join(workspaceRoot, '.flint');
             const syncFile = path.join(flintDir, 'ide-active-file.json');
             fs.promises.mkdir(flintDir, { recursive: true })
                 .then(() => fs.promises.writeFile(syncFile, JSON.stringify({ path: filePath, ts: Date.now() }), 'utf8'))
-                .catch(() => { /* Non-fatal — Glass just won't auto-follow this editor change */ });
+                .catch(() => { /* Non-fatal -- Glass just won't auto-follow this editor change */ });
 
-            // Governance audit requires MCP connection.
-            if (!client?.isConnected()) return;
-            try {
-                const result = await callMcpTool('flint_audit', {
-                    source: editor.document.getText(),
-                    filePath,
-                });
-                // Extract violations from MCP response
-                let violations: unknown[] = [];
-                const raw = result as { content?: Array<{ text?: string }> };
-                if (raw?.content?.[0]?.text) {
-                    try {
-                        const parsed = JSON.parse(raw.content[0].text) as {
-                            violations?: unknown[];
-                        };
-                        violations = parsed.violations ?? [];
-                    } catch {
-                        // Non-JSON response -- leave violations empty
+            // Debounce the governance audit to prevent flooding on rapid tab switching
+            if (editorChangeTimer) clearTimeout(editorChangeTimer);
+            editorChangeTimer = setTimeout(async () => {
+                editorChangeTimer = null;
+                // Governance audit requires MCP connection.
+                if (!client?.isConnected()) return;
+                try {
+                    const result = await callMcpTool('flint_audit', {
+                        source: editor.document.getText(),
+                        filePath,
+                    });
+                    // Extract violations from MCP response
+                    let violations: unknown[] = [];
+                    const raw = result as { content?: Array<{ text?: string }> };
+                    if (raw?.content?.[0]?.text) {
+                        try {
+                            const parsed = JSON.parse(raw.content[0].text) as {
+                                violations?: unknown[];
+                            };
+                            violations = parsed.violations ?? [];
+                        } catch {
+                            // Non-JSON response -- leave violations empty
+                        }
                     }
+                    governanceProvider.updateForFile(violations, filePath);
+                } catch {
+                    // Audit failed -- update with empty violations
+                    governanceProvider.updateForFile([], filePath);
                 }
-                governanceProvider.updateForFile(violations, filePath);
-            } catch {
-                // Audit failed -- update with empty violations
-                governanceProvider.updateForFile([], filePath);
-            }
+            }, 300);
         }),
     );
 

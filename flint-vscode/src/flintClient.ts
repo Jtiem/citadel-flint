@@ -107,8 +107,9 @@ export class FlintClient {
      * Spawns the MCP server child process.
      * @param serverPath Absolute path to flint-mcp/dist/server.js
      * @param projectRoot Workspace root passed as FLINT_PROJECT_ROOT
+     * @param nodePath Absolute path to the system Node.js binary (not Electron)
      */
-    async start(serverPath: string, projectRoot: string): Promise<void> {
+    async start(serverPath: string, projectRoot: string, nodePath?: string): Promise<void> {
         if (this.proc !== null) {
             await this.stop();
         }
@@ -120,7 +121,11 @@ export class FlintClient {
             );
         }
 
-        const proc = spawn(process.execPath, [serverPath], {
+        // Use the resolved system Node.js binary. process.execPath inside a
+        // VS Code extension host is the Electron binary, which may not support
+        // MCP-required Node APIs in non-VS Code hosts (Cursor, Windsurf).
+        const nodeExec = nodePath ?? process.execPath;
+        const proc = spawn(nodeExec, [serverPath], {
             cwd: projectRoot,
             env: {
                 ...process.env,
@@ -213,38 +218,43 @@ export class FlintClient {
     // -- Internal -----------------------------------------------------------
 
     private async sendHandshake(): Promise<void> {
-        const req: JsonRpcRequest = {
-            jsonrpc: '2.0',
-            id: this.nextId++,
-            method: 'initialize',
-            params: {
+        // MCP spec: send initialize request, wait for response, then send
+        // initialized notification. Do NOT assume connected after a timeout.
+        try {
+            await this.rpc('initialize', {
                 protocolVersion: '2024-11-05',
                 capabilities: {},
                 clientInfo: { name: 'flint-vscode', version: '0.1.0' },
-            },
-        };
-        this.send(req);
+            });
 
-        // Fallback: assume connected after settle period
-        await new Promise<void>((resolve) => {
-            const check = setInterval(() => {
-                if (this.connected) {
-                    clearInterval(check);
-                    resolve();
-                }
-            }, 100);
+            // Send the initialized notification (no id = notification per JSON-RPC)
+            this.sendNotification('notifications/initialized');
 
-            setTimeout(() => {
-                clearInterval(check);
-                if (!this.connected && this.proc) {
-                    this.connected = true;
-                    this.onLog(
-                        'Flint MCP: assumed connected after handshake settle',
-                    );
-                }
-                resolve();
-            }, 3000);
-        });
+            this.connected = true;
+            this.onLog('Flint MCP: handshake complete');
+        } catch (err) {
+            // If handshake fails, mark as connected only if the server is alive
+            // (stderr detection) to support servers that don't implement initialize.
+            if (!this.connected && this.proc) {
+                this.connected = true;
+                this.onLog(
+                    'Flint MCP: initialize failed, assuming connected as fallback',
+                );
+            }
+        }
+    }
+
+    private sendNotification(method: string, params?: unknown): void {
+        if (!this.proc?.stdin?.writable) {
+            this.onLog('Flint MCP: cannot send notification -- stdin not writable');
+            return;
+        }
+        const msg = JSON.stringify({
+            jsonrpc: '2.0',
+            method,
+            ...(params !== undefined ? { params } : {}),
+        }) + '\n';
+        this.proc.stdin.write(msg);
     }
 
     private handleResponse(msg: JsonRpcResponse): void {

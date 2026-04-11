@@ -84,7 +84,7 @@ function rowToAnomaly(row: AnomalyRow): Anomaly {
 }
 
 function computeThreshold(mean: number, stddev: number, sigmas = 3): number {
-    if (stddev === 0) return mean * 1.5
+    if (stddev === 0) return Math.max(mean * 1.5, 1)
     return mean + sigmas * stddev
 }
 
@@ -102,6 +102,47 @@ function computeMeanStddev(values: number[]): { mean: number; stddev: number } {
     if (values.length < 2) return { mean, stddev: 0 }
     const variance = values.reduce((sum, v) => sum + (v - mean) ** 2, 0) / values.length
     return { mean, stddev: Math.sqrt(variance) }
+}
+
+// ---------------------------------------------------------------------------
+// SQL safety: whitelist of allowed table/column names for dynamic queries
+// ---------------------------------------------------------------------------
+
+const ALLOWED_TABLES = new Set([
+    'override_events',
+    'governance_events',
+    'mutations_ledger',
+    'mutation_risk_scores',
+    'anomaly_history',
+])
+
+const ALLOWED_COLUMNS = new Set([
+    'timestamp',
+    'scored_at',
+    'project_root',
+    'file_path',
+])
+
+const ALLOWED_EXTRA_WHERE = new Set([
+    "event_type = 'violation'",
+])
+
+function assertAllowedTable(table: string): void {
+    if (!ALLOWED_TABLES.has(table)) {
+        throw new Error(`[AnomalyDetection] Invalid table name: ${table}`)
+    }
+}
+
+function assertAllowedColumn(col: string): void {
+    if (!ALLOWED_COLUMNS.has(col)) {
+        throw new Error(`[AnomalyDetection] Invalid column name: ${col}`)
+    }
+}
+
+function assertAllowedExtraWhere(clause: string): void {
+    if (!ALLOWED_EXTRA_WHERE.has(clause)) {
+        throw new Error(`[AnomalyDetection] Invalid extra WHERE clause: ${clause}`)
+    }
 }
 
 function tableExists(db: Database.Database, tableName: string): boolean {
@@ -292,9 +333,13 @@ export class AnomalyDetectionService {
         const agentAnomalies = this.detectAgentBehaviorChange(projectRoot, baseline, since24h, now)
         anomalies.push(...agentAnomalies)
 
-        // Persist all detected anomalies
-        for (const anomaly of anomalies) {
-            this.persistAnomaly(anomaly)
+        // Persist all detected anomalies atomically (MAJOR-5 fix)
+        if (anomalies.length > 0) {
+            this.db.transaction(() => {
+                for (const anomaly of anomalies) {
+                    this.persistAnomaly(anomaly)
+                }
+            })()
         }
 
         return anomalies
@@ -381,6 +426,9 @@ export class AnomalyDetectionService {
         scopeVal: string | null,
         since: string,
     ): number[] {
+        assertAllowedTable(table)
+        assertAllowedColumn(tsCol)
+        if (scopeCol) assertAllowedColumn(scopeCol)
         if (!tableExists(this.db, table)) return []
         const scopeClause = scopeCol ? `AND ${scopeCol} = ?` : ''
         const params: unknown[] = [since]
@@ -404,6 +452,9 @@ export class AnomalyDetectionService {
         since: string,
         extraWhere: string,
     ): number[] {
+        assertAllowedTable(table)
+        assertAllowedColumn(tsCol)
+        assertAllowedExtraWhere(extraWhere)
         if (!tableExists(this.db, table)) return []
         const sql = `
             SELECT COUNT(*) AS cnt
@@ -417,6 +468,8 @@ export class AnomalyDetectionService {
     }
 
     private getHourlyCounts(table: string, tsCol: string, since: string): number[] {
+        assertAllowedTable(table)
+        assertAllowedColumn(tsCol)
         if (!tableExists(this.db, table)) return []
         const sql = `
             SELECT COUNT(*) AS cnt
@@ -449,6 +502,9 @@ export class AnomalyDetectionService {
         scopeVal: string | null,
         since: string,
     ): number {
+        assertAllowedTable(table)
+        assertAllowedColumn(tsCol)
+        if (scopeCol) assertAllowedColumn(scopeCol)
         if (!tableExists(this.db, table)) return 0
         const scopeClause = scopeCol ? `AND ${scopeCol} = ?` : ''
         const params: unknown[] = [since]
@@ -464,6 +520,9 @@ export class AnomalyDetectionService {
         since: string,
         extraWhere: string,
     ): number {
+        assertAllowedTable(table)
+        assertAllowedColumn(tsCol)
+        assertAllowedExtraWhere(extraWhere)
         if (!tableExists(this.db, table)) return 0
         const sql = `SELECT COUNT(*) AS cnt FROM ${table} WHERE ${tsCol} >= ? AND ${extraWhere}`
         const row = this.db.prepare(sql).get(since) as { cnt: number }

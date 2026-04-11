@@ -35,6 +35,7 @@ import {
     BackgroundVariant,
     Controls,
     MiniMap,
+    NodeResizer,
     type NodeTypes,
     type Node,
 } from '@xyflow/react'
@@ -131,12 +132,28 @@ function ViolationIndicator() {
  * `nodrag` class on the wrapping div prevents XYFlow's built-in drag from
  * interfering with the inner Shield overlay's drag logic. The node *header*
  * (the chrome bar above) remains draggable via the `drag-handle` class.
+ *
+ * T5.2: Size is initialised from canvasStore (persisted to localStorage) and
+ * saved back on NodeResizer onResizeEnd so the size survives session reloads.
  */
 function LivePreviewNode() {
+    const previewWidth = useCanvasStore((s) => s.previewWidth)
+    const previewHeight = useCanvasStore((s) => s.previewHeight)
+    const setPreviewSize = useCanvasStore((s) => s.setPreviewSize)
+
     return (
+        <>
+            {/* T5.2: NodeResizer — persist final size to canvasStore on drag end */}
+            <NodeResizer
+                minWidth={300}
+                minHeight={200}
+                onResizeEnd={(_event, params) => {
+                    setPreviewSize(Math.round(params.width), Math.round(params.height))
+                }}
+            />
         <div
-            className="relative flex flex-col overflow-hidden rounded-xl border border-gray-700 bg-gray-950 shadow-2xl shadow-black/60"
-            style={{ width: 900, height: 600 }}
+            className="relative flex flex-col overflow-hidden rounded-xl border border-gray-700 bg-gray-900 shadow-2xl shadow-black/60"
+            style={{ width: previewWidth, height: previewHeight }}
         >
             {/* S8.1: Violation indicator dot (top-right corner) */}
             <ViolationIndicator />
@@ -161,6 +178,7 @@ function LivePreviewNode() {
                 <LivePreview />
             </div>
         </div>
+        </>
     )
 }
 
@@ -311,6 +329,12 @@ export function XYCanvas() {
             onDrop={handleDrop}
             data-testid="xy-canvas-container"
         >
+            {/* T3.3: Custom scrollbar styling for any overflow children */}
+            <style>{`
+                [data-testid="xy-canvas-container"] ::-webkit-scrollbar { width: 6px; height: 6px; }
+                [data-testid="xy-canvas-container"] ::-webkit-scrollbar-thumb { background: rgb(63 63 70); border-radius: 3px; } /* zinc-700 */
+                [data-testid="xy-canvas-container"] ::-webkit-scrollbar-track { background: transparent; }
+            `}</style>
             {/* GLASS.1c — Canvas is always the canvas. No Build/Govern modes. */}
             <ReactFlow
                 defaultNodes={INITIAL_NODES}
@@ -324,22 +348,22 @@ export function XYCanvas() {
                 elementsSelectable={false}
                 zoomOnDoubleClick={false}
                 proOptions={proOptions}
-                className="bg-gray-900"
+                className="bg-gray-900" /* T3.2: lightened from bg-gray-950 */
             >
                 <Background
                     variant={BackgroundVariant.Dots}
                     gap={24}
                     size={1}
-                    color="#374151"
+                    color="rgb(55 65 81)" /* gray-700 */
                 />
                 <Controls
                     showInteractive={false}
                     className="[&>button]:border-gray-700 [&>button]:bg-gray-900 [&>button]:text-gray-400 [&>button:hover]:bg-gray-800"
                 />
                 <MiniMap
-                    nodeColor="#4f46e5"
+                    nodeColor="rgb(79 70 229)" /* indigo-600 */
                     maskColor="rgba(0,0,0,0.6)"
-                    style={{ background: '#111827', border: '1px solid #1f2937' }}
+                    style={{ background: 'rgb(17 24 39)' /* gray-900 */, border: '1px solid rgb(31 41 55)' /* gray-800 */ }}
                 />
             </ReactFlow>
 

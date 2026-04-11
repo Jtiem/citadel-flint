@@ -12,6 +12,7 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
+import { parse as parseYaml } from 'yaml'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -408,56 +409,46 @@ export function getPacksByJurisdiction(jurisdiction: string): RulePack[] {
  * when no config is found (default active packs).
  */
 export function getActivePackIds(projectRoot: string): string[] {
+    const defaults = () =>
+        RULE_PACK_REGISTRY.filter((p) => p.status === 'active').map((p) => p.id)
+
     const configPath = path.join(projectRoot, 'flint.config.yaml')
     if (!fs.existsSync(configPath)) {
-        // No config — return the two packs that are always active by default
-        return RULE_PACK_REGISTRY.filter((p) => p.status === 'active').map((p) => p.id)
+        return defaults()
     }
 
     try {
+        // Use the proper YAML parser instead of regex (MAJOR-9 fix).
+        // YAML spec disallows unquoted `@` at scalar start, but `@flint/`
+        // preset refs are idiomatic in Flint configs. Preprocess to quote them.
         const raw = fs.readFileSync(configPath, 'utf-8')
+        const sanitized = raw
+            // Block sequence: `  - @flint/foo` → `  - "@flint/foo"`
+            .replace(/^(\s*-\s*)(@flint\/[^\s,\]]+)/gm, '$1"$2"')
+            // Inline array: `[@flint/foo, @flint/bar]` → `["@flint/foo", "@flint/bar"]`
+            .replace(/(?<=[\[,]\s*)(@flint\/[^\s,\]]+)/g, '"$1"')
+        const parsed = parseYaml(sanitized)
 
-        // Inline empty array: extends: []
-        if (/^extends\s*:\s*\[\s*\]/m.test(raw)) {
+        if (!parsed || typeof parsed !== 'object') {
+            return defaults()
+        }
+
+        const extendsRefs = parsed.extends
+        if (!extendsRefs || !Array.isArray(extendsRefs)) {
+            return defaults()
+        }
+
+        if (extendsRefs.length === 0) {
             return []
         }
 
-        // Inline array with content: extends: [@flint/a, @flint/b]
-        const inlineMatch = raw.match(/^extends\s*:\s*\[([^\]]+)\]/m)
-        if (inlineMatch) {
-            const presets = inlineMatch[1]
-                .split(',')
-                .map((s) => s.trim().replace(/^['"]|['"]$/g, ''))
-                .filter(Boolean)
-            const activeIds: string[] = []
-            for (const pack of RULE_PACK_REGISTRY) {
-                if (!pack.preset) continue
-                if (presets.includes(pack.preset)) activeIds.push(pack.id)
-            }
-            return activeIds
+        const activeIds: string[] = []
+        for (const pack of RULE_PACK_REGISTRY) {
+            if (!pack.preset) continue
+            if (extendsRefs.includes(pack.preset)) activeIds.push(pack.id)
         }
-
-        // Block sequence: extends:\n  - @flint/a
-        const blockMatch = raw.match(/^extends\s*:\s*\n((?:[ \t]+-[^\n]*\n?)*)/)
-        if (blockMatch) {
-            const presets = blockMatch[1]
-                .split('\n')
-                .map((line) => line.replace(/^\s*-\s*/, '').trim().replace(/^['"]|['"]$/g, ''))
-                .filter(Boolean)
-
-            if (presets.length === 0) return []
-
-            const activeIds: string[] = []
-            for (const pack of RULE_PACK_REGISTRY) {
-                if (!pack.preset) continue
-                if (presets.includes(pack.preset)) activeIds.push(pack.id)
-            }
-            return activeIds
-        }
-
-        // No extends key found — return defaults
-        return RULE_PACK_REGISTRY.filter((p) => p.status === 'active').map((p) => p.id)
+        return activeIds
     } catch {
-        return RULE_PACK_REGISTRY.filter((p) => p.status === 'active').map((p) => p.id)
+        return defaults()
     }
 }

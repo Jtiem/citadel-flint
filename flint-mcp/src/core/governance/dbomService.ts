@@ -231,9 +231,6 @@ interface CycloneDXEnvelope {
         properties: Array<{ name: string; value: string }>
     }>
     properties: Array<{ name: string; value: string }>
-    extensions: {
-        'flint:dbom': DBOM
-    }
 }
 
 /**
@@ -277,10 +274,8 @@ function wrapCycloneDX(dbom: DBOM): CycloneDXEnvelope {
             { name: 'flint:healthScore', value: String(dbom.posture.healthScore) },
             { name: 'flint:grade', value: dbom.posture.grade },
             { name: 'flint:totalViolations', value: String(dbom.posture.totalViolations) },
+            { name: 'flint:dbom', value: JSON.stringify(dbom) },
         ],
-        extensions: {
-            'flint:dbom': dbom,
-        },
     }
 }
 
@@ -423,7 +418,9 @@ export async function generateDBOM(
             fs.mkdirSync(flintDir, { recursive: true })
         }
         const outputPath = path.join(flintDir, 'dbom.json')
-        fs.writeFileSync(outputPath, JSON.stringify(dbom, null, 2), 'utf-8')
+        const tmpPath = outputPath + '.tmp'
+        fs.writeFileSync(tmpPath, JSON.stringify(dbom, null, 2), 'utf-8')
+        fs.renameSync(tmpPath, outputPath)
     }
 
     return dbom

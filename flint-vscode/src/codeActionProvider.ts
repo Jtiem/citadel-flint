@@ -110,8 +110,8 @@ export class FlintCodeActionProvider implements vscode.CodeActionProvider {
         return [
             vscode.commands.registerCommand(
                 'flint.applyFix',
-                async (uri: vscode.Uri) => {
-                    await this.applyFix(uri);
+                async (uri: vscode.Uri, violation?: { ruleId: string }) => {
+                    await this.applyFix(uri, violation);
                 },
             ),
             vscode.commands.registerCommand(
@@ -126,11 +126,11 @@ export class FlintCodeActionProvider implements vscode.CodeActionProvider {
     // -- Internal -----------------------------------------------------------
 
     /**
-     * Calls flint_fix via MCP for the entire document and applies the result.
-     * flint_fix operates on the full source and fixes all detected violations
-     * in a single Babel AST pass, so both single-fix and fix-all use this path.
+     * Calls flint_fix via MCP for the document and applies the result.
+     * When a specific violation is provided, only that rule is fixed.
+     * When no violation is provided, all violations are fixed (fix-all).
      */
-    private async applyFix(uri: vscode.Uri): Promise<void> {
+    private async applyFix(uri: vscode.Uri, violation?: { ruleId: string }): Promise<void> {
         if (!this.client.isConnected()) {
             vscode.window.showWarningMessage(
                 'Flint MCP server is not connected. Cannot apply fix.',
@@ -143,11 +143,15 @@ export class FlintCodeActionProvider implements vscode.CodeActionProvider {
         const filePath = uri.fsPath;
 
         try {
-            const result = await this.client.callTool('flint_fix', {
+            const fixArgs: Record<string, unknown> = {
                 source,
                 filePath,
                 dryRun: false,
-            });
+            };
+            if (violation?.ruleId) {
+                fixArgs.ruleId = violation.ruleId;
+            }
+            const result = await this.client.callTool('flint_fix', fixArgs);
 
             const textContent = result.content?.find(
                 (c) => c.type === 'text',

@@ -28,6 +28,7 @@ import { useNotificationStore } from '../../store/notificationStore'
 import { SyncStatus } from '../ui/SyncStatus'
 import { BetaFeedbackModal } from '../ui/BetaFeedbackModal'
 import type { FigmaStatus, BetaInfo, UpdateInfo, UpdateDownloadProgress } from '../../types/flint-api'
+import { formatRelativeTime } from '../../utils/relativeTime'
 
 // ── Scratchpad detection ───────────────────────────────────────────────────────
 
@@ -61,21 +62,6 @@ function figmaDotColor(status: FigmaStatus | null): string {
     return 'bg-zinc-500'
 }
 
-/**
- * Formats a Unix timestamp (ms) as a human-readable relative string.
- * Returns "Never" for null.
- */
-function relativeTime(ts: number | null): string {
-    if (ts === null) return 'Never'
-    const diffMs = Date.now() - ts
-    const mins = Math.floor(diffMs / 60_000)
-    if (mins < 1) return 'Just now'
-    if (mins < 60) return `${mins} minute${mins === 1 ? '' : 's'} ago`
-    const hours = Math.floor(mins / 60)
-    if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`
-    const days = Math.floor(hours / 24)
-    return `${days} day${days === 1 ? '' : 's'} ago`
-}
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -102,6 +88,7 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject, onManageFigm
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [mithrilViolations, overridesExist, a11yViolations, storeCanExport],
     )
+    const a11yViolationCount = useMemo(() => Object.keys(a11yViolations).length, [a11yViolations])
     const push = useNotificationStore((s) => s.push)
 
 
@@ -129,7 +116,7 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject, onManageFigm
     // ── Scratchpad indicator ──────────────────────────────────────────────────
     const isScratchpad = isScratchpadPath(activeFilePath)
 
-    const totalIssues = mithrilViolations.length + Object.keys(a11yViolations).length
+    const totalIssues = mithrilViolations.length + a11yViolationCount
     const gateLabel = (() => {
         if (canExport) return null
         if (totalIssues > 0) {
@@ -463,9 +450,9 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject, onManageFigm
         : 'Figma connection — click for details'
 
     return (
-        <footer className="relative flex shrink-0 items-center justify-between border-t border-zinc-800 bg-zinc-950 px-4 py-[3px]">
-            {/* ── Left zone: Export Gate + Figma chip ─────────────────────── */}
-            <div className="flex min-w-0 flex-shrink items-center gap-4 overflow-hidden">
+        <footer className="relative flex shrink-0 items-center justify-between border-t border-zinc-800 bg-zinc-950 px-4 py-1">
+            {/* ── Zone 1 (left): Export Gate — visually dominant primary signal ── */}
+            <div className="flex flex-shrink-0 items-center">
             {/* ── Priority 1: Export Gate — Commandment 6 (The Gatekeeper Rule)
                 GLASS.1d: When violations exist, clicking opens the Governance tab
                 so the user can see and fix them. When clean, opens the export panel.
@@ -480,7 +467,7 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject, onManageFigm
                         setRightTab('governance')
                     }
                 }}
-                className={`flex flex-shrink-0 min-h-[24px] cursor-pointer items-center gap-1.5 text-xs transition-colors ${
+                className={`flex flex-shrink-0 min-h-[24px] cursor-pointer items-center gap-1.5 text-sm font-medium transition-colors ${
                     canExport
                         ? 'text-emerald-500 hover:text-emerald-400'
                         : 'text-amber-400 hover:text-amber-300'
@@ -494,20 +481,24 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject, onManageFigm
             >
                 {canExport ? (
                     <>
-                        <ShieldCheck className="h-3 w-3" />
+                        <ShieldCheck className="h-3.5 w-3.5" />
                         Export Ready
                     </>
                 ) : (
                     <>
-                        <ShieldAlert className="h-3 w-3" />
+                        <ShieldAlert className="h-3.5 w-3.5" />
                         <span className="max-w-[200px] truncate">{gateLabel}</span>
                     </>
                 )}
             </button>
+            </div>{/* end zone 1 */}
+
+            {/* ── Zone 2 (center): Secondary signals — Figma, MCP, violation count ── */}
+            <div className="flex min-w-0 flex-1 items-center justify-center gap-3 px-4">
 
             {/* ── Priority 3: Figma Connection Status (Phase W.2) ─────────────
-                S4.2: Third — infrastructure signal, after export gate and before
-                MCP/Flint indicator. */}
+                S4.2: After export gate — infrastructure signal.
+                DOM order: Export Gate → Figma → MCP (per tests 20, 21). */}
             <div ref={popoverRef} className="relative min-w-0">
                 <button
                     type="button"
@@ -548,7 +539,7 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject, onManageFigm
                             <div className="flex items-center justify-between">
                                 <dt className="text-zinc-400">Last sync</dt>
                                 <dd className="text-zinc-300">
-                                    {relativeTime(figmaStatus?.lastWebhookAt ?? null)}
+                                    {formatRelativeTime(figmaStatus?.lastWebhookAt ?? null)}
                                 </dd>
                             </div>
                             <div className="flex items-center justify-between">
@@ -636,7 +627,7 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject, onManageFigm
                         {/* S7.4: Last synced timestamp */}
                         {lastSyncedAt != null && (
                             <p className="mt-1.5 text-[10px] text-zinc-400" data-testid="figma-last-synced">
-                                Last synced: {relativeTime(lastSyncedAt)}
+                                Last synced: {formatRelativeTime(lastSyncedAt)}
                             </p>
                         )}
 
@@ -697,11 +688,51 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject, onManageFigm
                     </div>
                 )}
             </div>
-            </div>{/* end left zone */}
+
+            {/* ── MCP Connection Indicator (secondary — always visible in zone 2) ── */}
+            {/* DOM order: Figma → MCP (per test 21). Must remain after Figma in markup. */}
+            <div
+                className="flex items-center gap-1.5 px-1.5 py-0.5"
+                title={
+                    mcpConnected === null
+                        ? 'Governance engine — connecting…'
+                        : mcpConnected
+                        // EDU-13: plain-language tooltip explaining what MCP is
+                        ? 'Governance engine — connected. Flint is actively checking your code.'
+                        : 'Governance engine — not connected. Audits and fixes are unavailable.'
+                }
+            >
+                <span
+                    className={[
+                        'inline-block w-2 h-2 rounded-full',
+                        mcpConnected === null
+                            ? 'bg-zinc-500 animate-pulse'
+                            : mcpConnected
+                            ? 'bg-emerald-400'
+                            : 'bg-red-400',
+                    ].join(' ')}
+                    aria-hidden="true"
+                />
+                <span className={`text-xs ${mcpConnected ? 'text-zinc-500' : 'text-zinc-300'}`}>
+                    {mcpConnected === null ? 'Connecting…' : mcpConnected ? 'Connected' : 'Offline'}
+                </span>
+                {mcpConnected === false && (
+                    <button
+                        type="button"
+                        onClick={handleMcpReconnect}
+                        className="text-xs text-zinc-400 hover:text-white underline underline-offset-2 ml-0.5"
+                        aria-label="Reconnect Flint engine"
+                    >
+                        Reconnect
+                    </button>
+                )}
+            </div>
+
+            </div>{/* end zone 2 */}
 
             {/* GOV.2 override badge relocated to GovernanceDashboard (GLASS.3.4-B) */}
 
-            {/* ── Right zone: primary indicators + overflow popover ────────── */}
+            {/* ── Zone 3 (right): Tertiary indicators + overflow popover ─── */}
             <div className="flex flex-shrink-0 items-center gap-2">
 
             {/* ── Contextual primary slot: download progress (transient, high-priority) ── */}
@@ -726,47 +757,7 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject, onManageFigm
                 </span>
             )}
 
-            {/* ── MCP Connection Indicator (primary — always visible) ─────── */}
-            <div
-                className="flex items-center gap-1.5 px-2 py-0.5"
-                title={
-                    mcpConnected === null
-                        ? 'Governance engine — connecting…'
-                        : mcpConnected
-                        // EDU-13: plain-language tooltip explaining what MCP is
-                        ? 'Governance engine — connected. Flint is actively checking your code.'
-                        : 'Governance engine — not connected. Audits and fixes are unavailable.'
-                }
-            >
-                <span
-                    className={[
-                        'inline-block w-2 h-2 rounded-full',
-                        mcpConnected === null
-                            ? 'bg-zinc-500 animate-pulse'
-                            : mcpConnected
-                            ? 'bg-emerald-400'
-                            : 'bg-red-400',
-                    ].join(' ')}
-                    aria-hidden="true"
-                />
-                {!mcpConnected && (
-                    <span className="text-xs text-zinc-300">
-                        {mcpConnected === null ? 'Connecting…' : 'Offline'}
-                    </span>
-                )}
-                {mcpConnected === false && (
-                    <button
-                        type="button"
-                        onClick={handleMcpReconnect}
-                        className="text-xs text-zinc-400 hover:text-white underline underline-offset-2 ml-0.5"
-                        aria-label="Reconnect Flint engine"
-                    >
-                        Reconnect
-                    </button>
-                )}
-            </div>
-
-            {/* ── Overflow popover — secondary indicators ─────────────────── */}
+            {/* ── Overflow popover — tertiary indicators ─────────────────── */}
             <OverflowMenu
                 mcpConnected={mcpConnected}
                 onConnectIDE={onConnectIDE}

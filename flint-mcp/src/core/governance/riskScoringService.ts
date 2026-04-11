@@ -707,29 +707,75 @@ export function getRecommendation(tier: MRSTier, opType: string): string {
  *
  * Never throws.
  */
+/**
+ * Cached DB connections for the stateless queryProvenance function.
+ * Keyed by dbPath. Connections are read-only and reused across calls
+ * to avoid the overhead of opening/closing per invocation (MAJOR-2 fix).
+ */
+const MAX_PROVENANCE_DB_CACHE_SIZE = 5
+const provenanceDbCache = new Map<string, InstanceType<typeof BetterSqlite3>>()
+
+/**
+ * Evict the oldest (least-recently-inserted) cache entry when the cache
+ * exceeds MAX_PROVENANCE_DB_CACHE_SIZE. Map iteration order is insertion
+ * order, so the first key is the oldest.
+ */
+function evictOldestProvenanceDb(): void {
+    while (provenanceDbCache.size >= MAX_PROVENANCE_DB_CACHE_SIZE) {
+        const oldest = provenanceDbCache.keys().next().value
+        if (oldest === undefined) break
+        const db = provenanceDbCache.get(oldest)
+        provenanceDbCache.delete(oldest)
+        try { db?.close() } catch { /* best-effort */ }
+    }
+}
+
+function getProvenanceDb(dbPath: string): InstanceType<typeof BetterSqlite3> | null {
+    const cached = provenanceDbCache.get(dbPath)
+    if (cached) {
+        try {
+            // Verify the connection is still usable
+            cached.prepare('SELECT 1').get()
+            // Refresh insertion order for LRU behavior
+            provenanceDbCache.delete(dbPath)
+            provenanceDbCache.set(dbPath, cached)
+            return cached
+        } catch {
+            // Connection is stale — remove and re-open
+            provenanceDbCache.delete(dbPath)
+        }
+    }
+
+    if (!fs.existsSync(dbPath)) return null
+
+    try {
+        evictOldestProvenanceDb()
+        const db = new BetterSqlite3(dbPath, { readonly: true })
+        provenanceDbCache.set(dbPath, db)
+        return db
+    } catch {
+        return null
+    }
+}
+
 function queryProvenance(projectRoot: string, filePath: string): number {
     try {
         const dbPath = path.join(projectRoot, '.flint', 'provenance.db')
-        if (!fs.existsSync(dbPath)) return -1
+        const db = getProvenanceDb(dbPath)
+        if (!db) return -1
 
-        // Open read-only to avoid creating the db if it's missing
-        const db = new BetterSqlite3(dbPath, { readonly: true })
-        try {
-            // mutation_provenance does not store file_path directly; we join to
-            // mutations_ledger which does. If mutations_ledger doesn't exist yet,
-            // the query will throw and we fall through to return -1.
-            const row = db
-                .prepare(`
-                    SELECT COUNT(*) AS cnt
-                    FROM mutation_provenance mp
-                    INNER JOIN mutations_ledger ml ON mp.mutation_id = ml.id
-                    WHERE ml.file_path = ?
-                `)
-                .get(filePath) as { cnt: number } | undefined
-            return row?.cnt ?? 0
-        } finally {
-            db.close()
-        }
+        // mutation_provenance does not store file_path directly; we join to
+        // mutations_ledger which does. If mutations_ledger doesn't exist yet,
+        // the query will throw and we fall through to return -1.
+        const row = db
+            .prepare(`
+                SELECT COUNT(*) AS cnt
+                FROM mutation_provenance mp
+                INNER JOIN mutations_ledger ml ON mp.mutation_id = ml.id
+                WHERE ml.file_path = ?
+            `)
+            .get(filePath) as { cnt: number } | undefined
+        return row?.cnt ?? 0
     } catch {
         return -1
     }

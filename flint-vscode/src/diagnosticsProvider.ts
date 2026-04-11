@@ -152,31 +152,36 @@ export function parseAuditResponse(
 
 // -- DiagnosticsProvider class ----------------------------------------------
 
+/** Debounce delay for audit triggers (ms). Exported for testing. */
+export const AUDIT_DEBOUNCE_MS = 300;
+
 export class DiagnosticsProvider implements vscode.Disposable {
     private diagnosticCollection: vscode.DiagnosticCollection;
     private disposables: vscode.Disposable[] = [];
     private client: FlintClient;
+    /** Per-file debounce timers keyed by URI string. */
+    private auditTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
     constructor(client: FlintClient) {
         this.client = client;
         this.diagnosticCollection =
             vscode.languages.createDiagnosticCollection('Flint');
 
-        // Audit on file save
+        // Audit on file save (debounced)
         this.disposables.push(
             vscode.workspace.onDidSaveTextDocument((doc) => {
                 const config = vscode.workspace.getConfiguration('flint');
                 if (config.get<boolean>('autoAuditOnSave', true)) {
-                    this.auditDocument(doc);
+                    this.debouncedAudit(doc);
                 }
             }),
         );
 
-        // Audit on file open
+        // Audit on file open (debounced)
         this.disposables.push(
             vscode.workspace.onDidOpenTextDocument((doc) => {
                 if (this.isAuditableDocument(doc)) {
-                    this.auditDocument(doc);
+                    this.debouncedAudit(doc);
                 }
             }),
         );
@@ -229,7 +234,30 @@ export class DiagnosticsProvider implements vscode.Disposable {
         return this.diagnosticCollection;
     }
 
+    /**
+     * Schedules an audit with debounce. Resets the timer if called again
+     * for the same file within AUDIT_DEBOUNCE_MS, preventing audit floods
+     * from rapid tab switching or concurrent open+save events.
+     */
+    debouncedAudit(document: vscode.TextDocument): void {
+        const key = document.uri.toString();
+        const existing = this.auditTimers.get(key);
+        if (existing) clearTimeout(existing);
+        this.auditTimers.set(
+            key,
+            setTimeout(() => {
+                this.auditTimers.delete(key);
+                this.auditDocument(document);
+            }, AUDIT_DEBOUNCE_MS),
+        );
+    }
+
     dispose(): void {
+        // Clear all pending debounce timers
+        for (const timer of this.auditTimers.values()) {
+            clearTimeout(timer);
+        }
+        this.auditTimers.clear();
         this.diagnosticCollection.dispose();
         for (const d of this.disposables) {
             d.dispose();

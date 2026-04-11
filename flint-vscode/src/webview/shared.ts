@@ -43,9 +43,9 @@ export function getBaseStyles(): string {
             font-size: 11px;
             font-weight: 500;
         }
-        .badge-green { background: rgba(16,185,129,0.15); color: #10b981; }
-        .badge-amber { background: rgba(245,158,11,0.15); color: #f59e0b; }
-        .badge-red { background: rgba(239,68,68,0.15); color: #ef4444; }
+        .badge-green { background: color-mix(in srgb, var(--vscode-testing-iconPassed, #10b981) 15%, transparent); color: var(--vscode-testing-iconPassed, #10b981); }
+        .badge-amber { background: color-mix(in srgb, var(--vscode-editorWarning-foreground, #f59e0b) 15%, transparent); color: var(--vscode-editorWarning-foreground, #f59e0b); }
+        .badge-red { background: color-mix(in srgb, var(--vscode-testing-iconFailed, #ef4444) 15%, transparent); color: var(--vscode-testing-iconFailed, #ef4444); }
         .btn {
             background: var(--vscode-button-background);
             color: var(--vscode-button-foreground);
@@ -66,8 +66,8 @@ export function getBaseStyles(): string {
             margin-bottom: 4px;
             font-size: 12px;
         }
-        .violation-item.critical { border-left-color: #ef4444; }
-        .violation-item.warning { border-left-color: #f59e0b; }
+        .violation-item.critical { border-left-color: var(--vscode-testing-iconFailed, #ef4444); }
+        .violation-item.warning { border-left-color: var(--vscode-editorWarning-foreground, #f59e0b); }
         .empty-state {
             text-align: center;
             color: var(--vscode-descriptionForeground);

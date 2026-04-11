@@ -64,22 +64,37 @@ export class GovernancePanelProvider implements vscode.WebviewViewProvider {
                 const editor = vscode.window.activeTextEditor;
                 if (!editor) return;
                 try {
-                    const result = (await this._callMcp('flint_fix', {
+                    const rawResult = await this._callMcp('flint_fix', {
                         source: editor.document.getText(),
                         filePath: editor.document.uri.fsPath,
-                    })) as { fixedSource?: string } | null;
+                    });
 
-                    if (result?.fixedSource) {
+                    // Unwrap MCP content wrapper: { content: [{ type: 'text', text: '...' }] }
+                    let fixResult: { fixedSource?: string; fixesApplied?: number } | null = null;
+                    const wrapped = rawResult as { content?: Array<{ type: string; text?: string }> } | null;
+                    if (wrapped?.content) {
+                        const textContent = wrapped.content.find((c) => c.type === 'text');
+                        if (textContent?.text) {
+                            try {
+                                fixResult = JSON.parse(textContent.text) as { fixedSource?: string; fixesApplied?: number };
+                            } catch { /* non-JSON -- leave null */ }
+                        }
+                    } else {
+                        // Fallback: direct shape (shouldn't happen, but safe)
+                        fixResult = rawResult as { fixedSource?: string; fixesApplied?: number } | null;
+                    }
+
+                    if (fixResult?.fixedSource) {
                         const fullRange = new vscode.Range(
                             editor.document.positionAt(0),
                             editor.document.positionAt(editor.document.getText().length),
                         );
                         await editor.edit((editBuilder) => {
-                            editBuilder.replace(fullRange, result.fixedSource!);
+                            editBuilder.replace(fullRange, fixResult!.fixedSource!);
                         });
                         // Re-audit after fix
                         const reauditResult = await this._callMcp('flint_audit', {
-                            source: result.fixedSource,
+                            source: fixResult.fixedSource,
                             filePath: editor.document.uri.fsPath,
                         });
                         webviewView.webview.postMessage({ type: 'auditResult', data: reauditResult });
@@ -150,6 +165,9 @@ export class GovernancePanelProvider implements vscode.WebviewViewProvider {
     <script nonce="${nonce}">
         const vscode = acquireVsCodeApi();
 
+        // Track whether the debt report has provided an authoritative grade
+        var hasDebtGrade = false;
+
         // Request initial audit
         vscode.postMessage({ type: 'audit' });
         vscode.postMessage({ type: 'debtReport' });
@@ -202,18 +220,22 @@ export class GovernancePanelProvider implements vscode.WebviewViewProvider {
             if (!violations || violations.length === 0) {
                 list.innerHTML = '<div class="empty-state">No violations found</div>';
                 actions.style.display = 'none';
-                updateGrade('A', '#10b981');
+                // Only set grade if the debt report has not provided one
+                if (!hasDebtGrade) {
+                    updateGrade('--', 'var(--vscode-descriptionForeground)');
+                }
                 return;
             }
 
             actions.style.display = 'block';
 
-            const total = violations.length;
-            if (total <= 2) updateGrade('A', '#10b981');
-            else if (total <= 5) updateGrade('B', '#10b981');
-            else if (total <= 10) updateGrade('C', '#f59e0b');
-            else if (total <= 20) updateGrade('D', '#ef4444');
-            else updateGrade('F', '#ef4444');
+            // Do not overwrite grade -- the debt report is the single source
+            // of truth. If no debt report has loaded yet, show a placeholder.
+            if (!hasDebtGrade) {
+                updateGrade('--', 'var(--vscode-descriptionForeground)');
+                // Request a fresh debt report
+                vscode.postMessage({ type: 'debtReport' });
+            }
 
             list.innerHTML = violations.map(function(v) {
                 var severity = (v.severity === 'critical' || v.type === 'a11y') ? 'critical' : 'warning';
@@ -238,8 +260,15 @@ export class GovernancePanelProvider implements vscode.WebviewViewProvider {
                 try { parsed = JSON.parse(parsed.content[0].text); } catch { return; }
             }
             if (parsed && parsed.grade && parsed.score !== undefined) {
-                var colors = { A: '#10b981', B: '#10b981', C: '#f59e0b', D: '#ef4444', F: '#ef4444' };
-                updateGrade(parsed.grade, colors[parsed.grade] || '#a1a1aa');
+                hasDebtGrade = true;
+                var colors = {
+                    A: 'var(--vscode-testing-iconPassed, #10b981)',
+                    B: 'var(--vscode-testing-iconPassed, #10b981)',
+                    C: 'var(--vscode-editorWarning-foreground, #f59e0b)',
+                    D: 'var(--vscode-testing-iconFailed, #ef4444)',
+                    F: 'var(--vscode-testing-iconFailed, #ef4444)'
+                };
+                updateGrade(parsed.grade, colors[parsed.grade] || 'var(--vscode-descriptionForeground)');
             }
         }
 

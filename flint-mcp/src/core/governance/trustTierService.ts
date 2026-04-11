@@ -27,6 +27,7 @@ export interface AgentTrustRecord {
     overrideCount: number
     escalationCount: number
     lastEscalationAt: string | null
+    lastRedAt: string | null
     promotedAt: string | null
     demotedAt: string | null
     createdAt: string
@@ -51,12 +52,16 @@ CREATE TABLE IF NOT EXISTS agent_trust (
     override_count      INTEGER NOT NULL DEFAULT 0,
     escalation_count    INTEGER NOT NULL DEFAULT 0,
     last_escalation_at  TEXT,
+    last_red_at         TEXT,
     promoted_at         TEXT,
     demoted_at          TEXT,
     created_at          TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     updated_at          TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 `
+
+/** Sliding window for promotion eligibility: 30 days. */
+const PROMOTION_WINDOW_DAYS = 30
 
 // ── Tier ordering ────────────────────────────────────────────────────────────
 
@@ -74,6 +79,12 @@ export class TrustTierService {
     constructor(db: Database.Database) {
         this.db = db
         this.db.exec(DDL)
+        // Migration: add last_red_at column if missing (existing DBs)
+        try {
+            this.db.exec('ALTER TABLE agent_trust ADD COLUMN last_red_at TEXT')
+        } catch {
+            // Column already exists — ignore
+        }
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -101,6 +112,7 @@ export class TrustTierService {
             overrideCount: row.override_count as number,
             escalationCount: row.escalation_count as number,
             lastEscalationAt: (row.last_escalation_at as string) || null,
+            lastRedAt: (row.last_red_at as string) || null,
             promotedAt: (row.promoted_at as string) || null,
             demotedAt: (row.demoted_at as string) || null,
             createdAt: row.created_at as string,
@@ -165,10 +177,14 @@ export class TrustTierService {
         const cleanSessionsForStandard = gates?.clean_sessions ?? 3
         const cleanSessionsForElevated = gates?.clean_sessions ?? 10
 
+        // Sliding window: allow promotion if no red mutations within the window
+        // (MAJOR-8 fix — cumulative counters no longer block promotion forever)
+        const noRecentReds = this.isCleanWithinWindow(record)
+
         if (record.currentTier === 'restricted') {
             if (
                 record.sessionCount >= cleanSessionsForStandard &&
-                record.redMutationCount === 0 &&
+                noRecentReds &&
                 record.overrideCount === 0
             ) {
                 return this.setTier(agentId, 'standard', 'promotion')
@@ -176,7 +192,7 @@ export class TrustTierService {
         } else if (record.currentTier === 'standard') {
             if (
                 record.sessionCount >= cleanSessionsForElevated &&
-                record.redMutationCount === 0 &&
+                noRecentReds &&
                 record.escalationCount === 0
             ) {
                 return this.setTier(agentId, 'elevated', 'promotion')
@@ -234,6 +250,7 @@ export class TrustTierService {
                 override_count = override_count + ?,
                 escalation_count = escalation_count + ?,
                 last_escalation_at = CASE WHEN ? THEN ? ELSE last_escalation_at END,
+                last_red_at = CASE WHEN ? > 0 THEN ? ELSE last_red_at END,
                 updated_at = ?
             WHERE agent_id = ?
         `).run(
@@ -241,6 +258,8 @@ export class TrustTierService {
             sessionStats.overrideCount,
             sessionStats.escalationTriggered ? 1 : 0,
             sessionStats.escalationTriggered ? 1 : 0,
+            ts,
+            sessionStats.redMutationCount,
             ts,
             ts,
             agentId,
@@ -314,6 +333,19 @@ export class TrustTierService {
     }
 
     // ── Internal ─────────────────────────────────────────────────────────────
+
+    /**
+     * Check if the agent has had zero red mutations within the sliding window
+     * (default: 30 days). Uses `last_red_at` timestamp rather than cumulative
+     * counters, so historical reds outside the window no longer block promotion.
+     */
+    private isCleanWithinWindow(record: AgentTrustRecord): boolean {
+        if (record.redMutationCount === 0) return true
+        if (!record.lastRedAt) return true
+        const windowStart = new Date(Date.now() - PROMOTION_WINDOW_DAYS * 24 * 60 * 60 * 1000)
+        const lastRed = new Date(record.lastRedAt)
+        return lastRed < windowStart
+    }
 
     private setTier(agentId: string, newTier: TrustTier, reason: 'promotion' | 'demotion'): TrustTier {
         const ts = this.now()

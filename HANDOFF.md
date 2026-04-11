@@ -6,7 +6,72 @@
 
 ---
 
-## Session: A+ Audit Sweep — Sprint 2 (Electron, Stores, Figma, AST) (2026-04-10) — IN PROGRESS
+## Session: A+ Audit Sweep — Sprint 3 (Governance, Hooks, VS Code Extension) (2026-04-11) — IN PROGRESS
+
+**Goal:** Run A+ code reviews across 3 more areas and fix all criticals and majors found.
+
+### Areas audited
+
+| Area | Grade | Criticals | Majors |
+| ---- | ----- | --------- | ------ |
+| Governance Services | B+ | 0 | 9 |
+| VS Code Extension | B+ | 2 | 6 |
+| Hooks + Components | B+ | 0 | 2 |
+
+Total: 2 criticals, 17 majors across 3 areas.
+
+### Finding summary
+
+#### Governance Services (B+)
+
+- MAJOR: RiskScoringService untested
+- MAJOR: DB connection opened per call (should be shared/pooled)
+- MAJOR: SQL string interpolation (injection risk)
+- MAJOR: Zero-threshold anomalies (false positives at baseline)
+- MAJOR: Non-transactional persistence (partial writes on failure)
+- MAJOR: Raw `writeFile` bypassing FileTransactionManager
+- MAJOR: CycloneDX output non-spec compliant
+- MAJOR: Trust tier lifetime block (no expiry/review path)
+- MAJOR: Regex YAML parsing (fragile, Commandment 13 violation)
+
+#### VS Code Extension (B+)
+
+- CRITICAL: `process.execPath` used to locate Node — wrong on all platforms
+- CRITICAL: `applyFix` drops the violation after applying (state desync)
+- MAJOR: No debounce on diagnostic re-runs (fires on every keystroke)
+- MAJOR: Hardcoded webview colors (not using VS Code theme tokens)
+- MAJOR: Grade overwrite (new audit replaces grade before user sees it)
+- MAJOR: MCP handshake violates protocol spec
+- MAJOR: FlintClient class untested
+- MAJOR: Fix All command broken (iterates wrong collection)
+
+#### Hooks + Components (B+)
+
+- MAJOR: LivePreview full-store destructure causes re-render on any store change
+- MAJOR: Regex used to strip imports (Commandment 13 violation)
+- MAJOR: Hardcoded hex values in canvas, dashboard, and status bar components
+
+### Fix agents deployed
+
+Fix agents have been deployed for all areas. Work in progress.
+
+### Review reports
+
+- `.flint-context/reviews/governance-services-aplus-review-2026-04-11.md`
+- `.flint-context/reviews/vscode-extension-aplus-review-2026-04-11.md`
+- `.flint-context/reviews/hooks-components-aplus-review-2026-04-11.md`
+
+### Next steps
+
+- Confirm fix agents have resolved all 2 criticals before marking COMPLETE
+- Re-run full test suite after fixes land and record results here
+- If all criticals clear: mark session COMPLETE and proceed to Sprint 4 areas
+
+---
+
+## Session: A+ Audit Sweep — Sprint 2 (Electron, Stores, Figma, AST) (2026-04-10) — COMPLETE
+
+All 4 criticals and 16 majors resolved. Committed as fccf06d.
 
 **Goal:** Run A+ code reviews across 4 more areas and fix all criticals and majors found.
 

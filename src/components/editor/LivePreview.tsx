@@ -42,7 +42,7 @@ import { useCanvasStore } from '../../store/canvasStore'
 import { BREAKPOINT_WIDTHS } from '../../store/canvasStore'
 import { useImportSummaryStore } from '../../store/importSummaryStore'
 import type { DropPosition } from '../../utils/astModifier'
-import { generateTailwindConfig } from '../../utils/tokenAdapter'
+import { generateTailwindConfig, generateTokenCssVars } from '../../utils/tokenAdapter'
 import {
   parseCodeToAST,
   injectFlintIds,
@@ -100,6 +100,7 @@ export function buildSrcdoc(
   js: string,
   tailwindConfigJson: string,
   libraryShims: LibraryShimBundle | null,
+  tokenCssVars = '',
 ): string {
   // JSON.stringify produces a string safe to embed inside a script tag.
   // Replace bare `<` with its Unicode escape so `</script>` in string
@@ -115,6 +116,7 @@ export function buildSrcdoc(
   <script>${reactDOMUMD}<\/script>
   <script>${tailwindCDN}<\/script>
   <script>tailwind.config = ${tailwindConfigJson};<\/script>
+  ${tokenCssVars ? `<style>${tokenCssVars}<\/style>` : ''}
   ${libraryShims ? `<style>${libraryShims.cssVars}<\/style>` : ''}
   <style>${FLINT_INTERACTION_STYLES}<\/style>
 </head>
@@ -150,6 +152,13 @@ export function buildSrcdoc(
         (new Function(code))();
         if (typeof window.__AppComponent !== 'undefined') {
           ReactDOM.createRoot(root).render(React.createElement(window.__AppComponent, null));
+          // Force Tailwind CDN to rescan after React renders its async component tree.
+          // React 18 createRoot schedules DOM updates; re-setting tailwind.config after
+          // a rAF ensures the MutationObserver has fired and Tailwind generates CSS for
+          // all class names that React added to the DOM.
+          requestAnimationFrame(function() {
+            try { if (window.tailwind) window.tailwind.config = window.tailwind.config; } catch(_e) {}
+          });
         } else {
           root.innerHTML = '<p style="color:#94a3b8;font-size:12px">No default export found.</p>';
         }
@@ -403,7 +412,10 @@ export function LivePreview() {
   const previewCode = (showGoverned && governedCode) ? governedCode : rawCode
 
   // ── Ghost Proxy drag state + canvas selection ─────────────────────────────
-  const { dragSourceId, startDrag, endDrag, setActiveSelection } = useCanvasStore()
+  const dragSourceId = useCanvasStore((s) => s.dragSourceId)
+  const startDrag = useCanvasStore((s) => s.startDrag)
+  const endDrag = useCanvasStore((s) => s.endDrag)
+  const setActiveSelection = useCanvasStore((s) => s.setActiveSelection)
   const canvasMode = useCanvasStore((s) => s.canvasMode)
   const setCanvasMode = useCanvasStore((s) => s.setCanvasMode)
   const previewBreakpoint = useCanvasStore((s) => s.previewBreakpoint)
@@ -518,6 +530,8 @@ export function LivePreview() {
 
   // Re-compute only when the token list changes, not on every render.
   const tailwindConfigJson = useMemo(() => generateTailwindConfig(tokens), [tokens])
+  // CSS custom properties block — lets var(--token-path) references from flint_fix resolve in the preview.
+  const tokenCssVars = useMemo(() => generateTokenCssVars(tokens), [tokens])
 
   // GLASS.3.1B: Mark stale whenever the source code changes.
   useEffect(() => {
@@ -662,12 +676,12 @@ export function LivePreview() {
             if (iframeRef.current !== null) {
               // The server already strips ES module imports. This client-side
               // strip is a safety net for Electron's Babel transform which may
-              // leave multi-line import statements intact. The regex uses
-              // [\s\S]*? (cross-line) because imports can span multiple lines.
-              // Safe here because the server output should contain zero imports.
+              // C13 waiver: This regex operates on Babel-compiled output (not user source AST).
+              // It is a safety net for the rare case where the server-side import strip misses.
+              // The primary import removal path is Babel-based in the server.
               const executeCode = js.replace(/^import\s[\s\S]*?from\s*['"][^'"]*['"]\s*;?\n?/gm, '')
               const libraryShims = getLibraryShims(activeLibrary)
-              iframeRef.current.srcdoc = buildSrcdoc(executeCode, tailwindConfigJson, libraryShims)
+              iframeRef.current.srcdoc = buildSrcdoc(executeCode, tailwindConfigJson, libraryShims, tokenCssVars)
               renderedVersionRef.current = thisVersion
               setIsStale(false)
             }
