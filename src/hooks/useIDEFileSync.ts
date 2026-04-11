@@ -29,13 +29,35 @@ export function useIDEFileSync(): void {
             const filePath =
                 typeof data === 'string' ? data : (data as { path?: string })?.path
             if (!filePath) return
-            // Read store state directly to avoid stale closure — same pattern
-            // as the file-watcher effect in App.tsx (useCanvasStore.getState()).
             const ws = useCanvasStore.getState().workspaceFiles
             // If workspaceFiles is set, only follow files within that project.
-            // If not yet set (no project opened), allow any absolute path through
-            // so the demo / first-launch scenario works.
             if (ws && !filePath.startsWith(ws.path)) return
+
+            // If no project is open, auto-open the project containing this file.
+            // This handles the case where the user right-clicks "Open in Flint Glass"
+            // but Glass is still on the LaunchScreen.
+            if (!ws && window.flintAPI?.project?.findRootForFile) {
+                void (async () => {
+                    try {
+                        const projectRoot = await window.flintAPI.project.findRootForFile(filePath)
+                        if (projectRoot) {
+                            const tree = await window.flintAPI.project.openPath(projectRoot)
+                            if (tree) {
+                                // setActiveFile will be called again by the project-opened handler,
+                                // but we also call it here so the file is selected immediately.
+                                void setActiveFile(filePath)
+                            }
+                        }
+                    } catch {
+                        // Project auto-open failed — still try to set the file
+                        void setActiveFile(filePath)
+                    }
+                })()
+                // Record the event even before the project opens
+                useCanvasStore.getState().recordIDESyncEvent(filePath)
+                return
+            }
+
             void setActiveFile(filePath)
             // Herald: record the IDE sync event for the StatusBar chip
             useCanvasStore.getState().recordIDESyncEvent(filePath)

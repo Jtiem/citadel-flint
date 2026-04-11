@@ -406,6 +406,9 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
 
   // Active project root — mutable, same as Electron's module-level variable
   let activeProjectRoot: string = resolvedRoot
+  // Original CLI root — immutable. Used by IDE sync to always find
+  // ide-active-file.json even when activeProjectRoot changes (e.g. demo load).
+  const serverRoot: string = resolvedRoot
 
   // Tracks whether the user has explicitly opened a project during this server
   // instance. Used by project:get-last-session to avoid auto-resuming the CLI
@@ -2399,6 +2402,9 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
       ideFileSyncState.lastPath = ''
 
       ideFileSyncInterval = setInterval(() => {
+        // Poll the active project root first, then fall back to the original
+        // server root. This handles the case where Glass opened a demo project
+        // (temp dir) but the VS Code extension writes to the workspace root.
         void ideFileSyncTick({
           activeProjectRoot,
           state: ideFileSyncState,
@@ -2406,6 +2412,19 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
           readFileFn: (p) => fs.readFile(p, 'utf-8'),
           broadcastFn: broadcast,
           configDir: BRAND.configDir,
+        }).then(() => {
+          // If the primary root didn't find anything and the roots differ,
+          // also check the original server root.
+          if (serverRoot !== activeProjectRoot) {
+            return ideFileSyncTick({
+              activeProjectRoot: serverRoot,
+              state: ideFileSyncState,
+              statFn: (p) => fs.stat(p),
+              readFileFn: (p) => fs.readFile(p, 'utf-8'),
+              broadcastFn: broadcast,
+              configDir: BRAND.configDir,
+            })
+          }
         })
       }, 1_000)
     }
