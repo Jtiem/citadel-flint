@@ -30,30 +30,32 @@ export function useIDEFileSync(): void {
                 typeof data === 'string' ? data : (data as { path?: string })?.path
             if (!filePath) return
             const ws = useCanvasStore.getState().workspaceFiles
-            // If workspaceFiles is set, only follow files within that project.
-            if (ws && !filePath.startsWith(ws.path)) return
+            const fileInCurrentProject = ws && filePath.startsWith(ws.path)
 
-            // If no project is open, auto-open the project containing this file.
-            // This handles the case where the user right-clicks "Open in Flint Glass"
-            // but Glass is still on the LaunchScreen.
-            if (!ws && window.flintAPI?.project?.findRootForFile) {
+            // If the file is from a different project (or no project is open),
+            // auto-open the project containing this file. This handles:
+            //   - Right-click "Open in Flint Glass" when Glass is on LaunchScreen
+            //   - IDE sends a file from workspace X while Glass has workspace Y open
+            if (!fileInCurrentProject && window.flintAPI?.project?.openPath) {
                 void (async () => {
                     try {
-                        const projectRoot = await window.flintAPI.project.findRootForFile(filePath)
-                        if (projectRoot) {
-                            const tree = await window.flintAPI.project.openPath(projectRoot)
-                            if (tree) {
-                                // setActiveFile will be called again by the project-opened handler,
-                                // but we also call it here so the file is selected immediately.
-                                void setActiveFile(filePath)
-                            }
+                        // Walk up from the file to find the project root
+                        let projectRoot: string | null = null
+                        if (window.flintAPI.project.findRootForFile) {
+                            projectRoot = await window.flintAPI.project.findRootForFile(filePath)
+                        }
+                        // Fallback: use the file's directory
+                        if (!projectRoot) {
+                            projectRoot = filePath.substring(0, filePath.lastIndexOf('/'))
+                        }
+                        const tree = await window.flintAPI.project.openPath(projectRoot)
+                        if (tree) {
+                            void setActiveFile(filePath)
                         }
                     } catch {
-                        // Project auto-open failed — still try to set the file
                         void setActiveFile(filePath)
                     }
                 })()
-                // Record the event even before the project opens
                 useCanvasStore.getState().recordIDESyncEvent(filePath)
                 return
             }
