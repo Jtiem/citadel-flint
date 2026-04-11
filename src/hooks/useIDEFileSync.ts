@@ -19,16 +19,47 @@ export function useIDEFileSync(): void {
     useEffect(() => {
         if (!window.flintAPI?.onIDEFileSelected) return
 
-        window.flintAPI.onIDEFileSelected((filePath: string) => {
+        // Capture the callback reference so we can unsubscribe only this
+        // instance on cleanup. Calling removeIDEFileSelectedListener() would
+        // nuke every subscriber on the channel (unsubscribeAll), breaking any
+        // other mounted consumers.
+        const handleIDEFile = (data: unknown): void => {
+            // In web mode the WS payload is the full data object { path: string };
+            // in Electron mode ipcRenderer passes the string directly.
+            const filePath =
+                typeof data === 'string' ? data : (data as { path?: string })?.path
+            if (!filePath) return
             // Read store state directly to avoid stale closure — same pattern
             // as the file-watcher effect in App.tsx (useCanvasStore.getState()).
             const ws = useCanvasStore.getState().workspaceFiles
-            if (!ws || !filePath.startsWith(ws.path)) return
+            // If workspaceFiles is set, only follow files within that project.
+            // If not yet set (no project opened), allow any absolute path through
+            // so the demo / first-launch scenario works.
+            if (ws && !filePath.startsWith(ws.path)) return
             void setActiveFile(filePath)
-        })
+            // Herald: record the IDE sync event for the StatusBar chip
+            useCanvasStore.getState().recordIDESyncEvent(filePath)
+            // Unlock the governance tab so it's available, but only auto-switch
+            // to it if the user hasn't manually selected a different tab.
+            // This respects user intent — don't yank them away from Properties
+            // or Tokens on every file change.
+            const store = useCanvasStore.getState()
+            store.unlockTab('governance')
+            const currentTab = store.rightTab
+            if (!currentTab || currentTab === 'governance') {
+                store.setRightTab('governance')
+            }
+        }
+
+        // onIDEFileSelected returns an unsubscribe function in web mode
+        // (subscribe() → () => channelListeners.get(channel)?.delete(callback)).
+        // In Electron mode it returns void, so we only call it if defined.
+        const unsub = window.flintAPI.onIDEFileSelected(handleIDEFile)
 
         return () => {
-            window.flintAPI.removeIDEFileSelectedListener?.()
+            if (typeof unsub === 'function') {
+                unsub()
+            }
         }
     }, [setActiveFile])
 }

@@ -466,6 +466,78 @@ export async function activate(
     // One warning is enough — don't spam on every file switch.
     let glassSyncWarningShown = false;
 
+    // ── Herald: "Open in Flint Glass" command ────────────────────────────────
+    // Shared sync write function used by both auto-follow and explicit command.
+    function sendFileToGlass(filePath: string, opts?: { explicit?: boolean }): void {
+        const flintDir = path.join(workspaceRoot, '.flint');
+        const syncFile = path.join(flintDir, 'ide-active-file.json');
+        const syncPayload = JSON.stringify({ path: filePath, ts: Date.now() });
+        const writeSync = () =>
+            fs.promises.mkdir(flintDir, { recursive: true })
+                .then(() => fs.promises.writeFile(syncFile, syncPayload, 'utf8'));
+
+        writeSync()
+            .then(() => {
+                if (opts?.explicit) {
+                    // Brief status bar flash for intentional sends
+                    const prev = statusBarItem.text;
+                    statusBarItem.text = '$(eye) Sent to Glass';
+                    setTimeout(() => { statusBarItem.text = prev; }, 2000);
+                    log(`Sent to Glass: ${filePath}`);
+                }
+            })
+            .catch(() => {
+                // Retry once after 500ms — handles transient filesystem issues
+                setTimeout(() => {
+                    writeSync().catch((err: unknown) => {
+                        const msg = err instanceof Error ? err.message : String(err);
+                        log(`Glass sync write failed: ${msg}`);
+                        if (opts?.explicit) {
+                            vscode.window.showWarningMessage(
+                                `Could not send file to Glass. Is the .flint/ directory writable?`,
+                            );
+                        }
+                        if (!glassSyncWarningShown) {
+                            glassSyncWarningShown = true;
+                            statusBarItem.text = '$(warning) Flint: Glass sync paused';
+                            statusBarItem.tooltip = 'Could not write .flint/ide-active-file.json — Glass will not follow IDE focus. Check the Flint output channel for details.';
+                            setTimeout(() => {
+                                statusBarItem.text = '$(shield) Flint';
+                                statusBarItem.tooltip = 'Flint Governance is active';
+                            }, 10_000);
+                        }
+                    });
+                }, 500);
+            });
+    }
+
+    // Register the "Open in Flint Glass" command — accessible from:
+    //   - Explorer context menu (right-click a file)
+    //   - Editor context menu (right-click in code)
+    //   - Editor tab context menu (right-click a tab)
+    //   - Keyboard shortcut: Cmd+Shift+G / Ctrl+Shift+G
+    //   - Command palette: "Open in Flint Glass"
+    context.subscriptions.push(
+        vscode.commands.registerCommand('flint.openInGlass', (uri?: vscode.Uri) => {
+            // Determine the file path from the command context:
+            // 1. URI passed directly (from explorer/tab context menu)
+            // 2. Active editor (from editor context menu or keyboard shortcut)
+            const filePath = uri?.fsPath ?? vscode.window.activeTextEditor?.document.uri.fsPath;
+            if (!filePath) {
+                vscode.window.showWarningMessage('No file selected. Open a file first.');
+                return;
+            }
+            // Guard: only source files
+            if (!/\.(tsx?|jsx?)$/.test(filePath)) {
+                vscode.window.showWarningMessage(
+                    'Flint Glass previews .tsx, .ts, .jsx, and .js files.',
+                );
+                return;
+            }
+            sendFileToGlass(filePath, { explicit: true });
+        }),
+    );
+
     // -- Webview panels --------------------------------------------------------
 
     // MCP tool call wrapper with activity logging
@@ -516,32 +588,8 @@ export async function activate(
 
             // IDE->Glass file sync: write active file so Flint Glass can follow focus.
             // Runs unconditionally -- Glass sync works even when MCP is not connected.
-            const flintDir = path.join(workspaceRoot, '.flint');
-            const syncFile = path.join(flintDir, 'ide-active-file.json');
-            const syncPayload = JSON.stringify({ path: filePath, ts: Date.now() });
-            const writeSync = () =>
-                fs.promises.mkdir(flintDir, { recursive: true })
-                    .then(() => fs.promises.writeFile(syncFile, syncPayload, 'utf8'));
-            writeSync().catch(() => {
-                // Retry once after 500ms — handles transient filesystem issues
-                setTimeout(() => {
-                    writeSync().catch((err: unknown) => {
-                        const msg = err instanceof Error ? err.message : String(err);
-                        log(`Glass sync write failed: ${msg}`);
-                        // Show a one-time status bar warning so the user knows
-                        if (!glassSyncWarningShown) {
-                            glassSyncWarningShown = true;
-                            statusBarItem.text = '$(warning) Flint: Glass sync paused';
-                            statusBarItem.tooltip = 'Could not write .flint/ide-active-file.json — Glass will not follow IDE focus. Check the Flint output channel for details.';
-                            // Restore after 10 seconds
-                            setTimeout(() => {
-                                statusBarItem.text = '$(shield) Flint';
-                                statusBarItem.tooltip = 'Flint Governance is active';
-                            }, 10_000);
-                        }
-                    });
-                }, 500);
-            });
+            // Uses the shared sendFileToGlass function (same path as the explicit command).
+            sendFileToGlass(filePath);
 
             // Debounce the governance audit to prevent flooding on rapid tab switching
             if (editorChangeTimer) clearTimeout(editorChangeTimer);

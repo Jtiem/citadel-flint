@@ -19,6 +19,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useOnboardingTooltip } from '../../hooks/useOnboardingTooltip'
 import { BRAND } from '../../../shared/brand'
 import { ShieldCheck, ShieldAlert, X, Copy, Check, RefreshCw, Unplug, FolderInput, MessageSquare, Tablet, Smartphone, Download, Upload, RotateCcw, Loader2, MoreHorizontal } from 'lucide-react'
 import { useCanvasStore } from '../../store/canvasStore'
@@ -64,6 +65,143 @@ function figmaDotColor(status: FigmaStatus | null): string {
 
 
 // ── Component ─────────────────────────────────────────────────────────────────
+
+// ── Herald: IDE Sync Status Chip ─────────────────────────────────────────────
+
+const IDE_SYNC_ACTIVE_THRESHOLD_MS = 30_000  // emerald if event within 30s
+const IDE_SYNC_IDLE_THRESHOLD_MS = 60_000    // zinc after 60s of silence
+
+function IDESyncChip({ onConnectIDE }: { onConnectIDE?: () => void }) {
+    const ideSyncActive = useCanvasStore((s) => s.ideSyncActive)
+    const lastEventAt = useCanvasStore((s) => s.ideSyncLastEventAt)
+    const lastFile = useCanvasStore((s) => s.ideSyncLastFile)
+    const [now, setNow] = useState(Date.now())
+    const [open, setOpen] = useState(false)
+    const ref = useRef<HTMLDivElement>(null)
+
+    // Tick every 10s to update dot color based on staleness
+    useEffect(() => {
+        if (!ideSyncActive) return
+        const timer = setInterval(() => setNow(Date.now()), 10_000)
+        return () => clearInterval(timer)
+    }, [ideSyncActive])
+
+    // Close popover on outside click
+    useEffect(() => {
+        if (!open) return
+        const handler = (e: MouseEvent) => {
+            if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+        }
+        document.addEventListener('mousedown', handler)
+        return () => document.removeEventListener('mousedown', handler)
+    }, [open])
+
+    // Layer 3: first-encounter tooltip (shows once, persists in localStorage)
+    const { shouldShow: showTooltip, dismiss: dismissTooltip } = useOnboardingTooltip('ide-file-sync')
+
+    // Progressive disclosure: hidden until first IDE sync event
+    if (!ideSyncActive) return null
+
+    const elapsed = now - lastEventAt
+    const dotColor = elapsed < IDE_SYNC_ACTIVE_THRESHOLD_MS
+        ? 'bg-emerald-400'
+        : elapsed < IDE_SYNC_IDLE_THRESHOLD_MS
+            ? 'bg-zinc-400'
+            : 'bg-zinc-600'
+    const statusLabel = elapsed < IDE_SYNC_ACTIVE_THRESHOLD_MS
+        ? 'Following your editor'
+        : 'Waiting for file changes'
+
+    return (
+        <div ref={ref} className="relative">
+            <button
+                type="button"
+                onClick={() => setOpen((v) => !v)}
+                className="flex min-h-[24px] cursor-pointer items-center gap-1.5 rounded px-1.5 py-0.5 text-xs text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+                title={statusLabel}
+                data-testid="ide-sync-chip"
+            >
+                <span className={`h-2 w-2 rounded-full ${dotColor}`} />
+                IDE
+            </button>
+
+            {/* Layer 3: One-time onboarding tooltip */}
+            {showTooltip && !open && (
+                <div
+                    className="absolute bottom-full left-1/2 z-50 mb-2 -translate-x-1/2 whitespace-nowrap rounded bg-zinc-800 px-2.5 py-1.5 text-[11px] text-zinc-300 shadow-lg border border-zinc-700"
+                    role="status"
+                    data-testid="ide-sync-tooltip"
+                >
+                    Glass is following your editor. Switch files to see it update.
+                    <button
+                        type="button"
+                        onClick={dismissTooltip}
+                        className="ml-2 inline-flex rounded p-0.5 text-zinc-400 hover:text-zinc-200"
+                        aria-label="Dismiss tooltip"
+                    >
+                        <X className="h-3 w-3" />
+                    </button>
+                </div>
+            )}
+
+            {open && (
+                <div className="absolute bottom-full left-0 mb-2 w-64 rounded-lg border border-zinc-700 bg-zinc-900 p-3 shadow-xl">
+                    <div className="mb-2 flex items-center justify-between">
+                        <span className="text-xs font-semibold text-zinc-100">IDE Sync</span>
+                        <button
+                            type="button"
+                            onClick={() => setOpen(false)}
+                            className="rounded p-0.5 text-zinc-400 hover:text-zinc-300"
+                            aria-label="Close IDE sync popover"
+                        >
+                            <X className="h-3 w-3" />
+                        </button>
+                    </div>
+
+                    <dl className="space-y-1.5 text-xs">
+                        <div className="flex items-center justify-between">
+                            <dt className="text-zinc-400">Status</dt>
+                            <dd className="text-zinc-300">{statusLabel}</dd>
+                        </div>
+                        {lastFile && (
+                            <div className="flex items-center justify-between">
+                                <dt className="text-zinc-400">Last file</dt>
+                                <dd className="truncate text-zinc-300 max-w-[140px]">{lastFile}</dd>
+                            </div>
+                        )}
+                        {lastEventAt > 0 && (
+                            <div className="flex items-center justify-between">
+                                <dt className="text-zinc-400">Received</dt>
+                                <dd className="text-zinc-300">{formatRelativeTime(lastEventAt)}</dd>
+                            </div>
+                        )}
+                    </dl>
+
+                    <div className="mt-2.5 border-t border-zinc-800 pt-2">
+                        <p className="text-[11px] leading-relaxed text-zinc-400">
+                            Switch files in VS Code and Glass follows automatically.
+                            Or right-click a file → &quot;Open in Flint Glass.&quot;
+                        </p>
+                    </div>
+
+                    {onConnectIDE && (
+                        <div className="mt-2 border-t border-zinc-800 pt-2">
+                            <button
+                                type="button"
+                                onClick={() => { setOpen(false); onConnectIDE() }}
+                                className="text-[11px] text-indigo-400 transition-colors hover:text-indigo-300"
+                            >
+                                Set up IDE connection
+                            </button>
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    )
+}
+
+// ── StatusBar ────────────────────────────────────────────────────────────────
 
 interface StatusBarProps {
     /** WS1: Opens the SetupWizard as a non-blocking modal for IDE/MCP configuration */
@@ -689,8 +827,13 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject, onManageFigm
                 )}
             </div>
 
+            {/* ── Herald: IDE Sync Indicator (progressive disclosure) ──────────── */}
+            {/* Hidden until the first flint:ide-file-selected event. Then shows
+                an emerald dot when active, zinc when idle, matching the Figma pattern. */}
+            <IDESyncChip onConnectIDE={onConnectIDE} />
+
             {/* ── MCP Connection Indicator (secondary — always visible in zone 2) ── */}
-            {/* DOM order: Figma → MCP (per test 21). Must remain after Figma in markup. */}
+            {/* DOM order: Figma → IDE → MCP. */}
             <div
                 className="flex items-center gap-1.5 px-1.5 py-0.5"
                 title={

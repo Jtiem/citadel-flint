@@ -6,6 +6,31 @@
 
 ---
 
+## Session: MINT.1 — Token Experience Foundation (2026-04-11) — IN PROGRESS
+
+**Goal:** Transform the token tab from a flat CRUD list into a governance observability surface.
+
+### MINT.1 Tasks
+
+| Task | Name | Priority |
+| ---- | ---- | -------- |
+| MINT.1a | Token Health Bar | P1 |
+| MINT.1b | Visual Token Grid | P1 |
+| MINT.1c | Mode Columns (Light/Dark) | P1 |
+| MINT.1d | Remove Dangerous Actions | P0 |
+| MINT.1e | Fix TokenManager A11y | P1 |
+
+### MINT.1 Files
+
+- `src/components/ui/TokenManager.tsx`
+- `src/store/tokenStore.ts`
+
+### Next after MINT.1
+
+P2.8 — D2C refinement loop closure
+
+---
+
 ## Session: Glass↔IDE Pipeline Fix + Sync Resilience (2026-04-11) — COMPLETE
 
 **Goal:** Verify and fix the full IDE→Glass file sync pipeline end-to-end.
@@ -74,30 +99,26 @@ All 4 tasks implemented. Committed as d5a9e7f. Core: 1390/1391 (15 new), Glass: 
 
 ---
 
-## Session: Governor Expansion P0+P1c — Mutation Planner + Tailwind Version Drift (2026-04-11) — IN PROGRESS
+## Session: Governor Expansion P0+P1c — Mutation Planner + Tailwind Version Drift (2026-04-11) — COMPLETE
+
+Both tasks implemented. Committed as acd05ca. Review fix committed as f563c81. MCP: 4440/4440, TSC: 0 errors. All 3 feature commits (COUNSEL.1, FORGE.2, P0+P1c) reviewed — 2 SHIP, 1 FIX resolved.
 
 **Goal:** Foundation for intelligent auto-fix — deterministic vs semantic triage for mutation planning — plus Tailwind version compliance governance.
 
-### Tasks in scope
+### P0+P1c Tasks
 
-| Task | Name | Priority |
-| ---- | ---- | -------- |
-| P0 | Mutation Planner + Risk Gate | P0 |
-| P1c | Tailwind Version Drift Governance | P1 |
+| Task | Name | Priority | Status |
+| ---- | ---- | -------- | ------ |
+| P0 | Mutation Planner + Risk Gate | P0 | COMPLETE |
+| P1c | Tailwind Version Drift Governance | P1 | COMPLETE |
 
-### Files in scope
+### P0+P1c Files
 
 - `flint-mcp/src/core/mutationPlanner.ts` (new)
 - `flint-mcp/src/core/tailwindVersionResolver.ts` (new)
 - `flint-mcp/src/tools/fix.ts`
 - `flint-mcp/src/core/MithrilLinter.ts`
 - `flint-mcp/src/server.ts`
-
-### Sequence
-
-- P0: Mutation Planner + Risk Gate
-- P1c: Tailwind Version Drift Governance
-- After this session: MINT.1 (token foundation) then P2.8 (D2C refinement loop closure)
 
 ---
 

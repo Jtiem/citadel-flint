@@ -201,6 +201,14 @@ interface CanvasState {
      */
     hasUsedBreakpoint: boolean
 
+    // ── Herald: IDE sync state (progressive disclosure) ─────────────────────
+    /** True once the first flint:ide-file-selected event arrives this session. */
+    ideSyncActive: boolean
+    /** Timestamp (ms) of the last IDE file sync event. 0 = never received. */
+    ideSyncLastEventAt: number
+    /** Relative file name from the last IDE sync event (display only). */
+    ideSyncLastFile: string | null
+
     // ── GLASS.1d: Violation scroll target ────────────────────────────────────
     /**
      * When non-null, GovernanceOverlay scrolls to the violation row for this
@@ -384,6 +392,8 @@ interface CanvasActions {
      * resulting breakpoint is not 'desktop'.
      */
     markBreakpointUsed: () => void
+    /** Herald: record an IDE sync event (file path + timestamp). */
+    recordIDESyncEvent: (filePath: string) => void
     // ── GLASS.1d: Violation scroll target ────────────────────────────────────
     /**
      * Sets the flint ID that GovernanceOverlay should scroll to.
@@ -503,6 +513,9 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     seenTabs: new Set<string>(DEFAULT_UNLOCKED_TABS), // default tabs are pre-seen
     unlockedLeftTabs: new Set<string>(DEFAULT_UNLOCKED_LEFT_TABS),
     hasUsedBreakpoint: false,
+    ideSyncActive: false,
+    ideSyncLastEventAt: 0,
+    ideSyncLastFile: null,
 
     // T5.2: LivePreview node size — restore from localStorage or use defaults
     previewWidth: _initialPreviewSize.width,
@@ -665,6 +678,11 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     isLeftTabUnlocked: (tab) => get().unlockedLeftTabs.has(tab),
 
     markBreakpointUsed: () => set({ hasUsedBreakpoint: true }),
+    recordIDESyncEvent: (filePath: string) => set({
+        ideSyncActive: true,
+        ideSyncLastEventAt: Date.now(),
+        ideSyncLastFile: filePath.split('/').pop() ?? filePath,
+    }),
 
     // GLASS.1d: Violation scroll target
     setScrollToViolationId: (id) => set({ scrollToViolationId: id }),

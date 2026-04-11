@@ -68,6 +68,42 @@
       {
         "command": "flint.auditWorkspace",
         "title": "Flint: Audit Workspace"
+      },
+      {
+        "command": "flint.openInGlass",
+        "title": "Open in Flint Glass",
+        "icon": "$(eye)"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "flint.openInGlass",
+          "when": "resourceExtname =~ /^\\.tsx$|^\\.ts$|^\\.jsx$|^\\.js$/",
+          "group": "navigation"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "flint.openInGlass",
+          "when": "editorLangId =~ /^typescript$|^typescriptreact$|^javascript$|^javascriptreact$/",
+          "group": "navigation"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "flint.openInGlass",
+          "when": "resourceExtname =~ /^\\.tsx$|^\\.ts$|^\\.jsx$|^\\.js$/",
+          "group": "navigation"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "flint.openInGlass",
+        "key": "ctrl+shift+g",
+        "mac": "cmd+shift+g",
+        "when": "editorTextFocus && editorLangId =~ /^typescript$|^typescriptreact$|^javascript$|^javascriptreact$/"
       }
     ],
     "configuration": {
