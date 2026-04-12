@@ -81,80 +81,15 @@ export function useTokenUsage(
         return () => { mountedRef.current = false }
     }, [scan, tokenCount])
 
-    // MINT.2c: Detect drift from Figma tokens
-    useEffect(() => {
-        async function checkDrift() {
-            try {
-                // Check if Figma is connected — skip all work if not
-                const figmaStatus = await window.flintAPI.figma.status()
-                if (!figmaStatus.running) {
-                    if (mountedRef.current) setDriftedTokens([])
-                    return
-                }
-
-                // Resolve .flint/figma-tokens.json to an absolute path under the
-                // active project root. A relative path would fail validateFilePath
-                // and trigger a render loop (fixed 2026-04-12).
-                const { useCanvasStore } = await import('../store/canvasStore')
-                const projectRoot = useCanvasStore.getState().workspaceFiles?.path
-                if (!projectRoot) {
-                    if (mountedRef.current) setDriftedTokens([])
-                    return
-                }
-
-                const api = window.flintAPI as any
-                let figmaTokensRaw: string | null = null
-                if (typeof api?.readFile === 'function') {
-                    try {
-                        figmaTokensRaw = await api.readFile(`${projectRoot}/.flint/figma-tokens.json`)
-                    } catch { /* file doesn't exist or can't be read — silent */ }
-                }
-
-                if (!figmaTokensRaw) {
-                    setDriftedTokens([])
-                    return
-                }
-
-                const figmaTokens = JSON.parse(figmaTokensRaw) as Record<string, unknown>
-
-                // Flatten Figma tokens into a name→value map
-                const figmaMap = new Map<string, string>()
-                function walk(obj: Record<string, unknown>, prefix: string) {
-                    for (const [key, val] of Object.entries(obj)) {
-                        if (key.startsWith('$')) continue
-                        const fullPath = prefix ? `${prefix}.${key}` : key
-                        if (val && typeof val === 'object' && '$value' in (val as Record<string, unknown>)) {
-                            const v = (val as Record<string, unknown>).$value
-                            if (typeof v === 'string') figmaMap.set(fullPath, v)
-                        } else if (val && typeof val === 'object') {
-                            walk(val as Record<string, unknown>, fullPath)
-                        }
-                    }
-                }
-                walk(figmaTokens, '')
-
-                // Compare local tokens against Figma
-                const drifts: TokenDrift[] = []
-                for (const local of localTokens) {
-                    const figmaVal = figmaMap.get(local.token_path)
-                    if (figmaVal && figmaVal.toLowerCase() !== local.token_value.toLowerCase()) {
-                        drifts.push({
-                            tokenName: local.token_path,
-                            localValue: local.token_value,
-                            figmaValue: figmaVal,
-                        })
-                    }
-                }
-
-                if (mountedRef.current) setDriftedTokens(drifts)
-            } catch {
-                // Silent — drift detection is best-effort
-                if (mountedRef.current) setDriftedTokens([])
-            }
-        }
-
-        checkDrift()
-    }, [localTokens, tokenCount])
+    // MINT.2c: Detect drift from Figma tokens — DISABLED 2026-04-12.
+    // The readFile call for `.flint/figma-tokens.json` was triggering a
+    // render loop (validation error → catch → setState → re-render →
+    // re-run effect). Drift detection is best-effort and will be re-enabled
+    // once a dedicated IPC (e.g. `tokens:read-figma-drift`) can read .json
+    // files without the source-file extension guard.
+    //
+    // The hook still exposes `driftedTokens: []` so callers don't need
+    // to change. The usage scan (above) continues to work.
 
     const deadTokenCount = Array.from(usageMap.values()).filter((r) => r.usageCount === 0).length
     const totalScanned = usageMap.size
