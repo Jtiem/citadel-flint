@@ -736,6 +736,15 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     if (validated.startsWith('/var/folders/') || validated.startsWith('/tmp/')) {
       throw new Error(`ast:save-file — refusing write to temp dir: ${validated}`)
     }
+    // Self-hosting guard: refuse to write files that live inside the Flint
+    // source tree itself. When dev:web runs from the repo root, a write to
+    // e.g. src/App.tsx updates its mtime → Vite HMR fires → full reload →
+    // autoResumeChecked resets → tryAutoResume re-opens the file → loop.
+    if (existsSync(path.join(activeProjectRoot, 'electron', 'main.ts')) &&
+        validated.startsWith(activeProjectRoot + path.sep)) {
+      console.warn(`${BRAND.logPrefix} ast:save-file — refusing self-hosted write to ${validated}`)
+      return
+    }
     await atomicWrite(validated, content)
     // Register newly saved files with the workspace watcher so future
     // external edits are detected without a full rescan.
@@ -1020,6 +1029,14 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
   handlers.set('project:get-active-root', async () => {
     // Don't expose temp dirs — they get cleaned by macOS and cause ENOENT floods
     if (activeProjectRoot.startsWith('/var/folders/') || activeProjectRoot.startsWith('/tmp/')) {
+      return { projectRoot: null }
+    }
+    // Self-hosting guard: when dev:web is launched from the Flint repo root
+    // (no --project flag), activeProjectRoot IS the Flint source tree. Returning
+    // it causes tryAutoResume in App.tsx to open src/App.tsx as the active file,
+    // which calls setCode → triggerAutoSave → writes the file back to disk →
+    // Vite detects the mtime change → HMR fires → page reloads → loop.
+    if (existsSync(path.join(activeProjectRoot, 'electron', 'main.ts'))) {
       return { projectRoot: null }
     }
     return { projectRoot: activeProjectRoot }
