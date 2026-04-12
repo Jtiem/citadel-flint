@@ -14,11 +14,16 @@
  *   IDE-04 — Does not re-broadcast when mtime is the same (file unchanged)
  *   IDE-05 — Does not broadcast when parsed path escapes the project root
  *   IDE-06 — Does not broadcast when parsed path has a disallowed extension (.py)
- *   IDE-07 — Does not re-broadcast the same file on consecutive mtime changes
+ *   IDE-07 — Does not re-broadcast the same file on consecutive mtime changes (non-explicit)
  *   IDE-08 — Does not broadcast when JSON has no "path" field
  *   IDE-09 — Accepts .ts and .jsx extensions in addition to .tsx
  *   IDE-10 — Does not broadcast when activeProjectRoot is empty (graceful no-op)
- *   IDE-11 — Does not broadcast when JSON is malformed (parse error — no crash)
+ *   IDE-11 — Does not crash and does not broadcast when JSON is malformed (parse error — no crash)
+ *   IDE-12 — Broadcasts explicit=true payload when extension sets explicit flag
+ *   IDE-13 — Explicit flag bypasses lastPath dedup — same file re-broadcasts
+ *   IDE-14 — Explicit flag does NOT bypass age guard (stale payload still rejected)
+ *   IDE-15 — Second broadcast with a different file path always reaches client (regression)
+ *   IDE-16 — Third click on same file (explicit) always broadcasts after different file
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -33,6 +38,7 @@ import { ideFileSyncTick, type IDEFileSyncState } from '../ideFileSyncTick.js'
 const HOME = os.homedir()
 const PROJECT_ROOT = path.join(HOME, 'test-project')
 const VALID_FILE = path.join(PROJECT_ROOT, 'src', 'App.tsx')
+const VALID_FILE_B = path.join(PROJECT_ROOT, 'src', 'Button.tsx')
 const OUTSIDE_FILE = path.join(HOME, 'other-project', 'src', 'App.tsx')
 const IDE_JSON_PATH = path.join(PROJECT_ROOT, '.flint', 'ide-active-file.json')
 
@@ -67,7 +73,7 @@ describe('ideFileSyncTick (real function from server/ideFileSyncTick.ts)', () =>
     await ideFileSyncTick({ activeProjectRoot: PROJECT_ROOT, state, statFn, readFileFn, broadcastFn })
 
     expect(broadcastFn).toHaveBeenCalledOnce()
-    expect(broadcastFn).toHaveBeenCalledWith('flint:ide-file-selected', { path: VALID_FILE })
+    expect(broadcastFn).toHaveBeenCalledWith('flint:ide-file-selected', { path: VALID_FILE, explicit: false })
     expect(state.lastMtime).toBe(1000)
     expect(state.lastPath).toBe(VALID_FILE)
   })
@@ -82,7 +88,7 @@ describe('ideFileSyncTick (real function from server/ideFileSyncTick.ts)', () =>
     await ideFileSyncTick({ activeProjectRoot: PROJECT_ROOT, state, statFn, readFileFn, broadcastFn })
 
     expect(broadcastFn).toHaveBeenCalledOnce()
-    expect(broadcastFn).toHaveBeenCalledWith('flint:ide-file-selected', { path: VALID_FILE })
+    expect(broadcastFn).toHaveBeenCalledWith('flint:ide-file-selected', { path: VALID_FILE, explicit: false })
     expect(state.lastMtime).toBe(1000)
     expect(state.lastPath).toBe(VALID_FILE)
   })
@@ -128,11 +134,11 @@ describe('ideFileSyncTick (real function from server/ideFileSyncTick.ts)', () =>
     expect(state.lastMtime).toBe(1000)
   })
 
-  it('IDE-07 — does not re-broadcast the same file path on consecutive mtime changes', async () => {
+  it('IDE-07 — does not re-broadcast the same file path on consecutive mtime changes (non-explicit)', async () => {
     state.lastMtime = 500
     state.lastPath = VALID_FILE
 
-    // mtime advances (file was touched) but path is the same
+    // mtime advances (file was touched) but path is the same and NOT explicit
     const statFn = vi.fn().mockResolvedValue({ mtimeMs: 1500 })
     const readFileFn = vi.fn().mockResolvedValue(JSON.stringify({ path: VALID_FILE }))
 
@@ -175,7 +181,7 @@ describe('ideFileSyncTick (real function from server/ideFileSyncTick.ts)', () =>
       })
 
       expect(localBroadcast).toHaveBeenCalledOnce()
-      expect(localBroadcast).toHaveBeenCalledWith('flint:ide-file-selected', { path: file })
+      expect(localBroadcast).toHaveBeenCalledWith('flint:ide-file-selected', { path: file, explicit: false })
     }
   })
 
@@ -205,5 +211,104 @@ describe('ideFileSyncTick (real function from server/ideFileSyncTick.ts)', () =>
     ).resolves.toBeUndefined()
 
     expect(broadcastFn).not.toHaveBeenCalled()
+  })
+
+  // ── New tests for explicit flag and sequential broadcast regression ────────
+
+  it('IDE-12 — broadcasts explicit:true payload when extension sets explicit flag', async () => {
+    const statFn = vi.fn().mockResolvedValue({ mtimeMs: 1000 })
+    const readFileFn = vi.fn().mockResolvedValue(
+      JSON.stringify({ path: VALID_FILE, ts: Date.now(), explicit: true }),
+    )
+
+    await ideFileSyncTick({ activeProjectRoot: PROJECT_ROOT, state, statFn, readFileFn, broadcastFn })
+
+    expect(broadcastFn).toHaveBeenCalledOnce()
+    expect(broadcastFn).toHaveBeenCalledWith('flint:ide-file-selected', { path: VALID_FILE, explicit: true })
+  })
+
+  it('IDE-13 — explicit flag bypasses lastPath dedup — same file re-broadcasts', async () => {
+    // Simulate: file A was already the lastPath (e.g., loaded after first click)
+    state.lastMtime = 500
+    state.lastPath = VALID_FILE
+
+    // User clicks "Open in Flint Glass" again on the same file with explicit=true
+    const statFn = vi.fn().mockResolvedValue({ mtimeMs: 1500 })
+    const readFileFn = vi.fn().mockResolvedValue(
+      JSON.stringify({ path: VALID_FILE, ts: Date.now(), explicit: true }),
+    )
+
+    await ideFileSyncTick({ activeProjectRoot: PROJECT_ROOT, state, statFn, readFileFn, broadcastFn })
+
+    // Must broadcast even though filePath === lastPath
+    expect(broadcastFn).toHaveBeenCalledOnce()
+    expect(broadcastFn).toHaveBeenCalledWith('flint:ide-file-selected', { path: VALID_FILE, explicit: true })
+    expect(state.lastPath).toBe(VALID_FILE)
+    expect(state.lastMtime).toBe(1500)
+  })
+
+  it('IDE-14 — explicit flag does NOT bypass age guard (stale payload still rejected)', async () => {
+    state.lastMtime = 500
+
+    const staleTs = Date.now() - 60_000 // 60 seconds ago — well past 30s limit
+    const statFn = vi.fn().mockResolvedValue({ mtimeMs: 1500 })
+    const readFileFn = vi.fn().mockResolvedValue(
+      JSON.stringify({ path: VALID_FILE, ts: staleTs, explicit: true }),
+    )
+
+    await ideFileSyncTick({ activeProjectRoot: PROJECT_ROOT, state, statFn, readFileFn, broadcastFn })
+
+    // Age guard must still fire even with explicit=true
+    expect(broadcastFn).not.toHaveBeenCalled()
+    expect(state.lastMtime).toBe(1500) // mtime updated regardless
+  })
+
+  it('IDE-15 — second broadcast with a different file path always reaches client (regression)', async () => {
+    // Simulate the original bug: click file A (loads), then click file B (should also load)
+    // Step 1: first click — file A
+    state.lastMtime = 0
+    state.lastPath = ''
+    const statFn1 = vi.fn().mockResolvedValue({ mtimeMs: 1000 })
+    const readFileFn1 = vi.fn().mockResolvedValue(
+      JSON.stringify({ path: VALID_FILE, ts: Date.now(), explicit: true }),
+    )
+    await ideFileSyncTick({ activeProjectRoot: PROJECT_ROOT, state, statFn: statFn1, readFileFn: readFileFn1, broadcastFn })
+
+    expect(broadcastFn).toHaveBeenCalledTimes(1)
+    expect(broadcastFn).toHaveBeenNthCalledWith(1, 'flint:ide-file-selected', { path: VALID_FILE, explicit: true })
+    expect(state.lastPath).toBe(VALID_FILE)
+
+    // Step 2: second click — file B (different file, mtime advances)
+    const statFn2 = vi.fn().mockResolvedValue({ mtimeMs: 2000 })
+    const readFileFn2 = vi.fn().mockResolvedValue(
+      JSON.stringify({ path: VALID_FILE_B, ts: Date.now(), explicit: true }),
+    )
+    await ideFileSyncTick({ activeProjectRoot: PROJECT_ROOT, state, statFn: statFn2, readFileFn: readFileFn2, broadcastFn })
+
+    expect(broadcastFn).toHaveBeenCalledTimes(2)
+    expect(broadcastFn).toHaveBeenNthCalledWith(2, 'flint:ide-file-selected', { path: VALID_FILE_B, explicit: true })
+    expect(state.lastPath).toBe(VALID_FILE_B)
+  })
+
+  it('IDE-16 — third click on same original file (explicit) broadcasts after a different file', async () => {
+    // File A → File B → File A again (explicit). The third click must not be
+    // blocked by the lastPath dedup even though lastPath === VALID_FILE_B ≠ VALID_FILE.
+    // (Different file, so lastPath dedup does NOT apply anyway — this is a
+    // correctness confirmation test for the sequence: A→B→A.)
+
+    // Seed state: File B was last broadcast
+    state.lastMtime = 2000
+    state.lastPath = VALID_FILE_B
+
+    const statFn = vi.fn().mockResolvedValue({ mtimeMs: 3000 })
+    const readFileFn = vi.fn().mockResolvedValue(
+      JSON.stringify({ path: VALID_FILE, ts: Date.now(), explicit: true }),
+    )
+    await ideFileSyncTick({ activeProjectRoot: PROJECT_ROOT, state, statFn, readFileFn, broadcastFn })
+
+    expect(broadcastFn).toHaveBeenCalledOnce()
+    expect(broadcastFn).toHaveBeenCalledWith('flint:ide-file-selected', { path: VALID_FILE, explicit: true })
+    expect(state.lastPath).toBe(VALID_FILE)
+    expect(state.lastMtime).toBe(3000)
   })
 })

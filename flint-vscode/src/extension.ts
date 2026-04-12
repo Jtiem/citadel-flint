@@ -471,13 +471,24 @@ export async function activate(
     function sendFileToGlass(filePath: string, opts?: { explicit?: boolean }): void {
         const flintDir = path.join(workspaceRoot, '.flint');
         const syncFile = path.join(flintDir, 'ide-active-file.json');
-        const syncPayload = JSON.stringify({ path: filePath, ts: Date.now() });
+        const ts = Date.now();
+        // Include `explicit: true` when the user deliberately invoked "Open in
+        // Flint Glass". The server tick uses this flag to bypass the lastPath
+        // dedup guard so Glass always receives an explicit command broadcast,
+        // even when the same file was previously loaded.
+        const syncPayload = JSON.stringify(
+            opts?.explicit
+                ? { path: filePath, ts, explicit: true }
+                : { path: filePath, ts },
+        );
+        log(`[IDE-SYNC-DEBUG] sendFileToGlass called — path=${filePath} ts=${ts} explicit=${opts?.explicit ?? false}`);
         const writeSync = () =>
             fs.promises.mkdir(flintDir, { recursive: true })
                 .then(() => fs.promises.writeFile(syncFile, syncPayload, 'utf8'));
 
         writeSync()
             .then(() => {
+                log(`[IDE-SYNC-DEBUG] sendFileToGlass write OK — path=${filePath} ts=${ts}`);
                 if (opts?.explicit) {
                     // Brief status bar flash for intentional sends
                     const prev = statusBarItem.text;

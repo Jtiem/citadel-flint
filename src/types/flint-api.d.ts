@@ -2007,8 +2007,13 @@ export interface FlintAPI {
     /**
      * Registers a callback fired when the VS Code/Cursor extension changes the
      * active file. Glass uses this to auto-follow IDE focus.
+     *
+     * The callback receives either a raw string (Electron IPC) or an object
+     * `{ path: string; explicit?: boolean }` (Web/WS). When `explicit` is
+     * true the user invoked "Open in Flint Glass" deliberately — Glass should
+     * load the file immediately without showing an acceptance toast.
      */
-    onIDEFileSelected?: (cb: (filePath: string) => void) => void | (() => void)
+    onIDEFileSelected?: (cb: (data: string | { path: string; explicit?: boolean }) => void) => void | (() => void)
 
     /** Removes all `onIDEFileSelected` listeners. */
     removeIDEFileSelectedListener?: () => void

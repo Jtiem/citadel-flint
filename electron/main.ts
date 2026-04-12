@@ -3040,17 +3040,21 @@ app.whenReady().then(async () => {
                     if (mtimeMs > ideFileSyncLastMtime) {
                         ideFileSyncLastMtime = mtimeMs
                         const raw = await readFile(filePath, 'utf8')
-                        const parsed = JSON.parse(raw) as { path?: string }
+                        const parsed = JSON.parse(raw) as { path?: string; explicit?: boolean }
+                        const filePath = parsed.path
+                        const isExplicit = parsed.explicit === true
                         if (
-                            typeof parsed.path === 'string' &&
-                            path.isAbsolute(parsed.path) &&
+                            typeof filePath === 'string' &&
+                            path.isAbsolute(filePath) &&
                             activeProjectRoot &&
-                            parsed.path.startsWith(activeProjectRoot + path.sep) &&
-                            parsed.path !== ideFileSyncLastPath
+                            filePath.startsWith(activeProjectRoot + path.sep) &&
+                            // Explicit commands bypass the lastPath dedup guard so
+                            // the user can always reload the same file intentionally.
+                            (isExplicit || filePath !== ideFileSyncLastPath)
                         ) {
-                            ideFileSyncLastPath = parsed.path
+                            ideFileSyncLastPath = filePath
                             BrowserWindow.getAllWindows().forEach((w) => {
-                                if (!w.isDestroyed()) w.webContents.send(ipcChannel('ide-file-selected'), parsed.path)
+                                if (!w.isDestroyed()) w.webContents.send(ipcChannel('ide-file-selected'), { path: filePath, explicit: isExplicit })
                             })
                         }
                     }

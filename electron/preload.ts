@@ -737,8 +737,8 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
      * Fires when the VS Code extension writes a new active file path to
      * `.flint/ide-active-file.json`. Glass uses this to auto-follow IDE focus.
      */
-    onIDEFileSelected: (cb: (filePath: string) => void): void => {
-        ipcRenderer.on(ipcChannel('ide-file-selected'), (_event, filePath: string) => cb(filePath))
+    onIDEFileSelected: (cb: (data: string | { path: string; explicit?: boolean }) => void): void => {
+        ipcRenderer.on(ipcChannel('ide-file-selected'), (_event, data: string | { path: string; explicit?: boolean }) => cb(data))
     },
 
     removeIDEFileSelectedListener: (): void => {
@@ -949,6 +949,14 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
             isColor: boolean
         } | null> =>
             ipcRenderer.invoke('governance:preview-fix', ruleId, filePath),
+
+        /**
+         * Apply all Mithril + A11y auto-fixes to a file and write to disk.
+         * Used by GovernanceDashboard "Fix all" — bypasses the renderer MCP
+         * allowlist; the main process owns the write path.
+         */
+        applyFix: (filePath: string): Promise<{ fixesApplied: number; status: string } | null> =>
+            ipcRenderer.invoke('governance:apply-fix', filePath),
 
         /**
          * COUNSEL.2.1: Defer a violation for later resolution.

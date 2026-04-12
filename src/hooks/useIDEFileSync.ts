@@ -9,9 +9,17 @@ import { useNotificationStore } from '../store/notificationStore'
  * (or auto-follow on editor focus), Glass receives it here.
  *
  * Behavior:
- *   - If Glass has no file open (LaunchScreen): load it directly
- *   - If Glass already has a file open: show an acceptance toast so the
- *     designer isn't interrupted. They click "Open" to switch.
+ *   - explicit=true (user invoked "Open in Flint Glass" command):
+ *       Always load the file directly — even if a different file is already
+ *       open. This matches user intent: the command means "show this in Glass
+ *       right now." The same-file dedup is NOT applied for explicit events
+ *       because the user may want to reload after an external edit.
+ *   - explicit=false / absent (passive auto-follow on editor focus change):
+ *       If Glass has no file open → load directly.
+ *       If Glass already has a file open → show an acceptance toast so the
+ *       designer isn't interrupted mid-work. They click "Open" to switch.
+ *       Same-file dedup prevents noise when the IDE re-focuses an already
+ *       loaded file.
  *
  * Mount once at the App root.
  */
@@ -22,27 +30,56 @@ export function useIDEFileSync(): void {
         if (!window.flintAPI?.onIDEFileSelected) return
 
         const handleIDEFile = (data: unknown): void => {
-            const filePath =
-                typeof data === 'string' ? data : (data as { path?: string })?.path
-            if (!filePath) return
+            const payload = typeof data === 'string' ? { path: data } : (data as { path?: string; explicit?: boolean })
+            const filePath = payload?.path
+            const isExplicit = payload?.explicit === true
+
+            if (process.env['NODE_ENV'] !== 'production') {
+                console.log('[IDE-SYNC-DEBUG] Glass hook received event — filePath:', filePath, 'explicit:', isExplicit)
+            }
+
+            if (!filePath) {
+                if (process.env['NODE_ENV'] !== 'production') {
+                    console.log('[IDE-SYNC-DEBUG] Glass hook SKIP — no filePath in event data')
+                }
+                return
+            }
 
             const currentFile = useCanvasStore.getState().activeFilePath
             const fileName = filePath.split('/').pop() ?? filePath
 
-            // If the same file is already open, do nothing — record the event
-            // only for actual changes, not redundant reconnect pushes.
-            if (currentFile === filePath) return
+            // For explicit commands: always load, even if the same file is
+            // already active. The user said "show this now" — honour it.
+            if (!isExplicit && currentFile === filePath) {
+                if (process.env['NODE_ENV'] !== 'production') {
+                    console.log('[IDE-SYNC-DEBUG] Glass hook SKIP — same file already active (auto-follow dedup):', filePath)
+                }
+                return
+            }
+
+            if (process.env['NODE_ENV'] !== 'production') {
+                console.log('[IDE-SYNC-DEBUG] Glass hook proceeding — currentFile:', currentFile, '→', filePath, isExplicit ? '(explicit)' : '(auto-follow)')
+            }
 
             // Herald: record the event for the StatusBar chip (only on real transitions)
-            useCanvasStore.getState().recordIDESyncEvent(filePath)
+            if (currentFile !== filePath) {
+                useCanvasStore.getState().recordIDESyncEvent(filePath)
+            }
 
-            // If nothing is open yet, load directly — no interruption possible
-            if (!currentFile) {
+            // Explicit command or no file open yet — load immediately, no toast.
+            if (isExplicit || !currentFile) {
+                if (process.env['NODE_ENV'] !== 'production') {
+                    console.log('[IDE-SYNC-DEBUG] Glass hook — loading directly (explicit or first file)')
+                }
                 loadFile(filePath)
                 return
             }
 
-            // A file is already open — show an acceptance toast
+            // Passive auto-follow with a file already open — show an acceptance
+            // toast so the designer isn't interrupted mid-work.
+            if (process.env['NODE_ENV'] !== 'production') {
+                console.log('[IDE-SYNC-DEBUG] Glass hook — auto-follow toast for:', filePath)
+            }
             useNotificationStore.getState().push({
                 type: 'mutation',
                 severity: 'info',
