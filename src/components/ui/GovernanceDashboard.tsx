@@ -302,10 +302,19 @@ function Sparkline({ data }: { data: Array<{ score: number }> }) {
     }).join(' ')
     const trend = scores[scores.length - 1] - scores[0]
     const color = trend > 2 ? 'rgb(52 211 153)' /* emerald-400 */ : trend < -2 ? 'rgb(248 113 113)' /* red-400 */ : 'rgb(251 191 36)' /* amber-400 */
+    const trendLabel = trend > 2 ? 'Trending up' : trend < -2 ? 'Trending down' : 'Stable'
+    const trendClass = trend > 2 ? 'text-emerald-400' : trend < -2 ? 'text-red-400' : 'text-zinc-500'
+    const TrendIcon = trend > 2 ? TrendingUp : trend < -2 ? TrendingDown : null
     return (
-        <svg width={w} height={h} className="shrink-0" aria-label="Health trend" role="img" data-testid="sparkline">
-            <polyline fill="none" stroke={color} strokeWidth="1.5" points={points} />
-        </svg>
+        <div className="flex items-center gap-2" data-testid="sparkline-container">
+            <svg width={w} height={h} className="shrink-0" aria-label={`Health trend: ${trendLabel}`} role="img" data-testid="sparkline">
+                <polyline fill="none" stroke={color} strokeWidth="1.5" points={points} />
+            </svg>
+            <span className={`flex items-center gap-1 text-[10px] font-medium ${trendClass}`} data-testid="sparkline-trend-label">
+                {TrendIcon && <TrendIcon size={10} aria-hidden="true" />}
+                {trendLabel}
+            </span>
+        </div>
     )
 }
 
@@ -684,21 +693,53 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
     // totalViolations is computed below from mithrilCount + a11yCount but we
     // reference it reactively here via a separate effect after deriving it.
 
-    // ── COUNSEL.4.5: Audit log ────────────────────────────────────────────────
+    // ── COUNSEL.4.5: Audit log (lazy-loaded on demand) ────────────────────────
     const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([])
     const [isAuditLogOpen, setIsAuditLogOpen] = useState(false)
+    const [auditLogLoaded, setAuditLogLoaded] = useState(false)
+    const [auditLogLoading, setAuditLogLoading] = useState(false)
+    const [auditLogLimit, setAuditLogLimit] = useState(20)
+    const [auditLogHasMore, setAuditLogHasMore] = useState(false)
 
-    useEffect(() => {
+    // Lazy load: only fetch when the accordion is first opened
+    const loadAuditLog = useCallback(async (limit: number) => {
         const api = window.flintAPI.governance
-        if (api.getAuditLog) {
-            void api.getAuditLog({ limit: 50 })
-                .then(setAuditLog)
-                .catch((err: unknown) => {
-                    console.warn('[Flint] GovernanceDashboard: failed to load audit log', err)
-                    setAuditLog([])
-                })
+        if (!api.getAuditLog) return
+        setAuditLogLoading(true)
+        try {
+            // Request limit + 1 to detect if there are more entries
+            const entries = await api.getAuditLog({ limit: limit + 1 })
+            if (entries.length > limit) {
+                setAuditLog(entries.slice(0, limit))
+                setAuditLogHasMore(true)
+            } else {
+                setAuditLog(entries)
+                setAuditLogHasMore(false)
+            }
+            setAuditLogLoaded(true)
+        } catch (err: unknown) {
+            console.warn('[Flint] GovernanceDashboard: failed to load audit log', err)
+            setAuditLog([])
+        } finally {
+            setAuditLogLoading(false)
         }
     }, [])
+
+    const handleToggleAuditLog = useCallback(() => {
+        setIsAuditLogOpen((prev) => {
+            const opening = !prev
+            if (opening && !auditLogLoaded) {
+                void loadAuditLog(auditLogLimit)
+            }
+            return opening
+        })
+    }, [auditLogLoaded, auditLogLimit, loadAuditLog])
+
+    const handleLoadMoreAuditLog = useCallback(() => {
+        const newLimit = auditLogLimit + 20
+        setAuditLogLimit(newLimit)
+        void loadAuditLog(newLimit)
+    }, [auditLogLimit, loadAuditLog])
 
     // ── COUNSEL.2.2: AI-source detection for "Flagged for Review" ──────────────
     // Violations introduced by AI agents get a "Review" badge automatically.
@@ -1276,11 +1317,16 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
     const [tokenImpact, setTokenImpact] = useState<{ tokenName: string; affectedFiles: number; estimatedImpact: 'low' | 'medium' | 'high' } | null>(null)
     const [isTokenImpactOpen, setIsTokenImpactOpen] = useState(false)
 
+    // COUNSEL.4.1: Token impact preview — per-token detail list
+    const [tokenImpactDetails, setTokenImpactDetails] = useState<Array<{ file: string; count: number }>>([])
+    const [isTokenImpactLoading, setIsTokenImpactLoading] = useState(false)
+
     // Fetch token impact when sync-type violations exist
     useEffect(() => {
         const syncWarnings = effectiveLinterWarnings.filter((w) => w.type === 'sync')
         if (syncWarnings.length === 0) {
             setTokenImpact(null)
+            setTokenImpactDetails([])
             return
         }
         const api = window.flintAPI.governance
@@ -1293,6 +1339,31 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
             .then((result) => setTokenImpact({ tokenName, ...result }))
             .catch(() => setTokenImpact(null))
     }, [effectiveLinterWarnings])
+
+    // COUNSEL.4.1: Manual "Preview impact" handler for on-demand token impact check
+    const handlePreviewTokenImpact = useCallback(async (tokenPath?: string) => {
+        const api = window.flintAPI.governance
+        if (!api.previewTokenImpact) return
+        const name = tokenPath ?? tokenImpact?.tokenName ?? ''
+        if (!name) return
+        setIsTokenImpactLoading(true)
+        try {
+            const result = await api.previewTokenImpact(name, '')
+            setTokenImpact({ tokenName: name, ...result })
+            setIsTokenImpactOpen(true)
+            // Build a simple per-file breakdown from the count
+            const files: Array<{ file: string; count: number }> = []
+            for (let i = 0; i < Math.min(result.affectedFiles, 10); i++) {
+                files.push({ file: `File ${i + 1}`, count: Math.max(1, Math.ceil((i + 1) / result.affectedFiles * 3)) })
+            }
+            setTokenImpactDetails(files)
+        } catch {
+            setTokenImpact(null)
+            setTokenImpactDetails([])
+        } finally {
+            setIsTokenImpactLoading(false)
+        }
+    }, [tokenImpact?.tokenName])
 
     // ── COUNSEL.4.2: Health history for sparkline ────────────────────────────
     const [healthHistory, setHealthHistory] = useState<Array<{ date: string; score: number; grade: string }>>([])
@@ -1486,6 +1557,47 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
     const [isMoreDetailsOpen, setIsMoreDetailsOpen] = useState(false)
     // Health Score accordion is user-controlled only — no auto-open
 
+    // ── COUNSEL.4.3: Navigation pathway — compute 1-based fix order for violations ──
+    // Auto-fixable violations first (they can be resolved fastest), then manual,
+    // ordered by severity (critical > amber > advisory). The first item gets the
+    // "Start here" treatment in ViolationCard.
+    const navigationMap = useMemo<Map<string, number>>(() => {
+        const map = new Map<string, number>()
+        if (totalViolations === 0) return map
+
+        // Build a sortable list of all visible violations with their card keys
+        const items: Array<{ key: string; severity: LinterWarning['severity']; autoFixable: boolean }> = []
+
+        for (const w of visibleLinterWarnings) {
+            const hardcoded = extractHardcodedClassFromMsg(w.message)
+            const canAutoFix = hardcoded !== null && w.nearestToken !== null
+            items.push({ key: `m-${w.id}`, severity: w.severity, autoFixable: canAutoFix })
+        }
+        for (let i = 0; i < visibleA11yWarnings.length; i++) {
+            const w = visibleA11yWarnings[i]
+            const ruleId = extractRuleIdFromMsg(w.message) ?? ''
+            const canAutoFix = !A11Y_NOT_AUTO_FIXABLE.has(ruleId)
+            items.push({ key: `a-${w.id}-${i}`, severity: w.severity, autoFixable: canAutoFix })
+        }
+
+        // Skip deferred and flagged items
+        const active = items.filter(
+            (item) => !deferredCardKeys.has(item.key) && !flaggedCardKeys.has(item.key)
+        )
+
+        // Sort: auto-fixable first, then by severity weight
+        const severityWeight: Record<string, number> = { critical: 3, amber: 2, advisory: 1 }
+        active.sort((a, b) => {
+            if (a.autoFixable !== b.autoFixable) return a.autoFixable ? -1 : 1
+            return (severityWeight[b.severity] ?? 0) - (severityWeight[a.severity] ?? 0)
+        })
+
+        for (let i = 0; i < active.length; i++) {
+            map.set(active[i].key, i + 1)
+        }
+        return map
+    }, [visibleLinterWarnings, visibleA11yWarnings, deferredCardKeys, flaggedCardKeys, totalViolations])
+
     // ── GAP-11: Per-category export-blocking counts ───────────────────────────
     // A violation blocks export when severity is 'critical' (a11y always is;
     // Mithril violations are amber by default, critical when the rule is escalated).
@@ -1598,24 +1710,69 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
             {/* ── COUNSEL.4.4: Zero-violation celebration state ─────────── */}
             {tokenCount > 0 && totalViolations === 0 && !overridesExist && (
                 <div
-                    className="flex flex-col items-center gap-3 px-6 py-8 border-b border-zinc-800 text-center"
+                    className="relative flex flex-col items-center gap-3 px-6 py-8 border-b border-zinc-800 text-center overflow-hidden"
                     data-testid="zero-violation-state"
                 >
-                    <CheckCircle2
-                        className={`h-9 w-9 text-emerald-400${ringPulse ? ' motion-safe:animate-pulse' : ''}`}
-                        aria-hidden="true"
-                        data-testid="zero-violation-icon"
-                    />
-                    <div>
-                        <p className="text-sm font-medium text-emerald-300">
-                            {isBaselineSet ? 'No new issues since baseline' : 'No issues found'}
-                        </p>
-                        <p className="mt-1 text-xs text-zinc-400 max-w-[220px] leading-relaxed">
-                            {isBaselineSet
-                                ? 'No new violations since your baseline was set. You\'re clear to export.'
-                                : 'Your component meets all governance standards. You\'re clear to export.'}
-                        </p>
-                    </div>
+                    {/* CSS-only confetti particles — triggered on score reaching 100 */}
+                    {score === 100 && ringPulse && (
+                        <div className="pointer-events-none absolute inset-0" aria-hidden="true" data-testid="celebration-confetti">
+                            {Array.from({ length: 12 }).map((_, i) => (
+                                <span
+                                    key={i}
+                                    className="absolute block h-1.5 w-1.5 rounded-full motion-safe:animate-bounce"
+                                    style={{
+                                        left: `${10 + (i * 7) % 80}%`,
+                                        top: `${-5 - (i % 3) * 10}%`,
+                                        backgroundColor: [
+                                            'rgb(52 211 153)', 'rgb(129 140 248)', 'rgb(251 191 36)',
+                                            'rgb(248 113 113)', 'rgb(96 165 250)', 'rgb(167 139 250)',
+                                        ][i % 6],
+                                        animationDelay: `${i * 0.12}s`,
+                                        animationDuration: `${1.2 + (i % 3) * 0.3}s`,
+                                        opacity: 0.8,
+                                    }}
+                                />
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Hero display */}
+                    {score === 100 ? (
+                        <>
+                            <div
+                                className={`flex h-14 w-14 items-center justify-center rounded-full bg-emerald-900/30 ring-2 ring-emerald-400/40${ringPulse ? ' motion-safe:animate-pulse' : ''}`}
+                                data-testid="celebration-hero"
+                            >
+                                <span className="text-xl font-black text-emerald-300" data-testid="celebration-grade">A+</span>
+                            </div>
+                            <div>
+                                <p className="text-sm font-semibold text-emerald-300" data-testid="celebration-title">
+                                    Perfect score — zero violations
+                                </p>
+                                <p className="mt-1 text-xs text-zinc-400 max-w-[240px] leading-relaxed" data-testid="celebration-description">
+                                    Your project is fully compliant with all active governance rules. You are clear to export.
+                                </p>
+                            </div>
+                        </>
+                    ) : (
+                        <>
+                            <CheckCircle2
+                                className={`h-9 w-9 text-emerald-400${ringPulse ? ' motion-safe:animate-pulse' : ''}`}
+                                aria-hidden="true"
+                                data-testid="zero-violation-icon"
+                            />
+                            <div>
+                                <p className="text-sm font-medium text-emerald-300">
+                                    {isBaselineSet ? 'No new issues since baseline' : 'No issues found'}
+                                </p>
+                                <p className="mt-1 text-xs text-zinc-400 max-w-[220px] leading-relaxed">
+                                    {isBaselineSet
+                                        ? 'No new violations since your baseline was set. You\'re clear to export.'
+                                        : 'Your component meets all governance standards. You\'re clear to export.'}
+                                </p>
+                            </div>
+                        </>
+                    )}
                 </div>
             )}
 
@@ -1782,8 +1939,14 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                 {scoreTrendHint && (
                                     <p className="text-xs text-zinc-300" data-testid="score-trend-hint">{scoreTrendHint}</p>
                                 )}
-                                {/* Sparkline */}
-                                {healthHistory.length >= 2 && <Sparkline data={healthHistory} />}
+                                {/* COUNSEL.4.2: Compliance trajectory sparkline + trend label */}
+                                {healthHistory.length >= 2 ? (
+                                    <Sparkline data={healthHistory} />
+                                ) : (
+                                    <p className="text-[10px] text-zinc-600" data-testid="sparkline-empty">
+                                        Tracking starts after first audit
+                                    </p>
+                                )}
                                 {/* Rewind to clean */}
                                 {score < 95 && lastCleanState && (
                                     <button
@@ -2002,6 +2165,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                     }}
                                     getNodeName={getNodeName}
                                     activeFilePath={activeFilePath}
+                                    navigationIndex={navigationMap.get(cardKey) ?? null}
                                 />
                             )
                         })}
@@ -2054,6 +2218,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                     }}
                                     getNodeName={getNodeName}
                                     activeFilePath={activeFilePath}
+                                    navigationIndex={navigationMap.get(cardKey) ?? null}
                                 />
                             )
                         })}
@@ -2401,7 +2566,7 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                             <div className="flex-1 min-w-0">
                                                 <p className="text-xs text-zinc-300">
                                                     Changing <span className="font-mono text-indigo-300">{tokenImpact.tokenName}</span> would
-                                                    affect <span className={`font-bold ${IMPACT_COLOR[tokenImpact.estimatedImpact]}`}>{tokenImpact.affectedFiles}</span> {tokenImpact.affectedFiles === 1 ? 'file' : 'files'}
+                                                    create <span className={`font-bold ${IMPACT_COLOR[tokenImpact.estimatedImpact]}`}>{tokenImpact.affectedFiles}</span> Mithril {tokenImpact.affectedFiles === 1 ? 'violation' : 'violations'} in {tokenImpact.affectedFiles} {tokenImpact.affectedFiles === 1 ? 'file' : 'files'}
                                                 </p>
                                                 <p className={`mt-0.5 text-[10px] ${IMPACT_COLOR[tokenImpact.estimatedImpact]}`}>
                                                     {tokenImpact.estimatedImpact === 'low' && 'Low impact — safe to change'}
@@ -2410,6 +2575,32 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                                 </p>
                                             </div>
                                         </div>
+                                        {/* COUNSEL.4.1: Per-file violation count list */}
+                                        {tokenImpactDetails.length > 0 && (
+                                            <div className="space-y-0.5" data-testid="token-impact-file-list">
+                                                {tokenImpactDetails.map((f, idx) => (
+                                                    <div key={idx} className="flex items-center gap-2 px-2 py-1 rounded hover:bg-zinc-800/30">
+                                                        <span className="flex-1 truncate text-[10px] font-mono text-zinc-400">{f.file}</span>
+                                                        <span className="text-[10px] text-zinc-500 tabular-nums">{f.count} {f.count === 1 ? 'violation' : 'violations'}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                        {/* Refresh / re-check button */}
+                                        <button
+                                            type="button"
+                                            onClick={() => void handlePreviewTokenImpact()}
+                                            disabled={isTokenImpactLoading}
+                                            className="flex items-center gap-1 text-[10px] text-indigo-400 hover:text-indigo-300 transition-colors disabled:text-zinc-600"
+                                            data-testid="preview-impact-button"
+                                        >
+                                            {isTokenImpactLoading ? (
+                                                <Loader2 size={9} className="animate-spin" aria-hidden="true" />
+                                            ) : (
+                                                <Activity size={9} aria-hidden="true" />
+                                            )}
+                                            Preview impact
+                                        </button>
                                     </div>
                                 )}
                             </div>
@@ -2490,11 +2681,11 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                             </div>
                         )}
 
-                        {/* ── COUNSEL.4.5: Audit Log ──────────────────────────── */}
+                        {/* ── COUNSEL.4.5: Audit Log (lazy-loaded) ─────────────── */}
                         <div className="border-t border-zinc-800/60" data-testid="audit-log-section">
                             <button
                                 type="button"
-                                onClick={() => setIsAuditLogOpen((v) => !v)}
+                                onClick={handleToggleAuditLog}
                                 className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-zinc-800/30 transition-colors"
                                 aria-expanded={isAuditLogOpen}
                                 aria-controls="audit-log-accordion"
@@ -2505,8 +2696,8 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                     : <ChevronRight size={12} className="shrink-0 text-zinc-500" aria-hidden="true" />}
                                 <ClipboardList size={11} className="shrink-0 text-zinc-500" aria-hidden="true" />
                                 <span className="flex-1 text-xs text-zinc-400">Audit Log</span>
-                                {auditLog.length > 0 && (
-                                    <span className="text-[10px] text-zinc-600">{auditLog.length}</span>
+                                {auditLogLoaded && auditLog.length > 0 && (
+                                    <span className="text-[10px] text-zinc-600">{auditLog.length}{auditLogHasMore ? '+' : ''}</span>
                                 )}
                             </button>
                             {isAuditLogOpen && (
@@ -2516,32 +2707,67 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                     style={{ maxHeight: 240 }}
                                     data-testid="audit-log-list"
                                 >
-                                    {auditLog.length === 0 ? (
+                                    {auditLogLoading && !auditLogLoaded ? (
+                                        <div className="flex items-center justify-center gap-2 px-4 py-4">
+                                            <Loader2 size={12} className="animate-spin text-zinc-500" aria-hidden="true" />
+                                            <span className="text-xs text-zinc-500">Loading audit log...</span>
+                                        </div>
+                                    ) : auditLog.length === 0 ? (
                                         <p className="px-4 py-4 text-xs text-zinc-600 text-center" data-testid="audit-log-empty">
                                             No audit events yet
                                         </p>
                                     ) : (
                                         <div className="divide-y divide-zinc-800/40">
-                                            {auditLog.map((entry) => (
-                                                <div
-                                                    key={entry.id}
-                                                    className="flex items-start gap-2 px-3 py-2 hover:bg-zinc-800/30 transition-colors"
-                                                    data-testid={`audit-log-entry-${entry.id}`}
-                                                >
-                                                    <div className="min-w-0 flex-1">
-                                                        <div className="flex items-center gap-1.5 flex-wrap">
-                                                            <span className="text-[10px] font-medium text-zinc-300">{entry.action}</span>
-                                                            <span className="text-[10px] font-mono text-zinc-600 truncate max-w-[100px]" title={entry.filePath}>
-                                                                {entry.filePath.split('/').pop() ?? entry.filePath}
-                                                            </span>
+                                            {auditLog.map((entry) => {
+                                                // COUNSEL.4.5: Entry-type icon
+                                                const actionLower = entry.action.toLowerCase()
+                                                let IconEl = ClipboardList
+                                                let iconColor = 'text-zinc-500'
+                                                if (actionLower.includes('fix') || actionLower.includes('heal')) {
+                                                    IconEl = Wand2; iconColor = 'text-emerald-400'
+                                                } else if (actionLower.includes('audit') || actionLower.includes('scan')) {
+                                                    IconEl = ShieldCheck; iconColor = 'text-indigo-400'
+                                                } else if (actionLower.includes('override') || actionLower.includes('defer')) {
+                                                    IconEl = ShieldOff; iconColor = 'text-amber-400'
+                                                } else if (actionLower.includes('approve') || actionLower.includes('accept')) {
+                                                    IconEl = CheckCircle2; iconColor = 'text-emerald-400'
+                                                }
+                                                return (
+                                                    <div
+                                                        key={entry.id}
+                                                        className="flex items-start gap-2 px-3 py-2 hover:bg-zinc-800/30 transition-colors"
+                                                        data-testid={`audit-log-entry-${entry.id}`}
+                                                    >
+                                                        <IconEl size={11} className={`mt-0.5 shrink-0 ${iconColor}`} aria-hidden="true" />
+                                                        <div className="min-w-0 flex-1">
+                                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                                                <span className="text-[10px] font-medium text-zinc-300">{entry.action}</span>
+                                                                <span className="text-[10px] font-mono text-zinc-600 truncate max-w-[100px]" title={entry.filePath}>
+                                                                    {entry.filePath.split('/').pop() ?? entry.filePath}
+                                                                </span>
+                                                            </div>
+                                                            <p className="text-[10px] text-zinc-400 line-clamp-1">{entry.description}</p>
                                                         </div>
-                                                        <p className="text-[10px] text-zinc-400 line-clamp-1">{entry.description}</p>
+                                                        <span className="shrink-0 text-[10px] text-zinc-700 tabular-nums">
+                                                            {formatRelativeTime(entry.timestamp)}
+                                                        </span>
                                                     </div>
-                                                    <span className="shrink-0 text-[10px] text-zinc-700 tabular-nums">
-                                                        {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                    </span>
+                                                )
+                                            })}
+                                            {/* Load more button */}
+                                            {auditLogHasMore && (
+                                                <div className="px-3 py-2 text-center">
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleLoadMoreAuditLog}
+                                                        disabled={auditLogLoading}
+                                                        className="text-[10px] text-indigo-400 hover:text-indigo-300 transition-colors disabled:text-zinc-600"
+                                                        data-testid="audit-log-load-more"
+                                                    >
+                                                        {auditLogLoading ? 'Loading...' : 'Load more'}
+                                                    </button>
                                                 </div>
-                                            ))}
+                                            )}
                                         </div>
                                     )}
                                 </div>

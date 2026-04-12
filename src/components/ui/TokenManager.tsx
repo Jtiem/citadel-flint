@@ -23,10 +23,12 @@ import { useNotificationStore } from '../../store/notificationStore'
 import type { DesignToken, TokenType, FigmaStatus, TokenUsageResult, ContrastPair, PendingToken } from '../../types/flint-api'
 import { FocusTrap } from './FocusTrap'
 import { TokenHealthBar } from './TokenHealthBar'
-import { TokenGroupSection, type ViewMode, type SyncBadgeStatus } from './TokenGrid'
+import { TokenGroupSection, type ViewMode, type SyncBadgeStatus, detectScaleGaps } from './TokenGrid'
 import { useTokenUsage } from '../../hooks/useTokenUsage'
 import { ContrastAuditPanel } from './ContrastAuditPanel'
 import { ApprovalStagingArea } from './ApprovalStagingArea'
+import { FirstSyncPrompt } from './FirstSyncPrompt'
+import { TokenDetailPanel } from './TokenDetailPanel'
 
 // ── Import Modal ──────────────────────────────────────────────────────────────
 
@@ -185,6 +187,12 @@ export function TokenManager() {
     const [figmaConnected, setFigmaConnected] = useState(false)
     const [figmaTokens, setFigmaTokens] = useState<Map<string, string>>(new Map())
 
+    // MINT.4d: Selected token for detail panel
+    const [selectedToken, setSelectedToken] = useState<DesignToken | null>(null)
+
+    // MINT.4a: Project path for first-sync dismissal persistence
+    const [projectPath, setProjectPath] = useState('')
+
     // MINT.3a: Run contrast audit (cached)
     const runContrastAudit = useCallback(async () => {
         if (!window.flintAPI.tokens.auditContrast) return
@@ -317,6 +325,15 @@ export function TokenManager() {
         fetchFigmaState()
         fetchUsage()
         fetchPendingApprovals()
+        // MINT.4a: Resolve project path for first-sync dismissal
+        window.flintAPI.mcp?.readResource?.('flint://session-context')
+            .then((text) => {
+                try {
+                    const ctx = typeof text === 'string' ? JSON.parse(text) : text
+                    if (ctx?.projectPath) setProjectPath(String(ctx.projectPath))
+                } catch { /* ignore */ }
+            })
+            .catch(() => { /* graceful degradation */ })
     }, [fetchTokens, fetchFigmaState, fetchUsage, fetchPendingApprovals])
 
     // S7.2: Compute sync status for each token
@@ -343,6 +360,19 @@ export function TokenManager() {
         }
         return allFiles.size
     }, [usageResults])
+
+    // MINT.4c: Compute total scale gap count across all dimension tokens
+    const scaleGapCount = useMemo(() => {
+        const dimensionTokens = tokens.filter((t) => t.token_type === 'dimension')
+        if (dimensionTokens.length < 3) return 0
+        // Also check typography scale (lineHeight, letterSpacing) and sizing
+        const typographyTokens = tokens.filter((t) =>
+            t.token_type === 'lineHeight' || t.token_type === 'letterSpacing',
+        )
+        const dimensionGaps = detectScaleGaps(dimensionTokens)
+        const typographyGaps = detectScaleGaps(typographyTokens)
+        return dimensionGaps.length + typographyGaps.length
+    }, [tokens])
 
     // Search-filtered token list (MINT.2b: dead-only filter + usage sort)
     const filteredTokens = useMemo(() => {
@@ -502,6 +532,18 @@ export function TokenManager() {
                 </div>
             </div>
 
+            {/* ── MINT.4a: First Sync Prompt ─────────────────────────────── */}
+            <FirstSyncPrompt
+                figmaConnected={figmaConnected}
+                tokenCount={tokens.length}
+                projectPath={projectPath}
+                onNavigateToTokens={() => {
+                    // Already on the tokens tab — scroll to top
+                    const scrollEl = document.querySelector('[data-testid="token-scroll-container"]')
+                    scrollEl?.scrollTo({ top: 0, behavior: 'smooth' })
+                }}
+            />
+
             {/* ── MINT.1a: Health Bar ─────────────────────────────────────── */}
             {tokens.length > 0 && (
                 <TokenHealthBar
@@ -511,6 +553,7 @@ export function TokenManager() {
                     usageFileCount={usageFileCount}
                     deadTokenCount={deadTokenCount}
                     driftCount={driftCount}
+                    scaleGapCount={scaleGapCount}
                 />
             )}
 
@@ -590,7 +633,7 @@ export function TokenManager() {
             )}
 
             {/* ── Token list/grid ──────────────────────────────────────────── */}
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="min-h-0 flex-1 overflow-y-auto" data-testid="token-scroll-container">
                 {isLoading && (
                     <p className="px-3 py-6 text-center text-xs text-zinc-500">Loading\u2026</p>
                 )}
@@ -634,6 +677,7 @@ export function TokenManager() {
                         usageMap={usageMap}
                         driftedTokens={driftedTokens}
                         contrastMap={contrastMap}
+                        onTokenSelect={setSelectedToken}
                     />
                 ))}
 
@@ -662,6 +706,18 @@ export function TokenManager() {
                     onImport={importTokensJSON}
                     isLoading={isLoading}
                     error={error}
+                />
+            )}
+
+            {/* ── MINT.4d: Token Detail Panel ─────────────────────────────── */}
+            {selectedToken && (
+                <TokenDetailPanel
+                    token={selectedToken}
+                    onClose={() => setSelectedToken(null)}
+                    usageResult={usageMap.get(selectedToken.token_path) ?? null}
+                    drift={driftedTokens.find((d) => d.tokenName === selectedToken.token_path) ?? null}
+                    syncStatus={getSyncStatus(selectedToken)}
+                    contrastPairs={contrastMap?.get(selectedToken.token_path)}
                 />
             )}
         </div>

@@ -2,10 +2,11 @@
  * TokenHealthBar — src/components/ui/TokenHealthBar.tsx
  *
  * MINT.1a: Compact health summary bar displayed above the token list.
- * Shows three indicator pills:
+ * Shows indicator pills:
  *   - Total token count
  *   - Sync status (in sync / N drifted) when Figma is connected
  *   - Coverage (used in N files) when scanUsage data is available
+ *   - MINT.4c: Scale gap warnings (spacing/sizing/typography gaps)
  *
  * Renderer Process only — no Node.js imports.
  */
@@ -21,6 +22,8 @@ export interface TokenHealthBarProps {
     deadTokenCount?: number
     /** MINT.2c: Number of tokens drifted from Figma source values. */
     driftCount?: number
+    /** MINT.4c: Number of scale gaps detected in spacing/sizing tokens. */
+    scaleGapCount?: number
 }
 
 export function TokenHealthBar({
@@ -30,6 +33,7 @@ export function TokenHealthBar({
     usageFileCount,
     deadTokenCount = 0,
     driftCount = 0,
+    scaleGapCount = 0,
 }: TokenHealthBarProps) {
     const driftedCount = syncStatuses.filter((s) => s === 'drifted').length
     const allSynced = figmaConnected && driftedCount === 0
@@ -101,6 +105,18 @@ export function TokenHealthBar({
                 >
                     <span className="inline-block h-1.5 w-1.5 rounded-full bg-blue-400" />
                     Used in {usageFileCount} file{usageFileCount !== 1 ? 's' : ''}
+                </span>
+            )}
+
+            {/* MINT.4c: Scale gap warning pill */}
+            {scaleGapCount > 0 && (
+                <span
+                    className="inline-flex items-center gap-1 rounded-full bg-amber-400/10 px-2.5 py-0.5 text-[11px] font-medium text-amber-400"
+                    data-testid="health-scale-gaps"
+                    aria-label={`${scaleGapCount} scale gap${scaleGapCount !== 1 ? 's' : ''} detected in spacing or sizing tokens`}
+                >
+                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-400" />
+                    {scaleGapCount} scale gap{scaleGapCount !== 1 ? 's' : ''}
                 </span>
             )}
         </div>

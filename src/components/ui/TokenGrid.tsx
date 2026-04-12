@@ -433,6 +433,8 @@ interface TokenRowProps {
     contrastGrade?: ContrastBadgeGrade
     /** MINT.3b: Contrast ratio for this token. */
     contrastRatio?: number
+    /** MINT.4d: Click handler to open token detail panel. */
+    onClick?: () => void
 }
 
 function DimensionBar({ value }: { value: string }) {
@@ -448,11 +450,15 @@ function DimensionBar({ value }: { value: string }) {
     )
 }
 
-export function TokenRow({ token, syncStatus, figmaConnected, usageResult, drift, contrastGrade, contrastRatio }: TokenRowProps) {
+export function TokenRow({ token, syncStatus, figmaConnected, usageResult, drift, contrastGrade, contrastRatio, onClick }: TokenRowProps) {
     return (
         <div
-            className="flex items-center gap-2 border-b border-zinc-800/40 px-3 py-1.5 hover:bg-zinc-800/30"
+            className="flex cursor-pointer items-center gap-2 border-b border-zinc-800/40 px-3 py-1.5 hover:bg-zinc-800/30"
             role="row"
+            tabIndex={0}
+            onClick={onClick}
+            onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && onClick) { e.preventDefault(); onClick() } }}
+            aria-label={`Token ${token.token_path}: ${token.token_value}. Click for details.`}
         >
             {/* Type-specific visual indicator */}
             {token.token_type === 'color' && (
@@ -522,18 +528,25 @@ interface TokenGridCardProps {
     contrastGrade?: ContrastBadgeGrade
     /** MINT.3b: Contrast ratio for this token. */
     contrastRatio?: number
+    /** MINT.4d: Click handler to open token detail panel. */
+    onClick?: () => void
 }
 
-function TokenGridCard({ token, darkModeToken, syncStatus, usageResult, drift, contrastGrade, contrastRatio }: TokenGridCardProps) {
+function TokenGridCard({ token, darkModeToken, syncStatus, usageResult, drift, contrastGrade, contrastRatio, onClick }: TokenGridCardProps) {
     const isDead = usageResult != null && usageResult.usageCount === 0
     return (
         <div
-            className={`flex flex-col items-center gap-1.5 rounded-lg border p-3 transition-colors hover:border-zinc-700 ${
+            className={`flex cursor-pointer flex-col items-center gap-1.5 rounded-lg border p-3 transition-colors hover:border-zinc-700 ${
                 isDead
                     ? 'border-red-500/20 bg-red-950/20'
                     : 'border-zinc-800/60 bg-zinc-900/50'
             }`}
             data-testid="token-grid-card"
+            tabIndex={0}
+            onClick={onClick}
+            onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && onClick) { e.preventDefault(); onClick() } }}
+            role="button"
+            aria-label={`Token ${token.token_path}: ${token.token_value}. Click for details.`}
         >
             {/* Visual specimen */}
             <div className="flex items-center gap-2">
@@ -715,6 +728,8 @@ interface TokenGroupSectionProps {
     driftedTokens?: TokenDrift[]
     /** MINT.3b: Contrast data map (token_path -> pairs). */
     contrastMap?: Map<string, ContrastPair[]>
+    /** MINT.4d: Callback when a token is clicked to open detail panel. */
+    onTokenSelect?: (token: DesignToken) => void
 }
 
 export function TokenGroupSection({
@@ -727,6 +742,7 @@ export function TokenGroupSection({
     usageMap,
     driftedTokens,
     contrastMap,
+    onTokenSelect,
 }: TokenGroupSectionProps) {
     // MINT.2c: Build a drift lookup by token name
     const driftByName = new Map<string, TokenDrift>()
@@ -799,6 +815,7 @@ export function TokenGroupSection({
                                             drift={driftByName.get(token.token_path) ?? null}
                                             contrastGrade={contrast.grade}
                                             contrastRatio={contrast.ratio}
+                                            onClick={onTokenSelect ? () => onTokenSelect(token) : undefined}
                                         />
                                     )
                                 })}
@@ -817,6 +834,7 @@ export function TokenGroupSection({
                                             drift={driftByName.get(token.token_path) ?? null}
                                             contrastGrade={contrast.grade}
                                             contrastRatio={contrast.ratio}
+                                            onClick={onTokenSelect ? () => onTokenSelect(token) : undefined}
                                         />
                                     )
                                 })}

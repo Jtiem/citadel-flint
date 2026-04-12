@@ -33,10 +33,12 @@ import {
     Zap,
     Link2,
     X,
+    Clipboard,
 } from 'lucide-react'
 import type { RecentProject } from '../../types/flint-api'
 import { FigmaSetupWizard } from './FigmaSetupWizard'
 import { DemoScenarioPicker } from './DemoScenarioPicker'
+import { PasteAuditModal } from './PasteAuditModal'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -131,6 +133,9 @@ export function LaunchScreen({
 
     // FORGE.4b: Map of project path → health grade letter
     const [healthGrades, setHealthGrades] = useState<Map<string, string>>(new Map())
+
+    // FORGE.4a: Paste and Audit modal
+    const [showPasteAudit, setShowPasteAudit] = useState(false)
 
     // ── Web-mode open-folder signal listener ──────────────────────────────────
     const handleOpenFolderRequest = useCallback(() => {
@@ -704,6 +709,19 @@ export function LaunchScreen({
                         </section>
                     )}
 
+                    {/* 8.5. FORGE.4a: Paste and Audit tertiary action */}
+                    <div className="mt-4 flex justify-center">
+                        <button
+                            type="button"
+                            onClick={() => setShowPasteAudit(true)}
+                            className="flex items-center gap-1.5 text-xs text-zinc-500 transition-colors hover:text-indigo-400"
+                            data-testid="paste-audit-trigger"
+                        >
+                            <Clipboard size={12} aria-hidden="true" />
+                            Paste code to audit
+                        </button>
+                    </div>
+
                     {/* 9. Footer actions */}
                     <div className="mt-6 flex flex-col items-center gap-3">
                         {/* Web mode: standalone path input when no tile is expanded */}
@@ -761,6 +779,11 @@ export function LaunchScreen({
 
                 </div>
             </main>
+
+            {/* FORGE.4a: Paste and Audit modal */}
+            {showPasteAudit && (
+                <PasteAuditModal onClose={() => setShowPasteAudit(false)} />
+            )}
         </div>
     )
 }

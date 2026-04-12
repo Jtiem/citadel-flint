@@ -35,6 +35,56 @@ import { sanitiseToastMessage } from '../../utils/sanitiseToastMessage'
 import type { DeferDuration } from '../../../shared/deferralUtils'
 const DEFER_DURATIONS: DeferDuration[] = ['1 day', '3 days', '1 week', '1 sprint', 'Manually']
 
+// ── MINT.4b: Emit Now Button ─────────────────────────────────────────────────
+
+function EmitNowButton() {
+    const [emitting, setEmitting] = useState(false)
+    const [emitted, setEmitted] = useState(false)
+
+    const handleEmit = useCallback(async () => {
+        setEmitting(true)
+        try {
+            const mcp = window.flintAPI.mcp
+            if (mcp?.callTool) {
+                await mcp.callTool('flint_emit_tokens', { formats: ['css', 'tailwind'] })
+            }
+            setEmitted(true)
+        } catch (err) {
+            console.warn('[Flint] EmitNowButton: emit failed', err)
+            useNotificationStore.getState().push({
+                type: 'error',
+                severity: 'warning',
+                title: 'Token emission failed',
+                message: err instanceof Error ? err.message : 'Could not emit tokens',
+                autoDismissMs: 5000,
+            })
+        } finally {
+            setEmitting(false)
+        }
+    }, [])
+
+    if (emitted) {
+        return (
+            <span className="ml-1 text-emerald-400" data-testid="emit-now-done">
+                Emitted
+            </span>
+        )
+    }
+
+    return (
+        <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); void handleEmit() }}
+            disabled={emitting}
+            className="ml-1 rounded bg-indigo-600/80 px-1.5 py-0.5 text-[10px] font-medium text-white transition-colors hover:bg-indigo-500 disabled:opacity-40"
+            data-testid="emit-now-button"
+            aria-label="Emit tokens to platform formats now"
+        >
+            {emitting ? 'Emitting...' : 'Emit now'}
+        </button>
+    )
+}
+
 // ── Props ──────────────────────────────────────────────────────────────────────
 
 interface ExportModalProps {
@@ -458,6 +508,7 @@ export function ExportModal({ onClose, pendingTokenCount }: ExportModalProps) {
                                             data-testid="token-emission-dot-gray"
                                         />
                                         <span className="text-zinc-500">Not configured</span>
+                                        <EmitNowButton />
                                     </>
                                 ) : pendingTokenCount === 0 ? (
                                     <>
@@ -482,6 +533,7 @@ export function ExportModal({ onClose, pendingTokenCount }: ExportModalProps) {
                                                     : `${pendingTokenCount} token changes pending approval`}
                                             </span>
                                         </span>
+                                        <EmitNowButton />
                                     </>
                                 )}
                             </span>

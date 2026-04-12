@@ -222,7 +222,7 @@ export function DetectionBanner({
                 <div className="space-y-0.5" data-testid="recommendations">
                     {environment.auditSummary!.violations > 10 && (
                         <p className="text-xs text-indigo-400">
-                            → Start with auto-fixable issues — Autopilot can handle many instantly
+                            → You have {environment.auditSummary!.violations} issues — Autopilot can auto-fix many in one click
                         </p>
                     )}
                     {environment.auditSummary!.violations > 0 && environment.auditSummary!.violations <= 10 && (
@@ -237,7 +237,17 @@ export function DetectionBanner({
                     )}
                     {!environment.tokenFormat && (
                         <p className="text-xs text-indigo-400">
-                            → No design tokens detected — connect Figma to get started
+                            → No design tokens detected — connect Figma or import a tokens file
+                        </p>
+                    )}
+                    {environment.componentLibrary && !environment.hasDesignTokens && (
+                        <p className="text-xs text-indigo-400" data-testid="recommendation-registry">
+                            → {environment.componentLibraryLabel ?? environment.componentLibrary.name} detected but no tokens — enable registry governance
+                        </p>
+                    )}
+                    {environment.hasDesignTokens && environment.componentCount > 0 && environment.auditSummary!.violations === 0 && !environment.cssFramework?.name?.includes('tailwind') && (
+                        <p className="text-xs text-zinc-400" data-testid="recommendation-darkmode">
+                            → Consider adding dark mode support for broader coverage
                         </p>
                     )}
                 </div>

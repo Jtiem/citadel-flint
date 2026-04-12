@@ -331,6 +331,10 @@ export interface ViolationCardProps {
 
     /** activeFilePath — needed for diff preview IPC */
     activeFilePath: string | null
+
+    /** COUNSEL.4.3: Navigation pathway — 1-based index in the recommended fix order.
+     *  null means no pathway indicator is shown. */
+    navigationIndex?: number | null
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -373,6 +377,7 @@ export function ViolationCard({
     onPin,
     onJumpToElement,
     getNodeName,
+    navigationIndex,
 }: ViolationCardProps) {
     // Consume resurfaceTick to ensure re-render every 60s (label freshness)
     void resurfaceTick
@@ -405,12 +410,27 @@ export function ViolationCard({
                 aria-controls={expandId}
                 aria-label={`${isOpen ? 'Collapse' : 'Expand'} ${ruleId} issue detail`}
             >
-                <span
-                    className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
-                        type === 'a11y' ? 'bg-red-400' : SEVERITY_DOT[w.severity]
-                    }`}
-                    aria-hidden="true"
-                />
+                {/* COUNSEL.4.3: Navigation pathway index */}
+                {navigationIndex != null ? (
+                    <span
+                        className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[9px] font-bold tabular-nums ${
+                            navigationIndex === 1
+                                ? 'bg-indigo-500/30 text-indigo-300 ring-1 ring-indigo-400/50'
+                                : 'bg-zinc-800 text-zinc-500'
+                        }`}
+                        aria-label={navigationIndex === 1 ? 'Start here — highest impact fix' : `Fix step ${navigationIndex}`}
+                        data-testid={`nav-index-${navigationIndex}`}
+                    >
+                        {navigationIndex}
+                    </span>
+                ) : (
+                    <span
+                        className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
+                            type === 'a11y' ? 'bg-red-400' : SEVERITY_DOT[w.severity]
+                        }`}
+                        aria-hidden="true"
+                    />
+                )}
                 <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5 flex-wrap">
                         <p className="text-[10px] text-zinc-300 font-medium" title={ruleId}>{getRuleLabel(ruleId)}</p>

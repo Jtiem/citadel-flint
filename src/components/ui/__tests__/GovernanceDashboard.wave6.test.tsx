@@ -259,29 +259,31 @@ describe('GovernanceDashboard — Wave 6', () => {
             })
         })
 
-        it('renders green checkmark icon in zero-violation state', async () => {
+        it('renders celebration hero with A+ grade in zero-violation state (score 100)', async () => {
             seedTokens([makeToken()])
             render(<GovernanceDashboard />)
             await waitFor(() => {
-                expect(screen.getByTestId('zero-violation-icon')).toBeDefined()
+                expect(screen.getByTestId('celebration-hero')).toBeDefined()
+                expect(screen.getByTestId('celebration-grade').textContent).toBe('A+')
             })
         })
 
-        it('headline reads "No issues found"', async () => {
+        it('headline reads "Perfect score — zero violations"', async () => {
             seedTokens([makeToken()])
             render(<GovernanceDashboard />)
             await waitFor(() => {
-                expect(screen.getByText('No issues found')).toBeDefined()
+                expect(screen.getByTestId('celebration-title').textContent).toContain('Perfect score')
             })
         })
 
-        it('subtext says component meets governance standards and is clear to export', async () => {
+        it('subtext says project is fully compliant and clear to export', async () => {
             seedTokens([makeToken()])
             render(<GovernanceDashboard />)
             await waitFor(() => {
-                const subtext = screen.getByText(/meets all governance standards/i)
+                const subtext = screen.getByTestId('celebration-description')
                 expect(subtext).toBeDefined()
-                expect(subtext.textContent).toContain("clear to export")
+                expect(subtext.textContent).toContain('fully compliant')
+                expect(subtext.textContent).toContain('clear to export')
             })
         })
 
@@ -319,16 +321,15 @@ describe('GovernanceDashboard — Wave 6', () => {
             })
         })
 
-        it('zero-violation icon does not have animate-pulse after 3 seconds (static load)', async () => {
+        it('celebration hero renders without animate-pulse on static load (no transition)', async () => {
             seedTokens([makeToken()])
             render(<GovernanceDashboard />)
             await waitFor(() => {
-                expect(screen.getByTestId('zero-violation-icon')).toBeDefined()
+                expect(screen.getByTestId('celebration-hero')).toBeDefined()
             })
-            // On initial load (not transitioning from violations → 0), no pulse
-            const icon = screen.getByTestId('zero-violation-icon')
-            // The icon may or may not have animate-pulse; what matters is it renders
-            expect(icon).toBeDefined()
+            // On initial load (not transitioning from violations → 0), the hero renders
+            const hero = screen.getByTestId('celebration-hero')
+            expect(hero).toBeDefined()
         })
     })
 
@@ -410,11 +411,15 @@ describe('GovernanceDashboard — Wave 6', () => {
             })
         })
 
-        it('calls governance.getAuditLog on mount', async () => {
+        it('calls governance.getAuditLog lazily when accordion is opened', async () => {
             seedTokens([makeToken()])
             const mockFn = window.flintAPI.governance.getAuditLog as ReturnType<typeof vi.fn>
             mockFn.mockResolvedValue([])
             render(<GovernanceDashboard />)
+            // Should NOT be called on mount
+            expect(mockFn).not.toHaveBeenCalled()
+            // Open the audit log
+            await openAuditLog()
             await waitFor(() => {
                 expect(mockFn).toHaveBeenCalled()
             })
