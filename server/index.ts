@@ -2353,9 +2353,6 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
             } catch { /* file deleted or inaccessible */ }
           }
           // Check for newly created files not yet in the tracked set.
-          // New files broadcast flint:ide-file-selected (not just flint:file-changed)
-          // so Glass auto-switches to the newly created file — this mirrors the
-          // IDE→Glass sync chain where the IDE creates a file and Glass follows.
           try {
             const currentFiles = await scanWorkspaceFiles(activeProjectRoot)
             for (const filePath of currentFiles) {
@@ -2365,8 +2362,6 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
                   trackedFiles.set(filePath, stat.mtimeMs)
                   const content = readFileSync(filePath, 'utf-8')
                   broadcast('flint:file-changed', { filePath, content })
-                  // Also signal Glass to switch active file to the new file
-                  broadcast('flint:ide-file-selected', { path: filePath })
                 } catch { /* file vanished between scan and stat — skip */ }
               }
             }
@@ -2398,8 +2393,9 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
   {
     function startIDEFileSyncWatcher(): void {
       if (ideFileSyncInterval) clearInterval(ideFileSyncInterval)
+      // Only reset mtime (so we re-check the file), but preserve lastPath
+      // to prevent re-broadcasting the same file after a project switch.
       ideFileSyncState.lastMtime = 0
-      ideFileSyncState.lastPath = ''
 
       ideFileSyncInterval = setInterval(() => {
         // Poll the active project root first, then fall back to the original
