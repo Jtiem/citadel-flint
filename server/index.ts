@@ -2331,6 +2331,15 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
       trackedFiles.clear()
       if (!activeProjectRoot) return
 
+      // Self-hosting guard: never watch the Flint source tree itself.
+      // When dev:web is launched from the repo root, activeProjectRoot IS the
+      // repo root. Scanning src/ confuses Vite's HMR watcher (same files,
+      // same mtime events) and causes the LOADING flash loop.
+      if (existsSync(path.join(activeProjectRoot, 'electron', 'main.ts'))) {
+        console.log(`${BRAND.logPrefix} workspace watcher: skipping self-hosting root ${activeProjectRoot}`)
+        return
+      }
+
       const files = await scanWorkspaceFiles(activeProjectRoot)
       for (const f of files) {
         try {

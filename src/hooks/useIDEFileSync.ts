@@ -26,14 +26,15 @@ export function useIDEFileSync(): void {
                 typeof data === 'string' ? data : (data as { path?: string })?.path
             if (!filePath) return
 
-            // Herald: record the event for the StatusBar chip
-            useCanvasStore.getState().recordIDESyncEvent(filePath)
-
             const currentFile = useCanvasStore.getState().activeFilePath
             const fileName = filePath.split('/').pop() ?? filePath
 
-            // If the same file is already open, do nothing
+            // If the same file is already open, do nothing — record the event
+            // only for actual changes, not redundant reconnect pushes.
             if (currentFile === filePath) return
+
+            // Herald: record the event for the StatusBar chip (only on real transitions)
+            useCanvasStore.getState().recordIDESyncEvent(filePath)
 
             // If nothing is open yet, load directly — no interruption possible
             if (!currentFile) {
