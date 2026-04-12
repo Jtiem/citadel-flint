@@ -51,8 +51,16 @@ function parseArgs(argv: string[]): {
   version: boolean
   init: boolean
 } {
+  // FLINT_DEV_WORKSPACE escape hatch: when set, the server uses that directory
+  // as the project root instead of cwd().  This means running dev:web from
+  // inside the Flint repo never touches Flint source files.
+  // Usage: FLINT_DEV_WORKSPACE=/path/to/scratch npm run dev:web
+  const devWorkspace = process.env.FLINT_DEV_WORKSPACE
+    ? path.resolve(process.env.FLINT_DEV_WORKSPACE)
+    : null
+
   const result = {
-    project: process.cwd(),
+    project: devWorkspace ?? process.cwd(),
     port: 4201,
     open: true,   // default: auto-open browser
     demo: false,

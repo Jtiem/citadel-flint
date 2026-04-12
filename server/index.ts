@@ -118,6 +118,69 @@ async function scanDirectory(dirPath: string): Promise<FileTreeNode> {
   return { name: path.basename(dirPath), path: dirPath, type: 'directory', children }
 }
 
+// ── Self-Hosting Guard ────────────────────────────────────────────────────────
+//
+// When `npm run dev:web` is launched from the Flint repo root (no
+// FLINT_DEV_WORKSPACE set, no --project flag), serverRoot IS the source tree.
+// Any write to a path under serverRoot mutates source files → Vite HMR detects
+// the mtime change → full reload → autoResumeChecked resets → flash loop.
+//
+// This factory creates a *single* set of helpers that every write path and
+// every broadcast path in the server MUST use.  It is created once in
+// startServer() and closed over by all handlers — no inline existsSync
+// patterns scattered across 3,000 lines.
+//
+// Design invariant: the helpers use the immutable `serverRoot` captured at
+// server start time, not the mutable `activeProjectRoot`.  After a project
+// is opened (openPath / createScratchpad / initialize), activeProjectRoot
+// changes but serverRoot never does.  Guards keyed on activeProjectRoot
+// were the root cause of vectors 2 and 3 in the flash-loop history.
+
+interface SelfHostingGuard {
+  /** True when the server was started from inside the Flint source tree. */
+  isFlintSourceTree: boolean
+  /**
+   * True when `p` is a path that lives inside the Flint source tree.
+   * Safe to call with any string — normalises and guards against null/empty.
+   */
+  isSelfHostedPath: (p: string) => boolean
+  /**
+   * Call once at server startup to emit the warning banner when self-hosting
+   * is detected.  Idempotent.
+   */
+  emitBannerIfNeeded: () => void
+}
+
+function createSelfHostingGuard(serverRoot: string): SelfHostingGuard {
+  // Detection: the Flint source tree always has electron/main.ts.
+  // We check once and cache — existsSync is sync and cheap, but no need to
+  // repeat it on every write.
+  const isFlintSourceTree = existsSync(path.join(serverRoot, 'electron', 'main.ts'))
+
+  const isSelfHostedPath = (p: string): boolean => {
+    if (!isFlintSourceTree) return false
+    if (!p || typeof p !== 'string') return false
+    const resolved = path.resolve(p)
+    return resolved === serverRoot || resolved.startsWith(serverRoot + path.sep)
+  }
+
+  let bannerEmitted = false
+  const emitBannerIfNeeded = (): void => {
+    if (!isFlintSourceTree || bannerEmitted) return
+    bannerEmitted = true
+    console.warn('')
+    console.warn(`${BRAND.logPrefix} ⚠️  SELF-HOSTED MODE — write guards active.`)
+    console.warn(`${BRAND.logPrefix}    The server is running from inside the Flint source tree.`)
+    console.warn(`${BRAND.logPrefix}    All writes to source files are blocked to prevent the`)
+    console.warn(`${BRAND.logPrefix}    Vite HMR → reload → flash loop.`)
+    console.warn(`${BRAND.logPrefix}    To work on a real project set FLINT_DEV_WORKSPACE:`)
+    console.warn(`${BRAND.logPrefix}      FLINT_DEV_WORKSPACE=/path/to/my-project npm run dev:web`)
+    console.warn('')
+  }
+
+  return { isFlintSourceTree, isSelfHostedPath, emitBannerIfNeeded }
+}
+
 // ── Security Helpers ─────────────────────────────────────────────────────────
 
 function isWithinHome(filePath: string): boolean {
@@ -410,6 +473,12 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
   // ide-active-file.json even when activeProjectRoot changes (e.g. demo load).
   const serverRoot: string = resolvedRoot
 
+  // ── Self-hosting guard (must be created before any handler is registered) ──
+  // Built from serverRoot (immutable) so all downstream handlers that close
+  // over it are protected even after activeProjectRoot changes.
+  const selfHosting = createSelfHostingGuard(serverRoot)
+  selfHosting.emitBannerIfNeeded()
+
   // Tracks whether the user has explicitly opened a project during this server
   // instance. Used by project:get-last-session to avoid auto-resuming the CLI
   // default root as if it were a persisted session.
@@ -417,6 +486,31 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
 
   // Session UUID for governance telemetry
   const governanceSessionId: string = randomUUID()
+
+  // ── Guarded write helper ──────────────────────────────────────────────────
+  // safeAtomicWrite wraps the module-level atomicWrite with the self-hosting
+  // guard.  ALL file writes inside handlers MUST use this, not atomicWrite
+  // directly.  writeFileSync / fs.writeFile / cpSync calls that are not
+  // naturally funnelled through this helper must each check isSelfHostedPath
+  // before writing (see the self-hosting guard audit below each such site).
+  async function safeAtomicWrite(filePath: string, content: string): Promise<void> {
+    if (selfHosting.isSelfHostedPath(filePath)) {
+      console.warn(`${BRAND.logPrefix} safeAtomicWrite — blocked self-hosted write to ${filePath}`)
+      return
+    }
+    await atomicWrite(filePath, content)
+  }
+
+  // ── Guarded sync write helper ─────────────────────────────────────────────
+  // For the handful of legacy writeFileSync callers that cannot be trivially
+  // converted to async.
+  function safeWriteFileSync(filePath: string, content: string): void {
+    if (selfHosting.isSelfHostedPath(filePath)) {
+      console.warn(`${BRAND.logPrefix} safeWriteFileSync — blocked self-hosted write to ${filePath}`)
+      return
+    }
+    writeFileSync(filePath, content)
+  }
 
   // Initialize databases
   const db = initProjectDatabase(activeProjectRoot)
@@ -600,8 +694,10 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
   // When a new Glass tab connects, push the current IDE file immediately.
   // This fixes the "tab close + reopen" scenario where the server's lastPath
   // dedup would otherwise prevent re-broadcasting the active file.
+  // Self-hosting guard: don't replay a Flint source file path — that would
+  // cause Glass to open it → auto-save → Vite HMR → reload loop.
   wss.on('connection', (clientWs) => {
-    if (ideFileSyncState.lastPath) {
+    if (ideFileSyncState.lastPath && !selfHosting.isSelfHostedPath(ideFileSyncState.lastPath)) {
       const msg = JSON.stringify({
         channel: 'flint:ide-file-selected',
         data: { path: ideFileSyncState.lastPath },
@@ -746,12 +842,9 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     // that temp dir — but the Flint source files (e.g. demos/*.tsx opened via IDE
     // sync) still live under serverRoot. The old check used activeProjectRoot, so
     // it stopped protecting source files once a demo project was loaded.
-    if (existsSync(path.join(serverRoot, 'electron', 'main.ts')) &&
-        validated.startsWith(serverRoot + path.sep)) {
-      console.warn(`${BRAND.logPrefix} ast:save-file — refusing self-hosted write to ${validated}`)
-      return
-    }
-    await atomicWrite(validated, content)
+    // safeAtomicWrite already calls isSelfHostedPath(serverRoot) so the inline
+    // existsSync check here is now the centralized guard — not duplicated.
+    await safeAtomicWrite(validated, content)
     // Register newly saved files with the workspace watcher so future
     // external edits are detected without a full rescan.
     const tracked = (globalThis as Record<string, unknown>).__flintWebTrackedFiles as Map<string, number> | undefined
@@ -778,20 +871,8 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
       validated.set(v, content)
     }
 
-    // Self-hosting guard: same protection as ast:save-file — use serverRoot so
-    // the check holds even after activeProjectRoot changes (e.g. demo load).
-    const serverRootIsFlint = existsSync(path.join(serverRoot, 'electron', 'main.ts'))
-    const safeEntries = serverRootIsFlint
-      ? [...validated.entries()].filter(([fp]) => {
-          if (fp.startsWith(serverRoot + path.sep)) {
-            console.warn(`${BRAND.logPrefix} ast:save-batch — refusing self-hosted write to ${fp}`)
-            return false
-          }
-          return true
-        })
-      : [...validated.entries()]
-
-    await Promise.all(safeEntries.map(([fp, content]) => atomicWrite(fp, content)))
+    // safeAtomicWrite enforces the centralized self-hosting guard on each file.
+    await Promise.all([...validated.entries()].map(([fp, content]) => safeAtomicWrite(fp, content)))
   })
 
   // ── Code Transform ─────────────────────────────────────────────────────────
@@ -992,10 +1073,10 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     const flintDir = path.join(targetPath, BRAND.configDir)
     await fs.mkdir(flintDir, { recursive: true })
     if (!existsSync(path.join(flintDir, 'design-tokens.json'))) {
-      await atomicWrite(path.join(flintDir, 'design-tokens.json'), '[]\n')
+      await safeAtomicWrite(path.join(flintDir, 'design-tokens.json'), '[]\n')
     }
     if (!existsSync(path.join(flintDir, 'policy.json'))) {
-      await atomicWrite(path.join(flintDir, 'policy.json'), JSON.stringify({
+      await safeAtomicWrite(path.join(flintDir, 'policy.json'), JSON.stringify({
         version: 1,
         mithril: { deltaE_threshold: 2.0, deltaE_critical_threshold: 10.0, mode: 'enforce', ignore_patterns: [] },
         a11y: { level: 'AA', mode: 'enforce', disabled_rules: [] },
@@ -1116,8 +1197,8 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     await fs.mkdir(flintDir, { recursive: true })
 
     // Write the same starter config files that Electron writes
-    await atomicWrite(path.join(flintDir, 'design-tokens.json'), '[]\n')
-    await atomicWrite(path.join(flintDir, 'policy.json'), JSON.stringify({
+    await safeAtomicWrite(path.join(flintDir, 'design-tokens.json'), '[]\n')
+    await safeAtomicWrite(path.join(flintDir, 'policy.json'), JSON.stringify({
       version: 1,
       mithril: { deltaE_threshold: 2.0, deltaE_critical_threshold: 10.0, mode: 'enforce', ignore_patterns: [] },
       a11y: { level: 'AA', mode: 'enforce', disabled_rules: [] },
@@ -1155,10 +1236,10 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     const flintDir = path.join(targetPath, BRAND.configDir)
     mkdirSync(flintDir, { recursive: true })
     if (!existsSync(path.join(flintDir, 'design-tokens.json'))) {
-      await atomicWrite(path.join(flintDir, 'design-tokens.json'), '[]\n')
+      await safeAtomicWrite(path.join(flintDir, 'design-tokens.json'), '[]\n')
     }
     if (!existsSync(path.join(flintDir, 'policy.json'))) {
-      await atomicWrite(path.join(flintDir, 'policy.json'), JSON.stringify({
+      await safeAtomicWrite(path.join(flintDir, 'policy.json'), JSON.stringify({
         version: 1,
         mithril: { deltaE_threshold: 2.0, deltaE_critical_threshold: 10.0, mode: 'enforce', ignore_patterns: [] },
         a11y: { level: 'AA', mode: 'enforce', disabled_rules: [] },
@@ -1196,7 +1277,7 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
       if (!existsSync(flintDir)) {
         await fs.mkdir(flintDir, { recursive: true })
       }
-      await atomicWrite(
+      await safeAtomicWrite(
         path.join(flintDir, 'detected-environment.json'),
         JSON.stringify(result, null, 2),
       )
@@ -1405,7 +1486,7 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
       if (!existsSync(flintDir)) {
         await fs.mkdir(flintDir, { recursive: true })
       }
-      await atomicWrite(
+      await safeAtomicWrite(
         path.join(flintDir, 'debt-snapshot.json'),
         JSON.stringify({
           grade,
@@ -1437,7 +1518,7 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
         manifest = JSON.parse(raw) as Record<string, unknown>
       } catch { /* Missing or malformed manifest — start fresh */ }
       manifest.components = indexResult.components
-      await atomicWrite(manifestPath, JSON.stringify(manifest, null, 2) + '\n')
+      await safeAtomicWrite(manifestPath, JSON.stringify(manifest, null, 2) + '\n')
 
       // 3. Re-seed RAG store from the updated manifest + tokens + docs
       const ragResult = await rag.seedFromProject(activeProjectRoot)
@@ -1577,7 +1658,7 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     const flintDir = path.join(activeProjectRoot, BRAND.configDir)
     await fs.mkdir(flintDir, { recursive: true })
     const contextPath = path.join(flintDir, 'context.json')
-    await atomicWrite(contextPath, JSON.stringify(context, null, 2))
+    await safeAtomicWrite(contextPath, JSON.stringify(context, null, 2))
   })
 
   handlers.set('context:get-enriched', async () => {
@@ -1913,7 +1994,7 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
       const token = pending.find((t) => t.name === tokenName)
       if (!token) return { ok: false }
       const remaining = pending.filter((t) => t.name !== tokenName)
-      await atomicWrite(pendingPath, JSON.stringify(remaining, null, 2))
+      await safeAtomicWrite(pendingPath, JSON.stringify(remaining, null, 2))
       let designTokens: Record<string, unknown> = {}
       try { designTokens = JSON.parse(await fs.readFile(tokensPath, 'utf8')) } catch { /* fresh */ }
       const parts = token.name.split('.')
@@ -1923,7 +2004,7 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
         current = current[parts[i]] as Record<string, unknown>
       }
       current[parts[parts.length - 1]] = { $value: token.value, $type: token.type }
-      await atomicWrite(tokensPath, JSON.stringify(designTokens, null, 2))
+      await safeAtomicWrite(tokensPath, JSON.stringify(designTokens, null, 2))
       return { ok: true }
     } catch { return { ok: false } }
   })
@@ -1935,7 +2016,7 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
       const raw = await fs.readFile(pendingPath, 'utf8')
       const pending = JSON.parse(raw) as Array<{ name: string }>
       const remaining = pending.filter((t) => t.name !== tokenName)
-      await atomicWrite(pendingPath, JSON.stringify(remaining, null, 2))
+      await safeAtomicWrite(pendingPath, JSON.stringify(remaining, null, 2))
       return { ok: true }
     } catch { return { ok: false } }
   })
@@ -2033,7 +2114,7 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     if (entries.length > 90) entries = entries.slice(-90)
     try {
       await fs.mkdir(path.join(activeProjectRoot, '.flint'), { recursive: true })
-      await atomicWrite(histPath, JSON.stringify(entries, null, 2))
+      await safeAtomicWrite(histPath, JSON.stringify(entries, null, 2))
     } catch { /* best-effort */ }
   })
 
@@ -2323,7 +2404,7 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
         return a
       })
       if (changed) {
-        await atomicWrite(filePath, JSON.stringify(updated, null, 2))
+        await safeAtomicWrite(filePath, JSON.stringify(updated, null, 2))
         broadcast('flint:annotations-changed', {})
       }
     } catch { /* file missing — ok */ }
@@ -2454,14 +2535,10 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
         }).then(() => {
           // If the primary root didn't find anything and the roots differ,
           // also check the original server root.
-          // Self-hosting guard: skip when serverRoot IS the Flint source tree.
-          // Broadcasting a Flint source file path from ide-active-file.json would
-          // cause Glass to open it → setActiveFile → triggerAutoSave → the file
-          // gets written back to disk → Vite HMR detects mtime change → reload loop.
-          // This happens even when activeProjectRoot has changed to a demo temp dir —
-          // the broadcast still results in a write to the source tree.
-          const serverRootIsFlint = existsSync(path.join(serverRoot, 'electron', 'main.ts'))
-          if (serverRoot !== activeProjectRoot && !serverRootIsFlint) {
+          // Self-hosting guard: skip the serverRoot fallback tick when serverRoot
+          // IS the Flint source tree (selfHosting.isFlintSourceTree uses the same
+          // immutable serverRoot, no need for a fresh existsSync here).
+          if (serverRoot !== activeProjectRoot && !selfHosting.isFlintSourceTree) {
             return ideFileSyncTick({
               activeProjectRoot: serverRoot,
               state: ideFileSyncState,
@@ -2992,7 +3069,7 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     // Must use card-positions.json — matches electron/main.ts
     const posPath = path.join(activeProjectRoot, BRAND.configDir, 'card-positions.json')
     await fs.mkdir(path.dirname(posPath), { recursive: true })
-    await atomicWrite(posPath, JSON.stringify(positions, null, 2))
+    await safeAtomicWrite(posPath, JSON.stringify(positions, null, 2))
   })
 
   handlers.set('components:load-positions', async () => {
@@ -3022,7 +3099,7 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     } catch { /* ok */ }
     overrides[p.componentId] = p.category
     await fs.mkdir(path.dirname(overridesPath), { recursive: true })
-    await atomicWrite(overridesPath, JSON.stringify(overrides, null, 2))
+    await safeAtomicWrite(overridesPath, JSON.stringify(overrides, null, 2))
   })
 
   // ── CV2.4: Component Health (MCP-backed) ─────────────────────────────────
@@ -3190,8 +3267,8 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     const flintDir = path.join(activeProjectRoot, BRAND.configDir)
     if (!existsSync(flintDir)) mkdirSync(flintDir, { recursive: true })
     const tmpPath = policyPath + '.tmp'
-    writeFileSync(tmpPath, JSON.stringify(policy, null, 2))
-    await fs.rename(tmpPath, policyPath)
+    safeWriteFileSync(tmpPath, JSON.stringify(policy, null, 2))
+    if (!selfHosting.isSelfHostedPath(policyPath)) await fs.rename(tmpPath, policyPath)
     return { ok: true }
   })
   // ── Library ──────────────────────────────────────────────────────────────
@@ -3239,8 +3316,8 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
       const flintDir = path.join(activeProjectRoot, BRAND.configDir)
       if (!existsSync(flintDir)) mkdirSync(flintDir, { recursive: true })
       const tmpPath = policyPath + '.tmp'
-      writeFileSync(tmpPath, JSON.stringify(policy, null, 2) + '\n')
-      await fs.rename(tmpPath, policyPath)
+      safeWriteFileSync(tmpPath, JSON.stringify(policy, null, 2) + '\n')
+      if (!selfHosting.isSelfHostedPath(policyPath)) await fs.rename(tmpPath, policyPath)
       return { ok: true, library: library as string | null, seeded: 0 }
     } catch (err) {
       console.error('[IPC] library:set-active failed:', err)
@@ -3334,16 +3411,16 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
         components[componentName] = { ...existing, ...draft, ...(editedFields ?? {}) }
         manifest.components = components
         const tmpManifest = manifestPath + '.tmp'
-        writeFileSync(tmpManifest, JSON.stringify(manifest, null, 2) + '\n')
-        await fs.rename(tmpManifest, manifestPath)
+        safeWriteFileSync(tmpManifest, JSON.stringify(manifest, null, 2) + '\n')
+        if (!selfHosting.isSelfHostedPath(manifestPath)) await fs.rename(tmpManifest, manifestPath)
       }
 
       // Remove from drafts (approve or dismiss)
       delete drafts[componentName]
       draftsWrapper.drafts = drafts
       const tmpDrafts = draftsPath + '.tmp'
-      writeFileSync(tmpDrafts, JSON.stringify(draftsWrapper, null, 2) + '\n')
-      await fs.rename(tmpDrafts, draftsPath)
+      safeWriteFileSync(tmpDrafts, JSON.stringify(draftsWrapper, null, 2) + '\n')
+      if (!selfHosting.isSelfHostedPath(draftsPath)) await fs.rename(tmpDrafts, draftsPath)
 
       return { ok: true, remainingDrafts: Object.keys(drafts).length }
     } catch (err) {
@@ -3404,11 +3481,9 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
       }
       fileBatch.set(pageFilePath, pageCode)
 
-      // Write all files atomically
+      // Write all files atomically (safeAtomicWrite applies self-hosting guard)
       for (const [fp, content] of fileBatch) {
-        const tmpPath = fp + '.tmp'
-        writeFileSync(tmpPath, content)
-        await fs.rename(tmpPath, fp)
+        await safeAtomicWrite(fp, content)
       }
 
       // Theme file
@@ -3417,9 +3492,7 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
         if (!themeFilePath.startsWith(activeProjectRoot + path.sep)) {
           throw new Error(`d2c:apply — theme file path escapes project root: ${themeFilePath}`)
         }
-        const tmpPath = themeFilePath + '.tmp'
-        writeFileSync(tmpPath, req.themeFile.code)
-        await fs.rename(tmpPath, themeFilePath)
+        await safeAtomicWrite(themeFilePath, req.themeFile.code)
       }
 
       // Re-scan workspace
