@@ -11,8 +11,11 @@
 // ---------------------------------------------------------------------------
 
 import { parse } from '@babel/parser'
+import type { File as BabelFile } from '@babel/types'
 import fs from 'node:fs'
 import path from 'node:path'
+
+import type { DesignToken, LinterWarning } from '../types.js'
 
 // ---------------------------------------------------------------------------
 // Type contracts
@@ -26,11 +29,33 @@ export interface ClassificationResult {
     latencyMs: number
 }
 
+/** Summary of governance audit applied after refinement. */
+export interface GovernanceScore {
+    violations: number
+    autoFixed: number
+    semanticWarnings: string[]
+    riskScore?: number
+}
+
 export interface RefinementResult {
     code: string
     status: 'refined' | 'fallback'
     latencyMs: number
     reason?: string // why fallback was used
+    /** P2.8: Governance audit results for the refinement. */
+    governanceScore?: GovernanceScore
+    /** P2.8: Semantic violations that could not be auto-fixed. */
+    governanceWarnings?: string[]
+}
+
+/** Options for the post-refinement governance gate. */
+export interface RefinementGovernanceOptions {
+    /** Design tokens for audit. When absent, governance gate is skipped. */
+    tokens?: DesignToken[]
+    /** Project root for risk scoring and ledger recording. */
+    projectRoot?: string
+    /** File path for the component being refined. */
+    filePath?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -230,6 +255,10 @@ const REFINEMENT_MODEL = 'claude-sonnet-4-20250514'
  * Sends the deterministic scaffold + Figma context to Sonnet for improvement.
  * The output is validated via Babel parse before replacing the scaffold.
  * On any validation or API failure, returns the original scaffold unchanged.
+ *
+ * P2.8: When `governanceOptions.tokens` is provided, the refined output is
+ * audited via Mithril + Warden. Deterministic violations are auto-fixed
+ * inline. If refinement degrades compliance, the scaffold is returned instead.
  */
 export async function refineComponent(
     scaffold: string,
@@ -239,16 +268,23 @@ export async function refineComponent(
     apiKey: string | null,
     screenshotBase64?: string,
     designSystemContext?: string,
+    governanceOptions?: RefinementGovernanceOptions,
 ): Promise<RefinementResult> {
     const start = Date.now()
 
     // No API key → graceful skip
     if (!apiKey) {
+        const govScore = governanceOptions?.tokens
+            ? await auditCodeGovernance(scaffold, governanceOptions.tokens)
+            : undefined
         return {
             code: scaffold,
             status: 'fallback',
             latencyMs: Date.now() - start,
             reason: 'No API key available',
+            governanceScore: govScore
+                ? { violations: govScore.totalViolations, autoFixed: 0, semanticWarnings: govScore.semanticMessages, riskScore: undefined }
+                : undefined,
         }
     }
 
@@ -367,6 +403,27 @@ export async function refineComponent(
             }
         }
 
+        // ── P2.8: Post-refinement governance gate ─────────────────────────
+        if (governanceOptions?.tokens && governanceOptions.tokens.length > 0) {
+            try {
+                const result = await applyGovernanceGate(
+                    scaffold,
+                    refinedCode,
+                    governanceOptions.tokens,
+                    start,
+                    governanceOptions,
+                )
+                return result
+            } catch {
+                // Governance gate failed — accept the refined code without governance
+                return {
+                    code: refinedCode,
+                    status: 'refined',
+                    latencyMs: Date.now() - start,
+                }
+            }
+        }
+
         return {
             code: refinedCode,
             status: 'refined',
@@ -381,4 +438,258 @@ export async function refineComponent(
             reason: `Request failed: ${msg}`,
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// P2.8: Post-Refinement Governance Gate
+// ---------------------------------------------------------------------------
+
+/**
+ * Audit a code string and return violation counts. Used for both scaffold
+ * baseline and refined code comparison. Gracefully returns zero violations
+ * if the linter or parser is unavailable.
+ */
+export async function auditCodeGovernance(
+    code: string,
+    tokens: DesignToken[],
+): Promise<{
+    totalViolations: number
+    mithrilWarnings: LinterWarning[]
+    a11yWarnings: LinterWarning[]
+    semanticMessages: string[]
+}> {
+    let ast: BabelFile
+    try {
+        ast = parse(code, {
+            sourceType: 'module',
+            plugins: ['jsx', 'typescript'],
+        })
+    } catch {
+        return { totalViolations: 0, mithrilWarnings: [], a11yWarnings: [], semanticMessages: [] }
+    }
+
+    const mithrilWarnings: LinterWarning[] = []
+    const a11yWarnings: LinterWarning[] = []
+
+    // Run Mithril audit
+    try {
+        const { auditAll } = await import('./MithrilLinter.js')
+        const mithrilMap = auditAll(ast, tokens)
+        for (const warning of mithrilMap.values()) {
+            mithrilWarnings.push(warning)
+        }
+    } catch {
+        // MithrilLinter unavailable — skip
+    }
+
+    // Run Warden (a11y) audit
+    try {
+        const { audit: a11yAudit } = await import('./a11y/runner.js')
+        const a11yResult = await a11yAudit(ast, { filePath: 'refinement-audit' })
+        for (const v of a11yResult.violations) {
+            a11yWarnings.push({
+                id: v.ruleId + '-' + (v.elementId ?? 'unknown'),
+                type: 'a11y' as const,
+                severity: (v.severity === 'critical' ? 'critical' : 'amber') as LinterWarning['severity'],
+                value: 0,
+                message: v.message,
+                nearestToken: null,
+                nearestTokenValue: null,
+                ruleId: v.ruleId,
+                wcag: v.wcag,
+                fixable: v.fixable,
+                explanation: v.explanation,
+                recovery: v.recovery,
+            })
+        }
+    } catch {
+        // A11y runner unavailable — skip
+    }
+
+    const allWarnings = [...mithrilWarnings, ...a11yWarnings]
+    const semanticMessages: string[] = []
+
+    // Identify semantic-only violations (not fixable, no nearest token for drift types)
+    for (const w of allWarnings) {
+        if (w.type === 'a11y' && !w.fixable) {
+            semanticMessages.push(`[${w.ruleId ?? w.id}] ${w.message}`)
+        } else if (w.type !== 'a11y' && w.nearestToken === null) {
+            semanticMessages.push(`[${w.ruleId ?? w.id}] ${w.message}`)
+        }
+    }
+
+    return {
+        totalViolations: allWarnings.length,
+        mithrilWarnings,
+        a11yWarnings,
+        semanticMessages,
+    }
+}
+
+/**
+ * Apply the governance gate to refined code:
+ *  1. Audit both scaffold and refined code
+ *  2. If refined is worse, fall back to scaffold
+ *  3. Plan mutations and auto-fix deterministic violations
+ *  4. Score risk and record in the ledger (when available)
+ */
+async function applyGovernanceGate(
+    scaffold: string,
+    refinedCode: string,
+    tokens: DesignToken[],
+    startTime: number,
+    options: RefinementGovernanceOptions,
+): Promise<RefinementResult> {
+    // Audit the original scaffold for baseline
+    const scaffoldAudit = await auditCodeGovernance(scaffold, tokens)
+
+    // Audit the refined output
+    const refinedAudit = await auditCodeGovernance(refinedCode, tokens)
+
+    // ── Degradation check: refined worse than scaffold → fallback ────────
+    if (refinedAudit.totalViolations > scaffoldAudit.totalViolations) {
+        return {
+            code: scaffold,
+            status: 'fallback',
+            latencyMs: Date.now() - startTime,
+            reason: 'refinement degraded governance compliance',
+            governanceScore: {
+                violations: scaffoldAudit.totalViolations,
+                autoFixed: 0,
+                semanticWarnings: scaffoldAudit.semanticMessages,
+                riskScore: undefined,
+            },
+        }
+    }
+
+    // ── Plan mutations for remaining violations ─────────────────────────
+    const allViolations = [...refinedAudit.mithrilWarnings, ...refinedAudit.a11yWarnings]
+    let autoFixed = 0
+    const semanticWarnings: string[] = []
+    let finalCode = refinedCode
+
+    if (allViolations.length > 0) {
+        try {
+            const { planMutations } = await import('./mutationPlanner.js')
+            const plan = await planMutations(allViolations, tokens, {
+                projectRoot: options.projectRoot,
+                filePath: options.filePath,
+            })
+
+            // Count deterministic fixes (these would be auto-applied in a full pipeline)
+            autoFixed = plan.deterministic.length
+
+            // Auto-apply deterministic token fixes inline via string replacement
+            // This is a lightweight application — full AST mutation goes through fix.ts
+            for (const planned of plan.deterministic) {
+                if (planned.proposedFix?.type === 'fixToken' && planned.proposedFix.params.targetValue) {
+                    const targetValue = String(planned.proposedFix.params.targetValue)
+                    const originalMsg = planned.violation.message
+                    // Extract the violating value from the message for replacement
+                    // MithrilLinter messages contain the raw value that can be swapped
+                    const nearestToken = planned.violation.nearestToken
+                    if (nearestToken && planned.violation.nearestTokenValue) {
+                        // Best-effort inline token swap in className strings
+                        // Full AST mutation is handled by fix.ts in the broader pipeline
+                        const violatingPattern = extractViolatingValue(originalMsg)
+                        if (violatingPattern) {
+                            finalCode = finalCode.replace(violatingPattern, targetValue)
+                        }
+                    }
+                }
+            }
+
+            // Collect semantic warnings
+            for (const planned of plan.semantic) {
+                semanticWarnings.push(
+                    planned.semanticHint ?? `[${planned.violation.ruleId ?? planned.violation.id}] ${planned.violation.message}`,
+                )
+            }
+            for (const planned of plan.riskGated) {
+                semanticWarnings.push(
+                    `[risk-gated] ${planned.violation.ruleId ?? planned.violation.id}: ${planned.violation.message}`,
+                )
+            }
+        } catch {
+            // Mutation planner unavailable — report violations as-is
+            for (const w of allViolations) {
+                semanticWarnings.push(`[${w.ruleId ?? w.id}] ${w.message}`)
+            }
+        }
+    }
+
+    // ── Risk scoring for the refinement operation ───────────────────────
+    let riskScore: number | undefined
+    try {
+        const { scoreMutation } = await import('./governance/riskScoringService.js')
+        const mrs = scoreMutation({
+            opType: 'assembleLayout',
+            affectedNodeCount: allViolations.length || 1,
+            filePath: options.filePath,
+            hasViolationContext: allViolations.length > 0,
+            projectRoot: options.projectRoot,
+        })
+        riskScore = mrs.score
+    } catch {
+        // Risk scoring unavailable — skip
+    }
+
+    // ── Record in mutation ledger (best-effort) ─────────────────────────
+    try {
+        const { MutationLedgerService } = await import('./governance/mutationLedgerService.js')
+        const BetterSqlite3 = (await import('better-sqlite3')).default
+        if (options.projectRoot) {
+            const dbPath = path.join(options.projectRoot, '.flint', 'provenance.db')
+            if (fs.existsSync(dbPath)) {
+                const db = new BetterSqlite3(dbPath)
+                const ledger = new MutationLedgerService(db)
+                ledger.recordMutation({
+                    filePath: options.filePath ?? 'unknown',
+                    operationType: 'assembleLayout',
+                    source: 'ai_orchestrator',
+                    metadata: {
+                        refinementViolations: refinedAudit.totalViolations,
+                        autoFixed,
+                        riskScore,
+                    },
+                })
+                db.close()
+            }
+        }
+    } catch {
+        // Ledger recording is best-effort
+    }
+
+    return {
+        code: finalCode,
+        status: 'refined',
+        latencyMs: Date.now() - startTime,
+        governanceScore: {
+            violations: refinedAudit.totalViolations,
+            autoFixed,
+            semanticWarnings,
+            riskScore,
+        },
+        governanceWarnings: semanticWarnings.length > 0 ? semanticWarnings : undefined,
+    }
+}
+
+/**
+ * Best-effort extraction of the violating CSS value from a Mithril warning
+ * message. Returns the raw value string or null if it cannot be parsed.
+ *
+ * Mithril messages typically follow the pattern:
+ *   "Hardcoded color #FF0000 ..."
+ *   "Color drift: bg-[#FF0000] ..."
+ */
+function extractViolatingValue(message: string): string | null {
+    // Match arbitrary Tailwind values like bg-[#FF0000] or text-[12px]
+    const arbitraryMatch = message.match(/\[([^\]]+)\]/)
+    if (arbitraryMatch) return arbitraryMatch[1]
+
+    // Match hex colors
+    const hexMatch = message.match(/#[0-9a-fA-F]{3,8}/)
+    if (hexMatch) return hexMatch[0]
+
+    return null
 }

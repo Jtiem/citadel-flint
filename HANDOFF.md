@@ -6,28 +6,49 @@
 
 ---
 
-## Session: MINT.1 — Token Experience Foundation (2026-04-11) — IN PROGRESS
+## Session: P2.8 — D2C Refinement Loop Closure (2026-04-11) — IN PROGRESS
+
+**Goal:** Close the biggest governance blind spot — AI-refined code that skips audit.
+
+### What's being built
+
+- Post-refinement audit gate (Mithril + A11y on refined output)
+- Mutation Planner auto-fix of deterministic violations
+- Degradation fallback when refinement worsens compliance
+- Risk scoring and mutation ledger recording
+- `governanceScore` field on all `RefinementResult`s
+
+### Files in scope
+
+- `flint-mcp/src/core/d2cRefinement.ts`
+- `flint-mcp/src/core/mutationPlanner.ts`
+
+### Next after P2.8
+
+Review round on MINT.1 + P2.8, then evaluate next priorities.
+
+---
+
+## Session: MINT.1 — Token Experience Foundation (2026-04-11) — COMPLETE
+
+All 5 tasks implemented. Committed as 8da8941. Glass: 1977/1977 (16 new), TSC: 0 errors.
 
 **Goal:** Transform the token tab from a flat CRUD list into a governance observability surface.
 
 ### MINT.1 Tasks
 
-| Task | Name | Priority |
-| ---- | ---- | -------- |
-| MINT.1a | Token Health Bar | P1 |
-| MINT.1b | Visual Token Grid | P1 |
-| MINT.1c | Mode Columns (Light/Dark) | P1 |
-| MINT.1d | Remove Dangerous Actions | P0 |
-| MINT.1e | Fix TokenManager A11y | P1 |
+| Task | Name | Priority | Status |
+| ---- | ---- | -------- | ------ |
+| MINT.1a | Token Health Bar | P1 | COMPLETE |
+| MINT.1b | Visual Token Grid | P1 | COMPLETE |
+| MINT.1c | Mode Columns (Light/Dark) | P1 | COMPLETE |
+| MINT.1d | Remove Dangerous Actions | P0 | COMPLETE |
+| MINT.1e | Fix TokenManager A11y | P1 | COMPLETE |
 
 ### MINT.1 Files
 
 - `src/components/ui/TokenManager.tsx`
 - `src/store/tokenStore.ts`
-
-### Next after MINT.1
-
-P2.8 — D2C refinement loop closure
 
 ---
 
