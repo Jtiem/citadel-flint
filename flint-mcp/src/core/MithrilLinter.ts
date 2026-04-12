@@ -31,8 +31,11 @@ import { hexToLab, deltaE2000, computeContrastRatio } from './colorMath.js'
 import { TW_V3_TO_V4_MAP } from './tailwindMigrator.js'
 import type { TailwindVersion } from './tailwindVersionResolver.js'
 import { visitDarkModeSafety, projectHasDarkMode } from './darkModeSafety.js'
+import { visitFluidOpportunities, type FluidSuggestionMode } from './fluidInterpolator.js'
 import { validateComposition } from './compositionValidator.js'
 import { detectHydrationViolations, type HydrationOptions } from './hydrationLinter.js'
+import { visitMotionDrift } from './AnimationLinter.js'
+import type { MotionToken } from '../types.js'
 
 // CJS/ESM interop
 const traverse =
@@ -1782,6 +1785,8 @@ export interface AuditAllOptions extends PolicyOptions {
     tailwindVersion?: TailwindVersion
     /** P1d: When true, MITHRIL-DARK-001 violations are blocking; when false (default), advisory. */
     requiresDarkMode?: boolean
+    /** P6: Fluid interpolator suggestion mode. `off` disables, `advisory` (default) emits advisories. */
+    fluidSuggestions?: FluidSuggestionMode
     /** P2: When provided, enables MITHRIL-REG-001 rogue intrinsic detection against these registry entries. */
     registryEntries?: ComponentEntry[]
     /** P2.5: When provided, enables MITHRIL-COMP-001/002/003 composition validation against these registry entries. */
@@ -1795,6 +1800,10 @@ export interface AuditAllOptions extends PolicyOptions {
      * hydration detection is skipped.
      */
     source?: string
+    /** P5: Motion tokens for MOTION-001 animation / motion drift checking. */
+    motionTokens?: MotionToken[]
+    /** P5: Explicit flag that the project uses a motion language (forces motion audit even with no tokens). */
+    projectHasMotionConfig?: boolean
 }
 
 /**
@@ -1867,6 +1876,17 @@ export function auditAll(ast: File, tokens: DesignToken[], options?: AuditAllOpt
         }
     }
 
+    // P6: Fluid interpolator — MITHRIL-FLUID-001 (advisory)
+    {
+        const fluidWarnings = visitFluidOpportunities(ast, {
+            ...options,
+            fluidSuggestions: options?.fluidSuggestions,
+        })
+        for (const [id, warning] of fluidWarnings) {
+            if (!merged.has(id)) merged.set(id, warning)
+        }
+    }
+
     // P4: Hydration linting — HYDRATION-001
     if (typeof options?.source === 'string' && options.source.length > 0) {
         const hydrationWarnings = detectHydrationViolations(options.source, {
@@ -1891,6 +1911,19 @@ export function auditAll(ast: File, tokens: DesignToken[], options?: AuditAllOpt
         const compWarnings = validateComposition(ast, options.compositionRegistry, options)
         for (const [id, warning] of compWarnings) {
             if (!merged.has(id)) merged.set(id, warning)
+        }
+    }
+
+    // P5: Motion / animation drift — MOTION-001
+    // The visitor self-skips when there are no motion tokens, no explicit
+    // motion config, and no motion usage in the source.
+    {
+        const motionWarnings = visitMotionDrift(ast, options?.motionTokens ?? [], {
+            ...options,
+            projectHasMotionConfig: options?.projectHasMotionConfig,
+        })
+        for (const w of motionWarnings) {
+            if (!merged.has(w.id)) merged.set(w.id, w)
         }
     }
 

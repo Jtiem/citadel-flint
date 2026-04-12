@@ -200,6 +200,12 @@ const KNOWN_MITHRIL_RULES = new Set<string>([
     'MITHRIL-SPC-TOUCH',
     // P4 Hydration
     'HYDRATION-001',
+    // P5 Motion / Animation Governance
+    'MOTION-001',
+    // P6 Fluid Interpolator (advisory)
+    'MITHRIL-FLUID-001',
+    // P7 Visual Regression (Glass-only, advisory)
+    'VISUAL-REG-001',
 ])
 
 // Known A11y rule IDs.

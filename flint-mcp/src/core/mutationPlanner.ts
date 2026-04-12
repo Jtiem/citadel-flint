@@ -168,6 +168,51 @@ function classifyViolation(
         }
     }
 
+    // ── Fluid suggestion violations (P6) — always semantic (advisory) ───────
+    if (violation.type === 'fluid-suggestion') {
+        return {
+            violation,
+            classification: 'semantic',
+            confidence: 0.5,
+            semanticHint:
+                violation.recovery ??
+                'Fluid scaling is a progressive enhancement; the designer may deliberately want hard breakpoints. Review intent before applying.',
+        }
+    }
+
+    // ── Motion drift violations (P5) ─────────────────────────────────────────
+    if (violation.type === 'motion-drift') {
+        // When a matching motion token was found, this is a deterministic
+        // token swap. Otherwise it's semantic (no valid token to swap in).
+        if (
+            violation.nearestToken !== null &&
+            violation.nearestToken !== undefined &&
+            violation.fixable === true
+        ) {
+            return {
+                violation,
+                classification: 'deterministic',
+                confidence: 0.85,
+                proposedFix: {
+                    type: 'swapMotionToken',
+                    params: {
+                        targetToken: violation.nearestToken,
+                        targetValue: violation.nearestTokenValue ?? undefined,
+                        originalValue: violation.message,
+                    },
+                },
+            }
+        }
+        return {
+            violation,
+            classification: 'semantic',
+            confidence: 0.6,
+            semanticHint:
+                violation.recovery ??
+                `Motion drift: ${violation.message}. Define or assign a motion token.`,
+        }
+    }
+
     // ── Hydration violations (P4) — always semantic ─────────────────────────
     if (violation.type === 'hydration') {
         return {

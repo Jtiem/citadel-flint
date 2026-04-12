@@ -30,11 +30,37 @@ export interface DesignToken {
     mode: string
 }
 
+// ── Motion token (P5 — Behavioral & Motion Governance) ─────────────────────
+
+/**
+ * A motion token describes a named transition / animation from the design
+ * system's motion language. Used by AnimationLinter (P5) to detect drift
+ * between generated CSS timing/easing values and the brand's curated motion
+ * language. Motion tokens are additive — projects without motion tokens are
+ * simply skipped by the animation linter.
+ */
+export interface MotionToken {
+    /** Token path, e.g. 'transition.interactive' or 'motion/page' */
+    token_path: string
+    token_type: 'motion'
+    /**
+     * Canonical value string, e.g. 'duration 200ms ease-out'. Used for display
+     * and for matching against free-form motion values encountered in source.
+     */
+    token_value: string
+    /** Duration component, e.g. '200ms' or '0.2s'. Optional. */
+    duration?: string
+    /** Easing component, e.g. 'ease-out' or 'cubic-bezier(0.87,0,0.13,1)'. Optional. */
+    easing?: string
+    /** Affected CSS property, e.g. 'transform', 'opacity', 'all'. Optional. */
+    property?: string
+}
+
 // ── Linter types ────────────────────────────────────────────────────────────
 
 export interface LinterWarning {
     id: string
-    type: 'color-drift' | 'typography-drift' | 'spacing-drift' | 'shadow-drift' | 'opacity-drift' | 'a11y' | 'sync' | 'inline-style-drift' | 'registry' | 'tailwind-version-drift' | 'dark-mode-drift' | 'composition' | 'hydration'
+    type: 'color-drift' | 'typography-drift' | 'spacing-drift' | 'shadow-drift' | 'opacity-drift' | 'a11y' | 'sync' | 'inline-style-drift' | 'registry' | 'tailwind-version-drift' | 'dark-mode-drift' | 'composition' | 'hydration' | 'motion-drift' | 'fluid-suggestion' | 'visual-regression'
     severity: 'amber' | 'critical' | 'advisory'
     value: number
     message: string

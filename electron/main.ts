@@ -501,6 +501,7 @@ ipcMain.handle(
 //   • filePath must be an absolute path.
 //   • filePath must end with .tsx/.ts/.jsx/.js.
 //   • filePath must reside within the user's home directory.
+//   • filePath must NOT reside inside the Flint source tree (self-hosting guard).
 ipcMain.handle('file:read', async (_event, filePath: unknown): Promise<string> => {
     if (typeof filePath !== 'string') {
         throw new TypeError('file:read — filePath must be a string')
@@ -511,6 +512,11 @@ ipcMain.handle('file:read', async (_event, filePath: unknown): Promise<string> =
     const home = app.getPath('home')
     if (!filePath.startsWith(home + path.sep)) {
         throw new Error('file:read — path outside user home directory is not permitted')
+    }
+    // Self-hosting guard: refuse reads from the Flint source tree to prevent
+    // the preview iframe from recursively serving Flint's own source files.
+    if (isFlintSourceTree(path.dirname(filePath))) {
+        throw new Error('file:read — refusing to read Flint source tree (self-hosting guard)')
     }
     return readFile(filePath, 'utf-8')
 })
@@ -1469,6 +1475,60 @@ app.whenReady().then(async () => {
         if (!activeProjectRoot) return
         const gen = getThumbnailGenerator(activeProjectRoot)
         await gen.invalidate(componentName)
+    })
+
+    // ── Phase P7: Visual Regression Auditor ───────────────────────────────────
+    //
+    // Glass-only — the MCP server delegates here via an IPC bridge so headless
+    // audits can still emit an advisory when no BrowserWindow is available.
+    ipcMain.handle('visual:audit', async (_event, payload: unknown) => {
+        const { runVisualAudit } = await import('./visualAuditor.js')
+        if (
+            typeof payload !== 'object' || payload === null ||
+            typeof (payload as Record<string, unknown>).componentCode !== 'string' ||
+            typeof (payload as Record<string, unknown>).componentName !== 'string' ||
+            !Array.isArray((payload as Record<string, unknown>).expectedBoxes)
+        ) {
+            return {
+                ok: false,
+                violations: [],
+                error: 'visual:audit — payload must have componentCode, componentName, and expectedBoxes',
+            }
+        }
+
+        // Reuse the thumbnail generator's vendor cache by reading the preview
+        // vendor files from the same resolution path. This keeps a single on-disk
+        // source of truth for React UMD bundles.
+        const loadVendor = async () => {
+            const appRoot = _getThumbnailAppRoot()
+            const candidates = [
+                path.join(appRoot, 'src', 'preview-vendor'),
+                path.join(appRoot, 'dist', 'preview-vendor'),
+                path.join(appRoot, 'dist', 'assets'),
+            ]
+            let vendorDir: string | null = null
+            for (const dir of candidates) {
+                if (existsSync(path.join(dir, 'react.prod.js'))) {
+                    vendorDir = dir
+                    break
+                }
+            }
+            if (!vendorDir) {
+                throw new Error('Preview-vendor directory not found')
+            }
+            const [reactUMD, reactDOMUMD] = await Promise.all([
+                readFile(path.join(vendorDir, 'react.prod.js'), 'utf8'),
+                readFile(path.join(vendorDir, 'react-dom.prod.js'), 'utf8'),
+            ])
+            return { reactUMD, reactDOMUMD }
+        }
+
+        try {
+            const result = await runVisualAudit(payload as Parameters<typeof runVisualAudit>[0], loadVendor)
+            return result
+        } catch (err) {
+            return { ok: false, violations: [], error: String(err) }
+        }
     })
 
     // ── Project Registry + Template Scaffolding ───────────────────────────────

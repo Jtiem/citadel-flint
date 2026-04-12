@@ -341,6 +341,28 @@ const REGISTRY: Record<string, ErrorEntry> = {
         sourceAuthority: 'Flint Commandment 2 (No Hallucinated Styling) + Tailwind CSS v4 Upgrade Guide',
     },
 
+    // ── Motion / Animation rules (P5 — Behavioral & Motion Governance) ────────
+
+    'FLINT-MITH-024': {
+        code: 'FLINT-MITH-024',
+        ruleId: 'MOTION-001',
+        category: 'mithril',
+        severity: 'warning',
+        title: 'Motion Drift — Untokenized Timing or Easing',
+        explanation:
+            'A transition, duration, easing, or animation value is applied without referencing the ' +
+            'project\'s motion language. Inconsistent motion — arbitrary durations, off-brand easing ' +
+            'curves, or one-off animations — makes a product feel "off" even when the layout is pixel-perfect. ' +
+            'LLMs routinely emit `transition-all duration-200 ease-linear` without any awareness of a brand\'s ' +
+            'curated motion system, producing compliant-looking but inconsistent behavior.',
+        recovery:
+            'Replace the literal timing / easing with a motion token (e.g. `transition.interactive`, ' +
+            '`motion.page`). If no matching token exists, add one to your motion token set, or audit in ' +
+            'advisory mode until a motion language is defined. Configure via ' +
+            '`mithril.motionCheck: off | advisory | blocking`.',
+        sourceAuthority: 'Flint Commandment 2 (No Hallucinated Styling)',
+    },
+
     // ── Hydration rules (P4 — Anti-Hardcode Linter) ───────────────────────────
 
     'FLINT-HYD-001': {
@@ -382,6 +404,29 @@ const REGISTRY: Record<string, ErrorEntry> = {
             'flips between modes (e.g., `bg-[var(--color-surface)]`). If the project uses semantic ' +
             'tokens with a `modes.dark` field, switching to those tokens is the preferred approach.',
         sourceAuthority: 'Flint Commandment 2 (No Hallucinated Styling) + Design Token Theming Best Practices',
+    },
+
+    // ── Mithril Fluid Interpolator (P6) ────────────────────────────────────────
+
+    'FLINT-MITH-023': {
+        code: 'FLINT-MITH-023',
+        ruleId: 'MITHRIL-FLUID-001',
+        category: 'mithril',
+        severity: 'info',
+        title: 'Fluid Scaling Opportunity',
+        explanation:
+            'Two or more breakpoint-specific Tailwind values were detected for the same property ' +
+            '(e.g. `text-base lg:text-xl`). Designers typically author these as fixed steps, but real ' +
+            'screens stretch fluidly between breakpoints — producing awkward intermediate states at ' +
+            'widths that do not match a named breakpoint. Fluid typography and spacing via `clamp()` ' +
+            'provide smooth interpolation between the smallest and largest value and eliminate visible ' +
+            'step transitions when the viewport is resized.',
+        recovery:
+            'Consider replacing the breakpoint variants with a single fluid `clamp()` expression that ' +
+            'interpolates linearly between the minimum and maximum values. Keep hard breakpoints only ' +
+            'when you need editorial control over intermediate viewport widths (e.g., a headline that ' +
+            'must wrap differently on tablet). This is an advisory suggestion and never blocks export.',
+        sourceAuthority: 'Flint Commandment 2 (No Hallucinated Styling) + Flint P6 Breakpoint Governance (progressive enhancement)',
     },
 
     // ── A11y rules — Names & Labels ────────────────────────────────────────────
@@ -1364,6 +1409,27 @@ const REGISTRY: Record<string, ErrorEntry> = {
             'nesting is intentional, consider using a different component or increasing the maxDepth ' +
             'limit in the component\'s compositionRules.',
         sourceAuthority: 'Commandment 2 (No Hallucinated Styling) + Flint P2.5 (Composition & Slot Governance)',
+    },
+
+    // ── P7: Visual Regression ────────────────────────────────────────────────
+
+    'FLINT-VIS-001': {
+        code: 'FLINT-VIS-001',
+        ruleId: 'VISUAL-REG-001',
+        category: 'mithril',
+        severity: 'warning',
+        title: 'Visual Regression Detected',
+        explanation:
+            'A rendered element diverged from its expected Figma bounding box by more than the configured ' +
+            'tolerance. AST-level analysis cannot detect context-dependent CSS failures like flex shrinking, ' +
+            'overflow clipping, or cascading font-size inheritance — only a real browser layout engine can. ' +
+            'Visual regression auditing closes that blind spot by rendering the component in a hidden ' +
+            'BrowserWindow and measuring bounding boxes against the Figma AST.',
+        recovery:
+            'Open the component in Flint Glass and inspect the highlighted element. Common fixes: add ' +
+            '`flex-shrink-0` to prevent unintended shrinking, `overflow-hidden` or `min-w-0` to contain ' +
+            'width overflow, or `flex-none` to lock a layout slot. Re-run the visual audit to confirm.',
+        sourceAuthority: 'Commandment 2 (No Hallucinated Styling) + Flint P7 (Visual Regression Driving AST Mutation)',
     },
 }
 

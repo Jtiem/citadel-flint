@@ -1360,6 +1360,34 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
             ipcRenderer.invoke('thumbnails:invalidate', componentName),
     },
 
+    // ── Phase P7: Visual Regression Auditor ──────────────────────────────────
+    //
+    // Glass-only — the MCP-side stub delegates here via a registered bridge.
+    // Spawns a hidden BrowserWindow in the main process, renders the component,
+    // measures `data-flint-id` bounding boxes, and compares against Figma.
+    visual: {
+        audit: (payload: {
+            componentCode: string
+            componentName: string
+            expectedBoxes: Array<{ flintId: string; width: number; height: number; x: number; y: number }>
+            tolerance?: number
+            viewportWidth?: number
+            viewportHeight?: number
+        }): Promise<{
+            ok: boolean
+            violations: Array<{
+                flintId: string
+                ruleId: 'VISUAL-REG-001'
+                message: string
+                expected: { width: number; height: number }
+                actual: { width: number; height: number }
+                deltaPx: number
+                suggestion: string | null
+            }>
+            error: string | null
+        }> => ipcRenderer.invoke('visual:audit', payload),
+    },
+
     // ── Phase REM.2.1: Governance Autopilot ──────────────────────────────────
 
     /**
