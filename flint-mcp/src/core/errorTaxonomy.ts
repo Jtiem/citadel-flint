@@ -341,6 +341,28 @@ const REGISTRY: Record<string, ErrorEntry> = {
         sourceAuthority: 'Flint Commandment 2 (No Hallucinated Styling) + Tailwind CSS v4 Upgrade Guide',
     },
 
+    // ── Hydration rules (P4 — Anti-Hardcode Linter) ───────────────────────────
+
+    'FLINT-HYD-001': {
+        code: 'FLINT-HYD-001',
+        ruleId: 'HYDRATION-001',
+        category: 'mithril',
+        severity: 'warning',
+        title: 'Hardcoded Placeholder Data in JSX',
+        explanation:
+            'A JSX text literal appears to be designer-supplied dummy data ' +
+            '("John Doe", "$99.99", "Lorem ipsum", or a value that maps to a Figma ' +
+            'data-binding layer). LLMs frequently bake this placeholder copy into ' +
+            'generated components instead of parameterizing it as a prop, so the ' +
+            'component ships with fake data the first time it runs in production.',
+        recovery:
+            'Extract the literal as a component prop (e.g. `userName`, `price`, ' +
+            '`avatarUrl`) and hydrate it from real application state. Flint cannot ' +
+            'infer the correct prop name — a human or LLM must choose it. Configure ' +
+            'via `mithril.hydrationCheck: off | warn | error`.',
+        sourceAuthority: 'Flint Commandment 2 (No Hallucinated Styling)',
+    },
+
     // ── Mithril Dark Mode Safety rules (P1d) ──────────────────────────────────
 
     'FLINT-MITH-018': {

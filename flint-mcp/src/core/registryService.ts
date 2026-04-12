@@ -49,6 +49,52 @@ export interface ComponentEntry {
     };
 }
 
+// ── P3: Team-specific Registry Overlays ──────────────────────────────────────
+
+export interface TeamRegistryOverlayInput {
+    /** New registry entries to add (will overwrite an existing key with same name). */
+    addEntries?: Record<string, Partial<ComponentEntry> & { importPath?: string }>
+    /** Map of componentName → new importPath. Applied after addEntries. */
+    importOverrides?: Record<string, string>
+}
+
+/**
+ * Merge a team registry overlay into a base registry map. The base map is not
+ * mutated. Returns a new map with:
+ *   1. All base entries
+ *   2. `addEntries` merged (new entries win over base)
+ *   3. `importOverrides` applied last (rewrites importPath on any matching entry)
+ */
+export function mergeTeamRegistryOverlay(
+    base: Record<string, ComponentEntry>,
+    overlay: TeamRegistryOverlayInput | undefined,
+): Record<string, ComponentEntry> {
+    if (!overlay) return { ...base }
+    const merged: Record<string, ComponentEntry> = { ...base }
+
+    if (overlay.addEntries) {
+        for (const [name, entry] of Object.entries(overlay.addEntries)) {
+            const prev = merged[name] ?? ({} as ComponentEntry)
+            merged[name] = {
+                ...prev,
+                ...entry,
+                name,
+                importPath: entry.importPath ?? prev.importPath ?? '',
+            } as ComponentEntry
+        }
+    }
+
+    if (overlay.importOverrides) {
+        for (const [name, newImportPath] of Object.entries(overlay.importOverrides)) {
+            if (merged[name]) {
+                merged[name] = { ...merged[name], importPath: newImportPath }
+            }
+        }
+    }
+
+    return merged
+}
+
 // ── FIGMA-MAP.3: Deterministic Lookup ────────────────────────────────────────
 
 /**

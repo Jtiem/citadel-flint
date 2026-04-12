@@ -10,6 +10,9 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
+import { applyHealthcareEscalation } from './domains/healthcare.js'
+import { applyFintechEscalation } from './domains/fintech.js'
+import { applyGovernmentEscalation } from './domains/government.js'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -36,6 +39,11 @@ export interface PolicyMithrilSection {
     ignore_patterns: string[]
     /** Per-rule mode overrides. Rules not listed inherit `mode`. */
     rules: RuleModeMap
+    /**
+     * P3: Minimum touch target size (px). Used by fintech domain escalation and
+     * the MITHRIL-SPC-TOUCH rule. When undefined, touch-target checking is off.
+     */
+    minTouchTargetPx?: number
 }
 
 /** Accessibility linter section. */
@@ -51,6 +59,8 @@ export interface PolicyA11ySection {
      * to `rules[ruleId] = 'off'` entries. Do not use directly.
      */
     disabled_rules?: string[]
+    /** P3: Government domain — toggles Section 508 naming rule enforcement. */
+    section508?: boolean
 }
 
 /** Export gate section. */
@@ -77,6 +87,21 @@ export interface PolicyExportGate {
 }
 
 /**
+ * P3: Team-specific registry overlay.
+ *
+ * Allows different teams in the same monorepo to enforce different component
+ * libraries. Entries in `addEntries` are merged into the base registry;
+ * `importOverrides` rewrite the importPath of existing entries by component
+ * name (e.g. swap `@/components/ui/Button` for `@acme/web/Button`).
+ */
+export interface TeamRegistryOverlay {
+    /** New registry entries, keyed by component name. Shape: ComponentEntry-compatible records. */
+    addEntries?: Record<string, Record<string, unknown>>
+    /** Map of componentName → new importPath. */
+    importOverrides?: Record<string, string>
+}
+
+/**
  * A team overlay — a deep-partial of each policy section that is merged
  * on top of the project-level policy when a teamId is active.
  */
@@ -85,6 +110,8 @@ export interface TeamOverlay {
     a11y?: Partial<PolicyA11ySection>
     exportGate?: Partial<PolicyExportGate>
     export_gate?: Partial<PolicyExportGate>
+    /** P3: team-specific component registry overlay. */
+    registry?: TeamRegistryOverlay
 }
 
 /**
@@ -135,6 +162,10 @@ interface RawPolicy {
         mithril?: Partial<RawPolicy['mithril']>
         a11y?: Partial<RawPolicy['a11y']>
         export_gate?: Partial<RawPolicy['export_gate']>
+        registry?: {
+            addEntries?: Record<string, Record<string, unknown>>
+            importOverrides?: Record<string, string>
+        }
     }>
 }
 
@@ -164,6 +195,11 @@ const KNOWN_MITHRIL_RULES = new Set<string>([
     'MITHRIL-COMP-001',
     'MITHRIL-COMP-002',
     'MITHRIL-COMP-003',
+    // P3 additions
+    'MITHRIL-TYP-HIERARCHY',
+    'MITHRIL-SPC-TOUCH',
+    // P4 Hydration
+    'HYDRATION-001',
 ])
 
 // Known A11y rule IDs.
@@ -350,14 +386,27 @@ export function coerceToResolved(raw: RawPolicy): ResolvedPolicy {
             }
         }
 
+        // P3: registry overlay
+        let registryOverlay: TeamRegistryOverlay | undefined
+        if (overlay.registry && typeof overlay.registry === 'object') {
+            registryOverlay = {}
+            if (overlay.registry.addEntries && typeof overlay.registry.addEntries === 'object') {
+                registryOverlay.addEntries = { ...overlay.registry.addEntries }
+            }
+            if (overlay.registry.importOverrides && typeof overlay.registry.importOverrides === 'object') {
+                registryOverlay.importOverrides = { ...overlay.registry.importOverrides }
+            }
+        }
+
         teams[teamId] = {
             mithril: Object.keys(mithrilOverlay).length ? mithrilOverlay : undefined,
             a11y: Object.keys(a11yOverlay).length ? a11yOverlay : undefined,
             exportGate: Object.keys(exportGateOverlay).length ? exportGateOverlay : undefined,
+            registry: registryOverlay,
         }
     }
 
-    return {
+    const base: ResolvedPolicy = {
         version: 2,
         domain,
         mithril: {
@@ -387,6 +436,30 @@ export function coerceToResolved(raw: RawPolicy): ResolvedPolicy {
             block_on_a11y: rawExportGate.block_on_a11y,
         },
         teams,
+    }
+
+    return applyDomainEscalation(base)
+}
+
+// ── P3: Domain-driven rule escalation ─────────────────────────────────────────
+
+/**
+ * Apply domain-specific policy escalation to a resolved policy.
+ *
+ * Escalation is additive: it tightens thresholds and promotes rules but never
+ * relaxes them. An unknown domain returns the policy unchanged (fallback to
+ * the manually-configured rules).
+ */
+export function applyDomainEscalation(policy: ResolvedPolicy): ResolvedPolicy {
+    switch (policy.domain) {
+        case 'healthcare':
+            return applyHealthcareEscalation(policy)
+        case 'fintech':
+            return applyFintechEscalation(policy)
+        case 'government':
+            return applyGovernmentEscalation(policy)
+        default:
+            return policy
     }
 }
 

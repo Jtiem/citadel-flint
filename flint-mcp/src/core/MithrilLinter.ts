@@ -32,6 +32,7 @@ import { TW_V3_TO_V4_MAP } from './tailwindMigrator.js'
 import type { TailwindVersion } from './tailwindVersionResolver.js'
 import { visitDarkModeSafety, projectHasDarkMode } from './darkModeSafety.js'
 import { validateComposition } from './compositionValidator.js'
+import { detectHydrationViolations, type HydrationOptions } from './hydrationLinter.js'
 
 // CJS/ESM interop
 const traverse =
@@ -1648,6 +1649,119 @@ export function visitTailwindVersionDrift(
     return warnings
 }
 
+// ── Visitor — Typography Hierarchy (MITHRIL-TYP-HIERARCHY) ────────────────────
+
+/** Map heading JSX tag → rank. */
+const HEADING_RANK: Readonly<Record<string, number>> = {
+    h1: 1, h2: 2, h3: 3, h4: 4, h5: 5, h6: 6,
+}
+
+/**
+ * P3: Validate heading order within a component's JSX tree.
+ *
+ * Rules:
+ *   - Heading levels must not skip. Going h1 → h3 without an intermediate h2
+ *     is a violation. (h1 → h2 → h3 passes.)
+ *   - Sibling headings at the same level are fine.
+ *   - Headings that come from component props (`<Heading level={n}>`) or
+ *     non-static expressions are ignored — we only validate statically
+ *     determinable intrinsic headings.
+ *
+ * Emits `MITHRIL-TYP-HIERARCHY` with a recovery suggestion for the correct level.
+ */
+export function visitTypographyHierarchy(
+    ast: File,
+    options?: PolicyOptions,
+): Map<string, LinterWarning> {
+    const warnings = new Map<string, LinterWarning>()
+
+    const mode = options?.ruleModes?.['MITHRIL-TYP-HIERARCHY']
+    if (mode === 'off') return warnings
+
+    interface HeadingHit {
+        tag: string
+        rank: number
+        flintId: string | null
+        line: number | undefined
+        column: number | undefined
+    }
+    const hits: HeadingHit[] = []
+
+    traverse(ast, {
+        JSXOpeningElement(path) {
+            const nameNode = path.node.name
+            if (!t.isJSXIdentifier(nameNode)) return
+            const tag = nameNode.name
+            const rank = HEADING_RANK[tag]
+            if (!rank) return
+
+            const loc = nameNode.loc?.start
+            hits.push({
+                tag,
+                rank,
+                flintId: getFlintId(path.node),
+                line: loc?.line,
+                column: loc?.column,
+            })
+        },
+    })
+
+    if (hits.length === 0) return warnings
+
+    let maxSeenRank = 0
+    const taxonomyEntry = getErrorEntryByRuleId('MITHRIL-TYP-HIERARCHY')
+    const severityLevel: LinterWarning['severity'] =
+        mode === 'advisory' ? 'advisory' : 'amber'
+
+    for (const hit of hits) {
+        if (maxSeenRank === 0) {
+            maxSeenRank = hit.rank
+            continue
+        }
+
+        // Sibling or one-level deeper — always ok.
+        if (hit.rank <= maxSeenRank + 1) {
+            if (hit.rank > maxSeenRank) maxSeenRank = hit.rank
+            continue
+        }
+
+        // Skip detected — e.g. maxSeen=1 (h1), this=3 (h3). Expected: h2.
+        const expectedRank = maxSeenRank + 1
+        const expectedTag = `h${expectedRank}`
+        const warningId = hit.flintId
+            ? `typ-hierarchy-${hit.flintId}`
+            : `typ-hierarchy-${hit.line ?? 0}-${hit.column ?? 0}`
+
+        warnings.set(warningId, {
+            id: warningId,
+            type: 'typography-drift',
+            severity: severityLevel,
+            value: hit.rank - maxSeenRank,
+            message:
+                `Heading level skipped: <${hit.tag}> follows <h${maxSeenRank}> without an intermediate <${expectedTag}>. ` +
+                `Use <${expectedTag}> to preserve semantic document outline.`,
+            nearestToken: null,
+            nearestTokenValue: null,
+            ruleId: 'MITHRIL-TYP-HIERARCHY',
+            fixable: true,
+            explanation:
+                taxonomyEntry?.explanation ??
+                'Skipping heading levels breaks screen reader navigation and document outline. ' +
+                'WCAG 1.3.1 requires headings to express a logical hierarchy.',
+            recovery:
+                taxonomyEntry?.recovery ??
+                `Change <${hit.tag}> to <${expectedTag}>, or introduce the missing intermediate heading.`,
+            line: hit.line,
+            column: hit.column,
+        })
+
+        // Advance so subsequent deeper headings aren't re-flagged.
+        maxSeenRank = hit.rank
+    }
+
+    return warnings
+}
+
 // ── auditAll ──────────────────────────────────────────────────────────────────
 
 /** Minimal component entry shape for registry validation. */
@@ -1672,6 +1786,15 @@ export interface AuditAllOptions extends PolicyOptions {
     registryEntries?: ComponentEntry[]
     /** P2.5: When provided, enables MITHRIL-COMP-001/002/003 composition validation against these registry entries. */
     compositionRegistry?: Record<string, ComponentEntry>
+    /** P4: Hydration linter options — Figma AST payload + extra placeholder patterns. */
+    hydrationOptions?: HydrationOptions
+    /**
+     * P4: Original source string. Required for hydration linting because the
+     * hydrationLinter re-parses the source to recover precise JSXText locations
+     * that the already-parsed `ast` does not carry reliably. When omitted,
+     * hydration detection is skipped.
+     */
+    source?: string
 }
 
 /**
@@ -1740,6 +1863,25 @@ export function auditAll(ast: File, tokens: DesignToken[], options?: AuditAllOpt
             requiresDarkMode: options?.requiresDarkMode,
         })
         for (const [id, warning] of darkWarnings) {
+            if (!merged.has(id)) merged.set(id, warning)
+        }
+    }
+
+    // P4: Hydration linting — HYDRATION-001
+    if (typeof options?.source === 'string' && options.source.length > 0) {
+        const hydrationWarnings = detectHydrationViolations(options.source, {
+            ...(options.hydrationOptions ?? {}),
+            ruleModes: options.ruleModes,
+        })
+        for (const warning of hydrationWarnings) {
+            if (!merged.has(warning.id)) merged.set(warning.id, warning)
+        }
+    }
+
+    // P3: Typography hierarchy — MITHRIL-TYP-HIERARCHY
+    {
+        const hierarchyWarnings = visitTypographyHierarchy(ast, options)
+        for (const [id, warning] of hierarchyWarnings) {
             if (!merged.has(id)) merged.set(id, warning)
         }
     }

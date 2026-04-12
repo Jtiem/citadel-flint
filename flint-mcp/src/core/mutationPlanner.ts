@@ -168,6 +168,17 @@ function classifyViolation(
         }
     }
 
+    // ── Hydration violations (P4) — always semantic ─────────────────────────
+    if (violation.type === 'hydration') {
+        return {
+            violation,
+            classification: 'semantic',
+            confidence: 0.75,
+            semanticHint: violation.recovery
+                ?? 'This text appears to be dynamic data. Extract it as a component prop like `userName` or `price`.',
+        }
+    }
+
     // ── Composition violations (P2.5) — always semantic ─────────────────────
     if (violation.type === 'composition') {
         return {
