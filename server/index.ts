@@ -738,10 +738,16 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     }
     // Self-hosting guard: refuse to write files that live inside the Flint
     // source tree itself. When dev:web runs from the repo root, a write to
-    // e.g. src/App.tsx updates its mtime → Vite HMR fires → full reload →
-    // autoResumeChecked resets → tryAutoResume re-opens the file → loop.
-    if (existsSync(path.join(activeProjectRoot, 'electron', 'main.ts')) &&
-        validated.startsWith(activeProjectRoot + path.sep)) {
+    // e.g. src/App.tsx or demos/demo-before.tsx updates its mtime → Vite HMR
+    // fires → full reload → autoResumeChecked resets → loop.
+    //
+    // IMPORTANT: use serverRoot (original CLI root, immutable) not activeProjectRoot.
+    // After openPath() loads a demo into a temp dir, activeProjectRoot changes to
+    // that temp dir — but the Flint source files (e.g. demos/*.tsx opened via IDE
+    // sync) still live under serverRoot. The old check used activeProjectRoot, so
+    // it stopped protecting source files once a demo project was loaded.
+    if (existsSync(path.join(serverRoot, 'electron', 'main.ts')) &&
+        validated.startsWith(serverRoot + path.sep)) {
       console.warn(`${BRAND.logPrefix} ast:save-file — refusing self-hosted write to ${validated}`)
       return
     }
@@ -772,9 +778,20 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
       validated.set(v, content)
     }
 
-    await Promise.all(
-      [...validated.entries()].map(([fp, content]) => atomicWrite(fp, content)),
-    )
+    // Self-hosting guard: same protection as ast:save-file — use serverRoot so
+    // the check holds even after activeProjectRoot changes (e.g. demo load).
+    const serverRootIsFlint = existsSync(path.join(serverRoot, 'electron', 'main.ts'))
+    const safeEntries = serverRootIsFlint
+      ? [...validated.entries()].filter(([fp]) => {
+          if (fp.startsWith(serverRoot + path.sep)) {
+            console.warn(`${BRAND.logPrefix} ast:save-batch — refusing self-hosted write to ${fp}`)
+            return false
+          }
+          return true
+        })
+      : [...validated.entries()]
+
+    await Promise.all(safeEntries.map(([fp, content]) => atomicWrite(fp, content)))
   })
 
   // ── Code Transform ─────────────────────────────────────────────────────────
@@ -2437,7 +2454,14 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
         }).then(() => {
           // If the primary root didn't find anything and the roots differ,
           // also check the original server root.
-          if (serverRoot !== activeProjectRoot) {
+          // Self-hosting guard: skip when serverRoot IS the Flint source tree.
+          // Broadcasting a Flint source file path from ide-active-file.json would
+          // cause Glass to open it → setActiveFile → triggerAutoSave → the file
+          // gets written back to disk → Vite HMR detects mtime change → reload loop.
+          // This happens even when activeProjectRoot has changed to a demo temp dir —
+          // the broadcast still results in a write to the source tree.
+          const serverRootIsFlint = existsSync(path.join(serverRoot, 'electron', 'main.ts'))
+          if (serverRoot !== activeProjectRoot && !serverRootIsFlint) {
             return ideFileSyncTick({
               activeProjectRoot: serverRoot,
               state: ideFileSyncState,
