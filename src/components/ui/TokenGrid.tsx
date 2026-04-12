@@ -18,7 +18,7 @@
  * Renderer Process only — no Node.js imports.
  */
 
-import type { DesignToken, TokenType, TokenUsageResult } from '../../types/flint-api'
+import type { DesignToken, TokenType, TokenUsageResult, ContrastPair } from '../../types/flint-api'
 import type { TokenDrift } from '../../hooks/useTokenUsage'
 
 // ── Sync badge types (shared with TokenManager) ─────────────────────────────
@@ -105,6 +105,189 @@ function DriftBadge({ drift }: DriftBadgeProps) {
         >
             Drifted
         </span>
+    )
+}
+
+// ── MINT.3b: Contrast badge ──────────────────────────────────────────────────
+
+export type ContrastBadgeGrade = 'aa' | 'aaa' | 'fail' | null
+
+export interface ContrastBadgeProps {
+    grade: ContrastBadgeGrade
+    ratio?: number
+}
+
+export function ContrastBadge({ grade, ratio }: ContrastBadgeProps) {
+    if (!grade) return null
+
+    if (grade === 'fail') {
+        return (
+            <span
+                className="shrink-0 rounded border border-red-500/20 bg-red-500/10 px-1.5 py-0.5 text-[10px] font-medium text-red-400"
+                data-testid="contrast-inline-badge"
+                aria-label={`Contrast: ${ratio ? `${ratio.toFixed(1)}:1` : ''} FAIL`}
+                title={ratio ? `Contrast ratio ${ratio.toFixed(1)}:1 — fails WCAG AA` : 'Fails WCAG AA contrast'}
+            >
+                Fail
+            </span>
+        )
+    }
+
+    return (
+        <span
+            className="shrink-0 rounded border border-emerald-400/20 bg-emerald-400/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-400"
+            data-testid="contrast-inline-badge"
+            aria-label={`Contrast: ${ratio ? `${ratio.toFixed(1)}:1` : ''} ${grade.toUpperCase()}`}
+            title={ratio ? `Contrast ratio ${ratio.toFixed(1)}:1 — passes WCAG ${grade.toUpperCase()}` : `Passes WCAG ${grade.toUpperCase()}`}
+        >
+            {grade.toUpperCase()}
+        </span>
+    )
+}
+
+/** Compute the best contrast grade for a token from its contrast pairs. */
+export function getBestContrastGrade(tokenPath: string, contrastMap: Map<string, ContrastPair[]>): { grade: ContrastBadgeGrade; ratio: number | undefined } {
+    const pairs = contrastMap.get(tokenPath)
+    if (!pairs || pairs.length === 0) return { grade: null, ratio: undefined }
+
+    // Find the best pair (highest ratio)
+    let bestPair: ContrastPair | null = null
+    for (const p of pairs) {
+        if (!bestPair || p.ratio > bestPair.ratio) bestPair = p
+    }
+    if (!bestPair) return { grade: null, ratio: undefined }
+
+    if (bestPair.passAAA) return { grade: 'aaa', ratio: bestPair.ratio }
+    if (bestPair.passAA) return { grade: 'aa', ratio: bestPair.ratio }
+    return { grade: 'fail', ratio: bestPair.ratio }
+}
+
+// ── MINT.3d: Motion token preview ───────────────────────────────────────────
+
+/** Detect if a token is a motion/duration/easing token by name heuristics. */
+function isMotionToken(token: DesignToken): boolean {
+    const path = token.token_path.toLowerCase()
+    return (
+        path.includes('duration') ||
+        path.includes('easing') ||
+        path.includes('motion') ||
+        path.includes('transition') ||
+        path.includes('animation')
+    )
+}
+
+/** Small easing curve preview: a dot that animates using the token value. */
+function MotionPreview({ token }: { token: DesignToken }) {
+    if (!isMotionToken(token)) return null
+
+    const value = token.token_value
+    const isDuration = /^\d+m?s$/.test(value)
+    const isEasing = value.includes('cubic-bezier') || ['ease', 'ease-in', 'ease-out', 'ease-in-out', 'linear'].includes(value)
+
+    if (!isDuration && !isEasing) return null
+
+    const duration = isDuration ? value : '300ms'
+    const easing = isEasing ? value : 'ease'
+
+    return (
+        <span
+            className="relative inline-block h-3 w-8 rounded-full bg-zinc-700/50"
+            data-testid="motion-preview"
+            aria-label={`Motion preview: ${value}`}
+            title={`Motion: ${value}`}
+        >
+            <span
+                className="absolute left-0 top-0 h-3 w-3 rounded-full bg-indigo-400"
+                style={{
+                    animation: `flint-motion-preview ${duration} ${easing} infinite alternate`,
+                }}
+            />
+            <style>{`
+                @keyframes flint-motion-preview {
+                    from { transform: translateX(0); }
+                    to { transform: translateX(20px); }
+                }
+            `}</style>
+        </span>
+    )
+}
+
+// ── MINT.3d: Scale gap analysis ─────────────────────────────────────────────
+
+export interface ScaleGap {
+    before: number
+    after: number
+    expectedGap: number
+}
+
+/** Detect gaps in a spacing/sizing scale. */
+export function detectScaleGaps(dimensionTokens: DesignToken[]): ScaleGap[] {
+    const nums = dimensionTokens
+        .map((t) => {
+            const m = /^(\d+(?:\.\d+)?)/.exec(t.token_value)
+            return m ? parseFloat(m[1]) : NaN
+        })
+        .filter((n) => !isNaN(n))
+        .sort((a, b) => a - b)
+
+    // Need at least 3 values to detect a gap pattern
+    if (nums.length < 3) return []
+
+    // Detect the most common step size
+    const steps: number[] = []
+    for (let i = 1; i < nums.length; i++) {
+        steps.push(Math.round((nums[i] - nums[i - 1]) * 100) / 100)
+    }
+
+    // Find the mode (most common step)
+    const stepCounts = new Map<number, number>()
+    for (const s of steps) {
+        stepCounts.set(s, (stepCounts.get(s) ?? 0) + 1)
+    }
+    let modeStep = steps[0]
+    let modeCount = 0
+    for (const [step, count] of stepCounts) {
+        if (count > modeCount) {
+            modeStep = step
+            modeCount = count
+        }
+    }
+
+    // Detect where the gap is larger than expected
+    const gaps: ScaleGap[] = []
+    for (let i = 1; i < nums.length; i++) {
+        const actualStep = nums[i] - nums[i - 1]
+        if (actualStep > modeStep * 1.5 && modeStep > 0) {
+            gaps.push({
+                before: nums[i - 1],
+                after: nums[i],
+                expectedGap: modeStep,
+            })
+        }
+    }
+
+    return gaps
+}
+
+function ScaleGapWarning({ gaps }: { gaps: ScaleGap[] }) {
+    if (gaps.length === 0) return null
+
+    return (
+        <div
+            className="flex flex-wrap items-center gap-1 px-3 py-1 border-b border-amber-500/10 bg-amber-500/5"
+            data-testid="scale-gap-warning"
+            role="alert"
+            aria-label="Scale gap detected"
+        >
+            {gaps.map((gap, i) => (
+                <span
+                    key={i}
+                    className="inline-flex items-center gap-1 rounded border border-amber-400/20 bg-amber-400/10 px-1.5 py-0.5 text-[9px] text-amber-400"
+                >
+                    Gap: {gap.before}px to {gap.after}px
+                </span>
+            ))}
+        </div>
     )
 }
 
@@ -246,6 +429,10 @@ interface TokenRowProps {
     figmaConnected?: boolean
     usageResult?: TokenUsageResult | null
     drift?: TokenDrift | null
+    /** MINT.3b: Contrast grade for this token. */
+    contrastGrade?: ContrastBadgeGrade
+    /** MINT.3b: Contrast ratio for this token. */
+    contrastRatio?: number
 }
 
 function DimensionBar({ value }: { value: string }) {
@@ -261,7 +448,7 @@ function DimensionBar({ value }: { value: string }) {
     )
 }
 
-export function TokenRow({ token, syncStatus, figmaConnected, usageResult, drift }: TokenRowProps) {
+export function TokenRow({ token, syncStatus, figmaConnected, usageResult, drift, contrastGrade, contrastRatio }: TokenRowProps) {
     return (
         <div
             className="flex items-center gap-2 border-b border-zinc-800/40 px-3 py-1.5 hover:bg-zinc-800/30"
@@ -304,6 +491,12 @@ export function TokenRow({ token, syncStatus, figmaConnected, usageResult, drift
             {/* MINT.2c: Drift indicator */}
             {drift && <DriftBadge drift={drift} />}
 
+            {/* MINT.3b: Contrast badge */}
+            {contrastGrade && <ContrastBadge grade={contrastGrade} ratio={contrastRatio} />}
+
+            {/* MINT.3d: Motion preview */}
+            <MotionPreview token={token} />
+
             {/* Sync badge — only when Figma is connected */}
             {syncStatus && <SyncBadge status={syncStatus} />}
 
@@ -325,9 +518,13 @@ interface TokenGridCardProps {
     syncStatus?: SyncBadgeStatus | null
     usageResult?: TokenUsageResult | null
     drift?: TokenDrift | null
+    /** MINT.3b: Contrast grade for this token. */
+    contrastGrade?: ContrastBadgeGrade
+    /** MINT.3b: Contrast ratio for this token. */
+    contrastRatio?: number
 }
 
-function TokenGridCard({ token, darkModeToken, syncStatus, usageResult, drift }: TokenGridCardProps) {
+function TokenGridCard({ token, darkModeToken, syncStatus, usageResult, drift, contrastGrade, contrastRatio }: TokenGridCardProps) {
     const isDead = usageResult != null && usageResult.usageCount === 0
     return (
         <div
@@ -428,6 +625,20 @@ function TokenGridCard({ token, darkModeToken, syncStatus, usageResult, drift }:
                 </div>
             )}
 
+            {/* MINT.3b: Contrast badge */}
+            {contrastGrade && (
+                <div className="mt-0.5">
+                    <ContrastBadge grade={contrastGrade} ratio={contrastRatio} />
+                </div>
+            )}
+
+            {/* MINT.3d: Motion preview */}
+            {isMotionToken(token) && (
+                <div className="mt-0.5">
+                    <MotionPreview token={token} />
+                </div>
+            )}
+
             {/* Sync badge */}
             {syncStatus && (
                 <div className="mt-0.5">
@@ -502,6 +713,8 @@ interface TokenGroupSectionProps {
     usageMap?: Map<string, TokenUsageResult>
     /** MINT.2c: Tokens that have drifted from Figma values. */
     driftedTokens?: TokenDrift[]
+    /** MINT.3b: Contrast data map (token_path -> pairs). */
+    contrastMap?: Map<string, ContrastPair[]>
 }
 
 export function TokenGroupSection({
@@ -513,6 +726,7 @@ export function TokenGroupSection({
     allCollectionTokens,
     usageMap,
     driftedTokens,
+    contrastMap,
 }: TokenGroupSectionProps) {
     // MINT.2c: Build a drift lookup by token name
     const driftByName = new Map<string, TokenDrift>()
@@ -544,6 +758,9 @@ export function TokenGroupSection({
                     ? group.filter((t) => t.mode.toLowerCase() !== 'dark')
                     : group
 
+                // MINT.3d: Detect scale gaps for dimension tokens
+                const scaleGaps = tokenType === 'dimension' ? detectScaleGaps(group) : []
+
                 return (
                     <div key={tokenType}>
                         {/* Type sub-header */}
@@ -559,6 +776,9 @@ export function TokenGroupSection({
                             </span>
                         </div>
 
+                        {/* MINT.3d: Scale gap warnings for dimension tokens */}
+                        {scaleGaps.length > 0 && <ScaleGapWarning gaps={scaleGaps} />}
+
                         {/* Grid or List rendering */}
                         {viewMode === 'grid' && isGridFriendly(tokenType) ? (
                             <div
@@ -567,29 +787,39 @@ export function TokenGroupSection({
                                 role="grid"
                                 aria-label={`${TYPE_LABEL[tokenType] ?? tokenType} tokens grid`}
                             >
-                                {primaryTokens.map((token) => (
-                                    <TokenGridCard
-                                        key={token.id}
-                                        token={token}
-                                        darkModeToken={darkTokensByPath.get(token.token_path)}
-                                        syncStatus={getSyncStatus(token)}
-                                        usageResult={usageMap?.get(token.token_path) ?? null}
-                                        drift={driftByName.get(token.token_path) ?? null}
-                                    />
-                                ))}
+                                {primaryTokens.map((token) => {
+                                    const contrast = contrastMap ? getBestContrastGrade(token.token_path, contrastMap) : { grade: null, ratio: undefined }
+                                    return (
+                                        <TokenGridCard
+                                            key={token.id}
+                                            token={token}
+                                            darkModeToken={darkTokensByPath.get(token.token_path)}
+                                            syncStatus={getSyncStatus(token)}
+                                            usageResult={usageMap?.get(token.token_path) ?? null}
+                                            drift={driftByName.get(token.token_path) ?? null}
+                                            contrastGrade={contrast.grade}
+                                            contrastRatio={contrast.ratio}
+                                        />
+                                    )
+                                })}
                             </div>
                         ) : (
                             <div role="grid" aria-label={`${TYPE_LABEL[tokenType] ?? tokenType} tokens list`}>
-                                {group.map((token) => (
-                                    <TokenRow
-                                        key={token.id}
-                                        token={token}
-                                        syncStatus={getSyncStatus(token)}
-                                        figmaConnected={figmaConnected}
-                                        usageResult={usageMap?.get(token.token_path) ?? null}
-                                        drift={driftByName.get(token.token_path) ?? null}
-                                    />
-                                ))}
+                                {group.map((token) => {
+                                    const contrast = contrastMap ? getBestContrastGrade(token.token_path, contrastMap) : { grade: null, ratio: undefined }
+                                    return (
+                                        <TokenRow
+                                            key={token.id}
+                                            token={token}
+                                            syncStatus={getSyncStatus(token)}
+                                            figmaConnected={figmaConnected}
+                                            usageResult={usageMap?.get(token.token_path) ?? null}
+                                            drift={driftByName.get(token.token_path) ?? null}
+                                            contrastGrade={contrast.grade}
+                                            contrastRatio={contrast.ratio}
+                                        />
+                                    )
+                                })}
                             </div>
                         )}
                     </div>

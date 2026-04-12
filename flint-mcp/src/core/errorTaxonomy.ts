@@ -341,6 +341,27 @@ const REGISTRY: Record<string, ErrorEntry> = {
         sourceAuthority: 'Flint Commandment 2 (No Hallucinated Styling) + Tailwind CSS v4 Upgrade Guide',
     },
 
+    // ── Mithril Dark Mode Safety rules (P1d) ──────────────────────────────────
+
+    'FLINT-MITH-018': {
+        code: 'FLINT-MITH-018',
+        ruleId: 'MITHRIL-DARK-001',
+        category: 'mithril',
+        severity: 'warning',
+        title: 'Dark Mode Safety Violation',
+        explanation:
+            'A color utility class is applied without a corresponding `dark:` variant or semantic ' +
+            'design token that includes a dark mode value. When the user switches to dark mode, this ' +
+            'component will display the light-mode color against a dark background, causing readability ' +
+            'and contrast failures. This is the most visually obvious sign of ungoverned AI-generated UI.',
+        recovery:
+            'Either add a `dark:` variant for the same property (e.g., `bg-white dark:bg-gray-900`) ' +
+            'or replace the primitive color class with a semantic design token that automatically ' +
+            'flips between modes (e.g., `bg-[var(--color-surface)]`). If the project uses semantic ' +
+            'tokens with a `modes.dark` field, switching to those tokens is the preferred approach.',
+        sourceAuthority: 'Flint Commandment 2 (No Hallucinated Styling) + Design Token Theming Best Practices',
+    },
+
     // ── A11y rules — Names & Labels ────────────────────────────────────────────
 
     'FLINT-A11Y-001': {
@@ -1244,6 +1265,26 @@ const REGISTRY: Record<string, ErrorEntry> = {
             'Add this component to your Armory (project registry), or replace it with ' +
             'a registered alternative from your component library.',
         sourceAuthority: 'Flint CR.2 (Constrained Registry)',
+    },
+
+    // ── P2: Rogue Intrinsic Detection ─────────────────────────────────────────
+
+    'FLINT-MITH-019': {
+        code: 'FLINT-MITH-019',
+        ruleId: 'MITHRIL-REG-001',
+        category: 'mithril',
+        severity: 'warning',
+        title: 'Rogue Intrinsic Element — Design System Component Available',
+        explanation:
+            'A raw HTML intrinsic element was used when the project\'s component registry provides ' +
+            'a design system equivalent. Using raw intrinsics instead of library components creates ' +
+            'inconsistent styling, accessibility gaps, and design system drift. LLMs frequently ' +
+            'default to raw HTML elements instead of the project\'s component library.',
+        recovery:
+            'Replace the raw HTML element with the corresponding design system component. ' +
+            'For example: <button> → <Button>, <input> → <Input>, <select> → <Select>. ' +
+            'The violation message includes the exact import path and component name to use.',
+        sourceAuthority: 'Commandment 2 (No Hallucinated Styling) + Flint P2 (Design System Adoption Enforcement)',
     },
 }
 

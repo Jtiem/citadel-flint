@@ -48,8 +48,14 @@ function makeLinterWarning(overrides: Partial<LinterWarning & { riskTrend?: 'ris
     }
 }
 
-/** Opens the Audit Log accordion by clicking its toggle button. */
+/** Opens More details disclosure then the Audit Log accordion. */
 async function openAuditLog() {
+    // GAP-1: Audit Log is now inside the "More details" disclosure
+    const moreDetailsToggle = screen.getByTestId('more-details-toggle')
+    fireEvent.click(moreDetailsToggle)
+    await waitFor(() => {
+        expect(screen.getByTestId('audit-log-toggle')).toBeDefined()
+    })
     const toggle = screen.getByTestId('audit-log-toggle')
     fireEvent.click(toggle)
     await waitFor(() => {
@@ -329,9 +335,11 @@ describe('GovernanceDashboard — Wave 6', () => {
     // ── COUNSEL.4.5: Audit Log tab ────────────────────────────────────────────
 
     describe('COUNSEL.4.5 — Audit Log tab', () => {
-        it('renders the Audit Log section toggle button', async () => {
+        it('renders the Audit Log section toggle button (inside More details)', async () => {
             seedTokens([makeToken()])
             render(<GovernanceDashboard />)
+            // GAP-1: Audit log is inside the "More details" disclosure
+            fireEvent.click(screen.getByTestId('more-details-toggle'))
             await waitFor(() => {
                 expect(screen.getByTestId('audit-log-toggle')).toBeDefined()
             })
@@ -340,6 +348,7 @@ describe('GovernanceDashboard — Wave 6', () => {
         it('Audit Log toggle button has label "Audit Log"', async () => {
             seedTokens([makeToken()])
             render(<GovernanceDashboard />)
+            fireEvent.click(screen.getByTestId('more-details-toggle'))
             await waitFor(() => {
                 const toggle = screen.getByTestId('audit-log-toggle')
                 expect(toggle.textContent).toContain('Audit Log')
@@ -349,16 +358,13 @@ describe('GovernanceDashboard — Wave 6', () => {
         it('Audit Log section is collapsed by default (list not visible)', async () => {
             seedTokens([makeToken()])
             render(<GovernanceDashboard />)
-            await waitFor(() => {
-                expect(screen.getByTestId('audit-log-toggle')).toBeDefined()
-            })
+            // audit-log-list is not in DOM when More details is closed
             expect(screen.queryByTestId('audit-log-list')).toBeNull()
         })
 
         it('clicking toggle opens the Audit Log list', async () => {
             seedTokens([makeToken()])
             render(<GovernanceDashboard />)
-            await waitFor(() => screen.getByTestId('audit-log-toggle'))
             await openAuditLog()
             expect(screen.getByTestId('audit-log-list')).toBeDefined()
         })
@@ -367,7 +373,6 @@ describe('GovernanceDashboard — Wave 6', () => {
             seedTokens([makeToken()])
             ;(window.flintAPI.governance.getAuditLog as ReturnType<typeof vi.fn>).mockResolvedValue([])
             render(<GovernanceDashboard />)
-            await waitFor(() => screen.getByTestId('audit-log-toggle'))
             await openAuditLog()
             await waitFor(() => {
                 expect(screen.getByTestId('audit-log-empty')).toBeDefined()
@@ -383,7 +388,6 @@ describe('GovernanceDashboard — Wave 6', () => {
             ]
             ;(window.flintAPI.governance.getAuditLog as ReturnType<typeof vi.fn>).mockResolvedValue(entries)
             render(<GovernanceDashboard />)
-            await waitFor(() => screen.getByTestId('audit-log-toggle'))
             await openAuditLog()
             await waitFor(() => {
                 expect(screen.getByTestId('audit-log-entry-1')).toBeDefined()
@@ -398,7 +402,6 @@ describe('GovernanceDashboard — Wave 6', () => {
             ]
             ;(window.flintAPI.governance.getAuditLog as ReturnType<typeof vi.fn>).mockResolvedValue(entries)
             render(<GovernanceDashboard />)
-            await waitFor(() => screen.getByTestId('audit-log-toggle'))
             await openAuditLog()
             await waitFor(() => {
                 const entry = screen.getByTestId('audit-log-entry-10')
@@ -420,7 +423,6 @@ describe('GovernanceDashboard — Wave 6', () => {
         it('clicking toggle again collapses the audit log', async () => {
             seedTokens([makeToken()])
             render(<GovernanceDashboard />)
-            await waitFor(() => screen.getByTestId('audit-log-toggle'))
             await openAuditLog()
             // Click again to close
             fireEvent.click(screen.getByTestId('audit-log-toggle'))
@@ -429,9 +431,16 @@ describe('GovernanceDashboard — Wave 6', () => {
             })
         })
 
-        it('audit log section renders even without tokens (always visible)', async () => {
-            // Audit log toggle is present regardless of token count
+        it('audit log section is accessible (inside More details disclosure)', async () => {
+            // GAP-1: Audit log is inside the "More details" disclosure
+            // More details requires tokens to render, so seed one token
+            seedTokens([makeToken()])
             render(<GovernanceDashboard />)
+            await waitFor(() => {
+                expect(screen.getByTestId('more-details-toggle')).toBeDefined()
+            })
+            // Open it to access the audit log toggle
+            fireEvent.click(screen.getByTestId('more-details-toggle'))
             await waitFor(() => {
                 expect(screen.getByTestId('audit-log-toggle')).toBeDefined()
             })
@@ -440,10 +449,248 @@ describe('GovernanceDashboard — Wave 6', () => {
         it('audit log list has max-height 240 inline style (scrollable constraint)', async () => {
             seedTokens([makeToken()])
             render(<GovernanceDashboard />)
-            await waitFor(() => screen.getByTestId('audit-log-toggle'))
+            // openAuditLog() opens "More details" disclosure then the audit log toggle
             await openAuditLog()
             const list = screen.getByTestId('audit-log-list')
             expect(list.style.maxHeight).toBe('240px')
+        })
+    })
+
+    // ── COUNSEL.3.1: Undo to last clean state button ─────────────────────────
+
+    describe('COUNSEL.3.1 — Undo to last clean state button', () => {
+        it('renders the undo-to-clean button in the header area', async () => {
+            seedTokens([makeToken()])
+            render(<GovernanceDashboard />)
+            await waitFor(() => {
+                expect(screen.getByTestId('undo-to-clean-btn')).toBeDefined()
+            })
+        })
+
+        it('undo-to-clean button is disabled when no clean state exists', async () => {
+            seedTokens([makeToken()])
+            ;(window.flintAPI.governance.getLastCleanState as ReturnType<typeof vi.fn>).mockResolvedValue(null)
+            render(<GovernanceDashboard />)
+            await waitFor(() => {
+                const btn = screen.getByTestId('undo-to-clean-btn')
+                expect(btn.hasAttribute('disabled')).toBe(true)
+            })
+        })
+
+        it('undo-to-clean button has tooltip "No clean baseline recorded" when disabled', async () => {
+            seedTokens([makeToken()])
+            ;(window.flintAPI.governance.getLastCleanState as ReturnType<typeof vi.fn>).mockResolvedValue(null)
+            render(<GovernanceDashboard />)
+            await waitFor(() => {
+                const btn = screen.getByTestId('undo-to-clean-btn')
+                expect(btn.getAttribute('title')).toBe('No clean baseline recorded')
+            })
+        })
+
+        it('undo-to-clean button has correct label text', async () => {
+            seedTokens([makeToken()])
+            render(<GovernanceDashboard />)
+            await waitFor(() => {
+                const btn = screen.getByTestId('undo-to-clean-btn')
+                expect(btn.textContent).toContain('Undo to clean')
+            })
+        })
+
+        it('undo-to-clean button has aria-label', async () => {
+            seedTokens([makeToken()])
+            render(<GovernanceDashboard />)
+            await waitFor(() => {
+                const btn = screen.getByTestId('undo-to-clean-btn')
+                expect(btn.getAttribute('aria-label')).toBeDefined()
+            })
+        })
+    })
+
+    // ── COUNSEL.3.3: Anomaly alert banner ────────────────────────────────────
+
+    describe('COUNSEL.3.3 — Anomaly alert banner with human-readable descriptions', () => {
+        it('renders anomaly banner when anomalies exist', async () => {
+            seedTokens([makeToken()])
+            const warning = makeLinterWarning({ id: 'a1' })
+            useEditorStore.setState({ linterWarnings: new Map([['a1', warning]]) })
+            ;(window.flintAPI.governance.getAnomalies as ReturnType<typeof vi.fn>).mockResolvedValue([
+                { type: 'override_spike', severity: 'high', message: 'Override rate is 4x above baseline' },
+            ])
+            render(<GovernanceDashboard />)
+            await waitFor(() => {
+                expect(screen.getByTestId('anomaly-alert-banner')).toBeDefined()
+            })
+        })
+
+        it('renders human-readable description for override_spike', async () => {
+            seedTokens([makeToken()])
+            const warning = makeLinterWarning({ id: 'a2' })
+            useEditorStore.setState({ linterWarnings: new Map([['a2', warning]]) })
+            ;(window.flintAPI.governance.getAnomalies as ReturnType<typeof vi.fn>).mockResolvedValue([
+                { type: 'override_spike', severity: 'high', message: 'Override rate is 4x above baseline' },
+            ])
+            render(<GovernanceDashboard />)
+            await waitFor(() => {
+                expect(screen.getByText(/Override frequency is unusually high/)).toBeDefined()
+            })
+        })
+
+        it('renders human-readable description for violation_surge', async () => {
+            seedTokens([makeToken()])
+            const warning = makeLinterWarning({ id: 'a3' })
+            useEditorStore.setState({ linterWarnings: new Map([['a3', warning]]) })
+            ;(window.flintAPI.governance.getAnomalies as ReturnType<typeof vi.fn>).mockResolvedValue([
+                { type: 'violation_surge', severity: 'medium', message: 'Violations increased 3x' },
+            ])
+            render(<GovernanceDashboard />)
+            await waitFor(() => {
+                expect(screen.getByText(/Violation count spiked/)).toBeDefined()
+            })
+        })
+
+        it('renders human-readable description for velocity_spike', async () => {
+            seedTokens([makeToken()])
+            const warning = makeLinterWarning({ id: 'a4' })
+            useEditorStore.setState({ linterWarnings: new Map([['a4', warning]]) })
+            ;(window.flintAPI.governance.getAnomalies as ReturnType<typeof vi.fn>).mockResolvedValue([
+                { type: 'velocity_spike', severity: 'medium', message: 'Mutation rate above normal' },
+            ])
+            render(<GovernanceDashboard />)
+            await waitFor(() => {
+                expect(screen.getByText(/Mutation velocity is above normal/)).toBeDefined()
+            })
+        })
+
+        it('shows anomaly count badge', async () => {
+            seedTokens([makeToken()])
+            const warning = makeLinterWarning({ id: 'a5' })
+            useEditorStore.setState({ linterWarnings: new Map([['a5', warning]]) })
+            ;(window.flintAPI.governance.getAnomalies as ReturnType<typeof vi.fn>).mockResolvedValue([
+                { type: 'override_spike', severity: 'high', message: '1' },
+                { type: 'violation_surge', severity: 'medium', message: '2' },
+                { type: 'velocity_spike', severity: 'low', message: '3' },
+            ])
+            render(<GovernanceDashboard />)
+            await waitFor(() => {
+                const badge = screen.getByTestId('anomaly-count-badge')
+                expect(badge).toBeDefined()
+                expect(badge.textContent).toBe('3')
+            })
+        })
+
+        it('dismisses anomaly banner when dismiss button is clicked', async () => {
+            seedTokens([makeToken()])
+            const warning = makeLinterWarning({ id: 'a6' })
+            useEditorStore.setState({ linterWarnings: new Map([['a6', warning]]) })
+            ;(window.flintAPI.governance.getAnomalies as ReturnType<typeof vi.fn>).mockResolvedValue([
+                { type: 'override_spike', severity: 'high', message: 'Test' },
+            ])
+            render(<GovernanceDashboard />)
+            await waitFor(() => {
+                expect(screen.getByTestId('anomaly-alert-banner')).toBeDefined()
+            })
+            fireEvent.click(screen.getByTestId('anomaly-banner-dismiss'))
+            await waitFor(() => {
+                expect(screen.queryByTestId('anomaly-alert-banner')).toBeNull()
+            })
+        })
+
+        it('anomaly banner has role="alert" for accessibility', async () => {
+            seedTokens([makeToken()])
+            const warning = makeLinterWarning({ id: 'a7' })
+            useEditorStore.setState({ linterWarnings: new Map([['a7', warning]]) })
+            ;(window.flintAPI.governance.getAnomalies as ReturnType<typeof vi.fn>).mockResolvedValue([
+                { type: 'override_spike', severity: 'high', message: 'Test' },
+            ])
+            render(<GovernanceDashboard />)
+            await waitFor(() => {
+                const banner = screen.getByTestId('anomaly-alert-banner')
+                expect(banner.getAttribute('role')).toBe('alert')
+            })
+        })
+
+        it('does not render anomaly banner when no anomalies', async () => {
+            seedTokens([makeToken()])
+            const warning = makeLinterWarning({ id: 'a8' })
+            useEditorStore.setState({ linterWarnings: new Map([['a8', warning]]) })
+            ;(window.flintAPI.governance.getAnomalies as ReturnType<typeof vi.fn>).mockResolvedValue([])
+            render(<GovernanceDashboard />)
+            await waitFor(() => {
+                expect(document.querySelector('[data-testid="violations-list"]')).toBeDefined()
+            })
+            expect(screen.queryByTestId('anomaly-alert-banner')).toBeNull()
+        })
+
+        it('falls back to anomaly message when type is unknown', async () => {
+            seedTokens([makeToken()])
+            const warning = makeLinterWarning({ id: 'a9' })
+            useEditorStore.setState({ linterWarnings: new Map([['a9', warning]]) })
+            ;(window.flintAPI.governance.getAnomalies as ReturnType<typeof vi.fn>).mockResolvedValue([
+                { type: 'unknown_type', severity: 'low', message: 'Custom fallback description' },
+            ])
+            render(<GovernanceDashboard />)
+            await waitFor(() => {
+                expect(screen.getByText(/Custom fallback description/)).toBeDefined()
+            })
+        })
+    })
+
+    // ── COUNSEL.3.4: MRS risk badge on violation cards ───────────────────────
+
+    describe('COUNSEL.3.4 — MRS risk badge on violation cards', () => {
+        it('renders MRS badge on a violation card with mrsScore', async () => {
+            seedTokens([makeToken()])
+            const warning = makeLinterWarning({ id: 'mrs1', mrsScore: 42 })
+            useEditorStore.setState({ linterWarnings: new Map([['mrs1', warning]]) })
+            render(<GovernanceDashboard />)
+            await waitFor(() => {
+                expect(screen.getByTestId('mrs-badge-mrs1')).toBeDefined()
+                expect(screen.getByTestId('mrs-badge-mrs1').textContent).toContain('MRS 42')
+            })
+        })
+
+        it('does not render MRS badge when mrsScore is undefined', async () => {
+            seedTokens([makeToken()])
+            const warning = makeLinterWarning({ id: 'mrs2' })
+            useEditorStore.setState({ linterWarnings: new Map([['mrs2', warning]]) })
+            render(<GovernanceDashboard />)
+            await waitFor(() => {
+                expect(document.querySelector('[data-testid="violations-list"]')).toBeDefined()
+            })
+            expect(screen.queryByTestId('mrs-badge-mrs2')).toBeNull()
+        })
+
+        it('renders green MRS badge for low risk score', async () => {
+            seedTokens([makeToken()])
+            const warning = makeLinterWarning({ id: 'mrs3', mrsScore: 20 })
+            useEditorStore.setState({ linterWarnings: new Map([['mrs3', warning]]) })
+            render(<GovernanceDashboard />)
+            await waitFor(() => {
+                const badge = screen.getByTestId('mrs-badge-mrs3')
+                expect(badge.className).toContain('text-emerald-400')
+            })
+        })
+
+        it('renders amber MRS badge for medium risk score', async () => {
+            seedTokens([makeToken()])
+            const warning = makeLinterWarning({ id: 'mrs4', mrsScore: 45 })
+            useEditorStore.setState({ linterWarnings: new Map([['mrs4', warning]]) })
+            render(<GovernanceDashboard />)
+            await waitFor(() => {
+                const badge = screen.getByTestId('mrs-badge-mrs4')
+                expect(badge.className).toContain('text-amber-400')
+            })
+        })
+
+        it('renders red MRS badge for high risk score', async () => {
+            seedTokens([makeToken()])
+            const warning = makeLinterWarning({ id: 'mrs5', mrsScore: 85 })
+            useEditorStore.setState({ linterWarnings: new Map([['mrs5', warning]]) })
+            render(<GovernanceDashboard />)
+            await waitFor(() => {
+                const badge = screen.getByTestId('mrs-badge-mrs5')
+                expect(badge.className).toContain('text-red-400')
+            })
         })
     })
 })

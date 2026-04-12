@@ -141,7 +141,24 @@ function classifyViolation(
 
     // ── Registry violations ──────────────────────────────────────────────────
     if (violation.type === 'registry') {
-        // Registry adoption violations are structural (element swap) — always semantic
+        // MITHRIL-REG-001: Rogue intrinsic with full prop mapping → deterministic
+        // but always risk-gated (structural element swap). Without prop mapping → semantic.
+        if (violation.ruleId === 'MITHRIL-REG-001') {
+            const hasPropMapping = violation.message?.includes('Prop mapping:')
+            return {
+                violation,
+                classification: hasPropMapping ? 'deterministic' : 'semantic',
+                confidence: hasPropMapping ? 0.85 : 0.6,
+                proposedFix: hasPropMapping ? {
+                    type: 'replaceElement',
+                    params: { source: 'registry-adoption' },
+                } : undefined,
+                semanticHint: hasPropMapping
+                    ? undefined
+                    : (violation.recovery ?? `Replace rogue intrinsic element with a design system component. ${violation.message}`),
+            }
+        }
+        // REG-001: Unregistered component — always semantic
         return {
             violation,
             classification: 'semantic',

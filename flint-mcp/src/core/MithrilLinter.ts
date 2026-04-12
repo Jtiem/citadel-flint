@@ -30,6 +30,7 @@ import { checkSyncViolations, type DesignTokenFileEntry } from './sync/syncViola
 import { hexToLab, deltaE2000, computeContrastRatio } from './colorMath.js'
 import { TW_V3_TO_V4_MAP } from './tailwindMigrator.js'
 import type { TailwindVersion } from './tailwindVersionResolver.js'
+import { visitDarkModeSafety, projectHasDarkMode } from './darkModeSafety.js'
 
 // CJS/ESM interop
 const traverse =
@@ -1310,6 +1311,187 @@ export function visitRegistryUsage(
     return warnings
 }
 
+// ── P2: Rogue Intrinsic Detection (MITHRIL-REG-001) ────────────────────────────
+
+import type { ComponentEntry } from './registryService.js'
+
+/**
+ * Mapping from HTML intrinsic tag names to the design system classification
+ * keywords used to match against registry component names.
+ *
+ * Each entry maps an intrinsic → array of possible component name patterns
+ * (lowercased). The first registry component whose lowercased name matches
+ * any of these patterns wins.
+ */
+const INTRINSIC_TO_COMPONENT_KEYWORDS: Record<string, string[]> = {
+    button: ['button'],
+    input: ['input', 'textfield'],
+    select: ['select', 'dropdown', 'combobox'],
+    textarea: ['textarea'],
+    table: ['table', 'datatable', 'data-table'],
+    dialog: ['dialog', 'modal'],
+    a: ['link'],
+    img: ['image', 'avatar'],
+    nav: ['navigation', 'navbar', 'nav'],
+    form: ['form'],
+}
+
+/** The set of intrinsic tags we check for rogue usage. */
+const ROGUE_INTRINSIC_TAGS = new Set(Object.keys(INTRINSIC_TO_COMPONENT_KEYWORDS))
+
+/**
+ * Build a lookup map: intrinsic tag → ComponentEntry from the registry.
+ * For each intrinsic, scan registry entries whose lowercased name matches
+ * one of the classification keywords.
+ */
+function buildIntrinsicToRegistryMap(
+    registryEntries: ComponentEntry[],
+): Map<string, ComponentEntry> {
+    const map = new Map<string, ComponentEntry>()
+
+    for (const tag of ROGUE_INTRINSIC_TAGS) {
+        const keywords = INTRINSIC_TO_COMPONENT_KEYWORDS[tag]
+        for (const entry of registryEntries) {
+            const lowerName = entry.name.toLowerCase()
+            if (keywords.some(kw => lowerName === kw || lowerName.includes(kw))) {
+                map.set(tag, entry)
+                break // first match wins per intrinsic tag
+            }
+        }
+    }
+
+    return map
+}
+
+/**
+ * Build prop translation hints for a rogue intrinsic replacement.
+ * Compares the HTML attribute names against the registry component's PropDefinition.
+ */
+function buildPropHints(
+    intrinsicTag: string,
+    attrs: t.JSXAttribute[],
+    registryEntry: ComponentEntry,
+): string[] {
+    const hints: string[] = []
+
+    // Common HTML attr → design system prop mappings
+    const attrTranslations: Record<string, Record<string, string>> = {
+        button: { disabled: 'isDisabled', type: 'type' },
+        input: { disabled: 'isDisabled', type: 'type', placeholder: 'placeholder', value: 'value' },
+        select: { disabled: 'isDisabled', value: 'value' },
+        textarea: { disabled: 'isDisabled', placeholder: 'placeholder', rows: 'rows' },
+        a: { href: 'href', target: 'target' },
+        img: { src: 'src', alt: 'alt' },
+    }
+
+    const translations = attrTranslations[intrinsicTag] ?? {}
+    const registryProps = registryEntry.props ?? {}
+
+    for (const attr of attrs) {
+        if (!t.isJSXIdentifier(attr.name)) continue
+        const htmlAttr = attr.name.name
+        const dsName = translations[htmlAttr]
+
+        if (dsName && dsName !== htmlAttr) {
+            // Prop name differs — always hint regardless of PropDefinition presence
+            hints.push(`${htmlAttr} → ${dsName}`)
+        }
+    }
+
+    return hints
+}
+
+/**
+ * MITHRIL-REG-001: Walk JSX elements and flag intrinsic HTML elements
+ * that have a design system component equivalent in the registry.
+ *
+ * Only fires when `registryEntries` is non-empty. This is the P2
+ * "Rogue Intrinsic Detector" — the inverse of REG-001.
+ *
+ * REG-001 flags PascalCase components NOT in the registry.
+ * MITHRIL-REG-001 flags lowercase intrinsics that SHOULD be registry components.
+ */
+export function visitRogueIntrinsics(
+    ast: File,
+    registryEntries: ComponentEntry[],
+    options?: PolicyOptions,
+): Map<string, LinterWarning> {
+    const warnings = new Map<string, LinterWarning>()
+
+    // Respect per-rule modes
+    const mode = options?.ruleModes?.['MITHRIL-REG-001']
+    if (mode === 'off') return warnings
+
+    // No registry → skip entirely
+    if (!registryEntries || registryEntries.length === 0) return warnings
+
+    // Build O(1) lookup map: intrinsic tag → registry component
+    const intrinsicMap = buildIntrinsicToRegistryMap(registryEntries)
+    if (intrinsicMap.size === 0) return warnings
+
+    // Hoist taxonomy lookup
+    const taxonomyEntry = getErrorEntryByRuleId('MITHRIL-REG-001')
+
+    traverse(ast, {
+        JSXOpeningElement(path) {
+            const nameNode = path.node.name
+
+            // Only JSXIdentifier (lowercase intrinsics)
+            if (!t.isJSXIdentifier(nameNode)) return
+            const tag = nameNode.name
+
+            // Must be a rogue-detectable intrinsic
+            if (!ROGUE_INTRINSIC_TAGS.has(tag)) return
+
+            // Check if registry has a matching component
+            const registryMatch = intrinsicMap.get(tag)
+            if (!registryMatch) return
+
+            // Build warning ID
+            const loc = nameNode.loc?.start
+            const warningId = `rogue-${tag}-${loc?.line ?? 0}-${loc?.column ?? 0}`
+
+            const severity: LinterWarning['severity'] = mode === 'advisory' ? 'advisory' : 'amber'
+
+            // Collect prop hints
+            const jsxAttrs = path.node.attributes.filter(
+                (a): a is t.JSXAttribute => t.isJSXAttribute(a),
+            )
+            const propHints = buildPropHints(tag, jsxAttrs, registryMatch)
+            const propHintNote = propHints.length > 0
+                ? ` Prop mapping: ${propHints.join(', ')}.`
+                : ''
+
+            const importNote = registryMatch.importPath
+                ? ` from '${registryMatch.importPath}'`
+                : ''
+
+            const message = `Use <${registryMatch.name}>${importNote} instead of <${tag}>.${propHintNote}`
+
+            warnings.set(warningId, {
+                id: warningId,
+                type: 'registry',
+                severity,
+                value: 0,
+                message,
+                nearestToken: null,
+                nearestTokenValue: null,
+                ruleId: 'MITHRIL-REG-001',
+                fixable: false,
+                explanation: taxonomyEntry?.explanation ??
+                    'A raw HTML element was used when a design system component is available. ' +
+                    'Replace the intrinsic with the library component for consistency and accessibility.',
+                recovery: taxonomyEntry?.recovery ??
+                    `Replace <${tag}> with <${registryMatch.name}>${importNote}.`,
+                line: loc?.line,
+                column: loc?.column,
+            })
+        },
+    })
+
+    return warnings
+}
+
 // ── Visitor — Tailwind Version Drift (MITHRIL-TW-001, MITHRIL-TW-002) ────────
 
 /**
@@ -1483,6 +1665,10 @@ export interface AuditAllOptions extends PolicyOptions {
     registry?: Record<string, RegistryComponentEntry>
     /** P1c: When provided, enables MITHRIL-TW-001/TW-002 Tailwind version drift checking. */
     tailwindVersion?: TailwindVersion
+    /** P1d: When true, MITHRIL-DARK-001 violations are blocking; when false (default), advisory. */
+    requiresDarkMode?: boolean
+    /** P2: When provided, enables MITHRIL-REG-001 rogue intrinsic detection against these registry entries. */
+    registryEntries?: ComponentEntry[]
 }
 
 /**
@@ -1528,10 +1714,29 @@ export function auditAll(ast: File, tokens: DesignToken[], options?: AuditAllOpt
         }
     }
 
+    // P2: Rogue intrinsic detection — MITHRIL-REG-001
+    if (options?.registryEntries && options.registryEntries.length > 0) {
+        const rogueWarnings = visitRogueIntrinsics(ast, options.registryEntries, options)
+        for (const [id, warning] of rogueWarnings) {
+            if (!merged.has(id)) merged.set(id, warning)
+        }
+    }
+
     // P1c: Tailwind version drift checking
     if (options?.tailwindVersion) {
         const twWarnings = visitTailwindVersionDrift(ast, options.tailwindVersion, options)
         for (const [id, warning] of twWarnings) {
+            if (!merged.has(id)) merged.set(id, warning)
+        }
+    }
+
+    // P1d: Dark mode safety checking (skips automatically if no dark mode tokens exist)
+    {
+        const darkWarnings = visitDarkModeSafety(ast, tokens, {
+            ...options,
+            requiresDarkMode: options?.requiresDarkMode,
+        })
+        for (const [id, warning] of darkWarnings) {
             if (!merged.has(id)) merged.set(id, warning)
         }
     }

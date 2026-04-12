@@ -28,7 +28,7 @@
  */
 
 import { useMemo, useState, useEffect, useCallback, useRef } from 'react'
-import { ChevronDown, ChevronRight, Loader2, Play, ShieldOff, ShieldCheck, Wand2, SendHorizonal, Copy, Check, Activity, Pin, AlertTriangle, Flag, X, CheckCircle2, ClipboardList, TrendingUp, TrendingDown } from 'lucide-react'
+import { ChevronDown, ChevronRight, Loader2, Play, ShieldOff, ShieldCheck, Wand2, SendHorizonal, Copy, Check, Activity, Pin, AlertTriangle, Flag, X, CheckCircle2, ClipboardList, TrendingUp, TrendingDown, Undo2 } from 'lucide-react'
 import { useEditorStore } from '../../store/editorStore'
 import { useCanvasStore } from '../../store/canvasStore'
 import { useGovernanceStore } from '../../store/governanceStore'
@@ -83,6 +83,22 @@ const TYPE_LABEL: Record<LinterWarning['type'], string> = {
     'sync':               'Token Sync',
     'inline-style-drift': 'Inline Style',
     'registry':           'Registry',
+}
+
+// ── COUNSEL.3.3: Anomaly type → human-readable description ──────────────────
+
+const ANOMALY_DESCRIPTION: Record<string, string> = {
+    override_spike: 'Override frequency is unusually high',
+    violation_surge: 'Violation count spiked',
+    violation_spike: 'Violation count spiked',
+    velocity_spike: 'Mutation velocity is above normal',
+    mutation_spike: 'Mutation velocity is above normal',
+    risk_drift: 'Risk scores are drifting upward',
+    agent_behavior_change: 'Agent behavior pattern changed',
+}
+
+function getAnomalyDescription(type: string, fallbackMessage?: string): string {
+    return ANOMALY_DESCRIPTION[type] ?? fallbackMessage ?? type
 }
 
 // ── Node name lookup (human-readable layer name from visualTree) ──────────────
@@ -1535,6 +1551,23 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                             Autopilot {autopilotEnabled ? 'On' : 'Off'}
                         </button>
                     )}
+                    {/* COUNSEL.3.1: Undo to last clean state button */}
+                    <button
+                        type="button"
+                        data-testid="undo-to-clean-btn"
+                        onClick={() => void handleRewindToClean()}
+                        disabled={!lastCleanState || score >= 95}
+                        className="flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 transition-colors disabled:text-zinc-600 disabled:cursor-not-allowed"
+                        aria-label={lastCleanState
+                            ? `Undo to last clean state from ${formatRelativeTime(lastCleanState.timestamp)}`
+                            : 'No clean baseline recorded'}
+                        title={lastCleanState
+                            ? `Revert to clean state from ${formatRelativeTime(lastCleanState.timestamp)}`
+                            : 'No clean baseline recorded'}
+                    >
+                        <Undo2 size={10} aria-hidden="true" />
+                        Undo to clean
+                    </button>
                 </div>
             </div>
 
@@ -2101,11 +2134,18 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                         <div className="flex-1 min-w-0">
                             <p className="text-xs font-medium text-amber-300">
                                 Flare detected {anomalies.length} {anomalies.length === 1 ? 'anomaly' : 'anomalies'}
+                                <span
+                                    data-testid="anomaly-count-badge"
+                                    className="ml-1.5 inline-flex items-center justify-center rounded-full bg-amber-500/20 px-1.5 py-px text-[10px] font-medium text-amber-300 leading-none"
+                                    aria-label={`${anomalies.length} anomalies`}
+                                >
+                                    {anomalies.length}
+                                </span>
                             </p>
                             <div className="mt-1.5 space-y-1">
                                 {anomalies.map((a, idx) => (
-                                    <p key={idx} className="text-[10px] text-amber-400/80">
-                                        <span className="font-medium text-amber-300">{a.type}:</span> {a.message}
+                                    <p key={idx} className="text-[10px] text-amber-400/80" data-testid={`anomaly-item-${idx}`}>
+                                        Unusual activity detected: {getAnomalyDescription(a.type, a.message)}
                                     </p>
                                 ))}
                             </div>

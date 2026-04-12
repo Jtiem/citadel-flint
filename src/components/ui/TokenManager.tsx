@@ -17,14 +17,16 @@
  */
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
-import { Upload, X, Search, Palette, LayoutGrid, List } from 'lucide-react'
+import { Upload, X, Search, Palette, LayoutGrid, List, Eye } from 'lucide-react'
 import { useTokenStore } from '../../store/tokenStore'
 import { useNotificationStore } from '../../store/notificationStore'
-import type { DesignToken, TokenType, FigmaStatus, TokenUsageResult } from '../../types/flint-api'
+import type { DesignToken, TokenType, FigmaStatus, TokenUsageResult, ContrastPair, PendingToken } from '../../types/flint-api'
 import { FocusTrap } from './FocusTrap'
 import { TokenHealthBar } from './TokenHealthBar'
 import { TokenGroupSection, type ViewMode, type SyncBadgeStatus } from './TokenGrid'
 import { useTokenUsage } from '../../hooks/useTokenUsage'
+import { ContrastAuditPanel } from './ContrastAuditPanel'
+import { ApprovalStagingArea } from './ApprovalStagingArea'
 
 // ── Import Modal ──────────────────────────────────────────────────────────────
 
@@ -170,9 +172,88 @@ export function TokenManager() {
     const [showDeadOnly, setShowDeadOnly] = useState(false)
     const [sortByUsage, setSortByUsage] = useState(false)
 
+    // MINT.3a: Contrast audit state (cached after first run)
+    const [contrastData, setContrastData] = useState<ContrastPair[] | null>(null)
+    const [isContrastLoading, setIsContrastLoading] = useState(false)
+    const [showContrastPanel, setShowContrastPanel] = useState(false)
+
+    // MINT.3c: Approval staging state
+    const [pendingTokens, setPendingTokens] = useState<PendingToken[]>([])
+    const [isPendingLoading, setIsPendingLoading] = useState(false)
+
     // S7.2: Figma connection state + figma tokens for sync badges
     const [figmaConnected, setFigmaConnected] = useState(false)
     const [figmaTokens, setFigmaTokens] = useState<Map<string, string>>(new Map())
+
+    // MINT.3a: Run contrast audit (cached)
+    const runContrastAudit = useCallback(async () => {
+        if (!window.flintAPI.tokens.auditContrast) return
+        setIsContrastLoading(true)
+        try {
+            const results = await window.flintAPI.tokens.auditContrast()
+            setContrastData(results)
+            setShowContrastPanel(true)
+        } catch (err) {
+            useNotificationStore.getState().push({
+                type: 'error',
+                severity: 'warning',
+                title: 'Contrast audit failed',
+                message: String(err),
+                autoDismissMs: 5000,
+            })
+        } finally {
+            setIsContrastLoading(false)
+        }
+    }, [])
+
+    // MINT.3c: Fetch pending approvals
+    const fetchPendingApprovals = useCallback(async () => {
+        if (!window.flintAPI.tokens.getPendingApprovals) return
+        setIsPendingLoading(true)
+        try {
+            const pending = await window.flintAPI.tokens.getPendingApprovals()
+            setPendingTokens(pending)
+        } catch {
+            // Graceful degradation — pending approvals not available
+        } finally {
+            setIsPendingLoading(false)
+        }
+    }, [])
+
+    // MINT.3c: Approve a single token
+    const handleApproveToken = useCallback(async (tokenName: string) => {
+        if (!window.flintAPI.tokens.approveToken) return
+        await window.flintAPI.tokens.approveToken(tokenName)
+        setPendingTokens((prev) => prev.filter((t) => t.name !== tokenName))
+        // Refresh tokens after approval
+        fetchTokens().catch(console.error)
+    }, [fetchTokens])
+
+    // MINT.3c: Reject a single token
+    const handleRejectToken = useCallback(async (tokenName: string) => {
+        if (!window.flintAPI.tokens.rejectToken) return
+        await window.flintAPI.tokens.rejectToken(tokenName)
+        setPendingTokens((prev) => prev.filter((t) => t.name !== tokenName))
+    }, [])
+
+    // MINT.3c: Approve all pending tokens
+    const handleApproveAll = useCallback(async () => {
+        if (!window.flintAPI.tokens.approveToken) return
+        for (const token of pendingTokens) {
+            await window.flintAPI.tokens.approveToken(token.name)
+        }
+        setPendingTokens([])
+        fetchTokens().catch(console.error)
+    }, [pendingTokens, fetchTokens])
+
+    // MINT.3c: Reject all pending tokens
+    const handleRejectAll = useCallback(async () => {
+        if (!window.flintAPI.tokens.rejectToken) return
+        for (const token of pendingTokens) {
+            await window.flintAPI.tokens.rejectToken(token.name)
+        }
+        setPendingTokens([])
+    }, [pendingTokens])
 
     const fetchFigmaState = useCallback(() => {
         window.flintAPI.figma?.status()
@@ -235,7 +316,8 @@ export function TokenManager() {
         fetchTokens().catch(console.error)
         fetchFigmaState()
         fetchUsage()
-    }, [fetchTokens, fetchFigmaState, fetchUsage])
+        fetchPendingApprovals()
+    }, [fetchTokens, fetchFigmaState, fetchUsage, fetchPendingApprovals])
 
     // S7.2: Compute sync status for each token
     const getSyncStatus = useCallback((token: DesignToken): SyncBadgeStatus | null => {
@@ -325,6 +407,34 @@ export function TokenManager() {
         return map
     }, [filteredTokens])
 
+    // MINT.3a/3b: Build contrast map for inline badges (token_path -> pairs[])
+    const contrastMap = useMemo(() => {
+        if (!contrastData || contrastData.length === 0) return undefined
+        const map = new Map<string, ContrastPair[]>()
+        for (const pair of contrastData) {
+            // Index by foreground token
+            if (!map.has(pair.fg)) map.set(pair.fg, [])
+            map.get(pair.fg)!.push(pair)
+        }
+        return map
+    }, [contrastData])
+
+    // MINT.3a: Check if auditContrast is available
+    const contrastAvailable = !!window.flintAPI.tokens.auditContrast
+
+    // MINT.3c: Compute drift warnings for pending tokens
+    // (tokens whose value might cause Mithril drift violations)
+    const pendingDriftWarnings = useMemo(() => {
+        const warnings = new Set<string>()
+        if (driftedTokens.length > 0 && pendingTokens.length > 0) {
+            const driftedNames = new Set(driftedTokens.map((d) => d.tokenName))
+            for (const pt of pendingTokens) {
+                if (driftedNames.has(pt.name)) warnings.add(pt.name)
+            }
+        }
+        return warnings
+    }, [driftedTokens, pendingTokens])
+
     // ── Render ──────────────────────────────────────────────────────────────
 
     return (
@@ -366,6 +476,20 @@ export function TokenManager() {
                             <List className="h-3 w-3" />
                         </button>
                     </div>
+
+                    {/* MINT.3a: Contrast audit button */}
+                    <button
+                        type="button"
+                        onClick={contrastAvailable ? runContrastAudit : undefined}
+                        disabled={!contrastAvailable || isContrastLoading}
+                        className="flex items-center gap-1.5 rounded border border-zinc-700 bg-zinc-800/60 px-2 py-1 text-[11px] text-zinc-400 transition-colors hover:border-indigo-500 hover:text-indigo-300 disabled:cursor-not-allowed disabled:opacity-40"
+                        aria-label="Run contrast audit"
+                        title={contrastAvailable ? 'Audit color tokens for WCAG contrast compliance' : 'Contrast audit requires token data'}
+                        data-testid="contrast-audit-button"
+                    >
+                        <Eye className="h-3 w-3" />
+                        Contrast
+                    </button>
 
                     <button
                         type="button"
@@ -452,6 +576,19 @@ export function TokenManager() {
                 </div>
             )}
 
+            {/* ── MINT.3c: Approval Staging Area ─────────────────────────── */}
+            {!isLoading && (pendingTokens.length > 0 || isPendingLoading) && (
+                <ApprovalStagingArea
+                    pendingTokens={pendingTokens}
+                    isLoading={isPendingLoading}
+                    onApprove={handleApproveToken}
+                    onReject={handleRejectToken}
+                    onApproveAll={handleApproveAll}
+                    onRejectAll={handleRejectAll}
+                    driftWarnings={pendingDriftWarnings}
+                />
+            )}
+
             {/* ── Token list/grid ──────────────────────────────────────────── */}
             <div className="min-h-0 flex-1 overflow-y-auto">
                 {isLoading && (
@@ -496,6 +633,7 @@ export function TokenManager() {
                         allCollectionTokens={tokensByCollection.get(collectionName) ?? []}
                         usageMap={usageMap}
                         driftedTokens={driftedTokens}
+                        contrastMap={contrastMap}
                     />
                 ))}
 
@@ -506,6 +644,16 @@ export function TokenManager() {
                     </p>
                 )}
             </div>
+
+            {/* ── MINT.3a: Contrast Audit Panel ──────────────────────────── */}
+            {showContrastPanel && (
+                <ContrastAuditPanel
+                    contrastData={contrastData}
+                    isLoading={isContrastLoading}
+                    onRunAudit={runContrastAudit}
+                    onClose={() => setShowContrastPanel(false)}
+                />
+            )}
 
             {/* ── Import Modal ─────────────────────────────────────────────── */}
             {showImport && (

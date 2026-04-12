@@ -488,13 +488,37 @@ export function ViolationCard({
                         {w.message.replace(/^[A-Z0-9-]+:\s*/, '')}
                     </p>
 
-                    {/* COUNSEL.3.2: Provenance chip */}
+                    {/* COUNSEL.3.2: Provenance chip — subtle "via [source]" chip */}
                     {provenance && (
                         <span
                             data-testid={`provenance-chip-${type === 'a11y' ? 'a11y-' : ''}${w.id}`}
                             className="mt-0.5 inline-block text-[10px] text-zinc-500 bg-zinc-800/50 rounded px-1.5 py-0.5"
+                            aria-label={`Source: ${provenance.source === 'human' ? 'manual edit' : provenance.source === 'auto-fix' || provenance.source === 'auto_fix' ? 'auto-fix' : provenance.source === 'auto-heal' ? 'auto-fix' : provenance.source === 'import' ? 'import' : provenance.agentId ?? 'AI orchestrator'}`}
                         >
-                            Introduced by {provenance.source === 'human' ? 'you' : provenance.agentId ?? provenance.source}
+                            via {provenance.source === 'human'
+                                ? 'manual edit'
+                                : provenance.source === 'auto-fix' || provenance.source === 'auto_fix' || provenance.source === 'auto-heal'
+                                    ? 'auto-fix'
+                                    : provenance.source === 'import'
+                                        ? 'import'
+                                        : provenance.agentId ?? 'AI orchestrator'}
+                        </span>
+                    )}
+
+                    {/* COUNSEL.3.4: MRS risk score badge */}
+                    {w.mrsScore != null && (
+                        <span
+                            data-testid={`mrs-badge-${type === 'a11y' ? 'a11y-' : ''}${w.id}`}
+                            className={`mt-0.5 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium leading-none ${
+                                w.mrsScore <= 30
+                                    ? 'bg-emerald-900/20 text-emerald-400 border border-emerald-500/30'
+                                    : w.mrsScore <= 60
+                                        ? 'bg-amber-900/20 text-amber-400 border border-amber-500/30'
+                                        : 'bg-red-900/20 text-red-400 border border-red-500/30'
+                            }`}
+                            aria-label={`Mutation risk score ${w.mrsScore} out of 100, ${w.mrsScore <= 30 ? 'low' : w.mrsScore <= 60 ? 'medium' : 'high'} risk`}
+                        >
+                            MRS {w.mrsScore}
                         </span>
                     )}
                 </div>

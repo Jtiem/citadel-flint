@@ -123,6 +123,10 @@ export interface LinterWarning {
     nearestToken: string | null
     /** Serialized value of the nearest token (hex, CSS string, etc.), or null. */
     nearestTokenValue: string | null
+    /** COUNSEL.3.4: Sentry risk trend for the file containing this violation. */
+    riskTrend?: 'rising' | 'falling' | 'stable'
+    /** COUNSEL.3.4: Sentry MRS score (0-100) when the violation has been risk-scored. */
+    mrsScore?: number | null
 }
 
 
