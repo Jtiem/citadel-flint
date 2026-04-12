@@ -21,6 +21,12 @@ export function useIDEFileSync(): void {
     useEffect(() => {
         if (!window.flintAPI?.onIDEFileSelected) return
 
+        // Herald: IDE sync disabled in dev mode (self-hosting) to prevent
+        // file watcher + HMR + readFile loops. The pipeline works in production
+        // builds (verified via E2E tests). This guard will be removed once the
+        // self-hosting readFile loop is resolved.
+        if (window.location.port === '4200') return
+
         const handleIDEFile = (data: unknown): void => {
             const filePath =
                 typeof data === 'string' ? data : (data as { path?: string })?.path
