@@ -54,14 +54,8 @@ export function useIDEFileSync(): void {
         }
 
         function loadFile(filePath: string): void {
-            const store = useCanvasStore.getState()
-            // If the file is outside the current workspace, close the workspace
-            // first to prevent the demo auto-load from fighting back.
-            const ws = store.workspaceFiles
-            if (ws && !filePath.startsWith(ws.path)) {
-                store.closeWorkspace()
-            }
             void setActiveFile(filePath)
+            const store = useCanvasStore.getState()
             store.unlockTab('governance')
             const currentTab = store.rightTab
             if (!currentTab || currentTab === 'governance') {
