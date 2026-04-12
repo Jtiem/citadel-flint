@@ -1083,6 +1083,80 @@ const REGISTRY: Record<string, ErrorEntry> = {
         regulatoryRef: '§ 1.3.5 Identify Input Purpose (Level AA)',
     },
 
+    // ── A11y rules — Behavioral Anti-Patterns (P1b) ────────────────────────────
+
+    'FLINT-A11Y-100': {
+        code: 'FLINT-A11Y-100',
+        ruleId: 'A11Y-100',
+        category: 'a11y',
+        severity: 'critical',
+        title: 'Interactive Handler on Non-Interactive Element',
+        explanation:
+            'Non-interactive HTML elements like `<div>`, `<span>`, and `<section>` have no implicit ARIA ' +
+            'role or keyboard behavior. Adding `onClick` or other event handlers makes them visually ' +
+            'clickable for mouse users, but keyboard users cannot focus or activate them, and screen ' +
+            'readers do not announce them as interactive controls.',
+        recovery:
+            'Replace the element with a native interactive element like `<button>`, or add ' +
+            '`role="button"` and `tabIndex={0}` to make it keyboard-focusable and semantically interactive. ' +
+            'Also add an `onKeyDown` handler to support Enter/Space activation.',
+        sourceAuthority: 'WCAG 2.1 AA',
+        regulatoryRef: '§ 4.1.2 Name, Role, Value (Level A)',
+    },
+
+    'FLINT-A11Y-101': {
+        code: 'FLINT-A11Y-101',
+        ruleId: 'A11Y-101',
+        category: 'a11y',
+        severity: 'critical',
+        title: 'Dialog Missing Accessibility Attributes',
+        explanation:
+            'Dialog and modal components must declare `role="dialog"` and `aria-modal="true"` so that ' +
+            'assistive technologies can manage focus trapping and announce the dialog context. ' +
+            'Without these, screen reader users may navigate outside the modal boundary without realizing ' +
+            'background content is blocked.',
+        recovery:
+            'Add `role="dialog"` and `aria-modal="true"` to the dialog root element. ' +
+            'Use a native `<dialog>` element where possible, which provides these semantics automatically. ' +
+            'Ensure focus is trapped within the dialog and returned to the trigger element on close.',
+        sourceAuthority: 'WCAG 2.1 AA; WAI-ARIA 1.2',
+        regulatoryRef: '§ 4.1.2 Name, Role, Value (Level A)',
+    },
+
+    'FLINT-A11Y-102': {
+        code: 'FLINT-A11Y-102',
+        ruleId: 'A11Y-102',
+        category: 'a11y',
+        severity: 'critical',
+        title: 'Navigation Component Missing Nav Landmark',
+        explanation:
+            'Components classified as navigation must use a `<nav>` element or `role="navigation"` to be ' +
+            'identified as a navigation landmark. Screen reader users rely on landmark navigation to jump ' +
+            'directly to or skip over navigation regions.',
+        recovery:
+            'Wrap the navigation content in a `<nav>` element, or add `role="navigation"` to the root ' +
+            'element. If multiple navigation regions exist, give each a unique `aria-label`.',
+        sourceAuthority: 'WCAG 2.1 AA',
+        regulatoryRef: '§ 1.3.1 Info and Relationships (Level A)',
+    },
+
+    'FLINT-A11Y-103': {
+        code: 'FLINT-A11Y-103',
+        ruleId: 'A11Y-103',
+        category: 'a11y',
+        severity: 'critical',
+        title: 'Form Component Missing Form Landmark',
+        explanation:
+            'Components classified as forms should use a `<form>` element or `role="form"` to provide ' +
+            'proper form semantics. Without these, assistive technologies cannot identify form boundaries, ' +
+            'and the browser\'s native form submission and validation behaviors are unavailable.',
+        recovery:
+            'Wrap form controls in a `<form>` element, or add `role="form"` to the container. ' +
+            'A `<form>` element also enables native form submission via Enter key and browser validation.',
+        sourceAuthority: 'WCAG 2.1 AA',
+        regulatoryRef: '§ 1.3.1 Info and Relationships (Level A)',
+    },
+
     // ── Session rules (GOV.3) ──────────────────────────────────────────────────
 
     'FLINT-SES-001': {

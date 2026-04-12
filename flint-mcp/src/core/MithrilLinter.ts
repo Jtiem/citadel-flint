@@ -27,7 +27,7 @@ import type Database from 'better-sqlite3'
 import type { DesignToken, LinterWarning, TokenCoverage } from '../types.js'
 import { getErrorEntryByRuleId } from './errorTaxonomy.js'
 import { checkSyncViolations, type DesignTokenFileEntry } from './sync/syncViolationChecker.js'
-import { hexToLab, deltaE2000 } from './colorMath.js'
+import { hexToLab, deltaE2000, computeContrastRatio } from './colorMath.js'
 import { TW_V3_TO_V4_MAP } from './tailwindMigrator.js'
 import type { TailwindVersion } from './tailwindVersionResolver.js'
 
@@ -469,6 +469,36 @@ export function checkStyleProps(
 
 const ARBITRARY_COLOR_RE = /^(?:[\w-]+:)*[\w-]+-\[(?<hex>#[0-9a-fA-F]{3,8})\]$/
 
+/** Regex to detect background color classes (arbitrary hex values) */
+const BG_ARBITRARY_COLOR_RE = /^(?:[\w-]+:)*bg-\[(?<hex>#[0-9a-fA-F]{3,8})\]$/
+
+/** Regex to detect text/foreground color classes (arbitrary hex values) */
+const TEXT_ARBITRARY_COLOR_RE = /^(?:[\w-]+:)*text-\[(?<hex>#[0-9a-fA-F]{3,8})\]$/
+
+/**
+ * Extract the background hex color from a className string, if present as an
+ * arbitrary Tailwind value (e.g. `bg-[#1a1a1a]`).
+ */
+function extractBgHex(classStr: string): string | null {
+    for (const cls of classStr.split(/\s+/)) {
+        const m = BG_ARBITRARY_COLOR_RE.exec(cls)
+        if (m?.groups?.hex !== undefined) return m.groups.hex
+    }
+    return null
+}
+
+/**
+ * Extract the text hex color from a className string, if present as an
+ * arbitrary Tailwind value (e.g. `text-[#ffffff]`).
+ */
+function extractTextHex(classStr: string): string | null {
+    for (const cls of classStr.split(/\s+/)) {
+        const m = TEXT_ARBITRARY_COLOR_RE.exec(cls)
+        if (m?.groups?.hex !== undefined) return m.groups.hex
+    }
+    return null
+}
+
 export function visitClassNames(ast: File, tokens: DesignToken[], options?: PolicyOptions): Map<string, LinterWarning> {
     const colMode = options?.ruleModes?.['MITHRIL-COL']
     if (colMode === 'off') return new Map()
@@ -492,6 +522,7 @@ export function visitClassNames(ast: File, tokens: DesignToken[], options?: Poli
 
             let worstDelta = 0
             let worstMatch: TokenMatch | null = null
+            let worstHex: string | null = null
 
             for (const cls of classStr.split(/\s+/)) {
                 const m = ARBITRARY_COLOR_RE.exec(cls)
@@ -500,6 +531,7 @@ export function visitClassNames(ast: File, tokens: DesignToken[], options?: Poli
                 if (match !== null && match.deltaE > worstDelta) {
                     worstDelta = match.deltaE
                     worstMatch = match
+                    worstHex = m.groups.hex
                 }
             }
 
@@ -510,6 +542,31 @@ export function visitClassNames(ast: File, tokens: DesignToken[], options?: Poli
                 ? 'advisory'
                 : severity(worstDelta, criticalThreshold)
             const loc = path.node.loc?.start
+
+            // ── Contrast-awareness: check if the suggested token would fail
+            //    WCAG AA contrast against the detected paired color ──────────
+            let contrastNote = ''
+            if (worstMatch !== null && worstHex !== null) {
+                // Determine paired color: if the drifted color is a text-* class,
+                // pair against bg-*; if it's a bg-* class, pair against text-*.
+                const bgHex = extractBgHex(classStr)
+                const textHex = extractTextHex(classStr)
+                let pairedHex: string | null = null
+
+                if (worstHex === textHex && bgHex !== null) {
+                    pairedHex = bgHex
+                } else if (worstHex === bgHex && textHex !== null) {
+                    pairedHex = textHex
+                }
+
+                if (pairedHex !== null) {
+                    const ratio = computeContrastRatio(worstMatch.tokenValue, pairedHex)
+                    if (ratio !== null && ratio < 4.5) {
+                        contrastNote = '. Note: suggested token may not meet WCAG AA contrast requirements'
+                    }
+                }
+            }
+
             warnings.set(nodeId, {
                 id: nodeId,
                 type: 'color-drift',
@@ -517,7 +574,7 @@ export function visitClassNames(ast: File, tokens: DesignToken[], options?: Poli
                 value: worstDelta,
                 ...(loc !== undefined ? { line: loc.line, column: loc.column } : {}),
                 message: tokenLabel !== null
-                    ? `MITHRIL-COL: ΔE ${worstDelta.toFixed(1)} – use ${tokenLabel}`
+                    ? `MITHRIL-COL: ΔE ${worstDelta.toFixed(1)} – use ${tokenLabel}${contrastNote}`
                     : `MITHRIL-COL: ΔE ${worstDelta.toFixed(1)} – no matching token`,
                 nearestToken: tokenLabel,
                 nearestTokenValue: worstMatch?.tokenValue ?? null,

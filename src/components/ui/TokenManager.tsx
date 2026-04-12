@@ -24,6 +24,7 @@ import type { DesignToken, TokenType, FigmaStatus, TokenUsageResult } from '../.
 import { FocusTrap } from './FocusTrap'
 import { TokenHealthBar } from './TokenHealthBar'
 import { TokenGroupSection, type ViewMode, type SyncBadgeStatus } from './TokenGrid'
+import { useTokenUsage } from '../../hooks/useTokenUsage'
 
 // ── Import Modal ──────────────────────────────────────────────────────────────
 
@@ -165,6 +166,10 @@ export function TokenManager() {
     // MINT.1a: Usage data
     const [usageResults, setUsageResults] = useState<TokenUsageResult[]>([])
 
+    // MINT.2b: Filter/sort controls
+    const [showDeadOnly, setShowDeadOnly] = useState(false)
+    const [sortByUsage, setSortByUsage] = useState(false)
+
     // S7.2: Figma connection state + figma tokens for sync badges
     const [figmaConnected, setFigmaConnected] = useState(false)
     const [figmaTokens, setFigmaTokens] = useState<Map<string, string>>(new Map())
@@ -213,6 +218,19 @@ export function TokenManager() {
             })
     }, [])
 
+    // MINT.2a-2d: Token usage intelligence hook (single scan, cached)
+    const localTokensForDrift = useMemo(
+        () => tokens.map((t) => ({ token_path: t.token_path, token_value: t.token_value })),
+        [tokens],
+    )
+    const {
+        usageMap,
+        deadTokenCount,
+        driftedTokens,
+        driftCount,
+        isScanning: isUsageScanning,
+    } = useTokenUsage(tokens.length, localTokensForDrift)
+
     useEffect(() => {
         fetchTokens().catch(console.error)
         fetchFigmaState()
@@ -244,17 +262,40 @@ export function TokenManager() {
         return allFiles.size
     }, [usageResults])
 
-    // Search-filtered token list
+    // Search-filtered token list (MINT.2b: dead-only filter + usage sort)
     const filteredTokens = useMemo(() => {
         const q = searchQuery.trim().toLowerCase()
-        if (!q) return tokens
-        return tokens.filter(
-            (t) =>
-                t.token_path.toLowerCase().includes(q) ||
-                t.token_value.toLowerCase().includes(q) ||
-                t.token_type.toLowerCase().includes(q)
-        )
-    }, [tokens, searchQuery])
+        let result = tokens
+
+        // Text search
+        if (q) {
+            result = result.filter(
+                (t) =>
+                    t.token_path.toLowerCase().includes(q) ||
+                    t.token_value.toLowerCase().includes(q) ||
+                    t.token_type.toLowerCase().includes(q)
+            )
+        }
+
+        // MINT.2b: Dead token filter
+        if (showDeadOnly && usageMap.size > 0) {
+            result = result.filter((t) => {
+                const usage = usageMap.get(t.token_path)
+                return !usage || usage.usageCount === 0
+            })
+        }
+
+        // MINT.2b: Sort by usage (ascending — dead tokens first)
+        if (sortByUsage && usageMap.size > 0) {
+            result = [...result].sort((a, b) => {
+                const aCount = usageMap.get(a.token_path)?.usageCount ?? 0
+                const bCount = usageMap.get(b.token_path)?.usageCount ?? 0
+                return aCount - bCount
+            })
+        }
+
+        return result
+    }, [tokens, searchQuery, showDeadOnly, sortByUsage, usageMap])
 
     // Group: collection_name -> token_type -> tokens[]
     const grouped = useMemo(() => {
@@ -344,6 +385,8 @@ export function TokenManager() {
                     syncStatuses={syncStatuses}
                     figmaConnected={figmaConnected}
                     usageFileCount={usageFileCount}
+                    deadTokenCount={deadTokenCount}
+                    driftCount={driftCount}
                 />
             )}
 
@@ -374,6 +417,40 @@ export function TokenManager() {
                     </button>
                 )}
             </div>
+
+            {/* ── MINT.2b: Usage filter/sort controls ────────────────────── */}
+            {usageMap.size > 0 && (
+                <div
+                    className="flex shrink-0 items-center gap-3 border-b border-zinc-800/60 px-3 py-1.5"
+                    data-testid="usage-controls"
+                >
+                    <label className="flex items-center gap-1.5 text-[10px] text-zinc-400">
+                        <input
+                            type="checkbox"
+                            checked={showDeadOnly}
+                            onChange={(e) => setShowDeadOnly(e.target.checked)}
+                            className="h-3 w-3 rounded border-zinc-600 bg-zinc-800 text-red-500 focus:ring-1 focus:ring-red-400"
+                            aria-label="Show dead tokens only"
+                        />
+                        Dead only
+                        {deadTokenCount > 0 && (
+                            <span className="rounded-full bg-red-500/10 px-1.5 py-0.5 text-[9px] font-medium text-red-400">
+                                {deadTokenCount}
+                            </span>
+                        )}
+                    </label>
+                    <label className="flex items-center gap-1.5 text-[10px] text-zinc-400">
+                        <input
+                            type="checkbox"
+                            checked={sortByUsage}
+                            onChange={(e) => setSortByUsage(e.target.checked)}
+                            className="h-3 w-3 rounded border-zinc-600 bg-zinc-800 text-indigo-500 focus:ring-1 focus:ring-indigo-400"
+                            aria-label="Sort by usage count"
+                        />
+                        Sort by usage
+                    </label>
+                </div>
+            )}
 
             {/* ── Token list/grid ──────────────────────────────────────────── */}
             <div className="min-h-0 flex-1 overflow-y-auto">
@@ -417,6 +494,8 @@ export function TokenManager() {
                         getSyncStatus={getSyncStatus}
                         figmaConnected={figmaConnected}
                         allCollectionTokens={tokensByCollection.get(collectionName) ?? []}
+                        usageMap={usageMap}
+                        driftedTokens={driftedTokens}
                     />
                 ))}
 

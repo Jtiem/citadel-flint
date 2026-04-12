@@ -6,11 +6,47 @@
 
 ---
 
-## Session: P2.8 — D2C Refinement Loop Closure (2026-04-11) — IN PROGRESS
+## Session: COUNSEL.2 + MINT.2 — Deferral Voice + Code Truth Moat (2026-04-11) — IN PROGRESS
+
+### COUNSEL.2 — Deferral Voice
+
+| Task | Name | Priority | Status |
+| ---- | ---- | -------- | ------ |
+| COUNSEL.2.1 | Defer Button | P1 | IN PROGRESS |
+| COUNSEL.2.2 | Flagged-for-Review Tier | P1 | IN PROGRESS |
+| COUNSEL.2.3 | Snooze with Auto-Resurface | P1 | IN PROGRESS |
+| COUNSEL.2.4 | Effort Framing | P1 | IN PROGRESS |
+| COUNSEL.2.5 | Session Fix Progress | P1 | IN PROGRESS |
+
+### MINT.2 — Code Truth Moat
+
+| Task | Name | Priority | Status |
+| ---- | ---- | -------- | ------ |
+| MINT.2a | Token Usage Scanner | P0 | IN PROGRESS |
+| MINT.2b | Usage Counts + Dead Token Badges | P0 | IN PROGRESS |
+| MINT.2c | Drift Indicators | P1 | IN PROGRESS |
+| MINT.2d | Silent Drift Badge on Tab | P1 | IN PROGRESS |
+
+### Files in scope
+
+- `src/components/ui/GovernanceDashboard.tsx` (COUNSEL.2)
+- `src/components/ui/governance/ViolationCard.tsx` (COUNSEL.2)
+- `src/components/ui/governance/BatchActionBar.tsx` (COUNSEL.2)
+- `src/components/ui/governance/ScoreSection.tsx` (COUNSEL.2)
+- `src/components/ui/TokenManager.tsx` (MINT.2)
+- `src/components/ui/TokenGrid.tsx` (MINT.2)
+- `src/components/ui/TokenHealthBar.tsx` (MINT.2)
+- `src/App.tsx` (MINT.2)
+
+---
+
+## Session: P2.8 — D2C Refinement Loop Closure (2026-04-11) — COMPLETE
+
+Implemented. Committed as 566e6a4. Review fix committed as 943ed65 (C13 regex removal). MCP: 4451/4451 (11 new), TSC: 0 errors.
 
 **Goal:** Close the biggest governance blind spot — AI-refined code that skips audit.
 
-### What's being built
+### Deliverables
 
 - Post-refinement audit gate (Mithril + A11y on refined output)
 - Mutation Planner auto-fix of deterministic violations
@@ -18,14 +54,7 @@
 - Risk scoring and mutation ledger recording
 - `governanceScore` field on all `RefinementResult`s
 
-### Files in scope
-
-- `flint-mcp/src/core/d2cRefinement.ts`
-- `flint-mcp/src/core/mutationPlanner.ts`
-
-### Next after P2.8
-
-Review round on MINT.1 + P2.8, then evaluate next priorities.
+**Files changed:** `flint-mcp/src/core/d2cRefinement.ts`, `flint-mcp/src/core/mutationPlanner.ts`
 
 ---
 

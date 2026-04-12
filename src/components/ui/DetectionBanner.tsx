@@ -1,11 +1,13 @@
 /**
- * DetectionBanner.tsx — FORGE.2d + FORGE.4c + FORGE.4d
+ * DetectionBanner.tsx — FORGE.2d + FORGE.3a + FORGE.3b + FORGE.4c + FORGE.4d
  *
  * Dismissible banner shown above the canvas when Flint detects the project
  * environment. Displays the detected stack (framework, CSS, TypeScript) and
  * an optional audit summary. Includes a "Run full audit" button when no
  * audit was run automatically.
  *
+ * FORGE.3a: Progressive integration suggestions based on detected environment.
+ * FORGE.3b: Figma connection as contextual suggestion (tokens but no Figma).
  * FORGE.4c: Scan progress bar (determinate when counts available, animated
  *           indeterminate otherwise).
  * FORGE.4d: Smart recommendations based on audit results and token state.
@@ -14,9 +16,68 @@
  * when the user clicks the close button.
  */
 
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useMemo } from 'react'
 import type { ProjectEnvironment } from '../../types/flint-api'
-import { X } from 'lucide-react'
+import { X, ArrowRight } from 'lucide-react'
+
+// ── FORGE.3a: Integration suggestion definitions ─────────────────────────────
+
+export interface IntegrationSuggestion {
+    id: string
+    label: string
+    description: string
+    actionLabel: string
+}
+
+/**
+ * Derives up to 3 contextual next-step suggestions based on the detected
+ * environment. Most relevant suggestions sort first.
+ */
+export function deriveSuggestions(
+    env: ProjectEnvironment,
+    figmaConnected: boolean,
+): IntegrationSuggestion[] {
+    const suggestions: IntegrationSuggestion[] = []
+
+    // Tailwind detected but no tokens — high relevance
+    if (
+        env.cssFramework?.name === 'tailwindcss' &&
+        !env.hasDesignTokens
+    ) {
+        suggestions.push({
+            id: 'import-tailwind-tokens',
+            label: 'Import Tailwind tokens',
+            description: 'Import your Tailwind config as design tokens',
+            actionLabel: 'Import tokens',
+        })
+    }
+
+    // React/Vue/Svelte detected but no component library — medium relevance
+    if (
+        env.framework &&
+        ['react', 'vue', 'svelte', 'angular'].includes(env.framework.name) &&
+        !env.componentLibrary
+    ) {
+        suggestions.push({
+            id: 'set-component-library',
+            label: 'Set component library',
+            description: 'Set a component library to enable registry governance',
+            actionLabel: 'Choose library',
+        })
+    }
+
+    // FORGE.3b: Tokens present but no Figma connection — contextual Figma prompt
+    if (env.hasDesignTokens && !figmaConnected) {
+        suggestions.push({
+            id: 'connect-figma',
+            label: 'Connect Figma',
+            description: 'Connect Figma to enable token sync',
+            actionLabel: 'Connect',
+        })
+    }
+
+    return suggestions.slice(0, 3)
+}
 
 export interface DetectionBannerProps {
     environment: ProjectEnvironment | null
@@ -26,14 +87,43 @@ export interface DetectionBannerProps {
     isScanning?: boolean
     /** FORGE.4c: File-level scan progress (determinate mode). */
     scanProgress?: { filesScanned: number; totalFiles: number }
+    /** FORGE.3a: Whether Figma is currently connected (drives suggestion logic). */
+    figmaConnected?: boolean
+    /** FORGE.3a: Callback fired when the user clicks a suggestion action button. */
+    onSuggestionAction?: (suggestionId: string) => void
 }
 
-export function DetectionBanner({ environment, onRunAudit, isScanning, scanProgress }: DetectionBannerProps) {
+export function DetectionBanner({
+    environment,
+    onRunAudit,
+    isScanning,
+    scanProgress,
+    figmaConnected = false,
+    onSuggestionAction,
+}: DetectionBannerProps) {
     const [dismissed, setDismissed] = useState(false)
+    const [dismissedSuggestions, setDismissedSuggestions] = useState<Set<string>>(new Set())
+    const [allSuggestionsDismissed, setAllSuggestionsDismissed] = useState(false)
 
     const handleDismiss = useCallback(() => {
         setDismissed(true)
     }, [])
+
+    const handleDismissSuggestion = useCallback((id: string) => {
+        setDismissedSuggestions((prev) => new Set(prev).add(id))
+    }, [])
+
+    const handleDismissAllSuggestions = useCallback(() => {
+        setAllSuggestionsDismissed(true)
+    }, [])
+
+    // FORGE.3a: Derive suggestions from environment
+    const suggestions = useMemo(() => {
+        if (!environment || allSuggestionsDismissed) return []
+        return deriveSuggestions(environment, figmaConnected).filter(
+            (s) => !dismissedSuggestions.has(s.id),
+        )
+    }, [environment, figmaConnected, dismissedSuggestions, allSuggestionsDismissed])
 
     if (!environment || dismissed) return null
 
@@ -58,7 +148,7 @@ export function DetectionBanner({ environment, onRunAudit, isScanning, scanProgr
 
     const hasAudit = environment.auditSummary != null
     // Switch to vertical layout when we have extra content to show
-    const hasExtendedContent = hasAudit || (isScanning && !hasAudit)
+    const hasExtendedContent = hasAudit || (isScanning && !hasAudit) || suggestions.length > 0
 
     return (
         <div
@@ -150,6 +240,58 @@ export function DetectionBanner({ environment, onRunAudit, isScanning, scanProgr
                             → No design tokens detected — connect Figma to get started
                         </p>
                     )}
+                </div>
+            )}
+
+            {/* FORGE.3a: Progressive integration suggestions */}
+            {suggestions.length > 0 && (
+                <div className="space-y-1" data-testid="integration-suggestions">
+                    <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                            Next steps
+                        </span>
+                        {suggestions.length > 1 && (
+                            <button
+                                type="button"
+                                onClick={handleDismissAllSuggestions}
+                                className="text-[10px] text-zinc-600 transition-colors hover:text-zinc-400"
+                                data-testid="dismiss-all-suggestions"
+                            >
+                                Dismiss all
+                            </button>
+                        )}
+                    </div>
+                    {suggestions.map((suggestion) => (
+                        <div
+                            key={suggestion.id}
+                            className="flex items-center gap-2 rounded border border-zinc-800 bg-zinc-800/40 px-2 py-1.5"
+                            data-testid={`suggestion-${suggestion.id}`}
+                        >
+                            <span className="flex-1 text-xs text-zinc-300">
+                                {suggestion.description}
+                            </span>
+                            {onSuggestionAction && (
+                                <button
+                                    type="button"
+                                    onClick={() => onSuggestionAction(suggestion.id)}
+                                    className="flex shrink-0 items-center gap-1 rounded bg-indigo-600/80 px-2 py-0.5 text-[10px] font-medium text-white transition-colors hover:bg-indigo-500"
+                                    data-testid={`suggestion-action-${suggestion.id}`}
+                                >
+                                    {suggestion.actionLabel}
+                                    <ArrowRight size={10} aria-hidden="true" />
+                                </button>
+                            )}
+                            <button
+                                type="button"
+                                onClick={() => handleDismissSuggestion(suggestion.id)}
+                                aria-label={`Dismiss suggestion: ${suggestion.label}`}
+                                className="shrink-0 rounded p-0.5 text-zinc-600 transition-colors hover:text-zinc-400"
+                                data-testid={`suggestion-dismiss-${suggestion.id}`}
+                            >
+                                <X size={12} aria-hidden="true" />
+                            </button>
+                        </div>
+                    ))}
                 </div>
             )}
         </div>

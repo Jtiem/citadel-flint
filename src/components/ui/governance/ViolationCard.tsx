@@ -294,6 +294,10 @@ export interface ViolationCardProps {
     deferSuccessMsg?: string
     /** resurfaceTick: counter incremented every 60s in parent — read by card to recompute resurface label */
     resurfaceTick?: number
+    /** COUNSEL.2.3: This violation was previously deferred and has now resurfaced */
+    isResurfaced?: boolean
+    /** COUNSEL.2.2: This violation was introduced by an AI agent and needs human review */
+    isAiSourced?: boolean
 
     isExpanded: boolean
     isDiffOpen: boolean
@@ -343,6 +347,8 @@ export function ViolationCard({
     isDeferSuccess,
     deferSuccessMsg,
     resurfaceTick,
+    isResurfaced = false,
+    isAiSourced = false,
     isExpanded,
     isDiffOpen,
     isDiffLoading,
@@ -409,8 +415,18 @@ export function ViolationCard({
                     <div className="flex items-center gap-1.5 flex-wrap">
                         <p className="text-[10px] text-zinc-300 font-medium" title={ruleId}>{getRuleLabel(ruleId)}</p>
 
-                        {/* Flagged badge */}
-                        {isFlagged && (
+                        {/* COUNSEL.2.3: Resurfaced badge */}
+                        {isResurfaced && (
+                            <span
+                                data-testid={`resurfaced-badge-${type === 'a11y' ? 'a11y-' : ''}${w.id}`}
+                                className="rounded-full border border-amber-500/40 bg-amber-900/20 px-1.5 py-px text-[10px] font-medium text-amber-400 leading-none"
+                            >
+                                Resurfaced
+                            </span>
+                        )}
+
+                        {/* Flagged badge (manual) */}
+                        {isFlagged && !isResurfaced && (
                             <span
                                 data-testid={`flagged-badge-${type === 'a11y' ? 'a11y-' : ''}${w.id}`}
                                 className="rounded-full border border-amber-500/40 bg-amber-900/20 px-1.5 py-px text-[10px] font-medium text-amber-400 leading-none"
@@ -419,8 +435,18 @@ export function ViolationCard({
                             </span>
                         )}
 
+                        {/* COUNSEL.2.2: AI-sourced "Review" badge (indigo) */}
+                        {isAiSourced && !isFlagged && !isResurfaced && (
+                            <span
+                                data-testid={`review-badge-${type === 'a11y' ? 'a11y-' : ''}${w.id}`}
+                                className="rounded-full border border-indigo-500/40 bg-indigo-900/20 px-1.5 py-px text-[10px] font-medium text-indigo-400 leading-none"
+                            >
+                                Review
+                            </span>
+                        )}
+
                         {/* Fixability badge (primary signal, always visible) */}
-                        {!isFlagged && isAutoFixable && (
+                        {!isFlagged && !isAiSourced && !isResurfaced && isAutoFixable && (
                             <span
                                 data-testid={`badge-auto-fixable-${w.id}`}
                                 className="rounded-full border border-emerald-500/30 bg-emerald-900/20 px-1.5 py-px text-[10px] font-medium text-emerald-400 leading-none"
@@ -428,7 +454,7 @@ export function ViolationCard({
                                 Auto-fixable
                             </span>
                         )}
-                        {!isFlagged && !isAutoFixable && (
+                        {!isFlagged && !isAiSourced && !isResurfaced && !isAutoFixable && (
                             <span
                                 data-testid={`badge-needs-input-${type === 'a11y' ? 'a11y-' : ''}${w.id}`}
                                 className="rounded-full border border-amber-500/30 bg-amber-900/20 px-1.5 py-px text-[10px] font-medium text-amber-400 leading-none"

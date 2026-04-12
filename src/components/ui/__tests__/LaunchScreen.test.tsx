@@ -95,47 +95,44 @@ describe('LaunchScreen — JTBD Tiles', () => {
         })
     })
 
-    // ── Demo section ─────────────────────────────────────────────────────────
+    // ── Demo section — FORGE.3c: Scenario picker ──────────────────────────────
 
-    it('renders "Try the demo" primary demo CTA', async () => {
+    it('renders the demo scenario picker', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
         render(<LaunchScreen {...defaultProps()} />)
         await waitFor(() => {
-            expect(screen.getByText('Try the demo')).toBeDefined()
+            expect(screen.getByTestId('demo-scenario-picker')).toBeDefined()
         })
     })
 
-    it('clicking "Try the demo" calls onLoadDemo with a11y-audit', async () => {
+    it('clicking a demo scenario calls onLoadDemo with the correct demo name', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
         const props = defaultProps()
         render(<LaunchScreen {...props} />)
-        await waitFor(() => screen.getByText('Try the demo'))
-        fireEvent.click(screen.getByTestId('try-demo-cta'))
+        await waitFor(() => screen.getByTestId('demo-scenario-picker'))
+        fireEvent.click(screen.getByTestId('demo-scenario-audit-component'))
         await waitFor(() => {
-            expect(props.onLoadDemo).toHaveBeenCalledWith('a11y-audit')
+            expect(props.onLoadDemo).toHaveBeenCalledWith('token-drift')
         })
     })
 
-    it('clicking "More demos" reveals the demo gallery', async () => {
+    it('demo scenario picker shows 4 scenario cards', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
         render(<LaunchScreen {...defaultProps()} />)
-        await waitFor(() => screen.getByText('More demos'))
-        fireEvent.click(screen.getByText('More demos'))
         await waitFor(() => {
-            expect(screen.getByTestId('more-demos-section')).toBeDefined()
+            expect(screen.getByText('Audit a component')).toBeDefined()
+            expect(screen.getByText('Fix violations')).toBeDefined()
+            expect(screen.getByText('Design system health')).toBeDefined()
+            expect(screen.getByText('Migrate a design system')).toBeDefined()
         })
     })
 
-    it('demo gallery shows 4 demo cards', async () => {
+    it('each demo scenario shows estimated time', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
         render(<LaunchScreen {...defaultProps()} />)
-        await waitFor(() => screen.getByText('More demos'))
-        fireEvent.click(screen.getByText('More demos'))
         await waitFor(() => {
-            expect(screen.getByText('Token Drift')).toBeDefined()
-            expect(screen.getByText('A11y Audit')).toBeDefined()
-            expect(screen.getByText('DS Migration')).toBeDefined()
-            expect(screen.getByText('Full App Scan')).toBeDefined()
+            expect(screen.getAllByText('~2 min').length).toBeGreaterThanOrEqual(1)
+            expect(screen.getAllByText('~3 min').length).toBeGreaterThanOrEqual(1)
         })
     })
 

@@ -293,6 +293,115 @@ const rule022: A11yRule = {
     },
 }
 
+// ── A11Y-100: Interactive handler on non-interactive element (P1b) ───────────
+//
+// Flags <div onClick={...}>, <span onMouseDown={...}>, etc. where a non-interactive
+// element has an event handler but lacks role and tabIndex. Unlike A11Y-020 which
+// requires all three (role + tabIndex + onKeyDown), this rule focuses on the minimum
+// semantic contract: the element must at least declare itself interactive via role
+// OR tabIndex. This catches the broadest class of "clickable div" anti-patterns.
+
+/** Interactive ARIA roles that indicate the element is intentionally interactive. */
+const INTERACTIVE_ROLES = new Set([
+    'button', 'link', 'tab', 'menuitem', 'menuitemcheckbox', 'menuitemradio',
+    'option', 'radio', 'switch', 'checkbox', 'combobox', 'searchbox',
+    'slider', 'spinbutton', 'textbox', 'treeitem', 'gridcell', 'row',
+])
+
+/** Event handlers that make a non-interactive element behave interactively. */
+const INTERACTIVE_HANDLERS = ['onClick', 'onMouseDown', 'onKeyDown', 'onKeyUp', 'onKeyPress']
+
+/** HTML elements that are inherently interactive and should not be flagged. */
+const NATIVELY_INTERACTIVE_TAGS = new Set([
+    'a', 'button', 'input', 'select', 'textarea', 'details', 'summary', 'option',
+])
+
+const rule100: A11yRule = {
+    id: 'A11Y-100',
+    name: 'Interactive Handler on Non-Interactive Element',
+    wcag: '4.1.2',
+    level: 'A',
+    category: 'keyboard',
+    severity: 'critical',
+    description:
+        'Non-interactive elements (div, span, section, etc.) with event handlers like onClick must ' +
+        'have a semantic role (e.g. role="button") and tabIndex to be accessible. ' +
+        'Without these, keyboard and screen reader users cannot interact with the element.',
+
+    visitElement(path, _context) {
+        const tag = getTagName(path)
+        if (!tag) return null
+
+        // Skip natively interactive elements — they already have implicit roles
+        if (NATIVELY_INTERACTIVE_TAGS.has(tag)) return null
+
+        // Skip custom React components (uppercase first letter handled by getTagName returning null for member expressions)
+        // getTagName returns lowercase, so PascalCase components are already filtered
+
+        const opening = path.node.openingElement
+
+        // Check for any interactive event handler
+        const hasInteractiveHandler = INTERACTIVE_HANDLERS.some(
+            (handler) => hasEventHandler(opening, handler),
+        )
+        if (!hasInteractiveHandler) return null
+
+        // Check if the element has an interactive role
+        const roleValue = getAttributeStringValue(opening, 'role')
+        if (roleValue && INTERACTIVE_ROLES.has(roleValue.toLowerCase())) return null
+
+        // Check if the element has tabIndex (any value — even -1 shows developer awareness)
+        const hasTabIndex = getJsxAttr(opening, 'tabIndex') !== undefined
+        if (hasTabIndex) return null
+
+        const elementId = getFlintId(opening, `${tag}-interactive-no-role`)
+
+        // Determine which handlers are present for the message
+        const presentHandlers = INTERACTIVE_HANDLERS.filter(
+            (handler) => hasEventHandler(opening, handler),
+        )
+
+        return {
+            ruleId: 'A11Y-100',
+            elementId,
+            message:
+                `A11Y-100: <${tag}> has interactive handler(s) (${presentHandlers.join(', ')}) but no ` +
+                'semantic role or tabIndex. Non-interactive elements with event handlers must declare ' +
+                'their role (e.g. role="button") and be keyboard-focusable (tabIndex={0}), or be ' +
+                'replaced with a native interactive element like <button>.',
+            severity: 'critical',
+            wcag: '4.1.2',
+            fixable: true,
+        }
+    },
+
+    fix(violation, _ast) {
+        return {
+            description:
+                'Added role="button" and tabIndex={0} to make the non-interactive element accessible. ' +
+                'Consider replacing with a <button> element for better semantics.',
+            mutations: [
+                {
+                    type: 'updateProp',
+                    args: {
+                        nodeId: violation.elementId,
+                        propName: 'role',
+                        value: 'button',
+                    },
+                },
+                {
+                    type: 'updateProp',
+                    args: {
+                        nodeId: violation.elementId,
+                        propName: 'tabIndex',
+                        value: '0',
+                    },
+                },
+            ],
+        }
+    },
+}
+
 // ── Export ────────────────────────────────────────────────────────────────────
 
-export const keyboardRules: A11yRule[] = [rule007, rule020, rule021, rule022]
+export const keyboardRules: A11yRule[] = [rule007, rule020, rule021, rule022, rule100]

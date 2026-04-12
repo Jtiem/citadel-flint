@@ -17,6 +17,10 @@ export interface TokenHealthBarProps {
     syncStatuses: SyncBadgeStatus[]
     figmaConnected: boolean
     usageFileCount: number
+    /** MINT.2b: Number of tokens with zero usage across project files. */
+    deadTokenCount?: number
+    /** MINT.2c: Number of tokens drifted from Figma source values. */
+    driftCount?: number
 }
 
 export function TokenHealthBar({
@@ -24,6 +28,8 @@ export function TokenHealthBar({
     syncStatuses,
     figmaConnected,
     usageFileCount,
+    deadTokenCount = 0,
+    driftCount = 0,
 }: TokenHealthBarProps) {
     const driftedCount = syncStatuses.filter((s) => s === 'drifted').length
     const allSynced = figmaConnected && driftedCount === 0
@@ -43,6 +49,30 @@ export function TokenHealthBar({
                 <span className="inline-block h-1.5 w-1.5 rounded-full bg-indigo-400" />
                 {totalTokens} token{totalTokens !== 1 ? 's' : ''}
             </span>
+
+            {/* MINT.2b: Dead tokens pill — only when usage scan found dead tokens */}
+            {deadTokenCount > 0 && (
+                <span
+                    className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2.5 py-0.5 text-[11px] font-medium text-red-400"
+                    data-testid="health-dead"
+                    aria-label={`${deadTokenCount} dead token${deadTokenCount !== 1 ? 's' : ''}`}
+                >
+                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-red-400" />
+                    {deadTokenCount} dead
+                </span>
+            )}
+
+            {/* MINT.2c: Drift pill — only when drift detected from Figma */}
+            {driftCount > 0 && (
+                <span
+                    className="inline-flex items-center gap-1 rounded-full bg-amber-400/10 px-2.5 py-0.5 text-[11px] font-medium text-amber-400"
+                    data-testid="health-drift"
+                    aria-label={`${driftCount} token${driftCount !== 1 ? 's' : ''} drifted from Figma`}
+                >
+                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-400" />
+                    {driftCount} drifted
+                </span>
+            )}
 
             {/* Sync status pill — only when Figma is connected */}
             {figmaConnected && (

@@ -49,6 +49,7 @@ import { useContextSync } from './hooks/useContextSync'
 import { useMCPEventListener } from './hooks/useMCPEventListener'
 import { useAutopilot } from './hooks/useAutopilot'
 import { useIDEFileSync } from './hooks/useIDEFileSync'
+import { useTokenUsage } from './hooks/useTokenUsage'
 import { Settings2, SlidersHorizontal, Palette, BarChart2, MoreHorizontal, ChevronLeft, ChevronRight, Layers, LayoutGrid, Image, Search, MessageSquare, Play, Loader2 } from 'lucide-react'
 import { OnboardingNudge } from './components/ui/OnboardingNudge'
 import { CommandPalette } from './components/ui/CommandPalette'
@@ -178,8 +179,16 @@ function App() {
 
     // OPP-10 unlock trigger data — subscribe to each source store
     const tokenCount           = useTokenStore((s) => s.tokens.length)
+    const tokensForDrift       = useTokenStore((s) => s.tokens)
     const registryCards        = useComponentCardStore((s) => s.cards)
     const hasOrchestratorConfig = useOrchestratorStore((s) => s.hasConfig)
+
+    // MINT.2d: Token drift data for silent badge on Tokens tab
+    const localTokensForTabDrift = useMemo(
+        () => tokensForDrift.map((t) => ({ token_path: t.token_path, token_value: t.token_value })),
+        [tokensForDrift],
+    )
+    const { driftCount: tabDriftCount } = useTokenUsage(tokenCount, localTokensForTabDrift)
 
     // OPP-16: Selection-based right panel auto-switch
     const activeSelection = useCanvasStore((s) => s.activeSelection)
@@ -1205,14 +1214,22 @@ function App() {
                                 ] as const)
                                     .filter(({ tab }) => isTabUnlocked(tab))
                                     .map(({ tab, Icon, label }) => {
+                                        // MINT.2d: Token tab label with drift count badge
+                                        const displayLabel = tab === 'tokens' && tabDriftCount > 0
+                                            ? `Tokens (${tabDriftCount})`
+                                            : label
                                         const tabButton = (
                                             <button
                                                 key={tab}
                                                 type="button"
                                                 role="tab"
                                                 onClick={() => handleSetRightTab(tab)}
-                                                title={label}
-                                                aria-label={label}
+                                                title={tab === 'tokens' && tabDriftCount > 0
+                                                    ? `Tokens — ${tabDriftCount} drifted from Figma`
+                                                    : label}
+                                                aria-label={tab === 'tokens' && tabDriftCount > 0
+                                                    ? `Tokens, ${tabDriftCount} drifted from Figma`
+                                                    : label}
                                                 aria-selected={rightTab === tab}
                                                 className={`relative flex flex-col items-center gap-0.5 py-2 px-3 transition-colors ${rightTab === tab
                                                     ? 'border-b-2 border-indigo-500 text-indigo-400'
@@ -1220,9 +1237,17 @@ function App() {
                                                     }`}
                                             >
                                                 <Icon size={14} />
-                                                <span className="text-[10px] font-medium leading-none">{label}</span>
+                                                <span className="text-[10px] font-medium leading-none">{displayLabel}</span>
+                                                {/* MINT.2d: Amber drift dot on Tokens tab */}
+                                                {tab === 'tokens' && tabDriftCount > 0 && (
+                                                    <span
+                                                        className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-amber-400 animate-[pulse_1s_ease-in-out_1]"
+                                                        data-testid="tokens-drift-dot"
+                                                        aria-hidden="true"
+                                                    />
+                                                )}
                                                 {/* OPP-10: One-time "new" dot — indigo, 4px, top-right of icon */}
-                                                {isTabNew(tab) && (
+                                                {isTabNew(tab) && !(tab === 'tokens' && tabDriftCount > 0) && (
                                                     <span
                                                         className="absolute right-1.5 top-1.5 h-1 w-1 rounded-full bg-indigo-500"
                                                         aria-hidden="true"

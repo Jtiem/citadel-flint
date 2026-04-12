@@ -36,6 +36,7 @@ import {
 } from 'lucide-react'
 import type { RecentProject } from '../../types/flint-api'
 import { FigmaSetupWizard } from './FigmaSetupWizard'
+import { DemoScenarioPicker } from './DemoScenarioPicker'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -67,39 +68,6 @@ interface LaunchScreenProps {
     /** Error message to surface when demo project load fails */
     demoError?: string
 }
-
-// ── Demo project definitions ─────────────────────────────────────────────────
-
-const DEMO_PROJECTS = [
-    {
-        name: 'token-drift',
-        title: 'Token Drift',
-        time: '2 min',
-        topic: 'Fix color & spacing',
-        outcome: 'Catch drift your eyes miss',
-    },
-    {
-        name: 'a11y-audit',
-        title: 'A11y Audit',
-        time: '5 min',
-        topic: 'WCAG 2.1 AA',
-        outcome: 'Plain-language a11y fixes',
-    },
-    {
-        name: 'design-system-migration',
-        title: 'DS Migration',
-        time: '3 min',
-        topic: 'v3→v4 upgrade',
-        outcome: 'Migrate your DS safely',
-    },
-    {
-        name: 'multi-component-app',
-        title: 'Full App Scan',
-        time: '8 min',
-        topic: 'Full workflow',
-        outcome: 'Debt report + Export Gate',
-    },
-] as const
 
 // ── Tile definitions ─────────────────────────────────────────────────────────
 
@@ -157,8 +125,7 @@ export function LaunchScreen({
     const [showWebPathInput, setShowWebPathInput] = useState(false)
     // Demo load error banner — dismissed via local state
     const [demoBannerDismissed, setDemoBannerDismissed] = useState(false)
-    // Demo gallery — show more / collapse
-    const [showMoreDemos, setShowMoreDemos] = useState(false)
+    // (FORGE.3c: showMoreDemos removed — replaced by DemoScenarioPicker)
     // MAJOR-4: Double-click guard for New Project
     const [creating, setCreating] = useState(false)
 
@@ -660,66 +627,9 @@ export function LaunchScreen({
                         </div>
                     )}
 
-                    {/* 7. Demo section */}
+                    {/* 7. Demo section — FORGE.3c: Scenario picker */}
                     <div className="mt-8">
-                        <p className="mb-3 text-xs font-medium uppercase tracking-wider text-zinc-600">
-                            Try a demo project
-                        </p>
-                        {/* Primary demo CTA */}
-                        <button
-                            type="button"
-                            data-testid="try-demo-cta"
-                            onClick={() => { void onLoadDemo('a11y-audit') }}
-                            className="group mb-3 flex w-full items-center gap-3 rounded-xl border border-indigo-500/30 bg-gradient-to-r from-indigo-600/20 to-indigo-500/10 px-5 py-4 text-left transition-all hover:border-indigo-500/50 hover:from-indigo-600/30 hover:to-indigo-500/20"
-                        >
-                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-600/30 text-indigo-300 transition-colors group-hover:bg-indigo-600/40">
-                                <Shield size={18} aria-hidden="true" />
-                            </div>
-                            <div className="flex-1">
-                                <p className="text-sm font-semibold text-zinc-100">Try the demo</p>
-                                <p className="text-xs text-zinc-400">A11y Audit · 5 min · WCAG 2.1 AA</p>
-                            </div>
-                            <ChevronRight size={16} aria-hidden="true" className="shrink-0 text-zinc-600 transition-transform group-hover:translate-x-0.5" />
-                        </button>
-                        {/* More demos toggle */}
-                        <button
-                            type="button"
-                            onClick={() => setShowMoreDemos((v) => !v)}
-                            className="mb-2 flex w-full items-center justify-center gap-1 text-xs text-zinc-600 transition-colors hover:text-zinc-400"
-                        >
-                            {showMoreDemos ? 'Hide demos' : 'More demos'}
-                            <ChevronRight
-                                size={11}
-                                aria-hidden="true"
-                                className={['shrink-0 transition-transform', showMoreDemos ? 'rotate-90' : ''].join(' ')}
-                            />
-                        </button>
-                        {/* Collapsible additional demos */}
-                        {showMoreDemos && (
-                            <div className="flex gap-2 overflow-x-auto pb-1" data-testid="more-demos-section">
-                                {DEMO_PROJECTS.map((demo) => (
-                                    <div
-                                        key={demo.name}
-                                        className="flex w-40 shrink-0 flex-col rounded-lg border border-zinc-800 bg-zinc-900/60 p-3"
-                                    >
-                                        <p className="text-xs font-semibold text-zinc-200">{demo.title}</p>
-                                        <p className="mt-0.5 text-xs text-zinc-500">
-                                            {demo.time} · {demo.topic}
-                                        </p>
-                                        <p className="mt-2 flex-1 text-xs leading-relaxed text-zinc-400">
-                                            {demo.outcome}
-                                        </p>
-                                        <button
-                                            type="button"
-                                            onClick={() => { void onLoadDemo(demo.name) }}
-                                            className="mt-3 w-full rounded-md border border-zinc-700 bg-zinc-800/60 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-700/60 hover:text-zinc-100"
-                                        >
-                                            Load
-                                        </button>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
+                        <DemoScenarioPicker onLoadDemo={onLoadDemo} />
                     </div>
 
                     {/* 8. Recent projects */}

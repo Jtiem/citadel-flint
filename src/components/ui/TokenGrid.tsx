@@ -18,7 +18,8 @@
  * Renderer Process only — no Node.js imports.
  */
 
-import type { DesignToken, TokenType } from '../../types/flint-api'
+import type { DesignToken, TokenType, TokenUsageResult } from '../../types/flint-api'
+import type { TokenDrift } from '../../hooks/useTokenUsage'
 
 // ── Sync badge types (shared with TokenManager) ─────────────────────────────
 
@@ -47,6 +48,62 @@ function SyncBadge({ status }: { status: SyncBadgeStatus }) {
             data-testid="sync-badge"
         >
             {SYNC_BADGE_LABELS[status]}
+        </span>
+    )
+}
+
+// ── MINT.2b: Usage badge ───────────────────────────────────────────────────
+
+interface UsageBadgeProps {
+    usageCount: number
+    files: string[]
+}
+
+function UsageBadge({ usageCount, files }: UsageBadgeProps) {
+    if (usageCount === 0) {
+        return (
+            <span
+                className="shrink-0 rounded border border-red-500/20 bg-red-500/10 px-1.5 py-0.5 text-[10px] font-medium text-red-400"
+                data-testid="dead-token-badge"
+                aria-label="Dead token: not used in any file"
+                title="This token exists in the design system but is not referenced in any project file"
+            >
+                Dead
+            </span>
+        )
+    }
+    const isHighUsage = usageCount > 10
+    return (
+        <span
+            className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] ${
+                isHighUsage
+                    ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-400'
+                    : 'border-zinc-600/40 bg-zinc-800/60 text-zinc-400'
+            }`}
+            data-testid="usage-badge"
+            aria-label={`Used in ${usageCount} file${usageCount !== 1 ? 's' : ''}`}
+            title={files.length > 0 ? `Files: ${files.slice(0, 5).join(', ')}${files.length > 5 ? ` and ${files.length - 5} more` : ''}` : undefined}
+        >
+            {usageCount} file{usageCount !== 1 ? 's' : ''}
+        </span>
+    )
+}
+
+// ── MINT.2c: Drift indicator badge ────────────────────────────────────────
+
+interface DriftBadgeProps {
+    drift: TokenDrift
+}
+
+function DriftBadge({ drift }: DriftBadgeProps) {
+    return (
+        <span
+            className="shrink-0 rounded border border-amber-400/20 bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-400"
+            data-testid="drift-badge"
+            aria-label={`Drifted from Figma: local ${drift.localValue}, Figma ${drift.figmaValue}`}
+            title={`Local: ${drift.localValue}\nFigma: ${drift.figmaValue}`}
+        >
+            Drifted
         </span>
     )
 }
@@ -187,6 +244,8 @@ interface TokenRowProps {
     token: DesignToken
     syncStatus?: SyncBadgeStatus | null
     figmaConnected?: boolean
+    usageResult?: TokenUsageResult | null
+    drift?: TokenDrift | null
 }
 
 function DimensionBar({ value }: { value: string }) {
@@ -202,7 +261,7 @@ function DimensionBar({ value }: { value: string }) {
     )
 }
 
-export function TokenRow({ token, syncStatus, figmaConnected }: TokenRowProps) {
+export function TokenRow({ token, syncStatus, figmaConnected, usageResult, drift }: TokenRowProps) {
     return (
         <div
             className="flex items-center gap-2 border-b border-zinc-800/40 px-3 py-1.5 hover:bg-zinc-800/30"
@@ -237,6 +296,14 @@ export function TokenRow({ token, syncStatus, figmaConnected }: TokenRowProps) {
                 </p>
             </div>
 
+            {/* MINT.2b: Usage badge */}
+            {usageResult && (
+                <UsageBadge usageCount={usageResult.usageCount} files={usageResult.files} />
+            )}
+
+            {/* MINT.2c: Drift indicator */}
+            {drift && <DriftBadge drift={drift} />}
+
             {/* Sync badge — only when Figma is connected */}
             {syncStatus && <SyncBadge status={syncStatus} />}
 
@@ -256,12 +323,19 @@ interface TokenGridCardProps {
     token: DesignToken
     darkModeToken?: DesignToken
     syncStatus?: SyncBadgeStatus | null
+    usageResult?: TokenUsageResult | null
+    drift?: TokenDrift | null
 }
 
-function TokenGridCard({ token, darkModeToken, syncStatus }: TokenGridCardProps) {
+function TokenGridCard({ token, darkModeToken, syncStatus, usageResult, drift }: TokenGridCardProps) {
+    const isDead = usageResult != null && usageResult.usageCount === 0
     return (
         <div
-            className="flex flex-col items-center gap-1.5 rounded-lg border border-zinc-800/60 bg-zinc-900/50 p-3 transition-colors hover:border-zinc-700"
+            className={`flex flex-col items-center gap-1.5 rounded-lg border p-3 transition-colors hover:border-zinc-700 ${
+                isDead
+                    ? 'border-red-500/20 bg-red-950/20'
+                    : 'border-zinc-800/60 bg-zinc-900/50'
+            }`}
             data-testid="token-grid-card"
         >
             {/* Visual specimen */}
@@ -340,6 +414,20 @@ function TokenGridCard({ token, darkModeToken, syncStatus }: TokenGridCardProps)
                 {token.token_value}
             </p>
 
+            {/* MINT.2b: Usage badge */}
+            {usageResult && (
+                <div className="mt-0.5">
+                    <UsageBadge usageCount={usageResult.usageCount} files={usageResult.files} />
+                </div>
+            )}
+
+            {/* MINT.2c: Drift indicator */}
+            {drift && (
+                <div className="mt-0.5">
+                    <DriftBadge drift={drift} />
+                </div>
+            )}
+
             {/* Sync badge */}
             {syncStatus && (
                 <div className="mt-0.5">
@@ -410,6 +498,10 @@ interface TokenGroupSectionProps {
     figmaConnected: boolean
     /** All tokens in this collection, used for mode pairing. */
     allCollectionTokens: DesignToken[]
+    /** MINT.2b: Usage data map (token_path -> usage result). */
+    usageMap?: Map<string, TokenUsageResult>
+    /** MINT.2c: Tokens that have drifted from Figma values. */
+    driftedTokens?: TokenDrift[]
 }
 
 export function TokenGroupSection({
@@ -419,7 +511,16 @@ export function TokenGroupSection({
     getSyncStatus,
     figmaConnected,
     allCollectionTokens,
+    usageMap,
+    driftedTokens,
 }: TokenGroupSectionProps) {
+    // MINT.2c: Build a drift lookup by token name
+    const driftByName = new Map<string, TokenDrift>()
+    if (driftedTokens) {
+        for (const d of driftedTokens) {
+            driftByName.set(d.tokenName, d)
+        }
+    }
     // Build a dark-mode lookup for this collection
     const darkTokensByPath = new Map<string, DesignToken>()
     for (const token of allCollectionTokens) {
@@ -472,6 +573,8 @@ export function TokenGroupSection({
                                         token={token}
                                         darkModeToken={darkTokensByPath.get(token.token_path)}
                                         syncStatus={getSyncStatus(token)}
+                                        usageResult={usageMap?.get(token.token_path) ?? null}
+                                        drift={driftByName.get(token.token_path) ?? null}
                                     />
                                 ))}
                             </div>
@@ -483,6 +586,8 @@ export function TokenGroupSection({
                                         token={token}
                                         syncStatus={getSyncStatus(token)}
                                         figmaConnected={figmaConnected}
+                                        usageResult={usageMap?.get(token.token_path) ?? null}
+                                        drift={driftByName.get(token.token_path) ?? null}
                                     />
                                 ))}
                             </div>

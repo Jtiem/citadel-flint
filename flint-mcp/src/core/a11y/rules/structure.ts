@@ -19,7 +19,10 @@ import {
     hasNonEmptyAttr,
     hasDynamicLabel,
     hasDirectChildTag,
+    getAttributeStringValue,
+    getExplicitRole,
 } from '../helpers.js'
+import { classifyDataName } from '../../componentClassification.js'
 
 // ── A11Y-008: <table> must have accessible summary ────────────────────────────
 
@@ -277,6 +280,238 @@ const rule017: A11yRule = {
     },
 }
 
+// ── A11Y-101: Dialog/modal component missing aria-modal or role="dialog" (P1b) ─
+
+/**
+ * Returns the component name from a JSXElement, handling both JSXIdentifier
+ * and JSXMemberExpression. For intrinsic elements (lowercase), returns null.
+ */
+function getComponentName(path: import('@babel/traverse').NodePath<import('@babel/types').JSXElement>): string | null {
+    const nameNode = path.node.openingElement.name
+    if (nameNode.type === 'JSXIdentifier') {
+        // PascalCase = component; lowercase = intrinsic HTML element
+        if (nameNode.name[0] === nameNode.name[0].toUpperCase() && nameNode.name[0] !== nameNode.name[0].toLowerCase()) {
+            return nameNode.name
+        }
+        return nameNode.name // lowercase intrinsic — still useful for classification
+    }
+    if (nameNode.type === 'JSXMemberExpression') {
+        // e.g., Dialog.Root → "Dialog.Root"
+        const parts: string[] = []
+        let current: import('@babel/types').JSXMemberExpression | import('@babel/types').JSXIdentifier = nameNode
+        while (current.type === 'JSXMemberExpression') {
+            parts.unshift(current.property.name)
+            current = current.object as import('@babel/types').JSXMemberExpression | import('@babel/types').JSXIdentifier
+        }
+        if (current.type === 'JSXIdentifier') parts.unshift(current.name)
+        return parts.join('.')
+    }
+    return null
+}
+
+const rule101: A11yRule = {
+    id: 'A11Y-101',
+    name: 'Dialog Missing Accessibility Attributes',
+    wcag: '4.1.2',
+    level: 'A',
+    category: 'structure',
+    severity: 'critical',
+    description:
+        'Components classified as dialog/modal must have aria-modal="true" or role="dialog" ' +
+        'to communicate their modal nature to assistive technologies.',
+
+    visitElement(path, _context) {
+        const componentName = getComponentName(path)
+        if (!componentName) return null
+
+        // Classify the component name using the shared classification engine
+        const classification = classifyDataName(componentName)
+        if (classification !== 'dialog') return null
+
+        const opening = path.node.openingElement
+
+        // Check for aria-modal="true"
+        const ariaModal = getAttributeStringValue(opening, 'aria-modal')
+        if (ariaModal === 'true') return null
+
+        // Check for role="dialog" or role="alertdialog"
+        const role = getExplicitRole(opening)
+        if (role === 'dialog' || role === 'alertdialog') return null
+
+        // Check if the element is a native <dialog> HTML element (has implicit dialog role)
+        // We check the raw identifier name (not lowercased) to distinguish <dialog> from <Dialog>
+        const nameNode = path.node.openingElement.name
+        if (nameNode.type === 'JSXIdentifier' && nameNode.name === 'dialog') return null
+
+        const elementId = getFlintId(opening, `${componentName}-dialog-no-a11y`)
+
+        return {
+            ruleId: 'A11Y-101',
+            elementId,
+            message:
+                `A11Y-101: "${componentName}" is classified as a dialog/modal but is missing ` +
+                'aria-modal="true" or role="dialog". Dialogs must communicate their modal nature ' +
+                'to assistive technologies for proper focus management and screen reader behavior.',
+            severity: 'critical',
+            wcag: '4.1.2',
+            fixable: true,
+        }
+    },
+
+    fix(violation, _ast) {
+        return {
+            description: 'Added role="dialog" and aria-modal="true" to dialog component.',
+            mutations: [
+                {
+                    type: 'updateProp',
+                    args: {
+                        nodeId: violation.elementId,
+                        propName: 'role',
+                        value: 'dialog',
+                    },
+                },
+                {
+                    type: 'updateProp',
+                    args: {
+                        nodeId: violation.elementId,
+                        propName: 'aria-modal',
+                        value: 'true',
+                    },
+                },
+            ],
+        }
+    },
+}
+
+// ── A11Y-102: Navigation component missing nav landmark (P1b) ───────────────
+
+const rule102: A11yRule = {
+    id: 'A11Y-102',
+    name: 'Navigation Component Missing Nav Landmark',
+    wcag: '1.3.1',
+    level: 'A',
+    category: 'structure',
+    severity: 'critical',
+    description:
+        'Components classified as navigation must use a <nav> element or role="navigation" ' +
+        'to be identified as a navigation landmark by assistive technologies.',
+
+    visitElement(path, _context) {
+        const componentName = getComponentName(path)
+        if (!componentName) return null
+
+        const classification = classifyDataName(componentName)
+        if (classification !== 'nav') return null
+
+        // Check if it's a native <nav> HTML element (has implicit navigation role)
+        const nameNode = path.node.openingElement.name
+        if (nameNode.type === 'JSXIdentifier' && nameNode.name === 'nav') return null
+
+        const opening = path.node.openingElement
+
+        // Check for role="navigation"
+        const role = getExplicitRole(opening)
+        if (role === 'navigation') return null
+
+        const elementId = getFlintId(opening, `${componentName}-nav-no-landmark`)
+
+        return {
+            ruleId: 'A11Y-102',
+            elementId,
+            message:
+                `A11Y-102: "${componentName}" is classified as navigation but is missing ` +
+                'a <nav> wrapper or role="navigation". Navigation regions must be identified ' +
+                'as landmarks for screen reader users to skip to or bypass.',
+            severity: 'critical',
+            wcag: '1.3.1',
+            fixable: true,
+        }
+    },
+
+    fix(violation, _ast) {
+        return {
+            description: 'Added role="navigation" to navigation component.',
+            mutations: [
+                {
+                    type: 'updateProp',
+                    args: {
+                        nodeId: violation.elementId,
+                        propName: 'role',
+                        value: 'navigation',
+                    },
+                },
+            ],
+        }
+    },
+}
+
+// ── A11Y-103: Form component missing form element (P1b) ─────────────────────
+
+const rule103: A11yRule = {
+    id: 'A11Y-103',
+    name: 'Form Component Missing Form Landmark',
+    wcag: '1.3.1',
+    level: 'A',
+    category: 'structure',
+    severity: 'critical',
+    description:
+        'Components classified as forms must use a <form> element or role="form" ' +
+        'to communicate form semantics to assistive technologies.',
+
+    visitElement(path, _context) {
+        const componentName = getComponentName(path)
+        if (!componentName) return null
+
+        // classifyDataName maps 'form' inputs to 'input' type, not 'form'
+        // We need to check for component names that contain 'form' directly
+        const lower = componentName.toLowerCase()
+        const isFormComponent =
+            lower === 'form' || lower.includes('form') && !lower.includes('format') && !lower.includes('transform')
+
+        if (!isFormComponent) return null
+
+        // Check if it's a native <form> HTML element (has implicit form role)
+        const nameNode = path.node.openingElement.name
+        if (nameNode.type === 'JSXIdentifier' && nameNode.name === 'form') return null
+
+        const opening = path.node.openingElement
+
+        // Check for role="form"
+        const role = getExplicitRole(opening)
+        if (role === 'form') return null
+
+        const elementId = getFlintId(opening, `${componentName}-form-no-landmark`)
+
+        return {
+            ruleId: 'A11Y-103',
+            elementId,
+            message:
+                `A11Y-103: "${componentName}" appears to be a form component but is missing ` +
+                'a <form> wrapper or role="form". Form regions should use semantic form elements ' +
+                'for assistive technology support and proper form submission behavior.',
+            severity: 'critical',
+            wcag: '1.3.1',
+            fixable: true,
+        }
+    },
+
+    fix(violation, _ast) {
+        return {
+            description: 'Added role="form" to form component.',
+            mutations: [
+                {
+                    type: 'updateProp',
+                    args: {
+                        nodeId: violation.elementId,
+                        propName: 'role',
+                        value: 'form',
+                    },
+                },
+            ],
+        }
+    },
+}
+
 // ── Export ────────────────────────────────────────────────────────────────────
 
 export const structureRules: A11yRule[] = [
@@ -286,4 +521,7 @@ export const structureRules: A11yRule[] = [
     rule015,
     rule016,
     rule017,
+    rule101,
+    rule102,
+    rule103,
 ]

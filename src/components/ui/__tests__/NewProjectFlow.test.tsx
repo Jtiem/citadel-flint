@@ -201,7 +201,7 @@ describe('#40 — First-run nudge: renders when conditions are met', () => {
             expect(screen.getByText('New Project')).toBeDefined()
             expect(screen.getByText('From Figma')).toBeDefined()
             expect(screen.getByText('Governance dashboard')).toBeDefined()
-            expect(screen.getByText('Try the demo')).toBeDefined()
+            expect(screen.getByTestId('demo-scenario-picker')).toBeDefined()
         })
     })
 })

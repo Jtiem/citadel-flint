@@ -26,6 +26,8 @@ export interface BatchActionBarProps {
     onReviewManual: () => void
     sessionProgress?: { fixed: number; total: number }
     isBaselineSet?: boolean
+    /** COUNSEL.2.4: Effort estimate text (detailed breakdown) */
+    effortEstimate?: string
 }
 
 export function BatchActionBar({
@@ -39,22 +41,25 @@ export function BatchActionBar({
     onReviewManual,
     sessionProgress,
     isBaselineSet = false,
+    effortEstimate,
 }: BatchActionBarProps) {
+    const allFixed = sessionProgress && sessionProgress.total > 0 && sessionProgress.fixed >= sessionProgress.total
     return (
-        <div className="flex flex-wrap items-center gap-2 border-b border-zinc-800 px-3 py-2">
+        <div className="border-b border-zinc-800">
+            <div className="flex flex-wrap items-center gap-2 px-3 py-2">
             <h3 className="flex-1 text-xs font-medium uppercase tracking-wider text-zinc-400">
                 Issues
                 {isBaselineSet && <span className="ml-1.5 text-indigo-400">(new only)</span>}
             </h3>
 
             {/* COUNSEL.2.5: Session fix progress indicator */}
-            {sessionProgress && sessionProgress.total > 0 && (
+            {sessionProgress && sessionProgress.total > 0 && !allFixed && (
                 <span
                     data-testid="session-progress-indicator"
-                    className="text-[10px] text-zinc-600"
+                    className="text-[10px] text-zinc-500"
                     aria-live="polite"
                 >
-                    {Math.max(0, sessionProgress.fixed)} of {sessionProgress.total} fixed this session
+                    Fixed {Math.max(0, sessionProgress.fixed)} of {sessionProgress.total} this session
                 </span>
             )}
 
@@ -110,6 +115,50 @@ export function BatchActionBar({
                 >
                     Review {manualCount} manually
                 </button>
+            )}
+            </div>
+
+            {/* COUNSEL.2.4: Effort estimate */}
+            {effortEstimate && !allFixed && (
+                <p
+                    data-testid="effort-estimate"
+                    className="px-3 pb-1 text-[10px] text-zinc-500"
+                >
+                    {effortEstimate}
+                </p>
+            )}
+
+            {/* COUNSEL.2.5: Progress bar */}
+            {sessionProgress && sessionProgress.total > 0 && !allFixed && (
+                <div
+                    className="mx-3 mb-2 h-1.5 rounded-full bg-zinc-800 overflow-hidden"
+                    role="progressbar"
+                    aria-valuenow={Math.max(0, sessionProgress.fixed)}
+                    aria-valuemin={0}
+                    aria-valuemax={sessionProgress.total}
+                    aria-label={`Fix progress: ${Math.max(0, sessionProgress.fixed)} of ${sessionProgress.total}`}
+                    data-testid="session-progress-bar"
+                >
+                    <div
+                        className="h-full rounded-full bg-emerald-500 transition-all duration-300"
+                        style={{ width: `${Math.min(100, (Math.max(0, sessionProgress.fixed) / sessionProgress.total) * 100)}%` }}
+                    />
+                </div>
+            )}
+
+            {/* COUNSEL.2.5: Celebration state */}
+            {allFixed && (
+                <div
+                    data-testid="session-all-fixed"
+                    className="flex items-center gap-2 px-3 pb-2"
+                    role="status"
+                    aria-live="polite"
+                >
+                    <Check size={12} className="shrink-0 text-emerald-400" aria-hidden="true" />
+                    <span className="text-xs font-medium text-emerald-400">
+                        All clear! Zero violations.
+                    </span>
+                </div>
             )}
         </div>
     )

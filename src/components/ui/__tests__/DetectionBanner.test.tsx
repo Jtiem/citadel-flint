@@ -1,5 +1,5 @@
 /**
- * DetectionBanner.test.tsx — FORGE.2d + FORGE.4c + FORGE.4d tests
+ * DetectionBanner.test.tsx — FORGE.2d + FORGE.3a + FORGE.3b + FORGE.4c + FORGE.4d tests
  *
  * DB-01: Renders with detection data showing framework stack
  * DB-02: Does not render when environment is null
@@ -20,11 +20,21 @@
  * DB-17: Shows clean recommendation when zero issues (FORGE.4d)
  * DB-18: Shows token recommendation when no tokenFormat (FORGE.4d)
  * DB-19: Hides "Run full audit" button while scanning (FORGE.4c)
+ * DB-20: Shows Tailwind token import suggestion (FORGE.3a)
+ * DB-21: Shows component library suggestion (FORGE.3a)
+ * DB-22: Shows Figma connection suggestion when tokens present (FORGE.3b)
+ * DB-23: Limits suggestions to 3 max (FORGE.3a)
+ * DB-24: Dismiss individual suggestion (FORGE.3a)
+ * DB-25: Dismiss all suggestions (FORGE.3a)
+ * DB-26: Calls onSuggestionAction with correct id (FORGE.3a)
+ * DB-27: No suggestions when environment is null (FORGE.3a)
+ * DB-28: No Figma suggestion when already connected (FORGE.3b)
+ * DB-29: No Tailwind suggestion when tokens already present (FORGE.3a)
  */
 
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import { DetectionBanner } from '../DetectionBanner'
+import { DetectionBanner, deriveSuggestions } from '../DetectionBanner'
 import type { ProjectEnvironment } from '../../../types/flint-api'
 
 const baseEnv: ProjectEnvironment = {
@@ -224,5 +234,196 @@ describe('DetectionBanner', () => {
         render(<DetectionBanner environment={env} />)
         const recs = screen.getByTestId('recommendations')
         expect(recs.textContent).toContain('No design tokens detected')
+    })
+
+    // ── FORGE.3a: Progressive integration suggestion tests ──────────────────
+
+    // DB-20: Shows Tailwind token import suggestion
+    it('DB-20: shows Tailwind token import suggestion when Tailwind detected but no tokens', () => {
+        const env: ProjectEnvironment = {
+            ...baseEnv,
+            cssFramework: { name: 'tailwindcss', version: '4.0.0' },
+            hasDesignTokens: false,
+        }
+        render(<DetectionBanner environment={env} onSuggestionAction={vi.fn()} />)
+        expect(screen.getByTestId('suggestion-import-tailwind-tokens')).toBeTruthy()
+        expect(screen.getByTestId('suggestion-import-tailwind-tokens').textContent).toContain('Import your Tailwind config as design tokens')
+    })
+
+    // DB-21: Shows component library suggestion
+    it('DB-21: shows component library suggestion when framework detected but no library', () => {
+        const env: ProjectEnvironment = {
+            ...baseEnv,
+            framework: { name: 'react', version: '19.1.0' },
+            componentLibrary: null,
+            hasDesignTokens: true, // suppress tailwind suggestion
+            tokenSource: 'flint',
+        }
+        render(<DetectionBanner environment={env} onSuggestionAction={vi.fn()} />)
+        expect(screen.getByTestId('suggestion-set-component-library')).toBeTruthy()
+        expect(screen.getByTestId('suggestion-set-component-library').textContent).toContain('Set a component library')
+    })
+
+    // DB-22: Shows Figma connection suggestion when tokens present (FORGE.3b)
+    it('DB-22: shows Figma connection suggestion when tokens present but no Figma', () => {
+        const env: ProjectEnvironment = {
+            ...baseEnv,
+            hasDesignTokens: true,
+            tokenSource: 'flint',
+            componentLibrary: { name: 'mui', version: '5.0.0' },
+            componentLibraryLabel: 'MUI',
+        }
+        render(<DetectionBanner environment={env} figmaConnected={false} onSuggestionAction={vi.fn()} />)
+        expect(screen.getByTestId('suggestion-connect-figma')).toBeTruthy()
+        expect(screen.getByTestId('suggestion-connect-figma').textContent).toContain('Connect Figma to enable token sync')
+    })
+
+    // DB-23: Limits suggestions to 3 max
+    it('DB-23: shows at most 3 suggestions', () => {
+        const env: ProjectEnvironment = {
+            ...baseEnv,
+            cssFramework: { name: 'tailwindcss', version: '4.0.0' },
+            hasDesignTokens: false,
+            framework: { name: 'react', version: '19.1.0' },
+            componentLibrary: null,
+        }
+        // This produces: tailwind tokens + component library + figma (but tokens false, so no figma)
+        // Actually with hasDesignTokens: false, figma suggestion won't show. That's fine — max 2 here.
+        render(<DetectionBanner environment={env} figmaConnected={false} onSuggestionAction={vi.fn()} />)
+        const container = screen.getByTestId('integration-suggestions')
+        const items = container.querySelectorAll('[data-testid^="suggestion-import"], [data-testid^="suggestion-set"], [data-testid^="suggestion-connect-figma"]')
+        expect(items.length).toBeLessThanOrEqual(3)
+    })
+
+    // DB-24: Dismiss individual suggestion
+    it('DB-24: dismisses individual suggestion when X is clicked', () => {
+        const env: ProjectEnvironment = {
+            ...baseEnv,
+            cssFramework: { name: 'tailwindcss', version: '4.0.0' },
+            hasDesignTokens: false,
+        }
+        render(<DetectionBanner environment={env} onSuggestionAction={vi.fn()} />)
+        expect(screen.getByTestId('suggestion-import-tailwind-tokens')).toBeTruthy()
+        fireEvent.click(screen.getByTestId('suggestion-dismiss-import-tailwind-tokens'))
+        expect(screen.queryByTestId('suggestion-import-tailwind-tokens')).toBeNull()
+    })
+
+    // DB-25: Dismiss all suggestions
+    it('DB-25: dismisses all suggestions when "Dismiss all" is clicked', () => {
+        const env: ProjectEnvironment = {
+            ...baseEnv,
+            cssFramework: { name: 'tailwindcss', version: '4.0.0' },
+            hasDesignTokens: false,
+            framework: { name: 'react', version: '19.1.0' },
+            componentLibrary: null,
+        }
+        render(<DetectionBanner environment={env} onSuggestionAction={vi.fn()} />)
+        expect(screen.getByTestId('integration-suggestions')).toBeTruthy()
+        fireEvent.click(screen.getByTestId('dismiss-all-suggestions'))
+        expect(screen.queryByTestId('integration-suggestions')).toBeNull()
+    })
+
+    // DB-26: Calls onSuggestionAction with correct id
+    it('DB-26: calls onSuggestionAction with correct suggestion id', () => {
+        const onAction = vi.fn()
+        const env: ProjectEnvironment = {
+            ...baseEnv,
+            cssFramework: { name: 'tailwindcss', version: '4.0.0' },
+            hasDesignTokens: false,
+        }
+        render(<DetectionBanner environment={env} onSuggestionAction={onAction} />)
+        fireEvent.click(screen.getByTestId('suggestion-action-import-tailwind-tokens'))
+        expect(onAction).toHaveBeenCalledWith('import-tailwind-tokens')
+    })
+
+    // DB-27: No suggestions when environment is null
+    it('DB-27: shows no suggestions when environment is null', () => {
+        render(<DetectionBanner environment={null} onSuggestionAction={vi.fn()} />)
+        expect(screen.queryByTestId('integration-suggestions')).toBeNull()
+    })
+
+    // DB-28: No Figma suggestion when already connected (FORGE.3b)
+    it('DB-28: does not show Figma suggestion when already connected', () => {
+        const env: ProjectEnvironment = {
+            ...baseEnv,
+            hasDesignTokens: true,
+            tokenSource: 'flint',
+            componentLibrary: { name: 'mui', version: '5.0.0' },
+            componentLibraryLabel: 'MUI',
+        }
+        render(<DetectionBanner environment={env} figmaConnected={true} onSuggestionAction={vi.fn()} />)
+        expect(screen.queryByTestId('suggestion-connect-figma')).toBeNull()
+    })
+
+    // DB-29: No Tailwind suggestion when tokens already present
+    it('DB-29: does not show Tailwind token suggestion when tokens already present', () => {
+        const env: ProjectEnvironment = {
+            ...baseEnv,
+            cssFramework: { name: 'tailwindcss', version: '4.0.0' },
+            hasDesignTokens: true,
+            tokenSource: 'flint',
+        }
+        render(<DetectionBanner environment={env} onSuggestionAction={vi.fn()} />)
+        expect(screen.queryByTestId('suggestion-import-tailwind-tokens')).toBeNull()
+    })
+})
+
+// ── FORGE.3a: deriveSuggestions unit tests ───────────────────────────────────
+
+describe('deriveSuggestions', () => {
+    it('returns empty array when no conditions match', () => {
+        const env: ProjectEnvironment = {
+            ...baseEnv,
+            cssFramework: null,
+            framework: null,
+            hasDesignTokens: false,
+            componentLibrary: { name: 'mui', version: '5.0.0' },
+            componentLibraryLabel: 'MUI',
+        }
+        const result = deriveSuggestions(env, true)
+        expect(result).toEqual([])
+    })
+
+    it('returns tailwind token suggestion when tailwind detected and no tokens', () => {
+        const env: ProjectEnvironment = {
+            ...baseEnv,
+            cssFramework: { name: 'tailwindcss', version: '4.0.0' },
+            hasDesignTokens: false,
+        }
+        const result = deriveSuggestions(env, false)
+        expect(result.some(s => s.id === 'import-tailwind-tokens')).toBe(true)
+    })
+
+    it('returns component library suggestion when framework detected and no library', () => {
+        const env: ProjectEnvironment = {
+            ...baseEnv,
+            framework: { name: 'vue', version: '3.5.0' },
+            componentLibrary: null,
+            hasDesignTokens: true,
+        }
+        const result = deriveSuggestions(env, false)
+        expect(result.some(s => s.id === 'set-component-library')).toBe(true)
+    })
+
+    it('returns figma suggestion when tokens present and figma not connected', () => {
+        const env: ProjectEnvironment = {
+            ...baseEnv,
+            hasDesignTokens: true,
+            componentLibrary: { name: 'mui', version: '5.0.0' },
+        }
+        const result = deriveSuggestions(env, false)
+        expect(result.some(s => s.id === 'connect-figma')).toBe(true)
+    })
+
+    it('caps at 3 suggestions', () => {
+        const env: ProjectEnvironment = {
+            ...baseEnv,
+            cssFramework: { name: 'tailwindcss', version: '4.0.0' },
+            hasDesignTokens: false,
+            framework: { name: 'react', version: '19.0.0' },
+            componentLibrary: null,
+        }
+        const result = deriveSuggestions(env, false)
+        expect(result.length).toBeLessThanOrEqual(3)
     })
 })

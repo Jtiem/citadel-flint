@@ -180,6 +180,104 @@ export function cssColorToHex(value: string): string | null {
     return null
 }
 
+// ── WCAG Contrast Ratio utilities ───────────────────────────────────────────
+
+/**
+ * Compute the relative luminance of an sRGB hex color.
+ * Formula per WCAG 2.1 §G17: https://www.w3.org/TR/WCAG21/#dfn-relative-luminance
+ */
+export function relativeLuminance(hex: string): number | null {
+    const rgb = hexToRgb(hex)
+    if (rgb === null) return null
+    const [r, g, b] = rgb.map((c) => {
+        const s = c / 255
+        return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4)
+    }) as [number, number, number]
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+
+/**
+ * Compute the WCAG 2.1 contrast ratio between two hex colors.
+ * Returns a value between 1 (identical) and 21 (black on white).
+ */
+export function computeContrastRatio(hex1: string, hex2: string): number | null {
+    const l1 = relativeLuminance(hex1)
+    const l2 = relativeLuminance(hex2)
+    if (l1 === null || l2 === null) return null
+    const lighter = Math.max(l1, l2)
+    const darker = Math.min(l1, l2)
+    return (lighter + 0.05) / (darker + 0.05)
+}
+
+/**
+ * Token match result with perceptual distance.
+ */
+export interface ContrastAwareTokenMatch {
+    tokenPath: string
+    tokenValue: string
+    deltaE: number
+    meetsContrast: boolean
+}
+
+/**
+ * Find the closest design token that also meets WCAG contrast requirements.
+ *
+ * @param hexValue     — the arbitrary hex color to replace
+ * @param tokens       — array of design tokens (only color tokens are considered)
+ * @param pairedColor  — the hex color this value is paired with (bg for text, or vice versa).
+ *                        When provided, candidates are filtered by contrast compliance.
+ * @param contrastLevel — minimum contrast ratio required. Defaults to 4.5 (WCAG AA normal text).
+ *                        Use 3.0 for large text (>=18pt or >=14pt bold).
+ * @returns The best compliant token, or falls back to the nearest perceptual match.
+ */
+export function findClosestCompliantToken(
+    hexValue: string,
+    tokens: Array<{ token_path: string; token_type: string; token_value: string }>,
+    pairedColor?: string,
+    contrastLevel: number = 4.5,
+): ContrastAwareTokenMatch | null {
+    const targetLab = hexToLab(hexValue)
+    if (targetLab === null) return null
+
+    const colorTokens = tokens.filter((tok) => tok.token_type === 'color')
+    if (colorTokens.length === 0) return null
+
+    let bestOverall: ContrastAwareTokenMatch | null = null
+    let bestCompliant: ContrastAwareTokenMatch | null = null
+
+    for (const token of colorTokens) {
+        const tokenLab = hexToLab(token.token_value)
+        if (tokenLab === null) continue
+        const dE = deltaE2000(targetLab, tokenLab)
+
+        let meetsContrast = true
+        if (pairedColor !== undefined) {
+            const ratio = computeContrastRatio(token.token_value, pairedColor)
+            meetsContrast = ratio !== null && ratio >= contrastLevel
+        }
+
+        const candidate: ContrastAwareTokenMatch = {
+            tokenPath: token.token_path,
+            tokenValue: token.token_value,
+            deltaE: dE,
+            meetsContrast,
+        }
+
+        // Track best overall (nearest perceptual match)
+        if (bestOverall === null || dE < bestOverall.deltaE) {
+            bestOverall = candidate
+        }
+
+        // Track best compliant (nearest that passes contrast)
+        if (meetsContrast && (bestCompliant === null || dE < bestCompliant.deltaE)) {
+            bestCompliant = candidate
+        }
+    }
+
+    // Prefer compliant; fall back to nearest perceptual match
+    return bestCompliant ?? bestOverall
+}
+
 // ── Numeric distance helper for spacing/dimension tokens ─────────────────────
 
 /**

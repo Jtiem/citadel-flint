@@ -584,6 +584,9 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
     // ── COUNSEL.2.2: Flagged for Review state ──────────────────────────────
     const [flaggedCardKeys, setFlaggedCardKeys] = useState<Set<string>>(new Set())
 
+    // ── COUNSEL.2.1: Deferred card keys (moved up — needed by unflagged memos) ──
+    const [deferredCardKeys, setDeferredCardKeys] = useState<Set<string>>(new Set())
+
     const handleFlag = useCallback(async (key: string, ruleId: string, nodeId: string) => {
         setFlaggedCardKeys((prev) => new Set([...prev, key]))
         // Persist via defer with [FLAGGED] prefix so it survives sessions
@@ -681,22 +684,109 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
         }
     }, [])
 
-    // ── COUNSEL.2.2 + COUNSEL.2.4: effort framing text (excludes flagged violations) ──
+    // ── COUNSEL.2.2: AI-source detection for "Flagged for Review" ──────────────
+    // Violations introduced by AI agents get a "Review" badge automatically.
+    const aiSourcedCardKeys = useMemo<Set<string>>(() => {
+        const keys = new Set<string>()
+        for (const w of effectiveLinterWarnings) {
+            const prov = provenanceMap[w.id]
+            if (prov && (prov.source === 'ai_orchestrator' || prov.source === 'auto_fix' || prov.source === 'auto-fix' || prov.source === 'auto-heal' || (prov.agentId && prov.source !== 'human'))) {
+                keys.add(`m-${w.id}`)
+            }
+        }
+        for (let i = 0; i < effectiveA11yWarnings.length; i++) {
+            const w = effectiveA11yWarnings[i]
+            const prov = provenanceMap[w.id]
+            if (prov && (prov.source === 'ai_orchestrator' || prov.source === 'auto_fix' || prov.source === 'auto-fix' || prov.source === 'auto-heal' || (prov.agentId && prov.source !== 'human'))) {
+                keys.add(`a-${w.id}-${i}`)
+            }
+        }
+        return keys
+    }, [effectiveLinterWarnings, effectiveA11yWarnings, provenanceMap])
+
+    // ── COUNSEL.2.3: Resurface check on mount ────────────────────────────────
+    // Check deferred violations on mount and resurface any past their snooze date.
+    const [resurfacedCardKeys, setResurfacedCardKeys] = useState<Set<string>>(new Set())
+
+    useEffect(() => {
+        const now = Date.now()
+        const resurfaced = new Set<string>()
+        const stillDeferred = new Map<string, number | null>()
+        const remainingDeferred = new Set<string>()
+
+        for (const [key, expiresMs] of deferredExpiresAt.entries()) {
+            if (expiresMs !== null && expiresMs <= now) {
+                // Violation has expired — resurface it
+                resurfaced.add(key)
+            } else {
+                stillDeferred.set(key, expiresMs)
+                remainingDeferred.add(key)
+            }
+        }
+
+        if (resurfaced.size > 0) {
+            setResurfacedCardKeys((prev) => new Set([...prev, ...resurfaced]))
+            // Remove from deferred sets
+            setDeferredCardKeys((prev) => {
+                const next = new Set(prev)
+                for (const k of resurfaced) next.delete(k)
+                return next
+            })
+            setDeferredExpiresAt(stillDeferred)
+        }
+    // Run on mount and whenever resurfaceTick changes (every 60s)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [resurfaceTick])
+
+    // ── COUNSEL.2.2 + COUNSEL.2.4: effort framing text (excludes flagged and deferred violations) ──
     const unflaggedLinterWarnings = useMemo(
-        () => effectiveLinterWarnings.filter((w) => !flaggedCardKeys.has(`m-${w.id}`)),
-        [effectiveLinterWarnings, flaggedCardKeys],
+        () => effectiveLinterWarnings.filter((w) => !flaggedCardKeys.has(`m-${w.id}`) && !deferredCardKeys.has(`m-${w.id}`)),
+        [effectiveLinterWarnings, flaggedCardKeys, deferredCardKeys],
     )
     const unflaggedA11yWarnings = useMemo(
-        () => effectiveA11yWarnings.filter((w, i) => !flaggedCardKeys.has(`a-${w.id}-${i}`)),
-        [effectiveA11yWarnings, flaggedCardKeys],
+        () => effectiveA11yWarnings.filter((w, i) => !flaggedCardKeys.has(`a-${w.id}-${i}`) && !deferredCardKeys.has(`a-${w.id}-${i}`)),
+        [effectiveA11yWarnings, flaggedCardKeys, deferredCardKeys],
     )
     const autoFixableCount = unflaggedLinterWarnings.filter((w) => w.nearestToken !== null).length
+    // COUNSEL.2.4: Manual review count (a11y violations that need human input)
+    const manualReviewCount = unflaggedA11yWarnings.filter((w) => {
+        const ruleId = extractRuleIdFromMsg(w.message) ?? ''
+        return A11Y_NOT_AUTO_FIXABLE.has(ruleId)
+    }).length
     const effortText: string = (() => {
         const total = unflaggedLinterWarnings.length + unflaggedA11yWarnings.length
         if (total === 0) return 'No violations — looking good'
         if (autoFixableCount > 0) return `${autoFixableCount} auto-fixable — Autopilot can resolve ${autoFixableCount === 1 ? 'it' : 'them'} in one click`
         return `${total} ${total === 1 ? 'issue' : 'issues'} need your input to resolve`
     })()
+
+    // COUNSEL.2.4: Detailed effort estimate with time breakdown
+    const effortEstimate: string = useMemo(() => {
+        const autoFixes = autoFixableCount
+        const manualFixes = manualReviewCount
+        if (autoFixes === 0 && manualFixes === 0) return ''
+        const autoSecs = autoFixes * 5
+        const manualSecs = manualFixes * 120
+        const totalSecs = autoSecs + manualSecs
+
+        const formatTime = (secs: number): string => {
+            if (secs < 60) return `${secs}s`
+            const mins = Math.ceil(secs / 60)
+            return `${mins} min`
+        }
+
+        const parts: string[] = []
+        if (autoFixes > 0) parts.push(`${autoFixes} auto-fix${autoFixes !== 1 ? 'es' : ''} (~${formatTime(autoSecs)})`)
+        if (manualFixes > 0) parts.push(`${manualFixes} manual review${manualFixes !== 1 ? 's' : ''} (~${formatTime(manualSecs)})`)
+
+        if (parts.length === 2) {
+            return `Estimated effort: ${parts.join(' + ')} = ~${formatTime(totalSecs)} total`
+        }
+        if (parts.length === 1) {
+            return `Estimated effort: ${parts[0]}`
+        }
+        return ''
+    }, [autoFixableCount, manualReviewCount])
 
     // ── COUNSEL.4.4: Trigger ring pulse when total drops to 0 ────────────────
     const totalViolations = mithrilCount + a11yCount
@@ -1068,8 +1158,8 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
     const [deferDurations, setDeferDurations] = useState<Map<string, DeferDuration>>(new Map())
     const [deferSuccess, setDeferSuccess] = useState<Set<string>>(new Set())
     const [deferSuccessMsg, setDeferSuccessMsg] = useState<Map<string, string>>(new Map())
-    // G4: track which violation rows have been successfully deferred this session
-    const [deferredCardKeys, setDeferredCardKeys] = useState<Set<string>>(new Set())
+    // deferredCardKeys is declared earlier (after flaggedCardKeys) because it's needed
+    // by the unflagged memos that compute effort framing.
 
     const toggleDeferForm = useCallback((key: string) => {
         setDeferFormOpen((prev) => {
@@ -1806,10 +1896,22 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                             total: sessionInitialCount,
                         } : undefined}
                         isBaselineSet={isBaselineSet}
+                        effortEstimate={effortEstimate}
                     />
 
-                    {/* Violation cards — expandable action items */}
+                    {/* Violation cards — expandable action items, sectioned by state */}
                     <div className="divide-y divide-zinc-800/50" data-testid="violations-list">
+
+                        {/* COUNSEL.2.3: Resurfaced violations — shown at top with amber badge */}
+                        {resurfacedCardKeys.size > 0 && (
+                            <div data-testid="resurfaced-section">
+                                <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-900/10 border-b border-amber-700/20">
+                                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" aria-hidden="true" />
+                                    <span className="text-[10px] font-medium uppercase tracking-wider text-amber-400">Resurfaced</span>
+                                </div>
+                            </div>
+                        )}
+
                         {visibleLinterWarnings.map((w) => {
                             const hardcoded = extractHardcodedClassFromMsg(w.message)
                             const token = w.nearestToken
@@ -1838,6 +1940,8 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                     isDeferSuccess={deferSuccess.has(cardKey)}
                                     deferSuccessMsg={deferSuccessMsg.get(cardKey)}
                                     resurfaceTick={resurfaceTick}
+                                    isResurfaced={resurfacedCardKeys.has(cardKey)}
+                                    isAiSourced={aiSourcedCardKeys.has(cardKey)}
                                     isExpanded={expandedViolations.has(cardKey)}
                                     isDiffOpen={inlineDiffOpen.has(cardKey)}
                                     isDiffLoading={inlineDiffLoading.has(cardKey)}
@@ -1887,6 +1991,8 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                     isDeferSuccess={deferSuccess.has(cardKey)}
                                     deferSuccessMsg={deferSuccessMsg.get(cardKey)}
                                     resurfaceTick={resurfaceTick}
+                                    isResurfaced={resurfacedCardKeys.has(cardKey)}
+                                    isAiSourced={aiSourcedCardKeys.has(cardKey)}
                                     isExpanded={expandedViolations.has(cardKey) || pinnedViolations.has(cardKey)}
                                     isDeferFormOpen={deferFormOpen.has(cardKey)}
                                     fixItem={null}
@@ -1918,6 +2024,18 @@ export function GovernanceDashboard({ onOpenExportModal, onOpenGovernancePanel, 
                                 />
                             )
                         })}
+
+                        {/* COUNSEL.2.1: Deferred section — muted cards at the bottom */}
+                        {deferredCardKeys.size > 0 && (
+                            <div data-testid="deferred-section">
+                                <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900/50 border-b border-zinc-800/40 border-t border-t-zinc-800/40">
+                                    <span className="h-1.5 w-1.5 rounded-full bg-zinc-600 shrink-0" aria-hidden="true" />
+                                    <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-600">
+                                        Deferred ({deferredCardKeys.size})
+                                    </span>
+                                </div>
+                            </div>
+                        )}
 
                         {/* Overrides */}
                         {overridesExist && (
