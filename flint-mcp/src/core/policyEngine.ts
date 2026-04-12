@@ -161,6 +161,9 @@ const KNOWN_MITHRIL_RULES = new Set<string>([
     'MITHRIL-SPC-001',
     'MITHRIL-SHD-001',
     'MITHRIL-OPC-001',
+    'MITHRIL-COMP-001',
+    'MITHRIL-COMP-002',
+    'MITHRIL-COMP-003',
 ])
 
 // Known A11y rule IDs.

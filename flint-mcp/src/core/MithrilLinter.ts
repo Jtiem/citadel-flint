@@ -31,6 +31,7 @@ import { hexToLab, deltaE2000, computeContrastRatio } from './colorMath.js'
 import { TW_V3_TO_V4_MAP } from './tailwindMigrator.js'
 import type { TailwindVersion } from './tailwindVersionResolver.js'
 import { visitDarkModeSafety, projectHasDarkMode } from './darkModeSafety.js'
+import { validateComposition } from './compositionValidator.js'
 
 // CJS/ESM interop
 const traverse =
@@ -1669,6 +1670,8 @@ export interface AuditAllOptions extends PolicyOptions {
     requiresDarkMode?: boolean
     /** P2: When provided, enables MITHRIL-REG-001 rogue intrinsic detection against these registry entries. */
     registryEntries?: ComponentEntry[]
+    /** P2.5: When provided, enables MITHRIL-COMP-001/002/003 composition validation against these registry entries. */
+    compositionRegistry?: Record<string, ComponentEntry>
 }
 
 /**
@@ -1737,6 +1740,14 @@ export function auditAll(ast: File, tokens: DesignToken[], options?: AuditAllOpt
             requiresDarkMode: options?.requiresDarkMode,
         })
         for (const [id, warning] of darkWarnings) {
+            if (!merged.has(id)) merged.set(id, warning)
+        }
+    }
+
+    // P2.5: Composition validation — MITHRIL-COMP-001/002/003
+    if (options?.compositionRegistry && Object.keys(options.compositionRegistry).length > 0) {
+        const compWarnings = validateComposition(ast, options.compositionRegistry, options)
+        for (const [id, warning] of compWarnings) {
             if (!merged.has(id)) merged.set(id, warning)
         }
     }

@@ -151,6 +151,8 @@ import {
     FLINT_COMPLIANCE_COVERAGE_TOOL,
 } from "./tools/rulePacks.js";
 import { toolError, HINTS } from "./core/errorResponse.js";
+import { DriftTrendService } from "./core/governance/driftTrendService.js";
+import type { DriftTrend } from "./core/governance/driftTrendService.js";
 
 // @ts-ignore
 const generate = _generate.default || _generate;
@@ -259,6 +261,28 @@ function getAnomalyDetectionService(projectRoot: string): AnomalyDetectionServic
     const db = new BetterSqlite3(path.join(dbDir, "anomalies.db"));
     const service = new AnomalyDetectionService(db);
     _anomalyServices.set(projectRoot, service);
+    return service;
+}
+
+// ---------------------------------------------------------------------------
+// Drift Trend singleton — P3.5: one DriftTrendService per project root,
+// backed by the governance.db (shares schema with GovernanceEventService +
+// MutationLedgerService). Reads governance_events + mutations_ledger tables.
+// ---------------------------------------------------------------------------
+
+const _driftTrendServices = new Map<string, DriftTrendService>();
+
+function getDriftTrendService(projectRoot: string): DriftTrendService {
+    const existing = _driftTrendServices.get(projectRoot);
+    if (existing !== undefined) return existing;
+
+    const dbDir = path.join(projectRoot, BRAND.configDir);
+    if (!fs.existsSync(dbDir)) {
+        fs.mkdirSync(dbDir, { recursive: true });
+    }
+    const db = new BetterSqlite3(path.join(dbDir, "governance.db"));
+    const service = new DriftTrendService(db);
+    _driftTrendServices.set(projectRoot, service);
     return service;
 }
 
@@ -789,6 +813,32 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 },
             },
             {
+                name: toolName("drift_trend"),
+                description: "Show how design system compliance is trending — weekly violations, self-healing fix rate, repeat offender files, and adoption score. Triggers alerts when metrics regress.",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        projectRoot: {
+                            type: "string",
+                            description: "Absolute path to the project root (must contain a .flint directory).",
+                        },
+                        windowDays: {
+                            type: "number",
+                            description: "Number of past days to include in the trend (default: 30).",
+                        },
+                        repeatOffenderThreshold: {
+                            type: "number",
+                            description: "Minimum mutation count for a file to be flagged as a repeat offender (default: 3).",
+                        },
+                        spikeAlertPercent: {
+                            type: "number",
+                            description: "Week-over-week violation increase percentage that triggers a spike alert (default: 40).",
+                        },
+                    },
+                    required: ["projectRoot"],
+                },
+            },
+            {
                 name: toolName("consensus_report"),
                 description:
                     "Check whether AI agents are agreeing or disagreeing on code safety. High disagreement means something needs human review.",
@@ -1281,6 +1331,12 @@ server.setRequestHandler(ListResourcesRequestSchema, async () => {
                 description: "Current anomaly count and latest detected anomalies from statistical baseline analysis."
             },
             {
+                uri: resourceUri("governance/trends"),
+                name: BRAND.product + " Governance Trends",
+                mimeType: "application/json",
+                description: "Drift trending — weekly violation counts, fix rate, repeat offender files, adoption score, and alerts. Configurable window (default: 30 days)."
+            },
+            {
                 uri: resourceUri("figma-connection"),
                 name: BRAND.product + " Figma Connection",
                 mimeType: "application/json",
@@ -1487,6 +1543,39 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
                     uri: resourceUri("anomalies"),
                     mimeType: "application/json",
                     text: `No anomalies — all clear.\n\n${JSON.stringify({ count: 0, anomalies: [] }, null, 2)}`,
+                }]
+            };
+        }
+    }
+
+    if (request.params.uri === resourceUri("governance/trends")) {
+        try {
+            const svc = getDriftTrendService(projectRoot);
+            const trend = svc.computeTrend(30);
+            const totalViolations = trend.weeklyViolations.reduce((sum, w) => sum + w.total, 0);
+            const trendSummary = totalViolations > 0
+                ? `${totalViolations} violations over ${trend.weeklyViolations.length} weeks | Fix rate: ${trend.fixRate.percentage}% | ${trend.repeatOffenders.length} repeat offender(s) | ${trend.alerts.length} alert(s)`
+                : "No violations in the last 30 days.";
+            return {
+                contents: [{
+                    uri: resourceUri("governance/trends"),
+                    mimeType: "application/json",
+                    text: `${trendSummary}\n\n${JSON.stringify(trend, null, 2)}`,
+                }]
+            };
+        } catch {
+            const emptyTrend: DriftTrend = {
+                window: { start: new Date(Date.now() - 30 * 86400000).toISOString(), end: new Date().toISOString(), days: 30 },
+                weeklyViolations: [],
+                fixRate: { autoFixed: 0, total: 0, percentage: 0 },
+                repeatOffenders: [],
+                alerts: [],
+            };
+            return {
+                contents: [{
+                    uri: resourceUri("governance/trends"),
+                    mimeType: "application/json",
+                    text: `No violations in the last 30 days.\n\n${JSON.stringify(emptyTrend, null, 2)}`,
                 }]
             };
         }
@@ -3043,6 +3132,42 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                     return toolError("flint_anomaly_report", new Error(`unknown action '${(anomArgs as { action: string }).action}'. Must be 'detect', 'history', or 'baseline'.`), HINTS.missingParam("flint_anomaly_report action='detect' projectRoot='...'"));
                 }
             }
+        }
+
+        case "flint_drift_trend": {
+            const driftArgs = request.params.arguments as {
+                projectRoot: string;
+                windowDays?: number;
+                repeatOffenderThreshold?: number;
+                spikeAlertPercent?: number;
+            };
+
+            if (!driftArgs.projectRoot || !fs.existsSync(driftArgs.projectRoot)) {
+                return toolError("flint_drift_trend", new Error("'projectRoot' must be an existing directory."), HINTS.fileNotFound);
+            }
+
+            const driftSvc = getDriftTrendService(driftArgs.projectRoot);
+            const trend = driftSvc.computeTrend(
+                driftArgs.windowDays ?? 30,
+                {
+                    repeatOffenderThreshold: driftArgs.repeatOffenderThreshold,
+                    spikeAlertPercent: driftArgs.spikeAlertPercent,
+                },
+            );
+
+            // Build a human-readable summary line
+            const totalViolations = trend.weeklyViolations.reduce((sum, w) => sum + w.total, 0);
+            let driftSummary = `${totalViolations} violations over ${trend.window.days} days | Fix rate: ${trend.fixRate.percentage}%`;
+            if (trend.repeatOffenders.length > 0) {
+                driftSummary += ` | ${trend.repeatOffenders.length} repeat offender(s)`;
+            }
+            if (trend.alerts.length > 0) {
+                driftSummary += ` | ${trend.alerts.length} alert(s)`;
+            }
+
+            return {
+                content: [{ type: "text", text: `${driftSummary}\n\n${JSON.stringify(trend, null, 2)}` }],
+            };
         }
 
         case "flint_risk_score": {

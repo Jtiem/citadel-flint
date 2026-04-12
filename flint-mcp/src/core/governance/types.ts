@@ -499,6 +499,7 @@ export type AnomalyType =
     | 'risk_drift'
     | 'velocity_spike'
     | 'agent_behavior_change'
+    | 'drift_regression'
 
 /**
  * Severity of a detected anomaly, derived from how far the observed

@@ -6,37 +6,30 @@
 
 ---
 
-## Session: COUNSEL.2 + MINT.2 — Deferral Voice + Code Truth Moat (2026-04-11) — IN PROGRESS
+## Session: Governor Expansion P2.5 + P3.5 — Composition Governance + Drift Trending (2026-04-12) — IN PROGRESS
 
-### COUNSEL.2 — Deferral Voice
+### What's in scope
 
-| Task | Name | Priority | Status |
-| ---- | ---- | -------- | ------ |
-| COUNSEL.2.1 | Defer Button | P1 | IN PROGRESS |
-| COUNSEL.2.2 | Flagged-for-Review Tier | P1 | IN PROGRESS |
-| COUNSEL.2.3 | Snooze with Auto-Resurface | P1 | IN PROGRESS |
-| COUNSEL.2.4 | Effort Framing | P1 | IN PROGRESS |
-| COUNSEL.2.5 | Session Fix Progress | P1 | IN PROGRESS |
+- **P2.5 — Composition & Slot Governance:** `flint-mcp/src/core/compositionValidator.ts` (new) — validates component composition rules and slot usage against registry contracts.
+- **P3.5 — Drift Trending Service:** `flint-mcp/src/core/driftTrendService.ts` (new) — time-series drift tracking, trend direction, and threshold alerting.
 
-### MINT.2 — Code Truth Moat
+---
 
-| Task | Name | Priority | Status |
-| ---- | ---- | -------- | ------ |
-| MINT.2a | Token Usage Scanner | P0 | IN PROGRESS |
-| MINT.2b | Usage Counts + Dead Token Badges | P0 | IN PROGRESS |
-| MINT.2c | Drift Indicators | P1 | IN PROGRESS |
-| MINT.2d | Silent Drift Badge on Tab | P1 | IN PROGRESS |
+## Session: COUNSEL.4 + MINT.4 + FORGE.4 — All 3 UX Redesign Tracks Complete (2026-04-11) — COMPLETE
 
-### Files in scope
+Committed as fb79261. Glass: 2182/2182 (64 new tests). All three UX redesign tracks (Counsel, Mint, Forge) fully shipped.
 
-- `src/components/ui/GovernanceDashboard.tsx` (COUNSEL.2)
-- `src/components/ui/governance/ViolationCard.tsx` (COUNSEL.2)
-- `src/components/ui/governance/BatchActionBar.tsx` (COUNSEL.2)
-- `src/components/ui/governance/ScoreSection.tsx` (COUNSEL.2)
-- `src/components/ui/TokenManager.tsx` (MINT.2)
-- `src/components/ui/TokenGrid.tsx` (MINT.2)
-- `src/components/ui/TokenHealthBar.tsx` (MINT.2)
-- `src/App.tsx` (MINT.2)
+---
+
+## Session: COUNSEL.3 + MINT.3 + P1d + P2 (2026-04-11) — COMPLETE
+
+Committed as 16974ed. Glass: 2118/2118, MCP: 4529/4529 (102 new tests), TSC: 0 errors.
+
+---
+
+## Session: COUNSEL.2 + MINT.2 — Deferral Voice + Code Truth Moat (2026-04-11) — COMPLETE
+
+Committed as 2d68894. Review: SHIP (batch5-review). Glass: 2051/2051, MCP: 4495/4495.
 
 ---
 

@@ -36,6 +36,17 @@ export interface ComponentEntry {
     a11yNotes?: string;
     /** Names of related components (e.g., "DialogHeader", "DialogFooter" for "Dialog"). */
     relatedComponents?: string[];
+    /** P2.5: Structural composition rules for parent-child validation. */
+    compositionRules?: {
+        /** Whitelist: only these components can be nested inside this component. */
+        allowedChildren?: string[];
+        /** Blacklist: these components must never be nested inside this component. */
+        forbiddenChildren?: string[];
+        /** This component must always appear inside this parent component. */
+        requiredParent?: string;
+        /** Maximum nesting depth for this component (e.g., 2 prevents Card-in-Card-in-Card). */
+        maxDepth?: number;
+    };
 }
 
 // ── FIGMA-MAP.3: Deterministic Lookup ────────────────────────────────────────

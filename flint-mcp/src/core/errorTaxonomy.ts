@@ -1286,6 +1286,63 @@ const REGISTRY: Record<string, ErrorEntry> = {
             'The violation message includes the exact import path and component name to use.',
         sourceAuthority: 'Commandment 2 (No Hallucinated Styling) + Flint P2 (Design System Adoption Enforcement)',
     },
+
+    // ── P2.5: Composition & Slot Governance ──────────────────────────────────
+
+    'FLINT-MITH-020': {
+        code: 'FLINT-MITH-020',
+        ruleId: 'MITHRIL-COMP-001',
+        category: 'mithril',
+        severity: 'warning',
+        title: 'Forbidden Child Component',
+        explanation:
+            'A component was nested inside a parent that explicitly forbids it, or it is not in the ' +
+            'parent\'s allowed children list. Design systems define structural contracts between components — ' +
+            'for example, a Card should never be placed inside a Button, and a Table should not appear ' +
+            'inside an interactive control. Violating these contracts produces broken layouts, ' +
+            'inaccessible interaction patterns, and unpredictable rendering behavior.',
+        recovery:
+            'Move the child component outside of its current parent, or restructure the composition ' +
+            'to use an approved parent-child relationship. Check the component\'s compositionRules ' +
+            'in the registry for the list of allowed and forbidden children.',
+        sourceAuthority: 'Commandment 2 (No Hallucinated Styling) + Flint P2.5 (Composition & Slot Governance)',
+    },
+
+    'FLINT-MITH-021': {
+        code: 'FLINT-MITH-021',
+        ruleId: 'MITHRIL-COMP-002',
+        category: 'mithril',
+        severity: 'warning',
+        title: 'Missing Required Parent Component',
+        explanation:
+            'A component that requires a specific parent container was used outside of it. ' +
+            'Some components are designed to function only within their parent context — ' +
+            'for example, TabPanel must appear inside Tabs, and DialogFooter must appear inside Dialog. ' +
+            'Using them standalone produces broken behavior because they depend on the parent ' +
+            'for state management, layout context, or accessibility semantics.',
+        recovery:
+            'Wrap this component inside the required parent component. Check the component\'s ' +
+            'compositionRules.requiredParent field in the registry for the correct parent.',
+        sourceAuthority: 'Commandment 2 (No Hallucinated Styling) + Flint P2.5 (Composition & Slot Governance)',
+    },
+
+    'FLINT-MITH-022': {
+        code: 'FLINT-MITH-022',
+        ruleId: 'MITHRIL-COMP-003',
+        category: 'mithril',
+        severity: 'warning',
+        title: 'Maximum Component Nesting Depth Exceeded',
+        explanation:
+            'A component is nested deeper than its maximum allowed depth. Deep nesting of the same ' +
+            'component type (e.g., Card inside Card inside Card) indicates a structural anti-pattern ' +
+            'that typically produces broken layouts, performance issues, and confusing visual hierarchy. ' +
+            'Design systems set maximum depth limits to enforce flat, maintainable compositions.',
+        recovery:
+            'Flatten the component structure by removing unnecessary nesting levels. If the deep ' +
+            'nesting is intentional, consider using a different component or increasing the maxDepth ' +
+            'limit in the component\'s compositionRules.',
+        sourceAuthority: 'Commandment 2 (No Hallucinated Styling) + Flint P2.5 (Composition & Slot Governance)',
+    },
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────────

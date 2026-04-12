@@ -168,6 +168,17 @@ function classifyViolation(
         }
     }
 
+    // ── Composition violations (P2.5) — always semantic ─────────────────────
+    if (violation.type === 'composition') {
+        return {
+            violation,
+            classification: 'semantic',
+            confidence: 0.8,
+            semanticHint: violation.recovery
+                ?? `Composition violation: ${violation.message}. Restructure the component tree to fix this.`,
+        }
+    }
+
     // ── Sync violations ──────────────────────────────────────────────────────
     if (violation.type === 'sync') {
         return {
