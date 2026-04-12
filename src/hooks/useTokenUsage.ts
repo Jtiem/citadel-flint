@@ -85,20 +85,29 @@ export function useTokenUsage(
     useEffect(() => {
         async function checkDrift() {
             try {
-                // Check if Figma is connected
+                // Check if Figma is connected — skip all work if not
                 const figmaStatus = await window.flintAPI.figma.status()
                 if (!figmaStatus.running) {
-                    setDriftedTokens([])
+                    if (mountedRef.current) setDriftedTokens([])
                     return
                 }
 
-                // Try to read figma-tokens.json via the MCP or a readFile call
+                // Resolve .flint/figma-tokens.json to an absolute path under the
+                // active project root. A relative path would fail validateFilePath
+                // and trigger a render loop (fixed 2026-04-12).
+                const { useCanvasStore } = await import('../store/canvasStore')
+                const projectRoot = useCanvasStore.getState().workspaceFiles?.path
+                if (!projectRoot) {
+                    if (mountedRef.current) setDriftedTokens([])
+                    return
+                }
+
                 const api = window.flintAPI as any
                 let figmaTokensRaw: string | null = null
                 if (typeof api?.readFile === 'function') {
                     try {
-                        figmaTokensRaw = await api.readFile('.flint/figma-tokens.json')
-                    } catch (err) { console.warn('[Flint] useTokenUsage: failed to read figma-tokens.json', err) }
+                        figmaTokensRaw = await api.readFile(`${projectRoot}/.flint/figma-tokens.json`)
+                    } catch { /* file doesn't exist or can't be read — silent */ }
                 }
 
                 if (!figmaTokensRaw) {
