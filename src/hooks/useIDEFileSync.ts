@@ -29,36 +29,9 @@ export function useIDEFileSync(): void {
             const filePath =
                 typeof data === 'string' ? data : (data as { path?: string })?.path
             if (!filePath) return
-            const ws = useCanvasStore.getState().workspaceFiles
-            const fileInCurrentProject = ws && filePath.startsWith(ws.path)
-
-            // If the file is from a different project (or no project is open),
-            // auto-open the project containing this file. This handles:
-            //   - Right-click "Open in Flint Glass" when Glass is on LaunchScreen
-            //   - IDE sends a file from workspace X while Glass has workspace Y open
-            if (!fileInCurrentProject && window.flintAPI?.project?.openPath) {
-                void (async () => {
-                    try {
-                        // Walk up from the file to find the project root
-                        let projectRoot: string | null = null
-                        if (window.flintAPI.project.findRootForFile) {
-                            projectRoot = await window.flintAPI.project.findRootForFile(filePath)
-                        }
-                        // Fallback: use the file's directory
-                        if (!projectRoot) {
-                            projectRoot = filePath.substring(0, filePath.lastIndexOf('/'))
-                        }
-                        const tree = await window.flintAPI.project.openPath(projectRoot)
-                        if (tree) {
-                            void setActiveFile(filePath)
-                        }
-                    } catch {
-                        void setActiveFile(filePath)
-                    }
-                })()
-                useCanvasStore.getState().recordIDESyncEvent(filePath)
-                return
-            }
+            // Accept any file the IDE sends — don't reject files outside the
+            // current project. The IDE is the source of truth for what the user
+            // is working on. Glass should follow, not gatekeep.
 
             void setActiveFile(filePath)
             // Herald: record the IDE sync event for the StatusBar chip
