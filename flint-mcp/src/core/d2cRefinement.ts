@@ -576,28 +576,10 @@ async function applyGovernanceGate(
                 filePath: options.filePath,
             })
 
-            // Count deterministic fixes (these would be auto-applied in a full pipeline)
+            // C13: Do NOT apply fixes via string replacement.
+            // Deterministic fixes are counted for reporting only.
+            // The caller applies fixes through the AST pipeline (fix.ts).
             autoFixed = plan.deterministic.length
-
-            // Auto-apply deterministic token fixes inline via string replacement
-            // This is a lightweight application — full AST mutation goes through fix.ts
-            for (const planned of plan.deterministic) {
-                if (planned.proposedFix?.type === 'fixToken' && planned.proposedFix.params.targetValue) {
-                    const targetValue = String(planned.proposedFix.params.targetValue)
-                    const originalMsg = planned.violation.message
-                    // Extract the violating value from the message for replacement
-                    // MithrilLinter messages contain the raw value that can be swapped
-                    const nearestToken = planned.violation.nearestToken
-                    if (nearestToken && planned.violation.nearestTokenValue) {
-                        // Best-effort inline token swap in className strings
-                        // Full AST mutation is handled by fix.ts in the broader pipeline
-                        const violatingPattern = extractViolatingValue(originalMsg)
-                        if (violatingPattern) {
-                            finalCode = finalCode.replace(violatingPattern, targetValue)
-                        }
-                    }
-                }
-            }
 
             // Collect semantic warnings
             for (const planned of plan.semantic) {
@@ -674,22 +656,5 @@ async function applyGovernanceGate(
     }
 }
 
-/**
- * Best-effort extraction of the violating CSS value from a Mithril warning
- * message. Returns the raw value string or null if it cannot be parsed.
- *
- * Mithril messages typically follow the pattern:
- *   "Hardcoded color #FF0000 ..."
- *   "Color drift: bg-[#FF0000] ..."
- */
-function extractViolatingValue(message: string): string | null {
-    // Match arbitrary Tailwind values like bg-[#FF0000] or text-[12px]
-    const arbitraryMatch = message.match(/\[([^\]]+)\]/)
-    if (arbitraryMatch) return arbitraryMatch[1]
-
-    // Match hex colors
-    const hexMatch = message.match(/#[0-9a-fA-F]{3,8}/)
-    if (hexMatch) return hexMatch[0]
-
-    return null
-}
+// extractViolatingValue removed — C13 prohibits regex-based source modification.
+// Deterministic fixes are counted for reporting; the caller applies them via AST.
