@@ -125,10 +125,16 @@ async function scanDirectory(dirPath: string): Promise<FileTreeNode> {
 // Any write to a path under serverRoot mutates source files → Vite HMR detects
 // the mtime change → full reload → autoResumeChecked resets → flash loop.
 //
-// This factory creates a *single* set of helpers that every write path and
-// every broadcast path in the server MUST use.  It is created once in
-// startServer() and closed over by all handlers — no inline existsSync
-// patterns scattered across 3,000 lines.
+// The guard applies ONLY to WRITES — not to broadcasts.  Broadcasting a path
+// to Glass is a read-only operation (Glass opens the file in its preview).
+// The loop can only start when Glass writes back (auto-save → Vite HMR).
+// safeAtomicWrite / safeWriteFileSync catch that at the write boundary.
+// Blocking broadcasts would prevent "Open in Flint Glass" from IDE extensions
+// (e.g. Antigravity) from working when the server runs inside the Flint repo.
+//
+// This factory creates a *single* set of helpers that every write path in the
+// server MUST use.  It is created once in startServer() and closed over by all
+// handlers — no inline existsSync patterns scattered across 3,000 lines.
 //
 // Design invariant: the helpers use the immutable `serverRoot` captured at
 // server start time, not the mutable `activeProjectRoot`.  After a project
@@ -694,10 +700,16 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
   // When a new Glass tab connects, push the current IDE file immediately.
   // This fixes the "tab close + reopen" scenario where the server's lastPath
   // dedup would otherwise prevent re-broadcasting the active file.
-  // Self-hosting guard: don't replay a Flint source file path — that would
-  // cause Glass to open it → auto-save → Vite HMR → reload loop.
+  //
+  // NOTE: we intentionally do NOT guard against Flint source paths here.
+  // Broadcasting a path to Glass is read-only — Glass displays the file.
+  // The flash loop only starts when Glass writes back (auto-save triggering
+  // Vite HMR).  The write guard (safeAtomicWrite) stops that at the write
+  // boundary, so there is no need to block the broadcast.  Blocking broadcasts
+  // was over-aggressive: it prevented "Open in Flint Glass" from Antigravity
+  // from working when the server is run from inside the Flint repo.
   wss.on('connection', (clientWs) => {
-    if (ideFileSyncState.lastPath && !selfHosting.isSelfHostedPath(ideFileSyncState.lastPath)) {
+    if (ideFileSyncState.lastPath) {
       const msg = JSON.stringify({
         channel: 'flint:ide-file-selected',
         data: { path: ideFileSyncState.lastPath },
@@ -2535,10 +2547,14 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
         }).then(() => {
           // If the primary root didn't find anything and the roots differ,
           // also check the original server root.
-          // Self-hosting guard: skip the serverRoot fallback tick when serverRoot
-          // IS the Flint source tree (selfHosting.isFlintSourceTree uses the same
-          // immutable serverRoot, no need for a fresh existsSync here).
-          if (serverRoot !== activeProjectRoot && !selfHosting.isFlintSourceTree) {
+          //
+          // NOTE: we do NOT guard against self-hosting here.  The secondary
+          // tick reads ide-active-file.json from serverRoot and broadcasts the
+          // path to Glass — which is read-only.  The write guard (safeAtomicWrite)
+          // prevents any subsequent auto-save from touching source files, so
+          // blocking the broadcast is not necessary and was preventing IDE sync
+          // from working when Antigravity sends paths under the Flint repo.
+          if (serverRoot !== activeProjectRoot) {
             return ideFileSyncTick({
               activeProjectRoot: serverRoot,
               state: ideFileSyncState,

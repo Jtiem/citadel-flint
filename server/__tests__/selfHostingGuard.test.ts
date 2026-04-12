@@ -5,6 +5,10 @@
  * Vite HMR → reload → flash loop when dev:web is run from inside
  * the Flint source tree.
  *
+ * The guard applies ONLY to file WRITES.  Broadcasts are intentionally
+ * unguarded — broadcasting a path to Glass is read-only; the loop only
+ * starts when Glass writes back.  safeAtomicWrite catches that.
+ *
  * Coverage:
  *
  *   SHG-01 — isSelfHostedPath: returns false when serverRoot is NOT the Flint tree
@@ -27,8 +31,10 @@
  *   Integration paths (simulate what the handlers do):
  *   SHG-15 — safeAtomicWrite integration: write to non-Flint path → atomicWrite called
  *   SHG-16 — safeAtomicWrite integration: write to Flint source path → blocked, no fs write
- *   SHG-17 — broadcast replay guard: isSelfHostedPath blocks a Flint source file path
- *   SHG-18 — IDE sync secondary tick guard: isFlintSourceTree prevents serverRoot tick
+ *   SHG-17 — broadcast replay: Flint source file path IS broadcast on WS connect (read-only, no loop risk)
+ *   SHG-17b — broadcast replay: non-Flint path is also broadcast (unchanged behaviour)
+ *   SHG-17c — broadcast replay: broadcast reaches the client even when self-hosting is active
+ *   SHG-18 — IDE sync secondary tick: runs when serverRoot ≠ activeProjectRoot, regardless of isFlintSourceTree
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
@@ -276,44 +282,67 @@ describe('safeAtomicWrite integration logic', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('broadcast path guards', () => {
-  it('SHG-17 — isSelfHostedPath blocks a Flint source file from being replayed on WS connect', () => {
-    makeFlintTree(tmpBase)
-    const guard = createSelfHostingGuard(tmpBase)
-    const flintFile = path.join(tmpBase, 'src', 'App.tsx')
-    const broadcasts: string[] = []
+  // The guard applies ONLY to writes.  Broadcasts are intentionally unguarded:
+  // Glass opening a file is read-only; the loop can only start when Glass
+  // writes back, and safeAtomicWrite blocks that at the write boundary.
 
-    // Simulate the wss.on('connection') replay logic
+  it('SHG-17 — Flint source file path IS broadcast on WS connect (no write guard needed)', () => {
+    makeFlintTree(tmpBase)
+    const broadcasts: string[] = []
+    const flintFile = path.join(tmpBase, 'src', 'App.tsx')
+
+    // Simulate the wss.on('connection') replay logic (guard removed)
     const lastPath = flintFile
-    if (lastPath && !guard.isSelfHostedPath(lastPath)) {
+    if (lastPath) {
       broadcasts.push(lastPath)
     }
 
-    expect(broadcasts).toHaveLength(0)
+    expect(broadcasts).toContain(flintFile)
   })
 
-  it('SHG-17b — non-Flint path is allowed through broadcast replay', () => {
-    makeFlintTree(tmpBase)
-    const guard = createSelfHostingGuard(tmpBase)
+  it('SHG-17b — non-Flint path is also broadcast on WS connect', () => {
     const userFile = path.join(os.homedir(), 'my-project', 'src', 'App.tsx')
     const broadcasts: string[] = []
 
     const lastPath = userFile
-    if (lastPath && !guard.isSelfHostedPath(lastPath)) {
+    if (lastPath) {
       broadcasts.push(lastPath)
     }
 
     expect(broadcasts).toContain(userFile)
   })
 
-  it('SHG-18 — isFlintSourceTree prevents secondary IDE sync tick on serverRoot', () => {
+  it('SHG-17c — broadcast reaches client even when self-hosting is active', () => {
+    // Confirm: even when isFlintSourceTree is true, the broadcast replay
+    // is not suppressed — write guard (safeAtomicWrite) is the only defence.
     makeFlintTree(tmpBase)
     const guard = createSelfHostingGuard(tmpBase)
-    const serverRoot = tmpBase
-    let tempProjectRoot = path.join(os.tmpdir(), 'demo-12345')
+    expect(guard.isFlintSourceTree).toBe(true) // self-hosted
 
-    // Simulate the condition check from the secondary tick in server/index.ts
-    const secondaryTickWouldRun = serverRoot !== tempProjectRoot && !guard.isFlintSourceTree
-    expect(secondaryTickWouldRun).toBe(false)
+    const flintFile = path.join(tmpBase, 'src', 'App.tsx')
+    const broadcasts: string[] = []
+
+    // No guard in the broadcast path — just check lastPath truthy
+    if (flintFile) {
+      broadcasts.push(flintFile)
+    }
+
+    expect(broadcasts).toContain(flintFile)
+  })
+
+  it('SHG-18 — secondary IDE sync tick runs when serverRoot ≠ activeProjectRoot, regardless of isFlintSourceTree', () => {
+    makeFlintTree(tmpBase)
+    const guard = createSelfHostingGuard(tmpBase)
+    expect(guard.isFlintSourceTree).toBe(true) // self-hosted
+
+    const serverRoot = tmpBase
+    const tempProjectRoot = path.join(os.tmpdir(), 'demo-12345')
+
+    // Simulate the updated condition check from server/index.ts:
+    //   if (serverRoot !== activeProjectRoot) { run secondary tick }
+    // isFlintSourceTree is no longer part of this condition.
+    const secondaryTickWouldRun = serverRoot !== tempProjectRoot
+    expect(secondaryTickWouldRun).toBe(true)
   })
 })
 
