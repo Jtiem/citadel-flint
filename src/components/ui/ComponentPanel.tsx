@@ -94,6 +94,20 @@ function RecipeSection() {
                     : <ChevronRight size={10} />}
                 Recipes ({BUILTIN_RECIPES.length})
             </button>
+            {/* Collapsed preview: show 2 recipe name chips as read-only labels */}
+            {!expanded && (
+                <div className="flex flex-wrap gap-1 px-3 pb-2" data-testid="recipe-section-preview">
+                    {BUILTIN_RECIPES.slice(0, 2).map((recipe) => (
+                        <span
+                            key={recipe.id}
+                            className="text-xs text-zinc-400 bg-zinc-800 rounded px-2 py-0.5"
+                            data-testid={`recipe-preview-chip-${recipe.id}`}
+                        >
+                            {recipe.name}
+                        </span>
+                    ))}
+                </div>
+            )}
             {expanded && (
                 <div className="flex flex-col gap-1 px-3 pb-2" data-testid="recipe-section-list">
                     {BUILTIN_RECIPES.map((recipe) => (

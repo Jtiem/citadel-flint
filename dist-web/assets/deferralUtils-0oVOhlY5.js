@@ -1,0 +1,1 @@
+function r(e){switch(e){case"1 day":return 1440*60*1e3;case"3 days":return 4320*60*1e3;case"1 week":return 10080*60*1e3;case"1 sprint":return 336*60*60*1e3;case"Manually":return null;case void 0:return null}}function t(e){const n=r(e);return n===null?null:new Date(Date.now()+n).toISOString()}export{t as computeExpiresAt,r as durationToMs};

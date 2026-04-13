@@ -96,6 +96,9 @@ export class MCPClient {
   // ── Public API ─────────────────────────────────────────────────────────────
 
   async start(projectRoot: string): Promise<void> {
+    // No-op if already running (or connecting) for the same project root — prevents
+    // killing an in-progress handshake when the same path is re-opened (e.g. session restore).
+    if (this.proc !== null && this.projectRoot === projectRoot) return
     if (this.proc !== null) {
       await this.stop()
     }

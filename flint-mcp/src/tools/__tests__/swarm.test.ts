@@ -303,7 +303,7 @@ describe('handleFlintSwarmAuditFix — autoFix mode', () => {
 
         const onDisk = fs.readFileSync(driftedPath, 'utf-8')
         expect(onDisk).not.toContain('#ff0000')
-        expect(onDisk).toContain('var(--color-neutral-900)')
+        expect(onDisk).toContain('var(--color-neutral-900, #18181b)')
     })
 })
 

@@ -623,7 +623,7 @@ describe('GovernanceDashboard — COUNSEL.3.2 Provenance Chip', () => {
         ;(window.flintAPI.governance.getOverrideCount as ReturnType<typeof vi.fn>).mockResolvedValue(0)
     })
 
-    it('renders "Introduced by you" when provenance source is human', async () => {
+    it('renders "via manual edit" when provenance source is human', async () => {
         seedTokens([makeToken()])
         const warning = makeLinterWarning({ id: 'n1', type: 'color-drift' })
         useEditorStore.setState({ linterWarnings: new Map([['n1', warning]]) })
@@ -634,7 +634,7 @@ describe('GovernanceDashboard — COUNSEL.3.2 Provenance Chip', () => {
         render(<GovernanceDashboard />)
         await waitFor(() => {
             expect(screen.getByTestId('provenance-chip-n1')).toBeDefined()
-            expect(screen.getByTestId('provenance-chip-n1').textContent).toContain('Introduced by you')
+            expect(screen.getByTestId('provenance-chip-n1').textContent).toContain('via manual edit')
         })
     })
 
@@ -649,7 +649,7 @@ describe('GovernanceDashboard — COUNSEL.3.2 Provenance Chip', () => {
         render(<GovernanceDashboard />)
         await waitFor(() => {
             expect(screen.getByTestId('provenance-chip-n2')).toBeDefined()
-            expect(screen.getByTestId('provenance-chip-n2').textContent).toContain('Introduced by claude-coder')
+            expect(screen.getByTestId('provenance-chip-n2').textContent).toContain('via claude-coder')
         })
     })
 
@@ -694,7 +694,7 @@ describe('GovernanceDashboard — COUNSEL.3.3 Anomaly Alert Banner', () => {
         await waitFor(() => {
             expect(screen.getByTestId('anomaly-alert-banner')).toBeDefined()
             expect(screen.getByTestId('anomaly-alert-banner').textContent).toContain('Flare detected 1 anomaly')
-            expect(screen.getByTestId('anomaly-alert-banner').textContent).toContain('Mutation rate 3x above baseline')
+            expect(screen.getByTestId('anomaly-alert-banner').textContent).toContain('Mutation velocity is above normal')
         })
     })
 

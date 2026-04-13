@@ -74,7 +74,7 @@ describe('GovernanceDashboard — Actionable (GLASS.1e)', () => {
         }
     })
 
-    // 1. Rule rows are clickable — open Top Triggered Rules accordion first
+    // 1. Rule rows are clickable — open "More details" then "Top Triggered Rules" accordion first
     it('renders rule rows as clickable buttons', async () => {
         const warnings = new Map<string, LinterWarning>([
             ['n1', makeWarning({ id: 'W1', type: 'color-drift' })],
@@ -83,7 +83,12 @@ describe('GovernanceDashboard — Actionable (GLASS.1e)', () => {
         seedTokensAndWarnings([makeToken()], warnings)
         render(<GovernanceDashboard />)
 
-        // Open the "Top Triggered Rules" accordion
+        // Open "More details" disclosure first (GAP-1 restructure)
+        const moreDetailsBtn = screen.getByTestId('more-details-toggle')
+        fireEvent.click(moreDetailsBtn)
+
+        // Open the "Top Triggered Rules" accordion inside
+        await waitFor(() => screen.getByRole('button', { name: /Top Triggered Rules/i }))
         const topRulesBtn = screen.getByRole('button', { name: /Top Triggered Rules/i })
         fireEvent.click(topRulesBtn)
 
@@ -103,7 +108,12 @@ describe('GovernanceDashboard — Actionable (GLASS.1e)', () => {
         seedTokensAndWarnings([makeToken()], warnings)
         render(<GovernanceDashboard />)
 
-        // Open the "Top Triggered Rules" accordion
+        // Open "More details" disclosure first (GAP-1 restructure)
+        const moreDetailsBtn = screen.getByTestId('more-details-toggle')
+        fireEvent.click(moreDetailsBtn)
+
+        // Open the "Top Triggered Rules" accordion inside
+        await waitFor(() => screen.getByRole('button', { name: /Top Triggered Rules/i }))
         const topRulesBtn = screen.getByRole('button', { name: /Top Triggered Rules/i })
         fireEvent.click(topRulesBtn)
 
@@ -143,12 +153,17 @@ describe('GovernanceDashboard — Actionable (GLASS.1e)', () => {
         })
     })
 
-    // 5. Delta Mode toggle is in the "Session & Baseline" accordion
+    // 5. Delta Mode toggle is in the "Session & Baseline" accordion (inside "More details")
     it('Delta Mode toggle section is rendered inside Session & Baseline accordion', async () => {
         seedTokensAndWarnings([makeToken()], new Map())
         render(<GovernanceDashboard />)
 
-        // The section is inside a collapsed accordion — open it first
+        // Open "More details" disclosure first (GAP-1 restructure)
+        const moreDetailsBtn = screen.getByTestId('more-details-toggle')
+        fireEvent.click(moreDetailsBtn)
+
+        // The section is inside a collapsed accordion — open it
+        await waitFor(() => screen.getByRole('button', { name: /Session.*Baseline/i }))
         const sessionBtn = screen.getByRole('button', { name: /Session.*Baseline/i })
         fireEvent.click(sessionBtn)
 
@@ -167,7 +182,10 @@ describe('GovernanceDashboard — Actionable (GLASS.1e)', () => {
         seedTokensAndWarnings([makeToken()], warnings)
         render(<GovernanceDashboard />)
 
-        // Health Score accordion is open by default — hint is visible without clicking
+        // Open the Health Score accordion to reveal the score-trend-hint
+        await waitFor(() => screen.getByTestId('score-ring'))
+        const accordionBtn = document.querySelector('button[aria-controls="score-accordion"]') as HTMLElement
+        fireEvent.click(accordionBtn)
 
         await waitFor(() => {
             const hint = screen.getByTestId('score-trend-hint')

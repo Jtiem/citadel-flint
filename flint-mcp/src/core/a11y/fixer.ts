@@ -11,7 +11,7 @@
 
 import _traverse from '@babel/traverse'
 import _generate from '@babel/generator'
-import type { File as BabelFile } from '@babel/types'
+import type { File as BabelFile, JSXOpeningElement } from '@babel/types'
 import type {
     A11yRule,
     A11yViolationDetail,
@@ -107,10 +107,82 @@ export function applyFixes(
     return result
 }
 
+// ── Prop mutation helpers ─────────────────────────────────────────────────────
+
+/**
+ * Applies a single prop add/update/remove to a JSXOpeningElement in place.
+ * Extracted so both traversal strategies (by flint-id and by tag fallback) can share it.
+ */
+function applyPropToElement(
+    opening: JSXOpeningElement,
+    propName: string,
+    value: string | null,
+): void {
+    const existing = opening.attributes.findIndex(
+        (a) =>
+            a.type === 'JSXAttribute' &&
+            a.name.type === 'JSXIdentifier' &&
+            a.name.name === propName,
+    )
+
+    if (value === null) {
+        if (existing !== -1) {
+            opening.attributes.splice(existing, 1)
+        }
+    } else if (existing !== -1) {
+        const attr = opening.attributes[existing]
+        if (attr.type === 'JSXAttribute') {
+            attr.value = {
+                type: 'StringLiteral',
+                value,
+                extra: { rawValue: value, raw: `"${value}"` },
+            } as import('@babel/types').StringLiteral
+        }
+    } else {
+        opening.attributes.push({
+            type: 'JSXAttribute',
+            name: { type: 'JSXIdentifier', name: propName },
+            value: {
+                type: 'StringLiteral',
+                value,
+                extra: { rawValue: value, raw: `"${value}"` },
+            } as import('@babel/types').StringLiteral,
+        } as import('@babel/types').JSXAttribute)
+    }
+}
+
+/**
+ * Infers the JSX tag name from the fallback ID string used when data-flint-id
+ * is absent. The fallback strings are defined in helpers.ts getFlintId().
+ *
+ * e.g. 'input-no-label' → 'input', 'button-no-name' → 'button'
+ */
+function inferTagFromFallbackId(fallbackId: string): string | null {
+    if (fallbackId.startsWith('img-')) return 'img'
+    if (fallbackId.startsWith('button-')) return 'button'
+    if (fallbackId.startsWith('a-')) return 'a'
+    if (fallbackId.startsWith('input-')) return 'input'
+    if (fallbackId.startsWith('select-')) return 'select'
+    if (fallbackId.startsWith('textarea-')) return 'textarea'
+    if (fallbackId.startsWith('html-')) return 'html'
+    if (fallbackId.startsWith('table-')) return 'table'
+    if (fallbackId.startsWith('th-')) return 'th'
+    if (fallbackId.startsWith('fieldset-')) return 'fieldset'
+    if (fallbackId.startsWith('label-')) return 'label'
+    return null
+}
+
+// ── AST mutation application ──────────────────────────────────────────────────
+
 /**
  * Applies a single fix mutation directly to the AST.
  * Used by flint_fix to apply fixes inline without going through the full
  * flint_ast_mutate pipeline.
+ *
+ * Strategy:
+ * 1. Primary: match by data-flint-id (accurate, handles multi-element files)
+ * 2. Fallback: match by tag name inferred from the fallback nodeId string
+ *    (handles files where injectFlintIds hasn't run yet)
  *
  * @param ast       The AST to mutate (modified in place)
  * @param mutation  The mutation descriptor
@@ -119,73 +191,69 @@ export function applyFixMutationToAst(
     ast: BabelFile,
     mutation: A11yFixMutation,
 ): void {
-    if (mutation.type === 'updateProp') {
-        const { nodeId, propName, value } = mutation.args as {
-            nodeId: string
-            propName: string
-            value: string | null
-        }
-
-        traverse(ast, {
-            JSXOpeningElement(path) {
-                const nameNode = path.node.name
-                if (nameNode.type !== 'JSXIdentifier') return
-
-                // Find the element with the matching flint-id
-                const flintIdAttr = path.node.attributes.find(
-                    (a) =>
-                        a.type === 'JSXAttribute' &&
-                        a.name.type === 'JSXIdentifier' &&
-                        a.name.name === 'data-flint-id',
-                )
-                if (!flintIdAttr || flintIdAttr.type !== 'JSXAttribute') return
-                const attrVal = flintIdAttr.value
-                if (!attrVal || attrVal.type !== 'StringLiteral') return
-                if (attrVal.value !== nodeId) return
-
-                // Find the target attribute
-                const existing = path.node.attributes.findIndex(
-                    (a) =>
-                        a.type === 'JSXAttribute' &&
-                        a.name.type === 'JSXIdentifier' &&
-                        a.name.name === propName,
-                )
-
-                if (value === null) {
-                    // Remove attribute
-                    if (existing !== -1) {
-                        path.node.attributes.splice(existing, 1)
-                    }
-                } else if (existing !== -1) {
-                    // Update existing
-                    const attr = path.node.attributes[existing]
-                    if (attr.type === 'JSXAttribute') {
-                        attr.value = {
-                            type: 'StringLiteral',
-                            value,
-                            extra: { rawValue: value, raw: `"${value}"` },
-                        } as import('@babel/types').StringLiteral
-                    }
-                } else {
-                    // Add new attribute
-                    path.node.attributes.push({
-                        type: 'JSXAttribute',
-                        name: { type: 'JSXIdentifier', name: propName },
-                        value: {
-                            type: 'StringLiteral',
-                            value,
-                            extra: { rawValue: value, raw: `"${value}"` },
-                        } as import('@babel/types').StringLiteral,
-                    } as import('@babel/types').JSXAttribute)
-                }
-
-                path.stop()
-            },
-        })
+    if (mutation.type !== 'updateProp') {
+        // Other mutation types (wrap, inject, delete) are handled by flint_ast_mutate
+        // pipeline — the fixer returns mutation descriptors for those.
+        return
     }
 
-    // Other mutation types (wrap, inject, delete) are handled by flint_ast_mutate
-    // pipeline — the fixer returns mutation descriptors for those.
+    const { nodeId, propName, value } = mutation.args as {
+        nodeId: string
+        propName: string
+        value: string | null
+    }
+
+    // ── Pass 1: match by data-flint-id ───────────────────────────────────────
+    let found = false
+
+    traverse(ast, {
+        JSXOpeningElement(path) {
+            if (path.node.name.type !== 'JSXIdentifier') return
+
+            const flintIdAttr = path.node.attributes.find(
+                (a) =>
+                    a.type === 'JSXAttribute' &&
+                    a.name.type === 'JSXIdentifier' &&
+                    a.name.name === 'data-flint-id',
+            )
+            if (!flintIdAttr || flintIdAttr.type !== 'JSXAttribute') return
+            const attrVal = flintIdAttr.value
+            if (!attrVal || attrVal.type !== 'StringLiteral') return
+            if (attrVal.value !== nodeId) return
+
+            applyPropToElement(path.node, propName, value)
+            found = true
+            path.stop()
+        },
+    })
+
+    if (found) return
+
+    // ── Pass 2: tag-name fallback (no data-flint-id in the file) ─────────────
+    // When injectFlintIds hasn't been run, getFlintId() returns a generic
+    // string like 'input-no-label'. We infer the tag name from that string
+    // and apply the fix to all matching elements that don't already have the prop.
+    const tagName = inferTagFromFallbackId(nodeId)
+    if (!tagName) return
+
+    traverse(ast, {
+        JSXOpeningElement(path) {
+            const nameNode = path.node.name
+            if (nameNode.type !== 'JSXIdentifier') return
+            if (nameNode.name !== tagName) return
+
+            // Skip elements that already have the target prop
+            const hasProp = path.node.attributes.some(
+                (a) =>
+                    a.type === 'JSXAttribute' &&
+                    a.name.type === 'JSXIdentifier' &&
+                    a.name.name === propName,
+            )
+            if (hasProp) return
+
+            applyPropToElement(path.node, propName, value)
+        },
+    })
 }
 
 /**

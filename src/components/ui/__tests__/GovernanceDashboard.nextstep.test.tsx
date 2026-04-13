@@ -67,7 +67,12 @@ function seedState(opts: {
 }
 
 async function getNextStepText(): Promise<string> {
-    // Score accordion defaults to open — just wait for the element to appear
+    // Score accordion starts closed — open it first to reveal next-step-prompt
+    await waitFor(() => screen.getByTestId('score-ring'))
+    const accordionBtn = document.querySelector('button[aria-controls="score-accordion"]') as HTMLElement | null
+    if (accordionBtn && accordionBtn.getAttribute('aria-expanded') !== 'true') {
+        fireEvent.click(accordionBtn)
+    }
     await waitFor(() => {
         expect(screen.getByTestId('next-step-prompt')).toBeDefined()
     })

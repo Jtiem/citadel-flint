@@ -39,15 +39,8 @@
  *   - flint_add_remote_library: agent-only library management
  *   - flint_annotate: annotations created by MCP agents, Glass reads via annotations:read-all IPC
  */
-export const RENDERER_ALLOWED_MCP_TOOLS: readonly string[] = Object.freeze([
-    'flint_status',
-    'flint_audit',
-    'flint_debt_report',
-    'flint_query_registry',
-    'flint_generate_dbom',
-    'flint_accessibility_report',
-    'flint_audit_report',
-])
+import { RENDERER_ALLOWED_MCP_TOOLS } from '../shared/mcp-allowed-tools.ts'
+export { RENDERER_ALLOWED_MCP_TOOLS }
 
 // ── AGV.1: Per-Agent Tool ACL ────────────────────────────────────────────────
 //

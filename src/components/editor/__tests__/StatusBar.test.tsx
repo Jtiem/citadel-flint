@@ -198,6 +198,9 @@ describe('StatusBar', () => {
         ;(window.flintAPI.mcp?.status as Mock).mockResolvedValue({ connected: false })
         const onConnectIDE = vi.fn()
         render(<StatusBar onConnectIDE={onConnectIDE} />)
+        // Chip lives inside the overflow dropdown — open it first
+        await waitFor(() => screen.getByTestId('statusbar-overflow-btn'))
+        fireEvent.click(screen.getByTestId('statusbar-overflow-btn'))
         await waitFor(() => {
             expect(screen.getByTestId('statusbar-connect-ide')).toBeDefined()
         })
@@ -208,6 +211,8 @@ describe('StatusBar', () => {
         ;(window.flintAPI.mcp?.status as Mock).mockResolvedValue({ connected: false })
         const onConnectIDE = vi.fn()
         render(<StatusBar onConnectIDE={onConnectIDE} />)
+        await waitFor(() => screen.getByTestId('statusbar-overflow-btn'))
+        fireEvent.click(screen.getByTestId('statusbar-overflow-btn'))
         await waitFor(() => screen.getByTestId('statusbar-connect-ide'))
         fireEvent.click(screen.getByTestId('statusbar-connect-ide'))
         expect(onConnectIDE).toHaveBeenCalled()
@@ -237,6 +242,9 @@ describe('StatusBar', () => {
     // 16. "Demo Project" badge appears when isDemo is true
     it('renders "Demo Project" badge when isDemo is true', async () => {
         render(<StatusBar isDemo={true} />)
+        // Badge lives inside the overflow dropdown — open it first
+        await waitFor(() => screen.getByTestId('statusbar-overflow-btn'))
+        fireEvent.click(screen.getByTestId('statusbar-overflow-btn'))
         await waitFor(() => {
             expect(screen.getByText('Demo Project')).toBeDefined()
         })
@@ -254,6 +262,8 @@ describe('StatusBar', () => {
     it('renders "Open your project" link and calls onOpenOwnProject when clicked', async () => {
         const onOpenOwnProject = vi.fn()
         render(<StatusBar isDemo={true} onOpenOwnProject={onOpenOwnProject} />)
+        await waitFor(() => screen.getByTestId('statusbar-overflow-btn'))
+        fireEvent.click(screen.getByTestId('statusbar-overflow-btn'))
         await waitFor(() => screen.getByText('Open your project'))
         fireEvent.click(screen.getByText('Open your project'))
         expect(onOpenOwnProject).toHaveBeenCalled()

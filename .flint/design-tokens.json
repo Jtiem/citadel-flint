@@ -1,19 +1,40 @@
-{
-  "$schema": "https://tr.designtokens.org/format/",
-  "_brand": "Summit Health — Governance Demo Tokens",
-  "color": {
-    "brand": {
-      "primary": { "$value": "#005B94", "$type": "color", "$description": "Summit Health Corporate Blue" },
-      "surface": { "$value": "#f0f7ff", "$type": "color", "$description": "Summit Health light background" }
-    },
-    "feedback": {
-      "error": { "$value": "#C41E1E", "$type": "color", "$description": "Summit Health Red — alerts and error states" },
-      "warning": { "$value": "#d97706", "$type": "color" }
-    },
-    "text": {
-      "primary": { "$value": "#1e293b", "$type": "color" },
-      "muted": { "$value": "#64748b", "$type": "color" },
-      "error": { "$value": "#C41E1E", "$type": "color" }
-    }
-  }
-}
+[
+  { "id": 1,  "token_path": "color.primary",        "token_type": "color",      "token_value": "#0066FF", "description": "Primary brand blue",           "collection_name": "default", "mode": "default" },
+  { "id": 2,  "token_path": "color.primary-hover",   "token_type": "color",      "token_value": "#0052CC", "description": "Primary blue hover",           "collection_name": "default", "mode": "default" },
+  { "id": 3,  "token_path": "color.primary-subtle",  "token_type": "color",      "token_value": "#E5EEFF", "description": "10% primary blue tint",        "collection_name": "default", "mode": "default" },
+  { "id": 4,  "token_path": "color.surface",         "token_type": "color",      "token_value": "#FFFFFF", "description": "Default page surface",         "collection_name": "default", "mode": "default" },
+  { "id": 5,  "token_path": "color.surface-raised",  "token_type": "color",      "token_value": "#F8F9FA", "description": "Elevated surface",             "collection_name": "default", "mode": "default" },
+  { "id": 6,  "token_path": "color.surface-overlay", "token_type": "color",      "token_value": "#F0F1F3", "description": "Modal backdrops",              "collection_name": "default", "mode": "default" },
+  { "id": 7,  "token_path": "color.on-surface",      "token_type": "color",      "token_value": "#111827", "description": "Primary text",                 "collection_name": "default", "mode": "default" },
+  { "id": 8,  "token_path": "color.on-surface-muted","token_type": "color",      "token_value": "#6B7280", "description": "Secondary text",               "collection_name": "default", "mode": "default" },
+  { "id": 9,  "token_path": "color.on-primary",      "token_type": "color",      "token_value": "#FFFFFF", "description": "Text on primary backgrounds",  "collection_name": "default", "mode": "default" },
+  { "id": 10, "token_path": "color.danger",          "token_type": "color",      "token_value": "#DC2626", "description": "Destructive / error",          "collection_name": "default", "mode": "default" },
+  { "id": 11, "token_path": "color.success",         "token_type": "color",      "token_value": "#16A34A", "description": "Success states",               "collection_name": "default", "mode": "default" },
+  { "id": 12, "token_path": "color.warning",         "token_type": "color",      "token_value": "#D97706", "description": "Warning states",               "collection_name": "default", "mode": "default" },
+  { "id": 13, "token_path": "color.border",          "token_type": "color",      "token_value": "#E5E7EB", "description": "Dividers and borders",         "collection_name": "default", "mode": "default" },
+  { "id": 14, "token_path": "spacing.1",             "token_type": "dimension",  "token_value": "4px",     "description": "Smallest spacing unit",        "collection_name": "default", "mode": "default" },
+  { "id": 15, "token_path": "spacing.2",             "token_type": "dimension",  "token_value": "8px",     "description": "Compact spacing",              "collection_name": "default", "mode": "default" },
+  { "id": 16, "token_path": "spacing.3",             "token_type": "dimension",  "token_value": "12px",    "description": "Slight breathing room",        "collection_name": "default", "mode": "default" },
+  { "id": 17, "token_path": "spacing.4",             "token_type": "dimension",  "token_value": "16px",    "description": "Standard padding",             "collection_name": "default", "mode": "default" },
+  { "id": 18, "token_path": "spacing.5",             "token_type": "dimension",  "token_value": "20px",    "description": "Medium spacing",               "collection_name": "default", "mode": "default" },
+  { "id": 19, "token_path": "spacing.6",             "token_type": "dimension",  "token_value": "24px",    "description": "Card / panel padding",         "collection_name": "default", "mode": "default" },
+  { "id": 20, "token_path": "spacing.8",             "token_type": "dimension",  "token_value": "32px",    "description": "Section-level spacing",        "collection_name": "default", "mode": "default" },
+  { "id": 21, "token_path": "spacing.10",            "token_type": "dimension",  "token_value": "40px",    "description": "Large layout gap",             "collection_name": "default", "mode": "default" },
+  { "id": 22, "token_path": "spacing.12",            "token_type": "dimension",  "token_value": "48px",    "description": "Hero spacing",                 "collection_name": "default", "mode": "default" },
+  { "id": 23, "token_path": "fontSize.xs",           "token_type": "dimension",  "token_value": "12px",    "description": "Captions",                     "collection_name": "default", "mode": "default" },
+  { "id": 24, "token_path": "fontSize.sm",           "token_type": "dimension",  "token_value": "14px",    "description": "Secondary UI text",            "collection_name": "default", "mode": "default" },
+  { "id": 25, "token_path": "fontSize.base",         "token_type": "dimension",  "token_value": "16px",    "description": "Default body copy",            "collection_name": "default", "mode": "default" },
+  { "id": 26, "token_path": "fontSize.lg",           "token_type": "dimension",  "token_value": "20px",    "description": "Sub-headings",                 "collection_name": "default", "mode": "default" },
+  { "id": 27, "token_path": "fontSize.xl",           "token_type": "dimension",  "token_value": "24px",    "description": "Section headings",             "collection_name": "default", "mode": "default" },
+  { "id": 28, "token_path": "fontSize.2xl",          "token_type": "dimension",  "token_value": "32px",    "description": "Page-level headings",          "collection_name": "default", "mode": "default" },
+  { "id": 29, "token_path": "borderRadius.sm",       "token_type": "dimension",  "token_value": "4px",     "description": "Badges and chips",             "collection_name": "default", "mode": "default" },
+  { "id": 30, "token_path": "borderRadius.md",       "token_type": "dimension",  "token_value": "8px",     "description": "Standard rounding",            "collection_name": "default", "mode": "default" },
+  { "id": 31, "token_path": "borderRadius.lg",       "token_type": "dimension",  "token_value": "12px",    "description": "Cards and modals",             "collection_name": "default", "mode": "default" },
+  { "id": 32, "token_path": "borderRadius.full",     "token_type": "dimension",  "token_value": "9999px",  "description": "Pills and avatars",            "collection_name": "default", "mode": "default" },
+  { "id": 33, "token_path": "fontFamily.sans",       "token_type": "fontFamily", "token_value": "Inter, ui-sans-serif, system-ui, sans-serif", "description": "Primary UI typeface", "collection_name": "default", "mode": "default" },
+  { "id": 34, "token_path": "fontFamily.mono",       "token_type": "fontFamily", "token_value": "JetBrains Mono, ui-monospace, monospace", "description": "Code snippets",       "collection_name": "default", "mode": "default" },
+  { "id": 35, "token_path": "shadow.sm",             "token_type": "shadow",     "token_value": "0 1px 2px 0 rgba(0,0,0,0.05)", "description": "Subtle lift",              "collection_name": "default", "mode": "default" },
+  { "id": 36, "token_path": "shadow.md",             "token_type": "shadow",     "token_value": "0 4px 6px -1px rgba(0,0,0,0.10), 0 2px 4px -1px rgba(0,0,0,0.06)", "description": "Card elevation", "collection_name": "default", "mode": "default" },
+  { "id": 37, "token_path": "shadow.lg",             "token_type": "shadow",     "token_value": "0 10px 15px -3px rgba(0,0,0,0.10), 0 4px 6px -2px rgba(0,0,0,0.05)", "description": "Dropdown elevation", "collection_name": "default", "mode": "default" },
+  { "id": 38, "token_path": "shadow.xl",             "token_type": "shadow",     "token_value": "0 20px 25px -5px rgba(0,0,0,0.10), 0 10px 10px -5px rgba(0,0,0,0.04)", "description": "Modal elevation", "collection_name": "default", "mode": "default" }
+]

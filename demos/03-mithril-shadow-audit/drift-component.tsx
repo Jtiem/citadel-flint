@@ -1,5 +1,22 @@
 import React from 'react';
 
+/**
+ * PricingCard — Demo fixture for CIEDE2000 color drift detection.
+ *
+ * This component was produced by an AI that eyeballed colors from a Figma
+ * screenshot instead of reading design tokens. Three color values are subtly
+ * wrong:
+ *
+ *   Header bg:  #0055EE — nearest: color.primary-hover (#0052CC)  ΔE 4.6
+ *   Badge bg:   #FF3333 — nearest: color.danger (#DC2626)      ΔE 8.1
+ *   Button bg:  #0055EE — nearest: color.primary-hover (#0052CC)  ΔE 4.6
+ *
+ * Inline style values are literal strings (not ternary expressions) so the
+ * Mithril linter can extract and compare them via CIEDE2000.
+ * Spacing / layout are Tailwind standard scale classes to avoid masking the
+ * color violations with MITHRIL-IST-SPC hits.
+ */
+
 interface PricingFeature {
   text: string;
   included: boolean;
@@ -10,112 +27,64 @@ interface PricingCardProps {
   price: number;
   billingPeriod: 'monthly' | 'annual';
   features: PricingFeature[];
-  highlighted?: boolean;
   onSelectPlan: (planName: string) => void;
 }
-
-const HIGHLIGHTED_BG = '#1a1a2e';
 
 export default function PricingCard({
   planName,
   price,
   billingPeriod,
   features,
-  highlighted = false,
   onSelectPlan,
 }: PricingCardProps) {
   return (
     <article
       data-flint-id="pricing-card-root"
-      style={{
-        backgroundColor: highlighted ? HIGHLIGHTED_BG : '#FFFFFF',
-        borderRadius: '12px',
-        overflow: 'hidden',
-        border: highlighted ? 'none' : '1px solid #E5E7EB',
-        boxShadow: highlighted
-          ? '0 20px 40px rgba(0,0,0,0.25)'
-          : '0 1px 3px rgba(0,0,0,0.08)',
-        position: 'relative',
-        display: 'flex',
-        flexDirection: 'column',
-      }}
+      className="relative flex flex-col overflow-hidden rounded-xl border-0 shadow-2xl"
     >
-      {highlighted && (
-        <div
-          data-flint-id="pricing-card-badge"
-          style={{
-            position: 'absolute',
-            top: '16px',
-            right: '16px',
-            backgroundColor: '#FF3333',
-            color: '#FFFFFF',
-            fontSize: '11px',
-            fontWeight: 700,
-            letterSpacing: '0.05em',
-            textTransform: 'uppercase',
-            padding: '4px 10px',
-            borderRadius: '9999px',
-          }}
-        >
-          Most popular
-        </div>
-      )}
+      {/* Badge — DRIFT: #FF3333 used instead of color.danger (#DC2626) */}
+      <div
+        data-flint-id="pricing-card-badge"
+        style={{ backgroundColor: '#FF3333' }}
+        className="absolute top-4 right-4 px-2.5 py-1 rounded-full text-white text-xs font-bold uppercase tracking-wide"
+      >
+        Most popular
+      </div>
 
+      {/* Header — DRIFT: #0055EE used instead of color.primary (#0066FF) */}
       <div
         data-flint-id="pricing-card-header"
-        style={{
-          backgroundColor: highlighted ? '#0055EE' : '#F8F9FA',
-          padding: '28px 24px',
-        }}
+        style={{ backgroundColor: '#0055EE' }}
+        className="px-6 py-7"
       >
         <h3
-          style={{
-            color: highlighted ? '#FFFFFF' : '#111827',
-            fontSize: '18px',
-            fontWeight: 600,
-            margin: 0,
-          }}
+          data-flint-id="pricing-card-plan-name"
+          className="text-white text-lg font-semibold m-0"
         >
           {planName}
         </h3>
-        <div style={{ marginTop: '12px', display: 'flex', alignItems: 'baseline', gap: '4px' }}>
-          <span
-            style={{
-              color: highlighted ? '#FFFFFF' : '#111827',
-              fontSize: '40px',
-              fontWeight: 700,
-              lineHeight: 1,
-            }}
-          >
+        <div className="mt-3 flex items-baseline gap-1">
+          <span className="text-white text-5xl font-bold leading-none">
             ${price}
           </span>
-          <span
-            style={{
-              color: highlighted ? 'rgba(255,255,255,0.7)' : '#6B7280',
-              fontSize: '14px',
-            }}
-          >
+          <span className="text-white/70 text-sm">
             / {billingPeriod === 'annual' ? 'mo, billed annually' : 'month'}
           </span>
         </div>
       </div>
 
+      {/* Features */}
       <div
         data-flint-id="pricing-card-features"
-        style={{ padding: '24px', flex: 1 }}
+        className="flex-1 px-6 py-6"
       >
-        <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <ul className="list-none m-0 p-0 flex flex-col gap-3">
           {features.map((feature, i) => (
             <li
               key={i}
+              className="flex items-start gap-2.5 text-sm"
               style={{
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: '10px',
-                fontSize: '15px',
-                color: feature.included
-                  ? (highlighted ? '#FFFFFF' : '#374151')
-                  : (highlighted ? 'rgba(255,255,255,0.35)' : '#9CA3AF'),
+                color: feature.included ? '#374151' : '#9CA3AF',
                 textDecoration: feature.included ? 'none' : 'line-through',
               }}
             >
@@ -124,13 +93,9 @@ export default function PricingCard({
                 height="18"
                 viewBox="0 0 18 18"
                 fill="none"
-                style={{
-                  flexShrink: 0,
-                  marginTop: '1px',
-                  color: feature.included
-                    ? (highlighted ? '#00AAFF' : '#00AAFF')
-                    : 'transparent',
-                }}
+                aria-hidden="true"
+                className="shrink-0 mt-px"
+                style={{ color: feature.included ? '#00AAFF' : 'transparent' }}
               >
                 {feature.included && (
                   <path
@@ -148,21 +113,13 @@ export default function PricingCard({
         </ul>
       </div>
 
-      <div style={{ padding: '0 24px 28px' }}>
+      {/* CTA — DRIFT: #0055EE used instead of color.primary (#0066FF) */}
+      <div className="px-6 pb-7">
         <button
+          data-flint-id="pricing-card-cta"
           onClick={() => onSelectPlan(planName)}
-          style={{
-            width: '100%',
-            padding: '12px',
-            borderRadius: '8px',
-            fontSize: '15px',
-            fontWeight: 600,
-            cursor: 'pointer',
-            border: 'none',
-            transition: 'background-color 0.15s',
-            backgroundColor: highlighted ? '#0055EE' : '#F3F4F6',
-            color: highlighted ? '#FFFFFF' : '#374151',
-          }}
+          style={{ backgroundColor: '#0055EE' }}
+          className="w-full py-3 rounded-lg text-white text-sm font-semibold border-0 cursor-pointer"
         >
           Get started with {planName}
         </button>

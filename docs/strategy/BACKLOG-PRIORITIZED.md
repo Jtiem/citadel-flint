@@ -963,6 +963,23 @@ Sprints 1–7 are fully ONLINE. Sprint 8 defines the next wave of work. All item
 
 **Deferred decision resolved:** This item was previously listed under Deferred Decisions as "Flint Autopilot / OODA Loop Governance." The dependencies (DBOM.1, GOV.4) are now ONLINE, making it implementable. Promoting to Sprint 8 BACKLOG.
 
+### Cross-File Spread Source Resolution (Mithril Linter)
+
+| Field | Value |
+|-------|-------|
+| **ID** | MITHRIL-XF.1 |
+| **Priority** | P3 |
+| **Effort** | M |
+| **Audience** | Developer (CI gate, VS Code extension) |
+| **Dependencies** | None — additive to existing `visitInlineStyles` |
+| **Status** | BACKLOG |
+
+**What:** When a JSX component spreads an imported style object (`style={{ ...baseStyle }}`), the linter currently counts it as `skippedDynamic` and moves on. This item would add a pre-pass inside the `flint_audit` MCP tool: parse all project files, collect every `export const X = { ... }` where the value is a plain object with literal properties, build a `Map<moduleSpecifier, Map<exportName, StylePropEntry[]>>`, and thread it into `visitInlineStyles` as an optional `importMap` parameter. When a spread argument resolves to an import, the map provides the literal properties to check.
+
+**Why this priority:** Not a designer pain point — spread-composed style objects are a developer organizational pattern, not a Mason/Figma output. The `skippedDynamic` counter already surfaces the gap honestly. Build only when a developer using the CI gate files this as a real miss.
+
+**Constraints:** Only resolves re-exported plain objects. Dynamic exports (`export const s = merge(base, overrides)`) remain skipped. Cross-file spread is the only remaining unresolved blind spot in the Mithril extractor.
+
 ---
 
 ## Agent-Aware Governance Track (AGV)

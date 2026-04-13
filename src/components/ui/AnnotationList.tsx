@@ -25,26 +25,9 @@
 import { useState, useRef, useEffect } from 'react'
 import { MessageSquare, ChevronRight, ChevronDown, CheckCheck, Plus } from 'lucide-react'
 import { useAnnotationStore } from '../../store/annotationStore'
+import { useNotificationStore } from '../../store/notificationStore'
 import type { FlintAnnotation, AnnotationType } from '../../types/flint-api'
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-/**
- * Returns a short human-readable relative time string from an ISO timestamp.
- * Example: "2 hours ago", "just now", "3 days ago".
- */
-function relativeTime(isoString: string): string {
-    const then = new Date(isoString).getTime()
-    const diffMs = Date.now() - then
-    const diffSec = Math.floor(diffMs / 1000)
-    if (diffSec < 60) return 'just now'
-    const diffMin = Math.floor(diffSec / 60)
-    if (diffMin < 60) return `${diffMin}m ago`
-    const diffHr = Math.floor(diffMin / 60)
-    if (diffHr < 24) return `${diffHr}h ago`
-    const diffDay = Math.floor(diffHr / 24)
-    return `${diffDay}d ago`
-}
+import { formatRelativeTime } from '../../utils/relativeTime'
 
 /** Type badge colour + label map. */
 const TYPE_CONFIG: Record<AnnotationType, { label: string; className: string }> = {
@@ -56,24 +39,34 @@ const TYPE_CONFIG: Record<AnnotationType, { label: string; className: string }> 
 
 // ── AnnotationCard ─────────────────────────────────────────────────────────────
 
+/** Annotation types that require an explicit confirmation before resolving. */
+const CONFIRM_TYPES = new Set<AnnotationType>(['approval', 'handoff'])
+
 interface AnnotationCardProps {
     annotation: FlintAnnotation
-    onResolve: (id: string) => void
+    onResolve: (annotation: FlintAnnotation) => void
 }
 
 function AnnotationCard({ annotation, onResolve }: AnnotationCardProps) {
     const [resolving, setResolving] = useState(false)
+    const [pendingConfirm, setPendingConfirm] = useState(false)
     const config = TYPE_CONFIG[annotation.type] ?? TYPE_CONFIG.note
+    const needsConfirm = CONFIRM_TYPES.has(annotation.type)
 
-    async function handleResolve() {
-        setResolving(true)
-        try {
-            onResolve(annotation.id)
-        } finally {
-            // resolving state will be cleared when the parent re-renders with the
-            // annotation removed from the list after fetchAnnotations completes.
-            setResolving(false)
+    function handleResolveClick(): void {
+        if (needsConfirm && !pendingConfirm) {
+            // First click for sensitive types: show confirmation UI.
+            setPendingConfirm(true)
+            return
         }
+        // Either a non-sensitive type, or the user clicked "Yes, resolve".
+        setResolving(true)
+        onResolve(annotation)
+        // resolving state clears on parent re-render once annotation is removed.
+    }
+
+    function handleCancelConfirm(): void {
+        setPendingConfirm(false)
     }
 
     return (
@@ -89,7 +82,7 @@ function AnnotationCard({ annotation, onResolve }: AnnotationCardProps) {
                     {config.label}
                 </span>
                 <span className="ml-auto shrink-0 text-zinc-500">
-                    {relativeTime(annotation.createdAt)}
+                    {formatRelativeTime(annotation.createdAt)}
                 </span>
             </div>
 
@@ -98,16 +91,37 @@ function AnnotationCard({ annotation, onResolve }: AnnotationCardProps) {
                 {annotation.body}
             </p>
 
-            {/* Resolve button */}
-            <button
-                type="button"
-                disabled={resolving}
-                onClick={() => { void handleResolve() }}
-                className="flex items-center gap-1 self-end rounded border border-gray-700 bg-gray-800/60 px-2 py-0.5 text-[10px] font-medium text-gray-400 transition-colors hover:border-indigo-600/60 hover:bg-indigo-900/20 hover:text-indigo-300 disabled:opacity-50"
-            >
-                <CheckCheck className="h-2.5 w-2.5 shrink-0" />
-                {resolving ? 'Resolving…' : 'Resolve'}
-            </button>
+            {/* Resolve / confirmation row */}
+            {pendingConfirm ? (
+                <div className="flex items-center gap-1.5 self-end">
+                    <span className="text-[10px] text-amber-400">Confirm resolve?</span>
+                    <button
+                        type="button"
+                        disabled={resolving}
+                        onClick={handleResolveClick}
+                        className="rounded border border-emerald-700/60 bg-emerald-900/20 px-2 py-0.5 text-[10px] font-medium text-emerald-300 transition-colors hover:bg-emerald-900/40 disabled:opacity-50"
+                    >
+                        Yes, resolve
+                    </button>
+                    <button
+                        type="button"
+                        onClick={handleCancelConfirm}
+                        className="rounded border border-gray-700 bg-gray-800/60 px-2 py-0.5 text-[10px] font-medium text-gray-400 transition-colors hover:border-gray-600 hover:text-gray-200"
+                    >
+                        Cancel
+                    </button>
+                </div>
+            ) : (
+                <button
+                    type="button"
+                    disabled={resolving}
+                    onClick={handleResolveClick}
+                    className="flex items-center gap-1 self-end rounded border border-gray-700 bg-gray-800/60 px-2 py-0.5 text-[10px] font-medium text-gray-400 transition-colors hover:border-indigo-600/60 hover:bg-indigo-900/20 hover:text-indigo-300 disabled:opacity-50"
+                >
+                    <CheckCheck className="h-2.5 w-2.5 shrink-0" />
+                    {resolving ? 'Resolving…' : 'Resolve'}
+                </button>
+            )}
         </div>
     )
 }
@@ -127,6 +141,8 @@ interface AnnotationListProps {
 export function AnnotationList({ nodeId }: AnnotationListProps) {
     const annotationsForNode = useAnnotationStore((s) => s.annotationsForNode)
     const resolveAnnotation = useAnnotationStore((s) => s.resolveAnnotation)
+    const restoreAnnotation = useAnnotationStore((s) => s.restoreAnnotation)
+    const pushNotification = useNotificationStore((s) => s.push)
 
     const annotations = annotationsForNode(nodeId)
     const count = annotations.length
@@ -214,7 +230,20 @@ export function AnnotationList({ nodeId }: AnnotationListProps) {
                             <AnnotationCard
                                 key={ann.id}
                                 annotation={ann}
-                                onResolve={(id) => { void resolveAnnotation(id) }}
+                                onResolve={(resolved) => {
+                                    void resolveAnnotation(resolved.id)
+                                    pushNotification({
+                                        type: 'mutation',
+                                        title: 'Annotation resolved',
+                                        message: resolved.body.length > 60
+                                            ? `${resolved.body.slice(0, 60)}…`
+                                            : resolved.body,
+                                        severity: 'success',
+                                        autoDismissMs: 5000,
+                                        actionLabel: 'Undo',
+                                        actionCallback: () => { restoreAnnotation(resolved) },
+                                    })
+                                }}
                             />
                         ))
                     )}
