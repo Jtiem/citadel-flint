@@ -31,6 +31,16 @@ export type CanvasMode = 'design' | 'interact'
 export type RightTab = 'governance' | 'properties' | 'tokens'
 
 /**
+ * Persisted tuple for the last-active file (LAUNCH.3 Security m3).
+ * Storing `rootPath` alongside `path` lets tryAutoResume verify the
+ * file's project root has not changed between sessions.
+ */
+export interface LastActiveFileEntry {
+    path: string
+    rootPath: string
+}
+
+/**
  * Tabs that are always visible regardless of workspace activity.
  * All other tabs unlock progressively as the user's workflow earns them.
  * See OPP-10 in UX-OPPORTUNITIES.md.
@@ -225,6 +235,23 @@ interface CanvasState {
      */
     governanceRuleFilter: LinterWarning['type'] | null
 
+    // ── LAUNCH.3: Last active file persistence ────────────────────────────────
+    /**
+     * Tuple of the last successfully loaded file path and its project root.
+     * Storing the root alongside the path closes a theoretical workspace-hijack
+     * where a planted package.json ancestor could cause findRootForFile to
+     * return a different root on the next boot. On resume, tryAutoResume verifies
+     * that findRootForFile still returns the same rootPath; a mismatch is treated
+     * as a poisoned entry and cleared.
+     *
+     * Persisted to localStorage under 'flint:lastActiveFile' as JSON.
+     * Cleared by clearLastActiveFile() or closeWorkspace().
+     *
+     * Migration note: the previous string-only format is a non-JSON string; the
+     * JSON.parse step in readPersistedLastActiveFile will reject it and self-heal.
+     */
+    lastActiveFile: LastActiveFileEntry | null
+
     // ── T5.2: LivePreview node size (persisted across sessions) ─────────────
     /**
      * Width of the LivePreview node on the XY canvas, in pixels.
@@ -406,6 +433,23 @@ interface CanvasActions {
      * Pass null to clear the filter and show all violations.
      */
     setGovernanceRuleFilter: (type: LinterWarning['type'] | null) => void
+
+    // ── LAUNCH.3: Last active file persistence ────────────────────────────────
+    /**
+     * Clears the persisted last-active-file path from both store and localStorage.
+     * Call this when the user explicitly closes a file or workspace so that a
+     * subsequent refresh correctly shows the LaunchScreen.
+     */
+    clearLastActiveFile: () => void
+    /**
+     * Atomically persists the {path, rootPath} tuple to both Zustand state and
+     * localStorage. Call this from App.tsx after a successful setWorkspaceTree +
+     * setActiveFile sequence, once you know the root.
+     *
+     * Never called inside setActiveFile itself so that the action signature
+     * (`filePath: string`) doesn't need to change across all callers.
+     */
+    recordLastActiveFile: (path: string, rootPath: string) => void
     // ── T5.2: LivePreview node size ────────────────────────────────────────────
     /**
      * Updates the LivePreview node dimensions and persists them to localStorage
@@ -457,6 +501,70 @@ const DEFAULT_RIGHT_PANEL_WIDTH = 288
 // ── T5.2: LivePreview size persistence ────────────────────────────────────────
 
 const PREVIEW_SIZE_KEY = 'flint:previewSize'
+// ── LAUNCH.3: Last active file persistence ────────────────────────────────────
+/** @internal Storage key for the last-active file path persisted across tab refreshes. */
+export const LAST_ACTIVE_FILE_KEY = 'flint:lastActiveFile'
+
+// Maximum byte length accepted from localStorage. Values longer than this are
+// almost certainly corrupted or adversarially crafted.
+const LAF_MAX_BYTES = 4096
+
+/** Applies the M1 field-level guards to a single path string from the tuple. */
+function isValidPersistedPath(value: unknown): value is string {
+    if (typeof value !== 'string' || value.length === 0) return false
+    if (value.length > LAF_MAX_BYTES) return false
+    if (/[\x00-\x1f]/.test(value)) return false
+    // Windows absolute paths (e.g. C:\...) are out of scope for Flint.
+    if (!value.startsWith('/')) return false
+    return true
+}
+
+function readPersistedLastActiveFile(): LastActiveFileEntry | null {
+    try {
+        const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(LAST_ACTIVE_FILE_KEY) : null
+        if (typeof raw !== 'string' || raw.length === 0) return null
+
+        // Security M1: reject oversized values before attempting JSON.parse.
+        if (raw.length > LAF_MAX_BYTES) {
+            localStorage.removeItem(LAST_ACTIVE_FILE_KEY)
+            return null
+        }
+
+        // Security m3: the value must be a JSON tuple {path, rootPath}.
+        // The previous string-only format is not valid JSON — it will fail
+        // parse and self-heal to null, which is the correct migration path.
+        let parsed: unknown
+        try {
+            parsed = JSON.parse(raw)
+        } catch {
+            // Not valid JSON — stale string-only format or corruption.
+            localStorage.removeItem(LAST_ACTIVE_FILE_KEY)
+            return null
+        }
+
+        if (
+            parsed === null ||
+            typeof parsed !== 'object' ||
+            !('path' in parsed) ||
+            !('rootPath' in parsed)
+        ) {
+            localStorage.removeItem(LAST_ACTIVE_FILE_KEY)
+            return null
+        }
+
+        const { path: p, rootPath: r } = parsed as Record<string, unknown>
+
+        if (!isValidPersistedPath(p) || !isValidPersistedPath(r)) {
+            localStorage.removeItem(LAST_ACTIVE_FILE_KEY)
+            return null
+        }
+
+        return { path: p, rootPath: r }
+    } catch {
+        // Silently ignore storage errors (private mode, quota exceeded, etc.)
+    }
+    return null
+}
 
 function readPersistedPreviewSize(): { width: number; height: number } {
     try {
@@ -486,6 +594,7 @@ function readPersistedPreviewSize(): { width: number; height: number } {
 }
 
 const _initialPreviewSize = readPersistedPreviewSize()
+const _initialLastActiveFile = readPersistedLastActiveFile()
 
 // ── Store ─────────────────────────────────────────────────────────────────────
 
@@ -526,6 +635,9 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
 
     // GLASS.1e: Governance rule filter
     governanceRuleFilter: null,
+
+    // LAUNCH.3: Last active file — restore from localStorage or null
+    lastActiveFile: _initialLastActiveFile,
 
     // GLASS.3.2: Panel collapse/expand defaults
     leftPanelWidth: DEFAULT_LEFT_PANEL_WIDTH,
@@ -601,8 +713,23 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
             const content = await window.flintAPI.readFile(filePath)
             if (seq !== _setActiveFileSeq) return // superseded — don't set stale content
             useEditorStore.getState().setCode(content)
+            // LAUNCH.3: Persistence is handled by recordLastActiveFile, which
+            // is called by App.tsx once the project root is also known.
+            // setActiveFile itself does NOT write localStorage so that the
+            // {path, rootPath} tuple stays consistent.
         } catch (err) {
-            console.error('[Flint] Failed to read file:', err)
+            // Log only the error code, never the raw error object (which can
+            // contain user file paths in its message string). Security m1.
+            const code = (err as NodeJS.ErrnoException)?.code ?? 'unknown'
+            console.error('[Flint] Failed to read file:', code)
+            // Code m3: clear the stale lastActiveFile so a failed read can't
+            // survive and re-trigger on the next boot.
+            try {
+                if (typeof localStorage !== 'undefined') {
+                    localStorage.removeItem(LAST_ACTIVE_FILE_KEY)
+                }
+            } catch { /* ignore */ }
+            set({ lastActiveFile: null })
         }
     },
 
@@ -690,6 +817,34 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     // GLASS.1e: Governance rule filter
     setGovernanceRuleFilter: (type) => set({ governanceRuleFilter: type }),
 
+    // LAUNCH.3: Clear persisted last-active-file
+    clearLastActiveFile: () => {
+        try {
+            if (typeof localStorage !== 'undefined') {
+                localStorage.removeItem(LAST_ACTIVE_FILE_KEY)
+            }
+        } catch {
+            // Silently ignore storage errors
+        }
+        set({ lastActiveFile: null })
+    },
+
+    // LAUNCH.3: Record a successfully loaded file + its project root as a JSON
+    // tuple so tryAutoResume can verify the root hasn't changed on next boot.
+    recordLastActiveFile: (filePath, rootPath) => {
+        try {
+            if (typeof localStorage !== 'undefined') {
+                localStorage.setItem(
+                    LAST_ACTIVE_FILE_KEY,
+                    JSON.stringify({ path: filePath, rootPath }),
+                )
+            }
+        } catch {
+            // Silently ignore storage errors
+        }
+        set({ lastActiveFile: { path: filePath, rootPath } })
+    },
+
     // ── T5.2: LivePreview node size ────────────────────────────────────────────
     setPreviewSize: (width, height) => {
         if (width === get().previewWidth && height === get().previewHeight) return
@@ -746,6 +901,15 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
             clearTimeout(_saveTimer)
             _saveTimer = null
         }
+        // LAUNCH.3: Clear last active file from localStorage so refresh shows
+        // the LaunchScreen rather than attempting to restore a closed workspace.
+        try {
+            if (typeof localStorage !== 'undefined') {
+                localStorage.removeItem(LAST_ACTIVE_FILE_KEY)
+            }
+        } catch {
+            // Silently ignore storage errors
+        }
         set({
             workspaceFiles: null,
             activeFilePath: null,
@@ -768,6 +932,7 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
             previewBreakpoint: 'desktop',
             scrollToViolationId: null,
             governanceRuleFilter: null,
+            lastActiveFile: null,
             // GLASS.3.2: Reset panel collapse state
             leftPanelWidth: DEFAULT_LEFT_PANEL_WIDTH,
             rightPanelWidth: DEFAULT_RIGHT_PANEL_WIDTH,

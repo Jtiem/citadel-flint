@@ -46,6 +46,7 @@ import { fileURLToPath } from 'node:url'
 import { createPreviewServer } from './services/previewServer.js'
 import { ideFileSyncTick, type IDEFileSyncState } from './ideFileSyncTick.js'
 import { detectProjectEnvironment, type DetectorFS } from '../shared/projectDetector.js'
+import { validateFilePath as sharedValidateFilePath } from '../shared/validateFilePath.js'
 
 const execFileAsync = promisify(execFile)
 const __filename = fileURLToPath(import.meta.url)
@@ -830,7 +831,19 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
   // ── File I/O ───────────────────────────────────────────────────────────────
 
   handlers.set('file:read', async (filePath: unknown) => {
-    const validated = validateFilePath(filePath)
+    // Use the shared validator — consistent with electron/main.ts.
+    // Provides: type check, absolute path, extension allowlist, realpathSync
+    // home-scope enforcement, and self-hosting guard in one place.
+    const validated = sharedValidateFilePath({
+      filePath,
+      homeDir: os.homedir(),
+      allowedExtensions: ['.tsx', '.ts', '.jsx', '.js', '.html', '.vue', '.svelte'],
+      selfHostCheck: (resolved) => {
+        if (selfHosting.isSelfHostedPath(resolved)) {
+          throw new Error('file:read — refusing to read Flint source tree (self-hosting guard)')
+        }
+      },
+    })
     return fs.readFile(validated, 'utf-8')
   })
 

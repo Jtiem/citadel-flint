@@ -26,6 +26,7 @@ import { ThumbnailGenerator } from './thumbnailGenerator.js'
 import type { ThumbnailOptions } from './thumbnailGenerator.js'
 import { detectProjectEnvironment } from '../shared/projectDetector.ts'
 import type { ProjectEnvironment, DetectorFS } from '../shared/projectDetector.ts'
+import { validateFilePath as sharedValidateFilePath } from '../shared/validateFilePath.ts'
 
 // ── FileTreeNode ───────────────────────────────────────────────────────────────
 // Mirrors the renderer-side type in src/types/flint-api.d.ts.
@@ -497,28 +498,24 @@ ipcMain.handle(
 // Reads the raw UTF-8 content of a single source file. Called by the renderer
 // when the user clicks a file in the FileExplorer sidebar.
 //
-// Security constraints (mirrors ast:save-file):
+// Security constraints enforced by shared/validateFilePath:
+//   • filePath must be a non-empty string.
 //   • filePath must be an absolute path.
 //   • filePath must end with .tsx/.ts/.jsx/.js.
-//   • filePath must reside within the user's home directory.
+//   • filePath must reside within the user's home directory (realpathSync-aware).
 //   • filePath must NOT reside inside the Flint source tree (self-hosting guard).
 ipcMain.handle('file:read', async (_event, filePath: unknown): Promise<string> => {
-    if (typeof filePath !== 'string') {
-        throw new TypeError('file:read — filePath must be a string')
-    }
-    if (!path.isAbsolute(filePath) || !/\.(tsx?|jsx?)$/.test(filePath)) {
-        throw new Error('file:read — filePath must be an absolute path to a .tsx/.ts/.jsx/.js file')
-    }
-    const home = app.getPath('home')
-    if (!filePath.startsWith(home + path.sep)) {
-        throw new Error('file:read — path outside user home directory is not permitted')
-    }
-    // Self-hosting guard: refuse reads from the Flint source tree to prevent
-    // the preview iframe from recursively serving Flint's own source files.
-    if (isFlintSourceTree(path.dirname(filePath))) {
-        throw new Error('file:read — refusing to read Flint source tree (self-hosting guard)')
-    }
-    return readFile(filePath, 'utf-8')
+    const validated = sharedValidateFilePath({
+        filePath,
+        homeDir: app.getPath('home'),
+        allowedExtensions: ['.tsx', '.ts', '.jsx', '.js'],
+        selfHostCheck: (resolved) => {
+            if (isFlintSourceTree(path.dirname(resolved))) {
+                throw new Error('file:read — refusing to read Flint source tree (self-hosting guard)')
+            }
+        },
+    })
+    return readFile(validated, 'utf-8')
 })
 
 // ── Code Transform Handler ─────────────────────────────────────────────────────

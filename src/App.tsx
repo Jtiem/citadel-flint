@@ -40,6 +40,7 @@ import type { FileTreeNode } from './types/flint-api'
 import { applyUndo, applyRedo } from './core/recoveryController'
 import { MithrilProvider } from './components/mithril/MithrilProvider'
 import { LaunchScreen } from './components/ui/LaunchScreen'
+import { tryAutoResume } from './lib/autoResume'
 import { SetupWizard } from './components/ui/SetupWizard'
 import { BetaWelcome, shouldShowBetaWelcome } from './components/ui/BetaWelcome'
 import { FocusTrap } from './components/ui/FocusTrap'
@@ -734,76 +735,84 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
-    // ── Auto-resume: file:focus fast path + last session fallback (LAUNCH.2/3) ─
-    // Runs once after setup + beta gates resolve. Priority order:
-    //   1. Recent file:focus event (≤60s) — skip LaunchScreen, open Claude's file
-    //   2. Last saved session — restore previous project
-    //   3. Fall through to LaunchScreen
+    // ── Auto-resume: last-file → session → demo precedence (LAUNCH.2/3) ─────────
+    // Runs once after the setup + beta gates resolve. Priority order:
+    //   1. URL hash / query param — reserved for future deep-link support
+    //   2. Recent file:focus event (≤60s) — skip LaunchScreen, open Claude's file
+    //   3. lastActiveFile from localStorage — restores the exact file open at the
+    //      time of the last tab close / refresh; verified to still exist on disk
+    //      before loading so a deleted file falls through gracefully
+    //   4. Last saved session from SQLite — existing session-restore behaviour
+    //   5. Web-mode active project root (--project CLI flag)
+    //   6. Nothing — show LaunchScreen. The first-launch demo is NOT triggered here.
+    //      Demo auto-load happens only in the WS1 effect above, which is gated on
+    //      isFirstLaunch === true (i.e. ~/.flint/setup.json absent/incomplete).
+    //      Returning users who simply have nothing open see the LaunchScreen, which
+    //      is the correct empty state.
+    // Ref guard prevents double-fire in React StrictMode (effect runs twice
+    // but autoResumeChecked state hasn't propagated back yet on the second run).
+    const _autoResumeStarted = useRef(false)
+
     useEffect(() => {
         if (setupComplete !== true || !betaWelcomeDone) return
         if (autoResumeChecked) return
-        if (workspaceFiles) return // already hydrated (e.g. demo loaded)
-
-        setAutoResumeChecked(true)
-
-        async function tryAutoResume() {
-            // Phase 3 — Check for a recent file:focus event first. If Claude
-            // edited a file within the last 60 seconds, open that project and
-            // file directly — the user never sees the LaunchScreen.
-            try {
-                const focusFile = await window.flintAPI.mcp?.getRecentFileFocus?.()
-                if (focusFile && window.flintAPI.project?.findRootForFile) {
-                    const root = await window.flintAPI.project.findRootForFile(focusFile)
-                    // Skip temp dirs (macOS cleans these up; auto-loading them causes
-                    // ENOENT floods when the demo project has been partially deleted).
-                    const isTempDir = root && (root.startsWith('/var/folders/') || root.startsWith('/tmp/'))
-                    if (root && !isTempDir) {
-                        const tree = await window.flintAPI.project.openPath(root)
-                        if (tree) {
-                            void window.flintAPI.registry?.upsertProject?.({ name: tree.name, path: tree.path })
-                            setWorkspaceFiles(tree as FileTreeNode)
-                            await setActiveFile(focusFile)
-                            return // done — skip session restore
-                        }
-                    }
-                }
-            } catch (err) { console.warn('[Flint] App: project open failed, falling through to session restore', err) }
-
-            // Phase LAUNCH.2 — Restore last saved session
-            try {
-                const session = await window.flintAPI.session?.getLastSession()
-                if (!session) return
-                // Don't auto-resume empty scratchpads — let the user choose
-                if (session.isScratchpad) return
-                // Skip temp dir sessions — macOS cleans these up after demo use
-                // and restoring them causes ENOENT floods in auto-save.
-                if (session.path.startsWith('/var/folders/') || session.path.startsWith('/tmp/')) return
-                const tree = await window.flintAPI.project.openPath(session.path)
-                if (tree) await hydrateWorkspace(tree as FileTreeNode)
-            } catch {
-                // Path no longer valid — fall through to LaunchScreen
-            }
-
-            // Web mode: if still no project loaded, auto-open the server's active
-            // project root (set via the --project CLI flag or the server's default).
-            // This lets the demo run without requiring a manual folder pick.
-            if (
-                !useCanvasStore.getState().workspaceFiles &&
-                typeof (globalThis as Record<string, unknown>).__FLINT_WEB__ !== 'undefined'
-            ) {
-                try {
-                    const activeRoot = await window.flintAPI.project.getActiveRoot?.()
-                    if (activeRoot?.projectRoot) {
-                        const tree = await window.flintAPI.project.openPath(activeRoot.projectRoot)
-                        if (tree) await hydrateWorkspace(tree as FileTreeNode)
-                    }
-                } catch {
-                    // No active root available — let the LaunchScreen handle it
-                }
-            }
+        if (workspaceFiles) {
+            // Already hydrated by the WS1 demo-load effect — skip the resume
+            // ladder but still flip the gate so the RestoringSplash clears.
+            setAutoResumeChecked(true)
+            return
         }
+        if (_autoResumeStarted.current) return
+        _autoResumeStarted.current = true
 
-        void tryAutoResume()
+        // Code M2 / UX#3: setAutoResumeChecked(true) moves to the finally block
+        // inside the async call so RestoringSplash stays visible until the full
+        // ladder has resolved. This prevents the LaunchScreen from flashing in
+        // during the async IPC calls (200-800ms) and prevents a race where the
+        // user clicking "Open Project" on an early flash gets clobbered by the
+        // resume resolving. The splash is a cheap spinner — no functional change.
+
+        void (async () => {
+            try {
+                await tryAutoResume({
+                    readFile: (p) => window.flintAPI.readFile(p),
+                    findRootForFile: window.flintAPI.project?.findRootForFile
+                        ? (p) => window.flintAPI.project.findRootForFile!(p)
+                        : null,
+                    openPath: (root) => window.flintAPI.project.openPath(root) as Promise<FileTreeNode | null>,
+                    getRecentFileFocus: () => window.flintAPI.mcp?.getRecentFileFocus?.() ?? Promise.resolve(null),
+                    setWorkspaceFiles: (tree) => setWorkspaceFiles(tree as FileTreeNode),
+                    setActiveFile,
+                    hydrateWorkspace,
+                    clearLastActiveFile: () => useCanvasStore.getState().clearLastActiveFile(),
+                    recordLastActiveFile: (p, root) => useCanvasStore.getState().recordLastActiveFile(p, root),
+                    upsertProject: window.flintAPI.registry?.upsertProject
+                        ? (entry) => void window.flintAPI.registry?.upsertProject?.(entry)
+                        : undefined,
+                    getLastSession: () => window.flintAPI.session?.getLastSession() ?? Promise.resolve(null),
+                    getActiveRoot: window.flintAPI.project?.getActiveRoot
+                        ? () => window.flintAPI.project.getActiveRoot!()
+                        : null,
+                    notify: (opts) => pushNotification({
+                        message: opts.message,
+                        severity: opts.severity,
+                        autoDismiss: opts.autoDismiss,
+                    }),
+                    // shouldContinue: abort resume if the user already opened
+                    // something while we were awaiting (race fix Code M2).
+                    shouldContinue: () => {
+                        const s = useCanvasStore.getState()
+                        return s.workspaceFiles == null && s.activeFilePath == null
+                    },
+                    isWebMode: () =>
+                        typeof (globalThis as Record<string, unknown>).__FLINT_WEB__ !== 'undefined',
+                })
+            } finally {
+                // Always flip the gate so the RestoringSplash disappears even
+                // if tryAutoResume throws or the user aborted via shouldContinue.
+                setAutoResumeChecked(true)
+            }
+        })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [setupComplete, betaWelcomeDone])
 
@@ -900,6 +909,22 @@ function App() {
                 }}
                 onSkip={() => setBetaWelcomeDone(true)}
             />
+        )
+    }
+
+    // ── RestoringSplash gate (Code M2 / UX#3) ────────────────────────────────
+    // Block the LaunchScreen from rendering until tryAutoResume has fully
+    // resolved. This prevents a 200-800ms flash of the LaunchScreen while IPC
+    // calls are in-flight, and prevents a race where the user clicks
+    // "Open Project" on that transient LaunchScreen before the resume resolves.
+    if (!autoResumeChecked) {
+        return (
+            <div className="absolute inset-0 z-[110] flex items-center justify-center bg-zinc-950">
+                <div className="flex items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900/95 px-5 py-3 shadow-2xl">
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-700 border-t-indigo-500" />
+                    <p className="text-xs text-zinc-400">Restoring session…</p>
+                </div>
+            </div>
         )
     }
 

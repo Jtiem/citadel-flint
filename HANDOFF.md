@@ -6,6 +6,97 @@
 
 ---
 
+## Session: LAUNCH.3 Deferred Fixes (2026-04-12) — COMPLETE
+
+**Goal:** Security m2 (hoist validateFilePath), Security m3 (persist tuple), UX LAF-06 (negative test), AR-11.
+
+**Results:**
+- Glass:  2218/2218 passing (8 new: LAF-06, LAF-14x2, LAF-15x3, AR-11x3)
+- MCP:    4637/4637 passing (0 new)
+- Core:   1454/1454 passing (20 new from validateFilePath; 2 pre-existing failures unchanged)
+- TSC:    0 errors
+
+### Changes
+1. `shared/validateFilePath.ts` + `shared/__tests__/validateFilePath.test.ts` (NEW): VFP-01..VFP-10. Fixed VFP-10: homeDir itself now correctly rejected. Wired into `electron/main.ts` and `server/index.ts` `file:read` handlers.
+2. `src/store/canvasStore.ts`: `lastActiveFile` type changed to `LastActiveFileEntry | null`. Old string-format `localStorage.setItem` removed from `setActiveFile`. `recordLastActiveFile(path, rootPath)` action added.
+3. `src/lib/autoResume.ts`: step 3 reads `lastFile.path` / `lastFile.rootPath`; root-mismatch guard added; `recordLastActiveFile` dep added and called on success.
+4. `src/App.tsx`: `recordLastActiveFile` dep wired into `tryAutoResume` call.
+5. `src/store/__tests__/canvasStore.lastActiveFile.test.ts`: all existing tests updated for tuple shape; LAF-06, LAF-14, LAF-15 added.
+6. `src/components/__tests__/AppAutoResume.test.tsx`: all `lastActiveFile: string` refs → tuple; AR-11 added.
+
+---
+
+## Session: LAUNCH.3 Review Fixes (2026-04-12) — COMPLETE
+
+**Results:**
+- Glass: 2210/2210 passing (9 new)
+- MCP: 4637/4637 passing (0 new)
+- Core: 1434/1434 passing (0 new, 2 pre-existing failures unchanged)
+- TSC: 0 errors
+
+### All 6 Major fixes applied
+1. Security M2: `file:read` self-hosting guard added in `electron/main.ts` and `server/index.ts`
+2. Security M1: `readPersistedLastActiveFile` now rejects >4096 bytes, NUL/control chars, and non-absolute paths — self-heals localStorage on rejection
+3. Code M1: `tryAutoResume` extracted to `src/lib/autoResume.ts` as a pure injectable function; App.tsx is a thin wrapper
+4. Code M2 + UX#3: `RestoringSplash` gate before LaunchScreen; `setAutoResumeChecked` deferred to `finally`; `shouldContinue()` abort dep
+5. UX#1: ENOENT on lastActiveFile now pushes a toast with basename (never full path)
+6. RestoringSplash gate: renders spinner until auto-resume resolves
+
+### Minor fixes applied
+- UX#5: deep-link TODO comment updated
+- UX#4: `isTransientPath` extracted to `src/lib/pathGuards.ts`
+- Code m1: LAF-02 rewritten with correct contract assertion
+- Code m2: LAF-07 renamed and rewritten
+- Code m3: `setActiveFile` catch clears `lastActiveFile` from store + localStorage
+- Code m4: `LAST_ACTIVE_FILE_KEY` has `@internal` JSDoc
+- Security m1: catch blocks log `err?.code` only, not raw error
+- LAF-06 negative test: covered by LAF-13
+
+### New tests
+- LAF-09 through LAF-13 (input validation + negative path)
+- AR-09 through AR-10 (shouldContinue race + clean resolution)
+- AppAutoResume.test.tsx fully rewired to test real `tryAutoResume` via injected deps
+
+---
+
+## Session: LAUNCH.3 Review Fixes (2026-04-12) — IN PROGRESS
+
+**Goal:** Apply all 6 Major + cluster of Minor fixes identified in the 3-review ceremony on the refresh-persistence change.
+
+### Files in scope
+- `electron/main.ts` — Security M2: self-hosting guard on file:read
+- `server/index.ts` — Security M2: self-hosting guard on file:read
+- `src/store/canvasStore.ts` — Security M1: input validation; Code m3/m4; Security m1
+- `src/App.tsx` — Code M1 (thin wrapper after extraction); Code M2+UX#3 (race/flash); UX#1 (ENOENT toast); UX#5 (deep-link comment)
+- `src/lib/pathGuards.ts` — NEW: `isTransientPath`, `isSelfHostedPath` (UX#4)
+- `src/lib/autoResume.ts` — NEW: extracted pure `tryAutoResume(deps)` (Code M1)
+- `src/store/__tests__/canvasStore.lastActiveFile.test.ts` — LAF-09..LAF-13
+- `src/components/__tests__/AppAutoResume.test.tsx` — AR-09..AR-10, real module rewrite
+
+---
+
+## Session: LAUNCH.3 — Tab Refresh Last-File Persistence (2026-04-12) — AWAITING REVIEW
+
+**Goal:** Fix the "tab refresh returns to first-launch demo" bug. Persist the last open file across refreshes and tighten the first-launch detection so the demo only runs on genuine first launches.
+
+### Files changed
+- `src/store/canvasStore.ts` — Added `lastActiveFile: string | null` state field, `LAST_ACTIVE_FILE_KEY` export, `readPersistedLastActiveFile()`, `clearLastActiveFile()` action, localStorage write in `setActiveFile` on successful file load, localStorage clear in `closeWorkspace`.
+- `src/App.tsx` — Rewrote `tryAutoResume` with 6-step precedence: (1) TODO deep-link hook, (2) file:focus fast path, (3) lastActiveFile from localStorage with existence check, (4) SQLite session, (5) web-mode active root, (6) LaunchScreen. The WS1 first-launch demo is NOT called from here — it stays in its own effect gated on `isFirstLaunch` from `~/.flint/setup.json`.
+
+### Tests added
+- `src/store/__tests__/canvasStore.lastActiveFile.test.ts` — 10 tests (LAF-01 through LAF-08)
+- `src/components/__tests__/AppAutoResume.test.tsx` — 10 tests (AR-01 through AR-08)
+
+### Test results
+- Glass: 2201/2201 passing (19 new)
+- MCP: 4596/4596 passing (0 new)
+- Core: 1416/1416 passing, 2 pre-existing failures in ws3-server + mithrilParity (unrelated to this change, confirmed by baseline check)
+- TSC: 0 errors
+
+**Status:** Awaiting /review gate before commit.
+
+---
+
 ## Session: Governor Expansion P2.5 + P3.5 — Composition Governance + Drift Trending (2026-04-12) — IN PROGRESS
 
 ### What's in scope
