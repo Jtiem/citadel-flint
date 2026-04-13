@@ -157,7 +157,7 @@ export const Drifted = () => (
         try {
             const result = await handleFlintFix({ source, filePath: '/src/Drifted.tsx' }, config)
             expect(result.fixesApplied).toBeGreaterThanOrEqual(1)
-            expect(result.fixedSource).toContain('var(--color-neutral-900)')
+            expect(result.fixedSource).toContain('var(--color-neutral-900, #18181b)')
             expect(result.fixedSource).not.toContain('#ff0000')
             expect(result.status).toBe('fixed')
         } finally {
@@ -199,7 +199,7 @@ export const RgbDrifted = () => (
             const result = await handleFlintFix({ source, filePath: '/src/RgbDrifted.tsx' }, config)
             // rgb(255,0,0) is far from #18181b — should be replaced
             expect(result.fixesApplied).toBeGreaterThanOrEqual(1)
-            expect(result.fixedSource).toContain('var(--color-neutral-900)')
+            expect(result.fixedSource).toContain('var(--color-neutral-900, #18181b)')
         } finally {
             rmTmpDir(tmpDir)
         }
@@ -222,7 +222,7 @@ export const Styled = () => (
         try {
             const result = await handleFlintFix({ source, filePath: '/src/Styled.tsx' }, config)
             expect(result.fixesApplied).toBeGreaterThanOrEqual(1)
-            expect(result.fixedSource).toContain('var(--color-neutral-900)')
+            expect(result.fixedSource).toContain('var(--color-neutral-900, #18181b)')
             expect(result.fixedSource).not.toContain("'#ff0000'")
         } finally {
             rmTmpDir(tmpDir)
@@ -242,7 +242,7 @@ export const BgStyled = () => (
         try {
             const result = await handleFlintFix({ source, filePath: '/src/BgStyled.tsx' }, config)
             expect(result.fixesApplied).toBeGreaterThanOrEqual(1)
-            expect(result.fixedSource).toContain('var(--color-neutral-900)')
+            expect(result.fixedSource).toContain('var(--color-neutral-900, #18181b)')
         } finally {
             rmTmpDir(tmpDir)
         }
@@ -331,7 +331,7 @@ export const Spaced = () => (
             const result = await handleFlintFix({ source, filePath: '/src/Spaced.tsx' }, config)
             // 24px is not 16px so it should be replaced
             expect(result.fixesApplied).toBeGreaterThanOrEqual(1)
-            expect(result.fixedSource).toContain('var(--dimension-spacing-4)')
+            expect(result.fixedSource).toContain('var(--dimension-spacing-4, 16px)')
         } finally {
             rmTmpDir(tmpDir)
         }

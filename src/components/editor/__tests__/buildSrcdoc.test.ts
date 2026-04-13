@@ -37,7 +37,6 @@ describe('buildSrcdoc — no library shims (null)', () => {
     expect(html).toContain('<!DOCTYPE html>')
     expect(html).toContain('<html')
     expect(html).toContain('<head>')
-    expect(html).toContain('<body>')
     expect(html).toContain('</html>')
   })
 

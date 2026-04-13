@@ -143,3 +143,25 @@ export function generateTailwindConfig(tokens: DesignToken[]): string {
 
     return JSON.stringify({ theme: { extend } })
 }
+
+/**
+ * Generates a CSS `:root { ... }` block that defines every design token as a
+ * CSS custom property, using the same naming convention as `flint_fix`'s
+ * `tokenPathToVar` function (`'--' + path.replace(/\//g, '-')`).
+ *
+ * This ensures that when `flint_fix` converts inline style colors to
+ * `var(--token-path)` references, the preview iframe can resolve them
+ * instead of falling back to transparent / inherited values.
+ *
+ * Returns an empty string when there are no tokens to inject.
+ */
+export function generateTokenCssVars(tokens: DesignToken[]): string {
+    const lines: string[] = []
+    for (const token of tokens) {
+        if (!token.token_value) continue
+        const varName = '--' + token.token_path.replace(/\//g, '-')
+        lines.push(`  ${varName}: ${token.token_value};`)
+    }
+    if (lines.length === 0) return ''
+    return `:root {\n${lines.join('\n')}\n}`
+}

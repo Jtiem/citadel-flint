@@ -142,13 +142,16 @@ describe('checkStyleProps — color', () => {
         expect(result?.ruleId).toBe('MITHRIL-IST-COL')
     })
 
-    it('A5: named color → skipped (not statically evaluable)', () => {
+    it('A5: named color (red) → converted to hex and checked against tokens', () => {
+        // 'red' is now resolved to #ff0000 for CIEDE2000 comparison.
+        // COLOR_TOKENS contains #0066cc and #ffffff — both far from #ff0000.
         const result = checkStyleProps(
             [entry('color', 'red')],
             'node-5',
             COLOR_TOKENS,
         )
-        expect(result).toBeNull()
+        expect(result).not.toBeNull()
+        expect(result?.ruleId).toBe('MITHRIL-IST-COL')
     })
 
     it('A6: var() reference → skipped', () => {

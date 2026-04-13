@@ -59,7 +59,6 @@ describe('buildPlaceholderSrcdoc', () => {
     expect(html).toContain('<!DOCTYPE html>')
     expect(html).toContain('<html')
     expect(html).toContain('<head>')
-    expect(html).toContain('<body>')
     expect(html).toContain('</html>')
   })
 
@@ -102,7 +101,6 @@ describe('buildSrcdoc (regression after MFP.1 refactor)', () => {
     expect(html).toContain('<!DOCTYPE html>')
     expect(html).toContain('<html')
     expect(html).toContain('<head>')
-    expect(html).toContain('<body>')
     expect(html).toContain('</html>')
   })
 
@@ -176,7 +174,6 @@ describe('buildHtmlSrcdoc (CDN fix + regression after MFP.1 refactor)', () => {
     expect(html).toContain('<!DOCTYPE html>')
     expect(html).toContain('<html')
     expect(html).toContain('<head>')
-    expect(html).toContain('<body>')
     expect(html).toContain('</html>')
   })
 

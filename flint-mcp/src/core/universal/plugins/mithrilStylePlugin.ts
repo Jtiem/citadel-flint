@@ -81,19 +81,28 @@ function parseCssString(css: string): StylePropEntry[] {
 
 /**
  * Best-effort parser for Vue `:style="{ prop: 'value', ... }"` expressions.
- * Only extracts properties whose values are single-quoted or double-quoted
- * string literals. Dynamic references are silently dropped.
+ * Extracts:
+ *   - Properties whose values are single-quoted or double-quoted string literals.
+ *   - Properties whose values are bare numeric literals.
+ *   - Ternary expressions where BOTH branches are single-quoted string literals —
+ *     each branch is emitted as a separate StylePropEntry (same prop name).
+ * Dynamic references that do not match any of the above are silently dropped.
  *
  * e.g. `{ color: '#ff0000', fontWeight: 'bold', margin: dynamicVal }`
  *   → [{prop:'color', stringValue:'#ff0000', numericValue:null},
  *      {prop:'fontWeight', stringValue:'bold', numericValue:null}]
+ *
+ * e.g. `{ color: isActive ? '#ff0000' : '#ffffff' }`
+ *   → [{prop:'color', stringValue:'#ff0000', numericValue:null},
+ *      {prop:'color', stringValue:'#ffffff', numericValue:null}]
  *
  * Handles both camelCase and hyphenated property names.
  * Returns empty array for non-object-literal expressions (never throws).
  */
 function parseVueStyleBinding(expr: string): StylePropEntry[] {
     const entries: StylePropEntry[] = []
-    // Match identifier or quoted-string key: 'value' or "value"
+
+    // Pass 1: literal values (quoted string or bare number)
     const propRe = /['"]?([\w-]+)['"]?\s*:\s*(?:'([^']*)'|"([^"]*)"|([\d.]+))/g
     let m: RegExpExecArray | null
     while ((m = propRe.exec(expr)) !== null) {
@@ -109,6 +118,21 @@ function parseVueStyleBinding(expr: string): StylePropEntry[] {
             entries.push({ prop: camelProp, stringValue: null, numericValue: isNaN(n) ? null : n })
         }
     }
+
+    // Pass 2: ternary expressions where both branches are single-quoted string literals
+    // e.g.  color: isActive ? '#ff0000' : '#ffffff'
+    const ternaryRe = /['"]?([\w-]+)['"]?\s*:\s*\w[\w.]*\s*\?\s*'([^']*)'\s*:\s*'([^']*)'/g
+    let tm: RegExpExecArray | null
+    while ((tm = ternaryRe.exec(expr)) !== null) {
+        const rawProp = tm[1]
+        const consVal = tm[2]
+        const altVal = tm[3]
+        if (!rawProp) continue
+        const camelProp = kebabToCamel(rawProp)
+        entries.push({ prop: camelProp, stringValue: consVal, numericValue: null })
+        entries.push({ prop: camelProp, stringValue: altVal, numericValue: null })
+    }
+
     return entries
 }
 
@@ -160,21 +184,30 @@ export function createMithrilStylePlugin(): LinterPlugin {
             // ── Angular [style.*] directives ────────────────────────────────
             // Angular uses [style.font-size]="expr" which produces an attribute
             // named `[style.font-size]` with a dynamic value. Skip dynamic
-            // expressions; only flag literal string/number values.
+            // expressions; only flag literal string/number values and ternary
+            // expressions where both branches are single-quoted string literals.
             for (const [attrName, attrValue] of node.attributes.entries()) {
                 const angularMatch = /^\[style\.([\w-]+)\]$/.exec(String(attrName))
                 if (angularMatch === null) continue
                 const propName = kebabToCamel(angularMatch[1])
                 const rawVal = String(attrValue ?? '')
-                // Only flag quoted string literals or bare numbers
+                // Quoted string literal
                 const strMatch = /^['"]([^'"]+)['"]$/.exec(rawVal)
                 if (strMatch !== null) {
                     entries.push({ prop: propName, stringValue: strMatch[1], numericValue: null })
-                } else {
-                    const n = parseFloat(rawVal)
-                    if (!isNaN(n) && String(n) === rawVal) {
-                        entries.push({ prop: propName, stringValue: null, numericValue: n })
-                    }
+                    continue
+                }
+                // Bare numeric literal
+                const n = parseFloat(rawVal)
+                if (!isNaN(n) && String(n) === rawVal) {
+                    entries.push({ prop: propName, stringValue: null, numericValue: n })
+                    continue
+                }
+                // Ternary: expr ? 'consequent' : 'alternate' (both single-quoted string literals)
+                const ternaryMatch = /^\w[\w.]*\s*\?\s*'([^']*)'\s*:\s*'([^']*)'$/.exec(rawVal)
+                if (ternaryMatch !== null) {
+                    entries.push({ prop: propName, stringValue: ternaryMatch[1], numericValue: null })
+                    entries.push({ prop: propName, stringValue: ternaryMatch[2], numericValue: null })
                 }
             }
 

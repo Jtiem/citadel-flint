@@ -16,20 +16,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Download, Upload, RefreshCw, Loader2, Unplug, CheckCircle2, AlertTriangle, Clock } from 'lucide-react'
 import { useNotificationStore } from '../../store/notificationStore'
 import type { FigmaStatus } from '../../types/flint-api'
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function relativeTime(ts: number | null): string {
-    if (ts === null) return 'Never'
-    const diffMs = Date.now() - ts
-    const mins = Math.floor(diffMs / 60_000)
-    if (mins < 1) return 'Just now'
-    if (mins < 60) return `${mins}m ago`
-    const hours = Math.floor(mins / 60)
-    if (hours < 24) return `${hours}h ago`
-    const days = Math.floor(hours / 24)
-    return `${days}d ago`
-}
+import { formatRelativeTime } from '../../utils/relativeTime'
 
 interface SyncHistoryEntry {
     direction: 'pull' | 'push'
@@ -184,7 +171,7 @@ export function FigmaConnectionPanel({ onClose }: FigmaConnectionPanelProps) {
                         <div className="flex items-center justify-between">
                             <dt className="text-zinc-500">Last sync</dt>
                             <dd className="text-zinc-300" data-testid="figma-last-sync">
-                                {relativeTime(figmaStatus?.lastWebhookAt ?? null)}
+                                {formatRelativeTime(figmaStatus?.lastWebhookAt ?? null) || 'Never'}
                             </dd>
                         </div>
                         <div className="flex items-center justify-between">
@@ -320,7 +307,7 @@ export function FigmaConnectionPanel({ onClose }: FigmaConnectionPanelProps) {
                                     </span>
                                     <span className="ml-auto flex items-center gap-1 text-zinc-500">
                                         <Clock className="h-2.5 w-2.5" />
-                                        {relativeTime(entry.timestamp)}
+                                        {formatRelativeTime(entry.timestamp)}
                                     </span>
                                 </li>
                             ))}

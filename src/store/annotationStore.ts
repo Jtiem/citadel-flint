@@ -70,6 +70,15 @@ interface AnnotationActions {
      * Private annotations from other authors are excluded (single-user v1 scope).
      */
     annotationsForNode: (nodeId: string) => FlintAnnotation[]
+
+    /**
+     * Optimistically restores a previously resolved annotation back into the
+     * in-memory list. Used by the undo toast fired after resolveAnnotation.
+     * Does NOT write to disk — the annotation will disappear again on the next
+     * fetchAnnotations round-trip. For a proper undo the host must implement
+     * a restore IPC call; this provides immediate visual feedback.
+     */
+    restoreAnnotation: (annotation: FlintAnnotation) => void
 }
 
 // ── Store ─────────────────────────────────────────────────────────────────────
@@ -106,6 +115,14 @@ export const useAnnotationStore = create<AnnotationState & AnnotationActions>(
             return get().annotations.filter(
                 (a) => a.nodeId === nodeId && a.status === 'open'
             )
+        },
+
+        restoreAnnotation: (annotation: FlintAnnotation) => {
+            // Re-insert the annotation at the front of the list so it is immediately
+            // visible. The next fetchAnnotations call will re-sync from disk.
+            set((state) => ({
+                annotations: [annotation, ...state.annotations.filter((a) => a.id !== annotation.id)],
+            }))
         },
     })
 )

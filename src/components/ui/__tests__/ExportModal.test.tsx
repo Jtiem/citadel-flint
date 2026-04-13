@@ -312,6 +312,107 @@ describe('ExportModal', () => {
 })
 
 // ---------------------------------------------------------------------------
+// GAP-3 — ExportModal violation sort order + action-first headline
+// ---------------------------------------------------------------------------
+
+describe('ExportModal — GAP-3 violation sort order', () => {
+    it('shows action-first headline when auto-fixable Mithril violations exist', async () => {
+        useEditorStore.setState({
+            linterWarnings: new Map([
+                ['node-fix', makeWarning({ id: 'node-fix', nearestToken: 'bg-zinc-900' })],
+            ]),
+        })
+        useCanvasStore.setState({ mithrilViolations: ['node-fix'] })
+
+        render(<ExportModal onClose={() => undefined} />)
+        await waitFor(() => {
+            const headline = screen.getByTestId('autofixable-headline')
+            expect(headline.textContent).toMatch(/1 auto-fixable issue — fix it now and export/)
+        })
+    })
+
+    it('shows plural headline for multiple auto-fixable violations', async () => {
+        useEditorStore.setState({
+            linterWarnings: new Map([
+                ['node-fix1', makeWarning({ id: 'node-fix1', nearestToken: 'bg-zinc-900' })],
+                ['node-fix2', makeWarning({ id: 'node-fix2', nearestToken: 'text-zinc-100' })],
+            ]),
+        })
+        useCanvasStore.setState({ mithrilViolations: ['node-fix1', 'node-fix2'] })
+
+        render(<ExportModal onClose={() => undefined} />)
+        await waitFor(() => {
+            const headline = screen.getByTestId('autofixable-headline')
+            expect(headline.textContent).toMatch(/2 auto-fixable issues — fix them now and export/)
+        })
+    })
+
+    it('shows amber blocking banner (not emerald headline) when no auto-fixable violations exist', async () => {
+        // A warning with no nearestToken = manual-only
+        useEditorStore.setState({
+            linterWarnings: new Map([
+                ['node-manual', makeWarning({ id: 'node-manual', nearestToken: undefined })],
+            ]),
+        })
+        useCanvasStore.setState({ mithrilViolations: ['node-manual'] })
+
+        render(<ExportModal onClose={() => undefined} />)
+        await waitFor(() => {
+            expect(screen.queryByTestId('autofixable-headline')).toBeNull()
+            // The fallback amber banner text
+            expect(screen.getByText(/Export is blocked because/i)).toBeDefined()
+        })
+    })
+
+    it('renders auto-fixable Mithril violations before a11y violations in DOM order', async () => {
+        useEditorStore.setState({
+            linterWarnings: new Map([
+                ['mith-fix', makeWarning({ id: 'mith-fix', nearestToken: 'bg-zinc-900' })],
+            ]),
+        })
+        useCanvasStore.setState({
+            mithrilViolations: ['mith-fix'],
+            a11yViolations: { 'a11y-node': ['A11Y-001: Missing alt text'] },
+        })
+
+        render(<ExportModal onClose={() => undefined} />)
+        await waitFor(() => {
+            const allButtons = document.querySelectorAll('button[title^="Navigate to"]')
+            const ids = Array.from(allButtons).map((b) => b.textContent?.trim())
+            const mithIdx = ids.indexOf('mith-fix')
+            const a11yIdx = ids.indexOf('a11y-node')
+            expect(mithIdx).toBeGreaterThanOrEqual(0)
+            expect(a11yIdx).toBeGreaterThanOrEqual(0)
+            // Auto-fixable Mithril must appear before a11y
+            expect(mithIdx).toBeLessThan(a11yIdx)
+        })
+    })
+
+    it('renders a11y violations before overrides in DOM order', async () => {
+        useCanvasStore.setState({
+            mithrilViolations: [],
+            a11yViolations: { 'a11y-node': ['A11Y-002: Needs label'] },
+        })
+        ;(window.flintAPI.tokens.readOverrides as ReturnType<typeof vi.fn>).mockResolvedValue([
+            makeOverride({ flint_id: 'override-xyz', property_key: 'color', property_value: '#ff0000' }),
+        ])
+
+        render(<ExportModal onClose={() => undefined} />)
+        await waitFor(() => {
+            expect(screen.getByText('a11y-node')).toBeDefined()
+            expect(screen.getByText('override-xyz')).toBeDefined()
+        })
+        // a11y section header precedes override section header in DOM
+        const a11yHeader = screen.getByText(/Accessibility Issues/i)
+        const overrideHeader = screen.getByText(/Unapplied Style Changes/i)
+        const all = Array.from(document.querySelectorAll('h3'))
+        const a11yIdx = all.indexOf(a11yHeader as HTMLHeadingElement)
+        const overrideIdx = all.indexOf(overrideHeader as HTMLHeadingElement)
+        expect(a11yIdx).toBeLessThan(overrideIdx)
+    })
+})
+
+// ---------------------------------------------------------------------------
 // COUNSEL.2.1 — ExportModal defer UI (it.todo scaffolds)
 // Full assertions added in Group D after flint-design-engineer completes Group C.
 // ---------------------------------------------------------------------------

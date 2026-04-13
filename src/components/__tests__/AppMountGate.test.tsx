@@ -616,17 +616,17 @@ describe('App — auto-resume LaunchScreen loop regression (LAUNCH.2)', () => {
     it('hydrates workspace when getLastSession returns a non-scratchpad session', async () => {
         const sessionTree: FileTreeNode = {
             name: 'my-app',
-            path: '/tmp/my-app',
+            path: '/Users/test/my-app',
             type: 'directory',
             children: [
-                { name: 'App.tsx', path: '/tmp/my-app/App.tsx', type: 'file', children: [] },
+                { name: 'App.tsx', path: '/Users/test/my-app/App.tsx', type: 'file', children: [] },
             ],
         }
 
         const api = window.flintAPI as ReturnType<typeof createMockFlintAPI>
         // Override getLastSession to return a real non-scratchpad session
         ;(api.session.getLastSession as ReturnType<typeof vi.fn>).mockResolvedValue({
-            path: '/tmp/my-app',
+            path: '/Users/test/my-app',
             name: 'my-app',
             isScratchpad: false,
         })
@@ -642,7 +642,7 @@ describe('App — auto-resume LaunchScreen loop regression (LAUNCH.2)', () => {
         })
 
         // project.openPath must have been called with the session path
-        expect((api.project.openPath as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]).toBe('/tmp/my-app')
+        expect((api.project.openPath as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]).toBe('/Users/test/my-app')
 
         // workspaceFiles should be populated — workspace canvas shows
         expect(useCanvasStore.getState().workspaceFiles).toEqual(sessionTree)

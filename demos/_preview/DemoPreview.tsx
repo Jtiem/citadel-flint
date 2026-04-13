@@ -3,6 +3,8 @@ import BannerCompliant from '../01-rag-ui-builder/banner-compliant';
 import BannerBroken from '../01-rag-ui-builder/banner-broken';
 import BuggyComponent from '../02-self-correcting/buggy-component';
 import DriftComponent from '../03-mithril-shadow-audit/drift-component';
+import ViolatingUX from '../04-sentinel/violating-ux';
+import LegacyDivs from '../05-semantic-refactor/legacy-divs';
 
 class DemoErrorBoundary extends Component<
   { name: string; children: React.ReactNode },
@@ -21,7 +23,7 @@ class DemoErrorBoundary extends Component<
             {this.state.error.message}
           </pre>
           <div style={{ color: '#888', fontSize: 12, marginTop: 16 }}>
-            This is an intentionally buggy component. Run <code style={{ color: '#60a5fa' }}>flint_fix</code> to auto-repair.
+            This is an intentionally broken fixture. Run <code style={{ color: '#60a5fa' }}>flint_fix</code> to auto-repair.
           </div>
         </div>
       );
@@ -40,15 +42,18 @@ const bannerProps = {
 
 const dataTableProps = {
   rows: [
-    { id: '1', name: 'Alice Johnson', status: 'active' as const, value: 1250 },
-    { id: '2', name: 'Bob Smith', status: 'pending' as const, value: 890 },
-    { id: '3', name: 'Carol White', status: 'inactive' as const, value: 2100 },
-    { id: '4', name: 'Dave Brown', status: 'active' as const, value: 450 },
+    { id: '1', name: 'Alice Johnson', status: 'active' as const, lastModified: '2024-03-15', owner: 'alice@acme.com' },
+    { id: '2', name: 'Bob Smith', status: 'pending' as const, lastModified: '2024-03-12', owner: 'bob@acme.com' },
+    { id: '3', name: 'Carol White', status: 'inactive' as const, lastModified: '2024-02-28', owner: 'carol@acme.com' },
+    { id: '4', name: 'Dave Brown', status: 'active' as const, lastModified: '2024-03-10', owner: 'dave@acme.com' },
   ],
   pageSize: 10,
-  onRowClick: (row: any) => alert(`Clicked: ${row.name}`),
+  onRowClick: (row: { name: string }) => alert(`Clicked: ${row.name}`),
 };
 
+// Drift component: featured Pro plan — always highlighted so drift colors are always visible.
+// Header + CTA button use #0055EE (ΔE 4.6 from color.primary-hover)
+// Badge uses #FF3333 (ΔE 8.1 from color.danger)
 const pricingProps = {
   planName: 'Pro',
   price: 49,
@@ -65,15 +70,102 @@ const pricingProps = {
 type DemoEntry = {
   id: string;
   label: string;
+  badge?: 'blocked' | 'warning' | 'ok';
   render: () => React.ReactNode;
 };
 
 const demos: DemoEntry[] = [
-  { id: 'banner-compliant', label: 'Banner (Compliant)', render: () => <DemoErrorBoundary name="BannerCompliant"><BannerCompliant {...bannerProps} /></DemoErrorBoundary> },
-  { id: 'banner-broken', label: 'Banner (Broken)', render: () => <DemoErrorBoundary name="BannerBroken"><BannerBroken {...bannerProps} /></DemoErrorBoundary> },
-  { id: 'buggy', label: 'Data Table (Buggy)', render: () => <DemoErrorBoundary name="DataTable"><BuggyComponent {...dataTableProps} /></DemoErrorBoundary> },
-  { id: 'drift', label: 'Pricing (Drift)', render: () => <DemoErrorBoundary name="PricingCard"><DriftComponent {...pricingProps} /></DemoErrorBoundary> },
+  {
+    id: 'banner-compliant',
+    label: 'Banner (Compliant?)',
+    badge: 'blocked',
+    render: () => (
+      <DemoErrorBoundary name="BannerCompliant">
+        <div className="w-full max-w-2xl">
+          <BannerCompliant {...bannerProps} />
+        </div>
+      </DemoErrorBoundary>
+    ),
+  },
+  {
+    id: 'banner-broken',
+    label: 'Banner (Broken)',
+    badge: 'blocked',
+    render: () => (
+      <DemoErrorBoundary name="BannerBroken">
+        <div className="flex flex-col gap-6 items-center w-full max-w-2xl">
+          <div className="text-sm text-gray-400 self-start">
+            <span className="font-mono bg-gray-800 px-1.5 py-0.5 rounded text-gray-300">#0066FF</span>
+            {' '}→ brand primary
+          </div>
+          <BannerCompliant {...bannerProps} />
+          <div className="text-sm text-gray-400 self-start">
+            <span className="font-mono bg-gray-800 px-1.5 py-0.5 rounded text-red-400">#0055EE</span>
+            {' '}→ eyeballed from screenshot
+          </div>
+          <BannerBroken {...bannerProps} />
+        </div>
+      </DemoErrorBoundary>
+    ),
+  },
+  {
+    id: 'buggy',
+    label: 'Data Table (Buggy)',
+    badge: 'blocked',
+    render: () => (
+      <DemoErrorBoundary name="DataTable">
+        <div className="w-full max-w-2xl bg-white rounded-lg overflow-hidden">
+          <BuggyComponent {...dataTableProps} />
+        </div>
+      </DemoErrorBoundary>
+    ),
+  },
+  {
+    id: 'drift',
+    label: 'Pricing (Color Drift)',
+    badge: 'blocked',
+    render: () => (
+      <DemoErrorBoundary name="PricingCard">
+        <div className="flex flex-col items-center gap-4 w-full max-w-sm">
+          <div className="text-xs text-gray-400 text-center">
+            3 MITHRIL-IST-COL violations · ΔE 4.6 header, ΔE 8.1 badge
+          </div>
+          <DriftComponent {...pricingProps} />
+        </div>
+      </DemoErrorBoundary>
+    ),
+  },
+  {
+    id: 'violating-ux',
+    label: 'Order Form (31 violations)',
+    badge: 'blocked',
+    render: () => (
+      <DemoErrorBoundary name="ViolatingUX">
+        <div className="w-full">
+          <ViolatingUX />
+        </div>
+      </DemoErrorBoundary>
+    ),
+  },
+  {
+    id: 'legacy-divs',
+    label: 'Profile (Div Soup)',
+    badge: 'blocked',
+    render: () => (
+      <DemoErrorBoundary name="LegacyDivs">
+        <div className="w-full max-w-2xl">
+          <LegacyDivs />
+        </div>
+      </DemoErrorBoundary>
+    ),
+  },
 ];
+
+const BADGE_STYLES: Record<NonNullable<DemoEntry['badge']>, React.CSSProperties> = {
+  blocked: { background: '#7f1d1d', color: '#fca5a5', border: '1px solid #991b1b' },
+  warning: { background: '#451a03', color: '#fcd34d', border: '1px solid #78350f' },
+  ok:      { background: '#052e16', color: '#86efac', border: '1px solid #166534' },
+};
 
 export function DemoPreview() {
   const [active, setActive] = useState(demos[0].id);
@@ -81,25 +173,33 @@ export function DemoPreview() {
 
   return (
     <div style={{ minHeight: '100vh', background: '#0f0f0f', color: '#fff', fontFamily: 'system-ui, sans-serif' }}>
-      <header style={{ padding: '16px 24px', borderBottom: '1px solid #222', display: 'flex', alignItems: 'center', gap: 16 }}>
-        <span style={{ fontWeight: 700, fontSize: 14, letterSpacing: '0.05em', opacity: 0.6 }}>FLINT DEMO</span>
-        <nav style={{ display: 'flex', gap: 8 }}>
+      <header style={{ padding: '16px 24px', borderBottom: '1px solid #222', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+        <span style={{ fontWeight: 700, fontSize: 14, letterSpacing: '0.05em', opacity: 0.6, flexShrink: 0 }}>FLINT DEMO</span>
+        <nav style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {demos.map(d => (
             <button
               key={d.id}
               onClick={() => setActive(d.id)}
               style={{
-                padding: '6px 12px',
+                padding: '5px 10px',
                 borderRadius: 6,
-                border: 'none',
+                border: active === d.id ? '1px solid #0066FF' : '1px solid #333',
                 cursor: 'pointer',
-                fontSize: 13,
+                fontSize: 12,
                 fontWeight: active === d.id ? 600 : 400,
                 background: active === d.id ? '#0066FF' : '#1a1a1a',
                 color: '#fff',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
               }}
             >
               {d.label}
+              {d.badge && (
+                <span style={{ ...BADGE_STYLES[d.badge], fontSize: 10, padding: '1px 6px', borderRadius: 3, fontWeight: 700, letterSpacing: '0.04em' }}>
+                  {d.badge === 'blocked' ? 'BLOCKED' : d.badge === 'warning' ? 'WARN' : 'OK'}
+                </span>
+              )}
             </button>
           ))}
         </nav>

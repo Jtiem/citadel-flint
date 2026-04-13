@@ -349,14 +349,16 @@ describe('DBOM governance — CycloneDX format', () => {
         expect(parsed.components[0].properties).toBeDefined()
     })
 
-    it('embeds the full DBOM in extensions', async () => {
+    it('embeds the full DBOM as a JSON string property (CycloneDX 1.5 compliant)', async () => {
         writeSrc(tmpDir, 'Button.tsx', CLEAN_COMPONENT)
         const dbom = await generateDBOM(tmpDir, { format: 'cyclonedx', dryRun: true })
         const parsed = JSON.parse(formatDBOMOutput(dbom, 'cyclonedx'))
 
-        expect(parsed.extensions['flint:dbom']).toBeDefined()
-        expect(parsed.extensions['flint:dbom'].version).toBe('1.0')
-        expect(parsed.extensions['flint:dbom'].posture).toBeDefined()
+        const dbomProp = parsed.properties.find((p: { name: string }) => p.name === 'flint:dbom')
+        expect(dbomProp).toBeDefined()
+        const embeddedDbom = JSON.parse(dbomProp.value)
+        expect(embeddedDbom.version).toBe('1.0')
+        expect(embeddedDbom.posture).toBeDefined()
     })
 
     it('includes flint properties at top level', async () => {

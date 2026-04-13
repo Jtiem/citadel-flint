@@ -1,0 +1,29 @@
+{
+  "timestamp": 1775963094646,
+  "activeFile": null,
+  "selectedNodeId": null,
+  "cursorPosition": null,
+  "violations": {
+    "mithrilCount": 0,
+    "a11yCount": 0,
+    "criticalCount": 0,
+    "nodeIds": []
+  },
+  "saveState": "idle",
+  "canvasMode": "design",
+  "openFiles": [],
+  "healthScore": null,
+  "healthGrade": null,
+  "overrideCount": 0,
+  "importSummary": null,
+  "sourceExcerpt": "import React from 'react'\n\ninterface Props {\n  title: string\n}\n\nexport default function Card({ title }: Props) {\n  return (\n    <div className=\"rounded-xl border border-gray-800 bg-gray-900 p-6\">\n      <h2 className=\"text-lg font-semibold text-white\">{title}</h2>\n      <p className=\"mt-2 text-sm text-gray-400\">\n        Edit this component to see the AST update in real time.\n      </p>\n    </div>\n  )\n}\n",
+  "selectedNodeSummary": null,
+  "violationSnapshot": {
+    "total": 0,
+    "criticalCount": 0,
+    "exportBlocked": false,
+    "exportBlockReason": null
+  },
+  "sessionPersona": null,
+  "selectedLibrary": null
+}

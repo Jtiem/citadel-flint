@@ -127,7 +127,9 @@ export const useTokenStore = create<TokenStore>((set, get) => ({
             const tokens = await window.flintAPI.tokens.readAll()
             set({ tokens, isLoading: false })
         } catch (err) {
-            set({ error: String(err), isLoading: false })
+            const message = err instanceof Error ? err.message : String(err)
+            set({ error: message, isLoading: false })
+            console.warn('[Flint] TokenStore: fetchTokens failed:', message)
         }
     },
 
@@ -144,7 +146,9 @@ export const useTokenStore = create<TokenStore>((set, get) => ({
             await window.flintAPI.tokens.create(token)
             // No manual fetchTokens() — watchTokens subscription delivers the update.
         } catch (err) {
-            set({ error: String(err) })
+            const message = err instanceof Error ? err.message : String(err)
+            set({ error: message })
+            console.warn('[Flint] TokenStore: addToken failed:', message)
         }
     },
 
@@ -154,18 +158,36 @@ export const useTokenStore = create<TokenStore>((set, get) => ({
             await window.flintAPI.tokens.update(tokenPath, { token_value: value })
             // No manual fetchTokens() — watchTokens subscription delivers the update.
         } catch (err) {
-            set({ error: String(err) })
+            const message = err instanceof Error ? err.message : String(err)
+            set({ error: message })
+            console.warn('[Flint] TokenStore: updateToken failed:', message)
         }
     },
 
     deleteToken: async (id: number) => {
         set({ error: null })
+        // Capture the token and its original index before the optimistic remove
+        const originalIndex = get().tokens.findIndex((t) => t.id === id)
+        const tokenToDelete = originalIndex !== -1 ? get().tokens[originalIndex] : undefined
+        // Optimistically remove from state before the IPC call
+        set((state) => ({ tokens: state.tokens.filter((t) => t.id !== id) }))
         try {
             await window.flintAPI.tokens.delete(id)
-            // Optimistic removal — avoids a round-trip on delete
-            set((state) => ({ tokens: state.tokens.filter((t) => t.id !== id) }))
         } catch (err) {
-            set({ error: String(err) })
+            // IPC failed — restore the token at its original position and surface the error
+            const message = err instanceof Error ? err.message : String(err)
+            if (tokenToDelete) {
+                set((state) => {
+                    const restored = [...state.tokens]
+                    const insertAt = originalIndex >= 0 && originalIndex <= restored.length
+                        ? originalIndex
+                        : restored.length
+                    restored.splice(insertAt, 0, tokenToDelete)
+                    return { tokens: restored }
+                })
+            }
+            set({ error: message })
+            console.warn('[Flint] TokenStore: deleteToken failed, restoring token:', message)
         }
     },
 
@@ -175,7 +197,9 @@ export const useTokenStore = create<TokenStore>((set, get) => ({
             await window.flintAPI.tokens.clearAll()
             set({ tokens: [] })
         } catch (err) {
-            set({ error: String(err) })
+            const message = err instanceof Error ? err.message : String(err)
+            set({ error: message })
+            console.warn('[Flint] TokenStore: clearAllTokens failed:', message)
         }
     },
 
@@ -227,7 +251,9 @@ export const useTokenStore = create<TokenStore>((set, get) => ({
             await Promise.all(defaults.map((t) => window.flintAPI.tokens.create(t)))
             // No manual fetchTokens() — watchTokens subscription delivers the update.
         } catch (err) {
-            set({ error: String(err), isLoading: false })
+            const message = err instanceof Error ? err.message : String(err)
+            set({ error: message, isLoading: false })
+            console.warn('[Flint] TokenStore: ensureDemoTokens failed:', message)
         }
     },
 
@@ -260,7 +286,9 @@ export const useTokenStore = create<TokenStore>((set, get) => ({
             await Promise.all(newTokens.map((t) => window.flintAPI.tokens.create(t)))
             // No manual fetchTokens() — watchTokens subscription delivers the update.
         } catch (err) {
-            set({ error: String(err), isLoading: false })
+            const message = err instanceof Error ? err.message : String(err)
+            set({ error: message, isLoading: false })
+            console.warn('[Flint] TokenStore: importTokensJSON failed:', message)
         }
     },
 }))

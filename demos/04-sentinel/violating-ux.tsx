@@ -44,7 +44,6 @@ const initialState: OrderFormState = {
 
 export default function OrderManagementScreen() {
   const [form, setForm] = useState<OrderFormState>(initialState);
-  const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
 
   function handleChange(field: keyof OrderFormState) {
     return (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -55,6 +54,7 @@ export default function OrderManagementScreen() {
   return (
     <div style={{ padding: '16px', fontFamily: 'Inter, sans-serif' }}>
 
+      {/* VIOLATION: 10 undifferentiated actions, no visual priority */}
       <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
         <button onClick={() => {}}>New Order</button>
         <button onClick={() => {}}>Save Draft</button>
@@ -68,12 +68,14 @@ export default function OrderManagementScreen() {
         <button onClick={() => {}}>Request Approval</button>
       </div>
 
+      {/* VIOLATION: span elements instead of heading hierarchy */}
       <div style={{ marginBottom: '16px' }}>
         <span>Order Management</span>
         <span>Create and manage orders</span>
         <span>All fields required unless marked optional</span>
       </div>
 
+      {/* VIOLATION: no fieldset/legend grouping, no label associations */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
 
         <div>
@@ -168,6 +170,7 @@ export default function OrderManagementScreen() {
         />
       </div>
 
+      {/* VIOLATION: duplicates toolbar actions, no clear primary CTA */}
       <div style={{ marginTop: '16px', display: 'flex', gap: '8px' }}>
         <button onClick={() => {}}>Submit Order</button>
         <button onClick={() => {}}>Save as Draft</button>

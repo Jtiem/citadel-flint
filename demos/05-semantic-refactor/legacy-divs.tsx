@@ -1,5 +1,23 @@
 import React, { useState } from 'react';
 
+/**
+ * ProfileSettings — Demo fixture for semantic HTML refactor (Demo 05).
+ *
+ * This is a legacy component written in the "div-everything" style common in
+ * pre-2020 React codebases: no <form>, no <fieldset>, no <legend>, no semantic
+ * input types, click handlers on divs instead of buttons, and visual-only
+ * labels with no programmatic association to their controls.
+ *
+ * Flint's Warden linter detects 12+ structural and accessibility violations:
+ *   - A11Y-004: Every "input" is a raw <div> with no role, tabIndex, or label
+ *   - A11Y-020: onClick on non-interactive elements (div containers)
+ *   - A11Y-010: "Heading" is a styled <div>, not an <h*> element
+ *   - Structure: no <form>, <fieldset>, <legend>, <main>
+ *
+ * Demo flow: audit → 12 violations → flint_ast_mutate upgrades to
+ * <form>, <fieldset>, <label>, <input>, <select>, <button> — zero violations.
+ */
+
 interface UserProfile {
   displayName: string;
   email: string;
@@ -7,215 +25,183 @@ interface UserProfile {
   department: string;
   timezone: string;
   language: string;
-  avatarUrl: string;
 }
 
-interface ProfileSettingsProps {
-  profile: UserProfile;
-  onSave: (updated: UserProfile) => Promise<void>;
-  onCancel: () => void;
-}
+const TIMEZONES = [
+  { value: 'America/New_York', label: 'Eastern Time (ET)' },
+  { value: 'America/Chicago', label: 'Central Time (CT)' },
+  { value: 'America/Denver', label: 'Mountain Time (MT)' },
+  { value: 'America/Los_Angeles', label: 'Pacific Time (PT)' },
+  { value: 'Europe/London', label: 'London (GMT)' },
+  { value: 'Europe/Paris', label: 'Paris (CET)' },
+];
 
-export default function ProfileSettings({ profile, onSave, onCancel }: ProfileSettingsProps) {
-  const [form, setForm] = useState<UserProfile>(profile);
-  const [saving, setSaving] = useState(false);
+const LANGUAGES = [
+  { value: 'en', label: 'English' },
+  { value: 'fr', label: 'Français' },
+  { value: 'de', label: 'Deutsch' },
+  { value: 'ja', label: '日本語' },
+];
+
+/* ── VIOLATION: Global variable simulates form state outside React ────────── */
+let _savedProfile: UserProfile | null = null;
+
+export default function ProfileSettingsLegacy() {
+  const [displayName, setDisplayName] = useState('Alex Kim');
+  const [email] = useState('alex@example.com');
+  const [jobTitle, setJobTitle] = useState('Product Designer');
+  const [department, setDepartment] = useState('Design');
+  const [timezone, setTimezone] = useState('America/Los_Angeles');
+  const [language, setLanguage] = useState('en');
   const [saved, setSaved] = useState(false);
 
-  function handleChange(field: keyof UserProfile) {
-    return (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-      setForm((prev) => ({ ...prev, [field]: e.target.value }));
-      setSaved(false);
-    };
+  /* VIOLATION: onClick on a <div> container — should be a <form onSubmit> */
+  function handleSave() {
+    _savedProfile = { displayName, email, jobTitle, department, timezone, language };
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setSaving(true);
-    await onSave(form);
-    setSaving(false);
-    setSaved(true);
+  function handleCancel() {
+    setDisplayName('Alex Kim');
+    setJobTitle('Product Designer');
+    setDepartment('Design');
   }
 
   return (
-    <div className="box">
-      {/* Page header */}
-      <div className="flex-row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div className="stack" style={{ gap: '4px' }}>
-          <span className="text-heading">Profile Settings</span>
-          <span className="text-body" style={{ color: '#6B7280' }}>
-            Manage your personal information and preferences.
-          </span>
-        </div>
-        {saved && (
-          <div className="box" style={{ backgroundColor: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: '6px', padding: '8px 12px' }}>
-            <span className="text-caption" style={{ color: '#15803D' }}>Changes saved</span>
-          </div>
-        )}
+    /* VIOLATION: No <main> landmark */
+    <div className="max-w-2xl mx-auto p-8 bg-white border border-gray-200 rounded-lg shadow-sm">
+
+      {/* VIOLATION: <div> used as page heading — should be <h1> or <h2> */}
+      <div className="text-xl font-semibold text-gray-900 mb-1">
+        Profile Settings
+      </div>
+      <div className="text-sm text-gray-500 mb-6">
+        Manage your personal information and preferences.
       </div>
 
-      <div className="divider" style={{ height: '1px', backgroundColor: '#E5E7EB', margin: '20px 0' }} />
-
-      <form onSubmit={handleSubmit}>
-        {/* Avatar section */}
-        <div className="flex-row" style={{ gap: '20px', alignItems: 'center', marginBottom: '28px' }}>
-          <div className="box" style={{ position: 'relative' }}>
-            <img
-              src={form.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(form.displayName)}`}
-              alt={`${form.displayName} avatar`}
-              style={{ width: '72px', height: '72px', borderRadius: '9999px', objectFit: 'cover' }}
-            />
-          </div>
-          <div className="stack" style={{ gap: '6px' }}>
-            <button
-              type="button"
-              className="btn-outline"
-              style={{ fontSize: '14px', padding: '6px 14px', borderRadius: '6px', border: '1px solid #D1D5DB', background: 'white', cursor: 'pointer' }}
-            >
-              Change photo
-            </button>
-            <span className="text-caption" style={{ color: '#9CA3AF', fontSize: '12px' }}>
-              JPG, PNG or GIF. Max 2MB.
-            </span>
-          </div>
+      {saved && (
+        <div className="mb-4 bg-green-50 border border-green-200 rounded px-3 py-2 text-xs font-medium text-green-700">
+          Changes saved
         </div>
+      )}
 
-        {/* Personal info section */}
-        <div className="stack" style={{ gap: '0', marginBottom: '28px' }}>
-          <span className="text-label" style={{ fontSize: '13px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#6B7280', marginBottom: '14px', display: 'block' }}>
+      <div className="h-px bg-gray-200 mb-6" />
+
+      {/* VIOLATION: No <form> wrapper — submit logic is in a click handler on a div */}
+      <div>
+
+        {/* VIOLATION: No <fieldset><legend> — section label is a styled <div> */}
+        <div className="mb-6">
+          <div className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-4">
             Personal Information
-          </span>
+          </div>
 
-          <div className="flex-row" style={{ gap: '16px', marginBottom: '16px' }}>
-            <div className="stack" style={{ flex: 1, gap: '6px' }}>
-              <label htmlFor="displayName" className="text-label" style={{ fontSize: '14px', fontWeight: 500, color: '#374151' }}>
-                Display name
-              </label>
+          <div className="flex gap-4 mb-4">
+            {/* VIOLATION: <div> as label with no htmlFor; "input" is a div with onChange simulation */}
+            <div className="flex-1">
+              <div className="text-sm font-medium text-gray-700 mb-1">Display name</div>
+              {/* VIOLATION: <input> has no associated label (no id/htmlFor pairing) */}
               <input
-                id="displayName"
-                className="input-text"
                 type="text"
-                value={form.displayName}
-                onChange={handleChange('displayName')}
-                style={{ padding: '8px 12px', border: '1px solid #D1D5DB', borderRadius: '6px', fontSize: '14px', width: '100%', boxSizing: 'border-box' }}
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
-            <div className="stack" style={{ flex: 1, gap: '6px' }}>
-              <label htmlFor="email" className="text-label" style={{ fontSize: '14px', fontWeight: 500, color: '#374151' }}>
-                Email address
-              </label>
+            <div className="flex-1">
+              <div className="text-sm font-medium text-gray-700 mb-1">Email address</div>
+              {/* VIOLATION: disabled input with no label association */}
               <input
-                id="email"
-                className="input-text input-disabled"
-                type="email"
-                value={form.email}
+                type="text"
+                value={email}
                 disabled
-                style={{ padding: '8px 12px', border: '1px solid #E5E7EB', borderRadius: '6px', fontSize: '14px', width: '100%', boxSizing: 'border-box', backgroundColor: '#F9FAFB', color: '#9CA3AF' }}
+                className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm bg-gray-50 text-gray-400 cursor-not-allowed"
               />
             </div>
           </div>
 
-          <div className="flex-row" style={{ gap: '16px' }}>
-            <div className="stack" style={{ flex: 1, gap: '6px' }}>
-              <label htmlFor="jobTitle" className="text-label" style={{ fontSize: '14px', fontWeight: 500, color: '#374151' }}>
-                Job title
-              </label>
+          <div className="flex gap-4">
+            <div className="flex-1">
+              <div className="text-sm font-medium text-gray-700 mb-1">Job title</div>
               <input
-                id="jobTitle"
-                className="input-text"
                 type="text"
-                value={form.jobTitle}
-                onChange={handleChange('jobTitle')}
+                value={jobTitle}
+                onChange={(e) => setJobTitle(e.target.value)}
                 placeholder="e.g. Senior Product Designer"
-                style={{ padding: '8px 12px', border: '1px solid #D1D5DB', borderRadius: '6px', fontSize: '14px', width: '100%', boxSizing: 'border-box' }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
-            <div className="stack" style={{ flex: 1, gap: '6px' }}>
-              <label htmlFor="department" className="text-label" style={{ fontSize: '14px', fontWeight: 500, color: '#374151' }}>
-                Department
-              </label>
+            <div className="flex-1">
+              <div className="text-sm font-medium text-gray-700 mb-1">Department</div>
               <input
-                id="department"
-                className="input-text"
                 type="text"
-                value={form.department}
-                onChange={handleChange('department')}
+                value={department}
+                onChange={(e) => setDepartment(e.target.value)}
                 placeholder="e.g. Design"
-                style={{ padding: '8px 12px', border: '1px solid #D1D5DB', borderRadius: '6px', fontSize: '14px', width: '100%', boxSizing: 'border-box' }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
           </div>
         </div>
 
-        <div className="divider" style={{ height: '1px', backgroundColor: '#E5E7EB', marginBottom: '28px' }} />
+        <div className="h-px bg-gray-200 mb-6" />
 
-        {/* Locale section */}
-        <div className="stack" style={{ gap: '0', marginBottom: '32px' }}>
-          <span className="text-label" style={{ fontSize: '13px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#6B7280', marginBottom: '14px', display: 'block' }}>
+        {/* VIOLATION: No <fieldset><legend> for Locale section */}
+        <div className="mb-8">
+          <div className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-4">
             Locale &amp; Language
-          </span>
+          </div>
 
-          <div className="flex-row" style={{ gap: '16px' }}>
-            <div className="stack" style={{ flex: 1, gap: '6px' }}>
-              <label htmlFor="timezone" className="text-label" style={{ fontSize: '14px', fontWeight: 500, color: '#374151' }}>
-                Timezone
-              </label>
+          <div className="flex gap-4">
+            <div className="flex-1">
+              {/* VIOLATION: <div> label with no programmatic association to the select */}
+              <div className="text-sm font-medium text-gray-700 mb-1">Timezone</div>
+              {/* VIOLATION: <select> has no accessible label (no aria-label, no htmlFor) */}
               <select
-                id="timezone"
-                className="select-default"
-                value={form.timezone}
-                onChange={handleChange('timezone')}
-                style={{ padding: '8px 12px', border: '1px solid #D1D5DB', borderRadius: '6px', fontSize: '14px', width: '100%', backgroundColor: 'white' }}
+                value={timezone}
+                onChange={(e) => setTimezone(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                <option value="America/New_York">Eastern Time (ET)</option>
-                <option value="America/Chicago">Central Time (CT)</option>
-                <option value="America/Denver">Mountain Time (MT)</option>
-                <option value="America/Los_Angeles">Pacific Time (PT)</option>
-                <option value="Europe/London">London (GMT)</option>
-                <option value="Europe/Paris">Paris (CET)</option>
-                <option value="Asia/Tokyo">Tokyo (JST)</option>
+                {TIMEZONES.map((tz) => (
+                  <option key={tz.value} value={tz.value}>{tz.label}</option>
+                ))}
               </select>
             </div>
-            <div className="stack" style={{ flex: 1, gap: '6px' }}>
-              <label htmlFor="language" className="text-label" style={{ fontSize: '14px', fontWeight: 500, color: '#374151' }}>
-                Language
-              </label>
+            <div className="flex-1">
+              <div className="text-sm font-medium text-gray-700 mb-1">Language</div>
+              {/* VIOLATION: same unlabeled select problem */}
               <select
-                id="language"
-                className="select-default"
-                value={form.language}
-                onChange={handleChange('language')}
-                style={{ padding: '8px 12px', border: '1px solid #D1D5DB', borderRadius: '6px', fontSize: '14px', width: '100%', backgroundColor: 'white' }}
+                value={language}
+                onChange={(e) => setLanguage(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                <option value="en">English</option>
-                <option value="fr">Français</option>
-                <option value="de">Deutsch</option>
-                <option value="ja">日本語</option>
-                <option value="es">Español</option>
+                {LANGUAGES.map((lang) => (
+                  <option key={lang.value} value={lang.value}>{lang.label}</option>
+                ))}
               </select>
             </div>
           </div>
         </div>
 
         {/* Action bar */}
-        <div className="flex-row" style={{ justifyContent: 'flex-end', gap: '12px' }}>
-          <button
-            type="button"
-            onClick={onCancel}
-            className="btn-ghost"
-            style={{ padding: '8px 18px', fontSize: '14px', fontWeight: 500, borderRadius: '6px', border: '1px solid #E5E7EB', background: 'white', cursor: 'pointer', color: '#374151' }}
+        <div className="flex justify-end gap-3">
+          {/* VIOLATION: onClick on a plain <div> — not a <button> */}
+          <div
+            onClick={handleCancel}
+            className="px-4 py-2 text-sm font-medium rounded-md border border-gray-200 bg-white text-gray-700 cursor-pointer hover:bg-gray-50"
           >
             Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={saving}
-            className="btn-primary"
-            style={{ padding: '8px 18px', fontSize: '14px', fontWeight: 500, borderRadius: '6px', border: 'none', background: '#0066FF', color: 'white', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.65 : 1 }}
+          </div>
+          {/* VIOLATION: onClick on a plain <div> — not a <button type="submit"> */}
+          <div
+            onClick={handleSave}
+            className="px-4 py-2 text-sm font-medium rounded-md bg-blue-600 text-white cursor-pointer hover:bg-blue-700"
           >
-            {saving ? 'Saving…' : 'Save changes'}
-          </button>
+            Save changes
+          </div>
         </div>
-      </form>
+      </div>
     </div>
   );
 }

@@ -4,7 +4,8 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { parse } from '@babel/parser'
-import { applyFixes } from '../fixer.js'
+import generate from '@babel/generator'
+import { applyFixes, applyFixMutationToAst } from '../fixer.js'
 import { auditSync, registerRules, resetRules } from '../runner.js'
 import { namesLabelsRules } from '../rules/names-labels.js'
 import { keyboardRules } from '../rules/keyboard.js'
@@ -98,6 +99,101 @@ describe('applyFixes', () => {
         const fixable = result.violations.filter((v) => v.fixable)
         const fixResult = applyFixes(fixable, ast, [...namesLabelsRules, ...keyboardRules])
         expect(fixResult.fixed.length).toBeGreaterThan(0)
+    })
+
+    it('fixes A11Y-004 (input missing label) on file without data-flint-id via tag fallback', () => {
+        // Simulate a file that has never had injectFlintIds run — no data-flint-id attributes
+        const code = `const C = () => <div><input type="text" /></div>`
+        const ast = parseJSX(code) as any
+        const result = auditSync(ast, { filePath: 'test.tsx' })
+        const violation = result.violations.find((v) => v.ruleId === 'A11Y-004')
+        expect(violation).toBeDefined()
+        expect(violation!.fixable).toBe(true)
+
+        const fixResult = applyFixes([violation!], ast, namesLabelsRules)
+        expect(fixResult.fixed).toHaveLength(1)
+
+        // Apply mutations to AST
+        for (const mutation of fixResult.mutations) {
+            applyFixMutationToAst(ast, mutation)
+        }
+
+        const { code: fixedCode } = (generate as any).default
+            ? (generate as any).default(ast)
+            : (generate as any)(ast)
+
+        expect(fixedCode).toContain('aria-label')
+    })
+
+    it('fixes A11Y-001 (img missing alt) on file without data-flint-id via tag fallback', () => {
+        const code = `const C = () => <img src="photo.png" />`
+        const ast = parseJSX(code) as any
+        const result = auditSync(ast, { filePath: 'test.tsx' })
+        const violation = result.violations.find((v) => v.ruleId === 'A11Y-001')
+        expect(violation).toBeDefined()
+
+        const fixResult = applyFixes([violation!], ast, namesLabelsRules)
+        for (const mutation of fixResult.mutations) {
+            applyFixMutationToAst(ast, mutation)
+        }
+
+        const { code: fixedCode } = (generate as any).default
+            ? (generate as any).default(ast)
+            : (generate as any)(ast)
+
+        expect(fixedCode).toContain('alt')
+    })
+
+    it('does not double-fix an element that already has the target prop', () => {
+        // One input without label, one with — only the first should be fixed
+        const code = `const C = () => <div><input type="text" /><input aria-label="Name" /></div>`
+        const ast = parseJSX(code) as any
+        const result = auditSync(ast, { filePath: 'test.tsx' })
+        const violations = result.violations.filter((v) => v.ruleId === 'A11Y-004')
+        expect(violations).toHaveLength(1)
+
+        const fixResult = applyFixes(violations, ast, namesLabelsRules)
+        for (const mutation of fixResult.mutations) {
+            applyFixMutationToAst(ast, mutation)
+        }
+
+        const { code: fixedCode } = (generate as any).default
+            ? (generate as any).default(ast)
+            : (generate as any)(ast)
+
+        // Both inputs should end up with aria-label
+        const ariaLabelCount = (fixedCode.match(/aria-label/g) ?? []).length
+        expect(ariaLabelCount).toBeGreaterThanOrEqual(2)
+    })
+
+    it('applyFixMutationToAst: primary path works when data-flint-id is present', () => {
+        // With data-flint-id, the primary traversal should find and fix the element
+        const code = `const C = () => <img src="x" data-flint-id="img-001" />`
+        const ast = parseJSX(code) as any
+
+        applyFixMutationToAst(ast, {
+            type: 'updateProp',
+            args: { nodeId: 'img-001', propName: 'alt', value: '' },
+        } as any)
+
+        const { code: fixedCode } = (generate as any).default
+            ? (generate as any).default(ast)
+            : (generate as any)(ast)
+
+        expect(fixedCode).toContain('alt')
+    })
+
+    it('applyFixMutationToAst: unknown nodeId without tag inference does nothing', () => {
+        const code = `const C = () => <div />`
+        const ast = parseJSX(code) as any
+
+        // Should not throw, just silently skip
+        expect(() =>
+            applyFixMutationToAst(ast, {
+                type: 'updateProp',
+                args: { nodeId: 'unknown-xyz', propName: 'aria-label', value: 'test' },
+            } as any),
+        ).not.toThrow()
     })
 
     it('fix on already-compliant input returns null from rule.fix', () => {

@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { StatusBar } from '../../editor/StatusBar'
 import { useCanvasStore } from '../../../store/canvasStore'
 
@@ -34,6 +34,9 @@ describe('StatusBar — Autopilot toggle (S8.2)', () => {
     it('has aria-label "Autopilot: Off" when autopilot is disabled', async () => {
         seedViolation(false)
         render(<StatusBar />)
+        // Autopilot toggle lives inside the overflow dropdown — open it first
+        await waitFor(() => screen.getByTestId('statusbar-overflow-btn'))
+        fireEvent.click(screen.getByTestId('statusbar-overflow-btn'))
         await waitFor(() => {
             const btn = screen.queryByRole('button', { name: 'Autopilot: Off' })
             expect(btn).not.toBeNull()
@@ -44,6 +47,8 @@ describe('StatusBar — Autopilot toggle (S8.2)', () => {
     it('has aria-label "Autopilot: On" when autopilot is enabled', async () => {
         seedViolation(true)
         render(<StatusBar />)
+        await waitFor(() => screen.getByTestId('statusbar-overflow-btn'))
+        fireEvent.click(screen.getByTestId('statusbar-overflow-btn'))
         await waitFor(() => {
             const btn = screen.queryByRole('button', { name: 'Autopilot: On' })
             expect(btn).not.toBeNull()
@@ -54,6 +59,8 @@ describe('StatusBar — Autopilot toggle (S8.2)', () => {
     it('shows the correct tooltip text when autopilot is OFF', async () => {
         seedViolation(false)
         render(<StatusBar />)
+        await waitFor(() => screen.getByTestId('statusbar-overflow-btn'))
+        fireEvent.click(screen.getByTestId('statusbar-overflow-btn'))
         await waitFor(() => {
             const btn = screen.queryByRole('button', { name: 'Autopilot: Off' })
             expect(btn).not.toBeNull()
@@ -67,6 +74,8 @@ describe('StatusBar — Autopilot toggle (S8.2)', () => {
     it('shows the correct tooltip text when autopilot is ON', async () => {
         seedViolation(true)
         render(<StatusBar />)
+        await waitFor(() => screen.getByTestId('statusbar-overflow-btn'))
+        fireEvent.click(screen.getByTestId('statusbar-overflow-btn'))
         await waitFor(() => {
             const btn = screen.queryByRole('button', { name: 'Autopilot: On' })
             expect(btn).not.toBeNull()

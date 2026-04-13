@@ -215,101 +215,16 @@
       "importPath": "./src/components/editor/AssetsPanel",
       "props": {}
     },
-    "CanvasViewToggle": {
-      "name": "CanvasViewToggle",
-      "importPath": "./src/components/editor/CanvasViewToggle",
-      "props": {},
-      "description": "CanvasViewToggle"
-    },
-    "DependencyEdge": {
-      "name": "DependencyEdge",
-      "importPath": "./src/components/editor/DependencyEdge",
-      "props": {
-        "id": {
-          "type": "unknown",
-          "required": false
-        },
-        "sourceX": {
-          "type": "unknown",
-          "required": false
-        },
-        "sourceY": {
-          "type": "unknown",
-          "required": false
-        },
-        "targetX": {
-          "type": "unknown",
-          "required": false
-        },
-        "targetY": {
-          "type": "unknown",
-          "required": false
-        },
-        "sourcePosition": {
-          "type": "unknown",
-          "required": false
-        },
-        "targetPosition": {
-          "type": "unknown",
-          "required": false
-        },
-        "data": {
-          "type": "unknown",
-          "required": false
-        },
-        "markerEnd": {
-          "type": "unknown",
-          "required": false
-        }
-      }
-    },
     "GhostCodeSnippet": {
       "name": "GhostCodeSnippet",
       "importPath": "./src/components/editor/GhostCodeSnippet",
       "props": {},
       "description": "Floating code snippet card."
     },
-    "GhostOverlay": {
-      "name": "GhostOverlay",
-      "importPath": "./src/components/editor/GhostOverlay",
-      "props": {},
-      "description": "Floating overlay rendered as a React portal into document.body."
-    },
-    "GovernanceOverlay": {
-      "name": "GovernanceOverlay",
-      "importPath": "./src/components/editor/GovernanceOverlay",
-      "props": {
-        "onConfigureRule": {
-          "type": "(...args: any[]) => any",
-          "required": false
-        }
-      }
-    },
-    "ImportAuditToast": {
-      "name": "ImportAuditToast",
-      "importPath": "./src/components/editor/ImportAuditToast",
-      "props": {}
-    },
     "LivePreview": {
       "name": "LivePreview",
       "importPath": "./src/components/editor/LivePreview",
       "props": {}
-    },
-    "RecipeStrip": {
-      "name": "RecipeStrip",
-      "importPath": "./src/components/editor/RecipeStrip",
-      "props": {},
-      "description": "RecipeStrip"
-    },
-    "ShieldOverlay": {
-      "name": "ShieldOverlay",
-      "importPath": "./src/components/editor/ShieldOverlay",
-      "props": {
-        "iframeRef": {
-          "type": "React.RefObject",
-          "required": true
-        }
-      }
     },
     "StatusBar": {
       "name": "StatusBar",
@@ -326,34 +241,18 @@
         "onOpenOwnProject": {
           "type": "(...args: any[]) => any",
           "required": false
+        },
+        "onManageFigma": {
+          "type": "(...args: any[]) => any",
+          "required": false
         }
       }
     },
-    "ViolationTooltip": {
-      "name": "ViolationTooltip",
-      "importPath": "./src/components/editor/ViolationTooltip",
-      "props": {
-        "nodeId": {
-          "type": "string",
-          "required": true
-        },
-        "position": {
-          "type": "unknown",
-          "required": true
-        },
-        "mithrilWarnings": {
-          "type": "unknown[]",
-          "required": true
-        },
-        "a11yMessages": {
-          "type": "string[]",
-          "required": true
-        },
-        "onClose": {
-          "type": "(...args: any[]) => any",
-          "required": true
-        }
-      }
+    "AnnotationBadge": {
+      "name": "AnnotationBadge",
+      "importPath": "./src/components/editor/XYCanvas",
+      "props": {},
+      "description": "AnnotationBadge — exported for testability."
     },
     "XYCanvas": {
       "name": "XYCanvas",
@@ -384,32 +283,6 @@
       "importPath": "./src/components/inspector/LayoutPanel",
       "props": {
         "className": {
-          "type": "string",
-          "required": true
-        },
-        "onChange": {
-          "type": "(...args: any[]) => any",
-          "required": true
-        }
-      }
-    },
-    "TokenSelect": {
-      "name": "TokenSelect",
-      "importPath": "./src/components/inspector/TokenSelect",
-      "props": {
-        "label": {
-          "type": "string",
-          "required": true
-        },
-        "tokenType": {
-          "type": "TokenType",
-          "required": true
-        },
-        "classPrefix": {
-          "type": "string",
-          "required": true
-        },
-        "value": {
           "type": "string",
           "required": true
         },
@@ -543,31 +416,6 @@
         }
       }
     },
-    "ActivityFeed": {
-      "name": "ActivityFeed",
-      "importPath": "./src/components/ui/ActivityFeed",
-      "props": {}
-    },
-    "AgentChatPanel": {
-      "name": "AgentChatPanel",
-      "importPath": "./src/components/ui/AgentChatPanel",
-      "props": {}
-    },
-    "AgentDashboard": {
-      "name": "AgentDashboard",
-      "importPath": "./src/components/ui/AgentDashboard",
-      "props": {}
-    },
-    "AgentSettingsModal": {
-      "name": "AgentSettingsModal",
-      "importPath": "./src/components/ui/AgentSettingsModal",
-      "props": {
-        "onClose": {
-          "type": "(...args: any[]) => any",
-          "required": true
-        }
-      }
-    },
     "AnnotationList": {
       "name": "AnnotationList",
       "importPath": "./src/components/ui/AnnotationList",
@@ -578,6 +426,28 @@
         }
       },
       "description": "Embeds an accordion section in PropertiesPanel showing all unresolved annotations anchored to `nodeId`. Collapsed by default; header shows a count badge when annotations exist."
+    },
+    "Badge": {
+      "name": "Badge",
+      "importPath": "./src/components/ui/Badge",
+      "props": {
+        "variant": {
+          "type": "'default' | 'success' | 'warning' | 'error' | 'info' | 'neutral'",
+          "required": false
+        },
+        "size": {
+          "type": "'sm' | 'md'",
+          "required": false
+        },
+        "children": {
+          "type": "React.ReactNode",
+          "required": true
+        },
+        "className": {
+          "type": "string",
+          "required": false
+        }
+      }
     },
     "BetaFeedbackModal": {
       "name": "BetaFeedbackModal",
@@ -615,33 +485,6 @@
         }
       }
     },
-    "Button": {
-      "name": "Button",
-      "importPath": "./src/stories/Button",
-      "props": {
-        "primary": {
-          "type": "boolean",
-          "required": false
-        },
-        "backgroundColor": {
-          "type": "string",
-          "required": false
-        },
-        "size": {
-          "type": "'small' | 'medium' | 'large'",
-          "required": false
-        },
-        "label": {
-          "type": "string",
-          "required": true
-        },
-        "onClick": {
-          "type": "(...args: any[]) => any",
-          "required": false
-        }
-      },
-      "description": "Primary UI component for user interaction"
-    },
     "CommandPalette": {
       "name": "CommandPalette",
       "importPath": "./src/components/ui/CommandPalette",
@@ -653,6 +496,10 @@
         "onOpenGovernancePanel": {
           "type": "(...args: any[]) => any",
           "required": true
+        },
+        "onOpenSetupWizard": {
+          "type": "(...args: any[]) => any",
+          "required": false
         }
       }
     },
@@ -727,6 +574,20 @@
       "importPath": "./src/components/ui/ComponentSearch",
       "props": {}
     },
+    "ConflictResolutionPanel": {
+      "name": "ConflictResolutionPanel",
+      "importPath": "./src/components/ui/ConflictResolutionPanel",
+      "props": {
+        "onClose": {
+          "type": "(...args: any[]) => any",
+          "required": false
+        },
+        "conflicts": {
+          "type": "unknown[]",
+          "required": false
+        }
+      }
+    },
     "CoverageBar": {
       "name": "CoverageBar",
       "importPath": "./src/components/ui/CoverageBar",
@@ -737,6 +598,42 @@
         },
         "isLoading": {
           "type": "boolean",
+          "required": false
+        }
+      }
+    },
+    "DemoWalkthrough": {
+      "name": "DemoWalkthrough",
+      "importPath": "./src/components/ui/DemoWalkthrough",
+      "props": {
+        "onDismiss": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "onProjectHandoff": {
+          "type": "(...args: any[]) => any",
+          "required": false
+        }
+      }
+    },
+    "DetectionBanner": {
+      "name": "DetectionBanner",
+      "importPath": "./src/components/ui/DetectionBanner",
+      "props": {
+        "environment": {
+          "type": "ProjectEnvironment | null",
+          "required": true
+        },
+        "onRunAudit": {
+          "type": "(...args: any[]) => any",
+          "required": false
+        },
+        "isScanning": {
+          "type": "boolean",
+          "required": false
+        },
+        "scanProgress": {
+          "type": "unknown",
           "required": false
         }
       }
@@ -800,6 +697,20 @@
         "onClose": {
           "type": "(...args: any[]) => any",
           "required": true
+        },
+        "pendingTokenCount": {
+          "type": "number",
+          "required": false
+        }
+      }
+    },
+    "FigmaConnectionPanel": {
+      "name": "FigmaConnectionPanel",
+      "importPath": "./src/components/ui/FigmaConnectionPanel",
+      "props": {
+        "onClose": {
+          "type": "(...args: any[]) => any",
+          "required": false
         }
       }
     },
@@ -823,6 +734,28 @@
       "props": {},
       "description": "Renders the recursive project file tree in the left sidebar."
     },
+    "FixPreviewDrawer": {
+      "name": "FixPreviewDrawer",
+      "importPath": "./src/components/ui/FixPreviewDrawer",
+      "props": {
+        "items": {
+          "type": "unknown[]",
+          "required": true
+        },
+        "onApply": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "onCancel": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "onOpenSettings": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        }
+      }
+    },
     "FocusTrap": {
       "name": "FocusTrap",
       "importPath": "./src/components/ui/FocusTrap",
@@ -834,13 +767,38 @@
         "initialFocusRef": {
           "type": "RefObject",
           "required": false
+        },
+        "onClose": {
+          "type": "(...args: any[]) => any",
+          "required": false
         }
       }
     },
     "GovernanceDashboard": {
       "name": "GovernanceDashboard",
       "importPath": "./src/components/ui/GovernanceDashboard",
-      "props": {}
+      "props": {
+        "onOpenExportModal": {
+          "type": "(...args: any[]) => any",
+          "required": false
+        },
+        "onOpenGovernancePanel": {
+          "type": "(...args: any[]) => any",
+          "required": false
+        },
+        "initialViolationCount": {
+          "type": "number",
+          "required": false
+        },
+        "onManageRules": {
+          "type": "(...args: any[]) => any",
+          "required": false
+        },
+        "onPolicySettings": {
+          "type": "(...args: any[]) => any",
+          "required": false
+        }
+      }
     },
     "GovernancePanel": {
       "name": "GovernancePanel",
@@ -852,46 +810,6 @@
         },
         "focusRuleId": {
           "type": "string",
-          "required": false
-        }
-      }
-    },
-    "Heading": {
-      "name": "Heading",
-      "importPath": "./src/components/ui/Heading",
-      "props": {
-        "as": {
-          "type": "1 | 2 | 3 | 4 | 5 | 6",
-          "required": false
-        },
-        "className": {
-          "type": "unknown",
-          "required": false
-        },
-        "children": {
-          "type": "unknown",
-          "required": false
-        }
-      }
-    },
-    "IconButton": {
-      "name": "IconButton",
-      "importPath": "./src/components/ui/IconButton",
-      "props": {
-        "icon": {
-          "type": "'close' | 'info' | 'add' | 'document'",
-          "required": true
-        },
-        "size": {
-          "type": "'sm' | 'md'",
-          "required": false
-        },
-        "label": {
-          "type": "string",
-          "required": false
-        },
-        "className": {
-          "type": "unknown",
           "required": false
         }
       }
@@ -922,16 +840,6 @@
         }
       }
     },
-    "Input": {
-      "name": "Input",
-      "importPath": "./src/components/ui/Input",
-      "props": {
-        "className": {
-          "type": "unknown",
-          "required": false
-        }
-      }
-    },
     "LaunchScreen": {
       "name": "LaunchScreen",
       "importPath": "./src/components/ui/LaunchScreen",
@@ -954,6 +862,10 @@
         },
         "onConnectIDE": {
           "type": "(...args: any[]) => any",
+          "required": false
+        },
+        "demoError": {
+          "type": "string",
           "required": false
         }
       }
@@ -981,6 +893,48 @@
         },
         "children": {
           "type": "unknown",
+          "required": false
+        }
+      }
+    },
+    "Modal": {
+      "name": "Modal",
+      "importPath": "./src/components/ui/Modal",
+      "props": {
+        "isOpen": {
+          "type": "boolean",
+          "required": true
+        },
+        "onClose": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "title": {
+          "type": "string",
+          "required": true
+        },
+        "titleId": {
+          "type": "string",
+          "required": false
+        },
+        "size": {
+          "type": "'sm' | 'md' | 'lg'",
+          "required": false
+        },
+        "children": {
+          "type": "ReactNode",
+          "required": true
+        },
+        "footer": {
+          "type": "ReactNode",
+          "required": false
+        },
+        "hideCloseButton": {
+          "type": "boolean",
+          "required": false
+        },
+        "initialFocus": {
+          "type": "RefObject",
           "required": false
         }
       }
@@ -1029,11 +983,6 @@
       "importPath": "./src/components/ui/PropertiesPanel",
       "props": {}
     },
-    "RecoveryPanel": {
-      "name": "RecoveryPanel",
-      "importPath": "./src/components/ui/RecoveryPanel",
-      "props": {}
-    },
     "ResizeHandle": {
       "name": "ResizeHandle",
       "importPath": "./src/components/ui/ResizeHandle",
@@ -1070,40 +1019,6 @@
         }
       }
     },
-    "SelectField": {
-      "name": "SelectField",
-      "importPath": "./src/components/ui/SelectField",
-      "props": {
-        "label": {
-          "type": "string",
-          "required": false
-        },
-        "options": {
-          "type": "unknown[]",
-          "required": true
-        },
-        "placeholder": {
-          "type": "string",
-          "required": false
-        },
-        "error": {
-          "type": "boolean",
-          "required": false
-        },
-        "size": {
-          "type": "'sm' | 'md'",
-          "required": false
-        },
-        "className": {
-          "type": "unknown",
-          "required": false
-        },
-        "id": {
-          "type": "unknown",
-          "required": false
-        }
-      }
-    },
     "SetupWizard": {
       "name": "SetupWizard",
       "importPath": "./src/components/ui/SetupWizard",
@@ -1118,27 +1033,35 @@
       "name": "SwitchToggle",
       "importPath": "./src/components/ui/SwitchToggle",
       "props": {
+        "checked": {
+          "type": "boolean",
+          "required": true
+        },
+        "onChange": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
         "label": {
           "type": "string",
           "required": false
         },
-        "checked": {
-          "type": "boolean",
-          "required": false
-        },
-        "onChange": {
-          "type": "(...args: any[]) => any",
+        "labelPosition": {
+          "type": "'left' | 'right'",
           "required": false
         },
         "disabled": {
           "type": "boolean",
           "required": false
         },
-        "className": {
-          "type": "string",
+        "size": {
+          "type": "'sm' | 'md'",
           "required": false
         },
         "id": {
+          "type": "string",
+          "required": false
+        },
+        "className": {
           "type": "string",
           "required": false
         }
@@ -1150,31 +1073,19 @@
       "props": {},
       "description": "Footer chip displaying the current sync state."
     },
-    "TextField": {
-      "name": "TextField",
-      "importPath": "./src/components/ui/TextField",
+    "TabUnlockTooltip": {
+      "name": "TabUnlockTooltip",
+      "importPath": "./src/components/ui/TabUnlockTooltip",
       "props": {
-        "label": {
-          "type": "string",
-          "required": false
-        },
-        "helperText": {
-          "type": "string",
-          "required": false
-        },
-        "error": {
-          "type": "boolean",
-          "required": false
-        },
-        "size": {
-          "type": "'sm' | 'md'",
-          "required": false
-        },
-        "className": {
+        "tooltipKey": {
           "type": "unknown",
           "required": false
         },
-        "id": {
+        "text": {
+          "type": "unknown",
+          "required": false
+        },
+        "children": {
           "type": "unknown",
           "required": false
         }
@@ -1184,6 +1095,489 @@
       "name": "TokenManager",
       "importPath": "./src/components/ui/TokenManager",
       "props": {}
+    },
+    "TokenPanel": {
+      "name": "TokenPanel",
+      "importPath": "./src/components/ui/TokenPanel",
+      "props": {}
+    },
+    "UserSettings": {
+      "name": "UserSettings",
+      "importPath": "./src/components/ui/_settings-test",
+      "props": {}
+    },
+    "BatchActionBar": {
+      "name": "BatchActionBar",
+      "importPath": "./src/components/ui/governance/BatchActionBar",
+      "props": {
+        "acceptedCount": {
+          "type": "number",
+          "required": true
+        },
+        "autoFixableCount": {
+          "type": "number",
+          "required": true
+        },
+        "a11yFixableCount": {
+          "type": "number",
+          "required": true
+        },
+        "manualCount": {
+          "type": "number",
+          "required": true
+        },
+        "onApplyAccepted": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "onAutoFixMithril": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "onFixAllA11y": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "onReviewManual": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "sessionProgress": {
+          "type": "unknown",
+          "required": false
+        },
+        "isBaselineSet": {
+          "type": "boolean",
+          "required": false
+        }
+      }
+    },
+    "ScoreRing": {
+      "name": "ScoreRing",
+      "importPath": "./src/components/ui/governance/ScoreSection",
+      "props": {
+        "score": {
+          "type": "number",
+          "required": true
+        },
+        "grade": {
+          "type": "'A' | 'B' | 'C' | 'D' | 'F'",
+          "required": true
+        },
+        "pulse": {
+          "type": "boolean",
+          "required": false
+        }
+      }
+    },
+    "ScoreSection": {
+      "name": "ScoreSection",
+      "importPath": "./src/components/ui/governance/ScoreSection",
+      "props": {
+        "score": {
+          "type": "number",
+          "required": true
+        },
+        "grade": {
+          "type": "string",
+          "required": true
+        },
+        "trend": {
+          "type": "number",
+          "required": true
+        },
+        "exportBlocked": {
+          "type": "boolean",
+          "required": true
+        },
+        "mithrilCount": {
+          "type": "number",
+          "required": true
+        },
+        "a11yCount": {
+          "type": "number",
+          "required": true
+        },
+        "overridesExist": {
+          "type": "boolean",
+          "required": true
+        },
+        "overrideCount": {
+          "type": "number",
+          "required": true
+        },
+        "onRunAudit": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "baselineMode": {
+          "type": "boolean",
+          "required": true
+        },
+        "onToggleBaseline": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "newIssueCount": {
+          "type": "number",
+          "required": false
+        },
+        "healthHistory": {
+          "type": "Array",
+          "required": true
+        },
+        "scoreTrendHint": {
+          "type": "string | null",
+          "required": true
+        },
+        "nextStep": {
+          "type": "unknown",
+          "required": true
+        },
+        "effortText": {
+          "type": "string",
+          "required": true
+        },
+        "ringPulse": {
+          "type": "boolean",
+          "required": true
+        },
+        "lastCleanState": {
+          "type": "unknown | null",
+          "required": true
+        },
+        "onRewindToClean": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "activeCategory": {
+          "type": "'design-system' | 'accessibility' | 'token-sync' | null",
+          "required": true
+        },
+        "onSetCategory": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "syncCount": {
+          "type": "number",
+          "required": true
+        },
+        "initialViolationCount": {
+          "type": "number",
+          "required": false
+        },
+        "isBaselineSet": {
+          "type": "boolean",
+          "required": true
+        },
+        "bannerDismissed": {
+          "type": "boolean",
+          "required": true
+        },
+        "onDismissBanner": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "onShowAllViolations": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "onOpenExportModal": {
+          "type": "(...args: any[]) => any",
+          "required": false
+        },
+        "designSystemBlockingCount": {
+          "type": "number",
+          "required": false
+        },
+        "a11yBlockingCount": {
+          "type": "number",
+          "required": false
+        },
+        "syncBlockingCount": {
+          "type": "number",
+          "required": false
+        }
+      }
+    },
+    "ViolationCard": {
+      "name": "ViolationCard",
+      "importPath": "./src/components/ui/governance/ViolationCard",
+      "props": {
+        "issue": {
+          "type": "LinterWarning",
+          "required": true
+        },
+        "type": {
+          "type": "'mithril' | 'a11y'",
+          "required": true
+        },
+        "cardKey": {
+          "type": "string",
+          "required": true
+        },
+        "indexInList": {
+          "type": "number",
+          "required": false
+        },
+        "isPinned": {
+          "type": "boolean",
+          "required": true
+        },
+        "isFlagged": {
+          "type": "boolean",
+          "required": true
+        },
+        "isDeferred": {
+          "type": "boolean",
+          "required": true
+        },
+        "deferExpiresAtMs": {
+          "type": "number | null",
+          "required": false
+        },
+        "isDeferSuccess": {
+          "type": "boolean",
+          "required": true
+        },
+        "deferSuccessMsg": {
+          "type": "string",
+          "required": false
+        },
+        "resurfaceTick": {
+          "type": "number",
+          "required": false
+        },
+        "isExpanded": {
+          "type": "boolean",
+          "required": true
+        },
+        "isDiffOpen": {
+          "type": "boolean",
+          "required": true
+        },
+        "isDiffLoading": {
+          "type": "boolean",
+          "required": true
+        },
+        "diffData": {
+          "type": "InlineFixPreview | null",
+          "required": false
+        },
+        "isDeferFormOpen": {
+          "type": "boolean",
+          "required": true
+        },
+        "fixItem": {
+          "type": "FixableItem | null",
+          "required": true
+        },
+        "provenance": {
+          "type": "ProvenanceInfo | null",
+          "required": false
+        },
+        "deferReason": {
+          "type": "string",
+          "required": true
+        },
+        "deferDuration": {
+          "type": "DeferDuration",
+          "required": true
+        },
+        "onToggleExpand": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "onFix": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "onPreviewFix": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "onAcceptFix": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "onSkipFix": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "onFlag": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "onUnflag": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "onDefer": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "onDeferReasonChange": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "onDeferDurationChange": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "onSubmitDefer": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "onCancelDefer": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "onPin": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "onJumpToElement": {
+          "type": "(...args: any[]) => any",
+          "required": false
+        },
+        "getNodeName": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "activeFilePath": {
+          "type": "string | null",
+          "required": true
+        }
+      }
+    },
+    "ColorGrid": {
+      "name": "ColorGrid",
+      "importPath": "./src/components/ui/token/ColorGrid",
+      "props": {
+        "tokens": {
+          "type": "unknown[]",
+          "required": true
+        },
+        "usageMap": {
+          "type": "Map",
+          "required": false
+        },
+        "driftMap": {
+          "type": "Map",
+          "required": false
+        },
+        "onTokenSelect": {
+          "type": "(...args: any[]) => any",
+          "required": false
+        }
+      }
+    },
+    "ModeColumns": {
+      "name": "ModeColumns",
+      "importPath": "./src/components/ui/token/ModeColumns",
+      "props": {
+        "tokens": {
+          "type": "unknown[]",
+          "required": true
+        }
+      }
+    },
+    "SpacingRuler": {
+      "name": "SpacingRuler",
+      "importPath": "./src/components/ui/token/SpacingRuler",
+      "props": {
+        "tokens": {
+          "type": "unknown[]",
+          "required": true
+        }
+      }
+    },
+    "TokenApprovalStaging": {
+      "name": "TokenApprovalStaging",
+      "importPath": "./src/components/ui/token/TokenApprovalStaging",
+      "props": {
+        "onTokenResolved": {
+          "type": "(...args: any[]) => any",
+          "required": false
+        }
+      }
+    },
+    "TokenDetailView": {
+      "name": "TokenDetailView",
+      "importPath": "./src/components/ui/token/TokenDetailView",
+      "props": {
+        "token": {
+          "type": "ExtendedToken",
+          "required": true
+        },
+        "allTokens": {
+          "type": "unknown[]",
+          "required": false
+        },
+        "usage": {
+          "type": "TokenUsageResult",
+          "required": false
+        },
+        "contrastPairs": {
+          "type": "unknown[]",
+          "required": false
+        },
+        "drift": {
+          "type": "unknown",
+          "required": false
+        },
+        "onClose": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        }
+      }
+    },
+    "TokenTabBadge": {
+      "name": "TokenTabBadge",
+      "importPath": "./src/components/ui/token/TokenTabBadge",
+      "props": {
+        "count": {
+          "type": "number",
+          "required": true
+        }
+      }
+    },
+    "TypographySpecimen": {
+      "name": "TypographySpecimen",
+      "importPath": "./src/components/ui/token/TypographySpecimen",
+      "props": {
+        "tokens": {
+          "type": "unknown[]",
+          "required": true
+        }
+      }
+    },
+    "Button": {
+      "name": "Button",
+      "importPath": "./src/stories/Button",
+      "props": {
+        "primary": {
+          "type": "boolean",
+          "required": false
+        },
+        "backgroundColor": {
+          "type": "string",
+          "required": false
+        },
+        "size": {
+          "type": "'small' | 'medium' | 'large'",
+          "required": false
+        },
+        "label": {
+          "type": "string",
+          "required": true
+        },
+        "onClick": {
+          "type": "(...args: any[]) => any",
+          "required": false
+        }
+      },
+      "description": "Primary UI component for user interaction"
     },
     "Header": {
       "name": "Header",
@@ -1211,198 +1605,6 @@
       "name": "Page",
       "importPath": "./src/stories/Page",
       "props": {}
-    },
-    "Button": {
-      "name": "Button",
-      "importPath": "primeng/button",
-      "library": "primeng",
-      "props": {
-        "label": { "type": "string", "required": false },
-        "icon": { "type": "string", "required": false },
-        "severity": { "type": "'success' | 'info' | 'warn' | 'danger' | 'help' | 'secondary' | 'contrast'", "required": false },
-        "outlined": { "type": "boolean", "required": false },
-        "rounded": { "type": "boolean", "required": false },
-        "text": { "type": "boolean", "required": false },
-        "disabled": { "type": "boolean", "required": false },
-        "loading": { "type": "boolean", "required": false },
-        "onClick": { "type": "() => void", "required": false }
-      },
-      "description": "PrimeNG Button — versatile action trigger with severity variants, icon support, and loading state."
-    },
-    "InputText": {
-      "name": "InputText",
-      "importPath": "primeng/inputtext",
-      "library": "primeng",
-      "props": {
-        "value": { "type": "string", "required": false },
-        "placeholder": { "type": "string", "required": false },
-        "disabled": { "type": "boolean", "required": false },
-        "invalid": { "type": "boolean", "required": false }
-      },
-      "description": "PrimeNG text input field with validation state support."
-    },
-    "InputSwitch": {
-      "name": "InputSwitch",
-      "importPath": "primeng/inputswitch",
-      "library": "primeng",
-      "props": {
-        "checked": { "type": "boolean", "required": false },
-        "disabled": { "type": "boolean", "required": false },
-        "onChange": { "type": "(e: { value: boolean }) => void", "required": false }
-      },
-      "description": "PrimeNG toggle switch for boolean settings."
-    },
-    "Dropdown": {
-      "name": "Dropdown",
-      "importPath": "primeng/dropdown",
-      "library": "primeng",
-      "props": {
-        "value": { "type": "unknown", "required": false },
-        "options": { "type": "unknown[]", "required": false },
-        "optionLabel": { "type": "string", "required": false },
-        "placeholder": { "type": "string", "required": false },
-        "disabled": { "type": "boolean", "required": false },
-        "onChange": { "type": "(e: { value: unknown }) => void", "required": false }
-      },
-      "description": "PrimeNG dropdown select with search and filtering."
-    },
-    "Card": {
-      "name": "Card",
-      "importPath": "primeng/card",
-      "library": "primeng",
-      "props": {
-        "title": { "type": "string", "required": false },
-        "subTitle": { "type": "string", "required": false },
-        "header": { "type": "ReactNode", "required": false },
-        "footer": { "type": "ReactNode", "required": false }
-      },
-      "description": "PrimeNG Card — content container with header, body, and footer sections."
-    },
-    "TabView": {
-      "name": "TabView",
-      "importPath": "primeng/tabview",
-      "library": "primeng",
-      "props": {
-        "activeIndex": { "type": "number", "required": false },
-        "onTabChange": { "type": "(e: { index: number }) => void", "required": false }
-      },
-      "description": "PrimeNG tab container for organizing content into tabbed sections."
-    },
-    "TabPanel": {
-      "name": "TabPanel",
-      "importPath": "primeng/tabview",
-      "library": "primeng",
-      "props": {
-        "header": { "type": "string", "required": true },
-        "disabled": { "type": "boolean", "required": false }
-      },
-      "description": "PrimeNG tab panel — individual tab within a TabView."
-    },
-    "Divider": {
-      "name": "Divider",
-      "importPath": "primeng/divider",
-      "library": "primeng",
-      "props": {
-        "layout": { "type": "'horizontal' | 'vertical'", "required": false },
-        "type": { "type": "'solid' | 'dashed' | 'dotted'", "required": false }
-      },
-      "description": "PrimeNG visual separator between content sections."
-    },
-    "Avatar": {
-      "name": "Avatar",
-      "importPath": "primeng/avatar",
-      "library": "primeng",
-      "props": {
-        "image": { "type": "string", "required": false },
-        "label": { "type": "string", "required": false },
-        "icon": { "type": "string", "required": false },
-        "size": { "type": "'normal' | 'large' | 'xlarge'", "required": false },
-        "shape": { "type": "'square' | 'circle'", "required": false }
-      },
-      "description": "PrimeNG avatar — displays user image, initials, or icon."
-    },
-    "Password": {
-      "name": "Password",
-      "importPath": "primeng/password",
-      "library": "primeng",
-      "props": {
-        "value": { "type": "string", "required": false },
-        "feedback": { "type": "boolean", "required": false },
-        "toggleMask": { "type": "boolean", "required": false },
-        "disabled": { "type": "boolean", "required": false },
-        "placeholder": { "type": "string", "required": false }
-      },
-      "description": "PrimeNG password input with strength meter and toggle visibility."
-    },
-    "Toast": {
-      "name": "Toast",
-      "importPath": "primeng/toast",
-      "library": "primeng",
-      "props": {
-        "position": { "type": "'top-right' | 'top-left' | 'bottom-right' | 'bottom-left' | 'top-center' | 'bottom-center'", "required": false },
-        "life": { "type": "number", "required": false }
-      },
-      "description": "PrimeNG toast notification container for success/error/info messages."
-    },
-    "Checkbox": {
-      "name": "Checkbox",
-      "importPath": "primeng/checkbox",
-      "library": "primeng",
-      "props": {
-        "checked": { "type": "boolean", "required": false },
-        "disabled": { "type": "boolean", "required": false },
-        "label": { "type": "string", "required": false },
-        "onChange": { "type": "(e: { checked: boolean }) => void", "required": false }
-      },
-      "description": "PrimeNG checkbox for multi-select boolean options."
-    },
-    "RadioButton": {
-      "name": "RadioButton",
-      "importPath": "primeng/radiobutton",
-      "library": "primeng",
-      "props": {
-        "value": { "type": "unknown", "required": false },
-        "checked": { "type": "boolean", "required": false },
-        "disabled": { "type": "boolean", "required": false },
-        "name": { "type": "string", "required": false },
-        "onChange": { "type": "(e: { value: unknown }) => void", "required": false }
-      },
-      "description": "PrimeNG radio button for single-select options within a group."
-    },
-    "Message": {
-      "name": "Message",
-      "importPath": "primeng/message",
-      "library": "primeng",
-      "props": {
-        "severity": { "type": "'success' | 'info' | 'warn' | 'error'", "required": false },
-        "text": { "type": "string", "required": false },
-        "closable": { "type": "boolean", "required": false }
-      },
-      "description": "PrimeNG inline message for contextual feedback."
-    },
-    "Panel": {
-      "name": "Panel",
-      "importPath": "primeng/panel",
-      "library": "primeng",
-      "props": {
-        "header": { "type": "string", "required": false },
-        "toggleable": { "type": "boolean", "required": false },
-        "collapsed": { "type": "boolean", "required": false }
-      },
-      "description": "PrimeNG collapsible panel with header for grouping content."
-    },
-    "InputTextarea": {
-      "name": "InputTextarea",
-      "importPath": "primeng/inputtextarea",
-      "library": "primeng",
-      "props": {
-        "value": { "type": "string", "required": false },
-        "rows": { "type": "number", "required": false },
-        "autoResize": { "type": "boolean", "required": false },
-        "placeholder": { "type": "string", "required": false },
-        "disabled": { "type": "boolean", "required": false }
-      },
-      "description": "PrimeNG multi-line text input with optional auto-resize."
     }
   }
 }

@@ -1,0 +1,98 @@
+{
+  "$schema": "https://tr.designtokens.org/format/",
+  "_brand": "Brutalist Design System — Demo Tokens",
+  "color": {
+    "brand": {
+      "vibrant": { "$value": "#FF4A00", "$type": "color", "$description": "Primary action — vibrant orange" },
+      "vibrant-hover": { "$value": "#D13D00", "$type": "color", "$description": "Primary action hover state" }
+    },
+    "bg": {
+      "primary": { "$value": "#FFFFFF", "$type": "color", "$description": "Primary background — white" },
+      "secondary": { "$value": "#F3F4F6", "$type": "color", "$description": "Secondary background — light gray" },
+      "accent": { "$value": "#FF4A00", "$type": "color", "$description": "Accent background — vibrant orange" },
+      "dark": { "$value": "#111827", "$type": "color", "$description": "Dark background — near black" }
+    },
+    "text": {
+      "primary": { "$value": "#111827", "$type": "color", "$description": "Primary text — near black" },
+      "secondary": { "$value": "#6B7280", "$type": "color", "$description": "Secondary text — gray" },
+      "inverted": { "$value": "#FFFFFF", "$type": "color", "$description": "Inverted text — white on dark" },
+      "accent": { "$value": "#FF4A00", "$type": "color", "$description": "Accent text — vibrant orange" }
+    },
+    "border": {
+      "thin": { "$value": "#E5E7EB", "$type": "color", "$description": "Thin border — light gray" },
+      "heavy": { "$value": "#111827", "$type": "color", "$description": "Heavy border — near black" },
+      "accent": { "$value": "#FF4A00", "$type": "color", "$description": "Accent border — vibrant orange" }
+    },
+    "feedback": {
+      "success": { "$value": "#059669", "$type": "color", "$description": "Success green" },
+      "warning": { "$value": "#D97706", "$type": "color", "$description": "Warning amber" },
+      "error": { "$value": "#DC2626", "$type": "color", "$description": "Error red" }
+    },
+    "gray": {
+      "50": { "$value": "#F9FAFB", "$type": "color" },
+      "100": { "$value": "#F3F4F6", "$type": "color" },
+      "200": { "$value": "#E5E7EB", "$type": "color" },
+      "300": { "$value": "#D1D5DB", "$type": "color" },
+      "400": { "$value": "#9CA3AF", "$type": "color" },
+      "500": { "$value": "#6B7280", "$type": "color" },
+      "900": { "$value": "#111827", "$type": "color" }
+    }
+  },
+  "dimension": {
+    "spacing": {
+      "1": { "$value": "0.25rem", "$type": "dimension", "$description": "4px" },
+      "2": { "$value": "0.5rem", "$type": "dimension", "$description": "8px" },
+      "3": { "$value": "0.75rem", "$type": "dimension", "$description": "12px" },
+      "4": { "$value": "1rem", "$type": "dimension", "$description": "16px" },
+      "5": { "$value": "1.25rem", "$type": "dimension", "$description": "20px" },
+      "6": { "$value": "1.5rem", "$type": "dimension", "$description": "24px" },
+      "8": { "$value": "2rem", "$type": "dimension", "$description": "32px" },
+      "10": { "$value": "2.5rem", "$type": "dimension", "$description": "40px" },
+      "12": { "$value": "3rem", "$type": "dimension", "$description": "48px" },
+      "16": { "$value": "4rem", "$type": "dimension", "$description": "64px" }
+    },
+    "radius": {
+      "none": { "$value": "0px", "$type": "dimension", "$description": "NO rounded corners — strict brutalist ban" }
+    },
+    "border-width": {
+      "hairline": { "$value": "1px", "$type": "dimension" },
+      "thin": { "$value": "2px", "$type": "dimension" },
+      "heavy": { "$value": "4px", "$type": "dimension" }
+    },
+    "font-size": {
+      "xs": { "$value": "0.75rem", "$type": "dimension", "$description": "12px" },
+      "sm": { "$value": "0.875rem", "$type": "dimension", "$description": "14px" },
+      "base": { "$value": "1rem", "$type": "dimension", "$description": "16px" },
+      "lg": { "$value": "1.25rem", "$type": "dimension", "$description": "20px" },
+      "xl": { "$value": "1.563rem", "$type": "dimension", "$description": "25px" },
+      "2xl": { "$value": "1.953rem", "$type": "dimension", "$description": "31px" },
+      "3xl": { "$value": "2.441rem", "$type": "dimension", "$description": "39px" },
+      "4xl": { "$value": "3.052rem", "$type": "dimension", "$description": "49px" }
+    }
+  },
+  "fontFamily": {
+    "heading": { "$value": "Space Grotesk, Helvetica Neue, sans-serif", "$type": "fontFamily" },
+    "body": { "$value": "Space Grotesk, sans-serif", "$type": "fontFamily" },
+    "mono": { "$value": "JetBrains Mono, Courier New, monospace", "$type": "fontFamily" }
+  },
+  "fontWeight": {
+    "normal": { "$value": "400", "$type": "fontWeight" },
+    "medium": { "$value": "500", "$type": "fontWeight" },
+    "bold": { "$value": "700", "$type": "fontWeight" }
+  },
+  "lineHeight": {
+    "none": { "$value": "1", "$type": "lineHeight" },
+    "tight": { "$value": "1.1", "$type": "lineHeight" },
+    "snug": { "$value": "1.3", "$type": "lineHeight" },
+    "normal": { "$value": "1.5", "$type": "lineHeight" },
+    "relaxed": { "$value": "1.7", "$type": "lineHeight" }
+  },
+  "shadow": {
+    "sm": { "$value": "2px 2px 0px 0px #111827", "$type": "shadow", "$description": "Small hard shadow — no blur" },
+    "md": { "$value": "4px 4px 0px 0px #111827", "$type": "shadow", "$description": "Medium hard shadow — no blur" },
+    "lg": { "$value": "8px 8px 0px 0px #111827", "$type": "shadow", "$description": "Large hard shadow — no blur" },
+    "accent-sm": { "$value": "2px 2px 0px 0px #FF4A00", "$type": "shadow", "$description": "Small accent shadow" },
+    "accent-md": { "$value": "4px 4px 0px 0px #FF4A00", "$type": "shadow", "$description": "Medium accent shadow" },
+    "accent-lg": { "$value": "8px 8px 0px 0px #FF4A00", "$type": "shadow", "$description": "Large accent shadow" }
+  }
+}

@@ -1,0 +1,198 @@
+{
+  "components": {
+    "AnnouncementBanner": {
+      "name": "AnnouncementBanner",
+      "importPath": "./01-rag-ui-builder/banner-compliant",
+      "props": {
+        "label": {
+          "type": "string",
+          "required": true
+        },
+        "headline": {
+          "type": "string",
+          "required": true
+        },
+        "body": {
+          "type": "string",
+          "required": true
+        },
+        "ctaText": {
+          "type": "string",
+          "required": true
+        },
+        "onCta": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        }
+      }
+    },
+    "NotificationPanel": {
+      "name": "NotificationPanel",
+      "importPath": "./01-rag-ui-builder/broken-layout",
+      "props": {
+        "notifications": {
+          "type": "unknown[]",
+          "required": true
+        },
+        "onMarkAllRead": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "onDismiss": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        }
+      }
+    },
+    "DataTable": {
+      "name": "DataTable",
+      "importPath": "./02-self-correcting/buggy-component",
+      "props": {
+        "rows": {
+          "type": "unknown[]",
+          "required": true
+        },
+        "pageSize": {
+          "type": "number",
+          "required": true
+        },
+        "onRowClick": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "loading": {
+          "type": "boolean",
+          "required": false
+        },
+        "initialSortColumn": {
+          "type": "unknown",
+          "required": false
+        }
+      }
+    },
+    "PricingCard": {
+      "name": "PricingCard",
+      "importPath": "./03-mithril-shadow-audit/drift-component",
+      "props": {
+        "planName": {
+          "type": "string",
+          "required": true
+        },
+        "price": {
+          "type": "number",
+          "required": true
+        },
+        "billingPeriod": {
+          "type": "'monthly' | 'annual'",
+          "required": true
+        },
+        "features": {
+          "type": "unknown[]",
+          "required": true
+        },
+        "onSelectPlan": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        }
+      }
+    },
+    "OrderManagementScreen": {
+      "name": "OrderManagementScreen",
+      "importPath": "./04-sentinel/violating-ux",
+      "props": {}
+    },
+    "ProfileSettingsLegacy": {
+      "name": "ProfileSettingsLegacy",
+      "importPath": "./05-semantic-refactor/legacy-divs",
+      "props": {}
+    },
+    "RepoCard": {
+      "name": "RepoCard",
+      "importPath": "./06-macro-recovery/original-card",
+      "props": {
+        "name": {
+          "type": "string",
+          "required": true
+        },
+        "owner": {
+          "type": "string",
+          "required": true
+        },
+        "description": {
+          "type": "string",
+          "required": true
+        },
+        "stars": {
+          "type": "number",
+          "required": true
+        },
+        "forks": {
+          "type": "number",
+          "required": true
+        },
+        "openIssues": {
+          "type": "number",
+          "required": true
+        },
+        "primaryLanguage": {
+          "type": "Language | null",
+          "required": true
+        },
+        "languages": {
+          "type": "unknown[]",
+          "required": true
+        },
+        "isPrivate": {
+          "type": "boolean",
+          "required": true
+        },
+        "updatedAt": {
+          "type": "string",
+          "required": true
+        },
+        "topics": {
+          "type": "string[]",
+          "required": true
+        },
+        "onStar": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "onFork": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        },
+        "onWatch": {
+          "type": "(...args: any[]) => any",
+          "required": true
+        }
+      }
+    },
+    "DemoPreview": {
+      "name": "DemoPreview",
+      "importPath": "./_preview/DemoPreview",
+      "props": {}
+    },
+    "PatientForm": {
+      "name": "PatientForm",
+      "importPath": "./demo-after",
+      "props": {}
+    },
+    "MetricDashboard": {
+      "name": "MetricDashboard",
+      "importPath": "./demo-before",
+      "props": {},
+      "description": "demo-before.tsx — \"AI Without Guardrails\""
+    },
+    "AccountSettings": {
+      "name": "AccountSettings",
+      "importPath": "./figma-d2c/expected-output/tailwind/AccountSettings",
+      "props": {}
+    },
+    "HeroBanner": {
+      "name": "HeroBanner",
+      "importPath": "./figma-d2c/expected-output/shadcn/HeroBanner",
+      "props": {}
+    }
+  }
+}
