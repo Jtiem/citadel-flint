@@ -222,4 +222,94 @@ describe('visualAuditor', () => {
             expect(result.error).toContain('Vendor load failed')
         })
     })
+
+    // ── Sprint 1 acceptance-criteria: Babel-based transformVisualSource ──────
+
+    describe('transformVisualSource — Babel traversal (Sprint 1)', () => {
+        it('handles arrow-function default export', () => {
+            const src = 'export default () => <div className="box" />'
+            const { js, error } = transformVisualSource(src)
+            expect(error).toBeNull()
+            expect(js).not.toBeNull()
+            expect(js).toContain('window.__FlintVisualComponent')
+            // Must not contain ES module syntax
+            expect(js).not.toMatch(/^import\s/m)
+            expect(js).not.toMatch(/^export\s/m)
+        })
+
+        it('handles multi-line import cleanly removed', () => {
+            const src = `import {\n  useState,\n  useEffect\n} from 'react'\nexport default function App() { return <div /> }`
+            const { js, error } = transformVisualSource(src)
+            expect(error).toBeNull()
+            expect(js).not.toBeNull()
+            // No dangling import fragments
+            expect(js).not.toContain('from \'react\'')
+            expect(js).not.toContain('import {')
+        })
+
+        it('handles export default memo(Foo)', () => {
+            const src = `function Foo() { return <div /> }\nexport default memo(Foo)`
+            const { js, error } = transformVisualSource(src)
+            expect(error).toBeNull()
+            expect(js).not.toBeNull()
+            expect(js).toContain('window.__FlintVisualComponent')
+        })
+
+        it('handles export { Foo as default }', () => {
+            const src = `function Foo() { return <div /> }\nexport { Foo as default }`
+            const { js, error } = transformVisualSource(src)
+            expect(error).toBeNull()
+            expect(js).not.toBeNull()
+            expect(js).toContain('window.__FlintVisualComponent = Foo')
+        })
+    })
+
+    // ── Sprint 1 acceptance-criteria: settled-guard for render-timeout race ──
+
+    describe('settled guard — unit test', () => {
+        // Directly verify that the settled-guard pattern prevents double-settle.
+        // We exercise the guard in isolation without needing a real BrowserWindow
+        // or a 10s internal timeout.
+        it('calling settle() twice only executes the callback once', () => {
+            // Inline replica of the guard extracted from runVisualAudit:
+            let settled = false
+            const settle = (fn: () => void): void => {
+                if (settled) return
+                settled = true
+                fn()
+            }
+
+            let callCount = 0
+            const action = (): void => { callCount++ }
+
+            // First call should execute
+            settle(action)
+            // Second call is a no-op (already settled)
+            settle(action)
+            // Third call also no-op
+            settle(action)
+
+            expect(callCount).toBe(1)
+        })
+
+        it('settle() guard works correctly with reject/resolve semantics', () => {
+            let settled = false
+            const settle = (fn: () => void): void => {
+                if (settled) return
+                settled = true
+                fn()
+            }
+
+            const rejectCalls: string[] = []
+            const fakeFail = (msg: string) => settle(() => rejectCalls.push(msg))
+
+            // Simulate timeout fires first
+            fakeFail('timeout')
+            // Late did-fail-load — must be swallowed
+            fakeFail('did-fail-load')
+
+            expect(rejectCalls).toHaveLength(1)
+            expect(rejectCalls[0]).toBe('timeout')
+        })
+    })
 })

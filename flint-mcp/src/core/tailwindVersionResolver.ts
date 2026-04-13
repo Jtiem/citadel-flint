@@ -57,6 +57,9 @@ function parseMajor(version: string): number {
  * when the result is null.
  */
 export function resolveTailwindVersion(projectRoot: string): TailwindVersion | null {
+    // Guard empty/missing projectRoot — avoid reading cwd's package.json.
+    if (!projectRoot || projectRoot.length === 0) return null
+
     // ── 1. Try .flint/detected-environment.json (FORGE.2 cache) ──────────
     try {
         const envPath = path.join(projectRoot, '.flint', 'detected-environment.json')

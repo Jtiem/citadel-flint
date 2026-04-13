@@ -410,3 +410,71 @@ describe('scoreMutation — severity factor', () => {
         expect(sev.contribution).toBe(0)
     })
 })
+
+// ---------------------------------------------------------------------------
+// R2 locked op weights — replaceElement: 0.9, swapMotionToken: 0.4
+// ---------------------------------------------------------------------------
+
+describe('MRS_OP_WEIGHTS — R2 locked entries', () => {
+    it('replaceElement has locked weight 0.9 — scores higher than deleteNode (0.65)', () => {
+        const replace = scoreMutation({ opType: 'replaceElement', affectedNodeCount: 1 })
+        const del = scoreMutation({ opType: 'deleteNode', affectedNodeCount: 1 })
+        expect(replace.score).toBeGreaterThan(del.score)
+    })
+
+    it('replaceElement with affectedNodeCount=1 opWeight factor contributes 0.9×0.4=0.36', () => {
+        const result = scoreMutation({ opType: 'replaceElement', affectedNodeCount: 1, hasViolationContext: false })
+        const opFactor = result.factors.find((f) => f.name === 'opWeight')!
+        // opWeight contribution = mrsClamped(0.9 × 0.40) = 0.36
+        expect(opFactor.contribution).toBeCloseTo(0.36, 4)
+    })
+
+    it('swapMotionToken has locked weight 0.4 — scores higher than updateProp (0.2) and lower than wrapNode (0.5)', () => {
+        const swap = scoreMutation({ opType: 'swapMotionToken', affectedNodeCount: 1 })
+        const update = scoreMutation({ opType: 'updateProp', affectedNodeCount: 1 })
+        const wrap = scoreMutation({ opType: 'wrapNode', affectedNodeCount: 1 })
+        expect(swap.score).toBeGreaterThan(update.score)
+        expect(swap.score).toBeLessThan(wrap.score)
+    })
+
+    it('swapMotionToken opWeight factor contributes 0.4×0.4=0.16', () => {
+        const result = scoreMutation({ opType: 'swapMotionToken', affectedNodeCount: 1, hasViolationContext: false })
+        const opFactor = result.factors.find((f) => f.name === 'opWeight')!
+        // opWeight contribution = mrsClamped(0.4 × 0.40) = 0.16
+        expect(opFactor.contribution).toBeCloseTo(0.16, 4)
+    })
+
+    it('swapMotionToken does NOT fall through to MRS_UNKNOWN_OP_WEIGHT=0.5', () => {
+        const swap = scoreMutation({ opType: 'swapMotionToken', affectedNodeCount: 1 })
+        const unknown = scoreMutation({ opType: 'totallyUnknownOpXYZ', affectedNodeCount: 1 })
+        // swapMotionToken (weight 0.4) should produce a lower opWeight contribution
+        // than an unknown op (weight 0.5 default)
+        const swapOp = swap.factors.find((f) => f.name === 'opWeight')!.contribution
+        const unknownOp = unknown.factors.find((f) => f.name === 'opWeight')!.contribution
+        expect(swapOp).toBeLessThan(unknownOp)
+    })
+
+    it('replaceElement does NOT fall through to MRS_UNKNOWN_OP_WEIGHT=0.5', () => {
+        const replace = scoreMutation({ opType: 'replaceElement', affectedNodeCount: 1 })
+        const unknown = scoreMutation({ opType: 'totallyUnknownOpXYZ', affectedNodeCount: 1 })
+        // replaceElement (weight 0.9) should produce a higher opWeight contribution
+        // than an unknown op (weight 0.5 default)
+        const replaceOp = replace.factors.find((f) => f.name === 'opWeight')!.contribution
+        const unknownOp = unknown.factors.find((f) => f.name === 'opWeight')!.contribution
+        expect(replaceOp).toBeGreaterThan(unknownOp)
+    })
+
+    it('replaceElement score is in [0.0, 1.0] and tier is valid', () => {
+        const result = scoreMutation({ opType: 'replaceElement', affectedNodeCount: 3 })
+        expect(result.score).toBeGreaterThanOrEqual(0.0)
+        expect(result.score).toBeLessThanOrEqual(1.0)
+        expect(result.tier).toMatch(/^(green|amber|red)$/)
+    })
+
+    it('swapMotionToken score is in [0.0, 1.0] and tier is valid', () => {
+        const result = scoreMutation({ opType: 'swapMotionToken', affectedNodeCount: 1 })
+        expect(result.score).toBeGreaterThanOrEqual(0.0)
+        expect(result.score).toBeLessThanOrEqual(1.0)
+        expect(result.tier).toMatch(/^(green|amber|red)$/)
+    })
+})

@@ -175,8 +175,13 @@ describe('visitDarkModeSafety', () => {
         expect(w.message).toContain('bg-[#fff]')
     })
 
-    // Test 8: Policy requiresDarkMode false → advisory severity
-    it('uses advisory severity when requiresDarkMode is false', () => {
+    // Test 8: Policy requiresDarkMode false → amber severity.
+    // R3 decision 2026-04-12 (binding): the ceiling is amber regardless of the
+    // requiresDarkMode flag. Previously this produced 'advisory' when
+    // requiresDarkMode was false, but that was inconsistent with the 'amber'
+    // produced for non-mode-off Mithril rules. The relaxation aligns severity
+    // across all Mithril advisory-but-not-WCAG violations.
+    it('uses amber severity when requiresDarkMode is false (R3 decision)', () => {
         const ast = parseJSX(`
             const App = () => (
                 <div data-flint-id="n1" className="bg-gray-900" />
@@ -185,11 +190,14 @@ describe('visitDarkModeSafety', () => {
         const warnings = visitDarkModeSafety(ast, DARK_MODE_TOKENS, { requiresDarkMode: false })
         expect(warnings.size).toBe(1)
         const w = [...warnings.values()][0]
-        expect(w.severity).toBe('advisory')
+        expect(w.severity).toBe('amber')
     })
 
-    // Test 9: Policy requiresDarkMode true → blocking severity (critical)
-    it('uses critical severity when requiresDarkMode is true', () => {
+    // Test 9: Policy requiresDarkMode true → severity is AMBER (not critical).
+    // R3 decision 2026-04-12 (binding): dark-mode-drift is a Mithril advisory/
+    // visual concern. 'critical' is reserved for WCAG violations in Warden.
+    // This test documents and enforces the relaxed ceiling.
+    it('uses amber severity even when requiresDarkMode is true (R3 decision)', () => {
         const ast = parseJSX(`
             const App = () => (
                 <div data-flint-id="n1" className="bg-gray-900" />
@@ -198,7 +206,7 @@ describe('visitDarkModeSafety', () => {
         const warnings = visitDarkModeSafety(ast, DARK_MODE_TOKENS, { requiresDarkMode: true })
         expect(warnings.size).toBe(1)
         const w = [...warnings.values()][0]
-        expect(w.severity).toBe('critical')
+        expect(w.severity).toBe('amber')
     })
 
     // Test 10: Multiple color utilities, mixed compliance → correct per-property flagging
@@ -309,5 +317,68 @@ describe('auditAll integration — dark mode', () => {
             w => w.ruleId === 'MITHRIL-DARK-001',
         )
         expect(darkWarnings.length).toBe(0)
+    })
+})
+
+// ── Sprint 1 acceptance-criteria tests ────────────────────────────────────────
+
+describe('darkModeSafety — COLOR_UTILITY_RE filter (Sprint 1)', () => {
+    // shadow-md must not trigger dark-mode warnings (not a color utility)
+    it('shadow-md produces zero dark-mode warnings', () => {
+        const ast = parseJSX(`
+            const App = () => (
+                <div data-flint-id="n1" className="shadow-md" />
+            )
+        `)
+        const warnings = visitDarkModeSafety(ast, DARK_MODE_TOKENS)
+        expect(warnings.size).toBe(0)
+    })
+
+    // ring-2 and outline-offset-2 must not trigger dark-mode warnings
+    it('ring-2 and outline-offset-2 produce zero dark-mode warnings', () => {
+        const ast = parseJSX(`
+            const App = () => (
+                <div data-flint-id="n1" className="ring-2 outline-offset-2" />
+            )
+        `)
+        const warnings = visitDarkModeSafety(ast, DARK_MODE_TOKENS)
+        expect(warnings.size).toBe(0)
+    })
+
+    // Primitive color without dark variant → severity amber (not critical)
+    it('primitive color without dark variant has severity amber (not critical)', () => {
+        const ast = parseJSX(`
+            const App = () => (
+                <div data-flint-id="n1" className="bg-blue-500" />
+            )
+        `)
+        const warnings = visitDarkModeSafety(ast, DARK_MODE_TOKENS)
+        expect(warnings.size).toBe(1)
+        const w = [...warnings.values()][0]
+        expect(w.severity).toBe('amber')
+        expect(w.severity).not.toBe('critical')
+    })
+
+    // Semantic companion strategy: findSemanticAlternatives surfaces light-mode token
+    it('findSemanticAlternatives surfaces the light-mode companion token path', () => {
+        // Token set uses separate rows per mode (semantic companion strategy).
+        // color.surface has mode='default' (light) and a companion with mode='dark'.
+        // The warning for bg-gray-500 should suggest color.surface (the light row).
+        const tokens: DesignToken[] = [
+            { id: 1, token_path: 'color.surface', token_type: 'color', token_value: '#FFFFFF', description: null, collection_name: 'default', mode: 'default' },
+            { id: 2, token_path: 'color.surface', token_type: 'color', token_value: '#0F0F0F', description: null, collection_name: 'dark', mode: 'dark' },
+        ]
+        const ast = parseJSX(`
+            const App = () => (
+                <div data-flint-id="n1" className="bg-gray-500" />
+            )
+        `)
+        const warnings = visitDarkModeSafety(ast, tokens)
+        // Should flag bg-gray-500 and suggest color.surface as the semantic alternative
+        expect(warnings.size).toBe(1)
+        const w = [...warnings.values()][0]
+        // nearestToken should be the light-mode companion, not the dark row
+        expect(w.nearestToken).toBe('color.surface')
+        expect(w.message).toContain('color.surface')
     })
 })

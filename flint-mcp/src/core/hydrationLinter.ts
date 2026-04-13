@@ -83,14 +83,17 @@ export interface HydrationOptions {
  * Built-in list of suspicious placeholder patterns. These run even when no
  * Figma AST is available. Additional patterns can be layered on via
  * `HydrationOptions.placeholderPatterns`.
+ *
+ * All name-pattern regexes carry the `/i` flag so "john doe", "JOHN DOE",
+ * and "John Doe" are all detected.
  */
 export const DEFAULT_PLACEHOLDER_PATTERNS: RegExp[] = [
     // Lorem ipsum filler
     /\blorem\s+ipsum\b/i,
-    // Classic placeholder names
-    /\bJohn\s+Doe\b/,
-    /\bJane\s+(Doe|Smith)\b/,
-    /\bJohn\s+Smith\b/,
+    // Classic placeholder names — case-insensitive
+    /\bJohn\s+Doe\b/i,
+    /\bJane\s+(Doe|Smith)\b/i,
+    /\bJohn\s+Smith\b/i,
     // Placeholder prices — $99.99, $0.00, $1,234.56
     /\$\s?\d{1,3}(,\d{3})*\.\d{2}\b/,
     // example@example.com / test@test.com style addresses
@@ -102,6 +105,24 @@ export const DEFAULT_PLACEHOLDER_PATTERNS: RegExp[] = [
     // "Placeholder" string itself
     /\bplaceholder\s+text\b/i,
 ]
+
+/**
+ * JSX attribute names that are always scanned for placeholder data regardless
+ * of whether a Figma AST is present. These are user-visible copy props.
+ */
+const AMBER_SCAN_ATTRS: ReadonlySet<string> = new Set([
+    'alt', 'placeholder', 'title', 'aria-label', 'label',
+])
+
+/**
+ * JSX attribute names that are ONLY scanned when the literal value appears in
+ * the `figmaPlaceholders` set derived from data-binding hint layers. Without
+ * Figma context, a `value="$0.00"` is legitimate initial state and must not
+ * produce a false-positive warning.
+ */
+const FIGMA_GATED_ATTRS: ReadonlySet<string> = new Set([
+    'value', 'defaultValue',
+])
 
 // ── Figma data-binding hint detection ────────────────────────────────────────
 
@@ -188,7 +209,13 @@ export function detectHydrationViolations(
         patternSource?: string,
     ): void => {
         counter += 1
-        const id = `hydration-${counter}`
+        // Stable ID: line-column keyed so that two sequential audits of the
+        // same unchanged file always produce identical violation IDs.
+        // Falls back to a counter suffix only when location is unavailable
+        // (e.g. synthetic AST nodes in tests).
+        const id = (loc.line !== undefined && loc.column !== undefined)
+            ? `hydration-${loc.line}-${loc.column}`
+            : `hydration-${counter}`
         const displayLiteral = literal.length > 60 ? `${literal.slice(0, 57)}...` : literal
         const messageDetail = reason === 'figma'
             ? `matches Figma data-binding layer with placeholder text "${displayLiteral}"`
@@ -236,20 +263,39 @@ export function detectHydrationViolations(
         },
         JSXAttribute(path) {
             // Flag hardcoded placeholder text in props that render user-visible
-            // copy (alt, placeholder, title, aria-label, label). Dynamic
-            // expressions `{...}` are never flagged.
+            // copy. Dynamic expressions `{...}` are never flagged.
+            //
+            // Two scan tiers (Sprint 1 fix — prevents false-positives on
+            // legitimate zero-state currency/date inputs):
+            //   AMBER_SCAN_ATTRS  — always scanned (alt, placeholder, title, …)
+            //   FIGMA_GATED_ATTRS — only scanned when the literal also appears in
+            //                       figmaPlaceholders (Figma data-binding context).
             const name = path.node.name
             if (!t.isJSXIdentifier(name)) return
             const attrName = name.name
-            if (!['alt', 'placeholder', 'title', 'aria-label', 'label', 'value', 'defaultValue'].includes(attrName)) {
-                return
-            }
+
+            const isAmber = AMBER_SCAN_ATTRS.has(attrName)
+            const isFigmaGated = FIGMA_GATED_ATTRS.has(attrName)
+            if (!isAmber && !isFigmaGated) return
+
             const value = path.node.value
             if (!t.isStringLiteral(value)) return
             const literal = value.value
+            const loc = value.loc?.start
+
+            if (isFigmaGated) {
+                // For value/defaultValue, only fire when Figma context explicitly
+                // flags this literal as a data-binding placeholder. Without that
+                // context a value="$0.00" is legitimate initial/display state.
+                const trimmed = literal.trim()
+                if (!figmaPlaceholders.has(trimmed)) return
+                pushWarning(literal, 'figma', { line: loc?.line, column: loc?.column })
+                return
+            }
+
+            // AMBER_SCAN_ATTRS path: check all patterns as before.
             const match = literalMatches(literal)
             if (match === null) return
-            const loc = value.loc?.start
             pushWarning(literal, match.reason, { line: loc?.line, column: loc?.column }, match.patternSource)
         },
         JSXExpressionContainer(path) {

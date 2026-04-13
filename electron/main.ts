@@ -1885,7 +1885,7 @@ app.whenReady().then(async () => {
         // ── FORGE.2a: Detect via shared projectDetector ───────────────────
         const detectorFs: DetectorFS = {
             readFile: (fp: string, enc: 'utf-8') => readFile(fp, enc),
-            exists: (fp: string) => existsSync(fp),
+            exists: async (fp: string) => existsSync(fp),
         }
 
         const result = await detectProjectEnvironment(root, detectorFs)

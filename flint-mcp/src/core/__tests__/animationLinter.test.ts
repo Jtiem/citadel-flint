@@ -203,3 +203,38 @@ describe('visitMotionDrift — class-based motion drift', () => {
         expect(motionWarnings.length).toBeGreaterThan(0)
     })
 })
+
+// ── Sprint 1 acceptance-criteria tests ─────────────────────────────────────
+
+describe('AnimationLinter — Sprint 1 fixes', () => {
+    // ease-initial must produce zero motion advisories (safe-list fix)
+    it('ease-initial produces zero motion advisories', () => {
+        const ast = parseJSX(
+            `const App = () => (<div data-flint-id="n1" className="transition ease-initial" />)`,
+        )
+        const warnings = visitMotionDrift(ast, MOTION_TOKENS)
+        const easeWarnings = warnings.filter(w => w.message.includes('ease-initial'))
+        expect(easeWarnings).toHaveLength(0)
+    })
+
+    // ease-initial with no tokens also produces no warnings
+    it('ease-initial produces zero advisories even with an empty token set', () => {
+        const ast = parseJSX(
+            `const App = () => (<div data-flint-id="n1" className="ease-initial" />)`,
+        )
+        const warnings = visitMotionDrift(ast, [])
+        expect(warnings).toHaveLength(0)
+    })
+
+    // Regression: no double-push of warnings (dead-buffer bug guard)
+    // Each warning should appear exactly once regardless of buffer collapse.
+    it('each warning appears exactly once (no double-push regression)', () => {
+        const ast = parseJSX(
+            `const App = () => (<div data-flint-id="n1" className="transition duration-200" />)`,
+        )
+        const warnings = visitMotionDrift(ast, MOTION_TOKENS)
+        // duration-200 should produce exactly one warning (not two)
+        const durationWarnings = warnings.filter(w => w.message.includes('duration-200'))
+        expect(durationWarnings).toHaveLength(1)
+    })
+})

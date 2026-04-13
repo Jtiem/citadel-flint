@@ -138,8 +138,11 @@ export function validateComposition(
                 // ── MITHRIL-COMP-003: Max depth check ───────────────────
                 if (rules?.maxDepth !== undefined) {
                     const mode003 = options?.ruleModes?.['MITHRIL-COMP-003']
+                    // Always track depth so the exit branch stays symmetric,
+                    // but only emit warnings when the rule is not 'off'.
+                    const currentDepth = (depthStack.get(componentName) ?? 0) + 1
+                    depthStack.set(componentName, currentDepth)
                     if (mode003 !== 'off') {
-                        const currentDepth = (depthStack.get(componentName) ?? 0) + 1
                         if (currentDepth > rules.maxDepth) {
                             const warningId = `comp-003-${componentName}-${loc?.line ?? 0}-${loc?.column ?? 0}`
                             const severity: LinterWarning['severity'] = mode003 === 'advisory' ? 'advisory' : 'amber'
@@ -161,7 +164,6 @@ export function validateComposition(
                                 column: loc?.column,
                             })
                         }
-                        depthStack.set(componentName, currentDepth)
                     }
                 }
 
@@ -175,7 +177,8 @@ export function validateComposition(
                             if (!ancestorRules) continue
 
                             // Forbidden children check
-                            if (ancestorRules.forbiddenChildren?.includes(componentName)) {
+                            const isForbidden = ancestorRules.forbiddenChildren?.includes(componentName) ?? false
+                            if (isForbidden) {
                                 const warningId = `comp-001-${componentName}-in-${ancestor}-${loc?.line ?? 0}-${loc?.column ?? 0}`
                                 const severity: LinterWarning['severity'] = mode001 === 'advisory' ? 'advisory' : 'amber'
                                 warnings.set(warningId, {
@@ -197,8 +200,11 @@ export function validateComposition(
                                 })
                             }
 
-                            // Allowed children check (whitelist)
-                            if (ancestorRules.allowedChildren && ancestorRules.allowedChildren.length > 0) {
+                            // Allowed children check (whitelist).
+                            // Short-circuit: if the component was already emitted via
+                            // forbiddenChildren above, do not emit a second comp-001 for
+                            // the same node via the allowedChildren path (duplicate fire).
+                            if (!isForbidden && ancestorRules.allowedChildren && ancestorRules.allowedChildren.length > 0) {
                                 if (!ancestorRules.allowedChildren.includes(componentName)) {
                                     const warningId = `comp-001-${componentName}-not-allowed-in-${ancestor}-${loc?.line ?? 0}-${loc?.column ?? 0}`
                                     const severity: LinterWarning['severity'] = mode001 === 'advisory' ? 'advisory' : 'amber'
@@ -241,7 +247,8 @@ export function validateComposition(
                     parentStack.pop()
                 }
 
-                // Decrement depth counter
+                // Decrement depth counter — unconditional (tracks depth regardless of mode).
+                // The mode003 guard lives in the enter branch for emission only.
                 const rules = rulesMap.get(componentName)
                 if (rules?.maxDepth !== undefined) {
                     const currentDepth = depthStack.get(componentName) ?? 1
@@ -283,8 +290,10 @@ function buildRulesMap(registry: Record<string, ComponentEntry>): Map<string, Co
 }
 
 /**
- * Check if a component name is PascalCase (starts with uppercase letter).
+ * Check if a component name is PascalCase: starts with uppercase AND contains
+ * at least one lowercase letter. This rejects ALLCAPS abbreviations like HTML,
+ * URL, SVG that are not design-system components.
  */
 function isPascalCase(name: string): boolean {
-    return name.length > 0 && name[0] >= 'A' && name[0] <= 'Z'
+    return name.length > 0 && /^[A-Z]/.test(name) && /[a-z]/.test(name)
 }

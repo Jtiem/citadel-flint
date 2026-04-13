@@ -90,6 +90,10 @@ const ALLOWED_MCP_ONLY_EXPORTS: readonly string[] = [
     // MCP-only inline-style helpers (Glass does not yet need these)
     'checkStyleProps',           // Inline style prop checker — MCP audit only
     'visitInlineStyles',         // Inline style visitor — MCP audit only
+
+    // Sprint 1 R1 — Assert+Defer stopgap; test-only helper. Glass has no
+    // deferred-rule registry because it does not consume domain policy.
+    '__resetDeferredWarningState',
 ]
 
 // ── Helpers ────────────────────────────────────────────────────────────────────

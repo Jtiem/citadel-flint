@@ -77,6 +77,15 @@ const TRANSITION_PRESETS: ReadonlySet<string> = new Set([
     'transition-transform',
 ])
 
+/**
+ * Ease presets that are safe / browser-native and produce no motion advisory.
+ * `ease-initial` resets the easing to the browser default — it is not a
+ * design-token concern and should never generate MOTION-001 noise.
+ */
+const EASE_SAFE_PRESETS: ReadonlySet<string> = new Set([
+    'ease-initial',
+])
+
 /** Standard Tailwind animate-* presets that are library-builtin. */
 const ANIMATE_PRESETS: ReadonlySet<string> = new Set([
     'animate-none',
@@ -294,14 +303,13 @@ export function visitMotionDrift(
     const mode = options?.ruleModes?.['MOTION-001']
     if (mode === 'off') return []
 
-    const warnings: LinterWarning[] = []
     const hasTokens = motionTokens.length > 0
     const projectHasMotionConfig = options?.projectHasMotionConfig === true
 
-    // First pass: detect any motion usage so we can skip early if nothing to lint.
-    // We do this cheaply by scanning JSX attribute strings as we traverse below
-    // — and by short-circuiting if !hasTokens && !projectHasMotionConfig && no usage.
-    const warningsSoFar: LinterWarning[] = []
+    // Single warnings buffer. `warningsSoFar` was a dead duplicate that was
+    // only ever merged back into `warnings` unconditionally — collapsed here
+    // to prevent any future double-push regression.
+    const warnings: LinterWarning[] = []
     let motionUsageSeen = false
 
     const baseSeverity: LinterWarning['severity'] =
@@ -326,6 +334,8 @@ export function visitMotionDrift(
                     // Skip safe intrinsic presets
                     if (TRANSITION_PRESETS.has(cls)) { motionUsageSeen = true; continue }
                     if (ANIMATE_PRESETS.has(cls)) { motionUsageSeen = true; continue }
+                    // Skip ease presets that are browser-native and not token-governed
+                    if (EASE_SAFE_PRESETS.has(cls)) { motionUsageSeen = true; continue }
 
                     const info = classifyMotionClass(cls)
                     if (info === null) continue
@@ -338,7 +348,7 @@ export function visitMotionDrift(
                             : DURATION_PRESET_MS[cls] ?? null
 
                         if (ms === null) {
-                            warningsSoFar.push(
+                            warnings.push(
                                 buildWarning({
                                     nodeId,
                                     suffix: cls,
@@ -356,7 +366,7 @@ export function visitMotionDrift(
 
                         const matched = hasTokens ? findDurationToken(ms, motionTokens) : null
                         if (matched) {
-                            warningsSoFar.push(
+                            warnings.push(
                                 buildWarning({
                                     nodeId,
                                     suffix: cls,
@@ -371,7 +381,7 @@ export function visitMotionDrift(
                             )
                         } else if (info.arbitrary) {
                             // Arbitrary value with no token → always flag
-                            warningsSoFar.push(
+                            warnings.push(
                                 buildWarning({
                                     nodeId,
                                     suffix: cls,
@@ -387,7 +397,7 @@ export function visitMotionDrift(
                         } else {
                             // Preset duration with no matching token — advisory. When tokens
                             // exist but none match, still advisory (soft nudge).
-                            warningsSoFar.push(
+                            warnings.push(
                                 buildWarning({
                                     nodeId,
                                     suffix: cls,
@@ -417,7 +427,7 @@ export function visitMotionDrift(
                             : null
 
                         if (matched) {
-                            warningsSoFar.push(
+                            warnings.push(
                                 buildWarning({
                                     nodeId,
                                     suffix: cls,
@@ -431,7 +441,7 @@ export function visitMotionDrift(
                                 }),
                             )
                         } else if (info.arbitrary) {
-                            warningsSoFar.push(
+                            warnings.push(
                                 buildWarning({
                                     nodeId,
                                     suffix: cls,
@@ -445,7 +455,7 @@ export function visitMotionDrift(
                                 }),
                             )
                         } else {
-                            warningsSoFar.push(
+                            warnings.push(
                                 buildWarning({
                                     nodeId,
                                     suffix: cls,
@@ -466,7 +476,7 @@ export function visitMotionDrift(
 
                     // ── transition-[...] or animate-[...] arbitrary ──
                     if (info.kind === 'transition' || info.kind === 'animate') {
-                        warningsSoFar.push(
+                        warnings.push(
                             buildWarning({
                                 nodeId,
                                 suffix: cls,
@@ -524,7 +534,7 @@ export function visitMotionDrift(
                     }
 
                     if (matched) {
-                        warningsSoFar.push(
+                        warnings.push(
                             buildWarning({
                                 nodeId,
                                 suffix: `style-${propName}`,
@@ -538,7 +548,7 @@ export function visitMotionDrift(
                             }),
                         )
                     } else {
-                        warningsSoFar.push(
+                        warnings.push(
                             buildWarning({
                                 nodeId,
                                 suffix: `style-${propName}`,
@@ -563,6 +573,5 @@ export function visitMotionDrift(
         return []
     }
 
-    warnings.push(...warningsSoFar)
     return warnings
 }

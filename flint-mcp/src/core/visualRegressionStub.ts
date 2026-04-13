@@ -61,6 +61,12 @@ export interface VisualRegressionResult {
      * returned an advisory fallback because no Glass bridge was registered.
      */
     ranInGlass: boolean
+    /**
+     * True when the audit could not run because the Glass bridge was
+     * unavailable. In CI this is treated as a non-failing skip but is
+     * surfaced to the operator (no silent green).
+     */
+    degraded?: boolean
 }
 
 /**
@@ -158,11 +164,15 @@ export async function runVisualRegressionAudit(
     input: VisualRegressionInput
 ): Promise<VisualRegressionResult> {
     if (glassBridge === null) {
+        // Do NOT return a silent ok:true — the audit did not run, so the
+        // caller has zero information about visual drift. Mark as degraded
+        // so CI / MCP consumers can surface the skip explicitly.
         return {
-            ok: true,
+            ok: false,
             violations: [],
-            error: null,
+            error: 'Glass bridge unavailable',
             ranInGlass: false,
+            degraded: true,
         }
     }
 

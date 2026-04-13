@@ -28,13 +28,32 @@ const traverse =
 /**
  * Matches Tailwind color utility classes including arbitrary values.
  * Captures:
- *   group 1 — prefix (bg, text, border, divide, ring, outline, accent, caret, fill, stroke, decoration, placeholder, from, via, to, shadow)
- *   group 2 — the color part (e.g. "gray-900", "white", "[#fff]", "[#ffffff]", "blue-500/50")
+ *   group 1 — variant prefix (e.g. "dark", "hover", or absent)
+ *   group 2 — the utility prefix (bg, text, border, divide, accent, caret,
+ *              fill, stroke, decoration, placeholder, from, via, to)
+ *   group 3 — the color part (e.g. "gray-900", "white", "[#fff]", "[#ffffff]", "blue-500/50")
+ *
+ * Intentionally excludes `shadow`, `ring`, and `outline` because those are
+ * elevation/focus utilities — their suffix (e.g. `shadow-md`, `ring-1`,
+ * `outline-offset-2`) is not a color value and must not trigger dark-mode
+ * drift warnings. A project using `shadow-md` without `dark:shadow-md` is
+ * styling elevation, not colour.
  *
  * Also matches variant-prefixed classes (e.g. "dark:bg-gray-100").
  */
 const COLOR_UTILITY_RE =
-    /^(?:([a-z-]+):)?(bg|text|border|divide|ring|outline|accent|caret|fill|stroke|decoration|placeholder|from|via|to|shadow)-([\w[\]#/.%-]+)$/
+    /^(?:([a-z-]+):)?(bg|text|border|divide|accent|caret|fill|stroke|decoration|placeholder|from|via|to)-([\w[\]#/.%-]+)$/
+
+/**
+ * Non-color suffixes that slip through for `ring-*` / `outline-*` if those
+ * prefixes were included. Belt-and-suspenders guard — currently unused because
+ * those prefixes were removed from COLOR_UTILITY_RE above, but kept for
+ * documentation and future expansion.
+ */
+const _NON_COLOR_SUFFIXES: ReadonlySet<string> = new Set([
+    'md', 'lg', 'xl', '2xl', 'sm', '1', '2', '4', '8',
+    'offset-1', 'offset-2', 'offset-4', 'none',
+])
 
 /**
  * Property groups — maps a Tailwind prefix to a canonical "property" for
@@ -196,14 +215,21 @@ export function visitDarkModeSafety(
     // Hoist taxonomy lookup
     const taxonomy = getErrorEntryByRuleId('MITHRIL-DARK-001')
 
-    // Determine severity based on requiresDarkMode flag
+    // Determine severity based on requiresDarkMode flag.
+    //
+    // R3 decision 2026-04-12 (binding — do not revert without WCAG citation):
+    // dark-mode-drift is a Mithril advisory/visual concern, NOT a Commandment 5
+    // (Accessibility is a Compiler Error) case. WCAG contrast failures, missing
+    // labels, and keyboard traps live in Warden (A11yLinter.ts) and remain
+    // 'critical'. This visitor flags missing dark-mode companion tokens — a
+    // design-system hygiene signal — so the ceiling is capped at 'amber' to
+    // stay consistent with every other Mithril advisory rule.
     const requiresDarkMode = options?.requiresDarkMode ?? false
+    void requiresDarkMode // acknowledged — ceiling is amber regardless of this flag
     const baseSeverity: LinterWarning['severity'] =
         ruleMode === 'advisory'
             ? 'advisory'
-            : requiresDarkMode
-                ? 'critical'
-                : 'advisory'
+            : 'amber'
 
     traverse(ast, {
         JSXAttribute(path) {
@@ -291,6 +317,18 @@ export function visitDarkModeSafety(
 /**
  * Finds semantic color tokens that have dark mode support and could replace
  * a primitive color class for a given property prefix (bg, text, border).
+ *
+ * Surfaces the LIGHT-mode (default) companion token — the one the developer
+ * should use instead of a primitive. A semantic companion qualifies when:
+ *   a) It has `modes.dark` set on the token itself (extended schema), OR
+ *   b) Another token with the same `token_path` has `mode === 'dark'`
+ *      (semantic companion strategy — separate rows per mode).
+ *
+ * Fix 2026-04-12: previously, path (b) was missed because the filter only
+ * accepted tokens where `mode === 'dark'`, which returned the dark row, not
+ * the light row. The corrected filter builds a Set of paths that have a dark
+ * companion, then accepts any token whose path is in that set AND whose mode
+ * is the light/default mode.
  */
 function findSemanticAlternatives(
     prefix: string,
@@ -305,11 +343,28 @@ function findSemanticAlternatives(
         border: ['border', 'outline', 'divider'],
     }
 
-    const hints = categoryHints[prefix] ?? []
+    // Build a set of token paths that have a dark companion (via any strategy).
+    const pathsWithDark = new Set<string>()
     for (const token of tokens) {
         if (token.token_type !== 'color') continue
         const extended = token as DesignTokenWithModes
-        if (extended.modes?.dark === undefined && token.mode !== 'dark' && token.mode !== 'Dark') continue
+        // Extended schema: token has embedded modes.dark
+        if (extended.modes?.dark !== undefined) {
+            pathsWithDark.add(token.token_path)
+        }
+        // Companion strategy: a separate row with mode='dark' exists for this path
+        if (token.mode === 'dark' || token.mode === 'Dark') {
+            pathsWithDark.add(token.token_path)
+        }
+    }
+
+    const hints = categoryHints[prefix] ?? []
+    for (const token of tokens) {
+        if (token.token_type !== 'color') continue
+        // Only surface the light/default companion — not the dark row itself.
+        if (token.mode === 'dark' || token.mode === 'Dark') continue
+        // Must have a dark companion to qualify as a semantic alternative.
+        if (!pathsWithDark.has(token.token_path)) continue
 
         // Check if the token path matches any category hint
         const pathLower = token.token_path.toLowerCase()

@@ -20,6 +20,14 @@
 
 import { BrowserWindow } from 'electron'
 import { transformSync } from '@babel/core'
+import _traverse from '@babel/traverse'
+import * as t from '@babel/types'
+
+// CJS/ESM interop (matches other Flint AST files)
+const traverse =
+    typeof _traverse === 'function'
+        ? _traverse
+        : (_traverse as unknown as { default: typeof _traverse }).default
 
 // ── Public types ─────────────────────────────────────────────────────────────
 
@@ -84,6 +92,17 @@ export interface VisualAuditResult {
  * `window.__FlintVisualComponent`. Mirrors the thumbnail generator's transform
  * but with a distinct global to avoid collision.
  *
+ * Commandment 13 compliance: all import/export rewriting uses @babel/traverse
+ * AST traversal — never regex on source code.
+ *
+ * Handles all export-default forms:
+ *   export default function Foo() {}         → function Foo() {}; window.__FlintVisualComponent = Foo;
+ *   export default class Foo {}              → class Foo {}; window.__FlintVisualComponent = Foo;
+ *   export default () => <div/>              → const __flintDefault = () => <div/>; window.__FlintVisualComponent = __flintDefault;
+ *   export default Foo                       → window.__FlintVisualComponent = Foo;
+ *   export default memo(Foo)                 → const __flintDefault = memo(Foo); window.__FlintVisualComponent = __flintDefault;
+ *   export { Foo as default }                → window.__FlintVisualComponent = Foo;
+ *
  * Never throws — returns { js, error }.
  */
 export function transformVisualSource(source: string): { js: string | null; error: string | null } {
@@ -97,41 +116,97 @@ export function transformVisualSource(source: string): { js: string | null; erro
             configFile: false,
             babelrc: false,
             sourceMaps: false,
+            ast: true,
         })
 
-        if (result === null || result.code == null) {
+        if (result === null || result.code == null || result.ast == null) {
             return { js: null, error: 'Babel returned no output' }
         }
 
-        let js = result.code
+        // Use Babel AST traversal (Commandment 13) to:
+        //   1. Remove all ImportDeclaration nodes.
+        //   2. Rewrite ExportDefaultDeclaration → plain declaration + assignment.
+        //   3. Resolve `export { X as default }` ExportNamedDeclaration form.
+        let componentIdentifier: string | null = null
 
-        // Strip ES module imports — the harness provides React globally.
-        js = js.replace(/^import\s[^\n]*\n?/gm, '')
+        traverse(result.ast, {
+            ImportDeclaration(path) {
+                // Remove every import — the harness provides React/ReactDOM globally.
+                path.remove()
+            },
 
-        let componentName: string | null = null
-        js = js.replace(
-            /\bexport\s+default\s+(function|class)\s+(\w+)/,
-            (_m: string, kw: string, name: string) => {
-                componentName = name
-                return `${kw} ${name}`
-            }
-        )
+            ExportDefaultDeclaration(path) {
+                const decl = path.node.declaration
 
-        if (componentName === null) {
-            js = js.replace(
-                /^export\s+default\s+(\w+)\s*;?\s*$/m,
-                (_m: string, name: string) => {
-                    componentName = name
-                    return ''
+                if (t.isFunctionDeclaration(decl) || t.isClassDeclaration(decl)) {
+                    // export default function Foo() {} / export default class Foo {}
+                    if (decl.id) {
+                        componentIdentifier = decl.id.name
+                        // Convert to a plain declaration (drop `export default`).
+                        path.replaceWith(decl)
+                    } else {
+                        // Anonymous function / class — give it a synthetic name.
+                        const syntheticId = t.identifier('__flintDefault')
+                        decl.id = syntheticId
+                        componentIdentifier = '__flintDefault'
+                        path.replaceWith(decl)
+                    }
+                } else if (t.isIdentifier(decl)) {
+                    // export default Foo
+                    componentIdentifier = decl.name
+                    path.remove()
+                } else {
+                    // export default <expression> (arrow fn, memo(Foo), etc.)
+                    // Introduce a named variable: const __flintDefault = <expr>;
+                    componentIdentifier = '__flintDefault'
+                    path.replaceWith(
+                        t.variableDeclaration('const', [
+                            t.variableDeclarator(
+                                t.identifier('__flintDefault'),
+                                decl as t.Expression,
+                            ),
+                        ]),
+                    )
                 }
-            )
-        }
+            },
 
-        if (componentName !== null) {
-            js += `\nwindow.__FlintVisualComponent = ${componentName};`
-        } else {
+            ExportNamedDeclaration(path) {
+                // Handle: export { Foo as default } or export { default as default }
+                for (const specifier of path.node.specifiers) {
+                    if (
+                        t.isExportSpecifier(specifier) &&
+                        t.isIdentifier(specifier.exported, { name: 'default' })
+                    ) {
+                        componentIdentifier = t.isIdentifier(specifier.local)
+                            ? specifier.local.name
+                            : null
+                        path.remove()
+                        return
+                    }
+                }
+            },
+        })
+
+        if (componentIdentifier === null) {
             return { js: null, error: 'No default export found' }
         }
+
+        // Re-generate code from the mutated AST so the output is coherent.
+        // We use the already-transformed code from Babel's first pass and append
+        // the assignment. Since traverse mutates the AST in place and Babel's
+        // generate() is not bundled here, we regenerate from result.code by
+        // running a second generate pass on the mutated AST.
+        //
+        // Note: @babel/generator is available wherever @babel/core is — import
+        // lazily to avoid bundling issues in environments that tree-shake.
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const generate = require('@babel/generator').default as (
+            ast: object,
+            opts?: object,
+        ) => { code: string }
+
+        const { code: generatedCode } = generate(result.ast, { jsescOption: { minimal: true } })
+        const js = `${generatedCode}\nwindow.__FlintVisualComponent = ${componentIdentifier};`
 
         return { js, error: null }
     } catch (err) {
@@ -347,15 +422,27 @@ export async function runVisualAudit(
         })
 
         await new Promise<void>((resolve, reject) => {
-            const timeout = setTimeout(() => reject(new Error('Visual audit render timeout')), 10_000)
+            // Settled guard: ensures the promise resolves/rejects exactly once.
+            // A late `did-fail-load` or `did-finish-load` event after the
+            // timeout has already fired must not double-settle the promise.
+            let settled = false
+            const settle = (fn: () => void): void => {
+                if (settled) return
+                settled = true
+                fn()
+            }
+
+            const timeout = setTimeout(() => {
+                settle(() => reject(new Error('Visual audit render timeout')))
+            }, 10_000)
+
             win!.webContents.once('did-finish-load', () => {
                 win!.webContents.executeJavaScript('new Promise(r => requestAnimationFrame(r))')
-                    .then(() => { clearTimeout(timeout); resolve() })
-                    .catch((err) => { clearTimeout(timeout); reject(err) })
+                    .then(() => { settle(() => { clearTimeout(timeout); resolve() }) })
+                    .catch((err) => { settle(() => { clearTimeout(timeout); reject(err as Error) }) })
             })
             win!.webContents.once('did-fail-load', (_e, code, desc) => {
-                clearTimeout(timeout)
-                reject(new Error(`did-fail-load: ${code} ${desc}`))
+                settle(() => { clearTimeout(timeout); reject(new Error(`did-fail-load: ${code} ${desc}`)) })
             })
             win!.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
         })

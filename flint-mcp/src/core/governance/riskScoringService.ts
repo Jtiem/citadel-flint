@@ -646,6 +646,7 @@ const MRS_OP_WEIGHTS: Record<string, number> = {
     fixToken: 0.1,
     updateTextContent: 0.15,
     updateProp: 0.2,
+    swapMotionToken: 0.4, // deterministic token substitution; low-medium risk (R2 locked value)
     injectNode: 0.4,
     inject: 0.4,
     wrapNode: 0.5,
@@ -653,6 +654,7 @@ const MRS_OP_WEIGHTS: Record<string, number> = {
     move: 0.6,
     deleteNode: 0.65,
     assembleLayout: 0.7,
+    replaceElement: 0.9, // structural element swap; high risk (R2 locked value)
     crossFileMove: 0.85,
 } as const
 

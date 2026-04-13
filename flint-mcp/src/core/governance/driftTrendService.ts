@@ -252,17 +252,19 @@ export class DriftTrendService {
     private getAdoptionScore(since: string): AdoptionScore | null {
         if (!tableExists(this.db, 'governance_events')) return null
 
-        // Check for events with MITHRIL-REG rule violations (rogue intrinsics)
+        // Check for events with MITHRIL-REG rule violations (rogue intrinsics).
+        // Count DISTINCT file_path so the unit matches `registered` below —
+        // otherwise dividing "event rows" by "distinct files" is meaningless.
+        // Some seed data for this table may use `file` instead of `file_path`;
+        // coalesce so older ledgers remain comparable.
         const rogueRow = this.db.prepare(`
-            SELECT COUNT(*) AS cnt
+            SELECT COUNT(DISTINCT file_path) AS cnt
             FROM governance_events
-            WHERE timestamp >= ? AND rule_id LIKE 'MITHRIL-REG%'
+            WHERE timestamp >= ? AND rule_id LIKE 'MITHRIL-REG%' AND file_path IS NOT NULL
         `).get(since) as { cnt: number }
 
-        // If no MITHRIL-REG violations exist, check if we have any non-REG
-        // component-related violations (indicating the feature is active)
+        // If no MITHRIL-REG violations exist, P2 hasn't run. Return null.
         if (rogueRow.cnt === 0) {
-            // No data — P2 hasn't run. Return null.
             return null
         }
 

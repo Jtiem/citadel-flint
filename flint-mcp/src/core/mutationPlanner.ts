@@ -78,6 +78,7 @@ const ALWAYS_RISK_GATED_OPS = new Set([
     'deleteNode',
     'wrapNode',
     'assembleLayout',
+    'replaceElement', // structural element swap — always requires confirmation (R2)
 ])
 
 // ── Classify a single violation ─────────────────────────────────────────────
@@ -213,6 +214,55 @@ function classifyViolation(
         }
     }
 
+    // ── Dark-mode drift violations — mirrors motion-drift pattern ────────────
+    if (violation.type === 'dark-mode-drift') {
+        // Deterministic when a nearest token is known and auto-fix is possible.
+        // Advisory/visual concern (not a WCAG violation) — see R3 decision.
+        if (
+            violation.nearestToken !== null &&
+            violation.nearestToken !== undefined &&
+            violation.fixable === true
+        ) {
+            return {
+                violation,
+                classification: 'deterministic',
+                confidence: computeDriftConfidence(violation),
+                proposedFix: {
+                    type: 'swapMotionToken',
+                    params: {
+                        targetToken: violation.nearestToken,
+                        targetValue: violation.nearestTokenValue ?? undefined,
+                        originalValue: violation.message,
+                    },
+                },
+            }
+        }
+        return {
+            violation,
+            classification: 'semantic',
+            confidence: 0.5,
+            semanticHint:
+                violation.recovery ??
+                `Dark-mode drift: ${violation.message}. Assign or create a dark-mode companion token.`,
+        }
+    }
+
+    // ── Visual regression violations — always riskGated (structural territory) ─
+    if (violation.type === 'visual-regression') {
+        return {
+            violation,
+            classification: 'deterministic', // deterministic classification but always riskGated
+            confidence: 0.6,
+            proposedFix: {
+                type: 'replaceElement',
+                params: { source: 'visual-regression' },
+            },
+            semanticHint:
+                violation.recovery ??
+                'Visual regression detected. A human must review the before/after diff before applying any automated fix.',
+        }
+    }
+
     // ── Hydration violations (P4) — always semantic ─────────────────────────
     if (violation.type === 'hydration') {
         return {
@@ -274,16 +324,66 @@ function mapDriftToOpType(type: LinterWarning['type']): string {
 }
 
 /**
- * Compute a confidence score for a drift fix based on the delta value.
- * Lower delta = higher confidence (the token is a close match).
+ * Compute a confidence score for a drift fix based on the delta value and
+ * violation type.  Different drift categories use different delta scales:
+ *
+ *   color-drift / inline-style-drift:
+ *     Uses CIEDE2000 ΔE buckets (2/5/10/20) — perceptual distance is well-defined.
+ *
+ *   typography-drift / spacing-drift:
+ *     Uses px-distance buckets (≤1=0.95, ≤3=0.88, ≤8=0.78, else 0.6).
+ *     Conservative ladder — typography and spacing deltas are not CIEDE2000-
+ *     comparable, so we default to tighter thresholds. Expand in a follow-up
+ *     sprint once empirical drift distributions are available.
+ *
+ *   dark-mode-drift:
+ *     0.85 when nearestToken is present (caller guarantees it for deterministic
+ *     path), 0.5 otherwise (unreachable from this function, but safe to handle).
+ *
+ *   shadow-drift / opacity-drift:
+ *     Ordinal distance — use flat 0.6 (no meaningful continuous scale).
+ *
+ *   All other types:
+ *     Fall back to the color ΔE ladder for forward-compat.
  */
 function computeDriftConfidence(violation: LinterWarning): number {
     const delta = violation.value
-    if (delta <= 2) return 0.98
-    if (delta <= 5) return 0.92
-    if (delta <= 10) return 0.85
-    if (delta <= 20) return 0.75
-    return 0.6
+
+    switch (violation.type) {
+        case 'color-drift':
+        case 'inline-style-drift':
+            // CIEDE2000 ΔE ladder
+            if (delta <= 2) return 0.98
+            if (delta <= 5) return 0.92
+            if (delta <= 10) return 0.85
+            if (delta <= 20) return 0.75
+            return 0.6
+
+        case 'typography-drift':
+        case 'spacing-drift':
+            // px-distance ladder (conservative — not CIEDE2000-comparable)
+            if (delta <= 1) return 0.95
+            if (delta <= 3) return 0.88
+            if (delta <= 8) return 0.78
+            return 0.6
+
+        case 'dark-mode-drift':
+            // Deterministic path always has nearestToken; treat as close match
+            return violation.nearestToken ? 0.85 : 0.5
+
+        case 'shadow-drift':
+        case 'opacity-drift':
+            // Ordinal distance — no continuous delta scale
+            return 0.6
+
+        default:
+            // Forward-compat: use color ΔE ladder for any future drift types
+            if (delta <= 2) return 0.98
+            if (delta <= 5) return 0.92
+            if (delta <= 10) return 0.85
+            if (delta <= 20) return 0.75
+            return 0.6
+    }
 }
 
 // ── Main entry point ─────────────────────────────────────────────────────────

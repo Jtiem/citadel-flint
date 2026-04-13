@@ -157,6 +157,63 @@ describe('hydrationLinter — isDataBindingHint', () => {
     })
 })
 
+// ── Sprint 1 acceptance-criteria tests ────────────────────────────────────────
+
+describe('hydrationLinter — FIGMA_GATED_ATTRS (Sprint 1)', () => {
+    // value="$0.00" without Figma context → zero warnings
+    it('does NOT flag value="$0.00" when no figmaPlaceholders match', () => {
+        const source = `export default function Form() {
+            return <input value="$0.00" />;
+        }`
+        const warnings = detectHydrationViolations(source)
+        expect(warnings).toHaveLength(0)
+    })
+
+    // value="Lorem ipsum" WITH figmaPlaceholders → one warning
+    it('flags value="Lorem ipsum" when figmaPlaceholders includes "Lorem ipsum"', () => {
+        const figmaTree: FigmaNode = {
+            type: 'FRAME',
+            name: 'SearchBar',
+            children: [
+                { type: 'TEXT', name: '#Search.Placeholder', characters: 'Lorem ipsum' },
+            ],
+        }
+        const source = `export default function Form() {
+            return <input value="Lorem ipsum" />;
+        }`
+        const warnings = detectHydrationViolations(source, { figmaTree })
+        expect(warnings).toHaveLength(1)
+        expect(warnings[0].ruleId).toBe('HYDRATION-001')
+    })
+
+    // defaultValue="$0.00" without Figma context → zero warnings
+    it('does NOT flag defaultValue="$0.00" when no figmaPlaceholders match', () => {
+        const source = `export default function Form() {
+            return <input defaultValue="$0.00" />;
+        }`
+        const warnings = detectHydrationViolations(source)
+        expect(warnings).toHaveLength(0)
+    })
+
+    // Case-insensitive name patterns — "john smith" lowercase → one warning
+    it('flags "john smith" lowercase via case-insensitive pattern', () => {
+        const source = wrap('<span>john smith</span>')
+        const warnings = detectHydrationViolations(source)
+        expect(warnings).toHaveLength(1)
+        expect(warnings[0].ruleId).toBe('HYDRATION-001')
+    })
+
+    // Stable IDs: two sequential audits of the same source produce identical IDs
+    it('produces stable violation IDs across two sequential audits', () => {
+        const source = wrap('<p>Lorem ipsum dolor sit amet.</p>')
+        const first = detectHydrationViolations(source)
+        const second = detectHydrationViolations(source)
+        expect(first).toHaveLength(1)
+        expect(second).toHaveLength(1)
+        expect(first[0].id).toBe(second[0].id)
+    })
+})
+
 describe('hydrationLinter — collectFigmaPlaceholders', () => {
     it('walks the Figma tree and collects data-hint literals', () => {
         const tree: FigmaNode = {

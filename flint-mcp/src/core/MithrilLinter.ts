@@ -47,6 +47,70 @@ const traverse =
 
 export const MITHRIL_THRESHOLD = 2.0
 
+// ─── R1: Deferred-rule "Assert + Defer" warning registry ──────────────────
+//
+// Some rule IDs are declared in policy (e.g. `MITHRIL-SPC-TOUCH` in
+// fintech.ts) but have no registered visitor in this linter yet. Silently
+// ignoring them is a compliance footgun — fintech projects would think the
+// rule is enforced when it is not. Instead we reconcile declared rule IDs
+// against the known visitor set on each lint invocation and emit a one-shot
+// console.warn per unmatched rule ID, per process.
+//
+// Suppression:
+//   - `process.env.FLINT_SUPPRESS_DEFERRED_RULE_WARNINGS === '1'` silences
+//     the emit at call time (for tests and CI noise control).
+//   - `__resetDeferredWarningState()` clears the once-per-process Set so
+//     tests can re-exercise the guard.
+//
+// Full history of deferred items lives in `.flint-context/deferred-work.md`.
+
+/**
+ * Rule IDs that are known to be declared in policy but do not yet have a
+ * visitor in this linter. Any ID in this set is a candidate for a deferred
+ * warning when the policy engine hands it to `auditAll`.
+ */
+const KNOWN_DEFERRED_RULE_IDS: ReadonlySet<string> = new Set([
+    'MITHRIL-SPC-TOUCH',
+])
+
+/** One-shot emit guard — rule IDs for which we've already warned this process. */
+const warnedDeferredRuleIds = new Set<string>()
+
+/**
+ * Test helper. Clears the once-per-process warning guard so subsequent
+ * lint invocations will re-emit the deferred-rule warning. Not part of the
+ * public runtime API — tests only.
+ */
+export function __resetDeferredWarningState(): void {
+    warnedDeferredRuleIds.clear()
+}
+
+function emitDeferredRuleWarning(ruleId: string): void {
+    if (warnedDeferredRuleIds.has(ruleId)) return
+    warnedDeferredRuleIds.add(ruleId)
+    if (process.env.FLINT_SUPPRESS_DEFERRED_RULE_WARNINGS === '1') return
+    console.warn(
+        `[Flint] ${ruleId} declared in policy but no visitor registered — deferred to Mithril expansion sprint`,
+    )
+}
+
+/**
+ * Reconcile declared policy rule IDs against the set of rules that have
+ * visitors registered in this module. For each declared-but-unimplemented
+ * rule, emit the one-shot deferred warning.
+ */
+function reconcileDeferredRules(
+    ruleModes: Record<string, 'blocking' | 'advisory' | 'off'> | undefined,
+): void {
+    if (!ruleModes) return
+    for (const [ruleId, mode] of Object.entries(ruleModes)) {
+        if (mode === 'off') continue
+        if (KNOWN_DEFERRED_RULE_IDS.has(ruleId)) {
+            emitDeferredRuleWarning(ruleId)
+        }
+    }
+}
+
 /**
  * Optional policy overrides for threshold-dependent linter behaviour.
  * When provided, these values take precedence over the hardcoded constants.
@@ -1815,6 +1879,10 @@ export interface AuditAllOptions extends PolicyOptions {
  * against the token_source baseline table.
  */
 export function auditAll(ast: File, tokens: DesignToken[], options?: AuditAllOptions): Map<string, LinterWarning> {
+    // R1 Assert+Defer — warn once per process for policy rules that have
+    // no visitor registered in this linter (e.g. MITHRIL-SPC-TOUCH).
+    reconcileDeferredRules(options?.ruleModes)
+
     const merged = new Map<string, LinterWarning>()
 
     for (const visit of [

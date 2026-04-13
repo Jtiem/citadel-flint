@@ -338,19 +338,20 @@ describe('DriftTrendService', () => {
 
     // ── 8. Adoption score with registry data ────────────────────────────────
 
-    it('computes adoption score when MITHRIL-REG violations exist', () => {
+    it('computes adoption score when MITHRIL-REG violations exist (distinct-file units)', () => {
         const db = makeDb()
         createTables(db)
         const { service } = makeService(db)
 
         const ts = daysAgo(5)
 
-        // 3 rogue intrinsic violations (MITHRIL-REG-001)
-        insertViolation(db, 'reg-1', 'MITHRIL-REG-001', ts)
-        insertViolation(db, 'reg-2', 'MITHRIL-REG-001', ts)
-        insertViolation(db, 'reg-3', 'MITHRIL-REG-001', ts)
+        // 3 rogue intrinsic violations across 3 distinct files
+        // (post Sprint 1: rogue uses COUNT(DISTINCT file_path), matching `registered`).
+        insertViolation(db, 'reg-1', 'MITHRIL-REG-001', ts, '/src/a.tsx')
+        insertViolation(db, 'reg-2', 'MITHRIL-REG-001', ts, '/src/b.tsx')
+        insertViolation(db, 'reg-3', 'MITHRIL-REG-001', ts, '/src/c.tsx')
 
-        // 7 mutations with registry artifact IDs (registered components)
+        // 7 mutations with registry artifact IDs (registered components) in 7 distinct files
         for (let i = 0; i < 7; i++) {
             insertMutation(db, `m-${i}`, 'auto_fix', ts, `/src/comp-${i}.tsx`, `artifact-${i}`)
         }
@@ -361,6 +362,36 @@ describe('DriftTrendService', () => {
         expect(trend.adoptionScore!.rogue).toBe(3)
         expect(trend.adoptionScore!.registered).toBe(7)
         expect(trend.adoptionScore!.percentage).toBe(70)
+    })
+
+    // ── 8b. Unit alignment (Sprint 1 R9 fix) ───────────────────────────────
+
+    it('adoption score denominator uses distinct-file units on both sides', () => {
+        const db = makeDb()
+        createTables(db)
+        const { service } = makeService(db)
+
+        const ts = daysAgo(5)
+
+        // 3 rogue events across ONLY 2 distinct files
+        insertViolation(db, 'r-1', 'MITHRIL-REG-001', ts, '/src/rogue-a.tsx')
+        insertViolation(db, 'r-2', 'MITHRIL-REG-001', ts, '/src/rogue-a.tsx') // duplicate file
+        insertViolation(db, 'r-3', 'MITHRIL-REG-001', ts, '/src/rogue-b.tsx')
+
+        // 5 registered mutations across 3 distinct files
+        insertMutation(db, 'm-1', 'auto_fix', ts, '/src/comp-x.tsx', 'art-x')
+        insertMutation(db, 'm-2', 'auto_fix', ts, '/src/comp-x.tsx', 'art-x')
+        insertMutation(db, 'm-3', 'auto_fix', ts, '/src/comp-y.tsx', 'art-y')
+        insertMutation(db, 'm-4', 'auto_fix', ts, '/src/comp-y.tsx', 'art-y')
+        insertMutation(db, 'm-5', 'auto_fix', ts, '/src/comp-z.tsx', 'art-z')
+
+        const trend = service.computeTrend(30)
+
+        // Pre-fix: rogue counted events (3), registered counted distinct files (3) → 3/6=50%.
+        // Post-fix: both count distinct files (2 rogue + 3 registered = 5) → 3/5=60%.
+        expect(trend.adoptionScore!.rogue).toBe(2)
+        expect(trend.adoptionScore!.registered).toBe(3)
+        expect(trend.adoptionScore!.percentage).toBe(60)
     })
 
     // ── 9. No adoption score when P2 data absent ────────────────────────────

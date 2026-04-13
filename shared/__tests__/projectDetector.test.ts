@@ -39,7 +39,7 @@ function createMockFS(files: Record<string, string>): DetectorFS {
             if (content !== undefined) return content
             throw new Error(`ENOENT: ${filePath}`)
         },
-        exists: (filePath: string) => {
+        exists: async (filePath: string) => {
             const normalized = filePath.replace(/\\/g, '/')
             return resolvedPaths.has(normalized)
         },
@@ -223,5 +223,70 @@ describe('detectProjectEnvironment', () => {
         const env = await detectProjectEnvironment('/test', fs)
         expect(env.cssFramework).toEqual({ name: 'tailwindcss', version: 'unknown' })
         expect(env.cssFrameworkLabel).toBe('Tailwind')
+    })
+
+    // PD-16: DetectorFS.exists is async (Sprint 1 R14)
+    it('PD-16: DetectorFS.exists returns a Promise<boolean>', async () => {
+        const fs = createMockFS({
+            'package.json': pkgJson({ react: '^19.0.0' }),
+            'tsconfig.json': '{}',
+        })
+        const result = fs.exists('/test/tsconfig.json')
+        // Must be a Promise, not a boolean.
+        expect(result).toBeInstanceOf(Promise)
+        expect(await result).toBe(true)
+        expect(await fs.exists('/test/does-not-exist')).toBe(false)
+
+        // Existing detection path still works end-to-end after the async migration.
+        const env = await detectProjectEnvironment('/test', fs)
+        expect(env.typescript).toBe(true)
+    })
+})
+
+// ─── PD-17: defaultCountFiles symlink-cycle protection (Sprint 1 R14) ─────
+//
+// Uses a real tmpdir with a self-referential symlink to prove the walker
+// terminates instead of infinite-looping. Skipped when running on systems
+// that can't create symlinks (shouldn't happen on darwin/linux CI).
+import { describe as describe2, it as it2, expect as expect2 } from 'vitest'
+import * as nodeFs from 'node:fs'
+import * as nodeFsP from 'node:fs/promises'
+import * as os from 'node:os'
+import * as nodePath from 'node:path'
+
+describe2('projectDetector — defaultCountFiles symlink cycle protection', () => {
+    it2('terminates when src/ contains a self-referential symlink', async () => {
+        const root = nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), 'flint-symlink-'))
+        try {
+            const srcDir = nodePath.join(root, 'src')
+            nodeFs.mkdirSync(srcDir, { recursive: true })
+            // A real component file to prove counting still works.
+            nodeFs.writeFileSync(nodePath.join(srcDir, 'App.tsx'), 'export {}')
+
+            // Create a symlink loop: src/loop -> src (so src/loop/loop/loop... is a cycle).
+            try {
+                nodeFs.symlinkSync(srcDir, nodePath.join(srcDir, 'loop'))
+            } catch {
+                // Some sandboxes disallow symlinks; skip silently.
+                return
+            }
+
+            // Minimal real-fs DetectorFS wired to native node:fs.
+            const detectorFs: DetectorFS = {
+                readFile: (fp, enc) => nodeFsP.readFile(fp, enc),
+                exists: async (fp) => nodeFs.existsSync(fp),
+            }
+
+            // Must complete in well under a reasonable timeout. Vitest default
+            // is plenty; if the walker loops we'll exceed it and fail loud.
+            const start = Date.now()
+            const env = await detectProjectEnvironment(root, detectorFs)
+            const elapsed = Date.now() - start
+
+            expect2(elapsed).toBeLessThan(5000)
+            expect2(env.componentCount).toBeGreaterThanOrEqual(1)
+        } finally {
+            nodeFs.rmSync(root, { recursive: true, force: true })
+        }
     })
 })

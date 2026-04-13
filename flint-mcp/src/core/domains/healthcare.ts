@@ -9,6 +9,34 @@
  */
 
 import type { ResolvedPolicy } from '../policyEngine.js'
+import { getErrorsByCategory } from '../errorTaxonomy.js'
+
+/**
+ * Collect every known a11y rule ID the project might legitimately enforce.
+ * Sources:
+ *   1. Rules already present on the resolved policy (whatever the user
+ *      / preset / rule pack loaded).
+ *   2. Rules declared in the static errorTaxonomy registry — ensures we
+ *      escalate rules even when the current policy preset has not yet
+ *      materialized them (prevents the A11Y-011+ silent-downgrade hole).
+ *
+ * Anything that starts with `A11Y-` is in scope. The previous implementation
+ * hard-coded A11Y-001..010 which silently skipped 40+ WCAG 2.1 AA rules
+ * (contrast, ARIA, live regions, motion, forms) — a Commandment 5 defect
+ * for any healthcare or government deployment. This helper closes that hole.
+ */
+function collectAllA11yRuleIds(policy: ResolvedPolicy): string[] {
+    const ids = new Set<string>()
+    for (const k of Object.keys(policy.a11y.rules)) {
+        if (k.startsWith('A11Y-')) ids.add(k)
+    }
+    for (const entry of getErrorsByCategory('a11y')) {
+        if (entry.ruleId && entry.ruleId.startsWith('A11Y-')) {
+            ids.add(entry.ruleId)
+        }
+    }
+    return Array.from(ids)
+}
 
 export function applyHealthcareEscalation(policy: ResolvedPolicy): ResolvedPolicy {
     const next: ResolvedPolicy = {
@@ -29,12 +57,12 @@ export function applyHealthcareEscalation(policy: ResolvedPolicy): ResolvedPolic
         },
     }
 
-    // Force all known a11y rules to blocking unless explicitly turned off.
-    const A11Y_RULES = [
-        'A11Y-001', 'A11Y-002', 'A11Y-003', 'A11Y-004', 'A11Y-005',
-        'A11Y-006', 'A11Y-007', 'A11Y-008', 'A11Y-009', 'A11Y-010',
-    ]
-    for (const ruleId of A11Y_RULES) {
+    // Force ALL known a11y rules to blocking unless explicitly turned off.
+    // Dynamic enumeration — the registry is the source of truth so newly
+    // registered WCAG 2.1 AA rules are automatically escalated in healthcare
+    // / government modes without a code change.
+    const allA11yRuleIds = collectAllA11yRuleIds(next)
+    for (const ruleId of allA11yRuleIds) {
         if (next.a11y.rules[ruleId] !== 'off') {
             next.a11y.rules[ruleId] = 'blocking'
         }

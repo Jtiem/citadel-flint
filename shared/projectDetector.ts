@@ -49,7 +49,12 @@ export interface ProjectEnvironment {
 
 export interface DetectorFS {
     readFile: (filePath: string, encoding: 'utf-8') => Promise<string>
-    exists: (filePath: string) => boolean
+    /**
+     * Async existence check. Sprint 1 migrated this from sync→async so hot
+     * loops can safely `await` and so consumers can back it with
+     * `fs.promises.access` / `stat` instead of `existsSync`.
+     */
+    exists: (filePath: string) => Promise<boolean>
     /** Recursively count files matching extensions under a directory. */
     countFiles?: (dir: string, extensions: string[]) => Promise<number>
 }
@@ -133,16 +138,39 @@ function tailwindMajor(versionRange: string): string {
 
 // ── Default countFiles implementation using Node.js fs ────────────────────────
 
-async function defaultCountFiles(dir: string, extensions: string[], fsExists: (p: string) => boolean): Promise<number> {
-    // We use a dynamic import so this module remains pure for test stubs
-    const { readdir } = await import('node:fs/promises')
+/** Max recursion depth for the component walker — belt + braces alongside
+ *  the symlink cycle guard. 12 levels is deep enough for any realistic repo. */
+const DEFAULT_COUNT_MAX_DEPTH = 12
 
-    if (!fsExists(dir)) return 0
+async function defaultCountFiles(
+    dir: string,
+    extensions: string[],
+    fsExists: (p: string) => Promise<boolean>,
+): Promise<number> {
+    // We use a dynamic import so this module remains pure for test stubs
+    const { readdir, realpath } = await import('node:fs/promises')
+
+    if (!(await fsExists(dir))) return 0
 
     let count = 0
     const SKIP_DIRS = new Set(['node_modules', 'dist', '.next', '.nuxt', '.svelte-kit', 'build', 'coverage', '.flint'])
 
-    async function walk(current: string): Promise<void> {
+    // Symlink cycle protection: track canonical paths we've already walked.
+    const visited = new Set<string>()
+
+    async function walk(current: string, depth: number): Promise<void> {
+        if (depth > DEFAULT_COUNT_MAX_DEPTH) return
+
+        // Canonicalize so a symlink loop (a → b → a) lands on the same key.
+        let canonical: string
+        try {
+            canonical = await realpath(current)
+        } catch {
+            canonical = current
+        }
+        if (visited.has(canonical)) return
+        visited.add(canonical)
+
         let entries: import('node:fs').Dirent[]
         try {
             entries = await readdir(current, { withFileTypes: true })
@@ -150,10 +178,13 @@ async function defaultCountFiles(dir: string, extensions: string[], fsExists: (p
             return
         }
         for (const entry of entries) {
+            // Skip symlinks outright — cheap cycle defence.
+            if (entry.isSymbolicLink?.()) continue
+
             if (entry.isDirectory()) {
                 if (!entry.name.startsWith('.') || entry.name === '.flint') {
                     if (!SKIP_DIRS.has(entry.name)) {
-                        await walk(path.join(current, entry.name))
+                        await walk(path.join(current, entry.name), depth + 1)
                     }
                 }
             } else if (entry.isFile()) {
@@ -165,7 +196,7 @@ async function defaultCountFiles(dir: string, extensions: string[], fsExists: (p
         }
     }
 
-    await walk(dir)
+    await walk(dir, 0)
     return count
 }
 
@@ -214,7 +245,13 @@ export async function detectProjectEnvironment(
         'tailwind.config.ts', 'tailwind.config.js',
         'tailwind.config.mjs', 'tailwind.config.cjs',
     ]
-    const hasTwConfig = TAILWIND_CONFIGS.some(c => fs.exists(path.join(projectRoot, c)))
+    let hasTwConfig = false
+    for (const c of TAILWIND_CONFIGS) {
+        if (await fs.exists(path.join(projectRoot, c))) {
+            hasTwConfig = true
+            break
+        }
+    }
 
     for (const css of CSS_FRAMEWORKS) {
         const match = findDep(allDeps, css.packages)
@@ -244,7 +281,7 @@ export async function detectProjectEnvironment(
     let tokenFormat: string | null = null
 
     // Flint tokens
-    if (fs.exists(path.join(projectRoot, '.flint', 'design-tokens.json'))) {
+    if (await fs.exists(path.join(projectRoot, '.flint', 'design-tokens.json'))) {
         hasDesignTokens = true
         tokenSource = 'flint'
         // Check if DTCG format
@@ -266,7 +303,7 @@ export async function detectProjectEnvironment(
             'sd.config.js', 'sd.config.json',
         ]
         for (const c of sdConfigs) {
-            if (fs.exists(path.join(projectRoot, c))) {
+            if (await fs.exists(path.join(projectRoot, c))) {
                 hasDesignTokens = true
                 tokenSource = 'style-dictionary'
                 tokenFormat = 'Style Dictionary'
@@ -276,14 +313,14 @@ export async function detectProjectEnvironment(
     }
 
     // Tokens Studio
-    if (!hasDesignTokens && fs.exists(path.join(projectRoot, 'tokens.json'))) {
+    if (!hasDesignTokens && await fs.exists(path.join(projectRoot, 'tokens.json'))) {
         hasDesignTokens = true
         tokenSource = 'tokens-studio'
         tokenFormat = 'Tokens Studio'
     }
 
     // ── 5. Detect TypeScript ──────────────────────────────────────────────
-    const typescript = fs.exists(path.join(projectRoot, 'tsconfig.json'))
+    const typescript = await fs.exists(path.join(projectRoot, 'tsconfig.json'))
 
     // ── 6. Detect component library ───────────────────────────────────────
     let componentLibrary: ProjectEnvironment['componentLibrary'] = null

@@ -41,13 +41,16 @@ describe('visualRegressionStub', () => {
         expect(VISUAL_REG_WARNING_TYPE).toBe('visual-regression')
     })
 
-    it('returns no violations + ranInGlass=false when no bridge registered', async () => {
+    it('returns degraded ok:false + ranInGlass=false when no bridge registered (Sprint 1 R10)', async () => {
         expect(isGlassAvailable()).toBe(false)
         const result = await runVisualRegressionAudit(sampleInput)
-        expect(result.ok).toBe(true)
+        // Sprint 1 R10 — no silent green. Unregistered bridge is a degraded
+        // result so CI / MCP consumers can surface the skip explicitly.
+        expect(result.ok).toBe(false)
+        expect(result.degraded).toBe(true)
         expect(result.violations).toEqual([])
         expect(result.ranInGlass).toBe(false)
-        expect(result.error).toBeNull()
+        expect(result.error).toBe('Glass bridge unavailable')
     })
 
     it('runVisualRegressionForLinter returns advisory when Glass unavailable', async () => {

@@ -385,4 +385,111 @@ describe('compositionValidator', () => {
         expect(violations.length).toBe(1)
         expect(violations[0].severity).toBe('advisory')
     })
+
+    // ── Sprint 1 acceptance-criteria tests ───────────────────────────────────
+
+    // 17. mode003 'off' with deeply-nested Cards → zero warnings, no depth drift
+    it('MITHRIL-COMP-003=off: no warnings and depthStack stays clean across sibling trees', () => {
+        // Two sibling Card trees that would each trigger depth violations if mode003
+        // were active. With mode='off', no warnings should fire AND the depth
+        // counter must not leak between the two trees (regression guard).
+        const code = `
+            const App = () => (
+                <div>
+                    <Card>
+                        <Card>
+                            <Card>Too deep tree 1</Card>
+                        </Card>
+                    </Card>
+                    <Card>
+                        <Card>
+                            <Card>Too deep tree 2</Card>
+                        </Card>
+                    </Card>
+                </div>
+            )
+        `
+        const ast = parseJSX(code)
+        const registry = buildRegistry({ Card: { compositionRules: { maxDepth: 2 } } })
+
+        const warnings = validateComposition(ast, registry, {
+            ruleModes: { 'MITHRIL-COMP-003': 'off' },
+        })
+        expect(warnings.size).toBe(0)
+    })
+
+    // 18. isPascalCase tightened — HTML/URL/SVG must NOT match
+    it('does not treat ALLCAPS names as PascalCase design-system components', () => {
+        // If <HTML/>, <URL/>, <SVG/> were treated as PascalCase components they
+        // would be pushed onto the parentStack and could generate false comp-002
+        // violations. With the tightened regex they are ignored.
+        const code = `
+            const App = () => (
+                <HTML>
+                    <URL>text</URL>
+                    <SVG />
+                </HTML>
+            )
+        `
+        const ast = parseJSX(code)
+        const registry = buildRegistry({
+            HTML: { compositionRules: { requiredParent: 'Document' } },
+            URL: {},
+            SVG: {},
+        })
+
+        const warnings = validateComposition(ast, registry)
+        // None of these all-caps names should trigger violations
+        expect(warnings.size).toBe(0)
+    })
+
+    // 19. No duplicate comp-001 when both forbiddenChildren + allowedChildren fire
+    it('emits only one comp-001 when child matches both forbiddenChildren and allowedChildren', () => {
+        // A parent that lists Card in forbiddenChildren AND has an allowedChildren
+        // list that does not include Card. Before the fix, this would produce two
+        // comp-001 warnings for the same node.
+        const code = `
+            const App = () => (
+                <Panel>
+                    <Card>Content</Card>
+                </Panel>
+            )
+        `
+        const ast = parseJSX(code)
+        const registry = buildRegistry({
+            Panel: {
+                compositionRules: {
+                    forbiddenChildren: ['Card'],
+                    allowedChildren: ['Button', 'Text'],
+                },
+            },
+            Card: {},
+        })
+
+        const warnings = validateComposition(ast, registry)
+        const violations = [...warnings.values()]
+        // Exactly one violation — forbiddenChildren wins, allowedChildren is short-circuited
+        expect(violations.length).toBe(1)
+        expect(violations[0].ruleId).toBe('MITHRIL-COMP-001')
+        expect(violations[0].message).toContain('forbidden')
+    })
+
+    // 20. Sibling Card trees do not cross-contaminate depth (regression guard)
+    it('sibling Card trees have independent depth counters', () => {
+        // Card maxDepth=2. Two independent trees each with depth=2 should produce
+        // no violations. If depth leaked across siblings the second tree would
+        // see depth=3 and fire incorrectly.
+        const code = `
+            const App = () => (
+                <div>
+                    <Card><Card>level2</Card></Card>
+                    <Card><Card>level2</Card></Card>
+                </div>
+            )
+        `
+        const ast = parseJSX(code)
+        const registry = buildRegistry({ Card: { compositionRules: { maxDepth: 2 } } })
+        const warnings = validateComposition(ast, registry)
+        expect(warnings.size).toBe(0)
+    })
 })
