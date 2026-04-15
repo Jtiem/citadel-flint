@@ -79,6 +79,30 @@ export class ConfigValidationError extends Error {
 }
 
 /**
+ * Redacts common secret patterns from strings before they hit logs or the
+ * config-events ledger. SEC-3 (Sprint 3 polish) — YAML parse errors may
+ * include a source excerpt near the syntax break; if a secret is adjacent
+ * to the break it would otherwise leak.
+ *
+ * Patterns redacted:
+ *   - Long hex/base64 tokens (>= 20 chars of [A-Za-z0-9_\-+/=])
+ *   - Values following `api_key:`, `token:`, `secret:`, `password:`, `bearer`
+ *   - Values inside quotes that match the token shape
+ */
+export function redactSecrets(input: string): string {
+    let out = input
+    // 1. Match key: value patterns (yaml or json-ish). Exclude `[`/`]` so a
+    //    prior `[REDACTED]` marker isn't re-matched on a second pass.
+    out = out.replace(
+        /(api[_-]?key|token|secret|password|authorization|bearer)([\s:=]+["']?)(?!\[REDACTED\])([^\s"',}\]\[]+)/gi,
+        (_m, key: string, sep: string) => `${key}${sep}[REDACTED]`
+    )
+    // 2. Match standalone long opaque tokens (>= 20 chars)
+    out = out.replace(/\b[A-Za-z0-9_\-+/=]{20,}\b/g, '[REDACTED]')
+    return out
+}
+
+/**
  * Emits a structured config-loader event to `.flint/ledger/config-events.jsonl`.
  * MINOR-8 fix (Sprint 3). Best-effort — never throws.
  */
@@ -156,16 +180,22 @@ export function loadYamlConfig(
         parsed = parseYaml(raw)
     } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
+        // SEC-3 (Sprint 3 polish) — redact secret-looking tokens from parse-error
+        // messages before logging. YAML parsers often include a source excerpt
+        // near the syntax error; if a secret sits adjacent to the break it could
+        // leak to console + ledger. Policy: flint.config.yaml should not contain
+        // secrets, but we redact defensively.
+        const redactedMsg = redactSecrets(msg)
         // MINOR-8: structured config-validation event
         emitConfigEvent(projectRoot, {
             type: 'yaml_parse_error',
             path: yamlPath,
-            message: msg,
+            message: redactedMsg,
         })
-        console.error('[Flint Config] Failed to parse flint.config.yaml:', msg)
+        console.error('[Flint Config] Failed to parse flint.config.yaml:', redactedMsg)
         if (strict) {
             throw new ConfigValidationError([
-                { path: 'flint.config.yaml', message: `YAML parse error: ${msg}` },
+                { path: 'flint.config.yaml', message: `YAML parse error: ${redactedMsg}` },
             ])
         }
         return null

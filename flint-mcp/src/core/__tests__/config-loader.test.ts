@@ -17,6 +17,7 @@ import {
     loadYamlConfig,
     deepMergeConfigs,
     resolveExtendsRef,
+    redactSecrets,
     ConfigPathSandboxError,
     ConfigValidationError,
 } from '../config-loader.js'
@@ -203,5 +204,42 @@ describe('Sprint 3: loadYamlConfig emits structured event on parse failure', () 
             const content = fs.readFileSync(ledgerPath, 'utf-8')
             expect(content).toContain('yaml')
         }
+    })
+})
+
+describe('Sprint 3 polish SEC-3: redactSecrets', () => {
+    it('redacts api_key: style pairs', () => {
+        const input = 'parse error at api_key: sk-1234567890abcdef1234567890 line 3'
+        const out = redactSecrets(input)
+        expect(out).not.toContain('sk-1234567890abcdef1234567890')
+        expect(out).toContain('[REDACTED]')
+    })
+
+    it('redacts token: style pairs across common synonyms', () => {
+        for (const key of ['token', 'secret', 'password', 'authorization', 'bearer']) {
+            const out = redactSecrets(`${key}: myverysecretvalue123456789`)
+            expect(out).not.toContain('myverysecretvalue123456789')
+            expect(out).toContain('[REDACTED]')
+        }
+    })
+
+    it('redacts long standalone opaque tokens', () => {
+        const input = 'unexpected char near AKIAIOSFODNN7EXAMPLE in line 5'
+        const out = redactSecrets(input)
+        expect(out).not.toContain('AKIAIOSFODNN7EXAMPLE')
+        expect(out).toContain('[REDACTED]')
+    })
+
+    it('leaves short identifiers alone', () => {
+        const input = 'unexpected char at line 5 col 12'
+        const out = redactSecrets(input)
+        expect(out).toBe('unexpected char at line 5 col 12')
+    })
+
+    it('is idempotent', () => {
+        const input = 'api_key: sk-1234567890abcdef1234567890'
+        const once = redactSecrets(input)
+        const twice = redactSecrets(once)
+        expect(twice).toBe(once)
     })
 })
