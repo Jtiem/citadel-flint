@@ -49,6 +49,8 @@ function isUserVisibleViolation(line: string): boolean {
 
     // Skip type literals like type: 'violation'
     if (/type:\s*['"]violation['"]/.test(trimmed)) return false
+    // Skip TypeScript union type members like `type?: 'x' | 'violation' | 'y'`
+    if (/\|\s*['"]violation['"]/.test(trimmed)) return false
     // Skip filter expressions like n.type === 'violation'
     if (/\.type\s*===?\s*['"]violation['"]/.test(trimmed)) return false
     // Skip data-testid attributes containing "violation"

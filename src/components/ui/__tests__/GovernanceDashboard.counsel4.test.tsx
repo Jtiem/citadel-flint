@@ -161,9 +161,6 @@ describe('GovernanceDashboard — COUNSEL.4 Brilliant Moments', () => {
             const w = makeLinterWarning({ id: 'spark-1' })
             useEditorStore.setState({ linterWarnings: new Map([['spark-1', w]]) })
             render(<GovernanceDashboard />)
-            // Open score breakdown
-            const scoreBtn = screen.getByRole('button', { name: /Score breakdown/i })
-            fireEvent.click(scoreBtn)
             await waitFor(() => {
                 expect(screen.getByTestId('sparkline-container')).toBeTruthy()
             })
@@ -185,8 +182,6 @@ describe('GovernanceDashboard — COUNSEL.4 Brilliant Moments', () => {
             const w = makeLinterWarning({ id: 'stable-1' })
             useEditorStore.setState({ linterWarnings: new Map([['stable-1', w]]) })
             render(<GovernanceDashboard />)
-            const scoreBtn = screen.getByRole('button', { name: /Score breakdown/i })
-            fireEvent.click(scoreBtn)
             await waitFor(() => {
                 expect(screen.getByTestId('sparkline-trend-label')).toBeTruthy()
             })
@@ -200,8 +195,6 @@ describe('GovernanceDashboard — COUNSEL.4 Brilliant Moments', () => {
             const w = makeLinterWarning({ id: 'empty-spark' })
             useEditorStore.setState({ linterWarnings: new Map([['empty-spark', w]]) })
             render(<GovernanceDashboard />)
-            const scoreBtn = screen.getByRole('button', { name: /Score breakdown/i })
-            fireEvent.click(scoreBtn)
             await waitFor(() => {
                 expect(screen.getByTestId('sparkline-empty')).toBeTruthy()
             })

@@ -749,10 +749,7 @@ describe('GovernanceDashboard — COUNSEL.3.3 Anomaly Alert Banner', () => {
         }
         useEditorStore.setState({ linterWarnings: warnings })
         render(<GovernanceDashboard />)
-        // Open Health Score accordion (starts closed) to reveal rewind-to-clean
         await waitFor(() => screen.getByTestId('score-ring'))
-        const accordionBtn = document.querySelector('button[aria-controls="score-accordion"]') as HTMLElement
-        fireEvent.click(accordionBtn)
         await waitFor(() => {
             expect(screen.getByTestId('rewind-to-clean')).toBeDefined()
         })
@@ -795,10 +792,7 @@ describe('GovernanceDashboard — COUNSEL.3.3 Anomaly Alert Banner', () => {
             vi.fn().mockResolvedValue(undefined)
         seedTokens([makeToken()])
         render(<GovernanceDashboard />)
-        // Open Health Score accordion (starts closed) to reveal sparkline
         await waitFor(() => screen.getByTestId('score-ring'))
-        const accordionBtn = document.querySelector('button[aria-controls="score-accordion"]') as HTMLElement
-        fireEvent.click(accordionBtn)
         await waitFor(() => {
             expect(screen.getByTestId('sparkline')).toBeDefined()
         })
@@ -1036,10 +1030,7 @@ describe('GovernanceDashboard — COUNSEL.1 Sprint (additional tests)', () => {
         const warning = makeLinterWarning({ id: 'penalty-1', severity: 'amber', type: 'color-drift' })
         useEditorStore.setState({ linterWarnings: new Map([['penalty-1', warning]]) })
         render(<GovernanceDashboard />)
-        // Open score breakdown accordion
         await waitFor(() => screen.getByTestId('score-ring'))
-        const accordionBtn = document.querySelector('button[aria-controls="score-accordion"]') as HTMLElement
-        if (accordionBtn) fireEvent.click(accordionBtn)
         await waitFor(() => {
             const row = screen.getByTestId('fidelity-score-row')
             expect(row.textContent).toContain('3 pts')

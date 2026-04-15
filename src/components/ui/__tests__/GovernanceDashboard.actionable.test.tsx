@@ -181,11 +181,7 @@ describe('GovernanceDashboard — Actionable (GLASS.1e)', () => {
         ])
         seedTokensAndWarnings([makeToken()], warnings)
         render(<GovernanceDashboard />)
-
-        // Open the Health Score accordion to reveal the score-trend-hint
         await waitFor(() => screen.getByTestId('score-ring'))
-        const accordionBtn = document.querySelector('button[aria-controls="score-accordion"]') as HTMLElement
-        fireEvent.click(accordionBtn)
 
         await waitFor(() => {
             const hint = screen.getByTestId('score-trend-hint')

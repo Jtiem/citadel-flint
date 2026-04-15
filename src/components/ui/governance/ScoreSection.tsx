@@ -41,7 +41,7 @@ export const GRADE_RING: Record<string, string> = {
 
 // ── COUNSEL.4.2: Sparkline ────────────────────────────────────────────────────
 
-function Sparkline({ data }: { data: Array<{ score: number }> }) {
+export function Sparkline({ data }: { data: Array<{ score: number }> }) {
     if (data.length < 2) return null
     const w = 120, h = 32, pad = 2
     const scores = data.slice(-7).map(d => d.score)
@@ -57,10 +57,14 @@ function Sparkline({ data }: { data: Array<{ score: number }> }) {
     // values for emerald-400, red-400, amber-400.
     const trend = scores[scores.length - 1] - scores[0]
     const color = trend > 2 ? '#34d399' : trend < -2 ? '#f87171' : '#fbbf24'
+    const trendLabel = trend > 2 ? 'Trending up' : trend < -2 ? 'Trending down' : 'Stable'
     return (
-        <svg width={w} height={h} className="shrink-0" aria-label="Health trend" role="img" data-testid="sparkline">
-            <polyline fill="none" stroke={color} strokeWidth="1.5" points={points} />
-        </svg>
+        <div className="flex items-center gap-2" data-testid="sparkline-container">
+            <svg width={w} height={h} className="shrink-0" aria-label="Health trend" role="img" data-testid="sparkline">
+                <polyline fill="none" stroke={color} strokeWidth="1.5" points={points} />
+            </svg>
+            <span className="text-[10px] text-zinc-500" data-testid="sparkline-trend-label">{trendLabel}</span>
+        </div>
     )
 }
 

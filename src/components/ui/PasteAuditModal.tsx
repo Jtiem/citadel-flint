@@ -11,7 +11,7 @@
  */
 
 import { useState, useCallback, useEffect } from 'react'
-import { X, Clipboard, Loader2, ShieldCheck, ShieldAlert } from 'lucide-react'
+import { X, Clipboard, Loader2, ShieldCheck, ShieldAlert, AlertTriangle, ChevronRight } from 'lucide-react'
 import { FocusTrap } from './FocusTrap'
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -20,6 +20,14 @@ interface AuditResult {
     violations: number
     warnings: string[]
     grade?: string
+}
+
+/** Structured audit error — message shown by default, detail only on expand. */
+interface AuditError {
+    /** User-facing message. Never contains a raw stack trace. */
+    message: string
+    /** Technical detail for debugging. Hidden behind the expandable toggle. */
+    detail?: string
 }
 
 export interface PasteAuditModalProps {
@@ -32,7 +40,7 @@ export function PasteAuditModal({ onClose }: PasteAuditModalProps) {
     const [code, setCode] = useState('')
     const [isAuditing, setIsAuditing] = useState(false)
     const [result, setResult] = useState<AuditResult | null>(null)
-    const [error, setError] = useState<string | null>(null)
+    const [error, setError] = useState<AuditError | null>(null)
 
     // Close on Escape
     useEffect(() => {
@@ -97,7 +105,14 @@ export function PasteAuditModal({ onClose }: PasteAuditModalProps) {
                 })
             }
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Audit failed')
+            if (err instanceof Error) {
+                setError({
+                    message: err.message,
+                    detail: err.stack,
+                })
+            } else {
+                setError({ message: 'Audit failed. Please try again.' })
+            }
         } finally {
             setIsAuditing(false)
         }
@@ -211,13 +226,7 @@ export function PasteAuditModal({ onClose }: PasteAuditModalProps) {
                         )}
 
                         {error && (
-                            <p
-                                className="rounded bg-red-900/30 px-3 py-2 text-xs text-red-400"
-                                role="alert"
-                                data-testid="paste-audit-error"
-                            >
-                                {error}
-                            </p>
+                            <AuditErrorCard error={error} />
                         )}
                     </div>
 
@@ -251,6 +260,69 @@ export function PasteAuditModal({ onClose }: PasteAuditModalProps) {
                     )}
                 </div>
             </FocusTrap>
+        </div>
+    )
+}
+
+// ── AuditErrorCard ────────────────────────────────────────────────────────────
+
+/**
+ * Structured error card for audit failures.
+ *
+ * Default view: icon + user-facing message only.
+ * Expandable "Show details" toggle reveals technical detail for debugging.
+ * Stack traces are never visible in the default (collapsed) state.
+ */
+function AuditErrorCard({ error }: { error: AuditError }) {
+    const [expanded, setExpanded] = useState(false)
+
+    return (
+        <div
+            className="rounded-lg border border-red-700/40 bg-red-900/10 px-3 py-2.5"
+            role="alert"
+            data-testid="paste-audit-error"
+        >
+            <div className="flex items-start gap-2">
+                <AlertTriangle
+                    size={14}
+                    className="mt-0.5 shrink-0 text-red-400"
+                    aria-hidden="true"
+                />
+                <p
+                    className="text-xs text-red-300"
+                    data-testid="paste-audit-error-message"
+                >
+                    {error.message}
+                </p>
+            </div>
+
+            {error.detail && (
+                <div className="mt-2">
+                    <button
+                        type="button"
+                        onClick={() => setExpanded((v) => !v)}
+                        className="flex items-center gap-1 text-[11px] text-zinc-500 transition-colors hover:text-zinc-300"
+                        aria-expanded={expanded}
+                        data-testid="paste-audit-error-details-toggle"
+                    >
+                        <ChevronRight
+                            size={10}
+                            className={`transition-transform ${expanded ? 'rotate-90' : ''}`}
+                            aria-hidden="true"
+                        />
+                        {expanded ? 'Hide details' : 'Show details'}
+                    </button>
+
+                    {expanded && (
+                        <pre
+                            className="mt-1.5 max-h-32 overflow-auto rounded border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-[10px] text-zinc-500"
+                            data-testid="paste-audit-error-detail"
+                        >
+                            {error.detail}
+                        </pre>
+                    )}
+                </div>
+            )}
         </div>
     )
 }

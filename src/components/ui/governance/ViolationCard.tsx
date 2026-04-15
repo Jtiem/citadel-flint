@@ -15,7 +15,7 @@
  * - No arbitrary spacing — 4px grid scale only.
  */
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
     ChevronDown, ChevronRight, Loader2, Check, Copy, Pin,
     TrendingUp, TrendingDown,
@@ -238,10 +238,19 @@ function resurfaceLabel(expiresAtMs: number | null): { text: string; overdue: bo
 
 function CopySnippet({ snippet }: { snippet: string }) {
     const [copied, setCopied] = useState(false)
+    const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+    useEffect(() => {
+        return () => {
+            if (timerRef.current !== null) clearTimeout(timerRef.current)
+        }
+    }, [])
+
     const handleCopy = () => {
         void navigator.clipboard.writeText(snippet).then(() => {
             setCopied(true)
-            setTimeout(() => setCopied(false), 2000)
+            if (timerRef.current !== null) clearTimeout(timerRef.current)
+            timerRef.current = setTimeout(() => setCopied(false), 2000)
         })
     }
     return (

@@ -15,11 +15,12 @@
  * Renderer Process only — no Node.js imports.
  */
 
-import { useEffect, useCallback } from 'react'
+import { useRef } from 'react'
 import { X, FileText, Palette, Layers, AlertTriangle, CheckCircle } from 'lucide-react'
 import type { DesignToken, TokenUsageResult, ContrastPair } from '../../types/flint-api'
 import type { TokenDrift } from '../../hooks/useTokenUsage'
 import type { SyncBadgeStatus } from './TokenGrid'
+import { FocusTrap } from './FocusTrap'
 
 // ── Props ────────────────────────────────────────────────────────────────────
 
@@ -50,24 +51,14 @@ export function TokenDetailPanel({
     contrastPairs,
     darkModeToken,
 }: TokenDetailPanelProps) {
-    // Close on Escape
-    const handleKeyDown = useCallback(
-        (e: KeyboardEvent) => {
-            if (e.key === 'Escape') onClose()
-        },
-        [onClose],
-    )
-
-    useEffect(() => {
-        window.addEventListener('keydown', handleKeyDown)
-        return () => window.removeEventListener('keydown', handleKeyDown)
-    }, [handleKeyDown])
+    const closeButtonRef = useRef<HTMLButtonElement>(null)
 
     const isColor = token.token_type === 'color'
     const usageCount = usageResult?.usageCount ?? 0
     const files = usageResult?.files ?? []
 
     return (
+        <FocusTrap initialFocusRef={closeButtonRef} onClose={onClose}>
         <div
             className="fixed inset-y-0 right-0 z-40 flex w-80 flex-col border-l border-zinc-700 bg-zinc-900 shadow-2xl"
             role="dialog"
@@ -81,6 +72,7 @@ export function TokenDetailPanel({
                     Token Detail
                 </h3>
                 <button
+                    ref={closeButtonRef}
                     type="button"
                     onClick={onClose}
                     aria-label="Close token detail panel"
@@ -289,6 +281,7 @@ export function TokenDetailPanel({
                 </section>
             </div>
         </div>
+        </FocusTrap>
     )
 }
 

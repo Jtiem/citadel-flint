@@ -206,10 +206,7 @@ describe('GovernanceDashboard', () => {
     it('renders score explanation toggle when tokens exist', async () => {
         seedTokens([makeToken()])
         render(<GovernanceDashboard />)
-        // Open the Health Score accordion to reveal the "How is this calculated?" link
         await waitFor(() => screen.getByTestId('score-ring'))
-        const accordionBtn = document.querySelector('button[aria-controls="score-accordion"]') as HTMLElement
-        fireEvent.click(accordionBtn)
         await waitFor(() => {
             expect(screen.getByText(/How is this calculated/i)).toBeDefined()
         })

@@ -11,12 +11,14 @@
  * TDP-08: Shows contrast pairings
  * TDP-09: Shows provenance section
  * TDP-10: Clicking close button calls onClose
- * TDP-11: Pressing Escape calls onClose
+ * TDP-11: Pressing Escape calls onClose (via FocusTrap)
  * TDP-12: Shows dark mode counterpart when available
+ * TDP-13: Tab from last focusable element wraps to first (FocusTrap)
+ * TDP-14: Shift+Tab from first focusable element wraps to last (FocusTrap)
  */
 
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, fireEvent, act } from '@testing-library/react'
 import { TokenDetailPanel } from '../TokenDetailPanel'
 import type { DesignToken, ContrastPair } from '../../../types/flint-api'
 
@@ -41,6 +43,14 @@ const mockDimensionToken: DesignToken = {
 }
 
 describe('TokenDetailPanel — MINT.4d', () => {
+    beforeEach(() => {
+        vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+        vi.useRealTimers()
+    })
+
     it('TDP-01: renders with token path and value', () => {
         render(<TokenDetailPanel token={mockToken} onClose={vi.fn()} />)
         expect(screen.getByTestId('token-detail-path').textContent).toBe('color.brand.primary')
@@ -153,10 +163,10 @@ describe('TokenDetailPanel — MINT.4d', () => {
         expect(onClose).toHaveBeenCalledOnce()
     })
 
-    it('TDP-11: pressing Escape calls onClose', () => {
+    it('TDP-11: pressing Escape calls onClose (via FocusTrap)', () => {
         const onClose = vi.fn()
         render(<TokenDetailPanel token={mockToken} onClose={onClose} />)
-        fireEvent.keyDown(window, { key: 'Escape' })
+        fireEvent.keyDown(document, { key: 'Escape' })
         expect(onClose).toHaveBeenCalledOnce()
     })
 
@@ -175,5 +185,56 @@ describe('TokenDetailPanel — MINT.4d', () => {
             />,
         )
         expect(screen.getByTestId('token-detail-panel').textContent).toContain('#003399')
+    })
+
+    it('TDP-13: Tab from last focusable element wraps to first (FocusTrap)', async () => {
+        render(<TokenDetailPanel token={mockToken} onClose={vi.fn()} />)
+
+        // Flush the FocusTrap's initial focus timer
+        await act(async () => {
+            vi.advanceTimersByTime(1)
+        })
+
+        // The panel has focusable elements — get all of them from the trap container
+        const trap = document.querySelector('[data-focus-trap]') as HTMLElement
+        const focusable = Array.from(
+            trap.querySelectorAll<HTMLElement>(
+                'a[href], button:not(:disabled), textarea:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex="-1"])',
+            ),
+        )
+
+        expect(focusable.length).toBeGreaterThan(0)
+
+        // Focus the last element and Tab — should wrap to first
+        const last = focusable[focusable.length - 1]
+        last.focus()
+        expect(document.activeElement).toBe(last)
+
+        fireEvent.keyDown(document, { key: 'Tab' })
+        expect(document.activeElement).toBe(focusable[0])
+    })
+
+    it('TDP-14: Shift+Tab from first focusable element wraps to last (FocusTrap)', async () => {
+        render(<TokenDetailPanel token={mockToken} onClose={vi.fn()} />)
+
+        await act(async () => {
+            vi.advanceTimersByTime(1)
+        })
+
+        const trap = document.querySelector('[data-focus-trap]') as HTMLElement
+        const focusable = Array.from(
+            trap.querySelectorAll<HTMLElement>(
+                'a[href], button:not(:disabled), textarea:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex="-1"])',
+            ),
+        )
+
+        expect(focusable.length).toBeGreaterThan(0)
+
+        // Focus the first element and Shift+Tab — should wrap to last
+        focusable[0].focus()
+        expect(document.activeElement).toBe(focusable[0])
+
+        fireEvent.keyDown(document, { key: 'Tab', shiftKey: true })
+        expect(document.activeElement).toBe(focusable[focusable.length - 1])
     })
 })
