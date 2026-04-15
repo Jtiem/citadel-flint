@@ -20,7 +20,7 @@
  *  14  — Unsupported version falls back to defaults
  */
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -29,7 +29,20 @@ import { parse } from '@babel/parser'
 import { DEFAULT_POLICY } from '../core/config.js'
 import type { FlintPolicy } from '../core/config.js'
 import { loadPolicy } from '../core/config-loader.js'
-import { readPolicy, writePolicy, mergePolicy, getDefaultPolicy } from '../core/policyLoader.js'
+import {
+    loadAndResolvePolicy,
+    writeResolvedPolicy,
+    mergeAndValidatePolicy,
+    getDefaultResolvedPolicy,
+    toLegacyFlintPolicy,
+    DEFAULT_RESOLVED_POLICY,
+    KNOWN_MITHRIL_RULES,
+    KNOWN_A11Y_RULES,
+    SEVERITY_RANK,
+    coerceToResolved,
+    type ResolvedPolicy,
+    type RawPolicy,
+} from '../core/policyEngine.js'
 import { auditAll, visitClassNames, MITHRIL_THRESHOLD } from '../core/MithrilLinter.js'
 import type { DesignToken } from '../types.js'
 
@@ -84,11 +97,11 @@ describe('Test 1: Default policy shape', () => {
         expect(DEFAULT_POLICY.baseline.enabled).toBe(false)
     })
 
-    it('getDefaultPolicy returns a copy of DEFAULT_POLICY', () => {
-        const policy = getDefaultPolicy()
-        expect(policy).toEqual(DEFAULT_POLICY)
+    it('getDefaultResolvedPolicy returns a fresh clone of DEFAULT_RESOLVED_POLICY', () => {
+        const policy = getDefaultResolvedPolicy()
+        expect(policy).toEqual(DEFAULT_RESOLVED_POLICY)
         // Must be a separate object
-        expect(policy).not.toBe(DEFAULT_POLICY)
+        expect(policy).not.toBe(DEFAULT_RESOLVED_POLICY)
     })
 })
 
@@ -157,61 +170,96 @@ describe('Test 4: Malformed JSON', () => {
 
 // ── Test 5: writePolicy ─────────────────────────────────────────────────────
 
-describe('Test 5: writePolicy creates directory and file', () => {
-    it('creates .flint/ and writes a valid policy.json', () => {
+describe('Test 5: writeResolvedPolicy creates directory and file', () => {
+    it('creates .flint/ and writes a valid policy.json in v2 shape', () => {
         const projDir = path.join(tmpDir, 'write-project')
-        // Do not create .flint/ — writePolicy should create it
+        // Do not create .flint/ — writeResolvedPolicy should create it
         fs.mkdirSync(projDir, { recursive: true })
 
-        const customPolicy: FlintPolicy = {
-            ...DEFAULT_POLICY,
+        const customPolicy: ResolvedPolicy = {
+            ...structuredClone(DEFAULT_RESOLVED_POLICY),
             mithril: {
-                ...DEFAULT_POLICY.mithril,
+                ...DEFAULT_RESOLVED_POLICY.mithril,
+                deltaEThreshold: 3.5,
                 deltaE_threshold: 3.5,
             },
         }
 
-        writePolicy(projDir, customPolicy)
+        writeResolvedPolicy(projDir, customPolicy)
 
         const policyPath = path.join(projDir, '.flint', 'policy.json')
         expect(fs.existsSync(policyPath)).toBe(true)
 
         const read = JSON.parse(fs.readFileSync(policyPath, 'utf-8'))
         expect(read.mithril.deltaE_threshold).toBe(3.5)
-        expect(read.version).toBe(1)
+        expect(read.version).toBe(2)
     })
 })
 
 // ── Test 6: mergePolicy ─────────────────────────────────────────────────────
 
-describe('Test 6: mergePolicy performs partial update', () => {
+describe('Test 6: mergeAndValidatePolicy performs partial update', () => {
     it('updates only the specified fields and writes the result', () => {
         const projDir = path.join(tmpDir, 'merge-project')
         const flintDir = path.join(projDir, '.flint')
         fs.mkdirSync(flintDir, { recursive: true })
 
-        // Start with default policy
-        writePolicy(projDir, DEFAULT_POLICY)
+        // Start with default policy on disk
+        writeResolvedPolicy(projDir, getDefaultResolvedPolicy())
 
         // Merge a partial update
-        const result = mergePolicy(projDir, {
+        const result = mergeAndValidatePolicy(projDir, {
             a11y: {
-                ...DEFAULT_POLICY.a11y,
                 mode: 'advisory',
                 disabled_rules: ['A11Y-006'],
             },
         })
 
-        expect(result.a11y.mode).toBe('advisory')
-        expect(result.a11y.disabled_rules).toEqual(['A11Y-006'])
+        expect(result.ok).toBe(true)
+        if (!result.ok) return
+        expect(result.policy.a11y.mode).toBe('advisory')
+        // disabled_rules → rules map entries with mode 'off' (v2 migration)
+        expect(result.policy.a11y.rules['A11Y-006']).toBe('off')
         // Mithril section untouched
-        expect(result.mithril.deltaE_threshold).toBe(2.0)
+        expect(result.policy.mithril.deltaEThreshold).toBe(2.0)
 
         // Verify it was written to disk
         const onDisk = JSON.parse(
             fs.readFileSync(path.join(flintDir, 'policy.json'), 'utf-8')
         )
         expect(onDisk.a11y.mode).toBe('advisory')
+    })
+
+    it('rejects unknown a11y rule ID and does not write file', () => {
+        const projDir = path.join(tmpDir, 'merge-reject-project')
+        fs.mkdirSync(projDir, { recursive: true })
+        writeResolvedPolicy(projDir, getDefaultResolvedPolicy())
+        const before = fs.readFileSync(path.join(projDir, '.flint', 'policy.json'), 'utf-8')
+
+        const result = mergeAndValidatePolicy(projDir, {
+            a11y: {
+                rules: { 'A11Y-NOT-A-REAL-RULE': 'off' },
+            },
+        })
+
+        expect(result.ok).toBe(false)
+        if (result.ok) return
+        expect(result.errors.some((e) => e.includes('A11Y-NOT-A-REAL-RULE'))).toBe(true)
+
+        // File should be unchanged
+        const after = fs.readFileSync(path.join(projDir, '.flint', 'policy.json'), 'utf-8')
+        expect(after).toBe(before)
+    })
+
+    it('rejects invalid deltaE_threshold (negative)', () => {
+        const projDir = path.join(tmpDir, 'merge-reject-de-project')
+        fs.mkdirSync(projDir, { recursive: true })
+        writeResolvedPolicy(projDir, getDefaultResolvedPolicy())
+
+        const result = mergeAndValidatePolicy(projDir, {
+            mithril: { deltaE_threshold: -5 },
+        })
+        expect(result.ok).toBe(false)
     })
 })
 
@@ -438,5 +486,152 @@ describe('Test 14: Unsupported version falls back to defaults', () => {
         // Should fall back to defaults because version 99 is unsupported
         expect(policy.mithril.deltaE_threshold).toBe(2.0)
         expect(policy).toEqual(DEFAULT_POLICY)
+    })
+})
+
+// ── Sprint 3: new unified surface ────────────────────────────────────────────
+
+describe('Sprint 3: KNOWN_MITHRIL_RULES derived from errorTaxonomy', () => {
+    it('contains classic + extended Mithril rule IDs including MITHRIL-IST-COL', () => {
+        expect(KNOWN_MITHRIL_RULES.size).toBeGreaterThan(15)
+        expect(KNOWN_MITHRIL_RULES.has('MITHRIL-COL')).toBe(true)
+        expect(KNOWN_MITHRIL_RULES.has('MITHRIL-IST-COL')).toBe(true)
+        expect(KNOWN_MITHRIL_RULES.has('MITHRIL-TW-001')).toBe(true)
+        expect(KNOWN_MITHRIL_RULES.has('MITHRIL-DARK-001')).toBe(true)
+    })
+    it('excludes a11y rule IDs', () => {
+        expect(KNOWN_MITHRIL_RULES.has('A11Y-001')).toBe(false)
+        expect(KNOWN_MITHRIL_RULES.has('A11Y-011')).toBe(false)
+    })
+})
+
+describe('Sprint 3: KNOWN_A11Y_RULES derived from errorTaxonomy', () => {
+    it('contains the full A11Y-001..A11Y-103 coverage', () => {
+        expect(KNOWN_A11Y_RULES.has('A11Y-001')).toBe(true)
+        expect(KNOWN_A11Y_RULES.has('A11Y-011')).toBe(true)
+        expect(KNOWN_A11Y_RULES.has('A11Y-103')).toBe(true)
+        // CRIT-2 regression guard — validatePolicy must accept A11Y-011
+        expect(KNOWN_A11Y_RULES.has('A11Y-011')).toBe(true)
+    })
+    it('excludes mithril rules and other categories', () => {
+        expect(KNOWN_A11Y_RULES.has('MITHRIL-COL')).toBe(false)
+        expect(KNOWN_A11Y_RULES.has('SYNC-001')).toBe(false)
+    })
+})
+
+describe('Sprint 3: SEVERITY_RANK has no advisory alias (MAJOR-8)', () => {
+    it('advisory key is removed from the severity map', () => {
+        expect(SEVERITY_RANK.advisory).toBeUndefined()
+    })
+    it('info/amber/warning/critical keys remain and order correctly', () => {
+        expect(SEVERITY_RANK.info).toBe(1)
+        expect(SEVERITY_RANK.amber).toBe(2)
+        expect(SEVERITY_RANK.warning).toBe(2)
+        expect(SEVERITY_RANK.critical).toBe(3)
+        expect(SEVERITY_RANK.critical > SEVERITY_RANK.warning).toBe(true)
+    })
+})
+
+describe('Sprint 3: coerceToResolved validates rawMode (MINOR-9)', () => {
+    it('falls back to default on invalid rawMode with a warning', () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+        const resolved = coerceToResolved({
+            mithril: { mode: 'erorr' } as unknown as RawPolicy['mithril'],
+        })
+        expect(resolved.mithril.mode).toBe(DEFAULT_RESOLVED_POLICY.mithril.mode)
+        expect(warn).toHaveBeenCalled()
+        warn.mockRestore()
+    })
+    it('accepts valid modes unchanged', () => {
+        const resolved = coerceToResolved({ mithril: { mode: 'advisory' } })
+        expect(resolved.mithril.mode).toBe('advisory')
+    })
+    it('drops deprecated disabled_rules from ResolvedPolicy shape (MINOR-11)', () => {
+        const def = getDefaultResolvedPolicy()
+        expect('disabled_rules' in def.a11y).toBe(false)
+    })
+})
+
+describe('Sprint 3: loadAndResolvePolicy unified loader (CRIT-1 + CRIT-3)', () => {
+    it('returns DEFAULT_RESOLVED_POLICY clone when file is missing', () => {
+        const projDir = path.join(tmpDir, 'sprint3-missing')
+        fs.mkdirSync(projDir, { recursive: true })
+        const policy = loadAndResolvePolicy(projDir)
+        expect(policy).toEqual(DEFAULT_RESOLVED_POLICY)
+        expect(policy).not.toBe(DEFAULT_RESOLVED_POLICY)
+    })
+
+    it('migrates v1 on-disk policy to v2 ResolvedPolicy', () => {
+        const projDir = path.join(tmpDir, 'sprint3-v1-migrate')
+        fs.mkdirSync(path.join(projDir, '.flint'), { recursive: true })
+        fs.writeFileSync(
+            path.join(projDir, '.flint', 'policy.json'),
+            JSON.stringify({
+                version: 1,
+                a11y: { disabled_rules: ['A11Y-006'] },
+            }),
+            'utf-8'
+        )
+        const policy = loadAndResolvePolicy(projDir)
+        expect(policy.version).toBe(2)
+        expect(policy.a11y.rules['A11Y-006']).toBe('off')
+    })
+
+    it('strict mode throws on malformed JSON', () => {
+        const projDir = path.join(tmpDir, 'sprint3-strict-bad')
+        fs.mkdirSync(path.join(projDir, '.flint'), { recursive: true })
+        fs.writeFileSync(
+            path.join(projDir, '.flint', 'policy.json'),
+            '{ NOT VALID',
+            'utf-8'
+        )
+        expect(() => loadAndResolvePolicy(projDir, { strict: true })).toThrow()
+    })
+
+    it('strict mode throws on validation failure (unknown rule)', () => {
+        const projDir = path.join(tmpDir, 'sprint3-strict-invalid')
+        fs.mkdirSync(path.join(projDir, '.flint'), { recursive: true })
+        fs.writeFileSync(
+            path.join(projDir, '.flint', 'policy.json'),
+            JSON.stringify({
+                version: 2,
+                a11y: { rules: { 'BOGUS-999': 'off' } },
+            }),
+            'utf-8'
+        )
+        expect(() => loadAndResolvePolicy(projDir, { strict: true })).toThrow()
+    })
+
+    it('non-strict mode accepts unknown rule and logs (permissive default)', () => {
+        const projDir = path.join(tmpDir, 'sprint3-permissive')
+        fs.mkdirSync(path.join(projDir, '.flint'), { recursive: true })
+        fs.writeFileSync(
+            path.join(projDir, '.flint', 'policy.json'),
+            JSON.stringify({ version: 2, mithril: { deltaE_threshold: 3.5 } }),
+            'utf-8'
+        )
+        const policy = loadAndResolvePolicy(projDir)
+        expect(policy.mithril.deltaEThreshold).toBe(3.5)
+    })
+})
+
+describe('Sprint 3: toLegacyFlintPolicy adapter', () => {
+    it('converts v2 ResolvedPolicy back to v1 FlintPolicy shape', () => {
+        const resolved = getDefaultResolvedPolicy()
+        const legacy = toLegacyFlintPolicy(resolved)
+        expect(legacy.version).toBe(1)
+        expect(legacy.mithril.deltaE_threshold).toBe(2.0)
+        expect(legacy.a11y.level).toBe('AA')
+        expect(legacy.a11y.disabled_rules).toEqual([])
+        expect(legacy.export_gate.block_on_overrides).toBe(true)
+    })
+
+    it('extracts disabled rules from resolved rules map', () => {
+        const resolved = getDefaultResolvedPolicy()
+        resolved.a11y.rules['A11Y-006'] = 'off'
+        resolved.a11y.rules['A11Y-011'] = 'advisory'
+        const legacy = toLegacyFlintPolicy(resolved)
+        expect(legacy.a11y.disabled_rules).toContain('A11Y-006')
+        expect(legacy.a11y.disabled_rules).not.toContain('A11Y-011')
     })
 })

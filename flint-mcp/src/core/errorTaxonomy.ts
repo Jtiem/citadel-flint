@@ -13,7 +13,7 @@
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type ErrorCategory = 'mithril' | 'a11y' | 'governance' | 'session' | 'system'
+export type ErrorCategory = 'mithril' | 'a11y' | 'governance' | 'session' | 'system' | 'sync'
 export type ErrorSeverity = 'info' | 'warning' | 'error' | 'critical'
 
 export interface ErrorEntry {
@@ -1431,9 +1431,65 @@ const REGISTRY: Record<string, ErrorEntry> = {
             'width overflow, or `flex-none` to lock a layout slot. Re-run the visual audit to confirm.',
         sourceAuthority: 'Commandment 2 (No Hallucinated Styling) + Flint P7 (Visual Regression Driving AST Mutation)',
     },
+    // ── Sync rules (SYNC.3) ───────────────────────────────────────────────────
+
+    'FLINT-SYNC-001': {
+        code: 'FLINT-SYNC-001',
+        ruleId: 'SYNC-001',
+        category: 'sync',
+        severity: 'warning',
+        title: 'Token Drift Between Figma and Code',
+        explanation:
+            'A local design token value has diverged from the authoritative value in the connected Figma library. ' +
+            'Drift typically occurs when a token is edited in code without a corresponding Envoy push, or when Figma ' +
+            'updates arrive without a pull. Left unresolved, token drift causes visual inconsistency between design ' +
+            'source-of-truth and shipped product.',
+        recovery:
+            'Run `flint_sync_pull` to accept the Figma value, or `flint_sync_push` to promote the local value back to ' +
+            'Figma. To resolve a single token inline, use `flint_resolve_conflict`; for bulk resolution use ' +
+            '`flint_resolve_all`. Verify with `flint_sync_check` before exporting.',
+        sourceAuthority: 'Flint SYNC.3 — Token Drift Detection',
+    },
+
+    'FLINT-SYNC-002': {
+        code: 'FLINT-SYNC-002',
+        ruleId: 'SYNC-002',
+        category: 'sync',
+        severity: 'warning',
+        title: 'Orphaned Local Token',
+        explanation:
+            'A design token exists in `.flint/design-tokens.json` but no longer has a matching entry in the connected ' +
+            'Figma library. This usually means the token was deleted in Figma without being removed locally, or the ' +
+            'token was created locally without ever being pushed upstream. Orphaned tokens pollute the Design Bill of ' +
+            'Materials and make library migration unsafe.',
+        recovery:
+            'Decide the token\'s fate: run `flint_sync_push` to re-create it in Figma, or delete it locally and run ' +
+            '`flint_fix` to remove references from the codebase. Use `flint_sync_history` to see when the token was ' +
+            'last seen upstream.',
+        sourceAuthority: 'Flint SYNC.3 — Orphaned Token Detection',
+    },
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────────
+
+/**
+ * Reverse index from ruleId → ErrorEntry, built once at module init.
+ * Replaces the O(n) scan previously performed by getErrorEntryByRuleId.
+ *
+ * MINOR-3 fix (Sprint 3). Also the source-of-truth for
+ * policyEngine.KNOWN_MITHRIL_RULES / KNOWN_A11Y_RULES derivation (CRIT-2).
+ */
+export const BY_RULE_ID: Readonly<Record<string, ErrorEntry>> = Object.freeze(
+    Object.fromEntries(
+        Object.values(REGISTRY).map((e) => [e.ruleId, e])
+    )
+)
+
+/**
+ * Exported for downstream consumers that need to enumerate the full registry
+ * (e.g. policyEngine KNOWN_*_RULES derivation).
+ */
+export { REGISTRY }
 
 /**
  * Returns the ErrorEntry for the given Flint error code, or null if not found.
@@ -1446,13 +1502,10 @@ export function getErrorEntry(code: string): ErrorEntry | null {
 /**
  * Returns the ErrorEntry whose ruleId matches the given rule identifier.
  * Used by linter visitors to attach explanation/recovery to warnings by ruleId.
- * O(n) scan — call once at startup or cache results if calling in a hot loop.
+ * O(1) reverse-index lookup.
  */
 export function getErrorEntryByRuleId(ruleId: string): ErrorEntry | null {
-    for (const entry of Object.values(REGISTRY)) {
-        if (entry.ruleId === ruleId) return entry
-    }
-    return null
+    return BY_RULE_ID[ruleId] ?? null
 }
 
 /**

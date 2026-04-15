@@ -4,6 +4,24 @@ Work items intentionally pushed out of the sprint they were discovered in. Each 
 
 ---
 
+## `flintConfig` → `ResolvedPolicy` migration in `server.ts`
+
+**Deferred from:** Sprint 3 — Policy Engine Unification (2026-04-14)
+**Decision source:** Sprint 3 architect note; contract non-goals.
+**Blocking reason:** `server.ts` still calls `loadConfig(projectRoot)` after policy updates and keeps a `flintConfig` variable in the legacy v1 `FlintConfig` shape, adapted via `toLegacyFlintPolicy`. Migrating all downstream audit-threshold consumers to `ResolvedPolicy` would cascade into multiple tool handlers and is Sprint 4 territory (MCP Server + Registrations).
+
+### Current state (Sprint 3 stopgap)
+- `loadAndResolvePolicy()` is the unified surface; all new callers use it.
+- `server.ts` retains one `loadConfig` + `toLegacyFlintPolicy` adapter call to keep audit thresholds working.
+- v1 `FlintConfig` shape is NOT deleted — the adapter keeps it alive.
+
+### Proper fix (Sprint 4)
+- Replace the `flintConfig` variable with the `ResolvedPolicy` result from `loadAndResolvePolicy`.
+- Update every downstream tool handler that reads `flintConfig.*` threshold fields to read from the equivalent `ResolvedPolicy` path.
+- Remove the `toLegacyFlintPolicy` adapter and the v1 `FlintConfig` shape.
+
+---
+
 ## MITHRIL-SPC-TOUCH visitor (Mithril fintech touch-target rule)
 
 **Deferred from:** Sprint 1 — Governor Linters + Services Fixes (2026-04-12)

@@ -26,8 +26,14 @@ import type { DesignToken, LinterWarning, FlintSDIPayload } from "./types.js";
 import { flintEvents, EVENTS } from "./core/events.js";
 import { resolveProjectRoot, loadConfig, loadProjectConfig } from "./core/config-loader.js";
 import { DEFAULT_CONFIG } from "./core/config.js";
-import type { FlintConfig, FlintPolicy } from "./core/config.js";
-import { readPolicy, writePolicy, mergePolicy, getDefaultPolicy } from "./core/policyLoader.js";
+import type { FlintConfig } from "./core/config.js";
+import {
+    loadAndResolvePolicy,
+    writeResolvedPolicy,
+    mergeAndValidatePolicy,
+    getDefaultResolvedPolicy,
+} from "./core/policyEngine.js";
+import type { RawPolicy } from "./core/policyEngine.js";
 import { handleFlintAudit, handleFlintAuditBatch, FLINT_AUDIT_TOOL } from "./tools/audit.js";
 import { handleFlintFix, FLINT_FIX_TOOL } from "./tools/fix.js";
 import { handleFlintSwarmAuditFix, FLINT_SWARM_AUDIT_FIX_TOOL } from "./tools/swarm.js";
@@ -1433,7 +1439,7 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     }
 
     if (request.params.uri === resourceUri("policy")) {
-        const policy = readPolicy(projectRoot);
+        const policy = loadAndResolvePolicy(projectRoot);
         return {
             contents: [{
                 uri: resourceUri("policy"),
@@ -2786,14 +2792,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         case "flint_set_policy": {
             const { action, policy: policyUpdate } = request.params.arguments as {
                 action: "read" | "update" | "reset";
-                policy?: Partial<FlintPolicy>;
+                policy?: Partial<RawPolicy>;
             };
 
             const projectRoot = process.cwd();
 
             switch (action) {
                 case "read": {
-                    const current = readPolicy(projectRoot);
+                    const current = loadAndResolvePolicy(projectRoot);
                     return {
                         content: [{
                             type: "text",
@@ -2806,7 +2812,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                     if (!policyUpdate || typeof policyUpdate !== "object") {
                         return toolError("flint_set_policy", new Error("'update' action requires a 'policy' object with partial policy fields."), HINTS.missingParam("flint_set_policy action='update' policy={\"mithril\":{\"mode\":\"advisory\"}}"));
                     }
-                    const merged = mergePolicy(projectRoot, policyUpdate);
+                    // MAJOR-6 (Sprint 3): route through mergeAndValidatePolicy so
+                    // no invalid policy can be written to disk.
+                    const mergeResult = mergeAndValidatePolicy(projectRoot, policyUpdate);
+                    if (!mergeResult.ok) {
+                        return toolError(
+                            "flint_set_policy",
+                            new Error(`policy validation failed:\n  - ${mergeResult.errors.join("\n  - ")}`),
+                            HINTS.missingParam("flint_set_policy action='update' policy={...valid fields...}")
+                        );
+                    }
+                    const merged = mergeResult.policy;
                     // Reload into active config so subsequent audits use new thresholds
                     flintConfig = loadConfig(projectRoot);
 
@@ -2861,8 +2877,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 }
 
                 case "reset": {
-                    const defaults = getDefaultPolicy();
-                    writePolicy(projectRoot, defaults);
+                    const defaults = getDefaultResolvedPolicy();
+                    writeResolvedPolicy(projectRoot, defaults);
                     flintConfig = loadConfig(projectRoot);
                     return {
                         content: [{

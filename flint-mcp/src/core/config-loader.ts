@@ -27,6 +27,80 @@ import { DEFAULT_POLICY, projectConfigToPolicy } from './config.js'
 import { validateProjectConfig } from './configValidator.js'
 import { resolveRegistryRef } from './registryResolver.js'
 
+// ── Config loader options + sandbox errors (Sprint 3) ──────────────────────
+
+/**
+ * Options bag for loadConfig / loadYamlConfig. `strict: true` promotes
+ * validation warnings to thrown errors (used by flint-ci). Default is
+ * permissive to preserve existing runtime behavior.
+ *
+ * MAJOR-2 fix (Sprint 3).
+ */
+export interface ConfigLoaderOptions {
+    /** Fail loudly on any validateProjectConfig error. Default: false. */
+    strict?: boolean
+    /** Optional project root override. */
+    projectRoot?: string
+}
+
+/**
+ * Thrown when an `extends` path attempts to resolve outside the project root
+ * (path traversal) or to an unsanctioned absolute path outside PRESETS_DIR.
+ *
+ * MAJOR-3 fix (Sprint 3) — closes a filesystem bypass where user YAML could
+ * drag arbitrary host files into the config merge.
+ */
+export class ConfigPathSandboxError extends Error {
+    readonly code = 'FLINT_CONFIG_PATH_SANDBOX' as const
+    constructor(
+        readonly attemptedRef: string,
+        readonly resolvedPath: string
+    ) {
+        super(
+            `[Flint Config] extends path '${attemptedRef}' resolves outside projectRoot: ${resolvedPath}`
+        )
+        this.name = 'ConfigPathSandboxError'
+    }
+}
+
+/**
+ * Thrown from strict mode when validateProjectConfig returns errors.
+ * MAJOR-2 fix (Sprint 3).
+ */
+export class ConfigValidationError extends Error {
+    readonly code = 'FLINT_CONFIG_VALIDATION' as const
+    constructor(readonly errors: Array<{ path: string; message: string }>) {
+        super(
+            `[Flint Config] validation failed:\n` +
+            errors.map((e) => `  - ${e.path}: ${e.message}`).join('\n')
+        )
+        this.name = 'ConfigValidationError'
+    }
+}
+
+/**
+ * Emits a structured config-loader event to `.flint/ledger/config-events.jsonl`.
+ * MINOR-8 fix (Sprint 3). Best-effort — never throws.
+ */
+function emitConfigEvent(
+    projectRoot: string,
+    event: { type: string; path?: string; message: string; timestamp?: string }
+): void {
+    try {
+        const ledgerDir = path.join(projectRoot, '.flint', 'ledger')
+        if (!fs.existsSync(ledgerDir)) {
+            fs.mkdirSync(ledgerDir, { recursive: true })
+        }
+        const line = JSON.stringify({
+            timestamp: new Date().toISOString(),
+            ...event,
+        }) + '\n'
+        fs.appendFileSync(path.join(ledgerDir, 'config-events.jsonl'), line, 'utf-8')
+    } catch {
+        // ledger is best-effort — never block config loading
+    }
+}
+
 // ── Presets directory resolution ────────────────────────────────────────────
 // Works from both src/ (dev/vitest) and dist/ (production).
 const __filename_ = fileURLToPath(import.meta.url)
@@ -65,51 +139,82 @@ export function resolveProjectRoot(): string {
  * Attempts to load and parse flint.config.yaml from the project root.
  * Returns null if the file doesn't exist or can't be parsed.
  */
-export function loadYamlConfig(projectRoot: string): FlintProjectConfig | null {
+export function loadYamlConfig(
+    projectRoot: string,
+    options?: ConfigLoaderOptions
+): FlintProjectConfig | null {
+    const strict = options?.strict === true
     const yamlPath = path.join(projectRoot, 'flint.config.yaml')
 
     if (!fs.existsSync(yamlPath)) {
         return null
     }
 
+    let parsed: unknown
     try {
         const raw = fs.readFileSync(yamlPath, 'utf-8')
-        const parsed = parseYaml(raw)
-
-        if (!parsed || typeof parsed !== 'object') {
-            console.error('[Flint Config] flint.config.yaml is empty or invalid, skipping')
-            return null
-        }
-
-        const config = parsed as FlintProjectConfig
-
-        // Validate: 'project' is the only required field
-        if (!config.project || typeof config.project !== 'string') {
-            console.error(
-                '[Flint Config] flint.config.yaml missing required "project" field, skipping'
-            )
-            return null
-        }
-
-        // Run full structural validation — log warnings but do not block loading
-        const validationErrors = validateProjectConfig(parsed)
-        if (validationErrors.length > 0) {
-            console.warn(
-                `[Flint Config] flint.config.yaml has ${validationErrors.length} validation warning(s):\n` +
-                    validationErrors
-                        .map((e) => `  - ${e.path}: ${e.message}`)
-                        .join('\n')
-            )
-        }
-
-        return config
+        parsed = parseYaml(raw)
     } catch (err) {
-        console.error(
-            '[Flint Config] Failed to parse flint.config.yaml:',
-            err instanceof Error ? err.message : err
-        )
+        const msg = err instanceof Error ? err.message : String(err)
+        // MINOR-8: structured config-validation event
+        emitConfigEvent(projectRoot, {
+            type: 'yaml_parse_error',
+            path: yamlPath,
+            message: msg,
+        })
+        console.error('[Flint Config] Failed to parse flint.config.yaml:', msg)
+        if (strict) {
+            throw new ConfigValidationError([
+                { path: 'flint.config.yaml', message: `YAML parse error: ${msg}` },
+            ])
+        }
         return null
     }
+
+    if (!parsed || typeof parsed !== 'object') {
+        console.error('[Flint Config] flint.config.yaml is empty or invalid, skipping')
+        emitConfigEvent(projectRoot, {
+            type: 'yaml_empty_or_invalid',
+            path: yamlPath,
+            message: 'File parsed to null or non-object',
+        })
+        if (strict) {
+            throw new ConfigValidationError([
+                { path: 'flint.config.yaml', message: 'Config is empty or not an object' },
+            ])
+        }
+        return null
+    }
+
+    const config = parsed as FlintProjectConfig
+
+    // Validate: 'project' is the only required field
+    if (!config.project || typeof config.project !== 'string') {
+        const msg = 'flint.config.yaml missing required "project" field'
+        console.error(`[Flint Config] ${msg}, skipping`)
+        if (strict) {
+            throw new ConfigValidationError([{ path: 'project', message: msg }])
+        }
+        return null
+    }
+
+    // Run full structural validation — log warnings, or throw in strict mode
+    const validationErrors = validateProjectConfig(parsed)
+    if (validationErrors.length > 0) {
+        if (strict) {
+            throw new ConfigValidationError(
+                validationErrors.map((e) => ({ path: e.path, message: e.message }))
+            )
+        }
+        console.warn(
+            `[Flint Config] flint.config.yaml has ${validationErrors.length} validation warning(s):\n` +
+                validationErrors
+                    .map((e) => `  - ${e.path}: ${e.message}`)
+                    .join('\n')
+        )
+    }
+
+    return config
 }
 
 /**
@@ -148,6 +253,34 @@ export function applyEnvironmentOverlay(config: FlintProjectConfig): FlintProjec
         // Strip environments from resolved config
         environments: undefined,
     }
+}
+
+// ── Profile merge helper (Sprint 3, MINOR-2) ──────────────────────────────
+
+/**
+ * Deep-merges two trust.profiles arrays by profile `id`. Child profiles
+ * override parent profiles with the same id (field-by-field merge); profiles
+ * unique to either side are preserved.
+ */
+function mergeProfilesById(
+    base: import('./config.js').YamlAgentProfile[] | undefined,
+    override: import('./config.js').YamlAgentProfile[] | undefined
+): import('./config.js').YamlAgentProfile[] | undefined {
+    if (!base && !override) return undefined
+    if (!base) return override
+    if (!override) return base
+
+    const byId = new Map<string, import('./config.js').YamlAgentProfile>()
+    for (const p of base) {
+        if (p && typeof p.id === 'string') byId.set(p.id, { ...p })
+    }
+    for (const p of override) {
+        if (p && typeof p.id === 'string') {
+            const existing = byId.get(p.id)
+            byId.set(p.id, existing ? { ...existing, ...p } : { ...p })
+        }
+    }
+    return Array.from(byId.values())
 }
 
 // ── Deep merge (UCFG.2) ────────────────────────────────────────────────────
@@ -204,12 +337,14 @@ export function deepMergeConfigs(
         }
     }
 
-    // Trust — merge with array replacement
+    // Trust — deep merge profiles by id (MINOR-2 fix, Sprint 3).
+    // Previously override.profiles replaced the entire base array, so any
+    // child config that defined a single profile would nuke the parent's list.
     if (override.trust) {
         merged.trust = {
             ...base.trust,
             ...override.trust,
-            profiles: override.trust?.profiles ?? base.trust?.profiles,
+            profiles: mergeProfilesById(base.trust?.profiles, override.trust?.profiles),
             approval: override.trust?.approval ?? base.trust?.approval,
             escalation: override.trust?.escalation ?? base.trust?.escalation,
             promotion: { ...base.trust?.promotion, ...override.trust?.promotion },
@@ -340,22 +475,97 @@ function loadYamlFile(filePath: string): FlintProjectConfig | null {
  *   /absolute/path  → direct file reference
  *   org/pack-name   → reserved for GPX registry (UCFG.6), returns null
  */
-function resolveExtendsRef(ref: string, projectRoot: string): string | null {
+export function resolveExtendsRef(ref: string, projectRoot: string): string | null {
+    // Canonicalize projectRoot once for sandbox comparisons.
+    let canonicalRoot: string
+    try {
+        canonicalRoot = fs.realpathSync(projectRoot)
+    } catch {
+        canonicalRoot = path.resolve(projectRoot)
+    }
+    const rootWithSep = canonicalRoot.endsWith(path.sep)
+        ? canonicalRoot
+        : canonicalRoot + path.sep
+
+    // MAJOR-3/4: helper that realpath-canonicalizes a resolved path and enforces
+    // the sandbox. Returns canonical path on success, throws on escape.
+    // When the target file does not exist yet, walk up to the nearest existing
+    // ancestor and realpath that to avoid platform-specific path mismatches
+    // (e.g. /var vs /private/var on macOS).
+    const canonicalizeInside = (resolved: string, allowOutside: boolean): string => {
+        let canonical: string
+        try {
+            canonical = fs.realpathSync(resolved)
+        } catch {
+            // File does not exist — canonicalize the nearest existing ancestor
+            // and append the remaining tail so the sandbox comparison works
+            // against the same canonical form as canonicalRoot.
+            let ancestor = path.resolve(resolved)
+            const tailParts: string[] = []
+            while (!fs.existsSync(ancestor)) {
+                const parent = path.dirname(ancestor)
+                if (parent === ancestor) break
+                tailParts.unshift(path.basename(ancestor))
+                ancestor = parent
+            }
+            try {
+                const realAncestor = fs.realpathSync(ancestor)
+                canonical = tailParts.length
+                    ? path.join(realAncestor, ...tailParts)
+                    : realAncestor
+            } catch {
+                canonical = path.resolve(resolved)
+            }
+        }
+        if (allowOutside) return canonical
+        if (canonical !== canonicalRoot && !canonical.startsWith(rootWithSep)) {
+            throw new ConfigPathSandboxError(ref, canonical)
+        }
+        return canonical
+    }
+
     if (ref.startsWith('@flint/')) {
         const presetName = ref.slice('@flint/'.length)
-        return path.join(PRESETS_DIR, `${presetName}.yaml`)
+        const presetPath = path.join(PRESETS_DIR, `${presetName}.yaml`)
+        // Presets live outside projectRoot (inside package). Canonicalize but
+        // do not enforce projectRoot sandbox — enforce PRESETS_DIR instead.
+        let canonical: string
+        try {
+            canonical = fs.realpathSync(presetPath)
+        } catch {
+            canonical = path.resolve(presetPath)
+        }
+        let canonicalPresetsDir: string
+        try {
+            canonicalPresetsDir = fs.realpathSync(PRESETS_DIR)
+        } catch {
+            canonicalPresetsDir = path.resolve(PRESETS_DIR)
+        }
+        const presetDirWithSep = canonicalPresetsDir.endsWith(path.sep)
+            ? canonicalPresetsDir
+            : canonicalPresetsDir + path.sep
+        if (canonical !== canonicalPresetsDir && !canonical.startsWith(presetDirWithSep)) {
+            throw new ConfigPathSandboxError(ref, canonical)
+        }
+        return canonical
     }
 
     if (ref.startsWith('./') || ref.startsWith('../')) {
-        return path.resolve(projectRoot, ref)
+        // MAJOR-3: enforce projectRoot sandbox for relative refs.
+        const resolved = path.resolve(projectRoot, ref)
+        return canonicalizeInside(resolved, false)
     }
 
     if (path.isAbsolute(ref)) {
-        return ref
+        // MAJOR-3: absolute paths must fall inside projectRoot.
+        return canonicalizeInside(ref, false)
     }
 
     // org/pack-name — attempt local pack cache resolution (UCFG.6 / GPX registry)
-    return resolveRegistryRef(ref, projectRoot)
+    const registryPath = resolveRegistryRef(ref, projectRoot)
+    if (registryPath === null) return null
+    // Registry pack cache lives under projectRoot/.flint/… so the sandbox applies.
+    return canonicalizeInside(registryPath, false)
 }
 
 /**
@@ -389,15 +599,19 @@ export function resolveExtends(
     let accumulated: FlintProjectConfig = { project: config.project }
 
     for (const ref of refs) {
-        // Circular dependency check
-        if (seen.has(ref)) {
-            console.warn(`[Flint Config] Circular extends detected: "${ref}". Skipping.`)
-            continue
-        }
-        seen.add(ref)
-
         const filePath = resolveExtendsRef(ref, projectRoot)
         if (!filePath) continue
+
+        // MAJOR-4: dedupe via canonical realpath so `./a.yaml` and
+        // `../dir/a.yaml` referring to the same file are not loaded twice.
+        // resolveExtendsRef already canonicalizes, so filePath is canonical.
+        if (seen.has(filePath)) {
+            console.warn(
+                `[Flint Config] Circular extends detected: "${ref}" (${filePath}). Skipping.`
+            )
+            continue
+        }
+        seen.add(filePath)
 
         const parentConfig = loadYamlFile(filePath)
         if (!parentConfig) {
@@ -506,12 +720,15 @@ export function loadPolicy(projectRoot: string): FlintPolicy {
  * The FlintConfig interface is unchanged. YAML is mapped to FlintPolicy
  * via projectConfigToPolicy(). All downstream consumers are unaffected.
  */
-export function loadConfig(projectRoot: string): FlintConfig {
+export function loadConfig(
+    projectRoot: string,
+    options?: ConfigLoaderOptions
+): FlintConfig {
     let policy: FlintPolicy
     let yamlConfig: FlintProjectConfig | null = null
 
     // 1. Try flint.config.yaml first
-    yamlConfig = loadYamlConfig(projectRoot)
+    yamlConfig = loadYamlConfig(projectRoot, options)
 
     if (yamlConfig) {
         // Resolve extends chain (UCFG.2)

@@ -237,6 +237,56 @@ export function validateProjectConfig(config: unknown): ValidationError[] {
                 }
             }
 
+            // rules.export_gate (MAJOR-1 fix, Sprint 3)
+            if ('export_gate' in rules && rules.export_gate !== undefined) {
+                if (
+                    typeof rules.export_gate !== 'object' ||
+                    Array.isArray(rules.export_gate) ||
+                    rules.export_gate === null
+                ) {
+                    errors.push({
+                        path: 'rules.export_gate',
+                        message: `must be an object, got ${typeName(rules.export_gate)}`,
+                        value: rules.export_gate,
+                    })
+                } else {
+                    const gate = rules.export_gate as Record<string, unknown>
+                    for (const key of ['block_on_overrides', 'block_on_mithril', 'block_on_a11y']) {
+                        if (key in gate && gate[key] !== undefined && typeof gate[key] !== 'boolean') {
+                            errors.push({
+                                path: `rules.export_gate.${key}`,
+                                message: `must be a boolean, got ${typeName(gate[key])}`,
+                                value: gate[key],
+                            })
+                        }
+                    }
+                }
+            }
+
+            // rules.baseline (MAJOR-1 fix, Sprint 3)
+            if ('baseline' in rules && rules.baseline !== undefined) {
+                if (
+                    typeof rules.baseline !== 'object' ||
+                    Array.isArray(rules.baseline) ||
+                    rules.baseline === null
+                ) {
+                    errors.push({
+                        path: 'rules.baseline',
+                        message: `must be an object, got ${typeName(rules.baseline)}`,
+                        value: rules.baseline,
+                    })
+                } else {
+                    const baseline = rules.baseline as Record<string, unknown>
+                    if ('enabled' in baseline && baseline.enabled !== undefined && typeof baseline.enabled !== 'boolean') {
+                        errors.push({
+                            path: 'rules.baseline.enabled',
+                            message: `must be a boolean, got ${typeName(baseline.enabled)}`,
+                            value: baseline.enabled,
+                        })
+                    }
+                }
+            }
+
             // rules.accessibility
             if ('accessibility' in rules && rules.accessibility !== undefined) {
                 if (
@@ -296,6 +346,150 @@ export function validateProjectConfig(config: unknown): ValidationError[] {
                         path: 'trust.default_tier',
                         message: `must be one of [${[...VALID_TRUST_TIERS, ...VALID_LEGACY_TIERS].join(', ')}], got '${trust.default_tier}'`,
                         value: trust.default_tier,
+                    })
+                }
+            }
+
+            // trust.profiles — MAJOR-1 (Sprint 3): validate each entry
+            if ('profiles' in trust && trust.profiles !== undefined) {
+                if (!Array.isArray(trust.profiles)) {
+                    errors.push({
+                        path: 'trust.profiles',
+                        message: `must be an array, got ${typeName(trust.profiles)}`,
+                        value: trust.profiles,
+                    })
+                } else {
+                    const profiles = trust.profiles as unknown[]
+                    profiles.forEach((entry, i) => {
+                        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+                            errors.push({
+                                path: `trust.profiles[${i}]`,
+                                message: `must be an object, got ${typeName(entry)}`,
+                                value: entry,
+                            })
+                            return
+                        }
+                        const p = entry as Record<string, unknown>
+                        if (typeof p.id !== 'string' || (p.id as string).trim() === '') {
+                            errors.push({
+                                path: `trust.profiles[${i}].id`,
+                                message: `must be a non-empty string, got ${typeName(p.id)}`,
+                                value: p.id,
+                            })
+                        }
+                        if ('tier' in p && p.tier !== undefined && !isValidTrustTier(p.tier)) {
+                            errors.push({
+                                path: `trust.profiles[${i}].tier`,
+                                message: `must be one of [${[...VALID_TRUST_TIERS, ...VALID_LEGACY_TIERS].join(', ')}], got '${p.tier}'`,
+                                value: p.tier,
+                            })
+                        }
+                    })
+                }
+            }
+
+            // trust.approval — array of gate objects if present
+            if ('approval' in trust && trust.approval !== undefined) {
+                if (!Array.isArray(trust.approval)) {
+                    errors.push({
+                        path: 'trust.approval',
+                        message: `must be an array, got ${typeName(trust.approval)}`,
+                        value: trust.approval,
+                    })
+                }
+            }
+
+            // trust.escalation — array of rule objects if present
+            if ('escalation' in trust && trust.escalation !== undefined) {
+                if (!Array.isArray(trust.escalation)) {
+                    errors.push({
+                        path: 'trust.escalation',
+                        message: `must be an array, got ${typeName(trust.escalation)}`,
+                        value: trust.escalation,
+                    })
+                }
+            }
+        }
+    }
+
+    // ── enforcement section (MAJOR-1, Sprint 3) ───────────────────────────────
+    if ('enforcement' in c && c.enforcement !== undefined) {
+        if (typeof c.enforcement !== 'object' || Array.isArray(c.enforcement) || c.enforcement === null) {
+            errors.push({
+                path: 'enforcement',
+                message: `must be an object, got ${typeName(c.enforcement)}`,
+                value: c.enforcement,
+            })
+        } else {
+            const enf = c.enforcement as Record<string, unknown>
+            if ('decision_points' in enf && enf.decision_points !== undefined) {
+                if (!Array.isArray(enf.decision_points)) {
+                    errors.push({
+                        path: 'enforcement.decision_points',
+                        message: `must be an array of strings, got ${typeName(enf.decision_points)}`,
+                        value: enf.decision_points,
+                    })
+                } else {
+                    (enf.decision_points as unknown[]).forEach((entry, i) => {
+                        if (typeof entry !== 'string') {
+                            errors.push({
+                                path: `enforcement.decision_points[${i}]`,
+                                message: `must be a string, got ${typeName(entry)}`,
+                                value: entry,
+                            })
+                        }
+                    })
+                }
+            }
+            if ('mode' in enf && enf.mode !== undefined && !(VALID_RULE_MODES as unknown[]).includes(enf.mode)) {
+                errors.push({
+                    path: 'enforcement.mode',
+                    message: `must be one of [${VALID_RULE_MODES.join(', ')}], got '${enf.mode}'`,
+                    value: enf.mode,
+                })
+            }
+        }
+    }
+
+    // ── environments section (MAJOR-1, Sprint 3) — recursive validation ───────
+    if ('environments' in c && c.environments !== undefined) {
+        if (
+            typeof c.environments !== 'object' ||
+            Array.isArray(c.environments) ||
+            c.environments === null
+        ) {
+            errors.push({
+                path: 'environments',
+                message: `must be an object, got ${typeName(c.environments)}`,
+                value: c.environments,
+            })
+        } else {
+            const envs = c.environments as Record<string, unknown>
+            for (const [envName, envConfig] of Object.entries(envs)) {
+                if (!envConfig || typeof envConfig !== 'object' || Array.isArray(envConfig)) {
+                    errors.push({
+                        path: `environments.${envName}`,
+                        message: `must be an object, got ${typeName(envConfig)}`,
+                        value: envConfig,
+                    })
+                    continue
+                }
+                // Recursively validate the overlay as a partial config.
+                // Overlays do not require `project`, so inject a placeholder
+                // before recursing so the "required project" check does not
+                // produce false-positive errors for environment overlays.
+                const overlayWithProject = {
+                    project: '__env_overlay__',
+                    ...(envConfig as Record<string, unknown>),
+                }
+                const nestedErrors = validateProjectConfig(overlayWithProject)
+                for (const ne of nestedErrors) {
+                    // Skip the placeholder project error (it's ours, not the user's).
+                    if (ne.path === 'project') continue
+                    errors.push({
+                        path: `environments.${envName}.${ne.path}`,
+                        message: ne.message,
+                        value: ne.value,
                     })
                 }
             }

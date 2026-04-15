@@ -13,6 +13,9 @@ import path from 'node:path'
 import { applyHealthcareEscalation } from './domains/healthcare.js'
 import { applyFintechEscalation } from './domains/fintech.js'
 import { applyGovernmentEscalation } from './domains/government.js'
+import { REGISTRY as ERROR_REGISTRY } from './errorTaxonomy.js'
+import type { FlintPolicy } from './config.js'
+import { DEFAULT_POLICY } from './config.js'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -54,11 +57,6 @@ export interface PolicyA11ySection {
     mode: PolicyMode
     /** Per-rule mode overrides. Rules not listed inherit `mode`. */
     rules: RuleModeMap
-    /**
-     * @deprecated v1 field. Preserved for backward compat. Internally converted
-     * to `rules[ruleId] = 'off'` entries. Do not use directly.
-     */
-    disabled_rules?: string[]
     /** P3: Government domain — toggles Section 508 naming rule enforcement. */
     section508?: boolean
 }
@@ -133,7 +131,7 @@ export interface ResolvedPolicy {
  * Raw policy.json shape — accepts either v1 or v2 keys, all optional.
  * Used only internally for file I/O and migration.
  */
-interface RawPolicy {
+export interface RawPolicy {
     version?: number
     domain?: string
     mithril?: {
@@ -181,38 +179,28 @@ const VALID_CONFORMANCE_LEVELS = new Set<string>(['A', 'AA', 'AAA'])
 
 const VALID_SEVERITY_FLOORS = new Set<string>(['critical', 'warning', 'info'])
 
-// Known Mithril rule IDs (used for validation of per-rule maps).
-const KNOWN_MITHRIL_RULES = new Set<string>([
-    'MITHRIL-COL',
-    'MITHRIL-TYP-001',
-    'MITHRIL-TYP-002',
-    'MITHRIL-TYP-003',
-    'MITHRIL-TYP-004',
-    'MITHRIL-TYP-005',
-    'MITHRIL-SPC-001',
-    'MITHRIL-SHD-001',
-    'MITHRIL-OPC-001',
-    'MITHRIL-COMP-001',
-    'MITHRIL-COMP-002',
-    'MITHRIL-COMP-003',
-    // P3 additions
-    'MITHRIL-TYP-HIERARCHY',
-    'MITHRIL-SPC-TOUCH',
-    // P4 Hydration
-    'HYDRATION-001',
-    // P5 Motion / Animation Governance
-    'MOTION-001',
-    // P6 Fluid Interpolator (advisory)
-    'MITHRIL-FLUID-001',
-    // P7 Visual Regression (Glass-only, advisory)
-    'VISUAL-REG-001',
-])
+/**
+ * Known Mithril / A11y rule IDs — derived from errorTaxonomy.REGISTRY at module init.
+ *
+ * CRIT-2 fix (Sprint 3): replaces the previously hardcoded literal lists that
+ * drifted out of sync with the taxonomy and caused valid rule IDs like
+ * `A11Y-011` to be rejected as "unknown rule ID" in validatePolicy.
+ *
+ * Exported as ReadonlySets so consumers can introspect membership without
+ * mutating. Adding a new entry to errorTaxonomy.REGISTRY automatically
+ * expands these sets on the next module load — no code change required.
+ */
+export const KNOWN_MITHRIL_RULES: ReadonlySet<string> = new Set(
+    Object.values(ERROR_REGISTRY)
+        .filter((e) => e.category === 'mithril')
+        .map((e) => e.ruleId)
+)
 
-// Known A11y rule IDs.
-const KNOWN_A11Y_RULES = new Set<string>([
-    'A11Y-001', 'A11Y-002', 'A11Y-003', 'A11Y-004', 'A11Y-005',
-    'A11Y-006', 'A11Y-007', 'A11Y-008', 'A11Y-009', 'A11Y-010',
-])
+export const KNOWN_A11Y_RULES: ReadonlySet<string> = new Set(
+    Object.values(ERROR_REGISTRY)
+        .filter((e) => e.category === 'a11y')
+        .map((e) => e.ruleId)
+)
 
 // ── Default v2 policy ─────────────────────────────────────────────────────────
 
@@ -233,7 +221,6 @@ export const DEFAULT_RESOLVED_POLICY: ResolvedPolicy = {
         level: 'AA',
         mode: 'blocking',
         rules: {},
-        disabled_rules: [],
     },
     exportGate: {
         severityFloor: 'warning',
@@ -304,7 +291,21 @@ export function coerceToResolved(raw: RawPolicy): ResolvedPolicy {
     const def = DEFAULT_RESOLVED_POLICY
 
     // Determine mithril mode — run migration hints first.
-    const rawMode = (raw.mithril?.mode as PolicyMode | undefined) ?? def.mithril.mode
+    // MINOR-9 fix (Sprint 3): validate rawMode against VALID_POLICY_MODES instead
+    // of silently coercing any string through an unsafe `as PolicyMode` cast.
+    const rawModeRaw = raw.mithril?.mode
+    let rawMode: PolicyMode
+    if (rawModeRaw === undefined || rawModeRaw === null) {
+        rawMode = def.mithril.mode
+    } else if (typeof rawModeRaw === 'string' && VALID_POLICY_MODES.has(rawModeRaw)) {
+        rawMode = rawModeRaw as PolicyMode
+    } else {
+        console.warn(
+            `[policyEngine] coerceToResolved: invalid mithril.mode ${JSON.stringify(rawModeRaw)}, ` +
+            `falling back to default '${def.mithril.mode}'. Valid modes: ${[...VALID_POLICY_MODES].join(', ')}`
+        )
+        rawMode = def.mithril.mode
+    }
     const deltaE = typeof raw.mithril?.deltaE_threshold === 'number'
         ? raw.mithril.deltaE_threshold
         : def.mithril.deltaEThreshold
@@ -320,7 +321,19 @@ export function coerceToResolved(raw: RawPolicy): ResolvedPolicy {
 
     // A11y section.
     const a11yLevel = (raw.a11y?.level as ConformanceLevel | undefined) ?? def.a11y.level
-    const a11yMode = (raw.a11y?.mode as PolicyMode | undefined) ?? def.a11y.mode
+    const rawA11yMode = raw.a11y?.mode
+    let a11yMode: PolicyMode
+    if (rawA11yMode === undefined || rawA11yMode === null) {
+        a11yMode = def.a11y.mode
+    } else if (typeof rawA11yMode === 'string' && VALID_POLICY_MODES.has(rawA11yMode)) {
+        a11yMode = rawA11yMode as PolicyMode
+    } else {
+        console.warn(
+            `[policyEngine] coerceToResolved: invalid a11y.mode ${JSON.stringify(rawA11yMode)}, ` +
+            `falling back to default '${def.a11y.mode}'`
+        )
+        a11yMode = def.a11y.mode
+    }
 
     // Build a11y rules: merge disabled_rules-as-off first, then explicit rules map.
     const a11yRules: RuleModeMap = {}
@@ -430,7 +443,6 @@ export function coerceToResolved(raw: RawPolicy): ResolvedPolicy {
             level: a11yLevel,
             mode: a11yMode,
             rules: a11yRules,
-            disabled_rules: raw.a11y?.disabled_rules ?? [],
         },
         exportGate: {
             severityFloor,
@@ -625,10 +637,16 @@ export function getDeltaECriticalThreshold(policy: ResolvedPolicy): number {
 
 // ── Severity comparison ────────────────────────────────────────────────────────
 
-const SEVERITY_RANK: Record<string, number> = {
+/**
+ * MAJOR-8 fix (Sprint 3): the former `advisory: 2` alias has been removed
+ * because 'advisory' is a PolicyMode, not a severity label — using one key
+ * for both was a category error that risked accidental floor comparisons
+ * across mode/severity domains. The closed severity union is now:
+ * info | amber | warning | critical.
+ */
+export const SEVERITY_RANK: Record<string, number> = {
     info: 1,
     amber: 2,
-    advisory: 2,  // 'advisory' is treated as equivalent to 'amber' for floor purposes
     warning: 2,
     critical: 3,
 }
@@ -839,4 +857,220 @@ export function validatePolicy(raw: unknown): { valid: true; policy: ResolvedPol
     const migrated = migrateV1ToV2(p as RawPolicy)
     const policy = coerceToResolved(migrated)
     return { valid: true, policy }
+}
+
+// ── Unified loader surface (Sprint 3 — replaces policyLoader.ts) ─────────────
+
+/**
+ * Loads `.flint/policy.json` and returns a fully resolved ResolvedPolicy.
+ * Replaces the policyLoader.readPolicy + config-loader.loadPolicy duplication.
+ *
+ * CRIT-1 + CRIT-3 fix. This is the sole runtime entrypoint for policy reads.
+ *
+ * - Missing file → returns a fresh clone of DEFAULT_RESOLVED_POLICY.
+ * - Malformed JSON → logs error and returns defaults (permissive default).
+ *   When `options.strict === true`, malformed JSON throws instead.
+ * - V1 shape on disk → migrated via migrateV1ToV2 before coercion.
+ * - Team overlay applied when `options.teamId` is supplied.
+ */
+export function loadAndResolvePolicy(
+    projectRoot: string,
+    options?: { teamId?: string; strict?: boolean }
+): ResolvedPolicy {
+    const { teamId, strict = false } = options ?? {}
+    const policyPath = path.join(projectRoot, '.flint', 'policy.json')
+
+    if (!fs.existsSync(policyPath)) {
+        const defaults = structuredClone(DEFAULT_RESOLVED_POLICY)
+        return teamId ? applyTeamOverlay(defaults, teamId) : defaults
+    }
+
+    let raw: RawPolicy
+    try {
+        raw = JSON.parse(fs.readFileSync(policyPath, 'utf-8')) as RawPolicy
+    } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        if (strict) {
+            throw new Error(
+                `[policyEngine] Failed to parse ${policyPath}: ${msg}`
+            )
+        }
+        console.error(`[policyEngine] Failed to parse ${policyPath}, using defaults:`, msg)
+        return structuredClone(DEFAULT_RESOLVED_POLICY)
+    }
+
+    if (raw.version !== undefined && raw.version !== 1 && raw.version !== 2) {
+        const msg = `Unsupported policy version ${raw.version}`
+        if (strict) {
+            throw new Error(`[policyEngine] ${msg} in ${policyPath}`)
+        }
+        console.error(`[policyEngine] ${msg}, using defaults`)
+        return structuredClone(DEFAULT_RESOLVED_POLICY)
+    }
+
+    const migrated =
+        raw.version === 1 || raw.version === undefined ? migrateV1ToV2(raw) : raw
+
+    // Optional strict validation — route through validatePolicy so structural
+    // errors become throws for CI use.
+    if (strict) {
+        const result = validatePolicy(migrated)
+        if (!result.valid) {
+            throw new Error(
+                `[policyEngine] Policy validation failed:\n  - ${result.errors.join('\n  - ')}`
+            )
+        }
+        return teamId ? applyTeamOverlay(result.policy, teamId) : result.policy
+    }
+
+    const policy = coerceToResolved(migrated)
+    return teamId ? applyTeamOverlay(policy, teamId) : policy
+}
+
+/**
+ * Internal helper: apply a team overlay to an already-resolved policy.
+ * Encapsulates the merge logic previously inlined in resolvePolicy().
+ */
+function applyTeamOverlay(policy: ResolvedPolicy, teamId: string): ResolvedPolicy {
+    const overlay = policy.teams[teamId]
+    if (!overlay) return policy
+
+    const resolved: ResolvedPolicy = structuredClone(policy)
+    if (overlay.mithril) {
+        resolved.mithril = { ...resolved.mithril, ...overlay.mithril }
+    }
+    if (overlay.a11y) {
+        resolved.a11y = { ...resolved.a11y, ...overlay.a11y }
+    }
+    if (overlay.exportGate) {
+        resolved.exportGate = { ...resolved.exportGate, ...overlay.exportGate }
+    }
+    if (overlay.export_gate) {
+        resolved.exportGate = { ...resolved.exportGate, ...overlay.export_gate }
+    }
+    return resolved
+}
+
+/**
+ * Writes a fully resolved v2 policy to `.flint/policy.json` atomically.
+ * Creates the `.flint/` directory if it does not exist.
+ *
+ * Replaces policyLoader.writePolicy. Accepts v2 shape.
+ *
+ * Commandment 12 note: policy.json is a governance metadata file, not
+ * source code, so direct fs writes are permitted (same precedent as the
+ * deleted policyLoader.writePolicy).
+ */
+export function writeResolvedPolicy(projectRoot: string, policy: ResolvedPolicy): void {
+    const flintDir = path.join(projectRoot, '.flint')
+    if (!fs.existsSync(flintDir)) {
+        fs.mkdirSync(flintDir, { recursive: true })
+    }
+    const policyPath = path.join(flintDir, 'policy.json')
+    fs.writeFileSync(policyPath, JSON.stringify(policy, null, 4) + '\n', 'utf-8')
+}
+
+/**
+ * Partial-update helper that round-trips through validatePolicy.
+ * Replaces policyLoader.mergePolicy.
+ *
+ * MAJOR-6 fix (Sprint 3): guarantees that no invalid policy can be written
+ * via flint_set_policy. If the merged result fails validation, returns
+ * `{ ok: false, errors }` and the on-disk file is untouched.
+ */
+export function mergeAndValidatePolicy(
+    projectRoot: string,
+    partial: Partial<RawPolicy>
+):
+    | { ok: true; policy: ResolvedPolicy }
+    | { ok: false; errors: string[] } {
+    const current = loadAndResolvePolicy(projectRoot)
+
+    // Build a merged raw object combining current resolved shape + partial update.
+    const mergedRaw: RawPolicy = {
+        version: 2,
+        domain: current.domain,
+        mithril: {
+            deltaE_threshold: current.mithril.deltaE_threshold,
+            deltaE_critical_threshold: current.mithril.deltaE_critical_threshold,
+            mode: current.mithril.mode,
+            ignore_patterns: current.mithril.ignore_patterns,
+            rules: { ...current.mithril.rules },
+            ...(partial.mithril ?? {}),
+        },
+        a11y: {
+            level: current.a11y.level,
+            mode: current.a11y.mode,
+            rules: { ...current.a11y.rules },
+            ...(partial.a11y ?? {}),
+        },
+        export_gate: {
+            severity_floor: current.exportGate.severity_floor,
+            block_on_overrides: current.exportGate.block_on_overrides,
+            block_on_mithril: current.exportGate.block_on_mithril,
+            block_on_a11y: current.exportGate.block_on_a11y,
+            ...(partial.export_gate ?? {}),
+        },
+    }
+
+    // Merge nested rules maps if partial specifies them
+    if (partial.mithril?.rules) {
+        mergedRaw.mithril!.rules = { ...current.mithril.rules, ...partial.mithril.rules }
+    }
+    if (partial.a11y?.rules) {
+        mergedRaw.a11y!.rules = { ...current.a11y.rules, ...partial.a11y.rules }
+    }
+
+    const result = validatePolicy(mergedRaw)
+    if (!result.valid) {
+        return { ok: false, errors: result.errors }
+    }
+
+    writeResolvedPolicy(projectRoot, result.policy)
+    return { ok: true, policy: result.policy }
+}
+
+/**
+ * Returns a fresh clone of DEFAULT_RESOLVED_POLICY. Replaces
+ * policyLoader.getDefaultPolicy for the flint_set_policy reset branch.
+ */
+export function getDefaultResolvedPolicy(): ResolvedPolicy {
+    return structuredClone(DEFAULT_RESOLVED_POLICY)
+}
+
+/**
+ * Legacy adapter — converts ResolvedPolicy (v2) back into FlintPolicy (v1)
+ * shape so the `flintConfig = loadConfig()` bridge in server.ts keeps working.
+ *
+ * @deprecated Sprint 4 will migrate flintConfig to ResolvedPolicy and delete
+ * this adapter.
+ */
+export function toLegacyFlintPolicy(resolved: ResolvedPolicy): FlintPolicy {
+    return {
+        version: 1,
+        mithril: {
+            deltaE_threshold: resolved.mithril.deltaE_threshold,
+            deltaE_critical_threshold: resolved.mithril.deltaE_critical_threshold,
+            mode: resolved.mithril.mode,
+            ignore_patterns: [...resolved.mithril.ignore_patterns],
+        },
+        a11y: {
+            level: resolved.a11y.level,
+            mode: resolved.a11y.mode,
+            disabled_rules: Object.entries(resolved.a11y.rules)
+                .filter(([, m]) => m === 'off')
+                .map(([ruleId]) => ruleId),
+        },
+        export_gate: {
+            block_on_mithril:
+                resolved.exportGate.block_on_mithril ??
+                (resolved.mithril.mode === 'blocking'),
+            block_on_a11y:
+                resolved.exportGate.block_on_a11y ??
+                (resolved.a11y.mode === 'blocking'),
+            block_on_overrides: resolved.exportGate.block_on_overrides,
+        },
+        baseline: { ...DEFAULT_POLICY.baseline },
+        domain: resolved.domain,
+    }
 }
