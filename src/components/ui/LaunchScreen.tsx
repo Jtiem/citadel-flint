@@ -36,14 +36,14 @@ import {
     Clipboard,
 } from 'lucide-react'
 import type { RecentProject } from '../../types/flint-api'
-import { FigmaSetupWizard } from './FigmaSetupWizard'
+// FigmaSetupWizard removed — Figma MCP is the only integration path (2026-04-15)
 import { DemoScenarioPicker } from './DemoScenarioPicker'
 import { PasteAuditModal } from './PasteAuditModal'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type JTBDPath = null | 'prototype' | 'connect' | 'audit' | 'dashboard'
-type FlowStep = 'choose' | 'folder' | 'figma' | 'progress' | 'done'
+type FlowStep = 'choose' | 'folder' | 'progress' | 'done'
 
 // Health grade colour mapping — A→green, B→teal, C→yellow, D→orange, F→red
 const GRADE_COLORS: Record<string, string> = {
@@ -78,7 +78,7 @@ const TILES = [
         id: 'prototype' as const,
         icon: Paintbrush,
         label: 'From Figma',
-        description: 'Requires Figma plugin (one-time setup)',
+        description: 'Paste a Figma URL to generate governed code',
     },
     {
         id: 'connect' as const,
@@ -118,7 +118,7 @@ export function LaunchScreen({
     const [recentProjects, setRecentProjects] = useState<RecentProject[]>([])
     const [loading, setLoading] = useState(true)
     const [openingPath, setOpeningPath] = useState<string | null>(null)
-    const [figmaSetupOpen, setFigmaSetupOpen] = useState(false)
+    // figmaSetupOpen removed — Figma MCP replaces plugin setup
     const [progressMessage, setProgressMessage] = useState('')
     const [mcpConnected, setMcpConnected] = useState(false)
     // Web mode: text input for project path (no native file dialog available)
@@ -233,9 +233,6 @@ export function LaunchScreen({
 
         switch (pathId) {
             case 'prototype':
-                setFigmaSetupOpen(true)
-                setFlowStep('figma')
-                break
             case 'connect':
             case 'audit':
             case 'dashboard':
@@ -289,15 +286,9 @@ export function LaunchScreen({
         await onOpenFolder()
     }
 
-    const handleFigmaDone = () => {
-        setFigmaSetupOpen(false)
-        setFlowStep('folder')
-    }
-
     const handleSkip = () => {
         setSelectedPath(null)
         setFlowStep('choose')
-        setFigmaSetupOpen(false)
         void onNewProject()
     }
 
@@ -329,7 +320,7 @@ export function LaunchScreen({
                 ? [
                     `Find and index every component with its props`,
                     `Extract design tokens from Tailwind, CSS variables, or token files`,
-                    `Open a canvas where you can drag Figma frames into working code`,
+                    `Paste a Figma URL in chat to generate governed components`,
                 ]
                 : selectedPath === 'audit'
                     ? [
@@ -509,51 +500,11 @@ export function LaunchScreen({
                     {selectedPath !== null && (
                         <div id="launch-flow-panel" className="mt-4 rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
 
-                            {/* Figma step */}
-                            {flowStep === 'figma' && (
-                                <div>
-                                    <div className="border border-amber-400 bg-amber-950/30 rounded-lg p-3 mb-4">
-                                        <p className="text-xs font-medium text-amber-300 mb-1">
-                                            Install the {BRAND.product} Figma plugin before continuing.
-                                        </p>
-                                        <p className="text-xs text-amber-400">
-                                            Open Figma → Plugins → Search &ldquo;{BRAND.product}&rdquo; → Install
-                                        </p>
-                                    </div>
-                                    <StepHeader
-                                        number={1}
-                                        title="Connect your Figma file"
-                                        subtitle={`Open the ${BRAND.product} plugin in Figma, paste the endpoint and secret shown below, then click 'Sync Variables'. ${BRAND.product} will pull your colors, spacing, and typography tokens automatically.`}
-                                    />
-                                    <div className="mb-4 rounded-lg border border-zinc-800 bg-zinc-900/50 p-3">
-                                        <p className="mb-2 text-xs font-medium text-zinc-300">What happens next:</p>
-                                        <ol className="list-decimal list-inside space-y-1 text-xs text-zinc-400">
-                                            <li>Install the {BRAND.product} Figma plugin (one-time setup)</li>
-                                            <li>Enter the endpoint and secret from below</li>
-                                            <li>Click &quot;Sync Variables&quot; to pull your design tokens</li>
-                                            <li>Click &quot;Export Selection&quot; to send components to {BRAND.product}</li>
-                                        </ol>
-                                    </div>
-                                    <FigmaSetupWizard
-                                        visible={figmaSetupOpen}
-                                        onClose={handleFigmaDone}
-                                    />
-                                    <button
-                                        type="button"
-                                        onClick={handleFigmaDone}
-                                        className="mt-3 w-full rounded-lg border border-zinc-700 bg-zinc-800/40 px-4 py-2.5 text-xs text-zinc-400 transition-colors hover:bg-zinc-800/60 hover:text-zinc-300"
-                                    >
-                                        Skip for now — I'll connect Figma later
-                                    </button>
-                                    <SkipLink onClick={handleSkip} />
-                                </div>
-                            )}
-
                             {/* Folder step */}
                             {flowStep === 'folder' && (
                                 <div>
                                     <StepHeader
-                                        number={selectedPath === 'prototype' ? 2 : 1}
+                                        number={1}
                                         title={folderCopy.title}
                                         subtitle={folderCopy.subtitle}
                                     />

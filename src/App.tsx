@@ -434,8 +434,7 @@ function App() {
 
     // ── Token sync ────────────────────────────────────────────────────────────
     // onTokensUpdated fires for ALL token mutations (demo seed, MCP tools,
-    // manual import, Figma ingest). The Figma-specific toast lives in
-    // FigmaSetupWizard.onConnected — don't duplicate it here.
+    // manual import, Figma ingest).
     useEffect(() => {
         window.flintAPI.onTokensUpdated(() => {
             fetchTokens()

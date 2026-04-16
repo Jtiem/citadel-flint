@@ -14,6 +14,8 @@ Two components:
 
 Flint MCP does all the work. Flint Glass reads MCP Resources to display state and calls MCP Tools to trigger actions. Glass owns zero business logic. Chat lives in the host IDE (Claude Code, Cursor, VS Code). Flint Glass is the observability layer, not a chat host.
 
+**Figma Integration:** Figma MCP is the **only** Figma integration path. The custom Figma plugin (`figma-plugin/`) was deprecated and deleted on 2026-04-15. Do not reference, recreate, or suggest the Figma plugin. The ingestion server (`localhost:4545`) remains as an internal API but is not a product feature — do not surface it in UI or documentation. Use `/figma <url>` for design-to-code, `/connect` for OAuth setup, and `/tokens` for token sync.
+
 ## Feature Names (The Citadel)
 
 Every feature has a Citadel name. Use these names in conversation, UI text, documentation, and agent prompts. Do NOT rename file paths, function names, IPC channels, or store names -- Citadel names are for human-facing communication only. Full naming guide: `docs/strategy/FEATURE-NAMING-THEMES.md`.
@@ -278,7 +280,7 @@ All tools registered in `flint-mcp/src/server.ts`:
 | Rule Provenance (`flint_audit_report`) | GOV.1 | **ONLINE** |
 | Override Telemetry (IPC + StatusBar badge) | GOV.2 | **ONLINE** |
 | Accessibility Expansion (30 rules, auto-fix) | EXP.6a | **ONLINE** |
-| Figma Plugin Settings UI (endpoint + secret + clientStorage) | FP.1 | **ONLINE** |
+| Figma Plugin Settings UI (endpoint + secret + clientStorage) | FP.1 | **DEPRECATED** — plugin removed 2026-04-15, Figma MCP is the only path |
 | Proactive Session Context / Beacon (`flint://session-context`) | ACX.1 | **ONLINE** |
 | Event-Driven Context Push / Beacon (ContextPushManager) | ACX.2 | **ONLINE** |
 | Complexity Router (Commandment 8 model routing) | ACX.4 | **ONLINE** |

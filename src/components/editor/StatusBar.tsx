@@ -14,14 +14,14 @@
  * Phase W.2 addition: Figma connection status popover.
  *   - Polls `window.flintAPI.figma.status()` on mount and every 30 s.
  *   - Dot color: emerald (<24 h synced), amber (24–72 h stale), zinc (never / down).
- *   - Clicking the Figma area toggles a popover with server status, last sync
- *     timestamp, and token count.
+ *   - Clicking the Figma area toggles a popover with sync status and token count.
+ *   - Figma MCP is the only integration path (plugin deprecated 2026-04-15).
  */
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useOnboardingTooltip } from '../../hooks/useOnboardingTooltip'
 import { BRAND } from '../../../shared/brand'
-import { ShieldCheck, ShieldAlert, X, Copy, Check, RefreshCw, Unplug, FolderInput, MessageSquare, Tablet, Smartphone, Download, Upload, RotateCcw, Loader2, MoreHorizontal } from 'lucide-react'
+import { ShieldCheck, ShieldAlert, X, RefreshCw, Unplug, FolderInput, MessageSquare, Tablet, Smartphone, Download, Upload, RotateCcw, Loader2, MoreHorizontal } from 'lucide-react'
 import { useCanvasStore } from '../../store/canvasStore'
 import { BREAKPOINT_LABELS } from '../../store/canvasStore'
 import { useEditorStore } from '../../store/editorStore'
@@ -290,9 +290,6 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject, onManageFigm
     const [popoverOpen, setPopoverOpen] = useState(false)
     const popoverRef = useRef<HTMLDivElement>(null)
 
-    // Brief "Copied!" visual feedback for copy buttons
-    const [copying, setCopying] = useState<'endpoint' | null>(null)
-    const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
     // Tooltip for "Need help?" link
     const [helpTooltipOpen, setHelpTooltipOpen] = useState(false)
@@ -312,7 +309,7 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject, onManageFigm
     // ── Push-based figma event subscriptions ─────────────────────────────────
     useEffect(() => {
         const unsubConnected = window.flintAPI.figma.onConnected(() => {
-            // S1.15: toast is owned by FigmaSetupWizard to avoid duplicate notifications
+            // Figma connected — refresh status indicator
             fetchFigmaStatus()
         })
 
@@ -334,13 +331,6 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject, onManageFigm
             unsubError()
         }
     }, [push, fetchFigmaStatus])
-
-    // Cleanup copy timer on unmount
-    useEffect(() => {
-        return () => {
-            if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
-        }
-    }, [])
 
     // Close popover on outside click
     useEffect(() => {
@@ -370,15 +360,6 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject, onManageFigm
         document.addEventListener('keydown', handler)
         return () => document.removeEventListener('keydown', handler)
     }, [popoverOpen])
-
-    // ── Copy helper ───────────────────────────────────────────────────────────
-    const handleCopy = (field: 'endpoint', value: string) => {
-        void navigator.clipboard.writeText(value).then(() => {
-            setCopying(field)
-            if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
-            copyTimerRef.current = setTimeout(() => setCopying(null), 1500)
-        })
-    }
 
     // ── Disconnect handler ────────────────────────────────────────────────────
     const handleDisconnect = () => {
@@ -572,8 +553,6 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject, onManageFigm
     const isRecentSync =
         figmaStatus?.lastWebhookAt != null &&
         Date.now() - figmaStatus.lastWebhookAt < 5_000
-    const endpoint = figmaStatus ? `127.0.0.1:${figmaStatus.port}` : '127.0.0.1:4545'
-
     // ── No-design-system amber state ─────────────────────────────────────────
     // When zero tokens are loaded, governance is not fully active.  Signal this
     // with an amber dot and a "No design system" label instead of the silent
@@ -691,35 +670,6 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject, onManageFigm
                         {/* Separator */}
                         <div className="my-2.5 border-t border-zinc-800" />
 
-                        {/* Endpoint copy row */}
-                        <div className="mb-2 space-y-1">
-                            <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-400">Endpoint</p>
-                            <div className="flex items-center gap-1.5 rounded border border-zinc-800 bg-zinc-950 px-2 py-1">
-                                <code className="flex-1 truncate font-mono text-[11px] text-zinc-300">
-                                    {endpoint}
-                                </code>
-                                <button
-                                    type="button"
-                                    onClick={() => { handleCopy('endpoint', `http://${endpoint}`) }}
-                                    className="shrink-0 rounded p-0.5 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
-                                    title={copying === 'endpoint' ? 'Copied!' : 'Copy endpoint'}
-                                    aria-label={copying === 'endpoint' ? 'Copied!' : 'Copy endpoint'}
-                                >
-                                    {copying === 'endpoint' ? (
-                                        <Check className="h-3 w-3 text-emerald-400" />
-                                    ) : (
-                                        <Copy className="h-3 w-3" />
-                                    )}
-                                </button>
-                            </div>
-                            {copying === 'endpoint' && (
-                                <p className="text-[10px] text-emerald-400">Copied!</p>
-                            )}
-                        </div>
-
-                        {/* Separator */}
-                        <div className="my-2.5 border-t border-zinc-800" />
-
                         {/* S7.4: Pull / Push sync buttons */}
                         <div className="flex gap-2">
                             <button
@@ -787,7 +737,7 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject, onManageFigm
                                 type="button"
                                 onClick={handleDisconnect}
                                 className="flex flex-1 items-center justify-center gap-1.5 rounded border border-red-700/40 bg-red-900/10 px-2 py-1.5 text-xs text-red-400 transition-colors hover:border-red-600/60 hover:bg-red-900/20 hover:text-red-300"
-                                title="Stop the ingestion server"
+                                title="Disconnect Figma sync"
                             >
                                 <Unplug className="h-3 w-3" />
                                 Disconnect
@@ -808,18 +758,18 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject, onManageFigm
                             </div>
                         )}
 
-                        {/* Setup guide link */}
+                        {/* Help link */}
                         <div className="relative mt-2.5 border-t border-zinc-800 pt-2">
                             <button
                                 type="button"
                                 onClick={() => { setHelpTooltipOpen((v) => !v) }}
                                 className="text-[11px] text-indigo-400 transition-colors hover:text-indigo-300"
                             >
-                                Need help? Setup guide
+                                Need help?
                             </button>
                             {helpTooltipOpen && (
                                 <div className="absolute bottom-full left-0 mb-1 w-56 rounded border border-zinc-700 bg-zinc-800 px-2.5 py-2 text-[11px] text-zinc-300 shadow-lg">
-                                    Close your project to access the setup wizard from the Launch Screen.
+                                    Use /figma in your IDE to import designs via Figma MCP. No plugin needed.
                                 </div>
                             )}
                         </div>
