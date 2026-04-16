@@ -1978,14 +1978,39 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 });
 
                 // CR-SEAL: Load component registry for REG-001 audit
+                // ARM.1 fix: prefer .flint/flint-manifest.json (where setLibrary writes),
+                // fall back to project-root flint-manifest.json (legacy resolver format).
                 let auditRegistry: Record<string, { importPath?: string; [key: string]: unknown }> | undefined
-                const manifestPath = path.join(componentProjectRoot, BRAND.manifestFile)
+                const scopedManifestPath = path.join(componentProjectRoot, configPath(BRAND.manifestFile))
+                const rootManifestPath = path.join(componentProjectRoot, BRAND.manifestFile)
+                const manifestPath = fs.existsSync(scopedManifestPath) ? scopedManifestPath : rootManifestPath
                 if (fs.existsSync(manifestPath)) {
                     try {
                         const manifestRaw = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'))
                         const components = manifestRaw.components ?? manifestRaw
                         if (components && typeof components === 'object' && Object.keys(components).length > 0) {
-                            auditRegistry = components
+                            // `components` may be a keyed object (legacy) or an array (ARM.1).
+                            // Normalize to a keyed map so linter lookups by name succeed.
+                            if (Array.isArray(components)) {
+                                auditRegistry = {}
+                                for (const c of components) {
+                                    if (c && typeof c.name === 'string') {
+                                        auditRegistry[c.name] = c
+                                    }
+                                }
+                            } else {
+                                auditRegistry = components
+                            }
+                        }
+                        // ARM.1: Merge library-seeded components into the registry.
+                        // Local entries always win if a name collision exists.
+                        if (Array.isArray(manifestRaw.libraryComponents)) {
+                            if (!auditRegistry) auditRegistry = {}
+                            for (const lc of manifestRaw.libraryComponents) {
+                                if (lc.name && typeof lc.name === 'string' && !auditRegistry[lc.name]) {
+                                    auditRegistry[lc.name] = lc
+                                }
+                            }
                         }
                     } catch {
                         auditWarnings.push("Component registry unavailable — registry membership check skipped. Run flint_reindex_registry to rebuild.");
@@ -2653,13 +2678,32 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 format?: "json" | "sarif";
                 tokens?: unknown[];
                 sourceAuthority?: string;
+                projectRoot?: string;
             };
+
+            // CHRON.1 (TB-15): Build override lookup when projectRoot is provided and
+            // format is 'sarif'. The lookup queries the overrideTelemetryService for the
+            // most-recent user-written reason for a given ruleId+filePath combination.
+            // W.A: 'skipped' and 'auto' reasons are filtered inside buildSarifOutput.
+            let overrideLookupFn: import("./tools/auditReport.js").OverrideLookupFn | undefined;
+            if (auditReportArgs.projectRoot && auditReportArgs.format === "sarif") {
+                const overrideSvc = getOverrideTelemetryService(auditReportArgs.projectRoot);
+                overrideLookupFn = (ruleId: string, filePath: string) => {
+                    const events = overrideSvc.getOverridesByRule(ruleId, 50);
+                    const match = events.find((e) => e.reason !== null);
+                    if (match === undefined || match.reason === null) return null;
+                    return { reason: match.reason, timestamp: match.timestamp };
+                };
+            }
+
             const result = handleAuditReport({
                 source: auditReportArgs.source,
                 filePath: auditReportArgs.filePath,
                 format: auditReportArgs.format,
                 tokens: auditReportArgs.tokens as any,
                 sourceAuthority: auditReportArgs.sourceAuthority,
+                projectRoot: auditReportArgs.projectRoot,
+                overrideLookup: overrideLookupFn,
             });
             return result;
         }

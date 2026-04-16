@@ -395,13 +395,39 @@ export async function handleFlintAudit(
             cursor = path.dirname(cursor)
         }
     }
-    const manifestPath = path.join(registryRoot, BRAND.manifestFile)
+    // ARM.1 fix: prefer .flint/flint-manifest.json (where setLibrary writes),
+    // fall back to project-root flint-manifest.json (legacy resolver format).
+    const scopedManifestPath = path.join(registryRoot, configPath(BRAND.manifestFile))
+    const rootManifestPath = path.join(registryRoot, BRAND.manifestFile)
+    const manifestPath = fs.existsSync(scopedManifestPath) ? scopedManifestPath : rootManifestPath
     if (fs.existsSync(manifestPath)) {
         try {
             const manifestRaw = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'))
             const components = manifestRaw.components ?? manifestRaw
             if (components && typeof components === 'object' && Object.keys(components).length > 0) {
-                auditRegistry = components
+                // `components` may be either a keyed object {Name: entry} (legacy)
+                // or an array [{name, ...}] (ARM.1 writers). Normalize to a keyed map.
+                if (Array.isArray(components)) {
+                    auditRegistry = {}
+                    for (const c of components) {
+                        if (c && typeof c.name === 'string') {
+                            auditRegistry[c.name] = c
+                        }
+                    }
+                } else {
+                    auditRegistry = components
+                }
+            }
+            // ARM.1: Merge library-seeded components (source: 'library') into the registry.
+            // These are written by flint_set_library under the libraryComponents key.
+            // Local entries (in `components`) always win if a name collision exists.
+            if (Array.isArray(manifestRaw.libraryComponents)) {
+                if (!auditRegistry) auditRegistry = {}
+                for (const lc of manifestRaw.libraryComponents) {
+                    if (lc.name && typeof lc.name === 'string' && !auditRegistry[lc.name]) {
+                        auditRegistry[lc.name] = lc
+                    }
+                }
             }
         } catch { /* manifest unreadable — skip registry audit */ }
     }
