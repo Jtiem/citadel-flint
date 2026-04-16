@@ -403,6 +403,68 @@ export function getPacksByJurisdiction(jurisdiction: string): RulePack[] {
     )
 }
 
+// ---------------------------------------------------------------------------
+// Reverse-lookup: rule ID → owning pack
+// ---------------------------------------------------------------------------
+
+/**
+ * Lazy-memoized reverse index from rule ID to the pack that owns it.
+ * Built on the first call to findPackForRule; not rebuilt on subsequent calls.
+ */
+let reverseIndex: Map<string, RulePack> | null = null
+
+/**
+ * Tracks rule IDs for which a duplicate-pack-ownership warning has already
+ * been emitted, so we warn at most once per conflicting rule ID.
+ */
+const warnedDuplicateRuleIds = new Set<string>()
+
+/**
+ * Find the rule pack that owns a given rule ID.
+ *
+ * When multiple packs declare the same rule ID the first pack in
+ * RULE_PACK_REGISTRY wins and a `console.warn` is emitted (once per
+ * duplicate rule ID).
+ *
+ * @param ruleId - Rule identifier, e.g. "A11Y-001" or "MITHRIL-COL"
+ * @returns The owning RulePack, or null if no pack claims the rule ID.
+ */
+export function findPackForRule(ruleId: string): RulePack | null {
+    if (reverseIndex === null) {
+        reverseIndex = new Map<string, RulePack>()
+        for (const pack of RULE_PACK_REGISTRY) {
+            for (const rule of pack.rules) {
+                if (reverseIndex.has(rule.id)) {
+                    if (!warnedDuplicateRuleIds.has(rule.id)) {
+                        const firstPack = reverseIndex.get(rule.id)!
+                        console.warn(
+                            `[rulePackRegistry] Duplicate rule ID "${rule.id}" found in packs ` +
+                            `"${firstPack.id}" and "${pack.id}". Returning first match.`,
+                        )
+                        warnedDuplicateRuleIds.add(rule.id)
+                    }
+                    // Keep the first match — do not overwrite.
+                } else {
+                    reverseIndex.set(rule.id, pack)
+                }
+            }
+        }
+    }
+    return reverseIndex.get(ruleId) ?? null
+}
+
+/**
+ * Reset the memoized reverse index and warned-duplicate tracking.
+ * Intended for use in unit tests only — do not call in production code.
+ * @internal
+ */
+export function _resetReverseIndexForTesting(): void {
+    reverseIndex = null
+    warnedDuplicateRuleIds.clear()
+}
+
+// ---------------------------------------------------------------------------
+
 /**
  * Read flint.config.yaml and return the list of active pack IDs based on the
  * `extends` field. Falls back to ['wcag-2.1-aa', 'mithril-design-system']

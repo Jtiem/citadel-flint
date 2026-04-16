@@ -1038,39 +1038,7 @@ export function getDefaultResolvedPolicy(): ResolvedPolicy {
     return structuredClone(DEFAULT_RESOLVED_POLICY)
 }
 
-/**
- * Legacy adapter — converts ResolvedPolicy (v2) back into FlintPolicy (v1)
- * shape so the `flintConfig = loadConfig()` bridge in server.ts keeps working.
- *
- * @deprecated Sprint 4 will migrate flintConfig to ResolvedPolicy and delete
- * this adapter.
- */
-export function toLegacyFlintPolicy(resolved: ResolvedPolicy): FlintPolicy {
-    return {
-        version: 1,
-        mithril: {
-            deltaE_threshold: resolved.mithril.deltaE_threshold,
-            deltaE_critical_threshold: resolved.mithril.deltaE_critical_threshold,
-            mode: resolved.mithril.mode,
-            ignore_patterns: [...resolved.mithril.ignore_patterns],
-        },
-        a11y: {
-            level: resolved.a11y.level,
-            mode: resolved.a11y.mode,
-            disabled_rules: Object.entries(resolved.a11y.rules)
-                .filter(([, m]) => m === 'off')
-                .map(([ruleId]) => ruleId),
-        },
-        export_gate: {
-            block_on_mithril:
-                resolved.exportGate.block_on_mithril ??
-                (resolved.mithril.mode === 'blocking'),
-            block_on_a11y:
-                resolved.exportGate.block_on_a11y ??
-                (resolved.a11y.mode === 'blocking'),
-            block_on_overrides: resolved.exportGate.block_on_overrides,
-        },
-        baseline: { ...DEFAULT_POLICY.baseline },
-        domain: resolved.domain,
-    }
-}
+// Sprint 4 D3 — toLegacyFlintPolicy adapter removed. All server.ts
+// consumers now read ResolvedPolicy directly via loadAndResolvePolicy.
+// The historical shape is preserved in policyEngine.test.ts assertions
+// that compare ResolvedPolicy fields verbatim.

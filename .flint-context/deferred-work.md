@@ -76,3 +76,38 @@ Work items intentionally pushed out of the sprint they were discovered in. Each 
 `coder` — plain-TypeScript refactor, no AST involvement. Pair with next linter cleanup pass.
 
 ---
+
+## `audit.ts` → `ResolvedPolicy` migration (C6 architectural closure)
+
+**Deferred from:** Sprint 4 — MCP Server + Registrations (2026-04-14)
+**Decision source:** Sprint 4 Phase 2.5 review gate — CONDITIONAL-PASS follow-up #1.
+**Blocking reason:** Sprint 4 eliminated `toLegacyFlintPolicy` and migrated 13 server.ts sites to `ResolvedPolicy`, but `flint-mcp/src/tools/audit.ts` L272/L460 still reads disabled a11y rules via the legacy `policy.a11y.disabled_rules` carrier. The setPolicy handler writes through both paths so per-rule modes DO reach the audit gate functionally (C6 closure verified), but the architectural path is still legacy-shaped.
+
+### Current state (Sprint 4 stopgap)
+- `setPolicy.handler.ts` writes both legacy and new paths.
+- `audit.ts` still consumes the legacy `policy.a11y.disabled_rules` carrier.
+- `reloadFlintConfig` ensures the next audit picks up policy changes.
+
+### Proper fix (Sprint 5)
+- Rewrite `handleFlintAudit` signature to accept `ResolvedPolicy` directly.
+- Derive disabled rule IDs from `resolved.a11y.rules` (per-rule mode === 'off').
+- Delete the dual-write in `setPolicy.handler.ts` once audit.ts no longer reads the legacy shape.
+
+---
+
+## `server-helpers.ts` extraction (circular import cleanup)
+
+**Deferred from:** Sprint 4 — MCP Server + Registrations (2026-04-14)
+**Decision source:** Sprint 4 Phase 2.5 review gate — CONDITIONAL-PASS follow-up #2.
+**Blocking reason:** During the 5-handler extraction, `audit.handler.ts` needed `buildAuditSummary` and `getOverrideTelemetryService`, both still resident in `server.ts`. The handler imports them from `../../server.js` with a comment acknowledging "circular but safe — not referenced at module-init time". Works at runtime but is architectural debt.
+
+### Current state (Sprint 4 stopgap)
+- `audit.handler.ts` imports helpers from `server.js` (circular via barrel).
+- Runtime-safe because the symbols are only dereferenced inside the async handler body.
+
+### Proper fix (Sprint 5)
+- Create `flint-mcp/src/tools/handlers/server-helpers.ts` exporting `buildAuditSummary`, `getOverrideTelemetryService`, and any other cross-handler utilities.
+- Re-point `audit.handler.ts` (and any future handlers) at the new module.
+- Delete the circular-import comment once the cycle is broken.
+
+---

@@ -32,8 +32,18 @@ import {
     writeResolvedPolicy,
     mergeAndValidatePolicy,
     getDefaultResolvedPolicy,
+    getRuleMode,
 } from "./core/policyEngine.js";
-import type { RawPolicy } from "./core/policyEngine.js";
+import type { RawPolicy, ResolvedPolicy } from "./core/policyEngine.js";
+import { validateToolInput, ToolInputValidationError } from "./tools/schemas.js";
+import { findPackForRule, getActivePackIds } from "./core/rulePackRegistry.js";
+import { getErrorEntryByRuleId } from "./core/errorTaxonomy.js";
+import type { ResolvedToolContext } from "./tools/handlers/types.js";
+import { handleSetPolicy } from "./tools/handlers/setPolicy.handler.js";
+import { handleAudit } from "./tools/handlers/audit.handler.js";
+import { handleFix } from "./tools/handlers/fix.handler.js";
+import { handleMigrateTw } from "./tools/handlers/migrateTw.handler.js";
+import { handleAgentTrust } from "./tools/handlers/agentTrust.handler.js";
 import { handleFlintAudit, handleFlintAuditBatch, FLINT_AUDIT_TOOL } from "./tools/audit.js";
 import { handleFlintFix, FLINT_FIX_TOOL } from "./tools/fix.js";
 import { handleFlintSwarmAuditFix, FLINT_SWARM_AUDIT_FIX_TOOL } from "./tools/swarm.js";
@@ -170,7 +180,7 @@ const generate = _generate.default || _generate;
 
 const _provenanceServices = new Map<string, MutationProvenanceService>();
 
-function getProvenanceService(projectRoot: string): MutationProvenanceService {
+export function getProvenanceService(projectRoot: string): MutationProvenanceService {
     const existing = _provenanceServices.get(projectRoot);
     if (existing !== undefined) return existing;
 
@@ -191,7 +201,7 @@ function getProvenanceService(projectRoot: string): MutationProvenanceService {
 
 const _overrideServices = new Map<string, OverrideTelemetryService>();
 
-function getOverrideTelemetryService(projectRoot: string): OverrideTelemetryService {
+export function getOverrideTelemetryService(projectRoot: string): OverrideTelemetryService {
     const existing = _overrideServices.get(projectRoot);
     if (existing !== undefined) return existing;
 
@@ -235,7 +245,7 @@ function getAgentRiskService(projectRoot: string): AgentRiskService {
 
 const _trustTierServices = new Map<string, TrustTierService>();
 
-function getTrustTierService(projectRoot: string): TrustTierService {
+export function getTrustTierService(projectRoot: string): TrustTierService {
     const existing = _trustTierServices.get(projectRoot);
     if (existing !== undefined) return existing;
 
@@ -1356,7 +1366,7 @@ server.setRequestHandler(ListResourcesRequestSchema, async () => {
  * Read a specific resource.
  */
 server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
-    const projectRoot = process.cwd();
+    const projectRoot = resolveProjectRoot();
 
     if (request.params.uri === resourceUri("capabilities")) {
         return {
@@ -1397,14 +1407,29 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     }
 
     if (request.params.uri === resourceUri("rules")) {
-        const allRules: Record<string, unknown[]> = {};
+        // Sprint 4 D6 — enrich each rule with ruleMode, sourceAuthority, pack.
+        const rulesResolved = loadAndResolvePolicy(projectRoot);
+        const allRules: Record<string, unknown> = {};
         for (const domainId of domainRegistry.list()) {
             const domain = domainRegistry.get(domainId);
             if (!domain) continue;
             if (fs.existsSync(domain.rulesPath)) {
                 try {
                     const rules = await loadRulesFromDirectory(domain.rulesPath);
-                    allRules[domainId] = rules;
+                    allRules[domainId] = rules.map((rule) => {
+                        const ruleId = (rule as { id?: string }).id ?? '';
+                        const ruleMode = ruleId
+                            ? getRuleMode(ruleId, rulesResolved)
+                            : 'normative';
+                        const taxonomyEntry = ruleId ? getErrorEntryByRuleId(ruleId) : null;
+                        const pack = ruleId ? findPackForRule(ruleId) : null;
+                        return {
+                            ...(rule as object),
+                            ruleMode,
+                            sourceAuthority: taxonomyEntry?.sourceAuthority ?? null,
+                            pack: pack?.id ?? null,
+                        };
+                    });
                 } catch {
                     allRules[domainId] = [];
                 }
@@ -1412,11 +1437,23 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
                 allRules[domainId] = [];
             }
         }
+        // Top-level packs section listing active packs for this project.
+        let activePacks: string[] = [];
+        try {
+            activePacks = getActivePackIds(projectRoot);
+        } catch {
+            activePacks = [];
+        }
+        const body = {
+            ...allRules,
+            packs: activePacks,
+        };
+        void rulesResolved; // kept in scope for per-rule enrichment above
         return {
             contents: [{
                 uri: resourceUri("rules"),
                 mimeType: "application/json",
-                text: JSON.stringify(allRules, null, 2),
+                text: JSON.stringify(body, null, 2),
             }]
         };
     }
@@ -1610,7 +1647,13 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     }
 
     if (request.params.uri.startsWith(resourceUri("violations/"))) {
-        const filePath = "/" + request.params.uri.replace(resourceUri("violations/"), "");
+        // Sprint 4 D7 — platform-aware URI parser with sandbox to projectRoot.
+        const filePath = parseViolationsUri(request.params.uri, projectRoot);
+        if (!filePath) {
+            throw new Error(
+                `Invalid flint://violations path — must resolve inside projectRoot (${projectRoot}).`,
+            );
+        }
         if (!fs.existsSync(filePath)) {
             throw new Error(`File not found: ${path.basename(filePath)}`);
         }
@@ -1765,6 +1808,55 @@ If you encounter a "BLOCKED" status from any tool (Mithril violation, A11y viola
  * Handle tool execution.
  */
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    // Sprint 4 D1 — Zod validation hoist.
+    // Validate request.params.arguments against the per-tool Zod schema
+    // registered in tools/schemas.ts. Unknown tools (schema-less) fall
+    // through untouched; validation errors return a structured envelope.
+    try {
+        request.params.arguments = validateToolInput(
+            request.params.name,
+            request.params.arguments ?? {},
+        ) as Record<string, unknown>;
+    } catch (err) {
+        if (err instanceof ToolInputValidationError) {
+            return {
+                isError: true,
+                content: [{
+                    type: "text",
+                    text: JSON.stringify({
+                        code: "invalid_input",
+                        tool: err.toolName,
+                        message: err.message,
+                        issues: err.issues,
+                    }, null, 2),
+                }],
+            };
+        }
+        throw err;
+    }
+    // Sprint 4 D8 — hoist projectRoot once per tool call so every handler
+    // and every `process.cwd()` consumer inside the switch reads the same
+    // value. `resolveProjectRoot()` walks up from cwd for a `.flint/`
+    // directory and falls back to cwd if none is found.
+    const projectRoot: string = resolveProjectRoot();
+    // Sprint 4 D3 — hoist ResolvedPolicy once per tool call so per-rule
+    // modes set via `flint_set_policy` are reflected on the very next
+    // call without requiring a server restart.
+    const resolved: ResolvedPolicy = loadAndResolvePolicy(projectRoot);
+    // Sprint 4 D2 — shared context for extracted handlers. Handlers that
+    // need to trigger a server-level FlintConfig reload (e.g.
+    // flint_set_policy) do so via ctx.reloadFlintConfig(), keeping the
+    // module-level `flintConfig` variable authoritative.
+    const toolCtx: ResolvedToolContext = {
+        projectRoot,
+        flintConfig,
+        resolved,
+        reloadFlintConfig: () => {
+            flintConfig = loadConfig(projectRoot);
+            return flintConfig;
+        },
+    };
+    void toolCtx; // used by extracted handler cases
     switch (request.params.name) {
         case "flint_get_context": {
             const { projectRoot: ctxRoot } = request.params.arguments as { projectRoot: string };
@@ -1850,7 +1942,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             const finishAudit = startResponseTimer('ast');
             const _auditArgs = request.params.arguments as { file?: string; componentPath?: string };
             const file = _auditArgs.file ?? _auditArgs.componentPath;
-            const componentPath = file && path.isAbsolute(file) ? file : path.resolve(process.cwd(), file ?? '');
+            const componentPath = file && path.isAbsolute(file) ? file : path.resolve(projectRoot, file ?? '');
 
             if (!fs.existsSync(componentPath)) {
                 console.error(`[audit_ui_component] File not found: ${componentPath}`);
@@ -1859,13 +1951,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
             const code = fs.readFileSync(componentPath, "utf-8");
 
-            const projectRoot = findProjectRoot(componentPath);
-            if (!projectRoot) {
+            const componentProjectRoot = findProjectRoot(componentPath);
+            if (!componentProjectRoot) {
                 return toolError("audit_ui_component", new Error(`Could not find project root (${BRAND.configDir} directory)`), HINTS.fileNotFound);
             }
-            const telemetry = new TelemetryLogger(projectRoot);
+            const telemetry = new TelemetryLogger(componentProjectRoot);
 
-            const tokensPath = path.join(projectRoot, configPath("design-tokens.json"));
+            const tokensPath = path.join(componentProjectRoot, configPath("design-tokens.json"));
             let tokens: DesignToken[] = [];
             const auditWarnings: string[] = [];
 
@@ -1887,7 +1979,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
                 // CR-SEAL: Load component registry for REG-001 audit
                 let auditRegistry: Record<string, { importPath?: string; [key: string]: unknown }> | undefined
-                const manifestPath = path.join(projectRoot, BRAND.manifestFile)
+                const manifestPath = path.join(componentProjectRoot, BRAND.manifestFile)
                 if (fs.existsSync(manifestPath)) {
                     try {
                         const manifestRaw = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'))
@@ -1901,14 +1993,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 }
 
                 const policyOpts = {
-                    deltaE_threshold: flintConfig.policy.mithril.deltaE_threshold,
-                    deltaE_critical_threshold: flintConfig.policy.mithril.deltaE_critical_threshold,
+                    deltaE_threshold: resolved.mithril.deltaE_threshold,
+                    deltaE_critical_threshold: resolved.mithril.deltaE_critical_threshold,
                     ...(auditRegistry && { registry: auditRegistry }),
                 };
-                const mithrilWarnings = flintConfig.policy.mithril.mode !== 'off'
+                const mithrilWarnings = resolved.mithril.mode !== 'off'
                     ? auditAll(ast as any, tokens, policyOpts)
                     : new Map();
-                const a11yResult = flintConfig.policy.a11y.mode !== 'off'
+                const a11yResult = resolved.a11y.mode !== 'off'
                     ? A11yLinter.auditStructured(ast as any, componentPath)
                     : { filePath: componentPath, totalRules: 0, passed: 0, failed: 0, compliancePercent: 100, violations: [], criterionResults: [], fixableCount: 0, timestamp: new Date().toISOString() };
 
@@ -2444,20 +2536,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             };
             const query = _registryArgs.query ?? _registryArgs.semantic_query ?? '';
             const { limit = 3, projectRoot: projectRootArg } = _registryArgs;
-            const projectRoot = projectRootArg ?? process.cwd();
+            const registryProjectRoot = projectRootArg ?? projectRoot;
 
             if (!query) {
                 return toolError("flint_query_registry", new Error("Missing required parameter: query or semantic_query"), HINTS.missingParam("flint_query_registry query='button component'"));
             }
 
-            if (!fs.existsSync(projectRoot)) {
+            if (!fs.existsSync(registryProjectRoot)) {
                 return toolError("flint_query_registry", new Error("'projectRoot' must be an existing directory."), HINTS.fileNotFound);
             }
 
             // Hydrate the RAG cache with the local manifest so freshly-opened
             // projects are searchable without a prior flint_add_remote_library call.
             {
-                const localManifestPath = path.join(projectRoot, BRAND.manifestFile);
+                const localManifestPath = path.join(registryProjectRoot, BRAND.manifestFile);
                 if (fs.existsSync(localManifestPath)) {
                     try {
                         const raw = JSON.parse(fs.readFileSync(localManifestPath, "utf-8"));
@@ -2480,7 +2572,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 console.error(`${logTag("Registry")} RAG search failed, falling back to manifest relevance`, err);
                 registryWarnings.push("Semantic search unavailable — results are from keyword matching only. Run flint_reindex_registry to restore full search.");
 
-                const manifestPath = path.join(projectRoot, BRAND.manifestFile);
+                const manifestPath = path.join(registryProjectRoot, BRAND.manifestFile);
                 let components: Record<string, any> = {};
 
                 if (fs.existsSync(manifestPath)) {
@@ -2504,188 +2596,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
 
         case "flint_audit": {
-            const auditArgs = request.params.arguments as {
-                source: string;
-                filePath: string;
-                filePaths?: string[];
-                ruleIds?: string[];
-                severity?: "info" | "warning" | "critical";
-                healOnAudit?: boolean;
-            };
-
-            // MAJOR-5: Runtime validation — reject early with actionable error
-            if (!auditArgs.filePaths?.length && (!auditArgs.source || !auditArgs.filePath)) {
-                return toolError(
-                    "flint_audit",
-                    new Error("Missing required parameters: provide either `filePaths` (batch) or both `source` and `filePath` (single file)."),
-                    HINTS.missingParam('flint_audit({ source: "<jsx code>", filePath: "src/App.tsx" })'),
-                );
-            }
-
-            if (auditArgs.filePaths && auditArgs.filePaths.length > 0) {
-                const batchResult = await handleFlintAuditBatch(
-                    auditArgs.filePaths,
-                    { ruleIds: auditArgs.ruleIds, severity: auditArgs.severity },
-                    flintConfig,
-                );
-                return {
-                    content: [{ type: "text", text: JSON.stringify(batchResult, null, 2) }],
-                };
-            }
-            const auditResult = await handleFlintAudit(auditArgs, flintConfig);
-            const auditResultText = JSON.stringify(auditResult, null, 2);
-            // ACX.3: Append token context to audit results
-            let enrichedAuditText = auditResultText;
-            try {
-                enrichedAuditText = enrichToolResult(
-                    "flint_audit",
-                    request.params.arguments as Record<string, unknown>,
-                    auditResultText,
-                    flintConfig.projectRoot,
-                );
-            } catch {
-                // Enrichment is best-effort — never block the audit result
-            }
-
-            // GOV.2: Record override telemetry when audit runs with disabled rules.
-            // Fire-and-forget — never blocks the audit response.
-            try {
-                const disabledRules = flintConfig.policy.a11y.disabled_rules;
-                const mithrilOff = flintConfig.policy.mithril.mode === "off";
-                if ((disabledRules.length > 0 || mithrilOff) && auditArgs.filePath) {
-                    const ovrSvc = getOverrideTelemetryService(flintConfig.projectRoot);
-                    for (const ruleId of disabledRules) {
-                        ovrSvc.recordOverride({
-                            id: crypto.randomUUID(),
-                            nodeId: null,
-                            ruleId,
-                            sessionId: null,
-                            agentId: "flint_audit",
-                            timestamp: new Date().toISOString(),
-                            projectRoot: flintConfig.projectRoot,
-                            reason: `Rule ${ruleId} skipped during audit of ${path.basename(auditArgs.filePath)}`,
-                        });
-                    }
-                    if (mithrilOff) {
-                        ovrSvc.recordOverride({
-                            id: crypto.randomUUID(),
-                            nodeId: null,
-                            ruleId: "MITHRIL-ALL",
-                            sessionId: null,
-                            agentId: "flint_audit",
-                            timestamp: new Date().toISOString(),
-                            projectRoot: flintConfig.projectRoot,
-                            reason: `Mithril linting disabled during audit of ${path.basename(auditArgs.filePath)}`,
-                        });
-                    }
-                }
-            } catch {
-                // Override telemetry is best-effort — never block audit result
-            }
-
-            // MAJOR-4: Prepend human-readable _summary so IDE agents don't need to parse JSON
-            const auditSummaryPreamble = buildAuditSummary(auditResult, auditArgs.filePath);
-            return {
-                content: [{ type: "text", text: `${auditSummaryPreamble}\n\n${enrichedAuditText}` }],
-            };
+            return handleAudit(
+                request.params.arguments as unknown as Parameters<typeof handleAudit>[0],
+                toolCtx,
+            );
         }
 
         case "flint_fix": {
-            const fixArgs = request.params.arguments as {
-                file?: string;
-                source?: string;
-                filePath?: string;
-                violationIds?: string[];
-                dryRun?: boolean;
-            };
-            const fixResult = await handleFlintFix(fixArgs as Parameters<typeof handleFlintFix>[0], flintConfig);
-
-            // Write fixed source to disk when fixes were applied and not in dry-run mode.
-            // handleFlintFix resolves the path internally (supporting both `file` and `filePath`
-            // shorthands) but does not write — the server is responsible for persistence.
-            // This mirrors the behaviour of flint_swarm_audit_fix (swarm.ts:246).
-            const resolvedFixPath = fixArgs.filePath ?? fixArgs.file;
-            if (fixResult.fixesApplied > 0 && !fixResult.dryRun && resolvedFixPath) {
-                try {
-                    // Commandment 12: atomic write via .tmp → rename
-                    const tmpFixPath = resolvedFixPath + '.flint-tmp-' + crypto.randomUUID().slice(0, 8);
-                    fs.writeFileSync(tmpFixPath, fixResult.fixedSource, "utf-8");
-                    fs.renameSync(tmpFixPath, resolvedFixPath);
-                } catch (writeErr) {
-                    console.warn("[flint_fix] Failed to write fixed source to disk:", writeErr);
-                }
-            }
-
-            const fixResultText = JSON.stringify(fixResult, null, 2);
-            // ACX.3: Prepend node context preamble to fix results
-            let enrichedFixText = fixResultText;
-            try {
-                enrichedFixText = enrichToolResult(
-                    "flint_fix",
-                    request.params.arguments as Record<string, unknown>,
-                    fixResultText,
-                    flintConfig.projectRoot,
-                );
-            } catch {
-                // Enrichment is best-effort — never block the fix result
-            }
-
-            // V.2-mp: Record provenance when flint_fix actually applied fixes.
-            if (fixResult.fixesApplied > 0 && !fixArgs.dryRun && resolvedFixPath) {
-                try {
-                    const fixProjectRoot = findProjectRoot(resolvedFixPath) ?? flintConfig.projectRoot;
-                    const provSvc = getProvenanceService(fixProjectRoot);
-                    const fixMutationId = crypto.randomUUID();
-                    provSvc.recordProvenance(
-                        fixMutationId,
-                        "auto-fix",
-                        "flint_fix",
-                        null,
-                        `flint_fix applied ${fixResult.fixesApplied} token fix(es) to ${path.basename(resolvedFixPath)}`,
-                        null,
-                    );
-                } catch {
-                    // Provenance recording is best-effort — never block fix result
-                }
-            }
-
-            // GOV.2: Record override telemetry when flint_fix applies token corrections.
-            // Each fix represents an override of the design system that was corrected.
-            // Fire-and-forget — never blocks the fix response.
-            if (fixResult.fixesApplied > 0 && resolvedFixPath) {
-                try {
-                    const fixProjectRoot = findProjectRoot(resolvedFixPath) ?? flintConfig.projectRoot;
-                    const ovrSvc = getOverrideTelemetryService(fixProjectRoot);
-                    ovrSvc.recordOverride({
-                        id: crypto.randomUUID(),
-                        nodeId: null,
-                        ruleId: "MITHRIL-TOKEN-DRIFT",
-                        sessionId: null,
-                        agentId: "flint_fix",
-                        timestamp: new Date().toISOString(),
-                        projectRoot: fixProjectRoot,
-                        reason: `${fixResult.fixesApplied} token override(s) corrected in ${path.basename(resolvedFixPath)}${fixArgs.dryRun ? " (dry run)" : ""}`,
-                    });
-                } catch {
-                    // Override telemetry is best-effort — never block fix result
-                }
-            }
-
-            // MAJOR-4: Prepend human-readable _summary so IDE agents don't need to parse JSON
-            // P0: Include mutation plan summary in the preamble
-            const planSummaryLine = fixResult._summary ? `\n\n**Mutation Plan:** ${fixResult._summary}` : '';
-            const semanticLine = fixResult.semanticErrors?.length
-                ? `\n\n**Semantic issues (${fixResult.semanticErrors.length}):** ${fixResult.semanticErrors.map(e => e.semanticHint).join('; ')}`
-                : '';
-            const riskLine = fixResult.riskGatedFixes?.length
-                ? `\n\n**Risk-gated fixes (${fixResult.riskGatedFixes.length}):** These fixes need human confirmation before applying.`
-                : '';
-            const fixSummaryPreamble = `## Flint Fix Result\n\n${fixResult.summary}\n\n**Recommendation:** ${fixResult.recommendation}${planSummaryLine}${semanticLine}${riskLine}`;
-            return {
-                content: [{ type: "text", text: `${fixSummaryPreamble}\n\n${enrichedFixText}` }],
-            };
+            return handleFix(
+                request.params.arguments as unknown as Parameters<typeof handleFix>[0],
+                toolCtx,
+            );
         }
-
         case "flint_swarm_audit_fix": {
             const swarmArgs = request.params.arguments as {
                 glob: string;
@@ -2749,7 +2671,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 track?: boolean;
             };
 
-            const projectRoot = process.cwd();
             const report = generateDebtReport({
                 projectRoot,
                 glob: globPattern,
@@ -2790,107 +2711,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
 
         case "flint_set_policy": {
-            const { action, policy: policyUpdate } = request.params.arguments as {
-                action: "read" | "update" | "reset";
-                policy?: Partial<RawPolicy>;
-            };
-
-            const projectRoot = process.cwd();
-
-            switch (action) {
-                case "read": {
-                    const current = loadAndResolvePolicy(projectRoot);
-                    return {
-                        content: [{
-                            type: "text",
-                            text: JSON.stringify(current, null, 2),
-                        }],
-                    };
-                }
-
-                case "update": {
-                    if (!policyUpdate || typeof policyUpdate !== "object") {
-                        return toolError("flint_set_policy", new Error("'update' action requires a 'policy' object with partial policy fields."), HINTS.missingParam("flint_set_policy action='update' policy={\"mithril\":{\"mode\":\"advisory\"}}"));
-                    }
-                    // MAJOR-6 (Sprint 3): route through mergeAndValidatePolicy so
-                    // no invalid policy can be written to disk.
-                    const mergeResult = mergeAndValidatePolicy(projectRoot, policyUpdate);
-                    if (!mergeResult.ok) {
-                        return toolError(
-                            "flint_set_policy",
-                            new Error(`policy validation failed:\n  - ${mergeResult.errors.join("\n  - ")}`),
-                            HINTS.missingParam("flint_set_policy action='update' policy={...valid fields...}")
-                        );
-                    }
-                    const merged = mergeResult.policy;
-                    // Reload into active config so subsequent audits use new thresholds
-                    flintConfig = loadConfig(projectRoot);
-
-                    // GOV.2: Record override telemetry for disabled rules in policy update.
-                    // Fire-and-forget — never blocks the policy update response.
-                    try {
-                        const ovrSvc = getOverrideTelemetryService(projectRoot);
-                        const disabledA11yRules = (policyUpdate as Record<string, unknown>).a11y &&
-                            typeof (policyUpdate as Record<string, unknown>).a11y === "object" &&
-                            Array.isArray(((policyUpdate as Record<string, unknown>).a11y as Record<string, unknown>).disabled_rules)
-                            ? ((policyUpdate as Record<string, unknown>).a11y as Record<string, unknown>).disabled_rules as string[]
-                            : [];
-                        for (const ruleId of disabledA11yRules) {
-                            ovrSvc.recordOverride({
-                                id: crypto.randomUUID(),
-                                nodeId: null,
-                                ruleId,
-                                sessionId: null,
-                                agentId: "flint_set_policy",
-                                timestamp: new Date().toISOString(),
-                                projectRoot,
-                                reason: `Rule ${ruleId} disabled via policy update`,
-                            });
-                        }
-                        // Track Mithril mode changes as overrides
-                        const mithrilUpdate = (policyUpdate as Record<string, unknown>).mithril;
-                        if (mithrilUpdate && typeof mithrilUpdate === "object" && "mode" in (mithrilUpdate as Record<string, unknown>)) {
-                            const mode = (mithrilUpdate as Record<string, string>).mode;
-                            if (mode === "off" || mode === "advisory") {
-                                ovrSvc.recordOverride({
-                                    id: crypto.randomUUID(),
-                                    nodeId: null,
-                                    ruleId: "MITHRIL-ALL",
-                                    sessionId: null,
-                                    agentId: "flint_set_policy",
-                                    timestamp: new Date().toISOString(),
-                                    projectRoot,
-                                    reason: `Mithril mode changed to '${mode}' via policy update`,
-                                });
-                            }
-                        }
-                    } catch {
-                        // Override telemetry is best-effort — never block policy update
-                    }
-
-                    return {
-                        content: [{
-                            type: "text",
-                            text: `Policy updated successfully.\n\n${JSON.stringify(merged, null, 2)}`,
-                        }],
-                    };
-                }
-
-                case "reset": {
-                    const defaults = getDefaultResolvedPolicy();
-                    writeResolvedPolicy(projectRoot, defaults);
-                    flintConfig = loadConfig(projectRoot);
-                    return {
-                        content: [{
-                            type: "text",
-                            text: `Policy reset to defaults.\n\n${JSON.stringify(defaults, null, 2)}`,
-                        }],
-                    };
-                }
-
-                default:
-                    return toolError("flint_set_policy", new Error(`unknown action '${action}'. Must be 'read', 'update', or 'reset'.`), HINTS.missingParam("flint_set_policy action='read' projectRoot='...'"));
-            }
+            return handleSetPolicy(
+                request.params.arguments as unknown as Parameters<typeof handleSetPolicy>[0],
+                toolCtx,
+            );
         }
 
         case "flint_accessibility_report": {
@@ -2914,7 +2738,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 format?: "json" | "markdown" | "cyclonedx";
                 includeProvenance?: boolean;
             };
-            return handleGenerateDBOM(dbomArgs, process.cwd());
+            return handleGenerateDBOM(dbomArgs, projectRoot);
         }
 
         case "flint_add_remote_library": {
@@ -3286,195 +3110,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
 
         case "flint_migrate_tw": {
-            const twArgs = request.params.arguments as {
-                filePaths: string[];
-                glob?: string;
-                dryRun?: boolean;
-                from?: "3";
-                to?: "4";
-            };
-
-            // Prevent path traversal in glob patterns
-            if (twArgs.glob && (twArgs.glob.includes('..') || path.isAbsolute(twArgs.glob))) {
-                return toolError("flint_migrate_tw", new Error("Invalid glob: path traversal and absolute paths are not permitted"), HINTS.missingParam("flint_migrate_tw filePaths=['src/**/*.tsx']"));
-            }
-
-            if (!Array.isArray(twArgs.filePaths) || twArgs.filePaths.length === 0) {
-                return toolError("flint_migrate_tw", new Error("'filePaths' must be a non-empty array of absolute file paths."), HINTS.missingParam("flint_migrate_tw filePaths=['/abs/path/to/component.tsx']"));
-            }
-
-            const dryRun = twArgs.dryRun !== false; // default true
-            const perFileReports: Array<{
-                filePath: string;
-                fileChanged: boolean;
-                changeCount: number;
-                changes: MigrateResult["changes"];
-                auditViolationCount: number | null;
-                error?: string;
-            }> = [];
-
-            for (const filePath of twArgs.filePaths) {
-                if (!fs.existsSync(filePath)) {
-                    perFileReports.push({
-                        filePath,
-                        fileChanged: false,
-                        changeCount: 0,
-                        changes: [],
-                        auditViolationCount: null,
-                        error: `File not found: ${filePath}`,
-                    });
-                    continue;
-                }
-
-                let migResult: MigrateResult;
-                try {
-                    const source = fs.readFileSync(filePath, "utf-8");
-                    migResult = migrateFile(source, { dryRun, filePath, from: twArgs.from, to: twArgs.to });
-                    if (!dryRun && migResult.fileChanged) {
-                        fs.writeFileSync(filePath, migResult.migratedSource, "utf-8");
-                    }
-                } catch (err) {
-                    perFileReports.push({
-                        filePath,
-                        fileChanged: false,
-                        changeCount: 0,
-                        changes: [],
-                        auditViolationCount: null,
-                        error: err instanceof Error ? err.message : String(err),
-                    });
-                    continue;
-                }
-
-                // Post-migration audit on migrated source
-                let auditViolationCount: number | null = null;
-                if (migResult.fileChanged || !dryRun) {
-                    try {
-                        const sourceToAudit = migResult.fileChanged
-                            ? migResult.migratedSource
-                            : fs.readFileSync(filePath, "utf-8");
-                        const auditResult = await handleFlintAudit(
-                            { source: sourceToAudit, filePath },
-                            flintConfig,
-                        );
-                        auditViolationCount = auditResult.violations
-                            ? (auditResult.violations as unknown[]).length
-                            : 0;
-                    } catch {
-                        // Audit is best-effort — never block migration result
-                    }
-                }
-
-                perFileReports.push({
-                    filePath,
-                    fileChanged: migResult.fileChanged,
-                    changeCount: migResult.changes.length,
-                    changes: migResult.changes,
-                    auditViolationCount,
-                });
-            }
-
-            const totalChanged = perFileReports.filter(r => r.fileChanged).length;
-            const totalChanges = perFileReports.reduce((acc, r) => acc + r.changeCount, 0);
-            const summary =
-                dryRun
-                    ? `Dry-run complete. ${totalChanges} class replacement(s) found across ${totalChanged}/${twArgs.filePaths.length} file(s). No files were written.`
-                    : `Migration complete. ${totalChanges} class replacement(s) applied across ${totalChanged}/${twArgs.filePaths.length} file(s).`;
-
-            // CLARITY-2: Generate actionable recommendation
-            const twRecommendation = totalChanges > 0
-                ? dryRun
-                    ? `${totalChanges} class(es) ready to migrate. Run again without dry-run to apply.`
-                    : `Migration complete. Run 'audit' to check for remaining drifts.`
-                : 'No Tailwind v3 classes found — already up to date.';
-
-            return {
-                content: [{
-                    type: "text",
-                    text: JSON.stringify({ summary, dryRun, files: perFileReports, recommendation: twRecommendation }, null, 2),
-                }],
-            };
+            return handleMigrateTw(
+                request.params.arguments as unknown as Parameters<typeof handleMigrateTw>[0],
+                toolCtx,
+            );
         }
-
         case "flint_agent_trust": {
-            const trustArgs = request.params.arguments as {
-                action: "profile" | "list" | "promote" | "demote" | "reset";
-                projectRoot: string;
-                agentId?: string;
-                targetTier?: TrustTier;
-            };
-
-            if (!trustArgs.projectRoot || !fs.existsSync(trustArgs.projectRoot)) {
-                return toolError("flint_agent_trust", new Error("'projectRoot' must be an existing directory."), HINTS.fileNotFound);
-            }
-
-            const trustSvc = getTrustTierService(trustArgs.projectRoot);
-
-            switch (trustArgs.action) {
-                case "list": {
-                    const all = trustSvc.listAll();
-                    return {
-                        content: [{ type: "text", text: JSON.stringify(all, null, 2) }],
-                    };
-                }
-
-                case "profile": {
-                    if (!trustArgs.agentId) {
-                        return toolError("flint_agent_trust", new Error("action='profile' requires 'agentId'."), HINTS.missingParam("flint_agent_trust action='profile' agentId='my-agent' projectRoot='...'"));
-                    }
-                    const profile = trustSvc.getAgentTrustProfile(trustArgs.agentId);
-                    return {
-                        content: [{ type: "text", text: JSON.stringify(profile, null, 2) }],
-                    };
-                }
-
-                case "promote": {
-                    if (!trustArgs.agentId || !trustArgs.targetTier) {
-                        return toolError("flint_agent_trust", new Error("action='promote' requires 'agentId' and 'targetTier'."), HINTS.missingParam("flint_agent_trust action='promote' agentId='my-agent' targetTier='trusted' projectRoot='...'"));
-                    }
-                    // Load YAML config promotion gates and pass them to evaluatePromotion.
-                    // If the behavioral evaluation already qualifies the agent, use that result;
-                    // otherwise fall through to manualPromote (override).
-                    const trustYamlConfig = loadProjectConfig(trustArgs.projectRoot);
-                    const promotionGates = trustYamlConfig?.trust?.promotion;
-                    const autoPromotedTier = trustSvc.evaluatePromotion(trustArgs.agentId, promotionGates);
-                    // If behavioral promotion reached or exceeded target, return that result.
-                    // Otherwise apply the manual override.
-                    const autoRecord = trustSvc.getAgentTrustProfile(trustArgs.agentId);
-                    if (autoRecord.currentTier === autoPromotedTier && autoPromotedTier === trustArgs.targetTier) {
-                        return {
-                            content: [{ type: "text", text: JSON.stringify(autoRecord, null, 2) }],
-                        };
-                    }
-                    const promoted = trustSvc.manualPromote(trustArgs.agentId, trustArgs.targetTier);
-                    return {
-                        content: [{ type: "text", text: JSON.stringify(promoted, null, 2) }],
-                    };
-                }
-
-                case "demote": {
-                    if (!trustArgs.agentId) {
-                        return toolError("flint_agent_trust", new Error("action='demote' requires 'agentId'."), HINTS.missingParam("flint_agent_trust action='demote' agentId='my-agent' projectRoot='...'"));
-                    }
-                    const demoted = trustSvc.manualDemote(trustArgs.agentId);
-                    return {
-                        content: [{ type: "text", text: JSON.stringify(demoted, null, 2) }],
-                    };
-                }
-
-                case "reset": {
-                    if (!trustArgs.agentId) {
-                        return toolError("flint_agent_trust", new Error("action='reset' requires 'agentId'."), HINTS.missingParam("flint_agent_trust action='reset' agentId='my-agent' projectRoot='...'"));
-                    }
-                    const resetResult = trustSvc.resetTrust(trustArgs.agentId);
-                    return {
-                        content: [{ type: "text", text: JSON.stringify(resetResult, null, 2) }],
-                    };
-                }
-
-                default: {
-                    return toolError("flint_agent_trust", new Error(`unknown action '${(trustArgs as { action: string }).action}'. Must be 'profile', 'list', 'promote', 'demote', or 'reset'.`), HINTS.missingParam("flint_agent_trust action='list' projectRoot='...'"));
-                }
-            }
+            return handleAgentTrust(
+                request.params.arguments as unknown as Parameters<typeof handleAgentTrust>[0],
+                toolCtx,
+            );
         }
 
         case "flint_figma_connect": {
@@ -3789,7 +3434,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 limit?: number;
             };
 
-            const consensusSvc = getConsensusQueryService(process.cwd());
+            const consensusSvc = getConsensusQueryService(projectRoot);
 
             switch (consensusArgs.mode) {
                 case "summary": {
@@ -3846,7 +3491,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 collection?: string;
                 prefix?: string;
             };
-            return handleEmitTokens(emitArgs as Parameters<typeof handleEmitTokens>[0], process.cwd());
+            return handleEmitTokens(emitArgs as Parameters<typeof handleEmitTokens>[0], projectRoot);
         }
 
         // -----------------------------------------------------------------
@@ -3919,7 +3564,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 dry_run?: boolean;
                 projectRoot?: string;
             };
-            return handlePackExport(exportArgs, process.cwd());
+            return handlePackExport(exportArgs, projectRoot);
         }
 
         // -----------------------------------------------------------------
@@ -4192,7 +3837,7 @@ ${injectOps || '(no top-level children to inject)'}
  * MAJOR-4: Build a human-readable markdown summary for flint_audit responses.
  * Prepended to the JSON so IDE agents can relay findings without parsing.
  */
-function buildAuditSummary(result: { violations: Array<{ ruleId: string; severity: string; message: string }>; mithrilCount: number; a11yCount: number; summary?: string; recommendation?: string; exportBlocked?: boolean }, filePath: string): string {
+export function buildAuditSummary(result: { violations: Array<{ ruleId: string; severity: string; message: string }>; mithrilCount: number; a11yCount: number; summary?: string; recommendation?: string; exportBlocked?: boolean }, filePath: string): string {
     const basename = path.basename(filePath);
     const verdict = result.exportBlocked ? "BLOCKED" : "APPROVED";
     const total = result.violations.length;
@@ -4211,7 +3856,51 @@ function buildAuditSummary(result: { violations: Array<{ ruleId: string; severit
     return lines.join("\n");
 }
 
-function findProjectRoot(startPath: string): string | null {
+/**
+ * Sprint 4 D7 — Parse and sandbox a `flint://violations/<path>` URI.
+ *
+ *   - Strips the `flint://violations/` prefix and decodeURIComponents it
+ *   - On Windows, handles a leading `/C:/` pattern (URIs get a stray leading
+ *     slash in front of the drive letter) so the resolved path is `C:\…`
+ *   - Normalizes separators via `path.normalize`
+ *   - Sandboxes the result inside `projectRoot` — returns `null` for any
+ *     traversal or out-of-root path
+ *
+ * @param uri           Full `flint://violations/...` URI
+ * @param projectRoot   Absolute project root to sandbox within
+ * @returns Absolute path inside projectRoot, or `null` if invalid
+ */
+export function parseViolationsUri(
+    uri: string,
+    projectRoot: string,
+): string | null {
+    const prefix = resourceUri('violations/');
+    if (!uri.startsWith(prefix)) return null;
+    const raw = decodeURIComponent(uri.slice(prefix.length));
+    if (!raw) return null;
+
+    // Windows drive-letter patch: `flint://violations/C:/foo` decodes to
+    // `C:/foo`; the older `"/" +` prefix broke this by producing `/C:/foo`.
+    // Detect both shapes so we behave consistently across platforms.
+    let candidate = raw;
+    if (process.platform === 'win32') {
+        if (/^\/[A-Za-z]:/.test(candidate)) {
+            candidate = candidate.slice(1);
+        }
+    }
+    candidate = path.normalize(candidate);
+
+    const absolute = path.isAbsolute(candidate)
+        ? candidate
+        : path.resolve(projectRoot, candidate);
+
+    // Sandbox check: must live inside projectRoot.
+    const rel = path.relative(projectRoot, absolute);
+    if (rel.startsWith('..') || path.isAbsolute(rel)) return null;
+    return absolute;
+}
+
+export function findProjectRoot(startPath: string): string | null {
     let curr = path.dirname(startPath);
     while (curr !== path.parse(curr).root) {
         // Require both .flint/ AND flint-manifest.json (or design-tokens.json) to distinguish

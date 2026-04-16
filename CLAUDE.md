@@ -154,8 +154,6 @@ All tools registered in `flint-mcp/src/server.ts`:
 | `flint_pack_rollback` | GPX — rollback a previously imported pack |
 | `flint_defer_violation` | Defer a violation for later resolution (snooze) |
 
-Note: 5 rule pack tools (`flint_list_rule_packs`, `flint_enable_pack`, `flint_disable_pack`, `flint_set_rule_mode`, `flint_compliance_coverage`) are defined in `flint-mcp/src/tools/rulePacks.ts` but not yet registered in `server.ts`.
-
 ### Resources (13 registered)
 
 | URI | What it exposes |

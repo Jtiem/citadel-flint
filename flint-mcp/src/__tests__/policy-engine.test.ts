@@ -34,7 +34,6 @@ import {
     writeResolvedPolicy,
     mergeAndValidatePolicy,
     getDefaultResolvedPolicy,
-    toLegacyFlintPolicy,
     DEFAULT_RESOLVED_POLICY,
     KNOWN_MITHRIL_RULES,
     KNOWN_A11Y_RULES,
@@ -615,23 +614,6 @@ describe('Sprint 3: loadAndResolvePolicy unified loader (CRIT-1 + CRIT-3)', () =
     })
 })
 
-describe('Sprint 3: toLegacyFlintPolicy adapter', () => {
-    it('converts v2 ResolvedPolicy back to v1 FlintPolicy shape', () => {
-        const resolved = getDefaultResolvedPolicy()
-        const legacy = toLegacyFlintPolicy(resolved)
-        expect(legacy.version).toBe(1)
-        expect(legacy.mithril.deltaE_threshold).toBe(2.0)
-        expect(legacy.a11y.level).toBe('AA')
-        expect(legacy.a11y.disabled_rules).toEqual([])
-        expect(legacy.export_gate.block_on_overrides).toBe(true)
-    })
-
-    it('extracts disabled rules from resolved rules map', () => {
-        const resolved = getDefaultResolvedPolicy()
-        resolved.a11y.rules['A11Y-006'] = 'off'
-        resolved.a11y.rules['A11Y-011'] = 'advisory'
-        const legacy = toLegacyFlintPolicy(resolved)
-        expect(legacy.a11y.disabled_rules).toContain('A11Y-006')
-        expect(legacy.a11y.disabled_rules).not.toContain('A11Y-011')
-    })
-})
+// Sprint 4 D3 — toLegacyFlintPolicy adapter removed. The describe block
+// that round-tripped the v2 → v1 conversion has been deleted; server.ts
+// now consumes ResolvedPolicy directly via loadAndResolvePolicy().
