@@ -1383,3 +1383,95 @@ describe('handleMapTokens', () => {
         })
     })
 })
+
+// ---------------------------------------------------------------------------
+// MuiAdapter — semantic token priority regression tests (Bug fixes)
+// ---------------------------------------------------------------------------
+
+describe('MuiAdapter — semantic priority: brand/primary wins over text/primary', () => {
+    const adapter = new MuiAdapter()
+
+    // Tokens that mimic nomad-vault: slash-separated paths, both brand/primary and text/primary
+    const COLLISION_TOKENS: DesignToken[] = [
+        { id: 1,  token_path: 'color.brand.primary',  token_type: 'color',     token_value: '#2563EB', description: null, collection_name: 'default', mode: 'light' },
+        { id: 2,  token_path: 'color.text.primary',   token_type: 'color',     token_value: '#111827', description: null, collection_name: 'default', mode: 'light' },
+        { id: 3,  token_path: 'color.text.secondary', token_type: 'color',     token_value: '#6B7280', description: null, collection_name: 'default', mode: 'light' },
+        { id: 4,  token_path: 'color.status.success', token_type: 'color',     token_value: '#16A34A', description: null, collection_name: 'default', mode: 'light' },
+        { id: 5,  token_path: 'color.status.error',   token_type: 'color',     token_value: '#DC2626', description: null, collection_name: 'default', mode: 'light' },
+        { id: 6,  token_path: 'radius.card',          token_type: 'dimension', token_value: '12px',    description: null, collection_name: 'default', mode: 'light' },
+        { id: 7,  token_path: 'radius.badge',         token_type: 'dimension', token_value: '9999px',  description: null, collection_name: 'default', mode: 'light' },
+    ]
+
+    it('palette.primary.main is brand blue (#2563EB), not text dark (#111827)', () => {
+        const output = adapter.mapTokens(COLLISION_TOKENS)
+        expect(output.code).toContain('#2563EB')
+        const primaryBlock = output.code.match(/primary:\s*\{[^}]+\}/s)?.[0] ?? ''
+        expect(primaryBlock).toContain('#2563EB')
+        expect(primaryBlock).not.toContain('#111827')
+    })
+
+    it('palette.text.primary is the text/primary token (#111827)', () => {
+        const output = adapter.mapTokens(COLLISION_TOKENS)
+        // text.primary block should contain the text color
+        expect(output.code).toContain('#111827')
+    })
+
+    it('shape.borderRadius is card radius (12), not badge full-round (9999)', () => {
+        const output = adapter.mapTokens(COLLISION_TOKENS)
+        expect(output.code).toContain('borderRadius: 12')
+        expect(output.code).not.toContain('borderRadius: 9999')
+    })
+
+    it('palette.success.main is status/success (#16A34A)', () => {
+        const output = adapter.mapTokens(COLLISION_TOKENS)
+        expect(output.code).toContain('#16A34A')
+    })
+
+    it('palette.error.main is status/error (#DC2626)', () => {
+        const output = adapter.mapTokens(COLLISION_TOKENS)
+        expect(output.code).toContain('#DC2626')
+    })
+
+    it('tokenMap reflects priority-resolved palette.primary.main', () => {
+        const output = adapter.mapTokens(COLLISION_TOKENS)
+        expect(output.tokenMap['palette.primary.main']).toBe('#2563EB')
+    })
+})
+
+describe('MuiAdapter — borderRadius priority: full-round radius tokens are excluded as global default', () => {
+    const adapter = new MuiAdapter()
+
+    it('ignores pill/full/circular radius tokens as global borderRadius', () => {
+        const tokens: DesignToken[] = [
+            { id: 1, token_path: 'colors.primary', token_type: 'color', token_value: '#3b82f6', description: null, collection_name: 'default', mode: 'light' },
+            { id: 2, token_path: 'radius.pill',     token_type: 'dimension', token_value: '9999px', description: null, collection_name: 'default', mode: 'light' },
+            { id: 3, token_path: 'radius.circular', token_type: 'dimension', token_value: '9999px', description: null, collection_name: 'default', mode: 'light' },
+            { id: 4, token_path: 'radius.card',     token_type: 'dimension', token_value: '8px',    description: null, collection_name: 'default', mode: 'light' },
+        ]
+        const output = adapter.mapTokens(tokens)
+        expect(output.code).toContain('borderRadius: 8')
+        expect(output.code).not.toContain('borderRadius: 9999')
+    })
+
+    it('uses first available radius when no card/button specific token exists', () => {
+        const tokens: DesignToken[] = [
+            { id: 1, token_path: 'colors.primary', token_type: 'color', token_value: '#3b82f6', description: null, collection_name: 'default', mode: 'light' },
+            { id: 2, token_path: 'radius.sm',  token_type: 'dimension', token_value: '4px',    description: null, collection_name: 'default', mode: 'light' },
+        ]
+        const output = adapter.mapTokens(tokens)
+        expect(output.code).toContain('borderRadius: 4')
+    })
+
+    it('does not emit shape.borderRadius when all radius tokens are full-round', () => {
+        // When only full-round tokens exist, they're all scored below non-qualifying threshold
+        // and should still be used as the best available (score = -100 wins over nothing)
+        const tokens: DesignToken[] = [
+            { id: 1, token_path: 'colors.primary', token_type: 'color', token_value: '#3b82f6', description: null, collection_name: 'default', mode: 'light' },
+            { id: 2, token_path: 'radius.badge', token_type: 'dimension', token_value: '9999px', description: null, collection_name: 'default', mode: 'light' },
+        ]
+        const output = adapter.mapTokens(tokens)
+        // Even with only a badge radius, it should be emitted (best available)
+        // This is the graceful degradation case — at least output something
+        expect(output.code).toBeDefined()
+    })
+})

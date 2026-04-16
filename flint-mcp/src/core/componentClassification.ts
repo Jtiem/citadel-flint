@@ -235,9 +235,19 @@ const STRICT_CLASSIFICATION_RULES: Array<{
  * it is trusted as a high-confidence override.
  */
 export function classifyComponentName(name: string, componentType?: string): ComponentClassification | null {
-    // High-confidence path: componentType already set by upstream enrichment
+    // High-confidence path: componentType already set by upstream enrichment.
+    // Gate the early return on membership in STRICT_COMPONENT_TYPES — any other
+    // value (including broader DataNameType members like 'button'/'card' or
+    // junk strings like 'widget') is not a valid strict component type and
+    // must NOT be trusted. Fall through to keyword classification instead.
     if (componentType) {
-        return { type: componentType as ComponentType, matchedKeywords: [`data-name:${componentType}`] }
+        if (STRICT_COMPONENT_TYPES.has(componentType)) {
+            return { type: componentType as ComponentType, matchedKeywords: [`data-name:${componentType}`] }
+        }
+        // eslint-disable-next-line no-console
+        console.warn(
+            `[componentClassification] Ignoring non-strict componentType hint "${componentType}" for name "${name}" — falling back to keyword classification.`,
+        )
     }
 
     const lower = name.toLowerCase()

@@ -2570,7 +2570,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 matches = await queryRAGRegistry(query, limit);
             } catch (err) {
                 console.error(`${logTag("Registry")} RAG search failed, falling back to manifest relevance`, err);
-                registryWarnings.push("Semantic search unavailable — results are from keyword matching only. Run flint_reindex_registry to restore full search.");
+                registryWarnings.push("Registry vector search unavailable — results are from manifest keyword matching only. Run flint_reindex_registry to restore keyword + n-gram similarity search.");
 
                 const manifestPath = path.join(registryProjectRoot, BRAND.manifestFile);
                 let components: Record<string, any> = {};

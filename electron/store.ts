@@ -211,10 +211,12 @@ if (overrideColumns.length === 0) {
 
 // ── Phase M: Design System RAG vector table ──────────────────────────────────
 //
-// Stores text chunk embeddings for semantic search over design system docs,
-// component patterns, and usage guidelines. Embeddings are 384-dimensional
-// float32 vectors (matches all-MiniLM-L6-v2 / text-embedding-3-small output
-// when configured with dimensions=384).
+// Stores 384-dim text chunk vectors for similarity search over design system
+// docs, component patterns, and usage guidelines. The Electron path
+// (electron/ragService.ts) populates this with real neural embeddings
+// (all-MiniLM-L6-v2 / text-embedding-3-small, dimensions=384); the headless
+// web path (server/services/ragStore.ts) populates it with keyword + n-gram
+// similarity vectors. Both share this schema.
 //
 // vec_design_system is a sqlite-vec virtual table; the companion metadata table
 // stores the source text chunks and provenance info.

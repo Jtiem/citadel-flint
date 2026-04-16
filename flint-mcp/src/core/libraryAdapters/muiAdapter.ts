@@ -65,6 +65,96 @@ interface ClassifiedMuiTokens {
     skipped: SkippedToken[]
 }
 
+// ---------------------------------------------------------------------------
+// Semantic path priority for MUI palette role resolution
+// ---------------------------------------------------------------------------
+//
+// When multiple tokens match a semantic role keyword, this priority list
+// resolves the ambiguity by picking the path whose segments most precisely
+// designate the role. Higher index = higher priority.
+//
+// Example: "color/text/primary" and "color/brand/primary" both match "primary".
+// "brand/primary" wins because "brand" is a higher-priority qualifier than "text".
+//
+// For borderRadius: avoid picking full-round radius (badge, full, pill, rounded-full).
+// Prefer card/button/default/md radii.
+
+/**
+ * Score a token path for a given MUI role.
+ * Higher score = more authoritative match. Returns -1 if no match.
+ */
+function scorePaletteRolePath(tokenPath: string, role: string): number {
+    const lower = tokenPath.toLowerCase()
+    // Must contain the role keyword at all
+    if (!lower.includes(role)) return -1
+
+    // Disqualifiers: paths that contain the role word but are clearly not the role
+    // e.g. "color/text/primary" for role "primary" — it is text color, not brand primary
+    const isTextQualified = /\b(text|foreground|on[-/])\b/.test(lower)
+    const isStatusQualified = /\b(status|state)\b/.test(lower)
+    const isBrandQualified = /\b(brand|palette|theme)\b/.test(lower)
+
+    // Assign base score by role segment position
+    let score = 0
+
+    if (isBrandQualified) score += 30   // brand/primary = strong semantic signal
+    if (isStatusQualified) score += 15  // status/primary = weaker
+    if (isTextQualified) score -= 20    // text/primary = wrong context for palette.primary
+
+    // Direct role-only paths score high: "primary", "primary/main", "primary/default"
+    const segments = lower.replace(/\//g, '.').split('.')
+    const roleIdx = segments.indexOf(role)
+    if (roleIdx === segments.length - 1) score += 10  // role is last segment = most specific
+    if (segments.length <= 2) score += 5  // short path = canonical token
+
+    return score
+}
+
+/**
+ * Detect a semantic role from a token path using priority scoring.
+ * Returns { role, score } or null. Unlike the shared detectSemanticRole helper
+ * this is private to muiAdapter and scores rather than first-match.
+ */
+function detectPrioritizedRole(tokenPath: string): { role: string; score: number } | null {
+    const roles = ['primary', 'secondary', 'success', 'warning', 'error', 'info', 'surface', 'background', 'text', 'muted']
+    let best: { role: string; score: number } | null = null
+    for (const role of roles) {
+        const score = scorePaletteRolePath(tokenPath, role)
+        if (score >= 0) {
+            if (!best || score > best.score) {
+                best = { role, score }
+            }
+        }
+    }
+    return best
+}
+
+/**
+ * Check if a radius token path is a full-round / pill radius that should NOT
+ * be used as the global borderRadius default.
+ */
+function isFullRoundRadius(tokenPath: string): boolean {
+    const lower = tokenPath.toLowerCase()
+    // Exact keywords that indicate a full-round (9999px) badge/pill radius
+    return /\b(badge|pill|full|circular|chip|tag|icon)\b/.test(lower)
+        || /rounded-full/.test(lower)
+        || (/\bround\b/.test(lower) && !/\baround\b/.test(lower))
+}
+
+/**
+ * Score a radius token path for use as the global borderRadius.
+ * Returns higher score for card/button/default/md; lower for badge/full/pill.
+ */
+function scoreRadiusPath(tokenPath: string): number {
+    if (isFullRoundRadius(tokenPath)) return -100
+    const lower = tokenPath.toLowerCase()
+    let score = 0
+    if (/\b(card|button|default|base|md|medium)\b/.test(lower)) score += 20
+    if (/\b(sm|small)\b/.test(lower)) score += 10
+    if (/\b(lg|large|xl)\b/.test(lower)) score += 5
+    return score
+}
+
 function classifyTokens(tokens: DesignToken[]): ClassifiedMuiTokens {
     const result: ClassifiedMuiTokens = {
         paletteColors: new Map(),
@@ -80,33 +170,70 @@ function classifyTokens(tokens: DesignToken[]): ClassifiedMuiTokens {
         skipped: [],
     }
 
-    // First pass: collect color families for palette building
+    // First pass: collect color families for palette building + priority semantic role map
     const colorFamilies = new Map<string, Map<number, string>>()
+
+    // Track best (highest-score) semantic color per MUI palette role to avoid last-write-wins.
+    // This is separate from the general semanticColors map which stores ALL semantic roles.
+    const paletteRoleScores = new Map<string, number>()
+    // paletteRoleWinner: role → best token value
+    const paletteRoleWinner = new Map<string, string>()
+
+    // Track best radius token: { value, score }
+    let bestRadiusScore = -Infinity
+    let bestRadiusValue: number | null = null
 
     for (const token of tokens) {
         switch (token.token_type) {
             case 'color': {
                 const shade = detectShade(token.token_path)
                 const family = extractColorFamily(token.token_path)
-                const role = detectSemanticRole(token.token_path)
 
                 if (shade !== null && family) {
                     if (!colorFamilies.has(family)) {
                         colorFamilies.set(family, new Map())
                     }
                     colorFamilies.get(family)!.set(shade, token.token_value)
-                } else if (role) {
-                    result.semanticColors.set(role, token.token_value)
+                }
+
+                // Store ALL semantic roles using the shared detectSemanticRole (includes foreground, border, etc.)
+                // Last-write-wins here — used for background, text, muted lookups below.
+                const genericRole = detectSemanticRole(token.token_path)
+                if (genericRole) {
+                    result.semanticColors.set(genericRole, token.token_value)
+                }
+
+                // Additionally, track priority-scored winners for the MUI palette roles
+                // (primary, secondary, error, warning, info, success) to prevent
+                // color/text/primary from overwriting color/brand/primary.
+                const muiPaletteRoles = ['primary', 'secondary', 'error', 'warning', 'info', 'success']
+                for (const paletteRole of muiPaletteRoles) {
+                    const score = scorePaletteRolePath(token.token_path, paletteRole)
+                    if (score >= 0) {
+                        const existing = paletteRoleScores.get(paletteRole) ?? -Infinity
+                        if (score > existing) {
+                            paletteRoleScores.set(paletteRole, score)
+                            paletteRoleWinner.set(paletteRole, token.token_value)
+                        }
+                    }
                 }
                 break
             }
             case 'dimension': {
                 const lower = token.token_path.toLowerCase()
                 if (lower.includes('radius') || lower.includes('round')) {
+                    // Use priority scoring to pick the canonical card/button radius,
+                    // not the full-round badge radius.
                     const numValue = parseFloat(token.token_value)
-                    if (!isNaN(numValue)) result.borderRadius = numValue
+                    if (!isNaN(numValue)) {
+                        const score = scoreRadiusPath(token.token_path)
+                        if (score > bestRadiusScore || bestRadiusValue === null) {
+                            bestRadiusScore = score
+                            bestRadiusValue = numValue
+                        }
+                    }
                 } else if (lower.includes('font') && lower.includes('size')) {
-                    const key = token.token_path.split('.').pop() ?? token.token_path
+                    const key = token.token_path.split(/[./]/).pop() ?? token.token_path
                     result.fontSizes.set(key, token.token_value)
                 } else if (lower.includes('spacing') && lower.includes('base')) {
                     const numValue = parseFloat(token.token_value)
@@ -118,12 +245,12 @@ function classifyTokens(tokens: DesignToken[]): ClassifiedMuiTokens {
                 result.fontFamily = token.token_value
                 break
             case 'fontWeight': {
-                const key = token.token_path.split('.').pop() ?? token.token_path
+                const key = token.token_path.split(/[./]/).pop() ?? token.token_path
                 result.fontWeights.set(key, token.token_value)
                 break
             }
             case 'shadow': {
-                const key = token.token_path.split('.').pop() ?? token.token_path
+                const key = token.token_path.split(/[./]/).pop() ?? token.token_path
                 result.shadows.set(key, token.token_value)
                 break
             }
@@ -136,7 +263,13 @@ function classifyTokens(tokens: DesignToken[]): ClassifiedMuiTokens {
         }
     }
 
-    // Build palette colors from shade scales
+    // Commit best radius (priority-scored, not last-write)
+    if (bestRadiusValue !== null) {
+        result.borderRadius = bestRadiusValue
+    }
+
+    // Build palette colors from priority-scored semantic paths and shade scales.
+    // Priority: priority-winner (brand/primary beats text/primary) > shade family
     const muiRoles: Array<{ role: string; families: string[] }> = [
         { role: 'primary',   families: ['primary', 'brand', 'blue'] },
         { role: 'secondary', families: ['secondary', 'accent', 'purple', 'violet'] },
@@ -147,10 +280,10 @@ function classifyTokens(tokens: DesignToken[]): ClassifiedMuiTokens {
     ]
 
     for (const { role, families } of muiRoles) {
-        // Check semantic colors first
-        const semanticValue = result.semanticColors.get(role)
-        if (semanticValue) {
-            result.paletteColors.set(role, { main: semanticValue })
+        // Use priority-scored winner (avoids text/primary overwriting brand/primary)
+        const priorityValue = paletteRoleWinner.get(role)
+        if (priorityValue) {
+            result.paletteColors.set(role, { main: priorityValue })
             continue
         }
 
@@ -171,16 +304,58 @@ function classifyTokens(tokens: DesignToken[]): ClassifiedMuiTokens {
         }
     }
 
-    // Background and text
-    const bg = result.semanticColors.get('background')
-    const surface = result.semanticColors.get('surface')
-    if (bg) result.background.default = bg
-    if (surface) result.background.paper = surface
+    // Background: prefer color/surface/page → default, color/surface/card → paper
+    // The 'background' semantic role maps to the page background, not card background.
+    // 'surface' maps to card/paper.
+    const bgValue = result.semanticColors.get('background')
+    const surfaceValue = result.semanticColors.get('surface')
 
-    const textColor = result.semanticColors.get('text') ?? result.semanticColors.get('foreground')
-    const mutedColor = result.semanticColors.get('muted')
-    if (textColor) result.textColors.primary = textColor
-    if (mutedColor) result.textColors.secondary = mutedColor
+    // Also do a targeted lookup for surface.page and surface.card paths
+    let surfacePageValue: string | undefined
+    let surfaceCardValue: string | undefined
+    for (const token of tokens) {
+        if (token.token_type !== 'color') continue
+        const lower = token.token_path.toLowerCase()
+        if (lower.includes('surface') && lower.includes('page') && !surfacePageValue) {
+            surfacePageValue = token.token_value
+        }
+        if (lower.includes('surface') && lower.includes('card') && !surfaceCardValue) {
+            surfaceCardValue = token.token_value
+        }
+    }
+
+    if (surfacePageValue) result.background.default = surfacePageValue
+    else if (bgValue) result.background.default = bgValue
+
+    if (surfaceCardValue) result.background.paper = surfaceCardValue
+    else if (surfaceValue) result.background.paper = surfaceValue
+
+    // Text colors: prefer text.primary path over muted/foreground catch-all
+    let textPrimaryValue: string | undefined
+    let textSecondaryValue: string | undefined
+    for (const token of tokens) {
+        if (token.token_type !== 'color') continue
+        const lower = token.token_path.toLowerCase()
+        if (!textPrimaryValue && lower.includes('text') && lower.includes('primary')) {
+            textPrimaryValue = token.token_value
+        }
+        if (!textSecondaryValue && lower.includes('text') && lower.includes('secondary')) {
+            textSecondaryValue = token.token_value
+        }
+    }
+
+    if (textPrimaryValue) result.textColors.primary = textPrimaryValue
+    else {
+        // Fall back to 'text' or 'foreground' semantic color (both are valid text sources)
+        const textColor = result.semanticColors.get('text') ?? result.semanticColors.get('foreground')
+        if (textColor) result.textColors.primary = textColor
+    }
+
+    if (textSecondaryValue) result.textColors.secondary = textSecondaryValue
+    else {
+        const mutedColor = result.semanticColors.get('muted')
+        if (mutedColor) result.textColors.secondary = mutedColor
+    }
 
     return result
 }

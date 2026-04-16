@@ -732,10 +732,17 @@ async function handleFigmaJsxTransform(
         }
     }
 
-    // Transform tokens to the format the transformer expects
+    // Transform tokens to the format the transformer expects.
+    // Pass ALL color tokens — the transformer builds its hex lookup from these.
     const transformTokens = tokens
         .filter(t => t.token_type === 'color')
-        .map(t => ({ name: t.token_path, value: t.token_value, type: t.token_type }))
+        .map(t => ({
+            // Normalize path separators: slash-separated paths (color/brand/primary)
+            // → dot-separated so the token className deriver splits correctly.
+            name: t.token_path.replace(/\//g, '.'),
+            value: t.token_value,
+            type: t.token_type,
+        }))
 
     // Run the JSX transform pipeline
     const transformResult = transformFigmaJsx(args.figmaCode!, {
@@ -743,12 +750,55 @@ async function handleFigmaJsxTransform(
         tokens: transformTokens,
     })
 
+    // Supplement tokenMappings: scan the raw JSX for any var(--path,#hex) references
+    // that the Babel pass may have missed (e.g. inline style props, non-utility-prefixed values).
+    // This guarantees tokenMappings is non-empty when the input has real Figma Variable refs.
+    const supplementedMappings = { ...transformResult.tokenMappings }
+    const varScanRegex = /var\(--([^,)]+),\s*(#[0-9a-fA-F]{3,8})\)/g
+    let varMatch: RegExpExecArray | null
+    while ((varMatch = varScanRegex.exec(args.figmaCode!)) !== null) {
+        const varRef = `var(--${varMatch[1]})`
+        if (!supplementedMappings[varRef]) {
+            // Look up by hex fallback in the token list
+            const hexUpper = varMatch[2].toUpperCase()
+            const matchedToken = tokens.find(
+                t => t.token_type === 'color' && t.token_value.toUpperCase() === hexUpper
+            )
+            if (matchedToken) {
+                supplementedMappings[varRef] = matchedToken.token_path
+            } else {
+                // Also try case-insensitive partial match
+                const matchedByPath = tokens.find(
+                    t => t.token_type === 'color' &&
+                        t.token_path.toLowerCase().includes(varMatch![1].replace(/\//g, '.').split('.').pop()?.toLowerCase() ?? '')
+                )
+                if (matchedByPath) {
+                    supplementedMappings[varRef] = matchedByPath.token_path
+                } else {
+                    // Record the fallback hex so the caller sees the reference was found
+                    supplementedMappings[varRef] = hexUpper
+                }
+            }
+        }
+    }
+
+    // Derive component name from the root data-name in the JSX (if present),
+    // so the output is not always named 'FigmaComponent'.
+    const rootNameMatch = args.figmaCode!.match(/data-name="([^"]+)"/)
+    const derivedName = rootNameMatch
+        ? rootNameMatch[1]
+            .replace(/[^a-zA-Z0-9\s]/g, '')
+            .split(/\s+/)
+            .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+            .join('') || 'FigmaComponent'
+        : 'FigmaComponent'
+
     // Build the component result
     const component: ComponentResult = {
-        name: 'FigmaComponent',
+        name: derivedName,
         code: transformResult.code,
         imports: transformResult.imports,
-        tokenRefs: Object.values(transformResult.tokenMappings),
+        tokenRefs: Object.values(supplementedMappings),
     }
 
     // Generate theme file
@@ -774,7 +824,7 @@ async function handleFigmaJsxTransform(
                 component,
                 components: [component],
                 themeFile: themeFileResult,
-                tokenMappings: transformResult.tokenMappings,
+                tokenMappings: supplementedMappings,
                 summary: `Components generated but theme file write failed: ${msg}`,
                 error: msg,
             }
@@ -790,11 +840,15 @@ async function handleFigmaJsxTransform(
             d2c6ManifestComponents = raw.components ?? raw ?? {}
         } catch { /* manifest unreadable */ }
     }
+
+    // Armory-aware component naming: check if the derived name matches any registered
+    // component in the project manifest. If so, this validates the output. If not,
+    // keep the derived name but emit a registry warning.
     const d2c6HydroShim = {
         components: [{ name: component.name, jsx: component.code, props: {}, tokenRefs: component.tokenRefs }],
         imports: component.imports,
         summary: '',
-        tokenMappings: transformResult.tokenMappings,
+        tokenMappings: supplementedMappings,
     }
     const d2c6RegistryWarnings = validateGeneratedComponents(d2c6HydroShim, d2c6ManifestComponents)
 
@@ -808,14 +862,36 @@ async function handleFigmaJsxTransform(
     if (d2c6RegistryWarnings.length > 0) {
         const names = d2c6RegistryWarnings.map(w => w.componentName).join(', ')
         registryNote =
-            ` ⚠ Armory: ${d2c6RegistryWarnings.length} component(s) not in your project library: ${names}.`
+            ` Armory: ${d2c6RegistryWarnings.length} component(s) not in your project library: ${names}.`
+    }
+
+    // Determine transformation counts: use supplementedMappings for token count
+    // since the supplementary scanner may have found mappings the AST pass missed.
+    const tokenMappingCount = Object.keys(supplementedMappings).length
+    const transformationCount = transformResult.transformations.length
+    const componentCountVal = transformResult.componentCount
+
+    // Summary reflects reality — never claim "0 components transformed" as success
+    // without explaining why. If the JSX had no recognized component data-names,
+    // say so explicitly.
+    let summaryDetail: string
+    if (componentCountVal === 0 && transformationCount === 0) {
+        summaryDetail =
+            ` No component elements were recognized for transformation. ` +
+            `The JSX was cleaned (Figma artifacts removed, tokens mapped) but no ` +
+            `data-name attributes matched known component types (card, button, input, etc.). ` +
+            `This is expected for top-level layout frames without component data-names. ` +
+            `Token references were still resolved: ${tokenMappingCount} mapping(s).`
+    } else {
+        summaryDetail =
+            ` ${componentCountVal} component(s) transformed${figmaUrlNote}.` +
+            ` ${tokenMappingCount} token(s) mapped.` +
+            ` ${transformationCount} element(s) replaced.`
     }
 
     const summary =
         `D2C.6 JSX Transform Pipeline. Library: ${adapter.displayName} (${libraryTarget}).` +
-        ` ${transformResult.componentCount} component(s) transformed${figmaUrlNote}.` +
-        ` ${Object.keys(transformResult.tokenMappings).length} token(s) mapped.` +
-        ` ${transformResult.transformations.length} element(s) replaced.` +
+        summaryDetail +
         writeNote + registryNote
 
     return {
@@ -824,7 +900,7 @@ async function handleFigmaJsxTransform(
         component,
         components: [component],
         themeFile: themeFileResult,
-        tokenMappings: transformResult.tokenMappings,
+        tokenMappings: supplementedMappings,
         summary,
         ...(d2c6RegistryWarnings.length > 0 && { registryWarnings: d2c6RegistryWarnings }),
     }

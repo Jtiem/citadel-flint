@@ -12,6 +12,14 @@ export interface PropDefinition {
     type: string;
     required: boolean;
     default?: string;
+    /** Human-readable prop description, surfaced in Shadow Storybook. */
+    description?: string;
+    /** String-literal union values (e.g. ['sm', 'md', 'lg']). */
+    enum?: string[];
+    /** When true, prop is rendered strikethrough in Shadow Storybook. */
+    deprecated?: boolean;
+    /** Native HTML attr this prop replaces, for rogue-intrinsic remediation. */
+    translatesFrom?: string;
 }
 
 export interface ComponentEntry {
@@ -36,6 +44,8 @@ export interface ComponentEntry {
     a11yNotes?: string;
     /** Names of related components (e.g., "DialogHeader", "DialogFooter" for "Dialog"). */
     relatedComponents?: string[];
+    /** M3: Source identifier for multi-library conflict detection. */
+    sourceId?: string;
     /** P2.5: Structural composition rules for parent-child validation. */
     compositionRules?: {
         /** Whitelist: only these components can be nested inside this component. */
@@ -51,6 +61,17 @@ export interface ComponentEntry {
 
 // ── P3: Team-specific Registry Overlays ──────────────────────────────────────
 
+/**
+ * Structured error thrown when a team overlay adds a net-new component
+ * without a required `importPath`.
+ */
+export class RegistryMergeError extends Error {
+    constructor(public readonly entryName: string) {
+        super(`Registry merge error: new entry "${entryName}" is missing required "importPath"`)
+        this.name = 'RegistryMergeError'
+    }
+}
+
 export interface TeamRegistryOverlayInput {
     /** New registry entries to add (will overwrite an existing key with same name). */
     addEntries?: Record<string, Partial<ComponentEntry> & { importPath?: string }>
@@ -62,8 +83,12 @@ export interface TeamRegistryOverlayInput {
  * Merge a team registry overlay into a base registry map. The base map is not
  * mutated. Returns a new map with:
  *   1. All base entries
- *   2. `addEntries` merged (new entries win over base)
+ *   2. `addEntries` merged (new entries win over base, compositionRules deep-merged)
  *   3. `importOverrides` applied last (rewrites importPath on any matching entry)
+ *
+ * CRIT C5a: compositionRules are deep-merged per-field (new rules add, overlay wins per field).
+ * CRIT C5b: Net-new entries (not present in base) must include importPath or throw RegistryMergeError.
+ * M3: addEntries are stamped with sourceId = "team-overlay".
  */
 export function mergeTeamRegistryOverlay(
     base: Record<string, ComponentEntry>,
@@ -74,12 +99,33 @@ export function mergeTeamRegistryOverlay(
 
     if (overlay.addEntries) {
         for (const [name, entry] of Object.entries(overlay.addEntries)) {
-            const prev = merged[name] ?? ({} as ComponentEntry)
+            const prev = merged[name]
+            const isNewEntry = !prev
+
+            // CRIT C5b: net-new entries must have importPath
+            if (isNewEntry && !entry.importPath) {
+                throw new RegistryMergeError(name)
+            }
+
+            const basePrev = prev ?? ({} as ComponentEntry)
+
+            // CRIT C5a: deep-merge compositionRules
+            let mergedCompositionRules = basePrev.compositionRules
+            if (entry.compositionRules) {
+                mergedCompositionRules = {
+                    ...basePrev.compositionRules,
+                    ...entry.compositionRules,
+                }
+            }
+
             merged[name] = {
-                ...prev,
+                ...basePrev,
                 ...entry,
                 name,
-                importPath: entry.importPath ?? prev.importPath ?? '',
+                importPath: entry.importPath ?? basePrev.importPath ?? '',
+                compositionRules: mergedCompositionRules,
+                // M3: stamp sourceId on overlay entries
+                sourceId: entry.sourceId ?? 'team-overlay',
             } as ComponentEntry
         }
     }
@@ -93,6 +139,48 @@ export function mergeTeamRegistryOverlay(
     }
 
     return merged
+}
+
+// ── M3: Multi-library Conflict Detection ────────────────────────────────────
+
+/**
+ * Report shape for registry conflicts — pure reporter, no side effects.
+ */
+export interface RegistryConflictReport {
+    name: string;
+    existingSourceId?: string;
+    incomingSourceId?: string;
+}
+
+/**
+ * Scan for duplicate component names across different sourceIds.
+ * Compares `incoming` entries against `existing` registry.
+ * Returns a conflict entry for each key where sourceId differs.
+ */
+export function detectRegistryConflicts(
+    existing: Record<string, ComponentEntry>,
+    incoming: Record<string, ComponentEntry>,
+): RegistryConflictReport[] {
+    const conflicts: RegistryConflictReport[] = []
+
+    for (const [name, incomingEntry] of Object.entries(incoming)) {
+        const existingEntry = existing[name]
+        if (!existingEntry) continue
+
+        const existingSrc = existingEntry.sourceId
+        const incomingSrc = incomingEntry.sourceId
+
+        // Only report conflict when sourceIds differ
+        if (existingSrc !== incomingSrc) {
+            conflicts.push({
+                name,
+                existingSourceId: existingSrc,
+                incomingSourceId: incomingSrc,
+            })
+        }
+    }
+
+    return conflicts
 }
 
 // ── FIGMA-MAP.3: Deterministic Lookup ────────────────────────────────────────
@@ -134,29 +222,51 @@ export function queryRegistryDeterministic(
 // ── Scoring ──────────────────────────────────────────────────────────────────
 
 /**
- * Score a single component against a query.
- * Each query word that appears (case-insensitively) in any searchable field
- * contributes 1 point.  Returns a non-negative integer.
+ * Field-weighted scoring weights for registry search (M1).
+ * name=5, description=3, variants=2, tokens=1, notes=1.
+ */
+export const REGISTRY_SCORE_WEIGHTS = {
+    name: 5,
+    description: 3,
+    variants: 2,
+    tokens: 1,
+    notes: 1,
+} as const;
+
+/**
+ * Score a single component against a query using field-weighted scoring.
+ * Each query word that matches in a field contributes the field's weight.
+ * Returns a non-negative number.
  */
 function scoreComponent(entry: ComponentEntry, words: string[]): number {
     let score = 0;
 
-    const searchFields: string[] = [
-        entry.name,
-        entry.description ?? '',
-        ...(entry.variants ?? []),
-        ...(entry.tokens ?? []),
+    const nameField = entry.name.toLowerCase();
+    const descField = (entry.description ?? '').toLowerCase();
+    const variantFields = (entry.variants ?? []).map(s => s.toLowerCase());
+    const tokenFields = (entry.tokens ?? []).map(s => s.toLowerCase());
+    const notesFields = [
         entry.compositionNotes ?? '',
         entry.a11yNotes ?? '',
         ...(entry.relatedComponents ?? []),
     ].map(s => s.toLowerCase());
 
     for (const word of words) {
-        for (const field of searchFields) {
-            if (field.includes(word)) {
-                score += 1;
-                break; // one point per word per component, not per field
-            }
+        // Check each field group in priority order; a word can match multiple fields
+        if (nameField.includes(word)) {
+            score += REGISTRY_SCORE_WEIGHTS.name;
+        }
+        if (descField.includes(word)) {
+            score += REGISTRY_SCORE_WEIGHTS.description;
+        }
+        if (variantFields.some(f => f.includes(word))) {
+            score += REGISTRY_SCORE_WEIGHTS.variants;
+        }
+        if (tokenFields.some(f => f.includes(word))) {
+            score += REGISTRY_SCORE_WEIGHTS.tokens;
+        }
+        if (notesFields.some(f => f.includes(word))) {
+            score += REGISTRY_SCORE_WEIGHTS.notes;
         }
     }
 
@@ -195,7 +305,7 @@ export function queryRegistry(
         }
     }
 
-    scored.sort((a, b) => b.score - a.score);
+    scored.sort((a, b) => b.score - a.score || a.entry.name.localeCompare(b.entry.name));
 
     return scored.slice(0, Math.max(1, Math.min(limit, 50))).map(s => s.entry);
 }

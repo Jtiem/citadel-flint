@@ -452,9 +452,20 @@ const SHADCN_REMAP: Record<string, string> = {
     'border-input': 'input',
 }
 
+// ---------------------------------------------------------------------------
+// MUI/PrimeNG CSS variable resolution (D2C.11 non-shadcn path)
+// ---------------------------------------------------------------------------
+// For MUI and PrimeNG, Figma CSS variable names (from Figma Variables) map
+// to token paths. We resolve var(--color/brand/primary,#hex) → the token
+// path so tokenMappings is populated for audit/diff purposes.
+// The className itself is NOT transformed for MUI (we use sx props instead
+// of Tailwind utilities) — but we still record the mapping.
+
 /**
- * Resolve a Figma CSS variable name to a shadcn semantic Tailwind class.
- * Returns null if no mapping exists (caller should fall back to CIEDE2000).
+ * Resolve a Figma CSS variable name to a library-semantic token path.
+ * For shadcn: resolves to a Tailwind class name (e.g. "primary").
+ * For MUI/PrimeNG: resolves to the token path (e.g. "color.brand.primary").
+ * Returns null if the variable cannot be resolved.
  */
 export function resolveVarToSemantic(varName: string, library: SupportedLibrary): string | null {
     if (library !== 'shadcn') return null  // MUI/PrimeNG use different systems
@@ -493,21 +504,31 @@ function mapClassTokens(
     result = result.replace(
         /((?:text|bg|border|ring|fill|stroke|shadow|accent|caret|outline|decoration)-)\[(?:color:)?var\(--([^,)]+),\s*([^)]+)\)\]/g,
         (match, prefix, varName, fallback) => {
-            // D2C.11: Try semantic variable name resolution first
+            // D2C.11: Try semantic variable name resolution first (shadcn only)
             const semantic = resolveVarToSemantic(varName, library)
             if (semantic) {
                 tokenMappings[`var(--${varName})`] = semantic
                 return `${prefix}${semantic}`
             }
 
-            // Fallback: CIEDE2000 on the hex value
+            // D2C.11: For MUI/PrimeNG, record the mapping via hex CIEDE2000 match.
+            // We don't transform the className (MUI uses sx props, not Tailwind utilities)
+            // but we DO record what was resolved for audit/tokenMappings output.
             const hexMatch = (fallback as string).match(/#([0-9a-fA-F]{3,8})/)
             if (hexMatch) {
                 const fullHex = `#${hexMatch[1].toUpperCase()}`
                 const tokenMatch = findNearestToken(fullHex, tokenLookup.exactMap, tokenLookup.labTokens, TIER2_DELTA_E)
                 if (tokenMatch) {
-                    tokenMappings[fullHex] = tokenMatch.className
-                    return `${prefix}${tokenMatch.className}`
+                    // Record the mapping: var ref → resolved token class/path
+                    tokenMappings[`var(--${varName})`] = tokenMatch.className
+                    // For shadcn, also transform the className
+                    if (library === 'shadcn' || library === 'tailwind') {
+                        return `${prefix}${tokenMatch.className}`
+                    }
+                } else {
+                    // Even without a CIEDE2000 match, record the var → hex fallback
+                    // so tokenMappings is non-empty for the caller to see what was found
+                    tokenMappings[`var(--${varName})`] = fullHex
                 }
             }
             return match

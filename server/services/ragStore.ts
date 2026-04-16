@@ -3,19 +3,26 @@
  *
  * sqlite-vec powered RAG store for design system context injection.
  *
- * Mirrors the Electron implementation (electron/ragService.ts + electron/ragSeeder.ts)
- * but uses a lightweight character n-gram hashing approach for embeddings instead of
- * the HuggingFace transformer pipeline (which requires ONNX runtime / GPU support
- * that is not available in a headless Node web server context).
+ * NOTE: This module implements **keyword + n-gram similarity** (lexical matching),
+ * NOT true neural semantic embedding. Despite being backed by sqlite-vec, the
+ * "embeddings" produced here are deterministic character n-gram hashes — they
+ * cluster texts that share literal substrings, not texts that share meaning.
  *
- * The embedding strategy:
+ * Mirrors the Electron implementation (electron/ragService.ts + electron/ragSeeder.ts)
+ * but uses this lightweight n-gram hashing approach instead of the HuggingFace
+ * transformer pipeline (which requires ONNX runtime / GPU support that is not
+ * available in a headless Node web server context). If you need real semantic
+ * search on the web path, wire in a proper embedding model — do not rebrand this
+ * file.
+ *
+ * The lexical embedding strategy:
  *   1. Tokenize text into character n-grams (tri-grams and quad-grams)
  *   2. Hash each n-gram to a bucket in a fixed-size vector (384 dimensions,
  *      matching the vec_design_system schema from electron/store.ts)
  *   3. L2-normalize the resulting vector
  *
- * This gives approximate semantic matching — texts sharing similar substrings
- * will cluster together. Not as powerful as a neural model, but entirely offline,
+ * This gives approximate lexical matching — texts sharing similar substrings
+ * will cluster together. Not semantic understanding, but entirely offline,
  * zero-dependency, and deterministic.
  */
 
@@ -68,8 +75,11 @@ function fnv1a(str: string): number {
 }
 
 /**
- * Generate a fixed-dimension float32 embedding from text using character n-gram
- * hashing. Produces a 384-dimensional vector that is L2-normalized.
+ * Generate a fixed-dimension float32 lexical vector from text using character
+ * n-gram hashing. Produces a 384-dimensional vector that is L2-normalized.
+ *
+ * This is keyword + n-gram similarity, NOT true semantic embedding. It clusters
+ * by shared substrings, not by meaning.
  *
  * The approach:
  *   1. Lowercase and trim the text
@@ -302,11 +312,18 @@ export function createRAGService(db: Database.Database): RAGService {
     const currentCount = (countStmt.get() as { cnt: number }).cnt
     if (currentCount === 0) return []
 
+    // Clamp limit to [1, 100]. Non-finite, NaN, or out-of-range values are
+    // coerced rather than rejected so callers never get a surprising throw
+    // from the sqlite-vec k parameter.
+    let safeLimit = Math.floor(Number(limit))
+    if (!Number.isFinite(safeLimit) || safeLimit < 1) safeLimit = 1
+    if (safeLimit > 100) safeLimit = 100
+
     const queryVec = embedText(queryText)
     const vecBuffer = Buffer.from(queryVec.buffer)
 
     try {
-      const rows = searchStmt.all(vecBuffer, limit) as Array<{
+      const rows = searchStmt.all(vecBuffer, safeLimit) as Array<{
         chunk_id: number
         distance: number
         content: string
@@ -343,7 +360,7 @@ export function createRAGService(db: Database.Database): RAGService {
           chunk.chunkType ?? 'documentation',
           vecBuffer,
         )
-        const chunkId = info.lastInsertRowid as number
+        const chunkId = BigInt(info.lastInsertRowid)
 
         insertVecStmt.run(chunkId, vecBuffer)
         ingested++
@@ -511,9 +528,20 @@ export function createRAGService(db: Database.Database): RAGService {
     await clear()
     const result = await ingest(chunks)
 
-    console.log(`${BRAND.logPrefix} Seeded: ${result.ingested} chunks from [${sources.join(', ')}]`)
+    // Collapse per-file docs entries ("docs/intro.md", "docs/tokens.md", ...)
+    // down to a single "docs" category so the summary output matches the other
+    // source categories (manifest, tokens). Dedupes any repeated pushes too.
+    const collapsedSources = Array.from(
+      new Set(
+        sources.map(s => (s.startsWith('docs/') ? 'docs' : s)),
+      ),
+    )
 
-    return { ingested: result.ingested, sources }
+    console.log(
+      `${BRAND.logPrefix} Seeded: ${result.ingested} chunks from [${collapsedSources.join(', ')}]`,
+    )
+
+    return { ingested: result.ingested, sources: collapsedSources }
   }
 
   // ── Return service object ────────────────────────────────────────────────

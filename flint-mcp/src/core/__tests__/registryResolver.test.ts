@@ -48,7 +48,7 @@ describe('resolveRegistryRef (Gap 6)', () => {
     // ── Pack found in local cache ─────────────────────────────────────────────
 
     it('returns config path when pack exists in .flint-packs/', () => {
-        const expectedPath = createPack('acme--my-pack')
+        const expectedPath = fs.realpathSync(createPack('acme--my-pack'))
         const result = resolveRegistryRef('acme/my-pack', tmpDir)
         expect(result).toBe(expectedPath)
     })
@@ -143,14 +143,11 @@ describe('resolveRegistryRef (Gap 6)', () => {
 
     // ── Edge cases ────────────────────────────────────────────────────────────
 
-    it('returns null for a ref that is just a slash', () => {
-        // "/" → dir name "--" — unlikely to exist
-        const result = resolveRegistryRef('/', tmpDir)
-        expect(result).toBeNull()
+    it('throws RegistryPathSandboxError for a ref that is just a slash (absolute path)', () => {
+        expect(() => resolveRegistryRef('/', tmpDir)).toThrow(/absolute/)
     })
 
-    it('does not throw for a ref containing special characters (no crash guarantee)', () => {
-        // Should return null gracefully, not throw
-        expect(() => resolveRegistryRef('org/pack!@#', tmpDir)).not.toThrow()
+    it('throws RegistryPathSandboxError for special characters in ref', () => {
+        expect(() => resolveRegistryRef('org/pack!@#', tmpDir)).toThrow()
     })
 })

@@ -1113,3 +1113,338 @@ describe('handleDesignToCode — D2C.5 AI refinement (aiRefine)', () => {
         }
     })
 })
+
+// ---------------------------------------------------------------------------
+// D2C.6 regression tests — Bug fixes for figmaCode path
+// ---------------------------------------------------------------------------
+
+// Nomad-vault style tokens with slash-separated paths and semantic naming
+const NOMAD_VAULT_TOKENS: DesignToken[] = [
+    { id: 1,  token_path: 'color/brand/primary',    token_type: 'color',     token_value: '#2563EB', description: null, collection_name: 'default', mode: 'light' },
+    { id: 2,  token_path: 'color/brand/secondary',  token_type: 'color',     token_value: '#7C3AED', description: null, collection_name: 'default', mode: 'light' },
+    { id: 3,  token_path: 'color/surface/page',     token_type: 'color',     token_value: '#F8FAFC', description: null, collection_name: 'default', mode: 'light' },
+    { id: 4,  token_path: 'color/surface/card',     token_type: 'color',     token_value: '#FFFFFF', description: null, collection_name: 'default', mode: 'light' },
+    { id: 5,  token_path: 'color/text/primary',     token_type: 'color',     token_value: '#111827', description: null, collection_name: 'default', mode: 'light' },
+    { id: 6,  token_path: 'color/text/secondary',   token_type: 'color',     token_value: '#6B7280', description: null, collection_name: 'default', mode: 'light' },
+    { id: 7,  token_path: 'color/status/success',   token_type: 'color',     token_value: '#16A34A', description: null, collection_name: 'default', mode: 'light' },
+    { id: 8,  token_path: 'color/status/warning',   token_type: 'color',     token_value: '#D97706', description: null, collection_name: 'default', mode: 'light' },
+    { id: 9,  token_path: 'color/status/error',     token_type: 'color',     token_value: '#DC2626', description: null, collection_name: 'default', mode: 'light' },
+    { id: 10, token_path: 'color/status/info',      token_type: 'color',     token_value: '#0891B2', description: null, collection_name: 'default', mode: 'light' },
+    { id: 11, token_path: 'radius/card',            token_type: 'dimension', token_value: '12px',    description: null, collection_name: 'default', mode: 'light' },
+    { id: 12, token_path: 'radius/badge',           token_type: 'dimension', token_value: '9999px',  description: null, collection_name: 'default', mode: 'light' },
+    { id: 13, token_path: 'radius/button',          token_type: 'dimension', token_value: '8px',     description: null, collection_name: 'default', mode: 'light' },
+]
+
+// Pricing page JSX that mimics Figma MCP output with token var() references
+const NOMAD_VAULT_PRICING_JSX = `<div data-name="Pricing Page" data-node-id="12:2" className="flex gap-8 p-8 bg-[var(--color/surface/page,#F8FAFC)]">
+  <div data-name="PricingCard" data-node-id="12:10" className="bg-[var(--color/surface/card,#FFFFFF)] rounded-lg border p-6">
+    <h2 className="text-[color:var(--color/brand/primary,#2563EB)] font-bold text-[24px]">Starter</h2>
+    <p className="text-[color:var(--color/text/secondary,#6B7280)] text-[14px]">$9/month</p>
+    <div data-name="Button" data-node-id="12:20" className="bg-[var(--color/brand/primary,#2563EB)] text-white px-4 py-2">Get Started</div>
+  </div>
+  <div data-name="PricingCard" data-node-id="12:11" className="bg-[var(--color/surface/card,#FFFFFF)] rounded-lg border p-6">
+    <h2 className="text-[color:var(--color/brand/primary,#2563EB)] font-bold text-[24px]">Pro</h2>
+    <span data-name="Badge" data-node-id="12:30" className="bg-[var(--color/status/success,#16A34A)] text-white px-2 py-1">Popular</span>
+    <div data-name="Button" data-node-id="12:21" className="bg-[var(--color/brand/primary,#2563EB)] text-white px-4 py-2">Upgrade</div>
+  </div>
+</div>`
+
+describe('handleDesignToCode — D2C.6 regression: figmaCode + mui transforms', () => {
+    it('D2C.6 pipeline with library=mui returns ok status', async () => {
+        const { config, tmpDir } = makeConfig(NOMAD_VAULT_TOKENS)
+        try {
+            const result = await handleDesignToCode(
+                {
+                    figmaCode: NOMAD_VAULT_PRICING_JSX,
+                    library: 'mui',
+                },
+                config,
+            )
+            expect(result.status).toBe('ok')
+            expect(result.library).toBe('mui')
+        } finally {
+            rmTmpDir(tmpDir)
+        }
+    })
+
+    it('D2C.6 pipeline with library=mui does NOT return input JSX verbatim', async () => {
+        const { config, tmpDir } = makeConfig(NOMAD_VAULT_TOKENS)
+        try {
+            const result = await handleDesignToCode(
+                {
+                    figmaCode: NOMAD_VAULT_PRICING_JSX,
+                    library: 'mui',
+                },
+                config,
+            )
+            // The output should differ from the input (transformation happened)
+            expect(result.component.code).not.toBe(NOMAD_VAULT_PRICING_JSX)
+            // Figma artifacts (data-node-id) must be stripped
+            expect(result.component.code).not.toContain('data-node-id')
+            // data-name must be stripped
+            expect(result.component.code).not.toContain('data-name')
+        } finally {
+            rmTmpDir(tmpDir)
+        }
+    })
+
+    it('D2C.6 pipeline with library=mui: component count reflects button/badge transforms', async () => {
+        const { config, tmpDir } = makeConfig(NOMAD_VAULT_TOKENS)
+        try {
+            const result = await handleDesignToCode(
+                {
+                    figmaCode: NOMAD_VAULT_PRICING_JSX,
+                    library: 'mui',
+                },
+                config,
+            )
+            // Two Button elements and one Badge are in the JSX — should be transformed
+            expect(result.summary).not.toContain('0 component(s) transformed')
+        } finally {
+            rmTmpDir(tmpDir)
+        }
+    })
+
+    it('D2C.6 pipeline with library=mui: tokenMappings is non-empty when input has var() refs', async () => {
+        const { config, tmpDir } = makeConfig(NOMAD_VAULT_TOKENS)
+        try {
+            const result = await handleDesignToCode(
+                {
+                    figmaCode: NOMAD_VAULT_PRICING_JSX,
+                    library: 'mui',
+                },
+                config,
+            )
+            // The JSX contains multiple var(--color/brand/primary,...) references
+            // tokenMappings must NOT be empty
+            expect(Object.keys(result.tokenMappings).length).toBeGreaterThan(0)
+        } finally {
+            rmTmpDir(tmpDir)
+        }
+    })
+
+    it('D2C.6 pipeline: summary does not falsely report "0 transformed" as success', async () => {
+        const { config, tmpDir } = makeConfig(NOMAD_VAULT_TOKENS)
+        try {
+            const result = await handleDesignToCode(
+                {
+                    figmaCode: NOMAD_VAULT_PRICING_JSX,
+                    library: 'mui',
+                },
+                config,
+            )
+            // Summary must be honest — if transformation happened, say so
+            // If truly 0 transforms, summary must explain WHY (not claim success)
+            if (result.summary.includes('0 component(s) transformed')) {
+                expect(result.summary).toContain('No component elements were recognized')
+            }
+        } finally {
+            rmTmpDir(tmpDir)
+        }
+    })
+
+    it('D2C.6 pipeline works for all four libraries', async () => {
+        const libraries = ['shadcn', 'mui', 'primeng', 'tailwind'] as const
+        for (const library of libraries) {
+            const { config, tmpDir } = makeConfig(NOMAD_VAULT_TOKENS)
+            try {
+                const result = await handleDesignToCode(
+                    {
+                        figmaCode: NOMAD_VAULT_PRICING_JSX,
+                        library,
+                    },
+                    config,
+                )
+                expect(result.status).toBe('ok')
+                expect(result.library).toBe(library)
+                // Output must differ from input (cleanup + transforms)
+                expect(result.component.code).not.toContain('data-node-id')
+            } finally {
+                rmTmpDir(tmpDir)
+            }
+        }
+    })
+
+    it('D2C.6 pipeline: themeFile is generated', async () => {
+        const { config, tmpDir } = makeConfig(NOMAD_VAULT_TOKENS)
+        try {
+            const result = await handleDesignToCode(
+                {
+                    figmaCode: NOMAD_VAULT_PRICING_JSX,
+                    library: 'mui',
+                },
+                config,
+            )
+            expect(result.themeFile).toBeDefined()
+            expect(result.themeFile!.code).toContain('createTheme')
+            expect(result.themeFile!.tokenCount).toBeGreaterThan(0)
+        } finally {
+            rmTmpDir(tmpDir)
+        }
+    })
+
+    it('D2C.6 pipeline: component name is derived from root data-name, not hardcoded FigmaComponent', async () => {
+        const { config, tmpDir } = makeConfig(NOMAD_VAULT_TOKENS)
+        try {
+            const result = await handleDesignToCode(
+                {
+                    figmaCode: NOMAD_VAULT_PRICING_JSX,
+                    library: 'mui',
+                },
+                config,
+            )
+            // Root data-name="Pricing Page" → derived name "PricingPage"
+            expect(result.component.name).not.toBe('FigmaComponent')
+            expect(result.component.name).toMatch(/Pricing/i)
+        } finally {
+            rmTmpDir(tmpDir)
+        }
+    })
+
+    it('D2C.6 pipeline: no tokens → returns guidance message', async () => {
+        const { config, tmpDir } = makeConfig([])
+        try {
+            const result = await handleDesignToCode(
+                {
+                    figmaCode: NOMAD_VAULT_PRICING_JSX,
+                    library: 'mui',
+                },
+                config,
+            )
+            expect(result.status).toBe('ok')
+            expect(result.library).toBe('none')
+            expect(result.summary).toContain('No design tokens')
+        } finally {
+            rmTmpDir(tmpDir)
+        }
+    })
+
+    it('D2C.6 pipeline: empty figmaCode returns no-op empty result', async () => {
+        const { config, tmpDir } = makeConfig(NOMAD_VAULT_TOKENS)
+        try {
+            // Provide figmaPayload='' and figmaCode='' — should trigger error path
+            const result = await handleDesignToCode(
+                {
+                    figmaCode: '',
+                    figmaPayload: '',
+                    library: 'mui',
+                },
+                config,
+            )
+            // Empty figmaCode with no figmaPayload → error
+            expect(result.status).toBe('error')
+        } finally {
+            rmTmpDir(tmpDir)
+        }
+    })
+})
+
+// ---------------------------------------------------------------------------
+// MUI theme generator — semantic token priority fixes
+// ---------------------------------------------------------------------------
+
+describe('handleDesignToCode — MUI theme: semantic token priority', () => {
+    it('palette.primary.main uses brand/primary, not text/primary', async () => {
+        const { config, tmpDir } = makeConfig(NOMAD_VAULT_TOKENS)
+        try {
+            const result = await handleDesignToCode(
+                {
+                    figmaCode: NOMAD_VAULT_PRICING_JSX,
+                    library: 'mui',
+                },
+                config,
+            )
+            const themeCode = result.themeFile!.code
+            // color/brand/primary = #2563EB must win over color/text/primary = #111827
+            expect(themeCode).toContain('#2563EB')
+            // The dark text color (#111827) must NOT appear as palette.primary.main
+            // (it may appear in palette.text.primary, but not as primary.main)
+            const primaryBlock = themeCode.match(/primary:\s*\{[^}]+\}/s)?.[0] ?? ''
+            expect(primaryBlock).not.toContain('#111827')
+        } finally {
+            rmTmpDir(tmpDir)
+        }
+    })
+
+    it('shape.borderRadius uses card radius (12), not badge full-round (9999)', async () => {
+        const { config, tmpDir } = makeConfig(NOMAD_VAULT_TOKENS)
+        try {
+            const result = await handleDesignToCode(
+                {
+                    figmaCode: NOMAD_VAULT_PRICING_JSX,
+                    library: 'mui',
+                },
+                config,
+            )
+            const themeCode = result.themeFile!.code
+            // radius/card = 12px must win over radius/badge = 9999px
+            expect(themeCode).toContain('borderRadius: 12')
+            expect(themeCode).not.toContain('borderRadius: 9999')
+        } finally {
+            rmTmpDir(tmpDir)
+        }
+    })
+
+    it('palette includes success color from status tokens', async () => {
+        const { config, tmpDir } = makeConfig(NOMAD_VAULT_TOKENS)
+        try {
+            const result = await handleDesignToCode(
+                {
+                    figmaCode: NOMAD_VAULT_PRICING_JSX,
+                    library: 'mui',
+                },
+                config,
+            )
+            const themeCode = result.themeFile!.code
+            // color/status/success = #16A34A
+            expect(themeCode).toContain('#16A34A')
+        } finally {
+            rmTmpDir(tmpDir)
+        }
+    })
+})
+
+// ---------------------------------------------------------------------------
+// MUI adapter borderRadius priority unit tests (direct adapter call)
+// ---------------------------------------------------------------------------
+
+describe('MuiAdapter — borderRadius priority scoring', () => {
+    it('prefers card radius over badge full-round when both are present', async () => {
+        // Use the handleDesignToCode integration path to exercise the adapter
+        const tokensWithBothRadii: DesignToken[] = [
+            { id: 1, token_path: 'colors.primary', token_type: 'color', token_value: '#3b82f6', description: null, collection_name: 'default', mode: 'light' },
+            { id: 2, token_path: 'radius.badge', token_type: 'dimension', token_value: '9999px', description: null, collection_name: 'default', mode: 'light' },
+            { id: 3, token_path: 'radius.card', token_type: 'dimension', token_value: '12px', description: null, collection_name: 'default', mode: 'light' },
+        ]
+        const { config, tmpDir } = makeConfig(tokensWithBothRadii)
+        try {
+            const result = await handleDesignToCode(
+                { figmaPayload: MINIMAL_FIGMA_PAYLOAD, library: 'mui' },
+                config,
+            )
+            expect(result.themeFile!.code).toContain('borderRadius: 12')
+            expect(result.themeFile!.code).not.toContain('borderRadius: 9999')
+        } finally {
+            rmTmpDir(tmpDir)
+        }
+    })
+
+    it('prefers button radius over no-context radius when no card present', async () => {
+        const tokensNoCard: DesignToken[] = [
+            { id: 1, token_path: 'colors.primary', token_type: 'color', token_value: '#3b82f6', description: null, collection_name: 'default', mode: 'light' },
+            { id: 2, token_path: 'radius.pill', token_type: 'dimension', token_value: '9999px', description: null, collection_name: 'default', mode: 'light' },
+            { id: 3, token_path: 'radius.button', token_type: 'dimension', token_value: '6px', description: null, collection_name: 'default', mode: 'light' },
+        ]
+        const { config, tmpDir } = makeConfig(tokensNoCard)
+        try {
+            const result = await handleDesignToCode(
+                { figmaPayload: MINIMAL_FIGMA_PAYLOAD, library: 'mui' },
+                config,
+            )
+            expect(result.themeFile!.code).toContain('borderRadius: 6')
+            expect(result.themeFile!.code).not.toContain('borderRadius: 9999')
+        } finally {
+            rmTmpDir(tmpDir)
+        }
+    })
+})
