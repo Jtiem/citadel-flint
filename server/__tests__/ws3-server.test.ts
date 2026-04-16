@@ -476,25 +476,29 @@ describe('WS3 server-side feature tests', () => {
           BrokenComp: { filePath: './NonExistent.tsx' },
         },
       }))
-      // Create the good component file
       writeFileSync(path.join(tmpDir, 'Good.tsx'), 'export function GoodComp() { return null }')
 
       const { createThumbnailService } = await import('../services/thumbnailService.js')
       const service = createThumbnailService()
 
-      // generateAll should not throw even if one component fails
-      let result: Awaited<ReturnType<typeof service.generateAll>>
-      expect(async () => {
-        result = await service.generateAll(tmpDir)
-      }).not.toThrow()
+      // Mock generate() to simulate one success + one failure without
+      // launching Playwright (which hangs in CI/test environments).
+      let callCount = 0
+      service.generate = async (opts: { filePath: string; componentName: string; projectRoot: string }) => {
+        callCount++
+        if (opts.componentName === 'BrokenComp') {
+          return { componentName: opts.componentName, thumbnailPath: '', generated: false, error: 'file not found' }
+        }
+        return { componentName: opts.componentName, thumbnailPath: '/tmp/thumb.png', generated: true, error: null }
+      }
 
-      result = await service.generateAll(tmpDir)
-      // Total should be 2, at least one should have failed gracefully
+      const result = await service.generateAll(tmpDir)
       expect(result.total).toBe(2)
-      // Each result has generated flag — no undefined entries
+      expect(result.succeeded).toBe(1)
+      expect(result.failed).toBe(1)
+      expect(callCount).toBe(2)
       for (const r of result.results) {
         expect(r.generated !== undefined).toBe(true)
-        expect(r.error !== undefined || r.error === null).toBe(true)
       }
     })
   })

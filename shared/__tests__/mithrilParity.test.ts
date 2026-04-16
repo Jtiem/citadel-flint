@@ -94,6 +94,11 @@ const ALLOWED_MCP_ONLY_EXPORTS: readonly string[] = [
     // Sprint 1 R1 — Assert+Defer stopgap; test-only helper. Glass has no
     // deferred-rule registry because it does not consume domain policy.
     '__resetDeferredWarningState',
+
+    // Governor Expansion P1c/P2/P2.8 — MCP-only visitors not ported to Glass
+    'visitRogueIntrinsics',        // MITHRIL-REG-001: rogue intrinsic detection
+    'visitTailwindVersionDrift',   // Tailwind v3→v4 class migration audit
+    'visitTypographyHierarchy',    // Typography heading hierarchy audit
 ]
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
