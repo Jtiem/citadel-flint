@@ -25,6 +25,8 @@ import { contrastRules } from './a11y/rules/contrast.js'
 import { formsRules } from './a11y/rules/forms.js'
 import { liveRegionsRules } from './a11y/rules/live-regions.js'
 import { motionRules } from './a11y/rules/motion.js'
+import { wcag22Rules } from './a11y/rules/wcag22.js'
+import { cogaRules } from './a11y/rules/coga.js'
 import type { A11yAuditResult } from './a11y/types.js'
 
 // ── Types (backward-compatible) ───────────────────────────────────────────────
@@ -47,6 +49,8 @@ function ensureRulesRegistered(): void {
         ...formsRules,
         ...liveRegionsRules,
         ...motionRules,
+        ...wcag22Rules,
+        ...cogaRules,
     ])
 }
 

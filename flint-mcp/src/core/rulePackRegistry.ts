@@ -4,10 +4,10 @@
  * Static TypeScript registry of all available governance rule packs.
  * This is NOT a database — it is a bundled constant exported from this module.
  *
- * 10 initial packs:
- *   Active (2): wcag-2.1-aa, mithril-design-system
+ * 10 packs:
+ *   Active (4): wcag-2.1-aa, mithril-design-system, wcag-2.2, coga-cognitive
  *   Available (3): brand-custom, hipaa-ui, section-508-report
- *   Coming soon (5): wcag-2.2, gdpr-consent, ccpa-privacy, pci-dss-ui, coga-cognitive
+ *   Coming soon (3): gdpr-consent, ccpa-privacy, pci-dss-ui
  */
 
 import fs from 'node:fs'
@@ -194,17 +194,17 @@ const hipaaUIRules: RulePackEntry[] = [
     { id: 'HIPAA-006', name: 'Autocomplete Off For PHI', description: 'Input fields collecting PHI must have autocomplete="off" to prevent browser caching of sensitive data.', regulation: 'HIPAA 164.312(a)(2)(iv)', defaultMode: 'coercive', autoFixable: true, category: 'forms' },
 ]
 
-// ── WCAG 2.2 — 8 coming-soon rules ───────────────────────────────────────────
+// ── WCAG 2.2 — 8 active rules (A11Y-110..117) ────────────────────────────────
 
 const wcag22Rules: RulePackEntry[] = [
-    { id: 'A11Y-100', name: 'Dragging Movements Alternative', description: 'All functionality that uses dragging must be operable with a single pointer without dragging.', wcagCriterion: '2.5.7', defaultMode: 'coercive', autoFixable: false, category: 'pointer' },
-    { id: 'A11Y-101', name: 'Target Size Minimum', description: 'The size of the target for pointer inputs must be at least 24x24 CSS pixels.', wcagCriterion: '2.5.8', defaultMode: 'coercive', autoFixable: false, category: 'pointer' },
-    { id: 'A11Y-102', name: 'Focus Not Obscured (Minimum)', description: 'When a user interface component receives keyboard focus, the component is not entirely hidden due to author-created content.', wcagCriterion: '2.4.11', defaultMode: 'coercive', autoFixable: false, category: 'keyboard' },
-    { id: 'A11Y-103', name: 'Focus Not Obscured (Enhanced)', description: 'When a user interface component receives keyboard focus, the component is fully visible.', wcagCriterion: '2.4.12', defaultMode: 'advisory', autoFixable: false, category: 'keyboard' },
-    { id: 'A11Y-104', name: 'Focus Appearance', description: 'When the keyboard focus indicator is visible, the focus indicator must meet minimum size and contrast requirements.', wcagCriterion: '2.4.13', defaultMode: 'coercive', autoFixable: false, category: 'keyboard' },
-    { id: 'A11Y-105', name: 'Accessible Authentication (Minimum)', description: 'A cognitive function test must not be the only means of authentication unless alternative is provided.', wcagCriterion: '3.3.8', defaultMode: 'coercive', autoFixable: false, category: 'forms' },
-    { id: 'A11Y-106', name: 'Accessible Authentication (Enhanced)', description: 'A cognitive function test must not be required for any step in an authentication process.', wcagCriterion: '3.3.9', defaultMode: 'advisory', autoFixable: false, category: 'forms' },
-    { id: 'A11Y-107', name: 'Redundant Entry', description: 'Information previously entered by or provided to the user that is required to be entered again must be auto-populated or available for selection.', wcagCriterion: '3.3.7', defaultMode: 'normative', autoFixable: false, category: 'forms' },
+    { id: 'A11Y-110', name: 'Dragging Movements Alternative', description: 'All functionality that uses dragging must be operable with a single pointer without dragging.', wcagCriterion: '2.5.7', defaultMode: 'coercive', autoFixable: false, category: 'pointer' },
+    { id: 'A11Y-111', name: 'Target Size Minimum', description: 'The size of the target for pointer inputs must be at least 24x24 CSS pixels.', wcagCriterion: '2.5.8', defaultMode: 'coercive', autoFixable: false, category: 'pointer' },
+    { id: 'A11Y-112', name: 'Focus Not Obscured (Minimum)', description: 'When a user interface component receives keyboard focus, the component is not entirely hidden due to author-created content.', wcagCriterion: '2.4.11', defaultMode: 'coercive', autoFixable: false, category: 'keyboard' },
+    { id: 'A11Y-113', name: 'Focus Appearance', description: 'When the keyboard focus indicator is visible, the focus indicator must meet minimum size and contrast requirements.', wcagCriterion: '2.4.13', defaultMode: 'coercive', autoFixable: false, category: 'keyboard' },
+    { id: 'A11Y-114', name: 'Redundant Entry', description: 'Information previously entered by or provided to the user that is required to be entered again must be auto-populated or available for selection.', wcagCriterion: '3.3.7', defaultMode: 'normative', autoFixable: false, category: 'forms' },
+    { id: 'A11Y-115', name: 'Accessible Authentication (Minimum)', description: 'A cognitive function test must not be the only means of authentication unless alternative is provided.', wcagCriterion: '3.3.8', defaultMode: 'coercive', autoFixable: true, category: 'forms' },
+    { id: 'A11Y-116', name: 'Focus Not Obscured (Enhanced)', description: 'When a user interface component receives keyboard focus, the component is fully visible.', wcagCriterion: '2.4.12', defaultMode: 'advisory', autoFixable: false, category: 'keyboard' },
+    { id: 'A11Y-117', name: 'Accessible Authentication (Enhanced)', description: 'A cognitive function test must not be required for any step in an authentication process.', wcagCriterion: '3.3.9', defaultMode: 'advisory', autoFixable: true, category: 'forms' },
 ]
 
 // ── GDPR Consent UI — 12 coming-soon rules ────────────────────────────────────
@@ -253,7 +253,7 @@ const cogaCognitiveRules: RulePackEntry[] = [
     { id: 'COGA-001', name: 'Visible Label Required', description: 'Form controls must have a visible label — placeholder text alone is not sufficient as a label.', wcagCriterion: '3.3.2', defaultMode: 'coercive', autoFixable: false, category: 'labels' },
     { id: 'COGA-002', name: 'Timeout Warning', description: 'When sessions have a time limit, users must be warned at least 20 seconds before timeout and given a way to extend.', wcagCriterion: '2.2.1', defaultMode: 'coercive', autoFixable: false, category: 'timing' },
     { id: 'COGA-003', name: 'Form Complexity Limit', description: 'Forms requiring more than 7 distinct input fields must be split across multiple focused steps.', defaultMode: 'advisory', autoFixable: false, category: 'forms' },
-    { id: 'COGA-004', name: 'Clear Error Identification', description: 'Errors must be identified in text — color alone is not sufficient to indicate an error state.', wcagCriterion: '3.3.1', defaultMode: 'coercive', autoFixable: false, category: 'errors' },
+    { id: 'COGA-004', name: 'Clear Error Identification', description: 'Errors must be identified in text — color alone is not sufficient to indicate an error state.', wcagCriterion: '3.3.1', defaultMode: 'coercive', autoFixable: true, category: 'errors' },
     { id: 'COGA-005', name: 'Help Link Consistency', description: 'Help mechanisms (links, chat, phone numbers) must appear in the same location on every page.', wcagCriterion: '3.2.6', defaultMode: 'normative', autoFixable: false, category: 'navigation' },
     { id: 'COGA-006', name: 'Redundant Entry Avoidance', description: 'Users must not be asked to re-enter information they have already provided in the same session.', wcagCriterion: '3.3.7', defaultMode: 'normative', autoFixable: false, category: 'forms' },
     { id: 'COGA-007', name: 'Plain Language Preference', description: 'Error messages and instructions should use plain language at or below a 8th-grade reading level.', defaultMode: 'advisory', autoFixable: false, category: 'language' },
@@ -334,7 +334,7 @@ export const RULE_PACK_REGISTRY: RulePack[] = [
         rules: wcag22Rules,
         jurisdictions: ['US/ADA', 'EU/EAA', 'CA/AODA', 'AU/DDA'],
         preset: '@flint/wcag-2.2',
-        status: 'coming-soon',
+        status: 'active',
     },
     {
         id: 'gdpr-consent',
@@ -378,7 +378,7 @@ export const RULE_PACK_REGISTRY: RulePack[] = [
         rules: cogaCognitiveRules,
         jurisdictions: ['EU/EAA', 'US/ADA'],
         preset: '@flint/cognitive',
-        status: 'coming-soon',
+        status: 'active',
     },
 ]
 

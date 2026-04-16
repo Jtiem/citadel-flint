@@ -99,7 +99,7 @@ describe('handleListRulePacks', () => {
 
     it('filters by status: active', () => {
         const result = parseResult(handleListRulePacks({ status: 'active' }))
-        expect(result.total).toBe(2)
+        expect(result.total).toBe(4)
         for (const pack of result.packs) {
             expect(pack.status).toBe('active')
         }
@@ -112,7 +112,7 @@ describe('handleListRulePacks', () => {
 
     it('filters by status: coming-soon', () => {
         const result = parseResult(handleListRulePacks({ status: 'coming-soon' }))
-        expect(result.total).toBe(5)
+        expect(result.total).toBe(3)
     })
 
     it('combines domain and status filters', () => {

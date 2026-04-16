@@ -25,9 +25,9 @@ describe('RULE_PACK_REGISTRY', () => {
         expect(RULE_PACK_REGISTRY).toHaveLength(10)
     })
 
-    it('has 2 active packs', () => {
+    it('has 4 active packs', () => {
         const active = RULE_PACK_REGISTRY.filter((p) => p.status === 'active')
-        expect(active).toHaveLength(2)
+        expect(active).toHaveLength(4)
     })
 
     it('has 3 available packs', () => {
@@ -35,9 +35,9 @@ describe('RULE_PACK_REGISTRY', () => {
         expect(available).toHaveLength(3)
     })
 
-    it('has 5 coming-soon packs', () => {
+    it('has 3 coming-soon packs', () => {
         const comingSoon = RULE_PACK_REGISTRY.filter((p) => p.status === 'coming-soon')
-        expect(comingSoon).toHaveLength(5)
+        expect(comingSoon).toHaveLength(3)
     })
 
     it('every pack has required fields', () => {
