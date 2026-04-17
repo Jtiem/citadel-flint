@@ -16,7 +16,6 @@ import {
     readHistory,
     formatReportAsMarkdown,
     generateDashboard,
-    computeHealthScoreFromViolationTypes,
 } from '../debtReportService.js'
 import type { DebtReport, DebtHistoryEntry } from '../types.js'
 
@@ -154,45 +153,20 @@ describe('computeHealthScore', () => {
     })
 })
 
-describe('computeHealthScoreFromViolationTypes (canonical formula — COUNSEL.1.3)', () => {
-    it('returns 100 when there are no violations', () => {
-        expect(computeHealthScoreFromViolationTypes(0, 0)).toBe(100)
+describe('computeHealthScore — override term (CHRON.1-repair / C2)', () => {
+    it('deducts 3 points per active override', () => {
+        expect(computeHealthScore(0, 0, 0, 1)).toBe(97)
+        expect(computeHealthScore(0, 0, 0, 10)).toBe(70)
     })
 
-    it('deducts 3 points per Mithril violation (amber/warning severity)', () => {
-        expect(computeHealthScoreFromViolationTypes(1, 0)).toBe(97)
-        expect(computeHealthScoreFromViolationTypes(4, 0)).toBe(88)
-        expect(computeHealthScoreFromViolationTypes(34, 0)).toBe(0)
+    it('defaults overrides to 0 when omitted (backward compatible signature)', () => {
+        expect(computeHealthScore(0, 0, 0)).toBe(100)
+        expect(computeHealthScore(1, 2, 3)).toBe(100 - 10 - 6 - 3)
     })
 
-    it('deducts 10 points per A11y violation (critical severity)', () => {
-        expect(computeHealthScoreFromViolationTypes(0, 1)).toBe(90)
-        expect(computeHealthScoreFromViolationTypes(0, 2)).toBe(80)
-        expect(computeHealthScoreFromViolationTypes(0, 10)).toBe(0)
-    })
-
-    it('combines Mithril and A11y deductions', () => {
-        // 100 - 1*3 - 1*10 = 87
-        expect(computeHealthScoreFromViolationTypes(1, 1)).toBe(87)
-        // 100 - 2*3 - 3*10 = 64
-        expect(computeHealthScoreFromViolationTypes(2, 3)).toBe(64)
-    })
-
-    it('clamps to 0 when deductions exceed 100', () => {
-        expect(computeHealthScoreFromViolationTypes(50, 0)).toBe(0)
-        expect(computeHealthScoreFromViolationTypes(0, 15)).toBe(0)
-        expect(computeHealthScoreFromViolationTypes(50, 50)).toBe(0)
-    })
-
-    it('never exceeds 100', () => {
-        expect(computeHealthScoreFromViolationTypes(0, 0)).toBe(100)
-    })
-
-    it('matches useGovernanceHealth canonical formula: 1 Mithril + 1 A11y = 87', () => {
-        // useGovernanceHealth: 1 amber (3 pts) + 1 critical (10 pts) = 87
-        // computeHealthScoreFromViolationTypes: 1*3 + 1*10 = 87
-        // Both formulas now agree.
-        expect(computeHealthScoreFromViolationTypes(1, 1)).toBe(87)
+    it('combines all four buckets using the canonical formula', () => {
+        // 100 − 2×10 − 3×3 − 1×1 − 2×3 = 100 − 20 − 9 − 1 − 6 = 64
+        expect(computeHealthScore(2, 3, 1, 2)).toBe(64)
     })
 })
 
@@ -394,23 +368,24 @@ describe('generateDebtReport', () => {
         expect(report.healthScore).toBeGreaterThanOrEqual(0)
     })
 
-    it('uses canonical formula (COUNSEL.1.3): Mithril violation deducts 5pts per violation', () => {
-        // With 1 Mithril violation (arbitrary color), canonical formula gives:
-        //   100 - 1*5 - 0*10 = 95 (grade A)
-        // Old formula (Mithril amber → warning): 100 - (1*3) = 97
-        // This test ensures the Mithril deduction is 5pts, not 3pts.
+    it('uses the canonical severity-bucketed formula (CHRON.1-repair / C2)', () => {
+        // The canonical formula deducts per severity bucket, not per violation type:
+        //   score = 100 − critical×10 − amber×3 − advisory×1 − override×3
+        // Mithril color drifts at high ΔE are flagged as 'critical', spacing /
+        // typography drifts as 'amber', etc. This test asserts the debt report's
+        // health score exactly matches what the canonical formula predicts from
+        // the report's own bySeverity accumulator.
         writeFile('src/Drifted.tsx', MITHRIL_VIOLATION_TSX)
         writeFile('.flint/design-tokens.json', JSON.stringify(MOCK_TOKENS))
 
         const report = generateDebtReport({ projectRoot: tmpDir })
 
-        // MITHRIL_VIOLATION_TSX has 2 arbitrary colors (bg-[#ff00ff] text-[#00ff00]).
-        // Canonical formula (COUNSEL.1.3): mithril = amber/warning severity = 3pts each.
-        // Key assertion: Mithril violations deduct 3pts each (matching useGovernanceHealth).
-        const mithrilCount = Object.entries(report.byCategory)
-            .filter(([k]) => k.startsWith('MITHRIL-'))
-            .reduce((sum, [, v]) => sum + v, 0)
-        const expectedScore = Math.max(0, 100 - mithrilCount * 3)
+        const expectedScore = computeHealthScore(
+            report.bySeverity.critical,
+            report.bySeverity.warning,
+            report.bySeverity.info,
+            0,
+        )
         expect(report.healthScore).toBe(expectedScore)
     })
 

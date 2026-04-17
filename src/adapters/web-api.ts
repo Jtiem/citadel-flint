@@ -509,7 +509,14 @@ export function createWebFlintAPI() {
 
     // ── Governance telemetry ────────────────────────────────────────────────
     governance: {
-      recordOverride: (payload: { ruleId: string; action: string; newValue: unknown; filePath: string }) =>
+      recordOverride: (payload: {
+        ruleId: string
+        action: string
+        newValue: unknown
+        filePath: string
+        /** CHRON.1-repair M3: optional reason captured via OverrideReasonDialog. */
+        reason?: string
+      }) =>
         invoke('governance:record-override', payload) as Promise<void>,
       getOverrideCount: () => invoke('governance:override-count') as Promise<number>,
       getComplianceSummary: (ruleIds: string[]) =>
@@ -532,12 +539,14 @@ export function createWebFlintAPI() {
         invoke('governance:record-health', entry) as Promise<void>,
       getPendingMutations: () =>
         invoke('governance:get-pending-mutations') as Promise<Array<{ id: number; type: string; filePath: string; riskScore: number; riskTier: string; agentId?: string }>>,
-      approveMutation: (id: number) =>
-        invoke('governance:approve-mutation', id) as Promise<void>,
+      approveMutation: (id: number, reason?: string) =>
+        invoke('governance:approve-mutation', id, reason) as Promise<void>,
       rejectMutation: (id: number) =>
         invoke('governance:reject-mutation', id) as Promise<void>,
+      recordApprovalReason: (args: { filePath: string; toolName: string; reason: string }) =>
+        invoke('governance:record-approval-reason', args) as Promise<void>,
       getAuditLog: (opts?: { limit?: number }) =>
-        invoke('governance:get-audit-log', opts) as Promise<Array<{ id: number | string; timestamp: string; action: string; filePath: string; description: string }>>,
+        invoke('governance:get-audit-log', opts) as Promise<Array<{ id: number | string; timestamp: string; action: string; filePath: string; description: string; metadata?: string | null; ruleId?: string | null }>>,
     },
 
     // ── Context sync ────────────────────────────────────────────────────────

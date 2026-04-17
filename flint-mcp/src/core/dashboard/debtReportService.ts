@@ -113,39 +113,36 @@ function extractRuleId(message: string): string {
 // ── Health score & grade ────────────────────────────────────────────────────
 
 /**
- * COUNSEL.1.3: Computes health score using the canonical severity-weighted formula.
+ * CANONICAL HEALTH SCORE FORMULA (CHRON.1-repair / C2).
  *
- * Formula: clamp(100 - a11yCount × 10 - mithrilCount × 3, 0, 100)
+ * Mirror of shared/healthScore.ts — that file is the source of truth for every
+ * Flint surface (Glass hook, CI debt CLI, SARIF, DBOM). The flint-mcp build
+ * uses rootDir: './src' and cannot import files outside the package, so this
+ * function is inlined with a cross-package parity test that fails loudly if
+ * the two ever drift.
  *
- * This matches the canonical formula from useGovernanceHealth.ts:
- *   score = 100 - criticals × 10 - warnings × 3 - infos × 1
- * where a11y violations are always 'critical' (penalty 10) and mithril
- * violations default to 'amber/warning' (penalty 3).
+ * Formula:
+ *   score = clamp(100
+ *             - criticalCount * 10
+ *             - amberCount    * 3
+ *             - advisoryCount * 1
+ *             - overrideCount * 3,
+ *           0, 100)
  *
- * overrideCount is always 0 for file-scan reports (override data lives
- * in Glass/SQLite, not static files).
- *
- * MUST stay in sync with shared/healthSignal.formatHealthSignal and
- * src/hooks/useGovernanceHealth.computeCanonicalHealthScore.
- */
-export function computeHealthScoreFromViolationTypes(mithrilCount: number, a11yCount: number): number {
-    const raw = 100 - a11yCount * 10 - mithrilCount * 3
-    return Math.max(0, Math.min(100, raw))
-}
-
-/**
- * Computes health score from pre-bucketed severity counts.
- * This is the canonical formula that matches useGovernanceHealth.computeCanonicalHealthScore.
- *
- * Formula: 100 - (criticals x 10 + warnings x 3 + infos x 1), clamped to [0, 100].
+ * Grade bands: A >= 90, B >= 80, C >= 70, D >= 60, F < 60.
  */
 export function computeHealthScore(
     criticals: number,
     warnings: number,
     infos: number,
+    overrides: number = 0,
 ): number {
-    const raw = 100 - (criticals * 10 + warnings * 3 + infos * 1)
-    return Math.max(0, Math.min(100, raw))
+    const c = Math.max(0, Math.floor(criticals ?? 0))
+    const w = Math.max(0, Math.floor(warnings ?? 0))
+    const i = Math.max(0, Math.floor(infos ?? 0))
+    const o = Math.max(0, Math.floor(overrides ?? 0))
+    const raw = 100 - c * 10 - w * 3 - i * 1 - o * 3
+    return Math.max(0, Math.min(100, Math.round(raw)))
 }
 
 /**
@@ -157,6 +154,7 @@ export function computeHealthScore(
  *   F: 0-59
  */
 export function scoreToGrade(score: number): 'A' | 'B' | 'C' | 'D' | 'F' {
+    if (!Number.isFinite(score)) return 'F'
     if (score >= 90) return 'A'
     if (score >= 80) return 'B'
     if (score >= 70) return 'C'
@@ -254,11 +252,6 @@ export function generateDebtReport(options: GenerateReportOptions): DebtReport {
 
     // Accumulators
     const bySeverity = { critical: 0, warning: 0, info: 0 }
-    // Violation-type accumulators for the canonical health score formula.
-    // Rule IDs starting with 'MITHRIL-' are Mithril (fidelity) violations;
-    // rule IDs starting with 'A11Y-' are accessibility violations.
-    let mithrilViolationCount = 0
-    let a11yViolationCount = 0
     const byCategory: Record<string, number> = {}
     const byFileMap: Map<string, { count: number; worst: string; worstSeverity: number }> = new Map()
     const ruleAccumulator: Map<string, { count: number; severity: string }> = new Map()
@@ -287,13 +280,6 @@ export function generateDebtReport(options: GenerateReportOptions): DebtReport {
         for (const v of violations) {
             // Severity counts
             bySeverity[v.severity]++
-
-            // Violation-type counts for canonical health score formula
-            if (v.ruleId.startsWith('MITHRIL-')) {
-                mithrilViolationCount++
-            } else if (v.ruleId.startsWith('A11Y-')) {
-                a11yViolationCount++
-            }
 
             // Category counts
             byCategory[v.ruleId] = (byCategory[v.ruleId] ?? 0) + 1
@@ -334,10 +320,17 @@ export function generateDebtReport(options: GenerateReportOptions): DebtReport {
     }
 
     const totalViolations = bySeverity.critical + bySeverity.warning + bySeverity.info
-    // Use canonical formula (matches shared/healthSignal and GovernanceDashboard):
-    // clamp(100 - mithrilCount × 5 - a11yCount × 10, 0, 100)
-    // overrideCount is omitted (always 0 for file scans — overrides are live Glass state).
-    const healthScore = computeHealthScoreFromViolationTypes(mithrilViolationCount, a11yViolationCount)
+    // Canonical severity-bucketed formula (mirrors shared/healthScore.ts).
+    // File-scan reports cannot see live overrides (those live in Glass/SQLite),
+    // so overrideCount is fixed at 0 here. `flint_debt_report` callers that
+    // need override-weighted scores should pull them via flint://overrides and
+    // recompute client-side.
+    const healthScore = computeHealthScore(
+        bySeverity.critical,
+        bySeverity.warning,
+        bySeverity.info,
+        0,
+    )
     const grade = scoreToGrade(healthScore)
     const timestamp = new Date().toISOString()
 

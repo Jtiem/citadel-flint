@@ -23,6 +23,7 @@ import {
 import type { LinterWarning, ProvenanceInfo } from '../../../types/flint-api'
 import type { FixableItem } from '../FixPreviewDrawer'
 import type { DeferDuration } from '../../../../shared/deferralUtils'
+import { OverrideReasonDialog } from './OverrideReasonDialog'
 
 // ── Human-readable rule labels ────────────────────────────────────────────────
 
@@ -335,6 +336,16 @@ export interface ViolationCardProps {
     onPin: () => void
     onJumpToElement?: () => void
 
+    /**
+     * CHRON.1-repair M3: Fires when the user confirms a rule override for this
+     * violation via OverrideReasonDialog. The reason string is already trimmed
+     * (or undefined when the user waived it on an Amber-tier dialog).
+     *
+     * When omitted, the Override button is hidden — callers who do not wire
+     * override semantics keep the existing hover-reveal cluster untouched.
+     */
+    onOverride?: (reason?: string) => void
+
     /** Used to look up a human-readable node name */
     getNodeName: (id: string) => string
 
@@ -344,6 +355,33 @@ export interface ViolationCardProps {
     /** COUNSEL.4.3: Navigation pathway — 1-based index in the recommended fix order.
      *  null means no pathway indicator is shown. */
     navigationIndex?: number | null
+
+    /**
+     * CHRON.1 UX A+: Past override reason for this rule+file (if one exists).
+     * null/undefined/'skipped'/'auto' hides the override row entirely.
+     */
+    overrideReason?: string | null
+    /** CHRON.1 UX A+: Who recorded the override (best-effort). */
+    overrideActor?: string | null
+    /** CHRON.1 UX A+: ISO timestamp of the override event (rendered as relative time). */
+    overrideTimestamp?: string | null
+}
+
+// ── CHRON.1 UX A+: relative-time helper (exported for testing) ───────────────
+export function formatRelativeTime(iso: string): string {
+    if (!iso) return ''
+    const ts = Date.parse(iso)
+    if (Number.isNaN(ts)) return ''
+    const diffSec = Math.round((Date.now() - ts) / 1000)
+    if (diffSec < 60) return 'just now'
+    const diffMin = Math.round(diffSec / 60)
+    if (diffMin < 60) return diffMin === 1 ? '1 minute ago' : `${diffMin} minutes ago`
+    const diffHr = Math.round(diffMin / 60)
+    if (diffHr < 24) return diffHr === 1 ? '1 hour ago' : `${diffHr} hours ago`
+    const diffDay = Math.round(diffHr / 24)
+    if (diffDay < 7) return diffDay === 1 ? '1 day ago' : `${diffDay} days ago`
+    const diffWk = Math.round(diffDay / 7)
+    return diffWk === 1 ? '1 week ago' : `${diffWk} weeks ago`
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -385,8 +423,13 @@ export function ViolationCard({
     onCancelDefer,
     onPin,
     onJumpToElement,
+    onOverride,
     getNodeName,
+    activeFilePath,
     navigationIndex,
+    overrideReason,
+    overrideActor,
+    overrideTimestamp,
 }: ViolationCardProps) {
     // Consume resurfaceTick to ensure re-render every 60s (label freshness)
     void resurfaceTick
@@ -397,11 +440,30 @@ export function ViolationCard({
     const guide = getFixGuide(w.type, w.message)
     const isAutoFixable = type === 'mithril' ? canFix : !A11Y_NOT_AUTO_FIXABLE.has(ruleId)
 
+    // CHRON.1-repair M3: Override dialog state.
+    // The dialog is only wired when a caller provides `onOverride`. Clicking the
+    // Override button opens the modal; the dialog's onConfirm fires with the
+    // (optionally waived) reason, which we forward to the parent.
+    const [overrideDialogOpen, setOverrideDialogOpen] = useState(false)
+    const ruleTitle = getRuleLabel(ruleId)
+
     // Resurface label (recomputed every render since resurfaceTick changes)
     const deferExpMs = deferExpiresAtMs ?? null
     const resurface = isDeferred ? resurfaceLabel(deferExpMs) : null
 
     const expandId = type === 'mithril' ? `v-m-${w.id}` : `v-a-${w.id}-${indexInList}`
+
+    // CHRON.1 UX A+: past override reason display. Hide for null/undefined/'skipped'/'auto'.
+    const showOverrideReason =
+        typeof overrideReason === 'string' &&
+        overrideReason.length > 0 &&
+        overrideReason !== 'skipped' &&
+        overrideReason !== 'auto'
+    const relTime = overrideTimestamp ? formatRelativeTime(overrideTimestamp) : ''
+    const overrideHeader =
+        'Overridden' +
+        (overrideActor ? ` by ${overrideActor}` : '') +
+        (relTime ? ` ${relTime}` : '')
 
     return (
         <div className={[
@@ -409,6 +471,17 @@ export function ViolationCard({
             isDeferred ? 'opacity-50' : isFlagged ? 'opacity-70' : '',
             isFlagged ? 'border-l-2 border-l-amber-500/60' : '',
         ].filter(Boolean).join(' ')}>
+
+            {/* CHRON.1 UX A+: past override reason display */}
+            {showOverrideReason && (
+                <p
+                    data-testid={`override-reason-${w.id}`}
+                    aria-label={`Override reason: ${overrideReason}`}
+                    className="px-3 pt-1.5 text-[10px] italic text-zinc-500"
+                >
+                    {overrideHeader}: &ldquo;{overrideReason}&rdquo;
+                </p>
+            )}
 
             {/* ── Expand toggle ─────────────────────────────────────────── */}
             <button
@@ -654,6 +727,20 @@ export function ViolationCard({
                                 Defer
                             </button>
                         )}
+                        {/* CHRON.1-repair M3: Override — opens OverrideReasonDialog */}
+                        {onOverride && !isDeferred && !isFlagged && (
+                            <button
+                                type="button"
+                                onClick={() => setOverrideDialogOpen(true)}
+                                data-testid={`override-btn-${w.id}`}
+                                className="rounded border border-zinc-700/60 px-3 py-1.5 text-xs text-zinc-400 hover:border-zinc-500 hover:text-zinc-200 transition-colors"
+                                aria-label={`Override ${ruleId} rule for this file`}
+                                aria-haspopup="dialog"
+                                title="Waive this rule for this file"
+                            >
+                                Override
+                            </button>
+                        )}
                         <button
                             type="button"
                             onClick={onPin}
@@ -714,6 +801,20 @@ export function ViolationCard({
                                 aria-expanded={isDeferFormOpen}
                             >
                                 Defer
+                            </button>
+                        )}
+                        {/* CHRON.1-repair M3: Override — opens OverrideReasonDialog */}
+                        {onOverride && !isDeferred && !isFlagged && (
+                            <button
+                                type="button"
+                                onClick={() => setOverrideDialogOpen(true)}
+                                data-testid={`override-btn-a11y-${w.id}`}
+                                className="rounded border border-zinc-700/60 px-3 py-1.5 text-xs text-zinc-400 hover:border-zinc-500 hover:text-zinc-200 transition-colors"
+                                aria-label={`Override ${ruleId} rule for this file`}
+                                aria-haspopup="dialog"
+                                title="Waive this rule for this file"
+                            >
+                                Override
                             </button>
                         )}
                         <button
@@ -916,6 +1017,22 @@ export function ViolationCard({
                         </button>
                     )}
                 </div>
+            )}
+
+            {/* ── CHRON.1-repair M3: OverrideReasonDialog ───────────────── */}
+            {onOverride && (
+                <OverrideReasonDialog
+                    open={overrideDialogOpen}
+                    onClose={() => setOverrideDialogOpen(false)}
+                    onConfirm={(reason) => {
+                        setOverrideDialogOpen(false)
+                        onOverride(reason)
+                    }}
+                    ruleId={ruleId}
+                    ruleTitle={ruleTitle}
+                    severity={w.severity}
+                    filePath={activeFilePath ?? undefined}
+                />
             )}
         </div>
     )

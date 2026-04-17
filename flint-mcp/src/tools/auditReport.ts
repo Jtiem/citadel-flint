@@ -67,6 +67,24 @@ export const FLINT_AUDIT_REPORT_TOOL = {
 
 // ── Handler args ──────────────────────────────────────────────────────────────
 
+/**
+ * CHRON.1: signature for a lookup function that resolves the most-recent
+ * user-written override reason for a given ruleId + filePath. Returns null
+ * when no meaningful reason is on record (no event, or only 'skipped'/'auto'
+ * sentinel reasons). Wired in by the server from the overrideTelemetryService.
+ */
+export type OverrideLookupFn = (
+    ruleId: string,
+    filePath: string,
+) => { reason: string; timestamp: string } | null
+
+/**
+ * CHRON.1: sentinel reason strings that must never appear in SARIF output.
+ * 'skipped' = user dismissed without input. 'auto' = system auto-applied.
+ * Both leak internal state into a public compliance artifact.
+ */
+export const SARIF_FILTERED_REASONS: ReadonlySet<string> = new Set(['skipped', 'auto'])
+
 export interface AuditReportArgs {
     source: string
     filePath: string
@@ -74,6 +92,10 @@ export interface AuditReportArgs {
     tokens?: DesignToken[]
     /** Optional: filter violations to only include rules from this regulatory authority. */
     sourceAuthority?: string
+    /** CHRON.1: project root for override lookup resolution. */
+    projectRoot?: string
+    /** CHRON.1: injected lookup for override reasons. Server wires this from overrideTelemetryService. */
+    overrideLookup?: OverrideLookupFn
 }
 
 // ── Annotated violation shape ──────────────────────────────────────────────────
@@ -106,7 +128,7 @@ export interface AuditReportResult {
 }
 
 export function handleAuditReport(args: AuditReportArgs): AuditReportResult {
-    const { source, filePath, format = 'json', tokens = [], sourceAuthority } = args
+    const { source, filePath, format = 'json', tokens = [], sourceAuthority, overrideLookup } = args
 
     // Parse source with Babel
     let ast: ReturnType<typeof parse>
@@ -167,7 +189,7 @@ export function handleAuditReport(args: AuditReportArgs): AuditReportResult {
     )
 
     if (format === 'sarif') {
-        const sarif = buildSarifOutput(filePath, filtered)
+        const sarif = buildSarifOutput(filePath, filtered, overrideLookup)
         return { content: [{ type: 'text', text: JSON.stringify(sarif, null, 2) }] }
     }
 
@@ -232,10 +254,17 @@ interface SarifResult {
         flintId: string
         sourceAuthority: string
         regulatoryReference: string
+        /** CHRON.1: user-written override reason. Omitted when none on record. */
+        overrideReason?: string
+        overrideTimestamp?: string
     }
 }
 
-function buildSarifOutput(filePath: string, violations: AnnotatedViolation[]): SarifOutput {
+function buildSarifOutput(
+    filePath: string,
+    violations: AnnotatedViolation[],
+    overrideLookup?: OverrideLookupFn,
+): SarifOutput {
     // Deduplicate rules
     const seenRules = new Map<string, SarifRule>()
     for (const v of violations) {
@@ -250,17 +279,30 @@ function buildSarifOutput(filePath: string, violations: AnnotatedViolation[]): S
         }
     }
 
-    const results: SarifResult[] = violations.map((v) => ({
-        ruleId: v.ruleId,
-        level: v.severity === 'critical' ? 'error' : 'warning',
-        message: { text: v.message },
-        locations: [{ logicalLocations: [{ name: filePath }] }],
-        properties: {
+    const results: SarifResult[] = violations.map((v) => {
+        const properties: SarifResult['properties'] = {
             flintId: v.flintId,
             sourceAuthority: v.provenance.sourceAuthority,
             regulatoryReference: v.provenance.regulatoryReference,
-        },
-    }))
+        }
+        // CHRON.1: attach override reason when lookup is wired + a meaningful reason exists.
+        // Filter SARIF_FILTERED_REASONS so 'skipped'/'auto' sentinels never leak into
+        // public compliance artifacts.
+        if (overrideLookup) {
+            const hit = overrideLookup(v.ruleId, filePath)
+            if (hit && !SARIF_FILTERED_REASONS.has(hit.reason.trim().toLowerCase())) {
+                properties.overrideReason = hit.reason
+                properties.overrideTimestamp = hit.timestamp
+            }
+        }
+        return {
+            ruleId: v.ruleId,
+            level: v.severity === 'critical' ? 'error' : 'warning' as const,
+            message: { text: v.message },
+            locations: [{ logicalLocations: [{ name: filePath }] }],
+            properties,
+        }
+    })
 
     return {
         version: '2.1.0',

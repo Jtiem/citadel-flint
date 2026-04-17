@@ -83,6 +83,7 @@ describe('DiffCard', () => {
                 call={makeCall()}
                 onApprove={vi.fn()}
                 onReject={vi.fn()}
+                riskTier="green"
             />
         )
         expect(screen.getByText('flint_add_class')).toBeDefined()
@@ -94,6 +95,7 @@ describe('DiffCard', () => {
                 call={makeCall()}
                 onApprove={vi.fn()}
                 onReject={vi.fn()}
+                riskTier="green"
             />
         )
         expect(screen.getByText('Apply brand colour to heading')).toBeDefined()
@@ -105,6 +107,7 @@ describe('DiffCard', () => {
                 call={makeCall()}
                 onApprove={vi.fn()}
                 onReject={vi.fn()}
+                riskTier="green"
             />
         )
         // The diff or before section should contain the element's class string
@@ -118,6 +121,7 @@ describe('DiffCard', () => {
                 call={makeCall()}
                 onApprove={vi.fn()}
                 onReject={vi.fn()}
+                riskTier="green"
             />
         )
         // The "Diff" label is shown when diffResult is non-empty
@@ -130,6 +134,7 @@ describe('DiffCard', () => {
                 call={makeCall()}
                 onApprove={vi.fn()}
                 onReject={vi.fn()}
+                riskTier="green"
             />
         )
         // A line containing the new class should be rendered with addition styling.
@@ -145,6 +150,7 @@ describe('DiffCard', () => {
                 call={makeCall()}
                 onApprove={vi.fn()}
                 onReject={vi.fn()}
+                riskTier="green"
             />
         )
         // The original line (without the new class) should appear as a removal
@@ -159,6 +165,7 @@ describe('DiffCard', () => {
                 call={makeCall()}
                 onApprove={vi.fn()}
                 onReject={vi.fn()}
+                riskTier="green"
             />
         )
         expect(screen.getByText('Low risk')).toBeDefined()
@@ -194,6 +201,7 @@ describe('DiffCard', () => {
                 call={makeCall({ status: 'pending' })}
                 onApprove={vi.fn()}
                 onReject={vi.fn()}
+                riskTier="green"
             />
         )
         expect(screen.getByRole('button', { name: /accept mutation/i })).toBeDefined()
@@ -206,6 +214,7 @@ describe('DiffCard', () => {
                 call={makeCall({ status: 'approved' })}
                 onApprove={vi.fn()}
                 onReject={vi.fn()}
+                riskTier="green"
             />
         )
         expect(screen.queryByRole('button', { name: /accept mutation/i })).toBeNull()
@@ -219,6 +228,7 @@ describe('DiffCard', () => {
                 call={makeCall({ id: 'tool-use-42' })}
                 onApprove={onApprove}
                 onReject={vi.fn()}
+                riskTier="green"
             />
         )
         fireEvent.click(screen.getByRole('button', { name: /accept mutation/i }))
@@ -232,6 +242,7 @@ describe('DiffCard', () => {
                 call={makeCall({ id: 'tool-use-99' })}
                 onApprove={vi.fn()}
                 onReject={onReject}
+                riskTier="green"
             />
         )
         fireEvent.click(screen.getByRole('button', { name: /reject mutation/i }))
@@ -244,6 +255,7 @@ describe('DiffCard', () => {
                 call={makeCall({ status: 'approved' })}
                 onApprove={vi.fn()}
                 onReject={vi.fn()}
+                riskTier="green"
             />
         )
         expect(screen.getByText('Applied')).toBeDefined()
@@ -255,6 +267,7 @@ describe('DiffCard', () => {
                 call={makeCall({ status: 'rejected' })}
                 onApprove={vi.fn()}
                 onReject={vi.fn()}
+                riskTier="green"
             />
         )
         expect(screen.getByText('Rejected')).toBeDefined()
@@ -266,6 +279,7 @@ describe('DiffCard', () => {
                 call={makeCall({ beforeSnapshot: undefined })}
                 onApprove={vi.fn()}
                 onReject={vi.fn()}
+                riskTier="green"
             />
         )
         // Should not throw; diff section should not appear
@@ -279,6 +293,7 @@ describe('DiffCard', () => {
                 call={makeCall({ input: { targetId: 'abc123', className: 'text-red-400' } })}
                 onApprove={vi.fn()}
                 onReject={vi.fn()}
+                riskTier="green"
             />
         )
         // No reasoning paragraph — should still render cleanly
@@ -293,6 +308,7 @@ describe('DiffCard', () => {
                 call={makeCall()}
                 onApprove={vi.fn()}
                 onReject={vi.fn()}
+                riskTier="green"
                 consensusOutcome="disagree"
             />
         )
@@ -305,6 +321,7 @@ describe('DiffCard', () => {
                 call={makeCall()}
                 onApprove={vi.fn()}
                 onReject={vi.fn()}
+                riskTier="green"
                 consensusOutcome="agree_reject"
             />
         )
@@ -317,6 +334,7 @@ describe('DiffCard', () => {
                 call={makeCall()}
                 onApprove={vi.fn()}
                 onReject={vi.fn()}
+                riskTier="green"
                 consensusOutcome="agree_approve"
             />
         )
@@ -329,6 +347,7 @@ describe('DiffCard', () => {
                 call={makeCall()}
                 onApprove={vi.fn()}
                 onReject={vi.fn()}
+                riskTier="green"
                 consensusOutcome="disagree"
                 consensusReasoning="Secondary model flagged accessibility violation"
             />
@@ -342,6 +361,7 @@ describe('DiffCard', () => {
                 call={makeCall()}
                 onApprove={vi.fn()}
                 onReject={vi.fn()}
+                riskTier="green"
             />
         )
         expect(screen.queryByText(/Consensus:/)).toBeNull()
@@ -353,6 +373,7 @@ describe('DiffCard', () => {
                 call={makeCall()}
                 onApprove={vi.fn()}
                 onReject={vi.fn()}
+                riskTier="green"
                 consensusOutcome="unknown_outcome"
             />
         )

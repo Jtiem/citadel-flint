@@ -19,20 +19,35 @@
  *   - data-flint-id is not required (this component is not canvas-selectable).
  */
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Zap, CheckCircle2, XCircle, ShieldCheck, ShieldAlert, AlertTriangle } from 'lucide-react'
 import type { PendingToolCall } from '../../store/orchestratorStore'
+
+// ── CHRON.1 UX A+: Red-tier framing text per AST tool ────────────────────────
+// Describes *what* is risky about a mutation so the reason input reads as a
+// response to a stated risk, not an arbitrary gate.
+function framingForTool(toolName: string): string {
+    switch (toolName) {
+        case 'flint_delete_node':  return "This change removes an element and can't be easily undone."
+        case 'flint_wrap_node':    return "This change restructures the DOM and can't be easily undone."
+        case 'flint_insert_node':  return "This change adds structure to the page and can't be easily undone."
+        case 'flint_compose_slot': return "This change rewires compound component composition and can't be easily undone."
+        case 'flint_emit_map':     return "This change introduces rendering logic and can't be easily undone."
+        default:                   return "This change has high impact and can't be easily undone."
+    }
+}
 
 // ── Risk tier ─────────────────────────────────────────────────────────────────
 
 export type RiskTier = 'green' | 'amber' | 'red'
 
-/** Derive a naive risk tier from the tool name when no explicit scoring is available. */
-function inferRiskTier(toolName: string): RiskTier {
-    if (toolName === 'flint_delete_node' || toolName === 'flint_wrap_node') return 'amber'
-    if (toolName === 'flint_insert_node') return 'amber'
-    return 'green'
-}
+// NOTE (CHRON.1-repair / M2): a prior `inferRiskTier(toolName)` function lived
+// here that guessed the tier from a naive tool-name allowlist. The UX review
+// (2026-04-16) caught that a dangerous `flint_update_props` on a root element
+// rendered "Low risk" and bypassed CHRON.1's reason gate entirely. Risk tier
+// is now a required prop — the orchestrator must pass the MRS-derived tier
+// from the tool_call chunk. No silent fallback. If the orchestrator can't
+// determine a tier, callers should explicitly pass "amber" (conservative).
 
 function RiskBadge({ tier }: { tier: RiskTier }) {
     if (tier === 'green') {
@@ -331,10 +346,20 @@ function ConsensusBadge({ outcome, reasoning }: ConsensusBadgeProps) {
 
 export interface DiffCardProps {
     call: PendingToolCall
-    onApprove: (id: string) => void
+    /**
+     * CHRON.1: `reason` is the user-supplied justification captured by the
+     * risk-tiered input. Green tier passes no reason; amber passes an empty
+     * string or free text; red passes non-empty free text (Apply is disabled
+     * until non-empty).
+     */
+    onApprove: (id: string, reason?: string) => void
     onReject: (id: string) => void
-    /** Explicitly override the inferred risk tier. */
-    riskTier?: RiskTier
+    /**
+     * Risk tier from the orchestrator's MRS score. Required — no inference
+     * fallback (CHRON.1-repair / M2). Conservative default is "amber" if the
+     * orchestrator cannot determine a tier.
+     */
+    riskTier: RiskTier
     /** Consensus gate outcome for this mutation (e.g. 'agree_approve', 'agree_reject', 'disagree'). */
     consensusOutcome?: string
     /** Natural-language explanation from the secondary evaluator. */
@@ -346,9 +371,35 @@ export interface DiffCardProps {
 export function DiffCard({ call, onApprove, onReject, riskTier, consensusOutcome, consensusReasoning }: DiffCardProps) {
     const { toolName, input, status, beforeSnapshot } = call
     const isPending = status === 'pending'
-    const tier = riskTier ?? inferRiskTier(toolName)
+    const tier = riskTier
     const reasoning = typeof input.reasoning === 'string' ? input.reasoning : ''
     const targetId = typeof input.targetId === 'string' ? input.targetId : ''
+
+    // CHRON.1: risk-tiered reason input. Green → no input, amber → optional,
+    // red → required (Apply disabled until trim().length > 0).
+    const [reasonText, setReasonText] = useState('')
+    const trimmedReason = reasonText.trim()
+    const redApplyDisabled = tier === 'red' && trimmedReason.length === 0
+    const inputBorderClass =
+        tier === 'red'   ? 'border-red-500/40 focus:border-red-500/60 focus:outline-none' :
+        tier === 'amber' ? 'border-amber-500/30 focus:border-amber-500/60 focus:outline-none' :
+                           'border-zinc-700'
+    const amberPlaceholder = 'Why this change? (optional, for teammates)'
+    const redPlaceholder   = 'Required: reason for this high-risk change'
+
+    const handleApprove = () => {
+        if (tier === 'green') {
+            onApprove(call.id)
+            return
+        }
+        if (tier === 'amber') {
+            // CHRON.1 UX A+: empty amber sends '' (not the legacy 'skipped' sentinel)
+            onApprove(call.id, trimmedReason)
+            return
+        }
+        // red: disabled until non-empty; forward typed reason
+        if (!redApplyDisabled) onApprove(call.id, trimmedReason)
+    }
 
     // Derive before/after snippets
     const beforeSnippet = useMemo(() => {
@@ -429,14 +480,38 @@ export function DiffCard({ call, onApprove, onReject, riskTier, consensusOutcome
                 </div>
             )}
 
+            {/* CHRON.1 reason input (pending + amber/red only) */}
+            {isPending && (tier === 'amber' || tier === 'red') && (
+                <div className="flex flex-col gap-1 border-t border-white/5 px-3 py-2">
+                    {tier === 'red' && (
+                        <p className="text-[10px] text-zinc-500">{framingForTool(toolName)}</p>
+                    )}
+                    <input
+                        type="text"
+                        aria-label="Why is this change needed?"
+                        placeholder={tier === 'red' ? redPlaceholder : amberPlaceholder}
+                        maxLength={500}
+                        value={reasonText}
+                        onChange={(e) => setReasonText(e.target.value)}
+                        className={`w-full rounded border bg-zinc-950 px-2 py-1 text-[11px] text-zinc-200 placeholder:text-zinc-600 ${inputBorderClass}`}
+                    />
+                    {tier === 'red' && (
+                        <p className="text-[9px] text-zinc-600">
+                            Examples: &ldquo;Approved by brand team&rdquo;, &ldquo;Required by WCAG exception&rdquo;, &ldquo;Temporary fix&rdquo;
+                        </p>
+                    )}
+                </div>
+            )}
+
             {/* Action buttons (pending only) */}
             {isPending && (
                 <div className="flex gap-2 border-t border-white/5 px-3 py-2">
                     <button
                         type="button"
                         aria-label="Accept mutation"
-                        onClick={() => onApprove(call.id)}
-                        className="flex items-center gap-1 rounded bg-emerald-600/20 px-2.5 py-1 text-[10px] font-medium text-emerald-400 transition-colors hover:bg-emerald-600/30"
+                        onClick={handleApprove}
+                        disabled={redApplyDisabled}
+                        className="flex items-center gap-1 rounded bg-emerald-600/20 px-2.5 py-1 text-[10px] font-medium text-emerald-400 transition-colors hover:bg-emerald-600/30 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-emerald-600/20"
                     >
                         <CheckCircle2 size={11} />
                         Apply

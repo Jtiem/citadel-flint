@@ -124,6 +124,13 @@ export interface ViolationsListProps {
     onSubmitDefer: (key: string) => void
     onCancelDefer: (key: string) => void
     onPin: (key: string) => void
+    /**
+     * CHRON.1-repair M3: Fires when the user confirms a rule override for a
+     * specific violation card via OverrideReasonDialog. The reason is already
+     * trimmed (or undefined when the user waived it on an Amber-tier dialog).
+     * Optional — when omitted, no Override button is rendered in the card footer.
+     */
+    onOverride?: (key: string, reason?: string) => void
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -161,6 +168,7 @@ export function ViolationsList({
     onSubmitDefer,
     onCancelDefer,
     onPin,
+    onOverride,
 }: ViolationsListProps) {
     return (
         <div>
@@ -232,6 +240,7 @@ export function ViolationsList({
                             onSubmitDefer={() => onSubmitDefer(card.cardKey)}
                             onCancelDefer={() => onCancelDefer(card.cardKey)}
                             onPin={() => onPin(card.cardKey)}
+                            onOverride={onOverride ? (reason) => onOverride(card.cardKey, reason) : undefined}
                             getNodeName={getNodeName}
                             activeFilePath={activeFilePath}
                             navigationIndex={card.navigationIndex}
@@ -280,6 +289,7 @@ export function ViolationsList({
                             onSubmitDefer={() => onSubmitDefer(card.cardKey)}
                             onCancelDefer={() => onCancelDefer(card.cardKey)}
                             onPin={() => onPin(card.cardKey)}
+                            onOverride={onOverride ? (reason) => onOverride(card.cardKey, reason) : undefined}
                             getNodeName={getNodeName}
                             activeFilePath={activeFilePath}
                             navigationIndex={card.navigationIndex}

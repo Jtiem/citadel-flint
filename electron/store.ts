@@ -309,6 +309,105 @@ if (!deferredColNames.has('expires_at')) {
 
 console.log(`${BRAND.logPrefix} deferred_violations table ready`)
 
+// ── CHRON.1-repair / C1: mutations_ledger canonical schema ────────────────────
+//
+// Electron and MCP both open the same SQLite file. Historically each path
+// issued a *different* `CREATE TABLE IF NOT EXISTS mutations_ledger` DDL —
+// and because CREATE IF NOT EXISTS is a name-only guard, whichever process
+// opened the file first "won" the schema and the other path's UPDATE/INSERT
+// silently failed inside a try/catch. This sprint (CHRON.1-repair, 2026-04-16)
+// canonicalized on the MCP shape. Keep this DDL byte-identical to
+// `flint-mcp/src/core/governance/mutationLedgerService.ts` so the
+// first-writer-wins race is benign.
+db.exec(`
+    CREATE TABLE IF NOT EXISTS mutations_ledger (
+        id                  TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+        timestamp           TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+        file_path           TEXT NOT NULL,
+        node_id             TEXT,
+        operation_type      TEXT NOT NULL CHECK (operation_type IN (
+            'updateProp', 'updateClassName', 'updateTextContent',
+            'move', 'inject', 'fixToken', 'assembleLayout',
+            'insertNode', 'deleteNode', 'wrapNode',
+            'addClass', 'removeClass', 'crossFileMove'
+        )),
+        source              TEXT NOT NULL CHECK (source IN (
+            'ai_orchestrator', 'mcp_tool', 'user_action', 'auto_fix'
+        )),
+        source_intent_hash  TEXT,
+        registry_artifact_id TEXT,
+        before_snapshot     TEXT,
+        after_snapshot      TEXT,
+        session_id          TEXT,
+        approved_by         TEXT,
+        approved_at         TEXT,
+        justification       TEXT,
+        metadata            TEXT DEFAULT '{}'
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_mutations_timestamp  ON mutations_ledger(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_mutations_file       ON mutations_ledger(file_path);
+    CREATE INDEX IF NOT EXISTS idx_mutations_node       ON mutations_ledger(node_id);
+    CREATE INDEX IF NOT EXISTS idx_mutations_source     ON mutations_ledger(source);
+    CREATE INDEX IF NOT EXISTS idx_mutations_session    ON mutations_ledger(session_id);
+    CREATE INDEX IF NOT EXISTS idx_mutations_approved   ON mutations_ledger(approved_at);
+`)
+
+// Defensive migration for deployments that opened the DB under the pre-repair
+// DDL (narrow shape with INTEGER id, mutation_id, op, risk_score columns).
+// Rename it aside so forensic review can still reach the old rows, then
+// re-run the canonical CREATE. This only fires once per DB file.
+const mutationCols = db.prepare(`PRAGMA table_info(mutations_ledger)`).all() as Array<{ name: string }>
+const mutationColNames = new Set(mutationCols.map(c => c.name))
+const hasLegacyShape = mutationColNames.has('mutation_id') && !mutationColNames.has('operation_type')
+if (hasLegacyShape) {
+    const legacyExists = db.prepare(
+        `SELECT name FROM sqlite_master WHERE type='table' AND name='mutations_ledger_legacy'`
+    ).get()
+    if (!legacyExists) {
+        db.exec(`ALTER TABLE mutations_ledger RENAME TO mutations_ledger_legacy`)
+        console.log(`${BRAND.logPrefix} mutations_ledger: legacy narrow schema detected — renamed to mutations_ledger_legacy`)
+        // Re-run canonical CREATE now that the legacy table is out of the way.
+        db.exec(`
+            CREATE TABLE mutations_ledger (
+                id                  TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+                timestamp           TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                file_path           TEXT NOT NULL,
+                node_id             TEXT,
+                operation_type      TEXT NOT NULL CHECK (operation_type IN (
+                    'updateProp', 'updateClassName', 'updateTextContent',
+                    'move', 'inject', 'fixToken', 'assembleLayout',
+                    'insertNode', 'deleteNode', 'wrapNode',
+                    'addClass', 'removeClass', 'crossFileMove'
+                )),
+                source              TEXT NOT NULL CHECK (source IN (
+                    'ai_orchestrator', 'mcp_tool', 'user_action', 'auto_fix'
+                )),
+                source_intent_hash  TEXT,
+                registry_artifact_id TEXT,
+                before_snapshot     TEXT,
+                after_snapshot      TEXT,
+                session_id          TEXT,
+                approved_by         TEXT,
+                approved_at         TEXT,
+                justification       TEXT,
+                metadata            TEXT DEFAULT '{}'
+            )
+        `)
+    }
+} else if (mutationColNames.size > 0) {
+    // Widen-only migration: canonical schema existed without approved_at/approved_by.
+    if (!mutationColNames.has('approved_at')) {
+        db.exec(`ALTER TABLE mutations_ledger ADD COLUMN approved_at TEXT`)
+        console.log(`${BRAND.logPrefix} mutations_ledger: migrated — added approved_at column`)
+    }
+    if (!mutationColNames.has('approved_by')) {
+        db.exec(`ALTER TABLE mutations_ledger ADD COLUMN approved_by TEXT`)
+        console.log(`${BRAND.logPrefix} mutations_ledger: migrated — added approved_by column`)
+    }
+}
+console.log(`${BRAND.logPrefix} mutations_ledger table ready (canonical schema)`)
+
 console.log(`${BRAND.logPrefix} Database ready at: ${DB_PATH}`)
 
 // ── PowerSync Integration ──────────────────────────────────────────────────────

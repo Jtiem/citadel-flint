@@ -30,7 +30,7 @@ export interface ComponentEntry {
     variants?: string[];
     /** Design tokens this component consumes. */
     tokens?: string[];
-    source?: 'local' | 'remote';
+    source?: 'local' | 'remote' | 'library';
     remoteUrl?: string;
     /** Figma component ID for deterministic mapping (FIGMA-MAP.1). */
     figmaComponentId?: string;

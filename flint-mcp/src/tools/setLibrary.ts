@@ -24,6 +24,126 @@ import {
 } from '../core/libraryAdapters/index.js'
 import type { LibraryTarget } from '../core/libraryAdapters/types.js'
 import type { DesignToken } from '../types.js'
+import type { ComponentEntry } from '../core/registryService.js'
+
+// ---------------------------------------------------------------------------
+// ARM.1: library component manifests (hardcoded per-library component lists)
+// ---------------------------------------------------------------------------
+//
+// Each library contributes a canonical set of primitives that Mason generates
+// from and that REG-001 trusts. Source: 'library' entries are seeded into
+// flint-manifest.json under libraryComponents, never overwriting source:'local'
+// entries. Kept inline here (not on the LibraryAdapter interface) so the
+// CHRON.1-repair sprint doesn't have to widen the adapter contract.
+
+function libEntry(name: string, importPath: string, description: string): ComponentEntry {
+    return { name, importPath, source: 'library', description }
+}
+
+const LIBRARY_COMPONENT_MANIFESTS: Record<LibraryTarget, ComponentEntry[]> = {
+    mui: [
+        libEntry('Box', '@mui/material/Box', 'Layout container, accepts sx prop'),
+        libEntry('Stack', '@mui/material/Stack', 'Flexbox layout stack with spacing'),
+        libEntry('Typography', '@mui/material/Typography', 'Text with variant hierarchy'),
+        libEntry('Button', '@mui/material/Button', 'Action button: text, outlined, contained'),
+        libEntry('TextField', '@mui/material/TextField', 'Form input with label and helper text'),
+        libEntry('Accordion', '@mui/material/Accordion', 'Collapsible content panel'),
+        libEntry('AccordionSummary', '@mui/material/AccordionSummary', 'Accordion trigger header'),
+        libEntry('AccordionDetails', '@mui/material/AccordionDetails', 'Accordion expanded content'),
+        libEntry('Dialog', '@mui/material/Dialog', 'Modal dialog overlay'),
+        libEntry('DialogTitle', '@mui/material/DialogTitle', 'Dialog header'),
+        libEntry('DialogContent', '@mui/material/DialogContent', 'Dialog body'),
+        libEntry('DialogActions', '@mui/material/DialogActions', 'Dialog footer actions'),
+        libEntry('Card', '@mui/material/Card', 'Surface container with elevation'),
+        libEntry('CardContent', '@mui/material/CardContent', 'Card body'),
+        libEntry('CardActions', '@mui/material/CardActions', 'Card footer actions'),
+        libEntry('Chip', '@mui/material/Chip', 'Compact tag or filter'),
+        libEntry('Alert', '@mui/material/Alert', 'Feedback banner'),
+        libEntry('Snackbar', '@mui/material/Snackbar', 'Toast notification'),
+        libEntry('CircularProgress', '@mui/material/CircularProgress', 'Loading indicator'),
+        libEntry('Divider', '@mui/material/Divider', 'Horizontal or vertical separator'),
+        libEntry('List', '@mui/material/List', 'Item list container'),
+        libEntry('ListItem', '@mui/material/ListItem', 'List item'),
+        libEntry('ListItemText', '@mui/material/ListItemText', 'List item text'),
+        libEntry('Menu', '@mui/material/Menu', 'Dropdown menu'),
+        libEntry('MenuItem', '@mui/material/MenuItem', 'Menu option'),
+        libEntry('Select', '@mui/material/Select', 'Dropdown select input'),
+        libEntry('Switch', '@mui/material/Switch', 'Toggle switch'),
+        libEntry('Checkbox', '@mui/material/Checkbox', 'Binary checkbox'),
+        libEntry('Radio', '@mui/material/Radio', 'Radio button'),
+        libEntry('Tabs', '@mui/material/Tabs', 'Tab container'),
+        libEntry('Tab', '@mui/material/Tab', 'Single tab'),
+        libEntry('Tooltip', '@mui/material/Tooltip', 'Hover label'),
+        libEntry('IconButton', '@mui/material/IconButton', 'Icon-only button'),
+        libEntry('Avatar', '@mui/material/Avatar', 'User image or initials'),
+        libEntry('Badge', '@mui/material/Badge', 'Numeric indicator'),
+        libEntry('Breadcrumbs', '@mui/material/Breadcrumbs', 'Navigation trail'),
+        libEntry('Skeleton', '@mui/material/Skeleton', 'Loading placeholder'),
+        libEntry('Stepper', '@mui/material/Stepper', 'Multi-step indicator'),
+        libEntry('Step', '@mui/material/Step', 'Single step'),
+        libEntry('StepLabel', '@mui/material/StepLabel', 'Step label'),
+        libEntry('Paper', '@mui/material/Paper', 'Elevated surface'),
+        libEntry('AppBar', '@mui/material/AppBar', 'Top navigation bar'),
+        libEntry('Toolbar', '@mui/material/Toolbar', 'AppBar content row'),
+        libEntry('Drawer', '@mui/material/Drawer', 'Side panel overlay'),
+        libEntry('FormControl', '@mui/material/FormControl', 'Form element wrapper'),
+        libEntry('FormLabel', '@mui/material/FormLabel', 'Form group label'),
+        libEntry('FormHelperText', '@mui/material/FormHelperText', 'Form helper text'),
+        libEntry('InputLabel', '@mui/material/InputLabel', 'Floating input label'),
+        libEntry('Grid', '@mui/material/Grid', 'Responsive CSS grid'),
+        libEntry('Container', '@mui/material/Container', 'Centered content container'),
+        libEntry('Link', '@mui/material/Link', 'Styled anchor'),
+        libEntry('Table', '@mui/material/Table', 'HTML table'),
+        libEntry('TableHead', '@mui/material/TableHead', 'Table header rows'),
+        libEntry('TableBody', '@mui/material/TableBody', 'Table body rows'),
+        libEntry('TableRow', '@mui/material/TableRow', 'Table row'),
+        libEntry('TableCell', '@mui/material/TableCell', 'Table cell'),
+    ],
+    shadcn: [
+        libEntry('Button', '@/components/ui/button', 'shadcn button primitive'),
+        libEntry('Card', '@/components/ui/card', 'shadcn surface container'),
+        libEntry('CardHeader', '@/components/ui/card', 'Card header slot'),
+        libEntry('CardContent', '@/components/ui/card', 'Card body slot'),
+        libEntry('CardFooter', '@/components/ui/card', 'Card footer slot'),
+        libEntry('Input', '@/components/ui/input', 'shadcn input primitive'),
+        libEntry('Label', '@/components/ui/label', 'shadcn form label'),
+        libEntry('Dialog', '@/components/ui/dialog', 'shadcn dialog primitive'),
+        libEntry('DialogTrigger', '@/components/ui/dialog', 'Dialog trigger slot'),
+        libEntry('DialogContent', '@/components/ui/dialog', 'Dialog content slot'),
+        libEntry('Badge', '@/components/ui/badge', 'shadcn tag primitive'),
+        libEntry('Tabs', '@/components/ui/tabs', 'shadcn tab container'),
+        libEntry('TabsList', '@/components/ui/tabs', 'Tab list'),
+        libEntry('TabsTrigger', '@/components/ui/tabs', 'Tab trigger'),
+        libEntry('TabsContent', '@/components/ui/tabs', 'Tab content panel'),
+        libEntry('Select', '@/components/ui/select', 'shadcn select primitive'),
+        libEntry('SelectTrigger', '@/components/ui/select', 'Select trigger'),
+        libEntry('SelectContent', '@/components/ui/select', 'Select content'),
+        libEntry('SelectItem', '@/components/ui/select', 'Select option'),
+        libEntry('Separator', '@/components/ui/separator', 'shadcn divider'),
+    ],
+    primeng: [
+        libEntry('Button', 'primereact/button', 'PrimeReact button primitive'),
+        libEntry('InputText', 'primereact/inputtext', 'PrimeReact text input'),
+        libEntry('Dropdown', 'primereact/dropdown', 'PrimeReact dropdown'),
+        libEntry('Dialog', 'primereact/dialog', 'PrimeReact modal dialog'),
+        libEntry('Card', 'primereact/card', 'PrimeReact surface'),
+        libEntry('DataTable', 'primereact/datatable', 'PrimeReact data grid'),
+        libEntry('Column', 'primereact/column', 'DataTable column'),
+        libEntry('TabView', 'primereact/tabview', 'PrimeReact tab container'),
+        libEntry('TabPanel', 'primereact/tabview', 'Tab panel'),
+        libEntry('Checkbox', 'primereact/checkbox', 'PrimeReact checkbox'),
+        libEntry('RadioButton', 'primereact/radiobutton', 'PrimeReact radio'),
+        libEntry('Toast', 'primereact/toast', 'PrimeReact toast notifications'),
+        libEntry('Panel', 'primereact/panel', 'PrimeReact content panel'),
+        libEntry('Accordion', 'primereact/accordion', 'PrimeReact accordion'),
+        libEntry('AccordionTab', 'primereact/accordion', 'Accordion tab'),
+    ],
+    tailwind: [],
+    antd: [],
+    radix: [],
+    chakra: [],
+    carbon: [],
+}
 
 // ---------------------------------------------------------------------------
 // Tool definition (MCP ListTools schema)
@@ -180,7 +300,13 @@ function setLibraryExplicit(library: LibraryTarget, projectRoot: string): {
     const seedTokens = adapter.seedTokens()
     const { seeded, existing, total } = mergeTokens(projectRoot, seedTokens)
 
-    // 3. Build response
+    // 3. ARM.1: Seed library component manifest into flint-manifest.json.
+    //    REG-001 trusts source:'library' entries automatically so Mason-generated
+    //    MUI/shadcn/PrimeNG primitives don't fire false-positives at audit time.
+    const manifest = LIBRARY_COMPONENT_MANIFESTS[library]
+    const { seeded: componentsSeeded, existing: componentsExisting } = mergeComponents(projectRoot, manifest)
+
+    // 4. Build response
     const lines: string[] = [
         `Active library set to: ${adapter.displayName} (${library})`,
     ]
@@ -192,6 +318,7 @@ function setLibraryExplicit(library: LibraryTarget, projectRoot: string): {
 
     lines.push('')
     lines.push(`Token seeding: ${seeded} new tokens added, ${existing} existing preserved (${total} total)`)
+    lines.push(`Library components: ${componentsSeeded} registered, ${componentsExisting} already present`)
 
     if (seeded > 0) {
         lines.push('')
@@ -243,6 +370,67 @@ function readTokens(projectRoot: string): DesignToken[] {
         }
     } catch { /* ignore */ }
     return []
+}
+
+/**
+ * ARM.1: Merge library component manifest into `.flint/flint-manifest.json`.
+ * Writes entries into a top-level `libraryComponents` array (never overwriting
+ * existing source:'local' entries with the same name). Idempotent.
+ */
+function mergeComponents(
+    projectRoot: string,
+    entries: ComponentEntry[],
+): { seeded: number; existing: number } {
+    if (entries.length === 0) return { seeded: 0, existing: 0 }
+
+    const manifestPath = path.join(projectRoot, configPath('flint-manifest.json'))
+    let manifest: Record<string, unknown> = {}
+    try {
+        if (fs.existsSync(manifestPath)) {
+            manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'))
+        }
+    } catch { /* ignore parse errors */ }
+
+    if (!Array.isArray(manifest.libraryComponents)) {
+        manifest.libraryComponents = []
+    }
+    const libraryComponents = manifest.libraryComponents as ComponentEntry[]
+
+    const existingLibraryNames = new Set(
+        libraryComponents.filter((e): e is ComponentEntry => typeof e?.name === 'string').map(e => e.name),
+    )
+
+    // Local components (source === 'local' or source undefined) always win over library entries.
+    const localComponentNames = new Set<string>()
+    if (Array.isArray(manifest.components)) {
+        for (const c of manifest.components as ComponentEntry[]) {
+            if (c?.name && typeof c.name === 'string' && (c.source === 'local' || !c.source)) {
+                localComponentNames.add(c.name)
+            }
+        }
+    }
+
+    let seeded = 0
+    let existing = 0
+    for (const entry of entries) {
+        if (localComponentNames.has(entry.name) || existingLibraryNames.has(entry.name)) {
+            existing++
+            continue
+        }
+        libraryComponents.push(entry)
+        existingLibraryNames.add(entry.name)
+        seeded++
+    }
+
+    if (seeded > 0) {
+        const configDir = path.join(projectRoot, configPath(''))
+        if (!fs.existsSync(configDir)) {
+            fs.mkdirSync(configDir, { recursive: true })
+        }
+        fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf-8')
+    }
+
+    return { seeded, existing }
 }
 
 /**

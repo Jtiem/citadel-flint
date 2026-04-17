@@ -166,7 +166,8 @@ interface OrchestratorActions {
     retryLast: () => Promise<void>
 
     // Tool call approval flow
-    approveToolCall: (id: string) => Promise<void>
+    // CHRON.1: optional reason is forwarded to governance:record-approval-reason.
+    approveToolCall: (id: string, reason?: string) => Promise<void>
     rejectToolCall: (id: string) => void
 
     // Internal helpers (called by the chunk listener)
@@ -512,7 +513,7 @@ export const useOrchestratorStore = create<OrchestratorState & OrchestratorActio
 
     // ── Tool Call Approval ────────────────────────────────────────────────────
 
-    approveToolCall: async (id: string) => {
+    approveToolCall: async (id: string, reason?: string) => {
         const call = get().pendingToolCalls.find((c) => c.id === id)
         if (!call) return
 
@@ -571,6 +572,28 @@ export const useOrchestratorStore = create<OrchestratorState & OrchestratorActio
 
             if (mutations.length > 0) {
                 await window.flintAPI.applyBatch(mutations) // TODO: extract to service layer
+                // CHRON.1 (Option A): Persist the reason through governance:record-approval-reason.
+                // The orchestrator path has no mutations_ledger row, so we write a
+                // governance_events entry (event_type='override') where the audit-log
+                // surface already queries — rather than the prior silent-no-op
+                // approveMutation(0, reason) call.
+                if (reason && window.flintAPI.governance?.recordApprovalReason) {
+                    try {
+                        const { useCanvasStore } = await import('./canvasStore')
+                        const filePath = useCanvasStore.getState().activeFilePath ?? 'unknown'
+                        await window.flintAPI.governance.recordApprovalReason({
+                            filePath,
+                            toolName: call.toolName,
+                            reason,
+                        })
+                    } catch {
+                        // Non-fatal: reason logging must never block the mutation
+                    }
+                }
+                // CHRON.1 (security hardening): Do NOT append the reason to chat history.
+                // Reasons belong in the audit ledger, not the transcript — rendering the
+                // raw reason inline creates an unsanitized display surface the user did
+                // not consent to and leaks into LLM context on the next turn.
                 const reasoning = typeof input.reasoning === 'string' ? input.reasoning : ''
                 set((s) => ({
                     messages: [

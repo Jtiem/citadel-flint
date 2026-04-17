@@ -160,25 +160,28 @@ describe('HealthScoreAccordion', () => {
     })
 
     // ── Sub-score rows ────────────────────────────────────────────────────────
+    // CHRON.1-repair / C2: rows narrate the canonical severity buckets driving
+    // shared/healthScore.ts. Legacy callers that pass only (mithrilCount,
+    // a11yCount) fall back to: mithril → amber bucket, a11y → critical bucket.
 
-    it('renders fidelity-score-row when mithrilCount > 0', () => {
+    it('renders amber-score-row when mithrilCount > 0 (fallback: mithril→amber)', () => {
         render(<HealthScoreAccordion {...defaultProps} mithrilCount={2} />)
-        expect(screen.getByTestId('fidelity-score-row')).toBeDefined()
+        expect(screen.getByTestId('amber-score-row')).toBeDefined()
     })
 
-    it('does not render fidelity-score-row when mithrilCount is 0', () => {
+    it('does not render amber-score-row when mithrilCount is 0 and no amberCount', () => {
         render(<HealthScoreAccordion {...defaultProps} mithrilCount={0} />)
-        expect(screen.queryByTestId('fidelity-score-row')).toBeNull()
+        expect(screen.queryByTestId('amber-score-row')).toBeNull()
     })
 
-    it('renders a11y-score-row when a11yCount > 0', () => {
+    it('renders critical-score-row when a11yCount > 0 (fallback: a11y→critical)', () => {
         render(<HealthScoreAccordion {...defaultProps} a11yCount={1} />)
-        expect(screen.getByTestId('a11y-score-row')).toBeDefined()
+        expect(screen.getByTestId('critical-score-row')).toBeDefined()
     })
 
-    it('does not render a11y-score-row when a11yCount is 0', () => {
+    it('does not render critical-score-row when a11yCount is 0 and no criticalCount', () => {
         render(<HealthScoreAccordion {...defaultProps} a11yCount={0} />)
-        expect(screen.queryByTestId('a11y-score-row')).toBeNull()
+        expect(screen.queryByTestId('critical-score-row')).toBeNull()
     })
 
     it('renders override-score-row when overrideCount > 0', () => {
@@ -191,14 +194,37 @@ describe('HealthScoreAccordion', () => {
         expect(screen.queryByTestId('override-score-row')).toBeNull()
     })
 
-    it('fidelity deduction is correct (mithrilCount * 3)', () => {
+    it('amber bucket deduction matches canonical weight (×3 pts)', () => {
         render(<HealthScoreAccordion {...defaultProps} mithrilCount={4} />)
-        expect(screen.getByTestId('fidelity-score-row').textContent).toContain('−12 pts')
+        expect(screen.getByTestId('amber-score-row').textContent).toContain('−12 pts')
     })
 
-    it('a11y deduction is correct (a11yCount * 10)', () => {
+    it('critical bucket deduction matches canonical weight (×10 pts)', () => {
         render(<HealthScoreAccordion {...defaultProps} a11yCount={3} />)
-        expect(screen.getByTestId('a11y-score-row').textContent).toContain('−30 pts')
+        expect(screen.getByTestId('critical-score-row').textContent).toContain('−30 pts')
+    })
+
+    it('override bucket deduction matches canonical weight (×3 pts)', () => {
+        render(<HealthScoreAccordion {...defaultProps} overrideCount={5} />)
+        expect(screen.getByTestId('override-score-row').textContent).toContain('−15 pts')
+    })
+
+    it('severity-bucketed props override the legacy fallback', () => {
+        // Pass a11yCount=0 but explicit criticalCount=2 — narration should use
+        // the explicit bucket.
+        render(
+            <HealthScoreAccordion
+                {...defaultProps}
+                a11yCount={0}
+                mithrilCount={0}
+                criticalCount={2}
+                amberCount={1}
+                advisoryCount={3}
+            />
+        )
+        expect(screen.getByTestId('critical-score-row').textContent).toContain('−20 pts')
+        expect(screen.getByTestId('amber-score-row').textContent).toContain('−3 pts')
+        expect(screen.getByTestId('advisory-score-row').textContent).toContain('−3 pts')
     })
 
     // ── "How is this calculated?" ─────────────────────────────────────────────

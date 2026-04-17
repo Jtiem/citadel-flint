@@ -120,6 +120,29 @@ export const ipcSchemas = {
     response: z.string(),
   },
 
+  // ── CHRON.1: Governance approval reason ─────────────────────────
+  //
+  // Both the pre-approved ledger flow (renderer → main writes justification)
+  // and the orchestrator flow (no ledger row yet, writes a governance_events
+  // entry) land at the same validation boundary.
+
+  'governance:approve-mutation': {
+    payload: z.object({
+      id: z.number().int().nonnegative(),
+      reason: z.string().max(1000).optional(),
+    }),
+    response: z.undefined(),
+  },
+
+  'governance:record-approval-reason': {
+    payload: z.object({
+      filePath: z.string().min(1).max(4096),
+      toolName: z.string().min(1).max(200),
+      reason: z.string().min(1).max(1000),
+    }),
+    response: z.undefined(),
+  },
+
 } satisfies Record<string, { payload: z.ZodType; response: z.ZodType }>;
 
 // ─── Type Exports ───────────────────────────────────────────────────

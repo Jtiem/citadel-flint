@@ -47,6 +47,8 @@ import { createPreviewServer } from './services/previewServer.js'
 import { ideFileSyncTick, type IDEFileSyncState } from './ideFileSyncTick.js'
 import { detectProjectEnvironment, type DetectorFS } from '../shared/projectDetector.js'
 import { validateFilePath as sharedValidateFilePath } from '../shared/validateFilePath.js'
+import { sanitizeReason } from '../shared/reasonSanitizer.js'
+import { ipcSchemas } from '../shared/ipc-validators.js'
 
 const execFileAsync = promisify(execFile)
 const __filename = fileURLToPath(import.meta.url)
@@ -432,6 +434,30 @@ function initProjectDatabase(projectRoot: string): Database.Database {
       source      TEXT    NOT NULL DEFAULT '',
       chunk_type  TEXT    NOT NULL DEFAULT 'documentation',
       created_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+    );
+  `)
+
+  // ── CHRON.1: mutations_ledger DDL guard (mirrors electron/store.ts) ─────────
+  //
+  // The MCP-side mutationLedgerService.ts owns this table in production, but in
+  // web-only deployments (no MCP sidecar spawned) the table does not exist and
+  // governance:approve-mutation UPDATE silently fails. CHRON.1 requires reason
+  // logging to work regardless — this DDL mirrors the full MCP-side schema.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS mutations_ledger (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      mutation_id      TEXT,
+      file_path        TEXT,
+      op               TEXT,
+      risk_score       REAL,
+      risk_tier        TEXT,
+      agent_id         TEXT,
+      session_id       TEXT,
+      justification    TEXT,
+      approved_at      TEXT,
+      before_snapshot  TEXT,
+      after_snapshot   TEXT,
+      created_at       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
     );
   `)
 
@@ -1721,10 +1747,20 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
       action: string
       newValue: unknown
       filePath: string
+      /** CHRON.1-repair M3: optional reason from OverrideReasonDialog. */
+      reason?: unknown
     }
+    // CHRON.1-repair M3: accept optional reason; cap at 2000 chars defensively.
+    // Full sanitization lives in the dedicated sanitizer (see C5).
+    let reason: string | undefined
+    if (typeof p.reason === 'string' && p.reason.trim().length > 0) {
+      reason = p.reason.trim().slice(0, 2000)
+    }
+    const metadata: Record<string, unknown> = { action: p.action, newValue: p.newValue }
+    if (reason !== undefined) metadata.reason = reason
     govInsert.run(
       'override', p.ruleId, 'info', p.filePath, 'user', governanceSessionId,
-      JSON.stringify({ action: p.action, newValue: p.newValue }),
+      JSON.stringify(metadata),
     )
     broadcast('flint:governance-override-recorded', {})
   })
@@ -2153,9 +2189,57 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     } catch { return [] }
   })
 
-  handlers.set('governance:approve-mutation', (id: unknown): void => {
-    if (typeof id !== 'number') throw new TypeError('governance:approve-mutation — id must be a number')
-    try { db.prepare(`UPDATE mutations_ledger SET approved_at = datetime('now') WHERE id = ?`).run(id) } catch { /* table may not exist */ }
+  handlers.set('governance:approve-mutation', (id: unknown, reason: unknown): void => {
+    // CHRON.1 + M3: Zod schema validation at handler entry (parity with electron/main.ts).
+    const parsed = ipcSchemas['governance:approve-mutation'].payload.safeParse({ id, reason })
+    if (!parsed.success) {
+      throw new TypeError(
+        `governance:approve-mutation — invalid payload: ${parsed.error.issues.map(i => i.message).join('; ')}`
+      )
+    }
+
+    // CHRON.1 + M1/M2/M4: length cap, strip control/format chars, redact secrets.
+    const { sanitized, redacted, truncated, strippedControlChars } = sanitizeReason(parsed.data.reason)
+    if (redacted) console.warn(`${BRAND.logPrefix} governance:approve-mutation — redacted suspected secret from reason`)
+    if (truncated) console.warn(`${BRAND.logPrefix} governance:approve-mutation — reason truncated at 1000 chars`)
+    if (strippedControlChars) console.warn(`${BRAND.logPrefix} governance:approve-mutation — stripped control/format chars from reason`)
+
+    try {
+      db.prepare(`UPDATE mutations_ledger SET approved_at = datetime('now'), justification = ? WHERE id = ?`)
+        .run(sanitized, parsed.data.id)
+    } catch (err) {
+      console.warn(`${BRAND.logPrefix} governance:approve-mutation — UPDATE failed:`, err)
+    }
+  })
+
+  handlers.set('governance:record-approval-reason', (payload: unknown): void => {
+    // CHRON.1 orchestrator-path reason. Writes to governance_events so the
+    // dashboard's existing audit-log surface can find it.
+    const parsed = ipcSchemas['governance:record-approval-reason'].payload.safeParse(payload)
+    if (!parsed.success) {
+      throw new TypeError(
+        `governance:record-approval-reason — invalid payload: ${parsed.error.issues.map(i => i.message).join('; ')}`
+      )
+    }
+
+    const { sanitized, redacted, truncated, strippedControlChars } = sanitizeReason(parsed.data.reason)
+    if (redacted) console.warn(`${BRAND.logPrefix} governance:record-approval-reason — redacted suspected secret from reason`)
+    if (truncated) console.warn(`${BRAND.logPrefix} governance:record-approval-reason — reason truncated at 1000 chars`)
+    if (strippedControlChars) console.warn(`${BRAND.logPrefix} governance:record-approval-reason — stripped control/format chars`)
+    if (sanitized === null) return
+
+    try {
+      db.prepare(`
+        INSERT INTO governance_events (id, timestamp, event_type, rule_id, severity, node_id, file_path, message, session_id, actor, metadata)
+        VALUES (lower(hex(randomblob(16))), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 'override', ?, 'info', NULL, ?, NULL, NULL, 'user', ?)
+      `).run(
+        `orchestrator:${parsed.data.toolName}`,
+        parsed.data.filePath,
+        JSON.stringify({ reason: sanitized, source: 'orchestrator', toolName: parsed.data.toolName }),
+      )
+    } catch (err) {
+      console.warn(`${BRAND.logPrefix} governance:record-approval-reason — INSERT failed:`, err)
+    }
   })
 
   handlers.set('governance:reject-mutation', (id: unknown): void => {
@@ -2163,15 +2247,26 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     try { db.prepare(`DELETE FROM mutations_ledger WHERE id = ?`).run(id) } catch { /* table may not exist */ }
   })
 
-  handlers.set('governance:get-audit-log', (opts: unknown): Array<{ id: number | string; timestamp: string; action: string; filePath: string; description: string }> => {
+  handlers.set('governance:get-audit-log', (opts: unknown): Array<{
+    id: number | string; timestamp: string; action: string; filePath: string; description: string;
+    metadata: string | null; ruleId: string | null
+  }> => {
     const limit = typeof (opts as Record<string, unknown>)?.limit === 'number'
       ? (opts as Record<string, unknown>).limit as number : 50
     try {
+      // CHRON.1: Use actual governance_events columns (timestamp, message) —
+      // the prior `created_at` / `description` references did not exist in the DDL,
+      // so every query silently errored into the catch. Returning metadata + rule_id
+      // is required for the dashboard's overrideReasonMap build.
       return db.prepare(`
-        SELECT id, created_at AS timestamp, event_type AS action,
-               COALESCE(file_path, '') AS filePath, COALESCE(description, event_type) AS description
-        FROM governance_events ORDER BY created_at DESC LIMIT ?
-      `).all(limit) as Array<{ id: number | string; timestamp: string; action: string; filePath: string; description: string }>
+        SELECT id, timestamp AS timestamp, event_type AS action,
+               COALESCE(file_path, '') AS filePath, COALESCE(message, event_type) AS description,
+               metadata, rule_id AS ruleId
+        FROM governance_events ORDER BY timestamp DESC LIMIT ?
+      `).all(limit) as Array<{
+        id: number | string; timestamp: string; action: string; filePath: string; description: string;
+        metadata: string | null; ruleId: string | null
+      }>
     } catch { return [] }
   })
 

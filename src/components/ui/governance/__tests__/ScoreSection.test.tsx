@@ -104,19 +104,22 @@ describe('ScoreSection', () => {
         expect(handler).toHaveBeenCalledWith(null)
     })
 
-    it('renders fidelity score row when mithrilCount > 0', () => {
+    // CHRON.1-repair / C2: ScoreSection now groups by severity bucket (critical /
+    // amber / advisory / override) to match the canonical health formula, not by
+    // type (mithril / a11y). Tests updated accordingly.
+    it('renders amber score row when mithrilCount > 0', () => {
         render(<ScoreSection {...defaultProps({ mithrilCount: 3 })} />)
-        expect(screen.getByTestId('fidelity-score-row')).toBeDefined()
+        expect(screen.getByTestId('amber-score-row')).toBeDefined()
     })
 
-    it('does not render fidelity score row when mithrilCount is 0', () => {
-        render(<ScoreSection {...defaultProps({ mithrilCount: 0 })} />)
-        expect(screen.queryByTestId('fidelity-score-row')).toBeNull()
+    it('does not render amber score row when no amber-severity violations', () => {
+        render(<ScoreSection {...defaultProps({ mithrilCount: 0, a11yCount: 0 })} />)
+        expect(screen.queryByTestId('amber-score-row')).toBeNull()
     })
 
-    it('renders a11y score row when a11yCount > 0', () => {
+    it('renders amber score row when a11yCount > 0 (a11y violations count as amber)', () => {
         render(<ScoreSection {...defaultProps({ a11yCount: 2 })} />)
-        expect(screen.getByTestId('a11y-score-row')).toBeDefined()
+        expect(screen.getByTestId('amber-score-row')).toBeDefined()
     })
 
     it('renders override score row when overrideCount > 0', () => {

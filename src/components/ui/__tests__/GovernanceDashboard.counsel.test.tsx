@@ -1025,14 +1025,17 @@ describe('GovernanceDashboard — COUNSEL.1 Sprint (additional tests)', () => {
         })
     })
 
-    it('score breakdown shows correct penalty text for mithril (-3 pts)', async () => {
+    // CHRON.1-repair / C2: ScoreSection now groups by severity bucket (amber /
+    // critical / advisory / override). An amber-severity mithril violation
+    // lands in the amber-score-row, deducting 3 pts per the canonical formula.
+    it('score breakdown shows correct penalty text for an amber violation (-3 pts)', async () => {
         seedTokens([makeToken()])
         const warning = makeLinterWarning({ id: 'penalty-1', severity: 'amber', type: 'color-drift' })
         useEditorStore.setState({ linterWarnings: new Map([['penalty-1', warning]]) })
         render(<GovernanceDashboard />)
         await waitFor(() => screen.getByTestId('score-ring'))
         await waitFor(() => {
-            const row = screen.getByTestId('fidelity-score-row')
+            const row = screen.getByTestId('amber-score-row')
             expect(row.textContent).toContain('3 pts')
         })
     })

@@ -22,6 +22,7 @@ import { ChevronDown, ChevronRight } from 'lucide-react'
 import { Modal } from '../Modal'
 import { GRADE_TEXT } from './ScoreSection'
 import { Sparkline } from './ScoreSection'
+import { HEALTH_SCORE_WEIGHTS } from '../../../../shared/healthScore'
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -44,6 +45,16 @@ export interface HealthScoreAccordionProps {
     // Sub-scores (passed as derived numbers so component stays pure)
     fidelityScore: number
     a11yScore: number
+
+    /**
+     * Canonical severity-bucketed counts driving the score (CHRON.1-repair / C2).
+     * When provided, the breakdown rows narrate the EXACT deductions applied by
+     * shared/healthScore.ts. When omitted, we fall back to the legacy type-based
+     * narration (every a11y → critical, every mithril → amber).
+     */
+    criticalCount?: number
+    amberCount?: number
+    advisoryCount?: number
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -61,9 +72,17 @@ export function HealthScoreAccordion({
     onRewindToClean,
     fidelityScore,
     a11yScore,
+    criticalCount,
+    amberCount,
+    advisoryCount,
 }: HealthScoreAccordionProps) {
     const [isOpen, setIsOpen] = useState(true)
     const [isScoreModalOpen, setIsScoreModalOpen] = useState(false)
+
+    // Canonical severity-bucketed counts with safe fallbacks for legacy callers.
+    const criticalBucket = criticalCount ?? a11yCount
+    const amberBucket = amberCount ?? mithrilCount
+    const advisoryBucket = advisoryCount ?? 0
 
     // Relative time formatter (inline to keep this component self-contained)
     function relativeTime(timestamp: string): string {
@@ -123,22 +142,31 @@ export function HealthScoreAccordion({
                         </button>
                     )}
 
-                    {/* Sub-score breakdown */}
-                    {(mithrilCount > 0 || a11yCount > 0 || overrideCount > 0) && (
+                    {/* Sub-score breakdown — each row narrates the canonical
+                        deduction applied by shared/healthScore.ts. */}
+                    {(criticalBucket > 0 || amberBucket > 0 || advisoryBucket > 0 || overrideCount > 0) && (
                         <div className="space-y-1 pt-0.5">
-                            {mithrilCount > 0 && (
-                                <div className="flex items-center gap-2 text-xs text-zinc-400" data-testid="fidelity-score-row">
-                                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" aria-hidden="true" />
+                            {criticalBucket > 0 && (
+                                <div className="flex items-center gap-2 text-xs text-zinc-400" data-testid="critical-score-row">
+                                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-400" aria-hidden="true" />
                                     <span className="flex-1">
-                                        Fidelity — {mithrilCount} design {mithrilCount !== 1 ? 'issues' : 'issue'} (−{mithrilCount * 3} pts)
+                                        Critical issues — {criticalBucket} {criticalBucket !== 1 ? 'issues' : 'issue'} (−{criticalBucket * HEALTH_SCORE_WEIGHTS.critical} pts)
                                     </span>
                                 </div>
                             )}
-                            {a11yCount > 0 && (
-                                <div className="flex items-center gap-2 text-xs text-zinc-400" data-testid="a11y-score-row">
-                                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-400" aria-hidden="true" />
+                            {amberBucket > 0 && (
+                                <div className="flex items-center gap-2 text-xs text-zinc-400" data-testid="amber-score-row">
+                                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" aria-hidden="true" />
                                     <span className="flex-1">
-                                        Accessibility — {a11yCount} {a11yCount !== 1 ? 'issues' : 'issue'} (−{a11yCount * 10} pts)
+                                        Design drift — {amberBucket} {amberBucket !== 1 ? 'issues' : 'issue'} (−{amberBucket * HEALTH_SCORE_WEIGHTS.amber} pts)
+                                    </span>
+                                </div>
+                            )}
+                            {advisoryBucket > 0 && (
+                                <div className="flex items-center gap-2 text-xs text-zinc-400" data-testid="advisory-score-row">
+                                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-400" aria-hidden="true" />
+                                    <span className="flex-1">
+                                        Advisory — {advisoryBucket} {advisoryBucket !== 1 ? 'issues' : 'issue'} (−{advisoryBucket * HEALTH_SCORE_WEIGHTS.advisory} pts)
                                     </span>
                                 </div>
                             )}
@@ -146,7 +174,7 @@ export function HealthScoreAccordion({
                                 <div className="flex items-center gap-2 text-xs text-zinc-400" data-testid="override-score-row">
                                     <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" aria-hidden="true" />
                                     <span className="flex-1">
-                                        {overrideCount} unapplied {overrideCount !== 1 ? 'overrides' : 'override'} (−{overrideCount * 3} pts)
+                                        Overrides — {overrideCount} active (−{overrideCount * HEALTH_SCORE_WEIGHTS.override} pts)
                                     </span>
                                 </div>
                             )}
@@ -191,11 +219,18 @@ export function HealthScoreAccordion({
                                 </ul>
                             </div>
                             <div>
-                                <p className="text-xs font-medium text-zinc-400 mb-2">Live Sub-scores</p>
+                                <p className="text-xs font-medium text-zinc-400 mb-2">Live Deductions</p>
                                 <ul className="space-y-1.5">
-                                    <li className="flex items-center justify-between text-sm"><span className="text-zinc-300">Fidelity</span><span className="font-mono text-zinc-300">{fidelityScore}</span></li>
-                                    <li className="flex items-center justify-between text-sm"><span className="text-zinc-300">Accessibility</span><span className="font-mono text-zinc-300">{a11yScore}</span></li>
+                                    <li className="flex items-center justify-between text-sm"><span className="text-zinc-300">Critical</span><span className="font-mono text-zinc-300">−{criticalBucket * HEALTH_SCORE_WEIGHTS.critical}</span></li>
+                                    <li className="flex items-center justify-between text-sm"><span className="text-zinc-300">Design drift</span><span className="font-mono text-zinc-300">−{amberBucket * HEALTH_SCORE_WEIGHTS.amber}</span></li>
+                                    <li className="flex items-center justify-between text-sm"><span className="text-zinc-300">Advisory</span><span className="font-mono text-zinc-300">−{advisoryBucket * HEALTH_SCORE_WEIGHTS.advisory}</span></li>
+                                    <li className="flex items-center justify-between text-sm"><span className="text-zinc-300">Overrides</span><span className="font-mono text-zinc-300">−{overrideCount * HEALTH_SCORE_WEIGHTS.override}</span></li>
                                 </ul>
+                                {(fidelityScore !== undefined || a11yScore !== undefined) && (
+                                    <p className="mt-2 text-[10px] text-zinc-500">
+                                        Legacy type sub-scores — Fidelity {fidelityScore}/100, Accessibility {a11yScore}/100.
+                                    </p>
+                                )}
                             </div>
                         </div>
                     </Modal>

@@ -1,52 +1,59 @@
 /**
- * Shared Health Signal — pure function, zero dependencies.
+ * Shared Health Signal — thin wrapper over shared/healthScore.ts.
  *
- * Computes fidelity, accessibility, and overall health scores from
- * raw violation counts. Used by both Glass (GovernanceDashboard) and
- * the CLI (flint-ci debt command) so the numbers always match.
+ * This module predates the canonical health-score unification (CHRON.1-repair
+ * C2). It used to own its own formula; it no longer does. Overall score +
+ * grade now route through shared/healthScore.ts — the single source of truth.
  *
- * COUNSEL.1.3: The overall score now uses the canonical severity-weighted
- * formula from useGovernanceHealth.ts / debtReportService.ts:
- *   score = clamp(100 - criticals * 10 - warnings * 3 - infos * 1 - overrides * 3, 0, 100)
+ * Retained for backward compatibility so existing callers (flint-ci/debt.ts,
+ * legacy imports) continue to compile. The sub-score fields (fidelityScore,
+ * a11yScore) are display-only breakdowns that DO NOT participate in the
+ * overall score — they are the per-bucket worst-case ceiling used for the
+ * "How is this calculated?" modal.
  *
- * For this function's simplified API (count-based, not severity-bucketed),
- * a11y violations map to 'critical' (penalty 10) and mithril violations
- * map to 'amber/warning' (penalty 3). This matches the canonical mapping
- * in useGovernanceHealth.bucketViolations where a11y severity='critical'
- * and mithril default severity='amber'.
+ * New code should import computeHealthScore / gradeFromScore from
+ * shared/healthScore.ts directly and derive sub-scores inline.
  *
- * @deprecated Prefer useGovernanceHealth hook (src/hooks/useGovernanceHealth.ts)
- * for components, or computeCanonicalHealthScore for pure computation.
- * This function is retained for backward compatibility with sub-score display.
+ * @deprecated Use shared/healthScore.ts (computeHealthScore) for the score and
+ *     grade. Only the sub-score breakdown remains useful here.
  */
 
+import { computeHealthScore, type HealthGrade } from './healthScore.js'
+
 export interface HealthSignal {
-    /** 0-100, sub-score for design system fidelity */
+    /**
+     * 0-100, informational sub-score for design system fidelity.
+     * Purely a display helper (100 − mithrilCount × 3). NOT used for the
+     * overall score — that routes through shared/healthScore.ts.
+     */
     fidelityScore: number
-    /** 0-100, sub-score for accessibility compliance */
+    /**
+     * 0-100, informational sub-score for accessibility compliance.
+     * Purely a display helper (100 − a11yCount × 10). NOT used for the
+     * overall score — that routes through shared/healthScore.ts.
+     */
     a11yScore: number
     /** Raw count of active rule overrides */
     overrideCount: number
     /**
-     * Overall health score (0-100) — uses the canonical severity-weighted formula.
-     * a11y violations = critical (penalty 10), mithril = warning (penalty 3).
+     * Canonical overall health score (0-100) from shared/healthScore.ts.
+     * The simplified count-based API here treats every a11y violation as
+     * severity='critical' (penalty ×10) and every mithril violation as
+     * severity='amber' (penalty ×3). Callers that have severity-bucketed
+     * counts should import computeHealthScore from shared/healthScore.ts
+     * directly for exact fidelity.
      */
     overallScore: number
-    /** Letter grade: A >= 90, B >= 80, C >= 70, D >= 60, F < 60 */
-    grade: 'A' | 'B' | 'C' | 'D' | 'F'
+    /** Letter grade from shared/healthScore.ts (A >= 90, B >= 80, C >= 70, D >= 60, F < 60) */
+    grade: HealthGrade
 }
 
 /**
  * Compute a health signal from raw violation counts.
  *
- * Overall score uses the canonical severity-weighted formula
- * (COUNSEL.1.3 — matches useGovernanceHealth / debtReportService):
- *   clamp(100 - a11yCount * 10 - mithrilCount * 3 - overrideCount * 3, 0, 100)
- *
- * Note: a11y violations are always severity='critical' (penalty 10 each).
- * Mithril violations default to severity='amber' (penalty 3 each).
- * When individual severity information is available, prefer
- * computeCanonicalHealthScore from useGovernanceHealth.ts instead.
+ * Overall score and grade are delegated to the canonical module so every Flint
+ * surface agrees on the number. Sub-scores remain local because they are a
+ * display affordance, not part of the formula.
  */
 export function formatHealthSignal(
     mithrilCount: number,
@@ -54,19 +61,23 @@ export function formatHealthSignal(
     overrideCount: number,
 ): HealthSignal {
     // Sub-scores for breakdown display (informational, not used for overall score)
-    const fidelityScore = Math.max(0, 100 - mithrilCount * 3)
-    const a11yScore = Math.max(0, 100 - a11yCount * 10)
+    const m = Math.max(0, Math.floor(mithrilCount ?? 0))
+    const a = Math.max(0, Math.floor(a11yCount ?? 0))
+    const o = Math.max(0, Math.floor(overrideCount ?? 0))
 
-    // Canonical formula: a11y = critical (x10), mithril = amber/warning (x3), overrides (x3)
-    const raw = 100 - a11yCount * 10 - mithrilCount * 3 - overrideCount * 3
-    const overallScore = Math.max(0, Math.min(100, raw))
+    const fidelityScore = Math.max(0, Math.min(100, 100 - m * 3))
+    const a11yScore = Math.max(0, Math.min(100, 100 - a * 10))
 
-    let grade: HealthSignal['grade']
-    if (overallScore >= 90) grade = 'A'
-    else if (overallScore >= 80) grade = 'B'
-    else if (overallScore >= 70) grade = 'C'
-    else if (overallScore >= 60) grade = 'D'
-    else grade = 'F'
+    // Canonical formula: treat a11y=critical (×10), mithril=amber (×3).
+    // This matches the simplified count-based contract this function was built
+    // for (see flint-ci/src/commands/debt.ts). For severity-bucketed inputs
+    // call computeHealthScore from shared/healthScore.ts directly.
+    const { score: overallScore, grade } = computeHealthScore({
+        criticalCount: a,
+        amberCount: m,
+        advisoryCount: 0,
+        overrideCount: o,
+    })
 
-    return { fidelityScore, a11yScore, overrideCount, overallScore, grade }
+    return { fidelityScore, a11yScore, overrideCount: o, overallScore, grade }
 }

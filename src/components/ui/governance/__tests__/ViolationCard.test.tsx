@@ -397,6 +397,136 @@ describe('COUNSEL.3.2 — Provenance chip text format', () => {
     })
 })
 
+// ── CHRON.1-repair M3: OverrideReasonDialog wiring ─────────────────────────
+
+describe('CHRON.1-repair M3 — Override button + OverrideReasonDialog wiring', () => {
+    it('does NOT render the Override button when onOverride is not provided', () => {
+        render(<ViolationCard {...defaultMithrilProps()} />)
+        expect(screen.queryByTestId('override-btn-node-abc123')).toBeNull()
+    })
+
+    it('renders the Override button when onOverride is provided (mithril)', () => {
+        render(<ViolationCard {...defaultMithrilProps({ onOverride: vi.fn() })} />)
+        expect(screen.getByTestId('override-btn-node-abc123')).toBeDefined()
+    })
+
+    it('does not call onOverride when the Override button is clicked — opens dialog instead', () => {
+        const onOverride = vi.fn()
+        render(<ViolationCard {...defaultMithrilProps({ onOverride })} />)
+        fireEvent.click(screen.getByTestId('override-btn-node-abc123'))
+        expect(onOverride).not.toHaveBeenCalled()
+        // Dialog is now open
+        expect(screen.getByTestId('override-reason-dialog')).toBeDefined()
+    })
+
+    it('closes the dialog and fires onOverride with the reason when confirmed (Amber tier)', async () => {
+        const onOverride = vi.fn()
+        // severity='amber' → Amber tier dialog
+        render(<ViolationCard {...defaultMithrilProps({
+            onOverride,
+            issue: makeMithrilWarning({ severity: 'amber' }),
+        })} />)
+        fireEvent.click(screen.getByTestId('override-btn-node-abc123'))
+        const textarea = screen.getByTestId('override-reason-textarea') as HTMLTextAreaElement
+        fireEvent.change(textarea, { target: { value: 'Acknowledged by design lead' } })
+        fireEvent.click(screen.getByTestId('override-with-reason-btn'))
+        expect(onOverride).toHaveBeenCalledWith('Acknowledged by design lead')
+        // Dialog unmounts after MUI's close transition (~225ms). Poll briefly.
+        await vi.waitFor(() => {
+            expect(screen.queryByTestId('override-reason-dialog')).toBeNull()
+        }, { timeout: 2000 })
+    })
+
+    it('fires onOverride with undefined when user waives reason on Amber tier', () => {
+        const onOverride = vi.fn()
+        render(<ViolationCard {...defaultMithrilProps({
+            onOverride,
+            issue: makeMithrilWarning({ severity: 'amber' }),
+        })} />)
+        fireEvent.click(screen.getByTestId('override-btn-node-abc123'))
+        fireEvent.click(screen.getByTestId('override-without-reason-btn'))
+        expect(onOverride).toHaveBeenCalledWith(undefined)
+    })
+
+    it('requires a reason on Red tier (critical severity)', () => {
+        const onOverride = vi.fn()
+        render(<ViolationCard {...defaultMithrilProps({
+            onOverride,
+            issue: makeMithrilWarning({ severity: 'critical' }),
+        })} />)
+        fireEvent.click(screen.getByTestId('override-btn-node-abc123'))
+        // submit disabled when empty
+        const btn = screen.getByTestId('override-submit-btn') as HTMLButtonElement
+        expect(btn.disabled).toBe(true)
+        // type >= 10 chars
+        fireEvent.change(screen.getByTestId('override-reason-textarea'), { target: { value: 'A real concrete reason' } })
+        fireEvent.click(screen.getByTestId('override-submit-btn'))
+        expect(onOverride).toHaveBeenCalledWith('A real concrete reason')
+    })
+
+    it('dialog cancel does not fire onOverride', () => {
+        const onOverride = vi.fn()
+        render(<ViolationCard {...defaultMithrilProps({ onOverride })} />)
+        fireEvent.click(screen.getByTestId('override-btn-node-abc123'))
+        expect(screen.getByTestId('override-reason-dialog')).toBeDefined()
+        fireEvent.click(screen.getByTestId('override-cancel-btn'))
+        expect(onOverride).not.toHaveBeenCalled()
+    })
+
+    it('renders Override button on a11y cards when onOverride is provided', () => {
+        const onOverride = vi.fn()
+        // a11y cards use the a11y-suffixed testid
+        const a11yProps = {
+            issue: makeA11yWarning(),
+            type: 'a11y' as const,
+            cardKey: 'a-node-def456-0',
+            indexInList: 0,
+            isPinned: false,
+            isFlagged: false,
+            isDeferred: false,
+            deferExpiresAtMs: null,
+            isDeferSuccess: false,
+            isExpanded: false,
+            isDiffOpen: false,
+            isDiffLoading: false,
+            diffData: null,
+            isDeferFormOpen: false,
+            fixItem: null,
+            provenance: null,
+            deferReason: '',
+            deferDuration: '1 day' as const,
+            onToggleExpand: noop,
+            onFix: noop,
+            onPreviewFix: noop,
+            onAcceptFix: noop,
+            onSkipFix: noop,
+            onFlag: noop,
+            onUnflag: noop,
+            onDefer: noop,
+            onDeferReasonChange: noop,
+            onDeferDurationChange: noop,
+            onSubmitDefer: noop,
+            onCancelDefer: noop,
+            onPin: noop,
+            onOverride,
+            getNodeName: (id: string) => `<img #${id.slice(0, 6)}>`,
+            activeFilePath: '/src/App.tsx',
+        }
+        render(<ViolationCard {...a11yProps} />)
+        expect(screen.getByTestId('override-btn-a11y-node-def456')).toBeDefined()
+    })
+
+    it('hides Override button when the card is flagged', () => {
+        render(<ViolationCard {...defaultMithrilProps({ isFlagged: true, onOverride: vi.fn() })} />)
+        expect(screen.queryByTestId('override-btn-node-abc123')).toBeNull()
+    })
+
+    it('hides Override button when the card is deferred', () => {
+        render(<ViolationCard {...defaultMithrilProps({ isDeferred: true, onOverride: vi.fn() })} />)
+        expect(screen.queryByTestId('override-btn-node-abc123')).toBeNull()
+    })
+})
+
 // ── COUNSEL.3.4: MRS risk score badge ───────────────────────────────────────
 
 describe('COUNSEL.3.4 — MRS risk score badge', () => {

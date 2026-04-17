@@ -27,6 +27,8 @@ import type { ThumbnailOptions } from './thumbnailGenerator.js'
 import { detectProjectEnvironment } from '../shared/projectDetector.ts'
 import type { ProjectEnvironment, DetectorFS } from '../shared/projectDetector.ts'
 import { validateFilePath as sharedValidateFilePath } from '../shared/validateFilePath.ts'
+import { sanitizeReason } from '../shared/reasonSanitizer.ts'
+import { ipcSchemas } from '../shared/ipc-validators.ts'
 
 // ── FileTreeNode ───────────────────────────────────────────────────────────────
 // Mirrors the renderer-side type in src/types/flint-api.d.ts.
@@ -3386,12 +3388,29 @@ app.whenReady().then(async () => {
             action: 'disable' | 'enable' | 'change_severity' | 'reset' | 'reset_all'
             newValue: { enabled?: boolean; severity?: string } | null
             filePath: string
+            /** CHRON.1-repair M3: optional reason from OverrideReasonDialog. */
+            reason?: unknown
         }
 
         const validActions = new Set(['disable', 'enable', 'change_severity', 'reset', 'reset_all'])
         if (!validActions.has(p.action)) {
             throw new TypeError(`governance:record-override — invalid action: ${p.action}`)
         }
+
+        // CHRON.1-repair M3: accept an optional reason string. Cap at 2000
+        // chars defensively (UI enforces the same limit — this is the storage
+        // guardrail). Full sanitization (HTML strip / XSS scrub) lives in the
+        // dedicated sanitizer — see CHRON.1-repair C5.
+        let reason: string | undefined
+        if (typeof p.reason === 'string' && p.reason.trim().length > 0) {
+            reason = p.reason.trim().slice(0, 2000)
+        }
+
+        const metadata: Record<string, unknown> = {
+            action: p.action,
+            newValue: p.newValue,
+        }
+        if (reason !== undefined) metadata.reason = reason
 
         govEventService.recordEvent({
             eventType: 'override',
@@ -3400,10 +3419,7 @@ app.whenReady().then(async () => {
             filePath: p.filePath,
             actor: 'user',
             sessionId: governanceSessionId,
-            metadata: {
-                action: p.action,
-                newValue: p.newValue,
-            },
+            metadata,
         })
 
         broadcastGovernanceOverrideRecorded()
@@ -3832,11 +3848,88 @@ app.whenReady().then(async () => {
         }
     })
 
-    ipcMain.handle('governance:approve-mutation', (_event, id: unknown): void => {
-        if (typeof id !== 'number') throw new TypeError('governance:approve-mutation — id must be a number')
+    ipcMain.handle('governance:approve-mutation', (_event, id: unknown, reason: unknown): void => {
+        // CHRON.1 + M3 security: Zod schema validation at handler entry.
+        // Rejects non-numbers, negatives, and over-long reasons before any DB work.
+        const parsed = ipcSchemas['governance:approve-mutation'].payload.safeParse({ id, reason })
+        if (!parsed.success) {
+            throw new TypeError(
+                `governance:approve-mutation — invalid payload: ${parsed.error.issues.map(i => i.message).join('; ')}`
+            )
+        }
+
+        // CHRON.1 + M1/M2/M4: length cap, strip control/format chars, redact secrets.
+        // sanitizeReason returns null when the cleaned string is effectively empty.
+        const { sanitized, redacted, truncated, strippedControlChars } = sanitizeReason(parsed.data.reason)
+        if (redacted) {
+            console.warn(`${BRAND.logPrefix} governance:approve-mutation — redacted suspected secret from reason`)
+        }
+        if (truncated) {
+            console.warn(`${BRAND.logPrefix} governance:approve-mutation — reason truncated at 1000 chars`)
+        }
+        if (strippedControlChars) {
+            console.warn(`${BRAND.logPrefix} governance:approve-mutation — stripped control/format chars from reason`)
+        }
+
         try {
-            db.prepare(`UPDATE mutations_ledger SET approved_at = datetime('now') WHERE id = ?`).run(id)
-        } catch { /* table may not exist */ }
+            db.prepare(`UPDATE mutations_ledger SET approved_at = datetime('now'), justification = ? WHERE id = ?`)
+                .run(sanitized, parsed.data.id)
+        } catch (err) {
+            // The CHRON.1 DDL guard in store.ts creates this table — so a failure
+            // here is a genuine SQL error, not a missing table. Log for visibility.
+            console.warn(`${BRAND.logPrefix} governance:approve-mutation — UPDATE failed:`, err)
+        }
+    })
+
+    // ── CHRON.1: governance:record-approval-reason ───────────────────────────
+    //
+    // The orchestrator-path DiffCard approval flow does NOT have a mutations_ledger
+    // row to attach justification to (only the MRS path creates ledger rows).
+    // Previously the store called approveMutation(0, reason) which silently no-op'd.
+    //
+    // This channel writes a governance_events row with event_type='override' so the
+    // reason is queryable via the same audit-log surface the dashboard already uses.
+    ipcMain.handle('governance:record-approval-reason', (_event, payload: unknown): void => {
+        const parsed = ipcSchemas['governance:record-approval-reason'].payload.safeParse(payload)
+        if (!parsed.success) {
+            throw new TypeError(
+                `governance:record-approval-reason — invalid payload: ${parsed.error.issues.map(i => i.message).join('; ')}`
+            )
+        }
+
+        const { sanitized, redacted, truncated, strippedControlChars } = sanitizeReason(parsed.data.reason)
+        if (redacted) {
+            console.warn(`${BRAND.logPrefix} governance:record-approval-reason — redacted suspected secret from reason`)
+        }
+        if (truncated) {
+            console.warn(`${BRAND.logPrefix} governance:record-approval-reason — reason truncated at 1000 chars`)
+        }
+        if (strippedControlChars) {
+            console.warn(`${BRAND.logPrefix} governance:record-approval-reason — stripped control/format chars from reason`)
+        }
+        if (sanitized === null) {
+            // Empty-after-sanitization: nothing meaningful to store.
+            return
+        }
+
+        try {
+            govEventService.recordEvent({
+                eventType: 'override',
+                ruleId: `orchestrator:${parsed.data.toolName}`,
+                severity: 'info',
+                filePath: parsed.data.filePath,
+                actor: 'user',
+                sessionId: governanceSessionId,
+                metadata: {
+                    reason: sanitized,
+                    source: 'orchestrator',
+                    toolName: parsed.data.toolName,
+                },
+            })
+            broadcastGovernanceOverrideRecorded()
+        } catch (err) {
+            console.warn(`${BRAND.logPrefix} governance:record-approval-reason — recordEvent failed:`, err)
+        }
     })
 
     ipcMain.handle('governance:reject-mutation', (_event, id: unknown): void => {
@@ -3857,20 +3950,28 @@ app.whenReady().then(async () => {
         action: string
         filePath: string
         description: string
+        metadata: string | null
+        ruleId: string | null
     }> => {
         const limit = typeof (opts as Record<string, unknown>)?.limit === 'number'
             ? (opts as Record<string, unknown>).limit as number
             : 50
         try {
+            // CHRON.1: Use actual governance_events columns (timestamp, message) —
+            // the prior `created_at` and `description` references did not exist in the
+            // DDL, so every query errored out into the catch block. Returning metadata
+            // and rule_id is required for the dashboard's overrideReasonMap build.
             const rows = db.prepare(`
                 SELECT
                     id,
-                    created_at  AS timestamp,
+                    timestamp   AS timestamp,
                     event_type  AS action,
                     COALESCE(file_path, '')   AS filePath,
-                    COALESCE(description, event_type) AS description
+                    COALESCE(message, event_type) AS description,
+                    metadata,
+                    rule_id     AS ruleId
                 FROM governance_events
-                ORDER BY created_at DESC
+                ORDER BY timestamp DESC
                 LIMIT ?
             `).all(limit) as Array<{
                 id: number | string
@@ -3878,6 +3979,8 @@ app.whenReady().then(async () => {
                 action: string
                 filePath: string
                 description: string
+                metadata: string | null
+                ruleId: string | null
             }>
             return rows
         } catch {

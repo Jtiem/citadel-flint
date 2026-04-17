@@ -44,15 +44,17 @@ CREATE TABLE IF NOT EXISTS mutations_ledger (
   after_snapshot      TEXT,
   session_id          TEXT,
   approved_by         TEXT,
+  approved_at         TEXT,
   justification       TEXT,
   metadata            TEXT DEFAULT '{}'
 );
 
-CREATE INDEX IF NOT EXISTS idx_mutations_timestamp ON mutations_ledger(timestamp);
-CREATE INDEX IF NOT EXISTS idx_mutations_file      ON mutations_ledger(file_path);
-CREATE INDEX IF NOT EXISTS idx_mutations_node      ON mutations_ledger(node_id);
-CREATE INDEX IF NOT EXISTS idx_mutations_source    ON mutations_ledger(source);
-CREATE INDEX IF NOT EXISTS idx_mutations_session   ON mutations_ledger(session_id);
+CREATE INDEX IF NOT EXISTS idx_mutations_timestamp  ON mutations_ledger(timestamp);
+CREATE INDEX IF NOT EXISTS idx_mutations_file       ON mutations_ledger(file_path);
+CREATE INDEX IF NOT EXISTS idx_mutations_node       ON mutations_ledger(node_id);
+CREATE INDEX IF NOT EXISTS idx_mutations_source     ON mutations_ledger(source);
+CREATE INDEX IF NOT EXISTS idx_mutations_session    ON mutations_ledger(session_id);
+CREATE INDEX IF NOT EXISTS idx_mutations_approved   ON mutations_ledger(approved_at);
 `
 
 // ---------------------------------------------------------------------------

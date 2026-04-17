@@ -901,6 +901,8 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
             action: 'disable' | 'enable' | 'change_severity' | 'reset' | 'reset_all'
             newValue: { enabled?: boolean; severity?: string } | null
             filePath: string
+            /** CHRON.1-repair M3: optional free-text reason captured via OverrideReasonDialog. */
+            reason?: string
         }): Promise<void> =>
             ipcRenderer.invoke('governance:record-override', payload),
 
@@ -1043,9 +1045,10 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
 
         /**
          * S8.3: Approves a pending mutation by setting approved_at.
+         * CHRON.1: reason is forwarded to the main process and written to justification column.
          */
-        approveMutation: (id: number): Promise<void> =>
-            ipcRenderer.invoke('governance:approve-mutation', id),
+        approveMutation: (id: number, reason?: string): Promise<void> =>
+            ipcRenderer.invoke('governance:approve-mutation', id, reason),
 
         /**
          * S8.3: Rejects a pending mutation by deleting it from the ledger.
@@ -1054,7 +1057,18 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
             ipcRenderer.invoke('governance:reject-mutation', id),
 
         /**
+         * CHRON.1 (Option A): Records an orchestrator-path approval reason
+         * when no mutations_ledger row exists to attach it to. Main writes a
+         * governance_events row with event_type='override' and the sanitized
+         * reason in metadata. Fire-and-forget from the renderer's view.
+         */
+        recordApprovalReason: (args: { filePath: string; toolName: string; reason: string }): Promise<void> =>
+            ipcRenderer.invoke('governance:record-approval-reason', args),
+
+        /**
          * COUNSEL.4.5: Returns the last N governance events for the Audit Log tab.
+         * CHRON.1: Extended to include metadata (JSON string containing override reason)
+         * and ruleId for matching override events to violation cards.
          */
         getAuditLog: (opts: { limit?: number } = {}): Promise<Array<{
             id: number | string
@@ -1062,6 +1076,10 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
             action: string
             filePath: string
             description: string
+            /** JSON string containing override metadata (may include a `reason` field). */
+            metadata?: string | null
+            /** The governance rule ID associated with this event. */
+            ruleId?: string | null
         }>> =>
             ipcRenderer.invoke('governance:get-audit-log', opts),
     },

@@ -2179,6 +2179,14 @@ export interface GovernanceAPI {
         action: 'disable' | 'enable' | 'change_severity' | 'reset' | 'reset_all'
         newValue: { enabled?: boolean; severity?: string } | null
         filePath: string
+        /**
+         * CHRON.1-repair M3: Optional free-text reason captured from the user
+         * via OverrideReasonDialog for user-initiated violation overrides.
+         * Persisted into the governance_events metadata JSON column alongside
+         * { action, newValue } so the audit trail can render the reason later.
+         * Undefined when the user waived the reason (Amber tier only).
+         */
+        reason?: string
     }) => Promise<void>
 
     /**
@@ -2340,13 +2348,24 @@ export interface GovernanceAPI {
 
     /**
      * Approves a pending mutation by setting its approved_at timestamp.
+     * CHRON.1: Optional `reason` is written to the `justification` column
+     * (trimmed, length-capped, control/format chars stripped, secrets redacted).
      */
-    approveMutation?: (id: number) => Promise<void>
+    approveMutation?: (id: number, reason?: string) => Promise<void>
 
     /**
      * Rejects a pending mutation by deleting it from the ledger.
      */
     rejectMutation?: (id: number) => Promise<void>
+
+    /**
+     * CHRON.1: Records an orchestrator-path approval reason when no
+     * `mutations_ledger` row exists to attach the justification to.
+     * Writes a `governance_events` row with `event_type='override'` and
+     * the sanitized reason stored in `metadata.reason`. Safe to ignore
+     * the Promise — this is fire-and-forget from the renderer's view.
+     */
+    recordApprovalReason?: (args: { filePath: string; toolName: string; reason: string }) => Promise<void>
 
     /**
      * Runs deterministic auto-fix on all fixable violations in the given file.
@@ -2358,6 +2377,9 @@ export interface GovernanceAPI {
     /**
      * Returns recent entries from the governance audit log.
      * Used by GovernanceDashboard to render the activity timeline.
+     * CHRON.1: Extended with `metadata` (JSON string that may include a
+     * `reason` field) and `ruleId` for matching override events to
+     * violation cards.
      */
     getAuditLog?: (opts?: { limit?: number }) => Promise<Array<{
         id: number | string
@@ -2365,6 +2387,10 @@ export interface GovernanceAPI {
         action: string
         filePath: string
         description: string
+        /** JSON string containing event metadata (may include a `reason` field). */
+        metadata?: string | null
+        /** Governance rule ID associated with the event, if any. */
+        ruleId?: string | null
     }>>
 }
 
@@ -2381,6 +2407,8 @@ export interface PendingMutation {
     riskScore: number
     riskTier: string
     agentId?: string
+    /** CHRON.1: Override/approval reason from the user, populated from the justification column. */
+    reason?: string
 }
 
 // ── Delta Mode: Baseline Types (Gap 6) ───────────────────────────────────────

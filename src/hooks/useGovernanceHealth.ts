@@ -1,27 +1,33 @@
 /**
  * useGovernanceHealth — src/hooks/useGovernanceHealth.ts
  *
- * Canonical health score hook for Flint Glass. Computes the project health
- * score using the SAME severity-weighted formula as debtReportService.ts so
- * Glass and MCP always agree on the score and grade.
+ * Canonical health score hook for Flint Glass. This hook is a THIN WRAPPER
+ * around shared/healthScore.ts — the single source of truth for the formula.
+ * It exists to:
+ *   - bucket LinterWarning[] into severity counts, and
+ *   - memoize the result for the React render path.
  *
- * Formula (canonical, matches debtReportService.computeHealthScore):
- *   score = clamp(100 - criticals × 10 - warnings × 3 - infos × 1, 0, 100)
+ * It owns no arithmetic. Every score and grade routes through
+ * shared/healthScore.ts so Glass, MCP, CI, SARIF and DBOM always agree.
  *
- * Severity mapping (LinterWarning.severity → debt bucket):
- *   'critical'  → criticals  (penalty 10)
- *   'amber'     → warnings   (penalty 3)
- *   'advisory'  → infos      (penalty 1)
+ * Formula (see shared/healthScore.ts):
+ *   score = clamp(100
+ *             - criticalCount * 10
+ *             - amberCount    * 3
+ *             - advisoryCount * 1
+ *             - overrideCount * 3,
+ *           0, 100)
  *
- * Override penalty: overrideCount × 3 (overrides are not violations, so they
- * have no severity; the advisory-equivalent weight is applied directly).
- *
- * Grade thresholds:
- *   A ≥ 90 · B ≥ 80 · C ≥ 70 · D ≥ 60 · F < 60
+ * Grade bands: A >= 90 · B >= 80 · C >= 70 · D >= 60 · F < 60
  */
 
 import { useMemo } from 'react'
 import type { LinterWarning } from '../types/flint-api'
+import {
+    computeHealthScore as canonicalComputeHealthScore,
+    gradeFromScore as canonicalGradeFromScore,
+    type HealthGrade,
+} from '../../shared/healthScore'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -29,26 +35,28 @@ export interface GovernanceHealthResult {
     /** Health score 0-100 */
     score: number
     /** Letter grade */
-    grade: 'A' | 'B' | 'C' | 'D' | 'F'
-    /** Count of violations mapped to the 'critical' bucket (LinterWarning severity='critical') */
+    grade: HealthGrade
+    /** Count of violations mapped to the 'critical' bucket (severity='critical') */
     criticals: number
-    /** Count of violations mapped to the 'warning' bucket (LinterWarning severity='amber') */
+    /** Count of violations mapped to the 'warning' bucket (severity='amber'/'warn') */
     warnings: number
-    /** Count of violations mapped to the 'info' bucket (LinterWarning severity='advisory') */
+    /** Count of violations mapped to the 'info' bucket (severity='advisory'/'info') */
     infos: number
 }
 
-// ── Pure helpers (exported for tests) ────────────────────────────────────────
+// ── Pure helpers (exported for tests and other hooks) ────────────────────────
 
 /**
  * Compute a health score from pre-bucketed severity counts.
- * This is the canonical formula that MUST match debtReportService.computeHealthScore.
+ *
+ * Kept for backward compatibility with existing callers (the signature is
+ * positional rather than object-based). Delegates to shared/healthScore.ts.
  *
  * @param criticals - Count of critical-severity violations (penalty ×10)
- * @param warnings  - Count of warning-severity violations  (penalty ×3)
- * @param infos     - Count of info-severity violations     (penalty ×1)
+ * @param warnings  - Count of warning/amber-severity violations  (penalty ×3)
+ * @param infos     - Count of info/advisory-severity violations     (penalty ×1)
  * @param overrides - Count of active rule overrides        (penalty ×3)
- * @returns Health score clamped to [0, 100]
+ * @returns Health score clamped to [0, 100], rounded to integer
  */
 export function computeCanonicalHealthScore(
     criticals: number,
@@ -56,29 +64,31 @@ export function computeCanonicalHealthScore(
     infos: number,
     overrides: number,
 ): number {
-    const raw = 100 - criticals * 10 - warnings * 3 - infos * 1 - overrides * 3
-    return Math.max(0, Math.min(100, raw))
+    return canonicalComputeHealthScore({
+        criticalCount: criticals,
+        amberCount: warnings,
+        advisoryCount: infos,
+        overrideCount: overrides,
+    }).score
 }
 
 /**
- * Map a numeric score to a letter grade.
- * Thresholds are identical to debtReportService.scoreToGrade.
+ * Map a numeric score to a letter grade. Delegates to shared/healthScore.ts.
+ * Re-exported so legacy callers that import gradeFromScore from this module
+ * continue to compile.
  */
-export function gradeFromScore(score: number): 'A' | 'B' | 'C' | 'D' | 'F' {
-    if (score >= 90) return 'A'
-    if (score >= 80) return 'B'
-    if (score >= 70) return 'C'
-    if (score >= 60) return 'D'
-    return 'F'
+export function gradeFromScore(score: number): HealthGrade {
+    return canonicalGradeFromScore(score)
 }
 
 /**
  * Bucket an array of LinterWarnings into (criticals, warnings, infos) counts.
  *
  * Mapping:
- *   severity='critical'  → criticals
- *   severity='amber'     → warnings
- *   severity='advisory'  → infos
+ *   severity='critical'          → criticals
+ *   severity='amber' | 'warn'    → warnings
+ *   severity='advisory' | 'info' → infos
+ *   (any unknown value)          → infos (safe default)
  */
 export function bucketViolations(violations: LinterWarning[]): {
     criticals: number
@@ -90,12 +100,13 @@ export function bucketViolations(violations: LinterWarning[]): {
     let infos = 0
 
     for (const v of violations) {
-        if (v.severity === 'critical') {
+        const sev = v.severity as string
+        if (sev === 'critical') {
             criticals++
-        } else if (v.severity === 'amber') {
+        } else if (sev === 'amber' || sev === 'warn') {
             warnings++
         } else {
-            // 'advisory' and any future values
+            // 'advisory', 'info', and any future values
             infos++
         }
     }
@@ -120,8 +131,12 @@ export function useGovernanceHealth(
 ): GovernanceHealthResult {
     return useMemo(() => {
         const { criticals, warnings, infos } = bucketViolations(violations)
-        const score = computeCanonicalHealthScore(criticals, warnings, infos, overrideCount)
-        const grade = gradeFromScore(score)
+        const { score, grade } = canonicalComputeHealthScore({
+            criticalCount: criticals,
+            amberCount: warnings,
+            advisoryCount: infos,
+            overrideCount: overrideCount,
+        })
         return { score, grade, criticals, warnings, infos }
     }, [violations, overrideCount])
 }

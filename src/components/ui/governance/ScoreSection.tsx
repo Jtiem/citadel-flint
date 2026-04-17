@@ -17,7 +17,7 @@
 import { useState } from 'react'
 import { ChevronDown, ChevronRight, ShieldCheck, ShieldOff, SendHorizonal } from 'lucide-react'
 import { Modal } from '../Modal'
-import { formatHealthSignal } from '../../../../shared/healthSignal'
+import { HEALTH_SCORE_WEIGHTS } from '../../../../shared/healthScore'
 import { gradeFromScore } from '../../../hooks/useGovernanceHealth'
 import { formatRelativeTime } from '../../../utils/relativeTime'
 
@@ -156,6 +156,21 @@ export interface ScoreSectionProps {
     designSystemBlockingCount?: number
     a11yBlockingCount?: number
     syncBlockingCount?: number
+
+    /**
+     * Canonical severity-bucketed counts driving the score.
+     * When provided, the sub-score breakdown rows narrate the EXACT deductions
+     * applied by shared/healthScore.ts:
+     *   Critical issues: −criticalCount × 10 pts
+     *   Design drift:    −amberCount    ×  3 pts
+     *   Advisory:        −advisoryCount ×  1 pts
+     *   Overrides:       −overrideCount ×  3 pts
+     * When omitted, callers fall back to the legacy type-based narration
+     * (which treats every a11y as critical and every mithril as amber).
+     */
+    criticalCount?: number
+    amberCount?: number
+    advisoryCount?: number
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -187,11 +202,19 @@ export function ScoreSection({
     designSystemBlockingCount = 0,
     a11yBlockingCount = 0,
     syncBlockingCount = 0,
+    criticalCount,
+    amberCount,
+    advisoryCount,
 }: ScoreSectionProps) {
     const [isScoreOpen, setIsScoreOpen] = useState(true)
     const [isScoreModalOpen, setIsScoreModalOpen] = useState(false)
 
-    const healthSignal = formatHealthSignal(mithrilCount, a11yCount, overrideCount)
+    // Canonical severity-bucketed counts with safe fallbacks for legacy callers.
+    // Fallback maps every a11y violation to 'critical' and every mithril to 'amber'
+    // (matches the simplified mapping in shared/healthSignal.formatHealthSignal).
+    const criticalBucket = criticalCount ?? a11yCount
+    const amberBucket = amberCount ?? mithrilCount
+    const advisoryBucket = advisoryCount ?? 0
 
     return (
         <>
@@ -361,25 +384,41 @@ export function ScoreSection({
                             </div>
                         </div>
 
-                        {/* Sub-score breakdown */}
-                        {(mithrilCount > 0 || a11yCount > 0 || overrideCount > 0) && (
+                        {/* Sub-score breakdown — rows narrate the canonical deductions
+                            actually applied by shared/healthScore.ts. Each row's
+                            point total matches exactly one term of the formula. */}
+                        {(criticalBucket > 0 || amberBucket > 0 || advisoryBucket > 0 || overrideCount > 0) && (
                             <div className="px-3 py-2 space-y-1.5 border-t border-zinc-800/50">
-                                {mithrilCount > 0 && (
-                                    <div className="flex items-center gap-2 text-xs text-zinc-400" data-testid="fidelity-score-row">
-                                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" aria-hidden="true" />
-                                        <span className="flex-1">Fidelity Score: {healthSignal.fidelityScore}/100 — fixing {mithrilCount} design system {mithrilCount !== 1 ? 'issues' : 'issue'} would raise your score by {mithrilCount * 3} pts</span>
+                                {criticalBucket > 0 && (
+                                    <div className="flex items-center gap-2 text-xs text-zinc-400" data-testid="critical-score-row">
+                                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-400" aria-hidden="true" />
+                                        <span className="flex-1">
+                                            Critical issues: {criticalBucket} {criticalBucket !== 1 ? 'issues' : 'issue'} (−{criticalBucket * HEALTH_SCORE_WEIGHTS.critical} pts)
+                                        </span>
                                     </div>
                                 )}
-                                {a11yCount > 0 && (
-                                    <div className="flex items-center gap-2 text-xs text-zinc-400" data-testid="a11y-score-row">
-                                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-400" aria-hidden="true" />
-                                        <span className="flex-1">Accessibility Score: {healthSignal.a11yScore}/100 — fixing {a11yCount} accessibility {a11yCount !== 1 ? 'issues' : 'issue'} would raise your score by {a11yCount * 10} pts</span>
+                                {amberBucket > 0 && (
+                                    <div className="flex items-center gap-2 text-xs text-zinc-400" data-testid="amber-score-row">
+                                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" aria-hidden="true" />
+                                        <span className="flex-1">
+                                            Design drift: {amberBucket} {amberBucket !== 1 ? 'issues' : 'issue'} (−{amberBucket * HEALTH_SCORE_WEIGHTS.amber} pts)
+                                        </span>
+                                    </div>
+                                )}
+                                {advisoryBucket > 0 && (
+                                    <div className="flex items-center gap-2 text-xs text-zinc-400" data-testid="advisory-score-row">
+                                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-400" aria-hidden="true" />
+                                        <span className="flex-1">
+                                            Advisory: {advisoryBucket} {advisoryBucket !== 1 ? 'issues' : 'issue'} (−{advisoryBucket * HEALTH_SCORE_WEIGHTS.advisory} pts)
+                                        </span>
                                     </div>
                                 )}
                                 {overrideCount > 0 && (
                                     <div className="flex items-center gap-2 text-xs text-zinc-400" data-testid="override-score-row">
                                         <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" aria-hidden="true" />
-                                        <span className="flex-1">Fixing {overrideCount} unapplied style {overrideCount !== 1 ? 'overrides' : 'override'} would raise your score by {overrideCount * 3} pts</span>
+                                        <span className="flex-1">
+                                            Overrides: {overrideCount} active (−{overrideCount * HEALTH_SCORE_WEIGHTS.override} pts)
+                                        </span>
                                     </div>
                                 )}
                             </div>
@@ -423,10 +462,12 @@ export function ScoreSection({
                                         </ul>
                                     </div>
                                     <div>
-                                        <p className="text-xs font-medium text-zinc-400 mb-2">Live Sub-scores</p>
+                                        <p className="text-xs font-medium text-zinc-400 mb-2">Live Deductions</p>
                                         <ul className="space-y-1.5">
-                                            <li className="flex items-center justify-between text-sm"><span className="text-zinc-300">Fidelity</span><span className="font-mono text-zinc-300">{healthSignal.fidelityScore}</span></li>
-                                            <li className="flex items-center justify-between text-sm"><span className="text-zinc-300">Accessibility</span><span className="font-mono text-zinc-300">{healthSignal.a11yScore}</span></li>
+                                            <li className="flex items-center justify-between text-sm"><span className="text-zinc-300">Critical</span><span className="font-mono text-zinc-300">−{criticalBucket * HEALTH_SCORE_WEIGHTS.critical}</span></li>
+                                            <li className="flex items-center justify-between text-sm"><span className="text-zinc-300">Design drift</span><span className="font-mono text-zinc-300">−{amberBucket * HEALTH_SCORE_WEIGHTS.amber}</span></li>
+                                            <li className="flex items-center justify-between text-sm"><span className="text-zinc-300">Advisory</span><span className="font-mono text-zinc-300">−{advisoryBucket * HEALTH_SCORE_WEIGHTS.advisory}</span></li>
+                                            <li className="flex items-center justify-between text-sm"><span className="text-zinc-300">Overrides</span><span className="font-mono text-zinc-300">−{overrideCount * HEALTH_SCORE_WEIGHTS.override}</span></li>
                                         </ul>
                                     </div>
                                 </div>
