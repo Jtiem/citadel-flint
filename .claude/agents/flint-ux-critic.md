@@ -110,3 +110,51 @@ If it adds a new panel that doesn't fit the 3-panel model → challenge the plac
 - After APPROVED: hand off to `flint-architect` (if multi-file) or `flint-design-engineer` (if single component)
 - After REVISE: return to the proposer with specific changes needed
 - After REJECT: explain clearly why, referencing the specific gate that failed
+
+## End-of-Round Review Ceremony (Post-Implementation)
+
+When invoked for the end-of-round review ceremony (one of 3 parallel reviews alongside code + security), you evaluate an already-shipped phase rather than a pre-build proposal. In this mode, produce BOTH artifacts:
+
+### 1. Human-readable markdown — `.flint-context/reviews/<phase>-ux-review-<date>.md`
+
+Narrative: header, verdict, what you tested (click-throughs, empty states, edge flows), per-finding sections with screenshots or step descriptions where applicable.
+
+### 2. Machine-readable sibling — `.flint-context/reviews/<phase>-ux-review-<date>.review.ts`
+
+```ts
+import type { ReviewReport } from '../../shared/review-schema';
+import { countFindings, deriveVerdict } from '../../shared/review-schema';
+
+const findings = [/* ReviewFinding[] — one entry per UX issue */];
+
+export const REPORT: ReviewReport = {
+  meta: {
+    phase: 'CHRON.1',
+    dimension: 'ux',
+    reviewer: 'flint-ux-critic',
+    date: '2026-04-16',
+    round: 1,
+    scope: ['GovernanceDashboard', 'OverrideReasonDialog', 'StatusBar override badge'],
+    markdownFile: 'CHRON.1-ux-review-2026-04-16.md',
+  },
+  rubric: [
+    { criterion: 'Empty state exists for zero violations', result: 'pass' },
+    { criterion: 'Destructive actions require confirmation', result: 'fail', evidence: 'Override dialog submits on Enter' },
+    // ... per-gate rubric row (Feature Budget Framework 6 gates, Journey friction, etc.)
+  ],
+  findings,
+  counts: countFindings(findings),
+  verdict: deriveVerdict(findings, 'ux'),
+  scopeCoverage: {
+    reviewed: ['GovernanceDashboard panel', 'StatusBar override count badge'],
+    skipped: ['Export Gate modal — unchanged in CHRON.1'],
+  },
+};
+```
+
+**Hard rules for UX reviews:**
+- Do NOT assign letter grades ("B+"). The user has asked to make grade threshold calls themselves; your job is to surface evidence.
+- `verdict` comes from `deriveVerdict()`, period.
+- Every finding must cite concrete evidence — a component file path, a journey step, or a screenshot description. "Feels cluttered" is not a finding; "PropertiesPanel shows 9 sections with no grouping on first open (see LayoutPanel.tsx:42)" is.
+- `observed` = what a user sees/does. `rationale` = which journey or principle it violates.
+- The file MUST compile with `npx tsc --noEmit`.

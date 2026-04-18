@@ -4,10 +4,17 @@
  * MINT.2b/2c/2d: Hook that provides token usage intelligence and Figma drift data.
  *
  * - Calls `tokens:scan-usage` IPC on mount to get per-token usage counts
- * - Reads `.flint/figma-tokens.json` (if Figma connected) to detect value drift
+ * - Calls `tokens:read-figma-drift` IPC to detect value drift (MINT.5 re-enable)
  * - Exposes: usageMap, deadTokenCount, driftedTokens, driftCount, isScanning
  *
  * Renderer Process only — no Node.js imports.
+ *
+ * MINT.5 drift re-enable notes:
+ * The old drift path (2026-04-12 disabled) used a shared `file:read` IPC that
+ * rejected `.json` extensions, causing a render loop. The new `tokens:read-figma-drift`
+ * IPC computes the diff server-side and returns a resolved TokenDrift[]. The
+ * mountedRef guard prevents setState after unmount. Stable `tokenCount` dependency
+ * ensures we only re-fetch when the token list actually changes.
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react'
@@ -18,6 +25,8 @@ export interface TokenDrift {
     tokenName: string
     localValue: string
     figmaValue: string
+    /** CIEDE2000 ΔE for color tokens; undefined for non-color types. */
+    deltaE?: number
 }
 
 export interface TokenUsageData {
@@ -42,11 +51,13 @@ export interface TokenUsageData {
  * Caches results until `rescan()` is called or `tokenCount` changes.
  *
  * @param tokenCount - Pass `tokens.length` from tokenStore to auto-rescan on changes.
- * @param localTokens - Array of { token_path, token_value } for drift comparison.
+ * @param _localTokens - Deprecated. Drift is now computed server-side via
+ *   `tokens:read-figma-drift` IPC (MINT.5). This parameter is accepted for
+ *   backward compatibility but is ignored. Remove at next major cleanup.
  */
 export function useTokenUsage(
     tokenCount: number = 0,
-    localTokens: Array<{ token_path: string; token_value: string }> = [],
+    _localTokens?: Array<{ token_path: string; token_value: string }>,
 ): TokenUsageData {
     const [usageMap, setUsageMap] = useState<Map<string, TokenUsageResult>>(new Map())
     const [isScanning, setIsScanning] = useState(false)
@@ -54,12 +65,12 @@ export function useTokenUsage(
     const mountedRef = useRef(true)
 
     const scan = useCallback(async () => {
-        const api = window.flintAPI as any
-        if (typeof api?.tokens?.scanUsage !== 'function') return
+        const scanUsage = window.flintAPI?.tokens?.scanUsage
+        if (typeof scanUsage !== 'function') return
 
         setIsScanning(true)
         try {
-            const results: TokenUsageResult[] = await api.tokens.scanUsage()
+            const results: TokenUsageResult[] = await scanUsage()
             if (!mountedRef.current) return
 
             const map = new Map<string, TokenUsageResult>()
@@ -81,15 +92,32 @@ export function useTokenUsage(
         return () => { mountedRef.current = false }
     }, [scan, tokenCount])
 
-    // MINT.2c: Detect drift from Figma tokens — DISABLED 2026-04-12.
-    // The readFile call for `.flint/figma-tokens.json` was triggering a
-    // render loop (validation error → catch → setState → re-render →
-    // re-run effect). Drift detection is best-effort and will be re-enabled
-    // once a dedicated IPC (e.g. `tokens:read-figma-drift`) can read .json
-    // files without the source-file extension guard.
+    // MINT.5: Drift detection re-enabled via dedicated tokens:read-figma-drift IPC.
+    // The new IPC computes the diff main-side (reads .flint/figma-tokens.json +
+    // SQLite), returning a resolved TokenDrift[]. This avoids the renderer-side
+    // file-read that caused the 2026-04-12 render loop.
     //
-    // The hook still exposes `driftedTokens: []` so callers don't need
-    // to change. The usage scan (above) continues to work.
+    // Dependencies: tokenCount only — a stable primitive that changes only when
+    // the token list grows or shrinks. This prevents re-fetch on every render.
+    useEffect(() => {
+        let cancelled = false
+
+        const readDrift = window.flintAPI?.tokens?.readFigmaDrift
+        if (typeof readDrift !== 'function') return
+
+        void (async () => {
+            try {
+                const drifts = await readDrift()
+                if (cancelled) return
+                setDriftedTokens(drifts)
+            } catch {
+                // Figma not connected or IPC not wired — silent degradation
+                if (!cancelled) setDriftedTokens([])
+            }
+        })()
+
+        return () => { cancelled = true }
+    }, [tokenCount])
 
     const deadTokenCount = Array.from(usageMap.values()).filter((r) => r.usageCount === 0).length
     const totalScanned = usageMap.size

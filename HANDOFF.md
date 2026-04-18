@@ -6,6 +6,123 @@
 
 ---
 
+## Session: Meta-tooling — Contract v2 + Review Schema (2026-04-17) — COMPLETE
+
+**Goal:** Raise the quality bar on flint-architect specs and end-of-round reviews by replacing prose/adjective gates with falsifiable schemas. Triggered by Justin's meta question: "is flint-architect A+ every time, and if not, what parameters would it need?"
+
+**Contract Schema v2 — [shared/contract-schema.ts](shared/contract-schema.ts)**
+- Added `Audience` type + required `meta.audience` (`'engine' | 'designer' | 'developer' | 'ci'`) enforcing Feature Budget Framework dual-audience rule
+- Added `Invariant` type with falsifiable `threshold` (must contain comparison operator) + `validateInvariants()` helper
+- Added required `given` / `when` / `then` to `TestBoundary` + `validateTestBoundaries()` helper (rejects prose like "handles errors gracefully" — `then` must start with an imperative verb from an allowed set)
+- Added `validator: string | null` to `IPCChannelContract` linking each renderer→main channel to a Zod export in `shared/ipc-validators.ts`
+- Flipped `nonGoals` from optional-empty to required ≥1 (empty nonGoals was the #1 source of Phase 2 scope creep)
+- `FlintContract.invariants` now required ≥1
+- Updated `isCompleteContract()` and `validateIPCTriangles()` to enforce new rules
+
+**flint-architect agent — [.claude/agents/flint-architect.md](.claude/agents/flint-architect.md)**
+- Added 6 bullets in the Contract writing steps covering the new required fields
+- Added a 10-row **Self-Check Before Handoff** table so the architect catches its own gaps before spawning the linter
+
+**flint-contract-linter agent — [.claude/agents/flint-contract-linter.md](.claude/agents/flint-contract-linter.md)**
+- Added Check 10 (falsifiable invariants), Check 11 (non-goals ≥1), Check 12 (audience declared)
+- Extended Check 4 with Zod validator linkage requirement
+- Extended Check 6 with executable given/when/then requirement
+- Updated verdict table to include all 12 checks
+
+**Review Schema v1 — [shared/review-schema.ts](shared/review-schema.ts) (new)**
+- `ReviewReport` type with `ReviewFinding[]`, `RubricItem[]`, `FindingCounts`, `ScopeCoverage`
+- Every `ReviewFinding` requires `evidence[]` with file:line — no prose without citation
+- `deriveVerdict(findings, dimension)` — verdict is a function of severity counts + scope, not a letter grade. Security escalates any blocking to `BLOCK`; architectural-scope blockers → `REDESIGN`
+- `validateReport()` catches counts/verdict drift from findings
+- `aggregateConsensus()` aggregates parallel reviewers (worst-of-three), surfaces `disagreement: true` rather than synthesizing it away
+
+**Reviewer agents — all three updated**
+- [flint-code-reviewer.md](.claude/agents/flint-code-reviewer.md), [flint-ux-critic.md](.claude/agents/flint-ux-critic.md), [flint-security-reviewer.md](.claude/agents/flint-security-reviewer.md)
+- Each gained an **End-of-Round Review Ceremony** section requiring both the markdown (unchanged format) and a `.review.ts` sibling
+- UX critic explicitly prohibited from assigning letter grades — user makes threshold calls from raw evidence
+- Security reviewer required to set `commandment` field (1–16) on every finding
+
+**Blast radius:** 1 new file, 1 extended file, 5 agent prompt updates, 0 code changes to Flint app. `npx tsc --noEmit` passes clean. `.flint-context/contracts/` is outside tsconfig includes so existing contracts stay as-is — new rules apply prospectively.
+
+**What to watch next round:**
+- First contract through the new gate will likely trip Check 10 (adjective thresholds) and Check 11 (empty nonGoals). That's the feature, not a bug.
+- First end-of-round review under the new schema produces 6 files instead of 3 (markdown + `.review.ts` per reviewer). Consensus aggregation is manual for now — add a CLI if it becomes tedious.
+
+**Next meta-tool target (Justin confirmed direction):** `flint-integration-validator` structured output (`IntegrationReport` schema). Symmetric counterpart to the contract schema — verifies architect-declared invariants actually held in implementation. Without it, falsifiable invariants become aspirational.
+
+---
+
+## Session: Mint review ceremony + SHIP-blocker burndown (2026-04-17) — COMPLETE
+
+**Goal:** Run the 3-review ceremony on Mint (Counsel→Mint→Envoy rotation), then resolve SHIP blockers per Justin's order: security HIGH first, then dead-code purge, then `chore: mint-polish`.
+
+**Reviews on disk:**
+- `.flint-context/reviews/mint-ux-review-2026-04-17.md` — Grade B-: drift pipeline dead, parallel TokenPanel surface, BM4 unwired
+- `.flint-context/reviews/mint-code-review-2026-04-17.md` — FIX-BEFORE-SHIP: ~1400 LOC dead-code fork, `as any` casts, MINT.1 placeholder still lying
+- `.flint-context/reviews/mint-security-review-2026-04-17.md` — FIX: HIGH prototype-pollution chain via token name walker
+
+**Bucket 1 — Security HIGH (H1+H2 prototype pollution):**
+- `src/store/tokenStore.ts:81` — `flattenDTCG` skips `__proto__`/`constructor`/`prototype` keys
+- `electron/main.ts:910` — `walk` (CSS var emission) skips same keys
+- `electron/main.ts:1029` — `walk` (color extraction) skips same keys
+- `electron/main.ts:1107` — `tokens:approve-token` validates `tokenName` against `/^[a-zA-Z][a-zA-Z0-9_-]*(\.[a-zA-Z][a-zA-Z0-9_-]*)*$/` + defense-in-depth segment guard
+- New tests: `src/store/__tests__/tokenStore.protoPollution.test.ts` (4 tests, verifies `Object.prototype` not polluted)
+
+**Bucket 2 — Dead-code purge (UX C2 + Code B1):**
+- Deleted `src/components/ui/TokenPanel.tsx` (663 LOC orphan)
+- Deleted `src/components/ui/__tests__/TokenPanel.test.tsx` (47 orphan tests)
+- Deleted entire `src/components/ui/token/` subtree (8 files: ColorGrid, ModeColumns, SpacingRuler, TypographySpecimen, TokenApprovalStaging, TokenDetailView, TokenTabBadge, plus their tests)
+- Audit confirmed every file in `token/` was reachable only through TokenPanel
+
+**Bucket 3 — `chore: mint-polish`:**
+- `src/hooks/useTokenUsage.ts:57` — removed `as any` cast (B2)
+- `src/components/ui/TokenGrid.tsx:611-617,665-673` — deleted unreachable "No dark mode" UI + dead `hasMultipleModes()` placeholder (M1, MINT.1 carry-over)
+- `src/App.tsx` — wired `pendingTokenCount` from `getPendingApprovals` IPC into `<ExportModal>` (C3 / Brilliant Moment 4 now alive)
+- `src/components/ui/TokenManager.tsx` — added `mountedRef` unmount guard, threaded through 3 async setState chains (M2)
+- `src/hooks/useContrastAudit.ts` — added cancellation guard to async chain (M3)
+
+**Deferred to MINT.5 sprint (deeper redesign):**
+- C1 (drift pipeline re-enable) — pending Justin's call: re-enable in MINT.5 or defer to Envoy
+- C4 (FirstSyncPrompt elevation out of the tab) — architectural change
+- UX items 5–15 (information hierarchy, density, severity grammar, ApprovalStagingArea bulk-select, ContrastAuditPanel inversion, etc.)
+- Security M1 (paste size cap), M2 (token_value validation), M4 (contrast O(N²) cap)
+
+**Pre-existing flagged but not CHRON/Mint scope:**
+- L1 symlink follow in `tokens:scan-usage` `collectFiles`
+- L7 no URI allowlist on `mcp:read-resource`
+
+**Test results:**
+- Glass: 2729/2731 passing (2 pre-existing StatusBar failures — unrelated; net delta: -67 orphan tests removed, +4 protoPollution tests added)
+- Core:  1850/1850 passing
+- MCP:   5115/5115 passing
+
+---
+
+## Session: CHRON.1 — A+ Polish from Review Ceremony (2026-04-16) — COMPLETE
+
+**Goal:** Apply every blocking finding from the 3-review ceremony (UX, code, security) to ship CHRON.1 at A+.
+
+**Reviews ran first and surfaced 2 convergent SHIP blockers + 5 mediums + UX grade B.**
+
+**Fixes landed:**
+- **BLK-1** `src/types/flint-api.d.ts` — `approveMutation(id, reason?)` + `getAuditLog` row gains `metadata` + `ruleId`
+- **BLK-2 / H1** `server/index.ts` — web parity: reason handling, metadata+ruleId SELECT, DDL guard
+- **H2 / MAJ-1** replaced `approveMutation(0, reason)` sentinel with dedicated `governance:record-approval-reason` IPC writing to `governance_events`
+- **M1–M4 security** — 1000-char handler cap + 500-char input cap, ctrl/bidi-char strip (Trojan-Source defense), Zod validator at IPC, secret regex + `[REDACTED]` (Anthropic/OpenAI/AWS/GitHub)
+- **M5** — `GovernanceDashboard` metadata size cap (4096 bytes) before `JSON.parse`
+- **UX A+** — DiffCard copy differentiation (amber: "for teammates", red: "high-risk"), risk-tinted input borders, `maxLength=500`, red-tier framing text per toolName, example reasons hint; ViolationCard renders `Overridden by [actor] [relativeTime]: "reason"` with graceful fallbacks; `formatRelativeTime` exported; dropped `'skipped'` sentinel throughout
+- **Cleanup** — stale TODO gone, unused `onDefer` destructure removed, `_Check*` contract smoke types wrapped in `export type`
+
+**Test results:**
+- Glass: 2796/2798 passing (2 pre-existing StatusBar failures — unrelated to CHRON.1)
+- Core:  1850/1850 passing
+- MCP:   5115/5115 passing
+- TSC on CHRON.1 files: clean (1 pre-existing test-file type fragility that passes at runtime 57/57)
+
+**New files:** `shared/reasonSanitizer.ts` + tests, `shared/__tests__/ipcValidators.chron1.test.ts`, `server/__tests__/governanceApproval.chron1.test.ts`, 3 review reports in `.flint-context/reviews/`.
+
+---
+
 ## Session: LAUNCH.3 Deferred Fixes (2026-04-12) — COMPLETE
 
 **Goal:** Security m2 (hoist validateFilePath), Security m3 (persist tuple), UX LAF-06 (negative test), AR-11.

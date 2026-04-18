@@ -20,6 +20,7 @@
 
 import type { DesignToken, TokenType, TokenUsageResult, ContrastPair } from '../../types/flint-api'
 import type { TokenDrift } from '../../hooks/useTokenUsage'
+import { SeverityChip } from './governance/SeverityChip'
 
 // ── Sync badge types (shared with TokenManager) ─────────────────────────────
 
@@ -62,14 +63,12 @@ interface UsageBadgeProps {
 function UsageBadge({ usageCount, files }: UsageBadgeProps) {
     if (usageCount === 0) {
         return (
-            <span
-                className="shrink-0 rounded border border-red-500/20 bg-red-500/10 px-1.5 py-0.5 text-[10px] font-medium text-red-400"
+            <SeverityChip
+                severity="advisory"
+                label="dead"
                 data-testid="dead-token-badge"
                 aria-label="Dead token: not used in any file"
-                title="This token exists in the design system but is not referenced in any project file"
-            >
-                Dead
-            </span>
+            />
         )
     }
     const isHighUsage = usageCount > 10
@@ -98,12 +97,14 @@ interface DriftBadgeProps {
 function DriftBadge({ drift }: DriftBadgeProps) {
     return (
         <span
-            className="shrink-0 rounded border border-amber-400/20 bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-400"
             data-testid="drift-badge"
-            aria-label={`Drifted from Figma: local ${drift.localValue}, Figma ${drift.figmaValue}`}
             title={`Local: ${drift.localValue}\nFigma: ${drift.figmaValue}`}
         >
-            Drifted
+            <SeverityChip
+                severity="amber"
+                label="drifted"
+                aria-label={`Drifted from Figma: local ${drift.localValue}, Figma ${drift.figmaValue}`}
+            />
         </span>
     )
 }
@@ -122,13 +123,12 @@ export function ContrastBadge({ grade, ratio }: ContrastBadgeProps) {
 
     if (grade === 'fail') {
         return (
-            <span
-                className="shrink-0 rounded border border-red-500/20 bg-red-500/10 px-1.5 py-0.5 text-[10px] font-medium text-red-400"
-                data-testid="contrast-inline-badge"
-                aria-label={`Contrast: ${ratio ? `${ratio.toFixed(1)}:1` : ''} FAIL`}
-                title={ratio ? `Contrast ratio ${ratio.toFixed(1)}:1 — fails WCAG AA` : 'Fails WCAG AA contrast'}
-            >
-                Fail
+            <span data-testid="contrast-inline-badge" title={ratio ? `Contrast ratio ${ratio.toFixed(1)}:1 — fails WCAG AA` : 'Fails WCAG AA contrast'}>
+                <SeverityChip
+                    severity="critical"
+                    label="contrast fail"
+                    aria-label={`Contrast: ${ratio ? `${ratio.toFixed(1)}:1` : ''} FAIL`}
+                />
             </span>
         )
     }
@@ -608,13 +608,10 @@ function TokenGridCard({ token, darkModeToken, syncStatus, usageResult, drift, c
                 </div>
             )}
 
-            {/* MINT.1c: Missing dark mode indicator */}
-            {token.token_type === 'color' && !darkModeToken && token.mode !== 'dark' && hasMultipleModes(token) && (
-                <div className="flex items-center gap-1" data-testid="missing-dark-mode">
-                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-400" />
-                    <span className="text-[9px] text-amber-400">No dark mode</span>
-                </div>
-            )}
+            {/* MINT.1c: Missing-dark-mode indicator removed 2026-04-17 (Mint code review M1).
+                The hasMultipleModes() heuristic was a placeholder that always returned false,
+                so this row was permanently unreachable. Re-add when collection-level mode
+                coverage is plumbed through from the parent. */}
 
             {/* Token path + value */}
             <p className="w-full truncate text-center font-mono text-[10px] text-zinc-500" title={token.token_path}>
@@ -662,15 +659,6 @@ function TokenGridCard({ token, darkModeToken, syncStatus, usageResult, drift, c
     )
 }
 
-/** Check if the token collection has multiple modes (heuristic). */
-function hasMultipleModes(_token: DesignToken): boolean {
-    // This is a placeholder — in practice, we would check if other tokens
-    // in the same collection have a dark mode. The parent component passes
-    // darkModeToken explicitly, so if it's undefined AND other tokens have
-    // dark mode, the caller should set a flag. For now, we return false
-    // to avoid false positives.
-    return false
-}
 
 // ── Type labels ──────────────────────────────────────────────────────────────
 

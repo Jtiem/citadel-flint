@@ -13,6 +13,7 @@ import type {
     SkippedToken,
     ValidationResult,
 } from './types.js'
+import { escapeCssValue } from './escape.js'
 
 // -- Constants ----------------------------------------------------------------
 
@@ -51,6 +52,7 @@ function toCSSPropertyName(tokenPath: string, prefix?: string): string {
 /**
  * Format a token value for CSS output.
  * Font family values get wrapped in quotes if they contain spaces.
+ * All values are passed through escapeCssValue to neutralize injection vectors.
  */
 function formatCSSValue(token: DesignToken): string {
     if (token.token_type === 'fontFamily') {
@@ -58,11 +60,12 @@ function formatCSSValue(token: DesignToken): string {
             .split(',')
             .map(f => {
                 const trimmed = f.trim().replace(/^['"]|['"]$/g, '')
-                return trimmed.includes(' ') ? `'${trimmed}'` : trimmed
+                const escaped = escapeCssValue(trimmed)
+                return escaped.includes(' ') ? `'${escaped}'` : escaped
             })
             .join(', ')
     }
-    return token.token_value
+    return escapeCssValue(token.token_value)
 }
 
 // -- Group tokens by category for comment sections ----------------------------

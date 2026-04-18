@@ -96,6 +96,27 @@ function App() {
     const [ipcStatus, setIpcStatus] = useState<string>('Connecting…')
     const [ipcOk, setIpcOk] = useState<boolean>(false)
     const [showExportModal, setShowExportModal] = useState(false)
+    // Mint UX A+ (C3): pending-token count for the ExportModal pre-emission row.
+    // Fetched when the modal opens; undefined until then ("Not configured").
+    const [pendingTokenCount, setPendingTokenCount] = useState<number | undefined>(undefined)
+    useEffect(() => {
+        if (!showExportModal) return
+        const getPending = window.flintAPI?.tokens?.getPendingApprovals
+        if (typeof getPending !== 'function') return
+        let cancelled = false
+        ;(async () => {
+            try {
+                const pending = await getPending()
+                if (!cancelled) setPendingTokenCount(Array.isArray(pending) ? pending.length : 0)
+            } catch (err) {
+                if (!cancelled) {
+                    console.warn('[Flint] App: failed to fetch pending tokens for ExportModal', err)
+                    setPendingTokenCount(0)
+                }
+            }
+        })()
+        return () => { cancelled = true }
+    }, [showExportModal])
     const [showGovernancePanel, setShowGovernancePanel] = useState(false)
     // OPP-15: rule ID to focus when GovernancePanel opens via "Configure rule" link
     const [governanceFocusRuleId, setGovernanceFocusRuleId] = useState<string | undefined>(undefined)
@@ -1380,7 +1401,7 @@ function App() {
         </div>
 
         {/* GLASS.2.2: Modal dialogs render outside the aria-hidden wrapper */}
-        {showExportModal && <ExportModal onClose={() => setShowExportModal(false)} />}
+        {showExportModal && <ExportModal onClose={() => setShowExportModal(false)} pendingTokenCount={pendingTokenCount} />}
         {showGovernancePanel && (
             <GovernancePanel
                 onClose={() => {

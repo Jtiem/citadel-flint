@@ -13,6 +13,7 @@ import { ConflictService } from './conflictService.js'
 import { ConnectionService } from './connectionService.js'
 import { FigmaApiService } from './figmaApiService.js'
 import { type TokenFileIO, defaultFileIO, readLocalTokens, writeLocalTokens, flattenTokens } from './tokenFileIO.js'
+import { sanitizeTokenValue } from '../../shared/tokenValueSanitizer.js'
 
 // ---------------------------------------------------------------------------
 // Diff categories
@@ -214,8 +215,23 @@ export class TokenSyncEngine {
                 case 'added_remote':
                 case 'modified_remote': {
                     if (entry.remoteValue !== null) {
-                        localTokens.set(entry.tokenName, entry.remoteValue)
-                        pulled++
+                        // MINT.5 Phase 1: sanitize incoming remote value before apply.
+                        // Rejected values become conflicts instead of silent auto-merges.
+                        const sanitizeResult = sanitizeTokenValue(entry.remoteValue, 'string')
+                        if (sanitizeResult.rejected || sanitizeResult.sanitized === null) {
+                            // Treat as a conflict so the user sees the bad value
+                            this.conflictSvc.createConflict({
+                                projectRoot,
+                                tokenName: entry.tokenName,
+                                localValue: entry.localValue ?? '',
+                                remoteValue: entry.remoteValue,
+                                figmaVariableId: entry.figmaVariableId,
+                            })
+                            conflicts++
+                        } else {
+                            localTokens.set(entry.tokenName, sanitizeResult.sanitized)
+                            pulled++
+                        }
                     }
                     break
                 }

@@ -9,6 +9,7 @@
 
 import type { DesignToken } from '../../types.js'
 import type { PlatformEmitter, PlatformOutput, EmitOptions, SkippedToken, ValidationResult } from './types.js'
+import { escapeSwiftStringLiteral } from './escape.js'
 
 // -- Helpers -------------------------------------------------------------------
 
@@ -145,6 +146,7 @@ export class SwiftEmitter implements PlatformEmitter {
                 case 'fontFamily':
                     typography.push({
                         name,
+                        // Strip quotes/fallbacks at parse time; escaping happens at emission time.
                         value: token.token_value.split(',')[0].trim().replace(/['"]/g, ''),
                         isString: true,
                     })
@@ -269,7 +271,7 @@ function generateSwiftCode(
         sections.push('enum Typography {')
         for (const t of typography) {
             if (t.isString) {
-                sections.push(`    static let ${t.name} = "${t.value}"`)
+                sections.push(`    static let ${t.name} = "${escapeSwiftStringLiteral(String(t.value))}"`)
             } else {
                 sections.push(`    static let ${t.name}: CGFloat = ${toCGFloat(t.value as number)}`)
             }

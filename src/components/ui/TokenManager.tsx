@@ -25,6 +25,7 @@ import { FocusTrap } from './FocusTrap'
 import { TokenHealthBar } from './TokenHealthBar'
 import { TokenGroupSection, type ViewMode, type SyncBadgeStatus, detectScaleGaps } from './TokenGrid'
 import { useTokenUsage } from '../../hooks/useTokenUsage'
+import { useTokenHealth } from '../../hooks/useTokenHealth'
 import { ContrastAuditPanel } from './ContrastAuditPanel'
 import { ApprovalStagingArea } from './ApprovalStagingArea'
 import { FirstSyncPrompt } from './FirstSyncPrompt'
@@ -143,6 +144,14 @@ export function TokenManager() {
     const { tokens, isLoading, error, fetchTokens, importTokensJSON } =
         useTokenStore()
 
+    // Mint code review M2/M3 (2026-04-17): unmount guard for async setState
+    // chains in fetchFigmaState / fetchUsage / fetchPendingApprovals.
+    const mountedRef = useRef(true)
+    useEffect(() => {
+        mountedRef.current = true
+        return () => { mountedRef.current = false }
+    }, [])
+
     // Fire a toast whenever the store surfaces a new error
     const prevErrorRef = useRef<string | null>(null)
     useEffect(() => {
@@ -220,11 +229,11 @@ export function TokenManager() {
         setIsPendingLoading(true)
         try {
             const pending = await window.flintAPI.tokens.getPendingApprovals()
-            setPendingTokens(pending)
+            if (mountedRef.current) setPendingTokens(pending)
         } catch {
             // Graceful degradation — pending approvals not available
         } finally {
-            setIsPendingLoading(false)
+            if (mountedRef.current) setIsPendingLoading(false)
         }
     }, [])
 
@@ -266,12 +275,14 @@ export function TokenManager() {
     const fetchFigmaState = useCallback(() => {
         window.flintAPI.figma?.status()
             .then((status: FigmaStatus) => {
+                if (!mountedRef.current) return
                 const connected = status.running && (status.tokenCount ?? 0) > 0
                 setFigmaConnected(connected)
                 if (connected) {
                     // Read figma-tokens.json via MCP readResource
                     window.flintAPI.mcp?.readResource?.('flint://tokens')
                         .then((text) => {
+                            if (!mountedRef.current) return
                             try {
                                 const data = typeof text === 'string' ? JSON.parse(text) : text
                                 const map = new Map<string, string>()
@@ -293,14 +304,14 @@ export function TokenManager() {
                         .catch((err) => console.warn('[Flint] TokenManager: Figma sync check MCP call failed', err))
                 }
             })
-            .catch(() => setFigmaConnected(false))
+            .catch(() => { if (mountedRef.current) setFigmaConnected(false) })
     }, [])
 
     // MINT.1a: Fetch usage data
     const fetchUsage = useCallback(() => {
         window.flintAPI.tokens.scanUsage?.()
             .then((results) => {
-                if (results) setUsageResults(results)
+                if (mountedRef.current && results) setUsageResults(results)
             })
             .catch(() => {
                 // scanUsage not available — graceful degradation
@@ -317,8 +328,11 @@ export function TokenManager() {
         deadTokenCount,
         driftedTokens,
         driftCount,
-        isScanning: isUsageScanning,
     } = useTokenUsage(tokens.length, localTokensForDrift)
+
+    // MINT.5 §1.3 — Canonical health score via useTokenHealth.
+    // Feeds TokenHealthBar with grade + score + bucket counts.
+    const tokenHealth = useTokenHealth()
 
     useEffect(() => {
         fetchTokens().catch(console.error)
@@ -345,11 +359,10 @@ export function TokenManager() {
         return 'drifted'
     }, [figmaConnected, figmaTokens])
 
-    // MINT.1a: Compute health bar data
-    const syncStatuses = useMemo(() => {
-        if (!figmaConnected) return []
-        return tokens.map((t) => getSyncStatus(t)).filter((s): s is SyncBadgeStatus => s !== null)
-    }, [tokens, figmaConnected, getSyncStatus])
+    // MINT.5 §1.2: The syncStatuses array that previously fed TokenHealthBar's drift
+    // pill has been removed. Drift count authority now belongs to useTokenUsage
+    // (surfaced via tokenHealth.buckets.drifted). getSyncStatus is preserved because
+    // TokenGroupSection still uses it for per-row SyncBadge rendering in TokenGrid.
 
     const usageFileCount = useMemo(() => {
         const allFiles = new Set<string>()
@@ -548,12 +561,9 @@ export function TokenManager() {
             {tokens.length > 0 && (
                 <TokenHealthBar
                     totalTokens={tokens.length}
-                    syncStatuses={syncStatuses}
                     figmaConnected={figmaConnected}
                     usageFileCount={usageFileCount}
-                    deadTokenCount={deadTokenCount}
-                    driftCount={driftCount}
-                    scaleGapCount={scaleGapCount}
+                    health={tokenHealth}
                 />
             )}
 

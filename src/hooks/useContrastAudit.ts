@@ -12,7 +12,7 @@
  * Renderer Process only — no Node.js imports.
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import type { ContrastPair } from '../types/flint-api'
 
 export interface ContrastAuditData {
@@ -33,14 +33,18 @@ export function useContrastAudit(): ContrastAuditData {
     const [isAuditing, setIsAuditing] = useState(false)
 
     useEffect(() => {
+        // Mint code review M2/M3 (2026-04-17): unmount guard.
+        let cancelled = false
         const fn = window.flintAPI.tokens?.auditContrast
         if (!fn) return
 
         setIsAuditing(true)
         fn()
-            .then(setPairs)
-            .catch((err) => console.warn('[Flint] useContrastAudit: contrast audit failed', err))
-            .finally(() => setIsAuditing(false))
+            .then((result) => { if (!cancelled) setPairs(result) })
+            .catch((err) => { if (!cancelled) console.warn('[Flint] useContrastAudit: contrast audit failed', err) })
+            .finally(() => { if (!cancelled) setIsAuditing(false) })
+
+        return () => { cancelled = true }
     }, [])
 
     const failingPairs = pairs

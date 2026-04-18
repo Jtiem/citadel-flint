@@ -9,6 +9,7 @@
 
 import type { DesignToken } from '../../types.js'
 import type { PlatformEmitter, PlatformOutput, EmitOptions, SkippedToken, ValidationResult } from './types.js'
+import { escapeTypescriptStringLiteral } from './escape.js'
 
 // -- Helpers -------------------------------------------------------------------
 
@@ -235,7 +236,7 @@ function formatObjectEntries(obj: Record<string, unknown>, indent: string): stri
     if (entries.length === 0) return ''
     return entries
         .map(([key, val]) => {
-            if (typeof val === 'string') return `${indent}${key}: '${val}',`
+            if (typeof val === 'string') return `${indent}${key}: '${escapeTypescriptStringLiteral(val)}',`
             if (typeof val === 'number') return `${indent}${key}: ${val},`
             if (typeof val === 'object' && val !== null) {
                 // Nested object (e.g., shadow offset)
@@ -270,7 +271,7 @@ function generateCode(
     if (Object.keys(colors).length > 0) {
         sections.push('export const colors = {')
         for (const [key, val] of Object.entries(colors)) {
-            sections.push(`    ${key}: '${val}',`)
+            sections.push(`    ${key}: '${escapeTypescriptStringLiteral(val)}',`)
         }
         sections.push('} as const')
         sections.push('')
@@ -291,7 +292,7 @@ function generateCode(
         sections.push('export const typography = {')
         for (const [key, val] of Object.entries(typography)) {
             if (typeof val === 'string') {
-                sections.push(`    ${key}: '${val}',`)
+                sections.push(`    ${key}: '${escapeTypescriptStringLiteral(val)}',`)
             } else {
                 sections.push(`    ${key}: ${val},`)
             }

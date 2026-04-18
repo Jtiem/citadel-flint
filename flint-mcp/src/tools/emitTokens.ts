@@ -15,6 +15,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { toolName, configPath } from '../brand.js'
+import { validateProjectRoot, FilePathValidationError } from '../shared/tokenPath.js'
+import { SANITIZER_VERSION } from '../shared/tokenValueSanitizer.js'
 import { getEmitter, getAvailablePlatforms, hasEmitter } from '../core/emitters/index.js'
 import type {
     PlatformTarget,
@@ -353,8 +355,22 @@ export async function handleEmitTokens(
     args: EmitTokensArgs,
     defaultProjectRoot: string,
 ): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
-    // 1. Resolve project root
-    const projectRoot = args.projectRoot ?? defaultProjectRoot
+    // 1. Resolve and validate project root (Commandment 14)
+    let projectRoot: string
+    try {
+        projectRoot = validateProjectRoot(args.projectRoot ?? defaultProjectRoot, os.homedir())
+    } catch (err) {
+        return {
+            content: [{
+                type: 'text',
+                text: JSON.stringify({
+                    error: 'Invalid projectRoot',
+                    detail: err instanceof Error ? err.message : String(err),
+                }),
+            }],
+            isError: true,
+        } as { content: Array<{ type: 'text'; text: string }>; isError: true }
+    }
 
     // 2. Load design tokens
     let tokens: DesignToken[]
@@ -472,9 +488,18 @@ export async function handleEmitTokens(
             writeFileAtomic(filePath, output.code)
         }
 
-        // Always write the report file
+        // Always write the report file (with sanitizer provenance header)
+        const emittedAt = new Date().toISOString()
+        // Read package version for toolVersion
+        let toolVersion = '1.0.0'
+        try {
+            const pkgPath = new URL('../../../../package.json', import.meta.url)
+            const pkgRaw = fs.readFileSync(pkgPath.pathname, 'utf-8')
+            toolVersion = (JSON.parse(pkgRaw) as { version?: string }).version ?? toolVersion
+        } catch { /* fallback */ }
+
         const report: TokenSyncReport = {
-            generatedAt: new Date().toISOString(),
+            generatedAt: emittedAt,
             inputTokenCount: filteredTokens.length,
             dryRun,
             outputs,
@@ -482,8 +507,17 @@ export async function handleEmitTokens(
             audit,
             outputDir,
         }
+        const reportWithProvenance = {
+            _provenance: {
+                sanitizerVersion: SANITIZER_VERSION,
+                emittedAt,
+                emitter: requestedPlatforms.join(','),
+                toolVersion,
+            },
+            ...report,
+        }
         const reportPath = path.join(outputDir, '_report.json')
-        writeFileAtomic(reportPath, JSON.stringify(report, null, 2))
+        writeFileAtomic(reportPath, JSON.stringify(reportWithProvenance, null, 2))
     }
 
     // 10. Build the response report

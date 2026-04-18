@@ -52,15 +52,32 @@ export const ipcSchemas = {
     }),
   },
 
+  // MINT.5 W3 fix: align schema with the live handler signature.
+  // Live handler: ipcMain.handle('tokens:update', (_event, tokenPath, updates))
+  // The schema is for single-arg channels; multi-arg channels are documented
+  // here for reference. The actual validation happens in the handler body.
+  // Updated response from { success } → { changes } to match reality.
   'tokens:update': {
     payload: z.object({
-      id: z.number().int().positive(),
-      token_value: z.string(),
-      description: z.string().optional(),
+      token_type: z.string().optional(),
+      token_value: z.string().optional(),
+      description: z.string().nullable().optional(),
     }),
     response: z.object({
-      success: z.boolean(),
+      changes: z.number().int().nonnegative(),
     }),
+  },
+
+  // MINT.5: New channel — reads Figma↔local design token drift.
+  // payload: no args (undefined), response: TokenDrift array.
+  'tokens:read-figma-drift': {
+    payload: z.undefined(),
+    response: z.array(z.object({
+      tokenName: z.string(),
+      localValue: z.string(),
+      figmaValue: z.string(),
+      deltaE: z.number().optional(),
+    })),
   },
 
   'tokens:delete': {
@@ -136,7 +153,14 @@ export const ipcSchemas = {
 
   'governance:record-approval-reason': {
     payload: z.object({
-      filePath: z.string().min(1).max(4096),
+      // CHRON.1 A+ polish (code review v2 Major): reject control chars and
+      // format chars in filePath to prevent audit-log pollution via crafted
+      // paths. The path never reaches `fs` but gets rendered in audit UIs
+      // and SARIF output — unambiguous text is required.
+      filePath: z.string().min(1).max(4096).refine(
+        (p) => !/[\p{Cc}\p{Cf}]/u.test(p),
+        { message: 'filePath must not contain control or format characters' }
+      ),
       toolName: z.string().min(1).max(200),
       reason: z.string().min(1).max(1000),
     }),

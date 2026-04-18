@@ -119,7 +119,10 @@ export const CONTRACT: FlintContract = {
     phase: 'X.1',
     status: 'APPROVED',
     owner: 'flint-architect',
-    date: '2026-03-27',
+    date: '2026-04-17',
+    // REQUIRED (v2): which interface this serves. Feature Budget Framework
+    // forbids a feature claiming multiple audiences — split the contract if so.
+    audience: 'designer',
   },
   impact: [
     { file: 'electron/main.ts', changeType: 'MODIFY', owner: 'flint-electron-ipc', summary: 'Add IPC handler' },
@@ -127,7 +130,17 @@ export const CONTRACT: FlintContract = {
     { file: 'src/components/ui/NewPanel.tsx', changeType: 'CREATE', owner: 'flint-design-engineer', summary: 'Render newSlice' },
   ],
   ipc: [
-    { channel: 'flint:new-channel', direction: 'renderer→main', payloadType: 'NewChannelPayload', returnType: '{ success: boolean }', handler: 'electron/main.ts' },
+    {
+      channel: 'flint:new-channel',
+      direction: 'renderer→main',
+      payloadType: 'NewChannelPayload',
+      returnType: '{ success: boolean }',
+      handler: 'electron/main.ts',
+      // REQUIRED (v2): name the Zod export in shared/ipc-validators.ts that
+      // validates this channel's payload at the preload bridge. Use `null`
+      // ONLY for payload-less main→renderer broadcasts.
+      validator: 'newChannelPayloadSchema',
+    },
   ],
   stores: [
     { store: 'editorStore', newState: { newSlice: 'NewSlice' }, newActions: { addItem: '(p: NewChannelPayload) => void' }, newSelectors: { getItems: '() => NewChannelPayload[]' } },
@@ -143,6 +156,12 @@ export const CONTRACT: FlintContract = {
       behavior: 'Accepts NewChannelPayload and persists item',
       assertion: 'returns { success: true }',
       edgeCases: ['empty payload', 'duplicate id', 'missing required field'],
+      // REQUIRED (v2): executable given/when/then. `then` MUST start with an
+      // imperative verb (returns|throws|rejects|emits|sets|calls|renders|...).
+      // Prose like "handles errors gracefully" fails Phase 1.5.
+      given: 'the channel handler is registered and the DB is writable',
+      when: 'a valid NewChannelPayload is dispatched from the renderer',
+      then: 'returns { success: true } and the item exists in editorStore.newSlice',
     },
     {
       target: 'editorStore.addItem',
@@ -150,6 +169,9 @@ export const CONTRACT: FlintContract = {
       behavior: 'Adds item to newSlice.items array',
       assertion: 'getItems() includes the new item',
       edgeCases: ['adding to empty array', 'duplicate item'],
+      given: 'editorStore is initialized with an empty newSlice.items',
+      when: 'addItem is called with a NewChannelPayload',
+      then: 'updates newSlice.items to length 1 and getItems() returns [payload]',
     },
     {
       target: 'NewPanel',
@@ -157,6 +179,20 @@ export const CONTRACT: FlintContract = {
       behavior: 'Renders item list from editorStore.newSlice',
       assertion: 'renders one <li> per item',
       edgeCases: ['empty items array', 'visible=false hides panel'],
+      given: 'editorStore.newSlice.items contains 3 entries',
+      when: 'NewPanel is mounted with visible=true',
+      then: 'renders 3 <li> elements matching the entries',
+    },
+  ],
+  // REQUIRED (v2): at least 1 falsifiable invariant.
+  // `threshold` MUST contain a comparison operator and a unit.
+  // Adjectives like "fast" or "acceptable" fail Phase 1.5.
+  invariants: [
+    {
+      name: 'newChannel-latency-p95',
+      measurable: 'p95 round-trip latency for flint:new-channel',
+      threshold: '< 200ms at N=1000 concurrent dispatches',
+      measuredBy: 'vitest bench in electron/__tests__/newChannel.bench.ts',
     },
   ],
   risks: [
@@ -166,6 +202,7 @@ export const CONTRACT: FlintContract = {
     A: ['flint-electron-ipc', 'flint-state-architect'],
     B: ['flint-design-engineer', 'flint-test-writer'],
   },
+  // REQUIRED (v2): at least 1 entry. Empty nonGoals was the #1 cause of Phase 2 scope creep.
   nonGoals: ['Real-time sync', 'Undo support for this feature'],
 };
 ```
@@ -176,13 +213,16 @@ The contract is complete when:
 - [ ] Every affected file is listed with its owner agent
 - [ ] All cross-boundary types are defined as TypeScript interfaces in `.contract.ts`
 - [ ] `.contract.ts` compiles: `npx tsc --noEmit .flint-context/contracts/<name>.contract.ts`
-- [ ] IPC channels have explicit direction, payload, and return types
+- [ ] IPC channels have explicit direction, payload, return types, and a `validator` export name *(v2)*
 - [ ] Store changes have explicit state shape, actions, and selectors
 - [ ] Component props and store dependencies are declared
-- [ ] `testBoundaries` covers every new public API with edge cases
+- [ ] `testBoundaries` covers every new public API with edge cases AND executable given/when/then *(v2)*
+- [ ] `meta.audience` declared as exactly one of `'engine' | 'designer' | 'developer' | 'ci'` *(v2)*
+- [ ] `invariants` has at least 1 entry with a falsifiable `threshold` (comparison operator + unit) *(v2)*
+- [ ] `nonGoals` has at least 1 entry *(v2)*
 - [ ] Applicable Commandments are checked
 - [ ] Implementation order accounts for dependencies
-- [ ] Zod schemas defined for any new IPC channels
+- [ ] Zod schemas defined for any new IPC channels in `shared/ipc-validators.ts`
 
 **Do not proceed to Phase 1.5 until the contract is reviewed.**
 
@@ -197,14 +237,17 @@ Spawn `flint-contract-linter` with the contract path. It validates:
 | Check | What It Catches |
 |---|---|
 | Compiles | Type errors in `.contract.ts` |
-| Completeness | Missing required sections |
+| Completeness | Missing required sections (incl. `meta.audience`, `invariants`, `nonGoals ≥ 1`) |
 | Impact Map | References to files that don't exist, CREATE on existing files |
-| IPC Triangles | Missing legs of the handler/preload/renderer triangle |
+| IPC Triangles | Missing legs of the handler/preload/renderer triangle, missing Zod `validator` link *(v2)* |
 | Store Coherence | Store doesn't exist, cross-store references |
-| Test Boundaries | New APIs without test coverage plan |
+| Test Boundaries | New APIs without test coverage; prose given/when/then that doesn't start with an imperative verb *(v2)* |
 | Commandments | Missing applicable commandments, irrelevant ones listed |
 | Parallelism Safety | Two agents in same group touching same file |
 | MD ↔ TS Consistency | Markdown and `.contract.ts` disagree |
+| Falsifiable Invariants | Thresholds without a comparison operator ("fast enough") *(v2)* |
+| Non-Goals | Empty `nonGoals` array *(v2)* |
+| Audience | Missing or invalid `meta.audience` value *(v2)* |
 
 ### Phase 1.5 Output
 

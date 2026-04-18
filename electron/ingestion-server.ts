@@ -31,6 +31,9 @@ import type { AuditorToken } from './ingestion/index.js'
 // so it can be unit-tested in isolation.
 import { checkRateLimit } from './rateLimiter.js'
 import { BRAND, ipcChannel } from '../shared/brand.ts'
+// MINT.5: Sanitize Figma token values before SQLite insert
+import { sanitizeTokenValue, sanitizeTokenDescription } from '../shared/tokenValueSanitizer.ts'
+import type { TokenShapeCategory } from '../shared/tokenValueSanitizer.ts'
 
 const BASE_PORT = 4545
 const MAX_PORT_ATTEMPTS = 10
@@ -77,15 +80,46 @@ const upsertToken = db.prepare<[string, string, string, string | null, string, s
         updated_at  = strftime('%s', 'now')
 `)
 
-/** Batch-upserts all tokens inside a single SQLite transaction for atomicity + speed. */
+// MINT.5: Tracks rejected entries during a batch upsert for Heal summary logging.
+// Reset at the start of each request handler call.
+let _lastBatchRejectedCount = 0
+
+/** Batch-upserts all tokens inside a single SQLite transaction for atomicity + speed.
+ *
+ * MINT.5: Each token value and description is sanitized before insert.
+ * Entries that fail sanitization are skipped and counted in _lastBatchRejectedCount.
+ */
 const batchUpsertTokens = db.transaction(
     (tokens: ReturnType<typeof normalizeFigmaVariables>) => {
+        _lastBatchRejectedCount = 0
         for (const t of tokens) {
+            // MINT.5: Sanitize token value
+            const tokenType = (t.token_type ?? 'string') as TokenShapeCategory
+            const sanitized = sanitizeTokenValue(t.token_value, tokenType)
+            if (sanitized.rejected || sanitized.sanitized === null) {
+                console.warn(`${BRAND.logPrefix} ingestion: rejected token '${t.token_path}' — ${sanitized.rejectionReason}`)
+                _lastBatchRejectedCount++
+                continue
+            }
+            if (sanitized.redacted || sanitized.truncated || sanitized.strippedControlChars) {
+                console.warn(`${BRAND.logPrefix} ingestion: sanitized token value for '${t.token_path}' — redacted=${sanitized.redacted}, truncated=${sanitized.truncated}`)
+            }
+
+            // MINT.5: Sanitize description
+            let safeDescription: string | null = t.description ?? null
+            if (typeof t.description === 'string') {
+                const descResult = sanitizeTokenDescription(t.description)
+                if (descResult.redacted || descResult.truncated || descResult.strippedControlChars) {
+                    console.warn(`${BRAND.logPrefix} ingestion: sanitized description for '${t.token_path}'`)
+                }
+                safeDescription = descResult.sanitized
+            }
+
             upsertToken.run(
                 t.token_path,
                 t.token_type,
-                t.token_value,
-                t.description ?? null,
+                sanitized.sanitized,
+                safeDescription,
                 t.mode ?? 'default',
                 t.collection_name ?? 'default',
             )

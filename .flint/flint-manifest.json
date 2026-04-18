@@ -1,0 +1,340 @@
+{
+  "libraryComponents": [
+    {
+      "name": "Box",
+      "importPath": "@mui/material/Box",
+      "source": "library",
+      "description": "Layout container, accepts sx prop"
+    },
+    {
+      "name": "Stack",
+      "importPath": "@mui/material/Stack",
+      "source": "library",
+      "description": "Flexbox layout stack with spacing"
+    },
+    {
+      "name": "Typography",
+      "importPath": "@mui/material/Typography",
+      "source": "library",
+      "description": "Text rendering with variant hierarchy"
+    },
+    {
+      "name": "Button",
+      "importPath": "@mui/material/Button",
+      "source": "library",
+      "description": "Action button with variants: text, outlined, contained"
+    },
+    {
+      "name": "TextField",
+      "importPath": "@mui/material/TextField",
+      "source": "library",
+      "description": "Form input field with label and helper text"
+    },
+    {
+      "name": "Accordion",
+      "importPath": "@mui/material/Accordion",
+      "source": "library",
+      "description": "Collapsible content panel"
+    },
+    {
+      "name": "AccordionSummary",
+      "importPath": "@mui/material/AccordionSummary",
+      "source": "library",
+      "description": "Accordion trigger header"
+    },
+    {
+      "name": "AccordionDetails",
+      "importPath": "@mui/material/AccordionDetails",
+      "source": "library",
+      "description": "Accordion expanded content area"
+    },
+    {
+      "name": "Dialog",
+      "importPath": "@mui/material/Dialog",
+      "source": "library",
+      "description": "Modal dialog overlay"
+    },
+    {
+      "name": "DialogTitle",
+      "importPath": "@mui/material/DialogTitle",
+      "source": "library",
+      "description": "Dialog header with title text"
+    },
+    {
+      "name": "DialogContent",
+      "importPath": "@mui/material/DialogContent",
+      "source": "library",
+      "description": "Dialog body content area"
+    },
+    {
+      "name": "DialogActions",
+      "importPath": "@mui/material/DialogActions",
+      "source": "library",
+      "description": "Dialog footer action buttons"
+    },
+    {
+      "name": "Card",
+      "importPath": "@mui/material/Card",
+      "source": "library",
+      "description": "Surface container with elevation"
+    },
+    {
+      "name": "CardContent",
+      "importPath": "@mui/material/CardContent",
+      "source": "library",
+      "description": "Card body content area"
+    },
+    {
+      "name": "CardActions",
+      "importPath": "@mui/material/CardActions",
+      "source": "library",
+      "description": "Card footer action buttons"
+    },
+    {
+      "name": "Chip",
+      "importPath": "@mui/material/Chip",
+      "source": "library",
+      "description": "Compact element for tags, categories, or filters"
+    },
+    {
+      "name": "Alert",
+      "importPath": "@mui/material/Alert",
+      "source": "library",
+      "description": "Feedback banner for success, info, warning, or error"
+    },
+    {
+      "name": "Snackbar",
+      "importPath": "@mui/material/Snackbar",
+      "source": "library",
+      "description": "Brief notification toast at screen edge"
+    },
+    {
+      "name": "CircularProgress",
+      "importPath": "@mui/material/CircularProgress",
+      "source": "library",
+      "description": "Circular loading indicator"
+    },
+    {
+      "name": "Divider",
+      "importPath": "@mui/material/Divider",
+      "source": "library",
+      "description": "Thin horizontal or vertical separator"
+    },
+    {
+      "name": "List",
+      "importPath": "@mui/material/List",
+      "source": "library",
+      "description": "Ordered or unordered item list container"
+    },
+    {
+      "name": "ListItem",
+      "importPath": "@mui/material/ListItem",
+      "source": "library",
+      "description": "Single item within a List"
+    },
+    {
+      "name": "ListItemText",
+      "importPath": "@mui/material/ListItemText",
+      "source": "library",
+      "description": "Primary and secondary text within a ListItem"
+    },
+    {
+      "name": "Menu",
+      "importPath": "@mui/material/Menu",
+      "source": "library",
+      "description": "Dropdown menu anchored to an element"
+    },
+    {
+      "name": "MenuItem",
+      "importPath": "@mui/material/MenuItem",
+      "source": "library",
+      "description": "Single option within a Menu"
+    },
+    {
+      "name": "Select",
+      "importPath": "@mui/material/Select",
+      "source": "library",
+      "description": "Dropdown select input"
+    },
+    {
+      "name": "Switch",
+      "importPath": "@mui/material/Switch",
+      "source": "library",
+      "description": "Toggle switch for boolean values"
+    },
+    {
+      "name": "Checkbox",
+      "importPath": "@mui/material/Checkbox",
+      "source": "library",
+      "description": "Binary checkbox input"
+    },
+    {
+      "name": "Radio",
+      "importPath": "@mui/material/Radio",
+      "source": "library",
+      "description": "Radio button for single-option selection"
+    },
+    {
+      "name": "Tabs",
+      "importPath": "@mui/material/Tabs",
+      "source": "library",
+      "description": "Tab navigation container"
+    },
+    {
+      "name": "Tab",
+      "importPath": "@mui/material/Tab",
+      "source": "library",
+      "description": "Single tab within a Tabs component"
+    },
+    {
+      "name": "Tooltip",
+      "importPath": "@mui/material/Tooltip",
+      "source": "library",
+      "description": "Contextual label shown on hover"
+    },
+    {
+      "name": "IconButton",
+      "importPath": "@mui/material/IconButton",
+      "source": "library",
+      "description": "Icon-only button without text label"
+    },
+    {
+      "name": "Avatar",
+      "importPath": "@mui/material/Avatar",
+      "source": "library",
+      "description": "Circular user image or initials display"
+    },
+    {
+      "name": "Badge",
+      "importPath": "@mui/material/Badge",
+      "source": "library",
+      "description": "Numeric or dot indicator on another element"
+    },
+    {
+      "name": "Breadcrumbs",
+      "importPath": "@mui/material/Breadcrumbs",
+      "source": "library",
+      "description": "Navigation breadcrumb trail"
+    },
+    {
+      "name": "Skeleton",
+      "importPath": "@mui/material/Skeleton",
+      "source": "library",
+      "description": "Loading placeholder matching content shape"
+    },
+    {
+      "name": "Stepper",
+      "importPath": "@mui/material/Stepper",
+      "source": "library",
+      "description": "Multi-step progress indicator container"
+    },
+    {
+      "name": "Step",
+      "importPath": "@mui/material/Step",
+      "source": "library",
+      "description": "Single step within a Stepper"
+    },
+    {
+      "name": "StepLabel",
+      "importPath": "@mui/material/StepLabel",
+      "source": "library",
+      "description": "Label and icon for a Step"
+    },
+    {
+      "name": "Paper",
+      "importPath": "@mui/material/Paper",
+      "source": "library",
+      "description": "Elevated surface container"
+    },
+    {
+      "name": "AppBar",
+      "importPath": "@mui/material/AppBar",
+      "source": "library",
+      "description": "Top application navigation bar"
+    },
+    {
+      "name": "Toolbar",
+      "importPath": "@mui/material/Toolbar",
+      "source": "library",
+      "description": "Horizontal container for AppBar content"
+    },
+    {
+      "name": "Drawer",
+      "importPath": "@mui/material/Drawer",
+      "source": "library",
+      "description": "Side panel navigation overlay"
+    },
+    {
+      "name": "FormControl",
+      "importPath": "@mui/material/FormControl",
+      "source": "library",
+      "description": "Wrapper providing context to form elements"
+    },
+    {
+      "name": "FormLabel",
+      "importPath": "@mui/material/FormLabel",
+      "source": "library",
+      "description": "Label for a form group"
+    },
+    {
+      "name": "FormHelperText",
+      "importPath": "@mui/material/FormHelperText",
+      "source": "library",
+      "description": "Helper or error text below a form element"
+    },
+    {
+      "name": "InputLabel",
+      "importPath": "@mui/material/InputLabel",
+      "source": "library",
+      "description": "Floating label for Select or TextField"
+    },
+    {
+      "name": "Grid",
+      "importPath": "@mui/material/Grid",
+      "source": "library",
+      "description": "Responsive CSS grid layout component"
+    },
+    {
+      "name": "Container",
+      "importPath": "@mui/material/Container",
+      "source": "library",
+      "description": "Centered page-width content container"
+    },
+    {
+      "name": "Link",
+      "importPath": "@mui/material/Link",
+      "source": "library",
+      "description": "Anchor element with MUI typography styling"
+    },
+    {
+      "name": "Table",
+      "importPath": "@mui/material/Table",
+      "source": "library",
+      "description": "HTML table with MUI styling"
+    },
+    {
+      "name": "TableHead",
+      "importPath": "@mui/material/TableHead",
+      "source": "library",
+      "description": "Table header row container"
+    },
+    {
+      "name": "TableBody",
+      "importPath": "@mui/material/TableBody",
+      "source": "library",
+      "description": "Table body row container"
+    },
+    {
+      "name": "TableRow",
+      "importPath": "@mui/material/TableRow",
+      "source": "library",
+      "description": "Single row within a Table"
+    },
+    {
+      "name": "TableCell",
+      "importPath": "@mui/material/TableCell",
+      "source": "library",
+      "description": "Single cell within a TableRow"
+    }
+  ]
+}

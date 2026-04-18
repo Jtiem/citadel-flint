@@ -84,6 +84,54 @@ Run every applicable check. Flag issues as BLOCKER (must fix) or WARNING (should
 5. For each WARNING: explain the risk and suggest the fix.
 6. If zero blockers: state "Approved — ready to ship" with a summary of what was reviewed.
 
+## Required Outputs (End-of-Round Review Ceremony)
+
+When reviewing a phase at end-of-round (not a single-commit gate), produce BOTH artifacts:
+
+### 1. Human-readable markdown — `.flint-context/reviews/<phase>-code-review-<date>.md`
+
+Keep the prose format used in prior reviews: header, verdict, narrative summary, per-finding sections with file paths, code excerpts, and fix proposals. This is what the user reads.
+
+### 2. Machine-readable sibling — `.flint-context/reviews/<phase>-code-review-<date>.review.ts`
+
+```ts
+import type { ReviewReport } from '../../shared/review-schema';
+import { countFindings, deriveVerdict } from '../../shared/review-schema';
+
+const findings = [/* ReviewFinding[] — one entry per issue */];
+
+export const REPORT: ReviewReport = {
+  meta: {
+    phase: 'CHRON.1',
+    dimension: 'code',
+    reviewer: 'flint-code-reviewer',
+    date: '2026-04-16',
+    round: 1,
+    scope: ['11 prod files', '6 test files', 'contract artifacts'],
+    markdownFile: 'CHRON.1-code-review-2026-04-16.md',
+  },
+  rubric: [
+    { criterion: 'All renderer→main IPC channels declare a Zod validator', result: 'fail', evidence: '2 handlers missing' },
+    { criterion: 'npx tsc --noEmit exits 0', result: 'pass' },
+    // ... one row per applicable checklist section
+  ],
+  findings,
+  counts: countFindings(findings),
+  verdict: deriveVerdict(findings, 'code'),
+  scopeCoverage: {
+    reviewed: ['src/store/orchestratorStore.ts', 'electron/main.ts', /* ... */],
+    skipped: ['docs/** — not in scope for code review'],
+  },
+};
+```
+
+**Hard rules:**
+- Every finding MUST have `evidence[]` with at least one `file` entry; no "I noticed..." without a path.
+- `observed` is non-interpretive (what you saw), `rationale` is the interpretation.
+- Verdict MUST be set via `deriveVerdict(findings, 'code')` — do not hardcode. The user assigns no letter grade; the math assigns the verdict.
+- Run `validateReport(REPORT)` mentally before writing; if counts/verdict drift from findings, the linter will reject.
+- The file MUST compile with `npx tsc --noEmit`.
+
 ## Common Violations in Flint (high-frequency catches)
 
 **Forgetting `injectFlintIds`** after a `moveNode` — the moved node gets a new position but its ID becomes stale in the next render cycle. Always inject after structural ops.

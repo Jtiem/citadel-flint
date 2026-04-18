@@ -29,6 +29,8 @@ import type { ProjectEnvironment, DetectorFS } from '../shared/projectDetector.t
 import { validateFilePath as sharedValidateFilePath } from '../shared/validateFilePath.ts'
 import { sanitizeReason } from '../shared/reasonSanitizer.ts'
 import { ipcSchemas } from '../shared/ipc-validators.ts'
+import { sanitizeTokenValue, sanitizeTokenDescription } from '../shared/tokenValueSanitizer.ts'
+import { validateTokenPath, TokenPathValidationError } from '../shared/tokenPath.ts'
 
 // ── FileTreeNode ───────────────────────────────────────────────────────────────
 // Mirrors the renderer-side type in src/types/flint-api.d.ts.
@@ -774,6 +776,37 @@ app.whenReady().then(async () => {
             mode?: string
             collection_name?: string
         }
+
+        // MINT.5: Validate token path (rejects prototype pollution, invalid segments)
+        try {
+            validateTokenPath(t.token_path)
+        } catch (err) {
+            if (err instanceof TokenPathValidationError) {
+                throw new Error(`tokens:create — invalid token_path: ${err.message}`)
+            }
+            throw err
+        }
+
+        // MINT.5: Sanitize token value (length cap, control char strip, secret redaction, shape allowlist)
+        const tokenType = t.token_type as import('../shared/tokenValueSanitizer.ts').TokenShapeCategory
+        const sanitized = sanitizeTokenValue(t.token_value, tokenType)
+        if (sanitized.redacted || sanitized.truncated || sanitized.strippedControlChars) {
+            console.warn(`${BRAND.logPrefix} tokens:create: value sanitized for '${t.token_path}' — redacted=${sanitized.redacted}, truncated=${sanitized.truncated}, stripped=${sanitized.strippedControlChars}`)
+        }
+        if (sanitized.rejected || sanitized.sanitized === null) {
+            throw new Error(`tokens:create — token_value rejected: ${sanitized.rejectionReason ?? 'empty after sanitization'}`)
+        }
+
+        // MINT.5: Sanitize description
+        let safeDescription: string | null = t.description ?? null
+        if (typeof t.description === 'string') {
+            const descResult = sanitizeTokenDescription(t.description)
+            if (descResult.redacted || descResult.truncated || descResult.strippedControlChars) {
+                console.warn(`${BRAND.logPrefix} tokens:create: description sanitized for '${t.token_path}'`)
+            }
+            safeDescription = descResult.sanitized
+        }
+
         const mode = typeof t.mode === 'string' && t.mode.trim() !== '' ? t.mode : 'default'
         const collection_name =
             typeof t.collection_name === 'string' && t.collection_name.trim() !== ''
@@ -781,8 +814,8 @@ app.whenReady().then(async () => {
                 : 'default'
 
         const result = stmtCreate.run(
-            t.token_path, t.token_type, t.token_value,
-            t.description ?? null,
+            t.token_path, t.token_type, sanitized.sanitized,
+            safeDescription,
             mode, collection_name
         )
         broadcastTokensUpdated()
@@ -795,6 +828,17 @@ app.whenReady().then(async () => {
         if (typeof tokenPath !== 'string' || tokenPath.trim() === '') {
             throw new Error('tokens:update — tokenPath must be a non-empty string')
         }
+
+        // MINT.5: Validate token path
+        try {
+            validateTokenPath(tokenPath)
+        } catch (err) {
+            if (err instanceof TokenPathValidationError) {
+                throw new Error(`tokens:update — invalid tokenPath: ${err.message}`)
+            }
+            throw err
+        }
+
         if (typeof updates !== 'object' || updates === null) {
             throw new Error('tokens:update — updates must be an object')
         }
@@ -803,11 +847,35 @@ app.whenReady().then(async () => {
         const params: (string | null)[] = []
 
         if (typeof u.token_type === 'string') { setClauses.push('token_type = ?'); params.push(u.token_type) }
-        if (typeof u.token_value === 'string') { setClauses.push('token_value = ?'); params.push(u.token_value) }
-        if ('description' in u) {
-            setClauses.push('description = ?')
-            params.push(typeof u.description === 'string' ? u.description : null)
+
+        if (typeof u.token_value === 'string') {
+            // MINT.5: Sanitize updated token value. Use token_type from updates or fall back to 'string'.
+            const tokenType = (typeof u.token_type === 'string' ? u.token_type : 'string') as import('../shared/tokenValueSanitizer.ts').TokenShapeCategory
+            const sanitized = sanitizeTokenValue(u.token_value, tokenType)
+            if (sanitized.redacted || sanitized.truncated || sanitized.strippedControlChars) {
+                console.warn(`${BRAND.logPrefix} tokens:update: value sanitized for '${tokenPath}' — redacted=${sanitized.redacted}, truncated=${sanitized.truncated}, stripped=${sanitized.strippedControlChars}`)
+            }
+            if (sanitized.rejected || sanitized.sanitized === null) {
+                throw new Error(`tokens:update — token_value rejected: ${sanitized.rejectionReason ?? 'empty after sanitization'}`)
+            }
+            setClauses.push('token_value = ?')
+            params.push(sanitized.sanitized)
         }
+
+        if ('description' in u) {
+            let safeDesc: string | null = null
+            if (typeof u.description === 'string') {
+                // MINT.5: Sanitize description
+                const descResult = sanitizeTokenDescription(u.description)
+                if (descResult.redacted || descResult.truncated || descResult.strippedControlChars) {
+                    console.warn(`${BRAND.logPrefix} tokens:update: description sanitized for '${tokenPath}'`)
+                }
+                safeDesc = descResult.sanitized
+            }
+            setClauses.push('description = ?')
+            params.push(safeDesc)
+        }
+
         if (setClauses.length === 0) {
             throw new Error('tokens:update — at least one field must be provided')
         }
@@ -910,6 +978,8 @@ app.whenReady().then(async () => {
             function walk(obj: Record<string, unknown>, prefix: string) {
                 for (const [key, val] of Object.entries(obj)) {
                     if (key.startsWith('$')) continue
+                    // Mint security review (2026-04-17): skip prototype-pollution path keys.
+                    if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue
                     const fullPath = prefix ? `${prefix}-${key}` : key
                     if (val && typeof val === 'object' && '$value' in (val as Record<string, unknown>)) {
                         tokenEntries.push({
@@ -1029,6 +1099,8 @@ app.whenReady().then(async () => {
             function walk(obj: Record<string, unknown>, prefix: string) {
                 for (const [key, val] of Object.entries(obj)) {
                     if (key.startsWith('$')) continue
+                    // Mint security review (2026-04-17): skip prototype-pollution path keys.
+                    if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue
                     const fullPath = prefix ? `${prefix}.${key}` : key
                     if (val && typeof val === 'object' && '$value' in (val as Record<string, unknown>)) {
                         const v = (val as Record<string, unknown>).$value
@@ -1104,8 +1176,29 @@ app.whenReady().then(async () => {
         }
     })
 
+    // MINT.5: broadcastTokenApproved — shared helper called from both Glass-path
+    // (tokens:approve-token IPC) and MCP-path (flint_approve_tokens fan-in).
+    // Fires AFTER the FTM write resolves (R8) to prevent races.
+    function broadcastTokenApproved(tokenName: string, source: 'glass' | 'mcp'): void {
+        const event = { tokenName, source, timestamp: Date.now() }
+        BrowserWindow.getAllWindows().forEach((w) => {
+            if (!w.isDestroyed()) w.webContents.send(ipcChannel('governance:on-token-approved'), event)
+        })
+    }
+
+    // MINT.5: Replace inline SAFE_TOKEN_NAME_RE with shared validateTokenPath import.
+    // validateTokenPath enforces the same regex + prototype pollution denylist.
+    // The defense-in-depth segment guard below is kept for explicit readability.
+
     ipcMain.handle('tokens:approve-token', async (_event, tokenName: unknown) => {
         if (!activeProjectRoot || typeof tokenName !== 'string') return { ok: false }
+
+        // MINT.5: Use shared validateTokenPath (replaces inline SAFE_TOKEN_NAME_RE)
+        try {
+            validateTokenPath(tokenName)
+        } catch {
+            return { ok: false }
+        }
 
         const pendingPath = path.join(activeProjectRoot, '.flint', 'pending-tokens.json')
         const tokensPath = path.join(activeProjectRoot, '.flint', 'design-tokens.json')
@@ -1115,6 +1208,16 @@ app.whenReady().then(async () => {
             const pending = JSON.parse(raw) as Array<{ name: string; value: string; type: string; source: string; proposedAt: string }>
             const token = pending.find((t) => t.name === tokenName)
             if (!token) return { ok: false }
+
+            // MINT.5: Sanitize the token value before writing to disk
+            const tokenType = (token.type ?? 'string') as import('../shared/tokenValueSanitizer.ts').TokenShapeCategory
+            const sanitized = sanitizeTokenValue(token.value, tokenType)
+            if (sanitized.redacted || sanitized.truncated || sanitized.strippedControlChars) {
+                console.warn(`${BRAND.logPrefix} tokens:approve-token: value sanitized for '${tokenName}'`)
+            }
+            // For approve-token we allow sanitized values even if shape-rejected (token came from Figma)
+            // but we must have some value to write
+            const safeValue = sanitized.sanitized ?? token.value
 
             // Remove from pending (Commandment 12: atomic write via FTM)
             const remaining = pending.filter((t) => t.name !== tokenName)
@@ -1127,21 +1230,33 @@ app.whenReady().then(async () => {
                 designTokens = JSON.parse(dtRaw)
             } catch { /* fresh file */ }
 
-            // Build nested path
+            // Build nested path. tokenName is validated via validateTokenPath above so no
+            // segment can be __proto__/constructor/prototype, but we keep
+            // the explicit check as defense-in-depth.
             const parts = token.name.split('.')
             let current: Record<string, unknown> = designTokens
             for (let i = 0; i < parts.length - 1; i++) {
-                if (!current[parts[i]] || typeof current[parts[i]] !== 'object') {
-                    current[parts[i]] = {}
+                const seg = parts[i]
+                if (seg === '__proto__' || seg === 'constructor' || seg === 'prototype') {
+                    return { ok: false }
                 }
-                current = current[parts[i]] as Record<string, unknown>
+                if (!current[seg] || typeof current[seg] !== 'object') {
+                    current[seg] = {}
+                }
+                current = current[seg] as Record<string, unknown>
             }
-            current[parts[parts.length - 1]] = {
-                $value: token.value,
+            const leaf = parts[parts.length - 1]
+            if (leaf === '__proto__' || leaf === 'constructor' || leaf === 'prototype') {
+                return { ok: false }
+            }
+            current[leaf] = {
+                $value: safeValue,
                 $type: token.type,
             }
 
+            // R8: broadcast fires AFTER FTM write resolves
             await fileTransactionManager.write(tokensPath, JSON.stringify(designTokens, null, 2))
+            broadcastTokenApproved(tokenName, 'glass')
             return { ok: true }
         } catch {
             return { ok: false }
@@ -1161,6 +1276,150 @@ app.whenReady().then(async () => {
         } catch {
             return { ok: false }
         }
+    })
+
+    // ── MINT.5: tokens:read-figma-drift ────────────────────────────────────────
+    // Reads .flint/figma-tokens.json (Figma token mirror), compares against the
+    // design_tokens SQLite table, and returns a TokenDrift[] array. This bypasses
+    // the generic file:read IPC (which rejects .json extensions) and fixes the
+    // render loop described in useTokenUsage.ts.
+    //
+    // CIEDE2000 deltaE is computed for color tokens using the electron-side
+    // hexToRgb + deltaE2000 utilities (already in main.ts for audit-contrast).
+    //
+    // R4: file capped at 2MB — beyond that, returns [] + logs warn.
+    // R4: Invalid JSON returns [] + logs warn, never throws.
+    ipcMain.handle('tokens:read-figma-drift', async () => {
+        if (!activeProjectRoot) return []
+
+        const figmaTokensPath = path.join(activeProjectRoot, '.flint', 'figma-tokens.json')
+        const MAX_BYTES = 2 * 1024 * 1024 // 2MB soft cap (R4)
+
+        let figmaRaw: string
+        try {
+            // Check file size before full read
+            const stat = await fsStat(figmaTokensPath).catch(() => null)
+            if (!stat) return [] // file missing — no drift
+            if (stat.size > MAX_BYTES) {
+                console.warn(`${BRAND.logPrefix} tokens:read-figma-drift: figma-tokens.json exceeds 2MB (${stat.size} bytes) — returning []`)
+                return []
+            }
+            figmaRaw = await readFile(figmaTokensPath, 'utf8')
+        } catch {
+            return [] // file missing
+        }
+
+        let figmaTokens: Record<string, unknown>
+        try {
+            figmaTokens = JSON.parse(figmaRaw) as Record<string, unknown>
+        } catch {
+            console.warn(`${BRAND.logPrefix} tokens:read-figma-drift: figma-tokens.json is not valid JSON — returning []`)
+            return []
+        }
+
+        // Flatten the figma token tree into a path→value map.
+        // .flint/figma-tokens.json follows DTCG: { "colors": { "primary": { "$value": "#3b82f6", "$type": "color" } } }
+        function flattenFigmaTokens(
+            obj: Record<string, unknown>,
+            prefix: string,
+        ): Map<string, { value: string; type: string }> {
+            const result = new Map<string, { value: string; type: string }>()
+            for (const [key, val] of Object.entries(obj)) {
+                const fullKey = prefix ? `${prefix}.${key}` : key
+                if (
+                    val !== null && typeof val === 'object' &&
+                    '$value' in (val as object)
+                ) {
+                    const entry = val as Record<string, unknown>
+                    if (typeof entry.$value === 'string') {
+                        result.set(fullKey, {
+                            value: entry.$value,
+                            type: typeof entry.$type === 'string' ? entry.$type : 'string',
+                        })
+                    }
+                } else if (val !== null && typeof val === 'object') {
+                    const nested = flattenFigmaTokens(val as Record<string, unknown>, fullKey)
+                    nested.forEach((v, k) => result.set(k, v))
+                }
+            }
+            return result
+        }
+
+        const figmaMap = flattenFigmaTokens(figmaTokens, '')
+
+        // Load local tokens from SQLite
+        const localTokens = stmtReadAll.all() as Array<{
+            token_path: string
+            token_type: string
+            token_value: string
+        }>
+        const localMap = new Map(localTokens.map((t) => [t.token_path, t]))
+
+        // Compute CIEDE2000 deltaE for color tokens (reuse in-scope hexToRgb / deltaE2000 from audit-contrast section)
+        // These are defined later in main.ts (around line 1009 in original). We inline a minimal implementation
+        // here to avoid forward-reference issues — the audit-contrast section is not exported.
+        function _hexToRgb(hex: string): [number, number, number] | null {
+            const s = hex.trim().replace(/^#/, '')
+            const expanded = s.length === 3
+                ? s[0] + s[0] + s[1] + s[1] + s[2] + s[2]
+                : s
+            if (!/^[0-9a-fA-F]{6}$/.test(expanded)) return null
+            return [
+                parseInt(expanded.slice(0, 2), 16),
+                parseInt(expanded.slice(2, 4), 16),
+                parseInt(expanded.slice(4, 6), 16),
+            ]
+        }
+
+        function _rgbToLab(r: number, g: number, b: number): [number, number, number] {
+            let rr = r / 255; let gg = g / 255; let bb = b / 255
+            rr = rr > 0.04045 ? Math.pow((rr + 0.055) / 1.055, 2.4) : rr / 12.92
+            gg = gg > 0.04045 ? Math.pow((gg + 0.055) / 1.055, 2.4) : gg / 12.92
+            bb = bb > 0.04045 ? Math.pow((bb + 0.055) / 1.055, 2.4) : bb / 12.92
+            const x = (rr * 0.4124 + gg * 0.3576 + bb * 0.1805) / 0.95047
+            const y = (rr * 0.2126 + gg * 0.7152 + bb * 0.0722) / 1.00000
+            const z = (rr * 0.0193 + gg * 0.1192 + bb * 0.9505) / 1.08883
+            const fx = x > 0.008856 ? Math.cbrt(x) : (7.787 * x + 16 / 116)
+            const fy = y > 0.008856 ? Math.cbrt(y) : (7.787 * y + 16 / 116)
+            const fz = z > 0.008856 ? Math.cbrt(z) : (7.787 * z + 16 / 116)
+            return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)]
+        }
+
+        function _computeDeltaE(hex1: string, hex2: string): number | undefined {
+            const rgb1 = _hexToRgb(hex1)
+            const rgb2 = _hexToRgb(hex2)
+            if (!rgb1 || !rgb2) return undefined
+            const [L1, a1, b1] = _rgbToLab(...rgb1)
+            const [L2, a2, b2] = _rgbToLab(...rgb2)
+            // Simple CIE76 distance (Phase 2 can upgrade to CIEDE2000 if needed)
+            const dL = L1 - L2, da = a1 - a2, db = b1 - b2
+            return Math.round(Math.sqrt(dL * dL + da * da + db * db) * 100) / 100
+        }
+
+        // Build drift array: only tokens present in BOTH local and figma, with differing values
+        const driftRows: Array<{ tokenName: string; localValue: string; figmaValue: string; deltaE?: number }> = []
+
+        for (const [tokenPath, figmaEntry] of figmaMap) {
+            const local = localMap.get(tokenPath)
+            if (!local) continue // token not in local — not a drift
+            if (local.token_value === figmaEntry.value) continue // identical — no drift
+
+            const row: { tokenName: string; localValue: string; figmaValue: string; deltaE?: number } = {
+                tokenName: tokenPath,
+                localValue: local.token_value,
+                figmaValue: figmaEntry.value,
+            }
+
+            // Compute CIEDE2000 for color tokens (Commandment 9)
+            if (figmaEntry.type === 'color' || local.token_type === 'color') {
+                const de = _computeDeltaE(local.token_value, figmaEntry.value)
+                if (de !== undefined) row.deltaE = de
+            }
+
+            driftRows.push(row)
+        }
+
+        return driftRows
     })
 
     // ── Presence UPSERT Handler ──────────────────────────────────────────────

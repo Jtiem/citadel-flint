@@ -41,15 +41,17 @@ Read the `.contract.ts` file and verify it exports a `CONTRACT` object of type `
 | `meta.phase` | Non-empty, matches a known phase ID |
 | `meta.status` | Must be `'APPROVED'` |
 | `meta.date` | Valid ISO date |
+| `meta.audience` | Exactly one of `'engine' \| 'designer' \| 'developer' \| 'ci'` |
 | `impact` | At least 1 entry |
 | `ipc` | Present (may be empty if no IPC changes) |
 | `stores` | Present (may be empty if no store changes) |
 | `components` | Present (may be empty if no component changes) |
 | `commandments` | At least 1 applicable commandment |
 | `testBoundaries` | At least 1 test boundary per new public API |
+| `invariants` | **At least 1** falsifiable invariant (see Check 10) |
 | `risks` | Present (may be empty for trivial features) |
 | `parallelismGroups` | At least 1 group with at least 1 agent |
-| `nonGoals` | Present (may be empty) |
+| `nonGoals` | **At least 1 entry** — explicit non-scope is required |
 
 ### Check 3: Impact Map Integrity
 
@@ -64,10 +66,11 @@ For every entry in `impact`:
 
 For every IPC channel in `ipc`:
 
-1. **All three legs specified**: channel name, payload type, return type, handler location.
+1. **All four legs specified**: channel name, payload type, return type, handler location.
 2. **Direction consistency**: `renderer→main` channels must have handler in `electron/`. `main→renderer` channels are broadcasts (no handler needed, but listener pattern required).
 3. **Type names exist**: The `payloadType` and `returnType` must reference types defined in the `.contract.ts` file or existing project types.
 4. **No duplicate channels**: No two entries share the same channel name.
+5. **Zod validator linked** (BLOCKING): Every channel with direction `renderer→main` or `bidirectional` must declare `validator: "<ExportName>"` pointing to a Zod schema exported from `shared/ipc-validators.ts`. Grep the validators file — the named export MUST exist. Use `validator: null` ONLY for payload-less `main→renderer` broadcasts; validate that null-validator channels truly have no payload type beyond `void | undefined`.
 
 ### Check 5: Store Contract Coherence
 
@@ -85,6 +88,7 @@ For every new public API surface (IPC handler, store action, component, service 
 1. **At least one test boundary** must target it.
 2. **At least one edge case** per test boundary (empty input, error case, boundary value).
 3. **Kind field matches**: IPC handlers → `ipc-handler`, store actions → `store-action`, etc.
+4. **Executable given/when/then** (BLOCKING): Every `TestBoundary` must have non-empty `given`, `when`, and `then` fields. The `then` field MUST begin with an imperative verb from the allowed set: `returns`, `throws`, `rejects`, `resolves`, `emits`, `sets`, `calls`, `renders`, `dispatches`, `updates`, `writes`, `reads`, `broadcasts`, `blocks`, `allows`. Prose like "handles errors gracefully" or "works correctly" fails this check. Use `validateTestBoundaries()` from `shared/contract-schema.ts`.
 
 ### Check 7: Commandment Applicability
 
@@ -116,6 +120,23 @@ The markdown contract and the `.contract.ts` file must agree:
 
 If they diverge, the markdown is stale or the `.contract.ts` was edited without updating the markdown.
 
+### Check 10: Falsifiable Invariants
+
+Every contract must declare at least one `Invariant`. For each entry:
+
+1. **`name`, `measurable`, `measuredBy` are non-empty.**
+2. **`threshold` is falsifiable** (BLOCKING): must contain a comparison operator from `<`, `>`, `=`, `≤`, `≥`, `<=`, `>=`. Adjective-only thresholds like `"fast enough"`, `"acceptable"`, `"reasonable"` fail this check. Use `validateInvariants()` from `shared/contract-schema.ts`.
+3. **Threshold has a unit** where applicable (ms, MB, %, count, ratio). `"< 200"` is weaker than `"< 200ms at N=1000"`.
+4. **`measuredBy` names a verification mechanism** — `vitest bench`, `manual DevTools inspection`, `telemetry dashboard`, `integration test`, etc. Not just `"tests"`.
+
+### Check 11: Non-Goals Declared
+
+The `nonGoals` array must have at least one entry. Empty `nonGoals` is the most common cause of Phase 2 scope creep — the linter blocks contracts that ship without declaring boundaries. This is BLOCKING.
+
+### Check 12: Audience Declared
+
+`meta.audience` must be exactly one of: `'engine'`, `'designer'`, `'developer'`, `'ci'`. Features claiming multiple audiences must be split into separate contracts per the Feature Budget Framework's dual-audience rule. This is BLOCKING.
+
 ## Output Format
 
 Write your report to `.flint-context/contracts/<name>-lint.md`:
@@ -130,12 +151,15 @@ Write your report to `.flint-context/contracts/<name>-lint.md`:
 | Compiles | PASS/FAIL | (errors) |
 | Completeness | PASS/FAIL | (missing sections) |
 | Impact Map | PASS/FAIL | (file issues) |
-| IPC Triangles | PASS/FAIL | (missing legs) |
+| IPC Triangles | PASS/FAIL | (missing legs or validator) |
 | Store Coherence | PASS/FAIL | (issues) |
-| Test Boundaries | PASS/FAIL | (uncovered APIs) |
+| Test Boundaries | PASS/FAIL | (uncovered APIs, non-executable given/when/then) |
 | Commandments | PASS/FAIL | (missing/irrelevant) |
 | Parallelism Safety | PASS/FAIL | (conflicts) |
 | MD ↔ TS Consistency | PASS/FAIL | (divergences) |
+| Falsifiable Invariants | PASS/FAIL | (adjective thresholds, missing invariants) |
+| Non-Goals | PASS/FAIL | (empty array) |
+| Audience | PASS/FAIL | (missing or invalid enum value) |
 
 ## Issues (if REVISE)
 1. **[BLOCKING]** description — what the architect must fix

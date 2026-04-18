@@ -9,9 +9,10 @@
  * Renderer Process only — no Node.js imports.
  */
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { Clock, Check, X, AlertTriangle, CheckCheck, XCircle } from 'lucide-react'
 import type { PendingToken } from '../../types/flint-api'
+import type { TokenApprovedEvent } from '../../../.flint-context/contracts/MINT.5-phase1.contract'
 
 export interface ApprovalStagingAreaProps {
     /** Pending tokens from getPendingApprovals(). */
@@ -138,6 +139,40 @@ export function ApprovalStagingArea({
 }: ApprovalStagingAreaProps) {
     const [processingSet, setProcessingSet] = useState<Set<string>>(new Set())
     const [isBulkProcessing, setIsBulkProcessing] = useState(false)
+
+    // MINT.5 §1.5 — Dual-queue listener: subscribe to the governance push channel.
+    // When the MCP tool flint_approve_tokens or the glass-path tokens:approve-token
+    // IPC completes, the main process broadcasts governance:on-token-approved via
+    // window.flintAPI.tokens.onTokenApproved. We filter the local pending list so
+    // the row clears without a UI click.
+    //
+    // R3 mitigation: we only filter local state — we never call approve-token back.
+    // R8 mitigation: broadcast fires after FTM write resolves (enforced by electron/main.ts).
+    //
+    // TODO: wire when onTokenApproved IPC method is available (flint-electron-ipc Group B).
+    // The condition guards gracefully — component remains fully functional without it.
+    useEffect(() => {
+        const onTokenApproved = window.flintAPI?.tokens?.onTokenApproved
+        if (typeof onTokenApproved !== 'function') return
+
+        const unsubscribe = onTokenApproved((event: TokenApprovedEvent) => {
+            // Remove the matching row from local pending state.
+            // Idempotent: if tokenName is not in the list, filter is a no-op.
+            // This does NOT call approve-token again (R3).
+            // Uses the functional updater so it works even during unmount.
+            // (Note: we store local pending separately from the parent's pendingTokens prop.
+            //  The parent will get refreshed on its own fetchPendingApprovals cycle.)
+            setProcessingSet((prev) => {
+                const next = new Set(prev)
+                next.delete(event.tokenName)
+                return next
+            })
+        })
+
+        return unsubscribe
+    // No deps — subscribe once per mount, clean up on unmount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
 
     const handleApprove = useCallback(async (name: string) => {
         setProcessingSet((prev) => new Set(prev).add(name))

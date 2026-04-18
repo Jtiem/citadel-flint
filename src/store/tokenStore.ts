@@ -78,11 +78,18 @@ type DTCGRaw = Record<string, unknown>
 
 const VALID_TYPES: ReadonlySet<string> = new Set(['color', 'dimension', 'string', 'boolean'])
 
+// Mint security review (2026-04-17): block prototype-pollution path keys.
+// JSON.parse preserves __proto__ as own property on V8; Object.entries surfaces it;
+// a malicious DTCG file with a "__proto__" key would otherwise emit token paths
+// that mutate Object.prototype downstream.
+const PROTO_POLLUTION_KEYS: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype'])
+
 function flattenDTCG(node: DTCGRaw, prefix: string, collectionName: string): NewDesignToken[] {
     const tokens: NewDesignToken[] = []
 
     for (const [key, child] of Object.entries(node)) {
         if (key.startsWith('$')) continue
+        if (PROTO_POLLUTION_KEYS.has(key)) continue
         if (typeof child !== 'object' || child === null) continue
 
         const path = prefix ? `${prefix}.${key}` : key

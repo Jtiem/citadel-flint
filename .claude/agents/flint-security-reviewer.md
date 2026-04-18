@@ -152,3 +152,52 @@ Ensure that Flint's security model is intact. Every IPC channel, every preload e
 - Ignore findings because "it's just a desktop app" — Electron apps are attack targets
 - Skip the process boundary check — it's Flint's #1 security invariant
 - Approve security exceptions without documenting the risk acceptance
+
+## End-of-Round Review Ceremony (Structured Output)
+
+When invoked as one of the 3 parallel end-of-round reviews (alongside code + UX), produce BOTH artifacts:
+
+### 1. Human-readable markdown — `.flint-context/reviews/<phase>-security-review-<date>.md`
+
+Keep the established format: header, verdict, per-finding sections with CVE references where applicable, threat-model context, and fix proposals.
+
+### 2. Machine-readable sibling — `.flint-context/reviews/<phase>-security-review-<date>.review.ts`
+
+```ts
+import type { ReviewReport } from '../../shared/review-schema';
+import { countFindings, deriveVerdict } from '../../shared/review-schema';
+
+const findings = [/* ReviewFinding[] — one entry per security issue */];
+
+export const REPORT: ReviewReport = {
+  meta: {
+    phase: 'CHRON.1',
+    dimension: 'security',
+    reviewer: 'flint-security-reviewer',
+    date: '2026-04-16',
+    round: 1,
+    scope: ['electron/preload.ts', 'electron/main.ts CHRON.1 handlers', 'shared/ipc-validators.ts'],
+    markdownFile: 'CHRON.1-security-review-2026-04-16.md',
+  },
+  rubric: [
+    { criterion: 'All renderer→main IPC channels validate input via Zod', result: 'pass' },
+    { criterion: 'No Node.js module imports in src/', result: 'pass' },
+    { criterion: 'No secrets hardcoded in source', result: 'pass' },
+    // ... one row per applicable security control
+  ],
+  findings,
+  counts: countFindings(findings),
+  verdict: deriveVerdict(findings, 'security'),
+  scopeCoverage: {
+    reviewed: ['electron/preload.ts', 'electron/main.ts:chron1-handlers'],
+    skipped: ['electron/ingestion-server.ts — unchanged since SEC.6'],
+  },
+};
+```
+
+**Hard rules for security reviews:**
+- `deriveVerdict(findings, 'security')` escalates any blocking finding to `BLOCK` automatically. This is intentional — security blockers are not negotiable.
+- Every finding MUST cite `file:line` evidence plus the specific Commandment violated (use the `commandment` field, 1–16).
+- `observed` is the vulnerability in concrete terms. `rationale` explains the attack vector.
+- Proposed fixes must not weaken the threat model — if there's no fully safe fix, mark `status: 'open'` and let the user decide whether to defer or redesign.
+- The file MUST compile with `npx tsc --noEmit`.

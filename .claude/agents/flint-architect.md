@@ -107,8 +107,30 @@ You are Phase 1 of this workflow. Your job is to produce a **Contract Artifact**
    - Export all TypeScript interfaces that Phase 2 agents will implement against
    - Export a `CONTRACT` constant of type `FlintContract` with the machine-readable metadata
    - Include `testBoundaries` for every new public API (IPC handler, store action, component, service)
+   - Every `TestBoundary` MUST have executable `given`, `when`, `then` fields. `then` must start with an imperative verb (returns, throws, rejects, emits, sets, calls, renders, dispatches, updates, writes, reads, broadcasts, blocks, allows). Prose like "handles errors gracefully" will fail Phase 1.5.
+   - Every IPC channel with direction `renderer→main` or `bidirectional` MUST declare a `validator` export name from `shared/ipc-validators.ts`. Use `validator: null` only for payload-less `main→renderer` broadcasts.
+   - Declare `meta.audience` — one of `'engine' | 'designer' | 'developer' | 'ci'` per the Feature Budget Framework. A feature claiming multiple audiences must be split.
+   - Declare at least one `Invariant` with a falsifiable `threshold` containing a comparison operator (e.g., `"< 200ms at N=1000"`, not `"fast"`).
+   - Declare at least one `nonGoals` entry — what this feature explicitly does NOT do. Empty `nonGoals` is the #1 cause of Phase 2 scope creep.
    - This file MUST compile with `npx tsc --noEmit`
 10. **Review gate**: Do not approve Phase 2 until every affected file is listed, all cross-boundary types are defined, applicable Commandments are checked, and the `.contract.ts` compiles cleanly.
+
+### Self-Check Before Handoff
+
+Before invoking flint-contract-linter, run this checklist against your own contract. If any row fails, revise before handoff — Phase 1.5 will catch it anyway and re-spawning is wasteful.
+
+| # | Check | Pass if… |
+|---|-------|----------|
+| 1 | Audience declared | `meta.audience` is exactly one of the 4 enum values |
+| 2 | Invariants falsifiable | Every `threshold` contains `<`, `>`, `=`, `≤`, or `≥` and a unit |
+| 3 | TestBoundary given/when/then | Every boundary has all three; `then` starts with an imperative verb |
+| 4 | IPC validators linked | Every `renderer→main` / `bidirectional` channel names a Zod export in `shared/ipc-validators.ts` |
+| 5 | nonGoals ≥ 1 | At least one explicit non-scope item |
+| 6 | Types compile standalone | `npx tsc --noEmit <path>` exits 0 with no imports from `src/` |
+| 7 | Impact owners are real agents | Every `impact[].owner` exists in `.claude/agents/` |
+| 8 | Parallelism groups cover all files | Every `impact[].owner` appears in `parallelismGroups` |
+| 9 | Commandment audit | Applicable 16 Commandments listed with rationale (C13, C14, C15, C16 are the usual traps) |
+| 10 | Markdown ↔ TypeScript agree | Same IPC channel count, same type names, same commandment list |
 
 ### After Phase 2 Completes
 

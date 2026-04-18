@@ -1145,19 +1145,20 @@ describe('handleMapTokens', () => {
 
     describe('missing tokens file', () => {
         it('returns isError=true when projectRoot has no .flint/design-tokens.json', () => {
-            const nonexistentRoot = path.join(os.tmpdir(), 'flint-no-such-dir-' + Date.now())
+            // Use a nonexistent path inside $HOME so validateProjectRoot (MINT.5) passes
+            const nonexistentRoot = path.join(os.homedir(), '.flint-no-such-dir-' + Date.now())
             const result = handleMapTokens({ library: 'primeng', projectRoot: nonexistentRoot })
             expect(result.isError).toBe(true)
         })
 
         it('mentions the missing file path in the error text', () => {
-            const nonexistentRoot = path.join(os.tmpdir(), 'flint-no-such-dir-' + Date.now())
+            const nonexistentRoot = path.join(os.homedir(), '.flint-no-such-dir-' + Date.now())
             const result = handleMapTokens({ library: 'shadcn', projectRoot: nonexistentRoot })
             expect(result.content[0].text).toMatch(/design-tokens\.json/i)
         })
 
         it('suggests running flint_sync_tokens or flint_ingest_figma', () => {
-            const nonexistentRoot = path.join(os.tmpdir(), 'flint-empty-' + Date.now())
+            const nonexistentRoot = path.join(os.homedir(), '.flint-empty-' + Date.now())
             const result = handleMapTokens({ library: 'mui', projectRoot: nonexistentRoot })
             expect(result.content[0].text).toMatch(/flint_sync_tokens|flint_ingest_figma/i)
         })
@@ -1169,7 +1170,9 @@ describe('handleMapTokens', () => {
         let tmpDir: string
 
         beforeEach(() => {
-            tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flint-maptoken-test-'))
+            // Use $HOME-relative tmpDir so validateProjectRoot (MINT.5) accepts the path.
+            // os.tmpdir() may resolve to /private/tmp on macOS which is outside $HOME.
+            tmpDir = fs.mkdtempSync(path.join(os.homedir(), '.flint-maptoken-test-'))
             const flintDir = path.join(tmpDir, '.flint')
             fs.mkdirSync(flintDir, { recursive: true })
         })

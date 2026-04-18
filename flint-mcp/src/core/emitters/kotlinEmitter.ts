@@ -9,6 +9,7 @@
 
 import type { DesignToken } from '../../types.js'
 import type { PlatformEmitter, PlatformOutput, EmitOptions, SkippedToken, ValidationResult } from './types.js'
+import { escapeKotlinStringLiteral } from './escape.js'
 
 // -- Helpers -------------------------------------------------------------------
 
@@ -299,7 +300,7 @@ function generateKotlinCode(
         for (const t of typography) {
             switch (t.kind) {
                 case 'string':
-                    sections.push(`    const val ${t.name} = "${t.value}"`)
+                    sections.push(`    const val ${t.name} = "${escapeKotlinStringLiteral(String(t.value))}"`)
                     break
                 case 'sp':
                     sections.push(`    val ${t.name} = ${formatSpValue(t.value as number)}`)

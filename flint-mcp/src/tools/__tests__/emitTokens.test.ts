@@ -27,7 +27,9 @@ import type {
 // ---- Helpers ------------------------------------------------------------------
 
 function makeTmpDir(): string {
-    return fs.mkdtempSync(path.join(os.tmpdir(), 'flint-emit-test-'))
+    // Use $HOME-relative temp dir so validateProjectRoot (MINT.5) accepts the path.
+    // os.tmpdir() may resolve to /private/tmp on macOS which is outside $HOME.
+    return fs.mkdtempSync(path.join(os.homedir(), '.flint-emit-test-'))
 }
 
 function rmTmpDir(dir: string): void {

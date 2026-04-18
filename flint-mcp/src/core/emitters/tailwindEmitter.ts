@@ -13,6 +13,7 @@ import type {
     SkippedToken,
     ValidationResult,
 } from './types.js'
+import { escapeTypescriptStringLiteral } from './escape.js'
 
 // -- Token type to Tailwind section mapping -----------------------------------
 
@@ -66,9 +67,10 @@ function parseFontFamily(value: string): string[] {
 
 /**
  * Escape a string value for safe embedding in a TypeScript string literal.
+ * Delegates to the shared escapeTypescriptStringLiteral helper (MINT.5 Phase 1).
  */
 function escapeValue(value: string): string {
-    return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+    return escapeTypescriptStringLiteral(value)
 }
 
 // -- Theme builder ------------------------------------------------------------

@@ -13,7 +13,9 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
 import { toolName, configPath } from '../brand.js'
+import { validateProjectRoot } from '../shared/tokenPath.js'
 import {
     getAdapter,
     getAvailableLibraries,
@@ -117,6 +119,41 @@ export function handleMapTokens(args: MapTokensArgs): {
                 type: 'text',
                 text: `Available library adapters (${catalog.length}):\n\n${listing}`,
             }],
+        }
+    }
+
+    // --- Validate projectRoot (Commandment 14) ---
+    try {
+        // Validate early — before any I/O
+        validateProjectRoot(args.projectRoot ?? process.cwd(), os.homedir())
+    } catch (err) {
+        return {
+            content: [{
+                type: 'text',
+                text: JSON.stringify({
+                    error: 'Invalid projectRoot',
+                    detail: err instanceof Error ? err.message : String(err),
+                }),
+            }],
+            isError: true,
+        }
+    }
+
+    // --- Validate outputPath extension (if provided) ---
+    const OUTPUT_PATH_ALLOWED_EXTS = new Set(['.ts', '.js', '.css', '.json', '.scss'])
+    if (args.outputPath) {
+        const ext = path.extname(args.outputPath).toLowerCase()
+        if (!OUTPUT_PATH_ALLOWED_EXTS.has(ext)) {
+            return {
+                content: [{
+                    type: 'text',
+                    text: JSON.stringify({
+                        error: 'outputPath extension not allowed',
+                        detail: `Extension '${ext}' is not in the allowed list: ${[...OUTPUT_PATH_ALLOWED_EXTS].join(', ')}`,
+                    }),
+                }],
+                isError: true,
+            }
         }
     }
 

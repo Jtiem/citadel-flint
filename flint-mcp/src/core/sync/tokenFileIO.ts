@@ -7,6 +7,7 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
+import { sanitizeTokenValue } from '../../shared/tokenValueSanitizer.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -82,6 +83,12 @@ export function writeLocalTokens(
     const obj: Record<string, unknown> = {}
 
     for (const [name, value] of tokens) {
+        // MINT.5 Phase 1: sanitize each value before serializing to disk.
+        // Use 'string' as a permissive fallback type — the sanitizer still strips
+        // control chars, bidi overrides, and CSS breakout sequences.
+        const sanitizeResult = sanitizeTokenValue(value, 'string')
+        const safeValue = sanitizeResult.sanitized ?? value
+
         const parts = name.split('.')
         let current: Record<string, unknown> = obj
         for (let i = 0; i < parts.length - 1; i++) {
@@ -89,9 +96,9 @@ export function writeLocalTokens(
             current = current[parts[i]] as Record<string, unknown>
         }
         try {
-            current[parts[parts.length - 1]] = { $value: JSON.parse(value) }
+            current[parts[parts.length - 1]] = { $value: JSON.parse(safeValue) }
         } catch {
-            current[parts[parts.length - 1]] = { $value: value }
+            current[parts[parts.length - 1]] = { $value: safeValue }
         }
     }
 

@@ -486,9 +486,11 @@ Single-file bug fixes and cosmetic changes are exempt from the Contract-First fl
 
 **v2 improvements** (2026-03-27): Executable `.contract.ts` files (Phase 2 imports real types, not prose), Phase 1.5 contract linting (catches architect mistakes before cascade), test-from-contract scaffolding (TDD red phase from `testBoundaries`), IPC runtime validation (Zod schemas at preload bridge).
 
+**v2.1 hardening** (2026-04-17): Contract schema tightened to make architect specs falsifiable. Every `FlintContract` now requires `meta.audience` (one of `engine | designer | developer | ci`), at least one `Invariant` with a measurable threshold containing a comparison operator (no adjectives like "fast"), executable `given/when/then` on every `TestBoundary` (prose fails Phase 1.5), a `validator` export name on every `renderer→main`/`bidirectional` IPC channel linking to `shared/ipc-validators.ts`, and at least one `nonGoals` entry. flint-contract-linter grew from 9 checks to 12. See [shared/contract-schema.ts](shared/contract-schema.ts) for types and helper functions (`validateInvariants`, `validateTestBoundaries`, `validateIPCTriangles`).
+
 **Review gate** — `/review` runs between Phase 2 (implementation) and git commit. It catches issues that TSC and tests miss: Commandment violations, IPC security gaps, architectural anti-patterns, and missing test coverage. Code that fails review must be fixed before committing. This gate is mandatory for all agent-produced code, including single-file fixes.
 
-**End-of-round review ceremony** — Before marking any phase COMPLETE, run 3 independent parallel reviews (UX, code, security) that write full findings to `.flint-context/reviews/<phase>-{ux,code,security}-review-<date>.md`. Surface these reports to the user directly — paste key findings in chat. The user makes all grade threshold calls. A "B+" UX grade is NOT automatically acceptable. Do not mark work COMPLETE until the user has seen the findings and approved the grade.
+**End-of-round review ceremony** — Before marking any phase COMPLETE, run 3 independent parallel reviews (UX, code, security) that write full findings to `.flint-context/reviews/<phase>-{ux,code,security}-review-<date>.md`. Surface these reports to the user directly — paste key findings in chat. The user makes all grade threshold calls. Reviewers do not assign letter grades — verdicts are derived from finding-severity counts via `deriveVerdict()` in [shared/review-schema.ts](shared/review-schema.ts). Each reviewer now writes a `.review.ts` sibling alongside the markdown; `ReviewFinding` requires `evidence[]` with file:line citations, and `aggregateConsensus()` surfaces parallel-reviewer disagreement as information rather than synthesizing it away. Do not mark work COMPLETE until the user has seen the findings and approved the threshold.
 
 **Git ceremonies** are handled by `flint-git-guru` at every phase boundary. It manages branch naming (`feat/<phase>-<desc>`), conventional commit messages, pre-commit validation, and PR creation. Never commit without running the pre-commit gate (TSC + relevant test suites).
 
@@ -642,7 +644,8 @@ Do not port designer features to the extension or developer features to Glass un
 | File | Role |
 |------|------|
 | `shared/brand.ts` | Single source of truth for all product name strings |
-| `shared/contract-schema.ts` | Machine-readable contract types (`FlintContract`, validators) — Phase 1 outputs, Phase 1.5 validates, Phase 3 checks |
+| `shared/contract-schema.ts` | Machine-readable contract types (`FlintContract`, `Invariant`, helpers) — Phase 1 outputs, Phase 1.5 validates, Phase 3 checks |
+| `shared/review-schema.ts` | Machine-readable review ceremony types (`ReviewReport`, `deriveVerdict`, `aggregateConsensus`) — reviewers emit `.review.ts` siblings alongside markdown |
 | `shared/ipc-validators.ts` | Zod schemas for IPC runtime validation at the preload bridge — Design by Contract at the process boundary |
 
 ## Architectural Anti-Patterns (Reject These)

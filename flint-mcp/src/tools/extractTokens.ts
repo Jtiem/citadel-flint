@@ -24,12 +24,16 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
 import { toolName, configPath } from '../brand.js'
 import { extractTokensFromFigma } from '../core/figmaTokenExtractor.js'
 import type { ProposedToken, TokenExtractionOptions } from '../core/figmaTokenExtractor.js'
 import type { DesignToken, TokenType } from '../types.js'
 import { GovernanceEventService } from '../core/governance/eventService.js'
 import BetterSqlite3 from 'better-sqlite3'
+import { validateProjectRoot, validateTokenPath, FilePathValidationError, TokenPathValidationError } from '../shared/tokenPath.js'
+import { sanitizeTokenValue, sanitizeTokenDescription } from '../shared/tokenValueSanitizer.js'
+import type { TokenShapeCategory } from '../shared/tokenValueSanitizer.js'
 
 // ---------------------------------------------------------------------------
 // Tool definitions (MCP ListTools schema)
@@ -155,7 +159,21 @@ export function handleExtractTokens(args: ExtractTokensArgs): {
         }
     }
 
-    const projectRoot = args.projectRoot ?? process.cwd()
+    let projectRoot: string
+    try {
+        projectRoot = validateProjectRoot(args.projectRoot ?? process.cwd(), os.homedir())
+    } catch (err) {
+        return {
+            content: [{
+                type: 'text',
+                text: JSON.stringify({
+                    error: 'Invalid projectRoot',
+                    detail: err instanceof Error ? err.message : String(err),
+                }),
+            }],
+            isError: true,
+        }
+    }
     const existingTokens = readTokensFromDisk(projectRoot)
 
     const options: TokenExtractionOptions = {
@@ -251,7 +269,23 @@ export function handleApproveTokens(args: ApproveTokensArgs): {
         }
     }
 
-    const projectRoot = args.projectRoot ?? process.cwd()
+    // Validate projectRoot at handler entry (Commandment 14)
+    let projectRoot: string
+    try {
+        projectRoot = validateProjectRoot(args.projectRoot ?? process.cwd(), os.homedir())
+    } catch (err) {
+        return {
+            content: [{
+                type: 'text',
+                text: JSON.stringify({
+                    error: 'Invalid projectRoot',
+                    detail: err instanceof Error ? err.message : String(err),
+                }),
+            }],
+            isError: true,
+        }
+    }
+
     const source = args.source ?? 'figma-extraction'
 
     // Read existing tokens
@@ -268,8 +302,24 @@ export function handleApproveTokens(args: ApproveTokensArgs): {
     let rejectedCount = 0
 
     for (const incoming of args.tokens) {
-        // Validate
+        // Validate presence of required fields
         if (!incoming.path || !incoming.value || !incoming.type) {
+            rejectedCount++
+            continue
+        }
+
+        // Validate token path (prototype pollution + regex)
+        try {
+            validateTokenPath(incoming.path)
+        } catch {
+            rejectedCount++
+            continue
+        }
+
+        // Sanitize value against the declared type
+        const tokenType = incoming.type as TokenShapeCategory
+        const sanitizeResult = sanitizeTokenValue(incoming.value, tokenType)
+        if (sanitizeResult.rejected || sanitizeResult.sanitized === null) {
             rejectedCount++
             continue
         }
@@ -280,13 +330,18 @@ export function handleApproveTokens(args: ApproveTokensArgs): {
             continue
         }
 
-        // Convert to DesignToken
+        // Sanitize description
+        const descSource = `Approved via flint_approve_tokens — source: ${source}`
+        const descResult = sanitizeTokenDescription(descSource)
+        const safeDescription = descResult.sanitized ?? descSource
+
+        // Convert to DesignToken (using sanitized value)
         const newToken: DesignToken = {
             id: nextId++,
             token_path: incoming.path,
             token_type: incoming.type as TokenType,
-            token_value: incoming.value,
-            description: `Approved via flint_approve_tokens — source: ${source}`,
+            token_value: sanitizeResult.sanitized,
+            description: safeDescription,
             collection_name: 'figma',
             mode: 'default',
         }
@@ -303,6 +358,28 @@ export function handleApproveTokens(args: ApproveTokensArgs): {
     }
     const tokensPath = path.join(configDir, 'design-tokens.json')
     fs.writeFileSync(tokensPath, JSON.stringify(merged, null, 2) + '\n', 'utf-8')
+
+    // Emit MCP push-channel events for each approved token (MINT.5 Phase 1.5)
+    // This allows Glass-side ApprovalStagingArea to clear rows without a UI click.
+    if (writtenCount > 0) {
+        try {
+            const eventsPath = path.join(projectRoot, '.flint', 'mcp-events.jsonl')
+            const eventRows = args.tokens
+                .filter(t => t.path && t.value && t.type)
+                .map(t => JSON.stringify({
+                    event: 'token-approved',
+                    tokenName: t.path,
+                    source: 'mcp',
+                    timestamp: Date.now(),
+                }) + '\n')
+                .join('')
+            if (eventRows) {
+                fs.appendFileSync(eventsPath, eventRows, 'utf-8')
+            }
+        } catch {
+            // Non-fatal — event emission failure must not block write
+        }
+    }
 
     // Record governance event
     const eventId = recordTokenExtractionEvent({

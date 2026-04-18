@@ -205,6 +205,39 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
          */
         rejectToken: (tokenName: string): Promise<{ ok: boolean }> =>
             ipcRenderer.invoke('tokens:reject-token', tokenName),
+
+        /**
+         * MINT.5: Returns the list of design tokens that differ between the
+         * local design_tokens SQLite table and .flint/figma-tokens.json.
+         * Computed main-side to avoid the render-loop bug in useTokenUsage.
+         * Returns [] when figma-tokens.json is missing or unparseable.
+         */
+        readFigmaDrift: (): Promise<Array<{
+            tokenName: string
+            localValue: string
+            figmaValue: string
+            deltaE?: number
+        }>> =>
+            ipcRenderer.invoke('tokens:read-figma-drift'),
+
+        /**
+         * MINT.5: Subscribes to governance:on-token-approved push events.
+         * Fires after a token is approved via Glass UI (source='glass') or MCP
+         * tool flint_approve_tokens (source='mcp'). Returns an unsubscribe
+         * function for useEffect cleanup.
+         */
+        onTokenApproved: (
+            callback: (event: { tokenName: string; source: 'glass' | 'mcp'; timestamp: number }) => void,
+        ): (() => void) => {
+            const listener = (
+                _event: Electron.IpcRendererEvent,
+                data: { tokenName: string; source: 'glass' | 'mcp'; timestamp: number },
+            ) => callback(data)
+            ipcRenderer.on(ipcChannel('governance:on-token-approved'), listener)
+            return () => {
+                ipcRenderer.removeListener(ipcChannel('governance:on-token-approved'), listener)
+            }
+        },
     },
 
     /**

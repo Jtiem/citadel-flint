@@ -305,6 +305,31 @@ export function createWebFlintAPI() {
       getPendingApprovals: () => invoke('tokens:get-pending-approvals') as Promise<unknown[]>,
       approveToken: (tokenName: string) => invoke('tokens:approve-token', tokenName) as Promise<{ ok: boolean }>,
       rejectToken: (tokenName: string) => invoke('tokens:reject-token', tokenName) as Promise<{ ok: boolean }>,
+
+      /**
+       * MINT.5: Returns drift between local design_tokens and .flint/figma-tokens.json.
+       * Computed server-side via HTTP (mirrors the Electron handler).
+       */
+      readFigmaDrift: (): Promise<Array<{
+        tokenName: string
+        localValue: string
+        figmaValue: string
+        deltaE?: number
+      }>> => invoke('tokens:read-figma-drift') as Promise<Array<{
+        tokenName: string
+        localValue: string
+        figmaValue: string
+        deltaE?: number
+      }>>,
+
+      /**
+       * MINT.5: Subscribes to governance:on-token-approved push events over WebSocket.
+       * Returns an unsubscribe function for useEffect cleanup.
+       */
+      onTokenApproved: (
+        callback: (event: { tokenName: string; source: 'glass' | 'mcp'; timestamp: number }) => void,
+      ): (() => void) =>
+        subscribe('flint:governance:on-token-approved', callback as (...args: unknown[]) => void),
     },
 
     // ── Code transforms ─────────────────────────────────────────────────────

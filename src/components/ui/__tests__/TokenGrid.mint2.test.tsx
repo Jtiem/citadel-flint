@@ -17,6 +17,24 @@ import { TokenRow, TokenGroupSection, type ViewMode } from '../TokenGrid'
 import { useTokenStore } from '../../../store/tokenStore'
 import type { DesignToken, TokenUsageResult } from '../../../types/flint-api'
 import type { TokenDrift } from '../../../hooks/useTokenUsage'
+import type { TokenHealthData } from '../../../hooks/useTokenHealth'
+import type { HealthScoreInput } from '../../../../shared/healthScore'
+
+// ── Health helpers for MINT.5 prop migration ──────────────────────────────────
+
+function makeHealthDead(dead: number): TokenHealthData {
+    const score = Math.max(0, Math.min(100, 100 - dead))
+    const grade = score >= 90 ? 'A' : score >= 80 ? 'B' : score >= 70 ? 'C' : score >= 60 ? 'D' : 'F'
+    const input: HealthScoreInput = { criticalCount: 0, amberCount: 0, advisoryCount: dead, overrideCount: 0 }
+    return { score, grade: grade as TokenHealthData['grade'], buckets: { dead, drifted: 0, scaleGaps: 0, contrastFails: 0, pendingConflicts: 0 }, input }
+}
+
+function makeHealthDrift(drifted: number): TokenHealthData {
+    const score = Math.max(0, Math.min(100, 100 - drifted * 3))
+    const grade = score >= 90 ? 'A' : score >= 80 ? 'B' : score >= 70 ? 'C' : score >= 60 ? 'D' : 'F'
+    const input: HealthScoreInput = { criticalCount: 0, amberCount: drifted, advisoryCount: 0, overrideCount: 0 }
+    return { score, grade: grade as TokenHealthData['grade'], buckets: { dead: 0, drifted, scaleGaps: 0, contrastFails: 0, pendingConflicts: 0 }, input }
+}
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -175,95 +193,97 @@ describe('MINT.2 — Code Truth Moat', () => {
         })
     })
 
-    // ── MINT.2b: TokenHealthBar dead pill ──────────────────────────────────
+    // ── MINT.2b: TokenHealthBar dead pill (MINT.5: now uses health.buckets.dead + SeverityChip) ─
 
     describe('MINT.2b — TokenHealthBar dead token pill', () => {
         it('shows dead token pill when deadTokenCount > 0', () => {
             render(
                 <TokenHealthBar
                     totalTokens={10}
-                    syncStatuses={[]}
                     figmaConnected={false}
                     usageFileCount={5}
-                    deadTokenCount={3}
+                    health={makeHealthDead(3)}
                 />
             )
-            const deadPill = screen.getByTestId('health-dead')
+            // MINT.5: testid moved from health-dead to health-chip-dead (SeverityChip)
+            const deadPill = screen.getByTestId('health-chip-dead')
             expect(deadPill).toBeDefined()
-            expect(deadPill.textContent).toContain('3 dead')
+            expect(deadPill.textContent).toContain('3')
+            expect(deadPill.textContent).toContain('dead')
         })
 
         it('hides dead token pill when deadTokenCount is 0', () => {
             render(
                 <TokenHealthBar
                     totalTokens={10}
-                    syncStatuses={[]}
                     figmaConnected={false}
                     usageFileCount={5}
-                    deadTokenCount={0}
+                    health={makeHealthDead(0)}
                 />
             )
-            expect(screen.queryByTestId('health-dead')).toBeNull()
+            expect(screen.queryByTestId('health-chip-dead')).toBeNull()
         })
 
         it('dead token pill has accessible aria-label', () => {
             render(
                 <TokenHealthBar
                     totalTokens={10}
-                    syncStatuses={[]}
                     figmaConnected={false}
                     usageFileCount={5}
-                    deadTokenCount={2}
+                    health={makeHealthDead(2)}
                 />
             )
-            const deadPill = screen.getByTestId('health-dead')
-            expect(deadPill.getAttribute('aria-label')).toContain('2 dead token')
+            const deadPill = screen.getByTestId('health-chip-dead')
+            // SeverityChip aria-label: "${count} ${severity} ${label}" = "2 advisory dead"
+            expect(deadPill.getAttribute('aria-label')).toContain('2')
+            expect(deadPill.getAttribute('aria-label')).toContain('dead')
         })
     })
 
-    // ── MINT.2c: Drift Indicators ────────────────────────────────────────
+    // ── MINT.2c: Drift Indicators (MINT.5: health prop replaces driftCount) ─────
 
     describe('MINT.2c — Drift indicators', () => {
         it('shows drift pill in health bar when driftCount > 0', () => {
             render(
                 <TokenHealthBar
                     totalTokens={10}
-                    syncStatuses={[]}
                     figmaConnected={true}
                     usageFileCount={5}
-                    driftCount={2}
+                    health={makeHealthDrift(2)}
                 />
             )
-            const driftPill = screen.getByTestId('health-drift')
+            // MINT.5: testid moved from health-drift to health-chip-drifted (SeverityChip)
+            const driftPill = screen.getByTestId('health-chip-drifted')
             expect(driftPill).toBeDefined()
-            expect(driftPill.textContent).toContain('2 drifted')
+            expect(driftPill.textContent).toContain('2')
+            expect(driftPill.textContent).toContain('drifted')
         })
 
         it('hides drift pill when driftCount is 0', () => {
             render(
                 <TokenHealthBar
                     totalTokens={10}
-                    syncStatuses={[]}
                     figmaConnected={true}
                     usageFileCount={5}
-                    driftCount={0}
+                    health={makeHealthDrift(0)}
                 />
             )
-            expect(screen.queryByTestId('health-drift')).toBeNull()
+            expect(screen.queryByTestId('health-chip-drifted')).toBeNull()
         })
 
         it('drift pill has accessible aria-label', () => {
             render(
                 <TokenHealthBar
                     totalTokens={10}
-                    syncStatuses={[]}
                     figmaConnected={true}
                     usageFileCount={5}
-                    driftCount={3}
+                    health={makeHealthDrift(3)}
                 />
             )
-            const driftPill = screen.getByTestId('health-drift')
-            expect(driftPill.getAttribute('aria-label')).toContain('3 tokens drifted from Figma')
+            const driftPill = screen.getByTestId('health-chip-drifted')
+            // SeverityChip aria-label: "${count} ${severity} ${label}" = "3 amber drifted"
+            expect(driftPill.getAttribute('aria-label')).toContain('3')
+            expect(driftPill.getAttribute('aria-label')).toContain('drifted')
         })
 
         it('TokenRow shows drift badge when drift data is present', () => {
@@ -280,7 +300,8 @@ describe('MINT.2 — Code Truth Moat', () => {
             )
             const driftBadge = screen.getByTestId('drift-badge')
             expect(driftBadge).toBeDefined()
-            expect(driftBadge.textContent).toBe('Drifted')
+            // MINT.5: DriftBadge now uses SeverityChip — text is "drifted" (lowercase) not "Drifted"
+            expect(driftBadge.textContent).toContain('drifted')
         })
 
         it('TokenRow drift badge has tooltip with both values', () => {
@@ -345,7 +366,8 @@ describe('MINT.2 — Code Truth Moat', () => {
                 </div>
             )
             const badge = screen.getByTestId('dead-token-badge')
-            expect(badge.textContent).toBe('Dead')
+            // MINT.5: UsageBadge dead state now renders via SeverityChip — "dead" not "Dead"
+            expect(badge.textContent).toContain('dead')
         })
 
         it('high usage (>10) gets green styling', () => {
