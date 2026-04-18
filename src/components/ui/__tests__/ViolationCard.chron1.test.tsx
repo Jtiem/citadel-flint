@@ -22,7 +22,7 @@ import type {
 } from '../../../../.flint-context/contracts/CHRON.1.contract'
 
 // Type-level smoke check: imported contract type must compile.
-type _CheckDisplay = OverrideReasonDisplay
+export type _ChronViolationContractSmoke = { display: OverrideReasonDisplay }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

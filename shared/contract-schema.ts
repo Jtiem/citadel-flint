@@ -19,6 +19,16 @@ export type ChangeType = 'CREATE' | 'MODIFY' | 'DELETE';
 export type RiskSeverity = 'low' | 'medium' | 'high';
 export type IPCDirection = 'renderer→main' | 'main→renderer' | 'bidirectional';
 
+/**
+ * Dual-audience mapping per Feature Budget Framework.
+ * Forces the architect to declare which interface this feature serves.
+ * - engine   → flint-mcp/ (both designers and developers consume)
+ * - designer → electron/ + src/ (Glass)
+ * - developer → flint-vscode/
+ * - ci       → flint-ci/
+ */
+export type Audience = 'engine' | 'designer' | 'developer' | 'ci';
+
 export interface ContractMeta {
   /** Feature/phase name (e.g., "CV2.3-ComponentCards") */
   name: string;
@@ -30,6 +40,8 @@ export interface ContractMeta {
   owner: string;
   /** ISO date of contract creation */
   date: string;
+  /** Which interface this feature serves (Feature Budget Framework) */
+  audience: Audience;
 }
 
 // ─── Impact Map ─────────────────────────────────────────────────────
@@ -58,6 +70,13 @@ export interface IPCChannelContract {
   returnType: string;
   /** Handler location (e.g., "electron/main.ts") */
   handler: string;
+  /**
+   * Zod validator export name in shared/ipc-validators.ts.
+   * Required for every renderer→main channel to close the preload-bridge
+   * security gap. Phase 1.5 greps the validators file for this export.
+   * Use `null` ONLY for main→renderer broadcasts that carry no payload.
+   */
+  validator: string | null;
 }
 
 // ─── Store Contracts ────────────────────────────────────────────────
@@ -107,6 +126,38 @@ export interface TestBoundary {
   assertion: string;
   /** Edge cases that MUST be tested */
   edgeCases: string[];
+  /**
+   * Executable specification (Given/When/Then).
+   * Required. Forces architect to write falsifiable boundaries.
+   * Linter rejects prose like "handles errors gracefully" by requiring
+   * `then` to begin with an imperative verb (returns|throws|rejects|emits|sets|calls|renders|dispatches).
+   */
+  given: string;
+  when: string;
+  then: string;
+}
+
+// ─── Invariants ─────────────────────────────────────────────────────
+
+/**
+ * Falsifiable, measurable invariants this feature must uphold.
+ * Forbids adjectives. "Fast" is not an invariant; "p95 < 200ms at N=1000" is.
+ * Linter requires `threshold` to contain a comparison operator.
+ */
+export interface Invariant {
+  /** Short identifier (e.g., "tokenLookup-p95") */
+  name: string;
+  /** What is being measured (e.g., "p95 latency", "memory at idle", "render count") */
+  measurable: string;
+  /**
+   * Numeric threshold with comparison operator and units.
+   * Must contain one of: <, >, =, <=, >=, ≤, ≥.
+   * Good: "< 200ms at N=1000", ">= 99.9% success rate over 24h"
+   * Bad: "fast enough", "acceptable performance"
+   */
+  threshold: string;
+  /** How this is verified (e.g., "vitest bench", "manual via DevTools", "telemetry dashboard") */
+  measuredBy: string;
 }
 
 // ─── Risk Register ──────────────────────────────────────────────────
@@ -139,10 +190,15 @@ export interface FlintContract {
   components: ComponentContract[];
   commandments: number[];
   testBoundaries: TestBoundary[];
+  /** Falsifiable, measurable invariants — required (min 1) */
+  invariants: Invariant[];
   risks: RiskEntry[];
   /** Parallelism groups: { "A": ["flint-electron-ipc", "flint-state-architect"], ... } */
   parallelismGroups: Record<string, string[]>;
-  /** Explicit non-goals — what this feature does NOT do */
+  /**
+   * Explicit non-goals — what this feature does NOT do.
+   * Required (min 1). Most Phase 2 scope creep starts with an empty nonGoals list.
+   */
   nonGoals: string[];
 }
 
@@ -159,16 +215,87 @@ export function isCompleteContract(c: Partial<FlintContract>): c is FlintContrac
     c.meta?.status &&
     c.meta?.owner &&
     c.meta?.date &&
+    c.meta?.audience &&
     Array.isArray(c.impact) && c.impact.length > 0 &&
     Array.isArray(c.ipc) &&
     Array.isArray(c.stores) &&
     Array.isArray(c.components) &&
     Array.isArray(c.commandments) && c.commandments.length > 0 &&
     Array.isArray(c.testBoundaries) && c.testBoundaries.length > 0 &&
+    Array.isArray(c.invariants) && c.invariants.length > 0 &&
     Array.isArray(c.risks) &&
     c.parallelismGroups && Object.keys(c.parallelismGroups).length > 0 &&
-    Array.isArray(c.nonGoals)
+    Array.isArray(c.nonGoals) && c.nonGoals.length > 0
   );
+}
+
+/**
+ * Validates that each TestBoundary is executable (not prose).
+ * Every boundary must have non-empty given/when/then, and `then`
+ * must begin with an imperative verb from the allowed set.
+ * Returns an array of error strings (empty = valid).
+ */
+const THEN_VERBS = [
+  'returns', 'return',
+  'throws', 'throw',
+  'rejects', 'reject',
+  'resolves', 'resolve',
+  'emits', 'emit',
+  'sets', 'set',
+  'calls', 'call',
+  'renders', 'render',
+  'dispatches', 'dispatch',
+  'updates', 'update',
+  'writes', 'write',
+  'reads', 'read',
+  'broadcasts', 'broadcast',
+  'blocks', 'block',
+  'allows', 'allow',
+];
+export function validateTestBoundaries(boundaries: TestBoundary[]): string[] {
+  const errors: string[] = [];
+  for (const b of boundaries) {
+    if (!b.given?.trim()) errors.push(`TestBoundary "${b.target}" missing \`given\``);
+    if (!b.when?.trim()) errors.push(`TestBoundary "${b.target}" missing \`when\``);
+    if (!b.then?.trim()) {
+      errors.push(`TestBoundary "${b.target}" missing \`then\``);
+      continue;
+    }
+    const firstWord = b.then.trim().split(/\s+/)[0].toLowerCase().replace(/[^a-z]/g, '');
+    if (!THEN_VERBS.includes(firstWord)) {
+      errors.push(
+        `TestBoundary "${b.target}" \`then\` must start with an imperative verb ` +
+        `(${THEN_VERBS.filter((_, i) => i % 2 === 0).join('|')}). Got: "${firstWord}"`
+      );
+    }
+  }
+  return errors;
+}
+
+/**
+ * Validates that each Invariant has a falsifiable threshold.
+ * `threshold` must contain a comparison operator — adjectives like "fast" fail.
+ */
+const THRESHOLD_OPERATORS = ['<', '>', '=', '≤', '≥', '<=', '>='];
+export function validateInvariants(invariants: Invariant[]): string[] {
+  const errors: string[] = [];
+  for (const inv of invariants) {
+    if (!inv.name?.trim()) errors.push(`Invariant missing \`name\``);
+    if (!inv.measurable?.trim()) errors.push(`Invariant "${inv.name}" missing \`measurable\``);
+    if (!inv.measuredBy?.trim()) errors.push(`Invariant "${inv.name}" missing \`measuredBy\``);
+    if (!inv.threshold?.trim()) {
+      errors.push(`Invariant "${inv.name}" missing \`threshold\``);
+      continue;
+    }
+    const hasOperator = THRESHOLD_OPERATORS.some(op => inv.threshold.includes(op));
+    if (!hasOperator) {
+      errors.push(
+        `Invariant "${inv.name}" threshold "${inv.threshold}" is not falsifiable — ` +
+        `must contain a comparison operator (${THRESHOLD_OPERATORS.join(', ')})`
+      );
+    }
+  }
+  return errors;
 }
 
 /**
@@ -183,6 +310,15 @@ export function validateIPCTriangles(channels: IPCChannelContract[]): string[] {
     if (!ch.payloadType) errors.push(`IPC "${ch.channel}" missing payload type`);
     if (!ch.returnType) errors.push(`IPC "${ch.channel}" missing return type`);
     if (!ch.handler) errors.push(`IPC "${ch.channel}" missing handler location`);
+    // Validator is required for renderer→main and bidirectional channels.
+    // main→renderer broadcasts may omit it only if they carry no payload.
+    const requiresValidator = ch.direction === 'renderer→main' || ch.direction === 'bidirectional';
+    if (requiresValidator && !ch.validator) {
+      errors.push(
+        `IPC "${ch.channel}" (${ch.direction}) must declare a Zod validator export name from ` +
+        `shared/ipc-validators.ts. Use \`validator: null\` only for payload-less main→renderer broadcasts.`
+      );
+    }
   }
   return errors;
 }

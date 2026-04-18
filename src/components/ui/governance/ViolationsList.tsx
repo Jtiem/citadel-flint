@@ -46,6 +46,10 @@ export interface MithrilCardData {
     deferReason: string
     deferDuration: DeferDuration
     navigationIndex: number | null
+    // CHRON.1 UX A+: past override decoration for this rule + file
+    overrideReason: string | null
+    overrideActor: string | null
+    overrideTimestamp: string | null
 }
 
 // ── A11y card row data ────────────────────────────────────────────────────────
@@ -68,6 +72,10 @@ export interface A11yCardData {
     deferReason: string
     deferDuration: DeferDuration
     navigationIndex: number | null
+    // CHRON.1 UX A+: past override decoration for this rule + file
+    overrideReason: string | null
+    overrideActor: string | null
+    overrideTimestamp: string | null
 }
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -244,6 +252,9 @@ export function ViolationsList({
                             getNodeName={getNodeName}
                             activeFilePath={activeFilePath}
                             navigationIndex={card.navigationIndex}
+                            overrideReason={card.overrideReason}
+                            overrideActor={card.overrideActor}
+                            overrideTimestamp={card.overrideTimestamp}
                         />
                     )
                 })}
@@ -293,6 +304,9 @@ export function ViolationsList({
                             getNodeName={getNodeName}
                             activeFilePath={activeFilePath}
                             navigationIndex={card.navigationIndex}
+                            overrideReason={card.overrideReason}
+                            overrideActor={card.overrideActor}
+                            overrideTimestamp={card.overrideTimestamp}
                         />
                     )
                 })}

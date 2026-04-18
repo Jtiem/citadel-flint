@@ -150,6 +150,43 @@ export function GovernanceDashboard({
     const healthSignal = useGovernanceHealthSignal({ mithrilCount, a11yCount, overrideCount, score, grade, effectiveLinterWarnings: delta.deltaWarnings.filter((w) => w.type !== 'a11y') })
     const auditLog   = useGovernanceAuditLog()
     const cleanState = useGovernanceCleanState({ score })
+
+    // CHRON.1 UX A+: per-file override reason decoration for violation cards.
+    // Eager fetch on mount + activeFilePath change, feeds MithrilCardData/A11yCardData.
+    const [overrideReasonMap, setOverrideReasonMap] = useState<Map<string, { reason: string; actor: string | null; timestamp: string | null }>>(new Map())
+    useEffect(() => {
+        let cancelled = false
+        const getAuditLog = window.flintAPI?.governance?.getAuditLog
+        if (!getAuditLog) return
+        ;(async () => {
+            try {
+                const raw = await getAuditLog({ limit: 200 })
+                if (cancelled) return
+                const map = new Map<string, { reason: string; actor: string | null; timestamp: string | null }>()
+                for (const entry of raw as Array<{ action?: string; filePath?: string; ruleId?: string | null; metadata?: string | null; actor?: string | null; timestamp?: string | null }>) {
+                    if (entry.action !== 'override') continue
+                    if (entry.filePath && activeFilePath && entry.filePath !== activeFilePath) continue
+                    if (!entry.ruleId) continue
+                    // Defensive: cap metadata size before parse (CHRON.1 M5)
+                    const meta = typeof entry.metadata === 'string' && entry.metadata.length <= 4096 ? entry.metadata : null
+                    if (!meta) continue
+                    let parsed: { reason?: unknown; actor?: unknown } = {}
+                    try { parsed = JSON.parse(meta) as { reason?: unknown; actor?: unknown } } catch { continue }
+                    const reason = typeof parsed.reason === 'string' ? parsed.reason : null
+                    if (!reason || reason === 'skipped' || reason === 'auto') continue
+                    const actor = typeof parsed.actor === 'string' ? parsed.actor : (entry.actor ?? null)
+                    // Keep the most recent override per ruleId (entries arrive newest first per the audit-log ORDER BY)
+                    if (!map.has(entry.ruleId)) {
+                        map.set(entry.ruleId, { reason, actor, timestamp: entry.timestamp ?? null })
+                    }
+                }
+                setOverrideReasonMap(map)
+            } catch (err) {
+                console.warn('[Flint] GovernanceDashboard: override reason map fetch failed', err)
+            }
+        })()
+        return () => { cancelled = true }
+    }, [activeFilePath])
     const tokenImpact = useGovernanceTokenImpact()
     const coverage   = useGovernanceCoverage()
     const pending    = useGovernancePendingMutations()
@@ -279,18 +316,50 @@ export function GovernanceDashboard({
             const k = `m-${w.id}`
             const h = extractHardcodedClassFromMsg(w.message), t = w.nearestToken
             const canFix = h !== null && t !== null
-            return { warning: w, cardKey: k, isPinned: pinnedCards.has(k), isFlagged: defer.flaggedCardKeys.has(k), isDeferred: defer.deferredCardKeys.has(k), deferExpiresAtMs: (defer.deferredExpiresAt as Map<string, number | null>).get(k) ?? null, isDeferSuccess: defer.deferSuccess.has(k), deferSuccessMsg: defer.deferSuccessMsg.get(k), isResurfaced: defer.resurfacedCardKeys.has(k), isAiSourced: defer.aiSourcedCardKeys.has(k), isExpanded: expandedCards.has(k) || pinnedCards.has(k), isDiffOpen: fixActions.inlineDiffOpen.has(k), isDiffLoading: fixActions.inlineDiffLoading.has(k), diffData: (fixActions.inlineDiffData as Map<string, { current: string; proposed: string; tokenName: string; isColor: boolean }>).get(k) ?? null, isDeferFormOpen: defer.deferFormOpen.has(k), fixItem: canFix ? { nodeId: w.id, label: `${extractRuleIdFromMsg(w.message) ?? w.type} — ${w.id.slice(0, 12)}`, hardcodedClass: h, tokenClass: t } : null, provenance: (anomalies.provenanceMap as Record<string, ProvenanceInfo>)[w.id] ?? null, deferReason: defer.deferReasons.get(k) ?? '', deferDuration: (defer.deferDurations.get(k) ?? '1 day') as DeferDuration, navigationIndex: navigationMap.get(k) ?? null }
+            const ruleId = extractRuleIdFromMsg(w.message) ?? w.type
+            const override = overrideReasonMap.get(ruleId) ?? null
+            return { warning: w, cardKey: k, isPinned: pinnedCards.has(k), isFlagged: defer.flaggedCardKeys.has(k), isDeferred: defer.deferredCardKeys.has(k), deferExpiresAtMs: (defer.deferredExpiresAt as Map<string, number | null>).get(k) ?? null, isDeferSuccess: defer.deferSuccess.has(k), deferSuccessMsg: defer.deferSuccessMsg.get(k), isResurfaced: defer.resurfacedCardKeys.has(k), isAiSourced: defer.aiSourcedCardKeys.has(k), isExpanded: expandedCards.has(k) || pinnedCards.has(k), isDiffOpen: fixActions.inlineDiffOpen.has(k), isDiffLoading: fixActions.inlineDiffLoading.has(k), diffData: (fixActions.inlineDiffData as Map<string, { current: string; proposed: string; tokenName: string; isColor: boolean }>).get(k) ?? null, isDeferFormOpen: defer.deferFormOpen.has(k), fixItem: canFix ? { nodeId: w.id, label: `${extractRuleIdFromMsg(w.message) ?? w.type} — ${w.id.slice(0, 12)}`, hardcodedClass: h, tokenClass: t } : null, provenance: (anomalies.provenanceMap as Record<string, ProvenanceInfo>)[w.id] ?? null, deferReason: defer.deferReasons.get(k) ?? '', deferDuration: (defer.deferDurations.get(k) ?? '1 day') as DeferDuration, navigationIndex: navigationMap.get(k) ?? null, overrideReason: override?.reason ?? null, overrideActor: override?.actor ?? null, overrideTimestamp: override?.timestamp ?? null }
         }),
-        [categories.visibleLinterWarnings, defer, fixActions, anomalies.provenanceMap, navigationMap, expandedCards, pinnedCards])
+        [categories.visibleLinterWarnings, defer, fixActions, anomalies.provenanceMap, navigationMap, expandedCards, pinnedCards, overrideReasonMap])
 
     const a11yCards = useMemo<A11yCardData[]>(() =>
         categories.visibleA11yWarnings.map((w, i) => {
             const k = `a-${w.id}-${i}`
-            return { warning: w, cardKey: k, indexInList: i, isPinned: pinnedCards.has(k), isFlagged: defer.flaggedCardKeys.has(k), isDeferred: defer.deferredCardKeys.has(k), deferExpiresAtMs: (defer.deferredExpiresAt as Map<string, number | null>).get(k) ?? null, isDeferSuccess: defer.deferSuccess.has(k), deferSuccessMsg: defer.deferSuccessMsg.get(k), isResurfaced: defer.resurfacedCardKeys.has(k), isAiSourced: defer.aiSourcedCardKeys.has(k), isExpanded: expandedCards.has(k) || pinnedCards.has(k), isDeferFormOpen: defer.deferFormOpen.has(k), provenance: (anomalies.provenanceMap as Record<string, ProvenanceInfo>)[w.id] ?? null, deferReason: defer.deferReasons.get(k) ?? '', deferDuration: (defer.deferDurations.get(k) ?? '1 day') as DeferDuration, navigationIndex: navigationMap.get(k) ?? null }
+            const ruleId = extractRuleIdFromMsg(w.message) ?? 'A11Y'
+            const override = overrideReasonMap.get(ruleId) ?? null
+            return { warning: w, cardKey: k, indexInList: i, isPinned: pinnedCards.has(k), isFlagged: defer.flaggedCardKeys.has(k), isDeferred: defer.deferredCardKeys.has(k), deferExpiresAtMs: (defer.deferredExpiresAt as Map<string, number | null>).get(k) ?? null, isDeferSuccess: defer.deferSuccess.has(k), deferSuccessMsg: defer.deferSuccessMsg.get(k), isResurfaced: defer.resurfacedCardKeys.has(k), isAiSourced: defer.aiSourcedCardKeys.has(k), isExpanded: expandedCards.has(k) || pinnedCards.has(k), isDeferFormOpen: defer.deferFormOpen.has(k), provenance: (anomalies.provenanceMap as Record<string, ProvenanceInfo>)[w.id] ?? null, deferReason: defer.deferReasons.get(k) ?? '', deferDuration: (defer.deferDurations.get(k) ?? '1 day') as DeferDuration, navigationIndex: navigationMap.get(k) ?? null, overrideReason: override?.reason ?? null, overrideActor: override?.actor ?? null, overrideTimestamp: override?.timestamp ?? null }
         }),
-        [categories.visibleA11yWarnings, defer, anomalies.provenanceMap, navigationMap, expandedCards, pinnedCards])
+        [categories.visibleA11yWarnings, defer, anomalies.provenanceMap, navigationMap, expandedCards, pinnedCards, overrideReasonMap])
 
     const getNodeName = useCallback((id: string) => `#${id.slice(0, 12)}`, [])
+
+    // CHRON.1 UX A+: per-card override handler (wires OverrideReasonDialog onConfirm → recordOverride IPC).
+    // cardKey format: 'm-${warningId}' for Mithril, 'a-${warningId}-${indexInList}' for a11y.
+    const warningById = useMemo(() => {
+        const map = new Map<string, LinterWarning>()
+        for (const w of categories.visibleLinterWarnings) map.set(w.id, w)
+        for (const w of categories.visibleA11yWarnings) map.set(w.id, w)
+        return map
+    }, [categories.visibleLinterWarnings, categories.visibleA11yWarnings])
+
+    const handleOverrideFromCard = useCallback((cardKey: string, reason?: string) => {
+        const api = window.flintAPI?.governance
+        if (!api?.recordOverride) return
+        // Extract warning id from cardKey. `m-${id}` or `a-${id}-${i}`.
+        const match = cardKey.match(/^(?:m|a)-(.+?)(?:-\d+)?$/)
+        const warningId = match?.[1]
+        const w = warningId ? warningById.get(warningId) : null
+        if (!w) return
+        const ruleId = extractRuleIdFromMsg(w.message) ?? (w.type === 'a11y' ? 'A11Y' : w.type)
+        if (!activeFilePath) return
+        void api.recordOverride({
+            ruleId,
+            action: 'disable',
+            newValue: { enabled: false },
+            filePath: activeFilePath,
+            reason,
+        }).catch((err) => { console.warn('[Flint] GovernanceDashboard: recordOverride failed', err) })
+    }, [warningById, activeFilePath])
 
     // Violation list callbacks
     const onFlagKey = useCallback((key: string) => {
@@ -367,6 +436,7 @@ export function GovernanceDashboard({
                         onDeferReasonChange={(key, r) => defer.setDeferReasons((prev) => new Map([...prev, [key, r]]))}
                         onDeferDurationChange={(key, d) => defer.setDeferDurations((prev) => new Map([...prev, [key, d]]))}
                         onSubmitDefer={onSubmitDeferKey} onCancelDefer={defer.toggleDeferForm} onPin={togglePin}
+                        onOverride={handleOverrideFromCard}
                     />
                 </div>
             )}

@@ -416,7 +416,6 @@ export function ViolationCard({
     onSkipFix,
     onFlag,
     onUnflag,
-    onDefer,
     onDeferReasonChange,
     onDeferDurationChange,
     onSubmitDefer,

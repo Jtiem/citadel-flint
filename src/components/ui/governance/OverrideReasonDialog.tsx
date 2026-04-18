@@ -135,7 +135,7 @@ export function OverrideReasonDialog({
         onConfirm(undefined)
     }
 
-    const handleKeyDown = (event: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
         // Cmd/Ctrl + Enter submits the primary action. Plain Enter inserts
         // a newline (default textarea behavior).
         if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {

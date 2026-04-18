@@ -355,17 +355,23 @@ describe('GovernanceDashboard — COUNSEL.4 Brilliant Moments', () => {
     // ── COUNSEL.4.5: Audit Log ───────────────────────────────────────────────
 
     describe('COUNSEL.4.5 — Audit Log', () => {
-        it('does NOT fetch audit log on mount (lazy loading)', async () => {
+        it('fetches audit log eagerly on mount for CHRON.1 override decoration', async () => {
+            // CHRON.1 UX A+: getAuditLog is called on mount to build the override
+            // reason map for ViolationCard decoration. The audit-log accordion UI
+            // still calls refresh() lazily on first open, but the override map
+            // needs the data eagerly. One mount-time fetch is expected.
             const mockGetAuditLog = vi.fn().mockResolvedValue([])
             ;(window.flintAPI.governance as Record<string, unknown>).getAuditLog = mockGetAuditLog
             seedTokens([makeToken()])
             render(<GovernanceDashboard />)
-            // Wait for initial render
             await waitFor(() => {
                 expect(screen.getByTestId('score-ring')).toBeTruthy()
             })
-            // getAuditLog should not have been called yet
-            expect(mockGetAuditLog).not.toHaveBeenCalled()
+            // Exactly one mount-time fetch for the override-reason map
+            await waitFor(() => {
+                expect(mockGetAuditLog).toHaveBeenCalledTimes(1)
+            })
+            expect(mockGetAuditLog).toHaveBeenCalledWith({ limit: 200 })
         })
 
         it('fetches audit log when accordion is opened', async () => {

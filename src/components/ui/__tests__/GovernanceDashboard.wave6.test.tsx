@@ -411,17 +411,21 @@ describe('GovernanceDashboard — Wave 6', () => {
             })
         })
 
-        it('calls governance.getAuditLog lazily when accordion is opened', async () => {
+        it('calls governance.getAuditLog once on mount (for CHRON.1 override map) and again on accordion open', async () => {
+            // CHRON.1 UX A+: one mount-time fetch builds the override-reason map
+            // for ViolationCard decoration. Opening the accordion triggers a
+            // second refresh (lazy audit-log UI behaviour is preserved).
             seedTokens([makeToken()])
             const mockFn = window.flintAPI.governance.getAuditLog as ReturnType<typeof vi.fn>
             mockFn.mockResolvedValue([])
             render(<GovernanceDashboard />)
-            // Should NOT be called on mount
-            expect(mockFn).not.toHaveBeenCalled()
-            // Open the audit log
+            await waitFor(() => {
+                expect(mockFn).toHaveBeenCalledTimes(1)
+            })
+            const mountCallCount = mockFn.mock.calls.length
             await openAuditLog()
             await waitFor(() => {
-                expect(mockFn).toHaveBeenCalled()
+                expect(mockFn.mock.calls.length).toBeGreaterThan(mountCallCount)
             })
         })
 

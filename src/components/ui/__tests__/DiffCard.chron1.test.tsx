@@ -23,8 +23,12 @@ import type {
 } from '../../../../.flint-context/contracts/CHRON.1.contract'
 
 // Type-level smoke check: imported contract types must compile.
-type _CheckOnApprove = DiffCardOnApprove
-type _CheckRequirement = ReasonRequirement
+// The Record wrapper exercises the types at module scope so TSC does not flag
+// them as unused (TS6196) while still proving the contract import compiles.
+export type _ChronContractSmoke = {
+    onApprove: DiffCardOnApprove
+    requirement: ReasonRequirement
+}
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -60,13 +64,15 @@ describe('CHRON.1 — DiffCard reason input', () => {
         expect(screen.queryByLabelText(/why is this change needed/i)).toBeNull()
     })
 
-    // Edge case from TB-1: riskTier prop is undefined — flint_add_class infers green
-    it('Green tier: no reason input when riskTier prop is undefined (defaults to green inference)', () => {
+    // Edge case from TB-1: explicit green is the safe default when the orchestrator
+    // cannot determine a tier (CHRON.1-repair / M2 forbids silent inference).
+    it('Green tier: no reason input when riskTier is explicitly "green"', () => {
         render(
             <DiffCard
                 call={makeCall({ toolName: 'flint_add_class' })}
                 onApprove={vi.fn()}
                 onReject={vi.fn()}
+                riskTier="green"
             />
         )
         expect(screen.queryByLabelText(/why is this change needed/i)).toBeNull()

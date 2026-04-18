@@ -226,6 +226,60 @@ export interface TokensAPI {
      * MINT.3c: Rejects a pending token, removing it from the pending list.
      */
     rejectToken?: (tokenName: string) => Promise<{ ok: boolean }>
+
+    /**
+     * MINT.5 Phase 1.2: Returns the list of design tokens whose local value
+     * differs from the value declared in .flint/figma-tokens.json.
+     *
+     * The diff is computed server-side (main process reads both the SQLite
+     * design_tokens table and the JSON file) so the renderer receives a single
+     * resolved payload — no renderer-side JSON parsing, no render loop.
+     *
+     * Returns [] when figma-tokens.json is missing (no Figma sync yet) or
+     * when local and remote values are identical. Invalid JSON in the file
+     * also yields [] (graceful degradation with a warn log in main).
+     *
+     * deltaE is populated for color tokens (CIEDE2000) and undefined for all
+     * other types — Phase 2 can threshold > 2.0 to amber without a round-trip.
+     */
+    readFigmaDrift?: () => Promise<TokenDrift[]>
+
+    /**
+     * MINT.5 Phase 1.5: Push-channel listener for token approvals.
+     * Fires when a token is approved via either:
+     *   - Glass UI (tokens:approve-token IPC, source="glass")
+     *   - MCP tool flint_approve_tokens (source="mcp")
+     *
+     * Returns an unsubscribe function for useEffect cleanup.
+     */
+    onTokenApproved?: (callback: (event: TokenApprovedEvent) => void) => () => void
+}
+
+/**
+ * MINT.5 Phase 1.2: A single token drift row returned by tokens:read-figma-drift.
+ *
+ * tokenName matches DesignToken.token_path.
+ * localValue is the value stored in the project's design_tokens SQLite table.
+ * figmaValue is the value declared in .flint/figma-tokens.json.
+ * deltaE is CIEDE2000 perceptual distance for color tokens; undefined for others.
+ */
+export interface TokenDrift {
+    tokenName: string
+    localValue: string
+    figmaValue: string
+    deltaE?: number
+}
+
+/**
+ * MINT.5 Phase 1.5: Event body for the governance:on-token-approved push channel.
+ * source distinguishes Glass-side approvals from MCP-path approvals so listeners
+ * can render different flash animations without creating a feedback loop.
+ */
+export interface TokenApprovedEvent {
+    tokenName: string
+    source: 'glass' | 'mcp'
+    /** Unix epoch milliseconds. */
+    timestamp: number
 }
 
 /**
