@@ -44,6 +44,19 @@ export interface ClassifierInput {
      * When true and the file uses Tailwind classes, reason → tailwind-config-extension.
      */
     tailwindConfigUnparsed?: boolean
+    /**
+     * Phase 1 upgrade — Tailwind config loader result. When `ok: true`, the
+     * `tailwind-config-extension` reason is suppressed (verdict upgrades to parsed).
+     * When `ok: false`, legacy Phase 0 behavior is preserved via `tailwindConfigUnparsed`.
+     */
+    tailwindConfig?: { ok: true; [key: string]: unknown } | { ok: false; [key: string]: unknown }
+    /**
+     * Phase 1 upgrade — class-expression expansion results per clsx/cva/classnames call.
+     * When every entry has `unresolvable: false`, the `dynamic-class-expression` reason
+     * is suppressed (verdict upgrades to parsed). When any is unresolvable or the array
+     * is empty, legacy Phase 0 behavior is preserved.
+     */
+    classExpansions?: ReadonlyArray<{ unresolvable: boolean; [key: string]: unknown }>
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -437,7 +450,7 @@ function checkUnresolvableVar(ast: t.File): { hit: boolean; details?: string } {
  * Invariant: (result.status === 'parsed') iff (result.reason === null).
  */
 export function classifyCoverage(input: ClassifierInput): CoverageVerdict {
-    const { filePath, ast, tailwindConfigUnparsed } = input
+    const { filePath, ast, tailwindConfigUnparsed, tailwindConfig, classExpansions } = input
 
     // ── Rule 1: non-jsx-framework (highest priority) ──────────────────────────
     // Only extension-based: .vue, .svelte, Angular template (.component.html).
@@ -498,22 +511,36 @@ export function classifyCoverage(input: ClassifierInput): CoverageVerdict {
     }
 
     // ── Rule 5: tailwind-config-extension ─────────────────────────────────────
-    const twConfig = checkTailwindConfigExtension(tailwindConfigUnparsed, ast)
-    if (twConfig.hit) {
-        return {
-            status: 'partial',
-            reason: 'tailwind-config-extension' satisfies CoverageReason,
-            details: twConfig.details,
+    // Phase 1 upgrade: when tailwindConfig.ok === true, the loader resolved the
+    // config and merged its tokens into Mithril's token set. Skip this rule.
+    const tailwindConfigResolved = tailwindConfig?.ok === true
+    if (!tailwindConfigResolved) {
+        const twConfig = checkTailwindConfigExtension(tailwindConfigUnparsed, ast)
+        if (twConfig.hit) {
+            return {
+                status: 'partial',
+                reason: 'tailwind-config-extension' satisfies CoverageReason,
+                details: twConfig.details,
+            }
         }
     }
 
     // ── Rule 6: dynamic-class-expression ──────────────────────────────────────
-    const dynamic = checkDynamicClassExpression(imports, ast)
-    if (dynamic.hit) {
-        return {
-            status: 'partial',
-            reason: 'dynamic-class-expression' satisfies CoverageReason,
-            details: dynamic.details,
+    // Phase 1 upgrade: when classExpansions is provided and every expansion is
+    // resolvable (unresolvable: false), the expander fully evaluated the call
+    // and Mithril can run drift detection on the expanded classes. Skip this rule.
+    const allExpansionsResolvable =
+        classExpansions !== undefined &&
+        classExpansions.length > 0 &&
+        classExpansions.every((e) => e.unresolvable === false)
+    if (!allExpansionsResolvable) {
+        const dynamic = checkDynamicClassExpression(imports, ast)
+        if (dynamic.hit) {
+            return {
+                status: 'partial',
+                reason: 'dynamic-class-expression' satisfies CoverageReason,
+                details: dynamic.details,
+            }
         }
     }
 

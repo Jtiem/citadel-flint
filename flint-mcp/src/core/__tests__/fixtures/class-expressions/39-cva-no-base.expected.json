@@ -1,0 +1,8 @@
+[
+  {
+    "utility": "cva",
+    "definite": [],
+    "possible": ["rounded-none", "rounded-sm", "rounded-full"],
+    "unresolvable": false
+  }
+]

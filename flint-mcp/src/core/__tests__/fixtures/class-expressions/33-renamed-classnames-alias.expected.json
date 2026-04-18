@@ -1,0 +1,8 @@
+[
+  {
+    "utility": "classnames",
+    "definite": ["tab"],
+    "possible": ["tab-active"],
+    "unresolvable": false
+  }
+]

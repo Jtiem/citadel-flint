@@ -1,0 +1,8 @@
+[
+  {
+    "utility": "clsx",
+    "definite": ["outer", "inner"],
+    "possible": [],
+    "unresolvable": true
+  }
+]

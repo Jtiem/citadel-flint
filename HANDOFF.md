@@ -24,6 +24,47 @@
 
 ---
 
+## Session: Phase 1 — Tailwind Config + Class Composition (2026-04-18) — COMPLETE
+
+**Goal:** Second of 3 sequential phases closing CSS/styling governance gaps. Ingest `tailwind.config.{js,ts,mjs,cjs}` so extended theme tokens are recognized, and expand `clsx`/`cva`/`classnames`/`tw-merge`/`cn` expressions so dynamic class merging is no longer silently skipped.
+
+**Shipped:**
+
+- `tailwindConfigLoader.ts` — sandboxed loader using `vm.runInNewContext` with frozen sandbox + explicit static require allowlist (no regex), 2000ms CPU timeout + AbortController wall-clock race, mtime cache, error redaction hardened (credentials/key=value/base64/paths)
+- `classExpressionExpander.ts` — partial-evaluator for `clsx`/`cva`/`classnames`/`cn`/`twMerge`/`tw` with nested-call folding, ternary/logical resolution, cva variant dedup, global `cn` recognition
+- Coverage classifier upgrade paths: Rule 5 suppresses `tailwind-config-extension` when `tailwindConfig.ok === true`; Rule 6 suppresses `dynamic-class-expression` when all expansions are resolvable
+- MithrilLinter integration (additive `AuditAllOptions` — signature preserved, 190+ callers unaffected)
+- CoveragePopover labels updated to reflect Phase 1 semantics (consolidated failure-mode label for `tailwind-config-extension`, hint-style label for `dynamic-class-expression`)
+
+**Dependencies added:** `tailwindcss@^3.4.0`, `esbuild@^0.21.0` to `flint-mcp/package.json`.
+
+**Workflow:** Contract-First v2 full cycle — contract-linter (REVISE → APPROVED), 3 parallel Group A implementers (mcp-specialist hit usage limit mid-session and recovered after reset, surgeon + test-writer completed), 3 parallel reviews (UX/code/security), consensus fixes (security H-1/M-1/M-3, 4 UX label fixes, fixture runner wiring, 10 expander bugs surfaced + fixed to reach 50/50 fidelity), integration validator SHIP verdict.
+
+**Final test counts:** MCP 5454/5454 | Core 2406/2406 | Glass 3030/3032 (2 pre-existing StatusBar failures unrelated) | TSC 0 errors | Fidelity 50/50 (100%, contract threshold 0.95).
+
+**Non-goals upheld:** no v4 CSS-first parsing, no arbitrary TS execution outside sandbox, no cva runtime evaluation, no cross-file resolution, no new auto-fix paths, no grade formula change, signature stability preserved.
+
+**Reviews:**
+
+- `.flint-context/reviews/PHASE1-contract-lint-2026-04-18.md` (2 passes, APPROVED)
+- `.flint-context/reviews/PHASE1-code-review-2026-04-18.md` (FIX-FORWARD, 3 warnings addressed)
+- `.flint-context/reviews/PHASE1-ux-review-2026-04-18.md` (FIX-FORWARD, 4 warnings addressed)
+- `.flint-context/reviews/PHASE1-security-review-2026-04-18.md` (FIX → PASS after H-1/M-1/M-3 fixes)
+- `.flint-context/reviews/PHASE1-integration-report-2026-04-18.md` (SHIP)
+
+**Deferred (non-blocking):**
+
+- M-2 Buffer prototype pollution (low traffic, no fixtures require Buffer)
+- L-1 Sandbox-violation classification via string match vs sentinel class
+- UX SUG-1 coverage-delta nudge on governed % improvement
+- UX SUG-2 first-time Tailwind config recognition toast
+
+**Branch:** `feat/phase1-tailwind-config-class-composition` (not pushed, not merged — awaiting Justin's review)
+
+**Next step:** Phase 2 — PostCSS parser for external stylesheets, CSS Modules resolution, Tailwind v4 CSS-first `@theme` blocks.
+
+---
+
 ## Session: Phase 0 — Coverage Honesty (2026-04-18) — COMPLETE
 
 **Goal:** First of 3 sequential phases addressing the CSS/styling governance coverage gap. Audit revealed Flint silently skips CSS Modules, CSS-in-JS, external stylesheets, dynamic class expressions, and Tailwind config extensions — but health scores come back green on ungoverned surface. Phase 0 makes coverage honest before fixing the gaps.

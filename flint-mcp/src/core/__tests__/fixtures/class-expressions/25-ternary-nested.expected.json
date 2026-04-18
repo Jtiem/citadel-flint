@@ -1,0 +1,8 @@
+[
+  {
+    "utility": "clsx",
+    "definite": [],
+    "possible": ["text-xs", "text-sm", "text-base"],
+    "unresolvable": false
+  }
+]

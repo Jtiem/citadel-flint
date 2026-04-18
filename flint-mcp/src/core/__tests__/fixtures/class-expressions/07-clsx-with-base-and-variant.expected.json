@@ -1,0 +1,8 @@
+[
+  {
+    "utility": "clsx",
+    "definite": ["base-class", "hover:opacity-90", "focus:outline-none"],
+    "possible": [],
+    "unresolvable": false
+  }
+]

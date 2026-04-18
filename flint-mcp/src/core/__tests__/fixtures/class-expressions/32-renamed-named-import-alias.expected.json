@@ -1,0 +1,8 @@
+[
+  {
+    "utility": "clsx",
+    "definite": ["flex", "gap-4"],
+    "possible": [],
+    "unresolvable": false
+  }
+]

@@ -1,0 +1,8 @@
+[
+  {
+    "utility": "clsx",
+    "definite": ["btn-base"],
+    "possible": ["btn-selected", "btn-default"],
+    "unresolvable": false
+  }
+]

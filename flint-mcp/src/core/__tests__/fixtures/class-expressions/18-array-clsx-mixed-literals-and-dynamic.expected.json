@@ -1,0 +1,8 @@
+[
+  {
+    "utility": "clsx",
+    "definite": ["text-sm", "font-medium"],
+    "possible": ["visible", "hidden"],
+    "unresolvable": false
+  }
+]

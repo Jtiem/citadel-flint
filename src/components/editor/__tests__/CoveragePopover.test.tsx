@@ -16,6 +16,8 @@
  *   - Footer contains the informational copy string verbatim
  *   - Idle mode: renders "No scan yet" heading + educational message
  *   - REASON_LABELS has 9 entries with plain-English copy (Fix 2)
+ *   - tailwind-config-extension label reflects load-failure, not missing-feature (Phase 1 fix)
+ *   - dynamic-class-expression label hints at unresolvable shapes, not generic clsx usage (Phase 1 fix)
  */
 
 import { describe, it, expect, vi } from 'vitest'
@@ -208,15 +210,63 @@ describe('REASON_LABELS — plain-English copy (Fix 2)', () => {
         expect(label).toMatch(/today|yet/i)
     })
 
-    it('tailwind-config-extension label says "config" and signals "yet"', () => {
+    it('tailwind-config-extension label describes a load failure, not a missing feature', () => {
         const label = REASON_LABELS['tailwind-config-extension']
+        // Must reference the config and indicate a load failure
         expect(label).toMatch(/config/i)
-        expect(label).toMatch(/yet/i)
+        expect(label).toMatch(/couldn't load|syntax error|unsupported/i)
+        // Must NOT use the old "extends theme values" wording
+        expect(label).not.toMatch(/extends theme/i)
+    })
+
+    it('tailwind-config-extension label renders in popover with correct failure copy', () => {
+        const summary = makeSummary({
+            governedSurfacePercent: 80,
+            totalFiles: 5,
+            parsedFiles: 4,
+            partialFiles: 0,
+            skippedFiles: 1,
+            skippedFilesByReason: {
+                ...ZERO_REASONS,
+                'tailwind-config-extension': 1,
+            },
+        })
+        render(<CoveragePopover summary={summary} onClose={vi.fn()} />)
+        const list = screen.getByTestId('coverage-reasons-list')
+        expect(list.textContent).toMatch(/couldn't load|syntax error|unsupported/i)
     })
 
     it('parse-failure label describes a syntax or unsupported syntax problem', () => {
         const label = REASON_LABELS['parse-failure']
         expect(label).toMatch(/parse|syntax/i)
+    })
+
+    it('dynamic-class-expression label names unresolvable patterns, not generic clsx/cva usage', () => {
+        const label = REASON_LABELS['dynamic-class-expression']
+        // Must reference the unresolvable shapes, not just "clsx, cva, classnames"
+        expect(label).toMatch(/imported helper|function result|variable in a ternary/i)
+        // Must still signal incompleteness
+        expect(label).toMatch(/yet/i)
+        // Must NOT use the old "Merges classes dynamically" framing
+        expect(label).not.toMatch(/Merges classes dynamically/i)
+    })
+
+    it('dynamic-class-expression label renders in popover with hint-style copy', () => {
+        const summary = makeSummary({
+            governedSurfacePercent: 80,
+            totalFiles: 5,
+            parsedFiles: 4,
+            partialFiles: 0,
+            skippedFiles: 1,
+            skippedFilesByReason: {
+                ...ZERO_REASONS,
+                'dynamic-class-expression': 2,
+            },
+        })
+        render(<CoveragePopover summary={summary} onClose={vi.fn()} />)
+        const list = screen.getByTestId('coverage-reasons-list')
+        expect(list.textContent).toMatch(/imported helper|function result|variable in a ternary/i)
+        expect(list.textContent).toContain('2')
     })
 
     it('no label contains the jargon phrase "Dynamic className ternary" (old copy)', () => {

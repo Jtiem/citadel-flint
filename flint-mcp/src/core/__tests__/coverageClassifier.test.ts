@@ -517,3 +517,259 @@ import type { FC } from 'react'
     })
 
 })
+
+// ── Phase 1 Upgrade Cases ─────────────────────────────────────────────────────
+//
+// CONTRACT-SOURCE: .flint-context/contracts/PHASE1-tailwind-config-class-composition.contract.ts
+// testBoundaries targeted:
+//   "coverageClassifier upgrade (clsx literals → parsed)"
+//   "coverageClassifier upgrade (mixed clsx stays partial)"
+//   "coverageClassifier upgrade (tailwind.config resolved → parsed)"
+//
+// These tests add optional Phase 1 fields (classExpansions, tailwindConfig) to
+// ClassifierInput. Phase 0 tests above remain GREEN because the new fields are
+// purely additive.
+//
+// Invariant: coverage-upgrade-parity = 1.0
+//   - 100% of static-resolvable fixtures flip dynamic-class-expression → parsed
+//   - 0 fixtures with unresolvable:true flip to parsed
+
+// NOTE: the Phase 1 ClassifierInput fields (classExpansions, tailwindConfig) are
+// defined by the implementing agent in coverageClassifier.ts Phase 1 upgrade.
+// These tests use `any` casts on the new fields so they compile before the
+// implementation lands. When the implementation agent adds the types, remove the
+// casts. Tests are marked describe.skip until the implementation lands to avoid
+// red-phase noise in pre-impl CI runs.
+//
+// To activate: remove `.skip` when flint-ast-surgeon lands ClassifierInput v2.
+
+describe('coverageClassifier — Phase 1 upgrade cases', () => {
+
+    function parseSourceP1(source: string) {
+        return parse(source, {
+            sourceType: 'module',
+            plugins: ['typescript', 'jsx'],
+        })
+    }
+
+    function inputP1(overrides: Record<string, unknown> & { filePath: string }) {
+        return {
+            source: '',
+            ast: null,
+            ...overrides,
+        } as ClassifierInput
+    }
+
+    // ── 36. Resolvable clsx literals flip dynamic-class-expression → parsed ──────
+    //
+    // CONTRACT: "coverageClassifier upgrade (clsx literals → parsed)"
+    // given: file with className={clsx("a", "b")} and no other coverage blockers;
+    //        classExpansions all have unresolvable: false
+    // when: classifyCoverage called with classExpansions injected
+    // then: returns { status: "parsed", reason: null }
+
+    it('36 — Phase 1: all-resolvable classExpansions flip dynamic-class-expression → parsed', () => {
+        const source = `
+import clsx from 'clsx'
+export const A = () => <div className={clsx('a', 'b')}>A</div>
+`
+        const ast = parseSourceP1(source)
+        const classExpansions = [
+            { definite: ['a', 'b'], possible: [], unresolvable: false, utility: 'clsx' as const, line: 3 },
+        ]
+
+        const verdict = classifyCoverage(inputP1({ filePath: '/src/A.tsx', source, ast, classExpansions }))
+        expect(verdict.status).toBe('parsed')
+        expect(verdict.reason).toBeNull()
+    })
+
+    // ── 37. Multiple resolvable calls all resolved → parsed ─────────────────────
+
+    it('37 — Phase 1: multiple all-resolvable classExpansions → verdict stays parsed', () => {
+        const source = `
+import clsx from 'clsx'
+export const B = () => (
+  <div>
+    <span className={clsx('text-sm', 'font-medium')}>label</span>
+    <button className={clsx('btn', 'rounded')}>go</button>
+  </div>
+)
+`
+        const ast = parseSourceP1(source)
+        const classExpansions = [
+            { definite: ['text-sm', 'font-medium'], possible: [], unresolvable: false, utility: 'clsx' as const, line: 5 },
+            { definite: ['btn', 'rounded'], possible: [], unresolvable: false, utility: 'clsx' as const, line: 6 },
+        ]
+
+        const verdict = classifyCoverage(inputP1({ filePath: '/src/B.tsx', source, ast, classExpansions }))
+        expect(verdict.status).toBe('parsed')
+        expect(verdict.reason).toBeNull()
+    })
+
+    // ── 38. Any unresolvable expansion blocks the upgrade → stays partial ────────
+    //
+    // CONTRACT: "coverageClassifier upgrade (mixed clsx stays partial)"
+    // then: returns { status: "partial", reason: "dynamic-class-expression" }
+
+    it('38 — Phase 1: one unresolvable expansion blocks upgrade → stays partial', () => {
+        const source = `
+import clsx from 'clsx'
+export const C = ({ className }: any) => <div className={clsx('base', className)}>C</div>
+`
+        const ast = parseSourceP1(source)
+        const classExpansions = [
+            { definite: ['base'], possible: [], unresolvable: true, utility: 'clsx' as const, line: 3 },
+        ]
+
+        const verdict = classifyCoverage(inputP1({ filePath: '/src/C.tsx', source, ast, classExpansions }))
+        expect(verdict.status).toBe('partial')
+        expect(verdict.reason).toBe('dynamic-class-expression' satisfies CoverageReason)
+    })
+
+    // ── 39. No classExpansions provided → legacy Phase 0 behavior unchanged ──────
+
+    it('39 — Phase 1: omitting classExpansions preserves Phase 0 behavior (partial)', () => {
+        const source = `
+import clsx from 'clsx'
+export const D = ({ active }: any) => <div className={clsx('base', active && 'active')}>D</div>
+`
+        const ast = parseSourceP1(source)
+
+        const verdict = classifyCoverage(inputP1({ filePath: '/src/D.tsx', source, ast }))
+        expect(verdict.status).toBe('partial')
+        expect(verdict.reason).toBe('dynamic-class-expression' satisfies CoverageReason)
+    })
+
+    // ── 40. tailwindConfig ok:true flips tailwind-config-extension → parsed ──────
+    //
+    // CONTRACT: "coverageClassifier upgrade (tailwind.config resolved → parsed)"
+
+    it('40 — Phase 1: tailwindConfig ok:true flips tailwind-config-extension → parsed', () => {
+        const source = `
+export const E = () => <div className="bg-brand-primary text-brand-secondary">E</div>
+`
+        const ast = parseSourceP1(source)
+        const tailwindConfig = {
+            ok: true,
+            theme: {
+                sourcePath: '/project/tailwind.config.js',
+                version: 'v3' as const,
+                mtimeMs: Date.now(),
+                sections: { colors: { 'brand.primary': '#0066cc', 'brand.secondary': '#6b7280' } },
+                knownClasses: new Set(['bg-brand-primary', 'text-brand-secondary']),
+            },
+        }
+
+        const verdict = classifyCoverage(inputP1({
+            filePath: '/src/E.tsx', source, ast,
+            tailwindConfigUnparsed: true,
+            tailwindConfig,
+        }))
+        expect(verdict.status).toBe('parsed')
+        expect(verdict.reason).toBeNull()
+    })
+
+    // ── 41. tailwindConfig ok:false (syntax-error) → stays partial ───────────────
+
+    it('41 — Phase 1: tailwindConfig ok:false syntax-error → stays partial', () => {
+        const source = `
+export const F = () => <div className="bg-brand-primary">F</div>
+`
+        const ast = parseSourceP1(source)
+        const tailwindConfig = {
+            ok: false as const,
+            error: 'syntax-error' as const,
+            details: 'Unexpected token in config',
+            sourcePath: '/project/tailwind.config.js',
+        }
+
+        const verdict = classifyCoverage(inputP1({
+            filePath: '/src/F.tsx', source, ast,
+            tailwindConfigUnparsed: true,
+            tailwindConfig,
+        }))
+        expect(verdict.status).toBe('partial')
+        expect(verdict.reason).toBe('tailwind-config-extension' satisfies CoverageReason)
+    })
+
+    // ── 42. v4-css-first-unsupported → stays partial ────────────────────────────
+
+    it('42 — Phase 1: tailwindConfig v4-css-first-unsupported → stays partial', () => {
+        const source = `
+export const G = () => <div className="bg-brand-primary">G</div>
+`
+        const ast = parseSourceP1(source)
+        const tailwindConfig = {
+            ok: false as const,
+            error: 'v4-css-first-unsupported' as const,
+            details: 'v4 @theme CSS-first blocks are not supported until Phase 2',
+            sourcePath: null,
+        }
+
+        const verdict = classifyCoverage(inputP1({
+            filePath: '/src/G.tsx', source, ast,
+            tailwindConfigUnparsed: true,
+            tailwindConfig,
+        }))
+        expect(verdict.status).toBe('partial')
+        expect(verdict.reason).toBe('tailwind-config-extension' satisfies CoverageReason)
+    })
+
+    // ── 43. coverage-upgrade-parity invariant ────────────────────────────────────
+    //
+    // Invariant: coverage-upgrade-parity = 1.0
+
+    it('43 — Phase 1 parity invariant: resolvable → parsed; unresolvable → stays partial', () => {
+        const source = `
+import clsx from 'clsx'
+export const H = () => <div className={clsx('a', 'b')}>H</div>
+`
+        const ast = parseSourceP1(source)
+
+        const allResolvable = [
+            { definite: ['a', 'b'], possible: [], unresolvable: false, utility: 'clsx' as const, line: 3 },
+        ]
+        const parsedVerdict = classifyCoverage(inputP1({
+            filePath: '/src/H.tsx', source, ast, classExpansions: allResolvable,
+        }))
+        expect(parsedVerdict.status).toBe('parsed')
+        expect(parsedVerdict.reason).toBeNull()
+
+        const hasUnresolvable = [
+            { definite: ['a'], possible: [], unresolvable: true, utility: 'clsx' as const, line: 3 },
+        ]
+        const partialVerdict = classifyCoverage(inputP1({
+            filePath: '/src/H.tsx', source, ast, classExpansions: hasUnresolvable,
+        }))
+        expect(partialVerdict.status).toBe('partial')
+        expect(partialVerdict.reason).toBe('dynamic-class-expression' satisfies CoverageReason)
+    })
+
+    // ── 44. Phase 0 non-regression: plain clsx still emits partial ───────────────
+
+    it('44 — Phase 0 non-regression: plain clsx with no classExpansions → still partial', () => {
+        const source = `
+import clsx from 'clsx'
+export const I = ({ active }: any) => <div className={clsx('a', active)}>I</div>
+`
+        const ast = parseSourceP1(source)
+        const verdict = classifyCoverage(inputP1({ filePath: '/src/I.tsx', source, ast }))
+        expect(verdict.status).toBe('partial')
+        expect(verdict.reason).toBe('dynamic-class-expression' satisfies CoverageReason)
+    })
+
+    // ── 45. Phase 0 non-regression: tailwindConfigUnparsed without tailwindConfig ─
+
+    it('45 — Phase 0 non-regression: tailwindConfigUnparsed without tailwindConfig → tailwind-config-extension', () => {
+        const source = `
+export const J = () => <div className="bg-brand-primary">J</div>
+`
+        const ast = parseSourceP1(source)
+        const verdict = classifyCoverage(inputP1({
+            filePath: '/src/J.tsx', source, ast, tailwindConfigUnparsed: true,
+        }))
+        expect(verdict.status).toBe('partial')
+        expect(verdict.reason).toBe('tailwind-config-extension' satisfies CoverageReason)
+    })
+
+})

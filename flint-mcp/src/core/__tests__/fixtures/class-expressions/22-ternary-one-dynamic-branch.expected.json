@@ -1,0 +1,8 @@
+[
+  {
+    "utility": "clsx",
+    "definite": [],
+    "possible": ["text-blue-600"],
+    "unresolvable": true
+  }
+]

@@ -1,0 +1,8 @@
+[
+  {
+    "utility": "clsx",
+    "definite": ["border", "border-zinc-200", "rounded-lg"],
+    "possible": [],
+    "unresolvable": false
+  }
+]

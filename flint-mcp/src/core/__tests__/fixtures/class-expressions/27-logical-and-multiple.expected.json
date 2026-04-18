@@ -1,0 +1,8 @@
+[
+  {
+    "utility": "clsx",
+    "definite": [],
+    "possible": ["open", "error", "loading"],
+    "unresolvable": false
+  }
+]

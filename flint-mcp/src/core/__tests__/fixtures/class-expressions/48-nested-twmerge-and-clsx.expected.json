@@ -1,0 +1,8 @@
+[
+  {
+    "utility": "twMerge",
+    "definite": ["base", "override"],
+    "possible": ["primary"],
+    "unresolvable": false
+  }
+]

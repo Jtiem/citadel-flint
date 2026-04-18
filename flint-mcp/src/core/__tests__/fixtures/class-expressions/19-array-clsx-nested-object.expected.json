@@ -1,0 +1,8 @@
+[
+  {
+    "utility": "clsx",
+    "definite": ["input-base"],
+    "possible": ["input-error", "input-valid"],
+    "unresolvable": false
+  }
+]
