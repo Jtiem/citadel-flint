@@ -36,6 +36,8 @@ import { validateComposition } from './compositionValidator.js'
 import { detectHydrationViolations, type HydrationOptions } from './hydrationLinter.js'
 import { visitMotionDrift } from './AnimationLinter.js'
 import type { MotionToken } from '../types.js'
+import { classifyCoverage } from './coverageClassifier.js'
+import type { CoverageVerdict } from '../shared/coverageTypes.js'
 
 // CJS/ESM interop
 const traverse =
@@ -2028,4 +2030,61 @@ export function auditAll(ast: File, tokens: DesignToken[], options?: AuditAllOpt
     }
 
     return merged
+}
+
+// ── Phase 0 — Coverage Honesty ────────────────────────────────────────────────
+
+/**
+ * Result shape for `auditAllWithCoverage`. Backward-compatible with all existing
+ * `auditAll` callers because it extends the Map rather than replacing the return type.
+ */
+export interface AuditAllWithCoverageResult {
+    /** The merged Mithril warnings map — identical to the `auditAll` return value. */
+    warnings: Map<string, LinterWarning>
+    /** Per-file coverage verdict. Computed once; pass to A11yLinter to avoid re-classification. */
+    coverage: CoverageVerdict
+}
+
+/**
+ * Run all Mithril visitors and also classify the file's coverage surface.
+ *
+ * Equivalent to `auditAll` but returns a structured result with both the
+ * warnings map and the `CoverageVerdict`. Callers should pass the verdict to
+ * `A11yLinter.auditStructured({ preComputedCoverage })` to avoid a second
+ * Babel traversal for classification.
+ *
+ * `options.filePath` is used for framework/extension detection. When omitted,
+ * the file is treated as a generic TypeScript/JSX file.
+ *
+ * `options.source` is used for supplemental classifier checks. When omitted,
+ * an empty string is passed (classification still works via AST traversal).
+ *
+ * Invariant: `coverage.status === 'parsed'` iff `coverage.reason === null`.
+ * Does NOT emit coverage as a violation (non-goal #4 of Phase 0).
+ */
+export function auditAllWithCoverage(
+    ast: File,
+    tokens: DesignToken[],
+    options?: AuditAllOptions & {
+        /** File path for coverage classification (framework/extension detection). */
+        filePath?: string
+        /** Full source text for supplemental classifier checks. */
+        source?: string
+        /**
+         * When true and the file uses Tailwind classes, coverage reason is
+         * `tailwind-config-extension` (partial).
+         */
+        tailwindConfigUnparsed?: boolean
+    },
+): AuditAllWithCoverageResult {
+    const warnings = auditAll(ast, tokens, options)
+
+    const coverage = classifyCoverage({
+        filePath: options?.filePath ?? 'unknown',
+        source: options?.source ?? '',
+        ast,
+        tailwindConfigUnparsed: options?.tailwindConfigUnparsed,
+    })
+
+    return { warnings, coverage }
 }

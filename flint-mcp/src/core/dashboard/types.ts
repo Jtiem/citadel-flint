@@ -6,6 +6,10 @@
  * Report) and the Glass Governance Dashboard.
  */
 
+import type { CoverageSummary } from '../../../../shared/coverage-types.js'
+
+export type { CoverageSummary }
+
 // ── DebtReport ────────────────────────────────────────────────────────────────
 
 /**
@@ -53,6 +57,12 @@ export interface DebtReport {
         weighted: number
         weights: { coercive: number; normative: number; advisory: number; recency: number }
     }
+    /**
+     * Phase 0 — Coverage Honesty.
+     * Per-file CoverageVerdict aggregate. Informational — does NOT affect
+     * healthScore or grade. Present on all reports generated after Phase 0.
+     */
+    coverage?: CoverageSummary
 }
 
 // ── DebtHistoryEntry ──────────────────────────────────────────────────────────
@@ -95,4 +105,9 @@ export interface DashboardData {
     lastSyncAt?: string | null
     /** Number of unresolved sync conflicts. */
     pendingConflicts?: number
+    /**
+     * Phase 0 — Coverage Honesty.
+     * Governed-surface-area summary for this dashboard snapshot. Informational.
+     */
+    coverage?: CoverageSummary
 }

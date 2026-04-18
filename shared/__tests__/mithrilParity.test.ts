@@ -99,6 +99,10 @@ const ALLOWED_MCP_ONLY_EXPORTS: readonly string[] = [
     'visitRogueIntrinsics',        // MITHRIL-REG-001: rogue intrinsic detection
     'visitTailwindVersionDrift',   // Tailwind v3→v4 class migration audit
     'visitTypographyHierarchy',    // Typography heading hierarchy audit
+
+    // Phase 0 Coverage Honesty — MCP-only coverage integration
+    // Glass does not expose auditAllWithCoverage; coverage flows from hook → IPC.
+    'auditAllWithCoverage',        // Phase 0: MCP-only wrapper; Glass reads coverage via useCoverageSummary hook
 ]
 
 // ── Helpers ────────────────────────────────────────────────────────────────────

@@ -680,5 +680,10 @@ export function createWebFlintAPI() {
 
     // ── Workspace rescan ────────────────────────────────────────────────────
     rescanWorkspace: () => invoke('workspace:rescan') as Promise<unknown>,
+
+    // ── Phase 0: Coverage Honesty ────────────────────────────────────────────
+    coverage: {
+      getSummary: () => invoke('flint:getCoverageSummary') as Promise<import('../../shared/coverage-types').CoverageSummary>,
+    },
   }
 }

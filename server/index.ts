@@ -49,6 +49,8 @@ import { detectProjectEnvironment, type DetectorFS } from '../shared/projectDete
 import { validateFilePath as sharedValidateFilePath } from '../shared/validateFilePath.js'
 import { sanitizeReason } from '../shared/reasonSanitizer.js'
 import { ipcSchemas } from '../shared/ipc-validators.js'
+import type { CoverageSummary } from '../shared/coverage-types.js'
+import { ZERO_COVERAGE_SUMMARY } from '../shared/coverage-types.js'
 import { sanitizeTokenValue, sanitizeTokenDescription } from '../shared/tokenValueSanitizer.js'
 import type { TokenShapeCategory } from '../shared/tokenValueSanitizer.js'
 import { validateTokenPath, TokenPathValidationError } from '../shared/tokenPath.js'
@@ -4069,6 +4071,35 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
       res.sendFile(path.join(distWebPath, 'index.html'))
     })
   }
+
+  // ── Phase 0: Coverage Honesty — flint:getCoverageSummary ─────────────────
+  //
+  // Mirror of the electron/main.ts ipcMain.handle('flint:getCoverageSummary')
+  // handler. Reads `.flint/coverage-cache.json` written by debtReportService
+  // during the last debt scan. Falls back to ZERO_COVERAGE_SUMMARY when:
+  //   - The cache file does not exist yet (pre-first-scan)
+  //   - The cache file is corrupt JSON (log at debug, don't crash)
+  //
+  // Response is runtime-validated via Zod before return (Design by Contract).
+
+  handlers.set('flint:getCoverageSummary', async () => {
+    let result: CoverageSummary = ZERO_COVERAGE_SUMMARY
+
+    const cachePath = path.join(activeProjectRoot, '.flint', 'coverage-cache.json')
+    try {
+      const raw = await fs.readFile(cachePath, 'utf-8')
+      result = JSON.parse(raw) as CoverageSummary
+    } catch (err) {
+      // Pre-first-scan (ENOENT) or corrupt cache — fall back to zero state.
+      // Log at debug level only; do not surface noise to the user.
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        console.debug('[flint:getCoverageSummary] cache read failed, using zero state:', err)
+      }
+    }
+
+    // Runtime validation: postcondition check at the IPC boundary.
+    return ipcSchemas['flint:getCoverageSummary'].response.parse(result)
+  })
 
   // ── Start Server ───────────────────────────────────────────────────────────
 

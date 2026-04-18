@@ -195,6 +195,10 @@ export function createMockFlintAPI() {
             readResource: vi.fn().mockResolvedValue(''),
             status: vi.fn().mockResolvedValue({ connected: false }),
             onEvent: vi.fn().mockReturnValue(() => {}),
+            removeEventListener: vi.fn(),
+        },
+        coverage: {
+            getSummary: vi.fn().mockResolvedValue(null),
         },
         setup: {
             detectIDEs: vi.fn().mockResolvedValue({

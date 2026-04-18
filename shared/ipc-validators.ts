@@ -167,7 +167,50 @@ export const ipcSchemas = {
     response: z.undefined(),
   },
 
+  // ── PHASE 0: Coverage Honesty ──────────────────────────────────
+  //
+  // `flint:getCoverageSummary` returns the aggregate CoverageSummary
+  // owned by the main-process DebtReportService. The response shape is
+  // the wire format for the renderer badge, `flint://dashboard`, and
+  // `flint://session-context`. The enum values are serialized into
+  // `.flint/debt-history.json` and are append-only — do not rename.
+
+  'flint:getCoverageSummary': {
+    payload: z.undefined(),
+    response: z.object({
+      governedSurfacePercent: z.number().min(0).max(100),
+      totalFiles: z.number().int().nonnegative(),
+      parsedFiles: z.number().int().nonnegative(),
+      partialFiles: z.number().int().nonnegative(),
+      skippedFiles: z.number().int().nonnegative(),
+      skippedFilesByReason: z.object({
+        'css-in-js-detected': z.number().int().nonnegative(),
+        'external-stylesheet-imported': z.number().int().nonnegative(),
+        'css-modules-reference': z.number().int().nonnegative(),
+        'dynamic-class-expression': z.number().int().nonnegative(),
+        'unresolvable-var': z.number().int().nonnegative(),
+        'tailwind-config-extension': z.number().int().nonnegative(),
+        'non-jsx-framework': z.number().int().nonnegative(),
+        'non-literal-ternary-branch': z.number().int().nonnegative(),
+        'parse-failure': z.number().int().nonnegative(),
+      }),
+      timestamp: z.string().min(1),
+    }),
+  },
+
 } satisfies Record<string, { payload: z.ZodType; response: z.ZodType }>;
+
+// ─── Named Zod Exports (referenced by contract `validator` fields) ─
+//
+// Contracts reference Zod validators by export name. These aliases
+// point at the live schemas above so flint-contract-linter can grep
+// for the export and confirm the validator exists at lint time.
+
+/** Phase 0 — payload validator for `flint:getCoverageSummary` (undefined). */
+export const getCoverageSummaryPayloadSchema = ipcSchemas['flint:getCoverageSummary'].payload;
+
+/** Phase 0 — response validator for `flint:getCoverageSummary` (CoverageSummary shape). */
+export const getCoverageSummaryResponseSchema = ipcSchemas['flint:getCoverageSummary'].response;
 
 // ─── Type Exports ───────────────────────────────────────────────────
 //

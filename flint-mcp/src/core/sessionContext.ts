@@ -23,6 +23,7 @@ import type {
     SessionContext,
     SessionSummary,
     SessionPersona,
+    CoverageSummary,
 } from '../types.js'
 import { loadProjectConfig } from './config-loader.js'
 import { resolveStyleGuide } from './styleGuideService.js'
@@ -400,6 +401,11 @@ export async function assembleSessionContext(projectRoot: string): Promise<Sessi
     // Assemble health score
     const { score: healthScore, grade: healthGrade } = assembleHealth(debtHistoryJson)
 
+    // Read last-known coverage from .flint/coverage-cache.json (written by generateDebtReport).
+    // Returns undefined when no debt scan has run yet — never blocks assembly.
+    const coverageCachePath = path.join(flintDir, 'coverage-cache.json')
+    const cachedCoverage = safeReadJson<CoverageSummary>(coverageCachePath) ?? undefined
+
     // Assemble session summary (Strategy 4: Context-First Briefing)
     const sessionSummary = assembleSessionSummary(flintDir, recentMutations)
 
@@ -432,6 +438,7 @@ export async function assembleSessionContext(projectRoot: string): Promise<Sessi
         sessionSummary,
         sessionPersona,
         styleGuide,
+        ...(cachedCoverage !== undefined ? { coverage: cachedCoverage } : {}),
         ...(glassSessionMissing && {
             coldStartHint:
                 'No Glass session found. Run `npx flint-glass --project ./your-project` to connect the visual layer, or use `flint_reindex_registry` and `flint_debt_report` to govern headlessly without Glass.',

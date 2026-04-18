@@ -19,6 +19,7 @@ import type { DesignToken, LinterWarning } from '../../types.js'
 import type { DebtReport, DebtHistoryEntry, DashboardData } from './types.js'
 import { resolveWeights } from '../governance/scoringWeightsService.js'
 import { loadProjectConfig } from '../config-loader.js'
+import type { CoverageSummary, CoverageVerdict, CoverageReason } from '../../../../shared/coverage-types.js'
 
 // ── Glob helper ──────────────────────────────────────────────────────────────
 
@@ -162,6 +163,89 @@ export function scoreToGrade(score: number): 'A' | 'B' | 'C' | 'D' | 'F' {
     return 'F'
 }
 
+// ── Coverage aggregation ────────────────────────────────────────────────────
+
+/** All possible CoverageReason values in stable wire-format order. */
+const ALL_COVERAGE_REASONS: readonly CoverageReason[] = [
+    'css-in-js-detected',
+    'external-stylesheet-imported',
+    'css-modules-reference',
+    'dynamic-class-expression',
+    'unresolvable-var',
+    'tailwind-config-extension',
+    'non-jsx-framework',
+    'non-literal-ternary-branch',
+    'parse-failure',
+] as const
+
+/**
+ * Aggregates an array of per-file CoverageVerdicts into a CoverageSummary.
+ *
+ * Invariants (from Phase 0 contract):
+ *   - totalFiles === parsedFiles + partialFiles + skippedFiles
+ *   - governedSurfacePercent === round1((parsedFiles / totalFiles) * 100)
+ *     (when totalFiles === 0, governedSurfacePercent === 0)
+ *   - sum(skippedFilesByReason values) === (partialFiles + skippedFiles)
+ *
+ * NOTE: This function does NOT feed into the grade formula. healthScore and
+ * grade are computed independently (invariant coverage-grade-independence = 0).
+ */
+export function computeCoverageSummary(
+    verdicts: Array<{ filePath: string; verdict: CoverageVerdict }>,
+): CoverageSummary {
+    const totalFiles = verdicts.length
+
+    // Initialize all reason counts to 0 (every key always present per contract)
+    const skippedFilesByReason = Object.fromEntries(
+        ALL_COVERAGE_REASONS.map(r => [r, 0]),
+    ) as Record<CoverageReason, number>
+
+    let parsedFiles = 0
+    let partialFiles = 0
+    let skippedFiles = 0
+
+    for (const { verdict } of verdicts) {
+        if (verdict.status === 'parsed') {
+            parsedFiles++
+        } else if (verdict.status === 'partial') {
+            partialFiles++
+            if (verdict.reason !== null) {
+                skippedFilesByReason[verdict.reason] = (skippedFilesByReason[verdict.reason] ?? 0) + 1
+            }
+        } else {
+            // skipped-unsupported
+            skippedFiles++
+            if (verdict.reason !== null) {
+                skippedFilesByReason[verdict.reason] = (skippedFilesByReason[verdict.reason] ?? 0) + 1
+            }
+        }
+    }
+
+    // Use full-precision division; round only at the serialization edge (1 dp).
+    const governedSurfacePercent =
+        totalFiles === 0
+            ? 0
+            : Math.round((parsedFiles / totalFiles) * 100 * 10) / 10
+
+    return {
+        governedSurfacePercent,
+        totalFiles,
+        parsedFiles,
+        partialFiles,
+        skippedFiles,
+        skippedFilesByReason,
+        timestamp: new Date().toISOString(),
+    }
+}
+
+/**
+ * Returns an empty CoverageSummary (all-zero) suitable for use when no
+ * verdicts have been collected yet.
+ */
+export function emptyCoverageSummary(): CoverageSummary {
+    return computeCoverageSummary([])
+}
+
 // ── Token loading ───────────────────────────────────────────────────────────
 
 /**
@@ -256,6 +340,15 @@ export function generateDebtReport(options: GenerateReportOptions): DebtReport {
     const byFileMap: Map<string, { count: number; worst: string; worstSeverity: number }> = new Map()
     const ruleAccumulator: Map<string, { count: number; severity: string }> = new Map()
 
+    // Coverage verdicts: one per scanned file (Phase 0 — Coverage Honesty).
+    // Until MithrilLinter/A11yLinter wire in the full classifier (Group A:
+    // flint-ast-surgeon), we produce a best-effort verdict based on whether
+    // the file can be Babel-parsed. Fully-parseable JSX/TSX files are
+    // classified `parsed`; files that throw during parse are classified
+    // `skipped-unsupported`. This satisfies the coverage-emit-parity invariant
+    // (one verdict per file scanned).
+    const coverageVerdicts: Array<{ filePath: string; verdict: CoverageVerdict }> = []
+
     for (const filePath of files) {
         let source: string
         try {
@@ -265,6 +358,20 @@ export function generateDebtReport(options: GenerateReportOptions): DebtReport {
         }
 
         const violations = scanFile(source, tokens)
+
+        // Classify coverage for this file based on Babel parse outcome.
+        // We re-attempt a parse check here so the verdict is accurate even
+        // for files with zero violations (they are still "parsed").
+        let verdict: CoverageVerdict
+        try {
+            parse(source, { sourceType: 'module', plugins: ['jsx', 'typescript'] })
+            verdict = { status: 'parsed', reason: null }
+        } catch {
+            // File matched the glob but could not be parsed — skipped.
+            verdict = { status: 'skipped-unsupported', reason: 'non-jsx-framework' }
+        }
+        coverageVerdicts.push({ filePath, verdict })
+
         if (violations.length === 0) continue
 
         // Severity weight for "worst" ranking: critical=3, warning=2, info=1
@@ -380,6 +487,11 @@ export function generateDebtReport(options: GenerateReportOptions): DebtReport {
         // weightedScore is best-effort — never block report generation
     }
 
+    // Compute coverage summary AFTER the health score is finalized.
+    // Coverage is purely informational — it does NOT read or feed into
+    // healthScore or grade (invariant: coverage-grade-independence = 0).
+    const coverage = computeCoverageSummary(coverageVerdicts)
+
     const report: DebtReport = {
         healthScore,
         grade,
@@ -390,11 +502,28 @@ export function generateDebtReport(options: GenerateReportOptions): DebtReport {
         topRules,
         scannedFiles: files.length,
         timestamp,
+        coverage,
         ...(weightedScore !== undefined ? { weightedScore } : {}),
     }
 
     if (track) {
         appendHistory(projectRoot, report)
+    }
+
+    // Cache coverage to .flint/coverage-cache.json so that assembleSessionContext
+    // can serve it without re-scanning. Best-effort — never blocks report output.
+    try {
+        const flintDir = path.join(projectRoot, '.flint')
+        if (!fs.existsSync(flintDir)) {
+            fs.mkdirSync(flintDir, { recursive: true })
+        }
+        fs.writeFileSync(
+            path.join(flintDir, 'coverage-cache.json'),
+            JSON.stringify(coverage, null, 2),
+            'utf-8',
+        )
+    } catch {
+        // Non-fatal: cache is best-effort
     }
 
     return report
@@ -518,6 +647,7 @@ export function generateDashboard(projectRoot: string): DashboardData {
         syncStatus,
         lastSyncAt,
         pendingConflicts,
+        coverage: report.coverage,
     }
 }
 
@@ -536,6 +666,24 @@ export function formatReportAsMarkdown(report: DebtReport): string {
     lines.push(`**Total Violations:** ${report.totalViolations}`)
     lines.push(`**Files Scanned:** ${report.scannedFiles}`)
     lines.push('')
+
+    // Coverage narrative grammar (Phase 0 contract)
+    if (report.coverage) {
+        const cov = report.coverage
+        lines.push(
+            `**Governing ${cov.parsedFiles} of ${cov.totalFiles} files ` +
+            `(${cov.governedSurfacePercent}% governed surface area)**`,
+        )
+        const nonZeroReasons = Object.entries(cov.skippedFilesByReason)
+            .filter(([, count]) => count > 0)
+        if (nonZeroReasons.length > 0) {
+            const reasonList = nonZeroReasons
+                .map(([reason, count]) => `${reason}: ${count}`)
+                .join(', ')
+            lines.push(`${cov.skippedFiles + cov.partialFiles} files skipped: ${reasonList}`)
+        }
+        lines.push('')
+    }
 
     // Severity breakdown
     lines.push(`## Violations by Severity`)

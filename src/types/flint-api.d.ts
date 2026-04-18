@@ -1609,6 +1609,50 @@ export interface DesignToCodeAPI {
     apply: (request: D2CApplyRequest) => Promise<D2CApplyResult>
 }
 
+// ── Phase 0: Coverage Honesty types (renderer-side mirror of shared/coverage-types.ts) ─
+//
+// These are renderer-side mirrors of shared/coverage-types.ts. They must be
+// kept in sync manually — cross-boundary imports are prohibited in ambient
+// declaration files. If CoverageReason values are added to the shared type,
+// add them here too.
+
+/** Structured reason a file could not be fully governed. */
+export type CoverageReason =
+    | 'css-in-js-detected'
+    | 'external-stylesheet-imported'
+    | 'css-modules-reference'
+    | 'dynamic-class-expression'
+    | 'unresolvable-var'
+    | 'tailwind-config-extension'
+    | 'non-jsx-framework'
+    | 'non-literal-ternary-branch'
+
+/** Per-reason count map. Every CoverageReason key is present; absent reasons report 0. */
+export type SkippedFilesByReason = Record<CoverageReason, number>
+
+/**
+ * Aggregate coverage shape returned by `flint:getCoverageSummary`, the
+ * `flint_debt_report` MCP tool, `flint://dashboard`, and `flint://session-context`.
+ *
+ * Coverage is informational — it does NOT affect the A-F debt grade.
+ */
+export interface CoverageSummary {
+    /** Governed-surface percentage: (parsedFiles / totalFiles) * 100, rounded to 1 dp. */
+    governedSurfacePercent: number
+    /** Every file the classifier saw, regardless of outcome. */
+    totalFiles: number
+    /** Count of files with status === 'parsed'. */
+    parsedFiles: number
+    /** Count of files with status === 'partial'. */
+    partialFiles: number
+    /** Count of files with status === 'skipped-unsupported'. */
+    skippedFiles: number
+    /** Files that were partial OR skipped, grouped by primary reason. */
+    skippedFilesByReason: SkippedFilesByReason
+    /** ISO 8601 UTC timestamp the summary was generated. */
+    timestamp: string
+}
+
 export interface FlintAPI {
     /** Health-check: verifies the IPC flint is functional. */
     ping: () => Promise<string>
@@ -2105,6 +2149,29 @@ export interface FlintAPI {
      * gracefully.
      */
     rescanWorkspace?: () => Promise<FileTreeNode | null>
+
+    // ── Phase 0: Coverage Honesty ──────────────────────────────────────────────
+
+    /**
+     * Coverage observability API — returns the aggregate CoverageSummary for
+     * the current project. Consumed by the StatusBar CoverageBadge via the
+     * `useCoverageSummary` hook.
+     *
+     * The hook calls `getSummary()` on mount and on every `mcp-event` push
+     * message with `eventType === "debt-scan-complete"` (existing channel —
+     * no new IPC surface). Coverage is derived, not stored in Zustand.
+     *
+     * Until the real DebtReportService integration lands, returns a zero-state
+     * (totalFiles === 0, governedSurfacePercent === 0).
+     */
+    coverage: {
+        /**
+         * Returns the current CoverageSummary from the main-process
+         * DebtReportService. Channel: `flint:getCoverageSummary`.
+         * No payload. Response is Zod-validated at the IPC boundary.
+         */
+        getSummary: () => Promise<CoverageSummary>
+    }
 }
 
 // ── Phase Q: Asset metadata types ─────────────────────────────────────────────

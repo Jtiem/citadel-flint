@@ -1596,4 +1596,21 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
      */
     rescanWorkspace: (): Promise<unknown> =>
         ipcRenderer.invoke('workspace:rescan'),
+
+    // ── Phase 0: Coverage Honesty ────────────────────────────────────────────
+
+    /**
+     * Returns the aggregate CoverageSummary for the current project.
+     *
+     * The StatusBar CoverageBadge calls this on mount and on every
+     * `mcp-event` push message with `eventType === "debt-scan-complete"`.
+     * Until the DebtReportService integration lands, the handler returns a
+     * zero-state summary (totalFiles === 0, governedSurfacePercent === 0).
+     *
+     * No payload required — the main process owns the current project root.
+     */
+    coverage: {
+        getSummary: (): Promise<import('../shared/coverage-types.ts').CoverageSummary> =>
+            ipcRenderer.invoke('flint:getCoverageSummary'),
+    },
 })

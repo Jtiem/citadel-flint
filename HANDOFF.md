@@ -6,6 +6,82 @@
 
 ---
 
+## Session: Competitive Gap Closure — Weekend Sprint (2026-04-18) — PLANNED
+
+**Goal:** Close 3 of 4 competitive weaknesses identified in [docs/strategy/COMPETITIVE-LANDSCAPE-2026-04-18.md](docs/strategy/COMPETITIVE-LANDSCAPE-2026-04-18.md) over Saturday + Sunday. Full plan at [docs/strategy/WEEKEND-PLAN-2026-04-18.md](docs/strategy/WEEKEND-PLAN-2026-04-18.md).
+
+**Deliverables:**
+
+- `RUNTIME.1` — axe-core runtime adapter (boots LivePreview, runs axe, pipes into Warden SARIF). Source authority: `runtime-dom`.
+- `FIGMA-LINT.1` — Mithril/Warden against Figma node tree via Universal AST adapter. New MCP tool `flint_audit_figma_frame`.
+- `POS.1` — Mason generator-positioning content (landing page, investor brief, Angle A messaging).
+
+**Explicitly deferred:** Gap #4 (docs / publishing surface) — multi-quarter product bet, not a weekend hack.
+
+**Sequence:** Saturday = Gap #3 + Gap #1 parallel background. Sunday = Gap #2 + HANDOFF polish.
+
+**Next step:** flint-architect (×2 parallel) → RUNTIME.1 + FIGMA-LINT.1 contracts.
+
+---
+
+## Session: Phase 0 — Coverage Honesty (2026-04-18) — COMPLETE
+
+**Goal:** First of 3 sequential phases addressing the CSS/styling governance coverage gap. Audit revealed Flint silently skips CSS Modules, CSS-in-JS, external stylesheets, dynamic class expressions, and Tailwind config extensions — but health scores come back green on ungoverned surface. Phase 0 makes coverage honest before fixing the gaps.
+
+**Shipped:**
+- Per-file `CoverageVerdict` (`parsed | partial | skipped-unsupported`) emitted by Mithril + Warden on every scan
+- 9 `CoverageReason` enum values: `css-in-js-detected`, `external-stylesheet-imported`, `css-modules-reference`, `dynamic-class-expression`, `unresolvable-var`, `tailwind-config-extension`, `non-jsx-framework`, `non-literal-ternary-branch`, `parse-failure`
+- `computeCoverageSummary()` aggregator in `debtReportService.ts` (grade-independent, precision < 0.5pp)
+- Coverage surfaced in `flint://dashboard`, `flint://session-context`, `flint_debt_report`
+- Glass `CoverageBadge` in StatusBar (3 states: healthy/warning/idle, indigo not amber for partial to avoid alarm semantics)
+- `CoveragePopover` with plain-English reason labels + idle-mode explainer
+- IPC triangle `flint:getCoverageSummary` with Zod validation at both Electron + Web boundaries, cache-read from `.flint/coverage-cache.json`
+- `useCoverageSummary` hook (no new Zustand store — avoids IPC-in-store anti-pattern)
+
+**Workflow:** Contract-First v2 full cycle — architect → contract-linter (REVISE → APPROVED) → 5 parallel Group A implementers → Group B design + test-fill → 3 parallel reviews (UX/code/security) → consensus fixes → integration validator (FIX → SHIP).
+
+**Final test counts:** MCP 5292/5292 | Core 2376/2376 | Glass 2855/2857 (2 pre-existing StatusBar failures unrelated — Figma disconnect button + clipboard copy — flagged for separate cleanup) | TSC 0 errors.
+
+**Non-goals upheld:** no new parsing, no grade formula change, no export gate blocking on coverage, no coverage-as-violation, no ledger backfill.
+
+**Deferred (review suggestions, non-blocking):**
+- `CoverageBadge.bench.test.tsx` for 50ms p95 latency invariant (promised in contract, not delivered — measurement is memoized, just no instrumented test)
+- `sessionContext.ts` reads coverage cache without Zod validation (latent silent-corruption risk)
+- `CoverageVerdict.details` may embed absolute file paths if future phases surface per-file verdicts via MCP resources (deferred risk)
+
+**Reviews:**
+- `.flint-context/reviews/PHASE0-contract-lint-2026-04-18.md` (2 passes, APPROVED)
+- `.flint-context/reviews/PHASE0-code-review-2026-04-18.md` (FIX-FORWARD, 5 warnings addressed)
+- `.flint-context/reviews/PHASE0-ux-review-2026-04-18.md` — inline in agent output (FIX-FORWARD, 3 concerns addressed: jargon labels, idle-button no-op, amber→indigo)
+- `.flint-context/reviews/PHASE0-security-review-2026-04-18.md` — inline in agent output (SHIP, 0 blockers, 3 deferred suggestions)
+- `.flint-context/reviews/PHASE0-integration-report-2026-04-18.md` (2 passes, SHIP)
+
+**Branch:** `feat/phase0-coverage-honesty` (not pushed, not merged — awaiting Justin's morning review)
+
+**Next step:** Phase 1 — Tailwind config ingestion + `clsx`/`cva`/`classnames`/`tw-merge` expansion.
+
+---
+
+## Session: MINT.5 Phase 2 — Sync Action Surfaces (2026-04-18) — IN PROGRESS
+
+**Goal:** Close the Mint sync UX loop. Phase 1 hardened the foundation (sanitizer, drift re-enable, canonical health score, severity grammar, dual-queue listener). Phase 2 adds the visible sync actions the foundation was built for: Pull / Push / Resolve buttons in `TokenHealthBar`, a Connect Figma empty state that elevates `FirstSyncPrompt` out of the tab (UX C4), and drift pipeline closure (UX C1).
+
+**In scope:**
+- Sync action cluster (Pull / Push / Resolve) wired to existing `flint_sync_pull` / `flint_sync_push` / `flint_resolve_*` MCP tools
+- Connect Figma empty state — replaces the tucked-away FirstSyncPrompt with a first-class empty state
+- Drift review loop — make `driftedTokens[]` (now live from Phase 1) actionable, not just a count
+- UX items 5–15 from the mint review ceremony that the architect determines fit this phase
+
+**Out of scope (deferred to Phase 3–4):**
+- Phase 3: emit/handoff dropdown (Tailwind / CSS / RN / Swift / Kotlin + MUI / shadcn / PrimeNG)
+- Phase 4: TokenImpactAccordion, read-only banner, ApprovalStagingArea collapse, aria-live
+
+**Files in scope:** `src/components/ui/TokenHealthBar.tsx`, `src/components/ui/TokenManager.tsx`, new `src/components/ui/token/*` subtree, new `src/hooks/useTokenSync.ts`, `electron/preload.ts` + `server/index.ts` if new bridges needed, `shared/ipc-validators.ts`.
+
+**Next step:** flint-architect Phase 1 contract.
+
+---
+
 ## Session: Meta-tooling — Contract v2 + Review Schema (2026-04-17) — COMPLETE
 
 **Goal:** Raise the quality bar on flint-architect specs and end-of-round reviews by replacing prose/adjective gates with falsifiable schemas. Triggered by Justin's meta question: "is flint-architect A+ every time, and if not, what parameters would it need?"

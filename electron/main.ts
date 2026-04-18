@@ -29,6 +29,8 @@ import type { ProjectEnvironment, DetectorFS } from '../shared/projectDetector.t
 import { validateFilePath as sharedValidateFilePath } from '../shared/validateFilePath.ts'
 import { sanitizeReason } from '../shared/reasonSanitizer.ts'
 import { ipcSchemas } from '../shared/ipc-validators.ts'
+import type { CoverageSummary } from '../shared/coverage-types.ts'
+import { ZERO_COVERAGE_SUMMARY } from '../shared/coverage-types.ts'
 import { sanitizeTokenValue, sanitizeTokenDescription } from '../shared/tokenValueSanitizer.ts'
 import { validateTokenPath, TokenPathValidationError } from '../shared/tokenPath.ts'
 
@@ -6544,6 +6546,37 @@ ipcMain.handle('d2c:apply', async (_event, request: unknown): Promise<{
             error: err instanceof Error ? err.message : String(err),
         }
     }
+})
+
+// ── Phase 0: Coverage Honesty — flint:getCoverageSummary ──────────────────────
+//
+// Returns the aggregate CoverageSummary for the current project.
+// Reads `.flint/coverage-cache.json` written by debtReportService during the
+// last debt scan. Falls back to ZERO_COVERAGE_SUMMARY when:
+//   - No project is open (activeProjectRoot is null)
+//   - The cache file does not exist yet (pre-first-scan)
+//   - The cache file is corrupt JSON (log at debug, don't crash)
+//
+// Response is runtime-validated via Zod before return (Design by Contract).
+ipcMain.handle('flint:getCoverageSummary', async (): Promise<ReturnType<typeof ipcSchemas['flint:getCoverageSummary']['response']['parse']>> => {
+    let result: CoverageSummary = ZERO_COVERAGE_SUMMARY
+
+    if (activeProjectRoot) {
+        const cachePath = path.join(activeProjectRoot, '.flint', 'coverage-cache.json')
+        try {
+            const raw = await readFile(cachePath, 'utf-8')
+            result = JSON.parse(raw) as CoverageSummary
+        } catch (err) {
+            // Pre-first-scan (ENOENT) or corrupt cache — fall back to zero state.
+            // Log at debug level only; do not surface noise to the user.
+            if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+                console.debug('[flint:getCoverageSummary] cache read failed, using zero state:', err)
+            }
+        }
+    }
+
+    // Runtime validation: postcondition check at the IPC boundary.
+    return ipcSchemas['flint:getCoverageSummary'].response.parse(result)
 })
 
 app.on('will-quit', () => {

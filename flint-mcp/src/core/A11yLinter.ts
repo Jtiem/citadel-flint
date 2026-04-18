@@ -28,11 +28,48 @@ import { motionRules } from './a11y/rules/motion.js'
 import { wcag22Rules } from './a11y/rules/wcag22.js'
 import { cogaRules } from './a11y/rules/coga.js'
 import type { A11yAuditResult } from './a11y/types.js'
+import { classifyCoverage } from './coverageClassifier.js'
+import type { CoverageVerdict } from '../shared/coverageTypes.js'
 
 // ── Types (backward-compatible) ───────────────────────────────────────────────
 
 /** Maps `data-flint-id` (or positional fallback) to violation message list. */
 export type A11yViolations = Record<string, string[]>
+
+// ── Phase 0 — Coverage Honesty ────────────────────────────────────────────────
+
+/**
+ * Options for `auditStructured` with optional Phase 0 coverage passthrough.
+ * When `preComputedCoverage` is supplied, the A11yLinter does NOT re-run
+ * the classifier — it propagates the verdict verbatim to the result.
+ * When omitted, A11yLinter runs the classifier once itself.
+ *
+ * This ensures the classifier is invoked at most once per file across
+ * both the Mithril and A11y linters.
+ */
+export interface AuditStructuredOptions {
+    /** Pre-computed verdict from the MithrilLinter run. Pass to skip re-classification. */
+    preComputedCoverage?: CoverageVerdict
+    /**
+     * Full source text. Required only when `preComputedCoverage` is omitted
+     * and the classifier needs supplemental source-level checks.
+     */
+    source?: string
+    /**
+     * When true and file uses Tailwind classes, classifier emits
+     * `tailwind-config-extension` reason. Only used when `preComputedCoverage` is absent.
+     */
+    tailwindConfigUnparsed?: boolean
+}
+
+/**
+ * A11yAuditResult extended with the Phase 0 coverage verdict.
+ * All pre-existing fields are unchanged; `coverage` is additive-only.
+ */
+export interface A11yAuditResultWithCoverage extends A11yAuditResult {
+    /** Per-file coverage verdict. Non-null after Phase 0 ships. */
+    coverage: CoverageVerdict
+}
 
 // ── Rule registration ─────────────────────────────────────────────────────────
 
@@ -88,11 +125,33 @@ export const A11yLinter = {
      * Structured audit returning the full A11yAuditResult.
      * New callers should prefer this over `audit()`.
      *
+     * Phase 0 extension: when `opts.preComputedCoverage` is provided, it is
+     * propagated verbatim to `result.coverage` without re-running the classifier.
+     * When omitted, the classifier runs once and its verdict is attached.
+     *
      * @param ast       A Babel `File` node.
      * @param filePath  Optional file path for reporting context.
+     * @param opts      Optional Phase 0 coverage passthrough options.
+     * @returns         A11yAuditResultWithCoverage — all original fields plus `coverage`.
      */
-    auditStructured(ast: BabelFile, filePath = 'unknown'): A11yAuditResult {
+    auditStructured(ast: BabelFile, filePath = 'unknown', opts?: AuditStructuredOptions): A11yAuditResultWithCoverage {
         ensureRulesRegistered()
-        return auditSync(ast, { filePath })
+        const baseResult = auditSync(ast, { filePath })
+
+        let coverage: CoverageVerdict
+        if (opts?.preComputedCoverage !== undefined) {
+            // Caller supplied a pre-computed verdict — do NOT re-classify.
+            coverage = opts.preComputedCoverage
+        } else {
+            // Fall back: classify once here (backward-compatible path).
+            coverage = classifyCoverage({
+                filePath,
+                source: opts?.source ?? '',
+                ast,
+                tailwindConfigUnparsed: opts?.tailwindConfigUnparsed,
+            })
+        }
+
+        return { ...baseResult, coverage }
     },
 }

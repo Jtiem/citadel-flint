@@ -28,6 +28,7 @@ import { useEditorStore } from '../../store/editorStore'
 import { useNotificationStore } from '../../store/notificationStore'
 import { SyncStatus } from '../ui/SyncStatus'
 import { BetaFeedbackModal } from '../ui/BetaFeedbackModal'
+import { CoverageBadge } from './CoverageBadge'
 import type { FigmaStatus, BetaInfo, UpdateInfo, UpdateDownloadProgress } from '../../types/flint-api'
 import { formatRelativeTime } from '../../utils/relativeTime'
 
@@ -776,6 +777,10 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject, onManageFigm
                     </div>
                 )}
             </div>
+
+            {/* ── Coverage Badge (Phase 0 — Coverage Honesty) ──────────────────── */}
+            {/* Self-contained: calls useCoverageSummary() internally. No store. */}
+            <CoverageBadge />
 
             {/* ── Herald: IDE Sync Indicator (progressive disclosure) ──────────── */}
             {/* Hidden until the first flint:ide-file-selected event. Then shows
