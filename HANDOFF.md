@@ -6,6 +6,49 @@
 
 ---
 
+## Session: MINT.5 Phase 2 — Sync Action Surfaces (2026-04-18) — COMPLETE
+
+**Goal:** Close the Mint sync UX loop. Phase 1 hardened the foundation (sanitizer, drift re-enable, canonical health score, severity grammar, dual-queue listener). Phase 2 adds the visible sync actions: Pull / Push / Resolve in `TokenHealthBar`, Connect Figma empty state, drift review sub-tab in `TokenGrid`.
+
+**Workflow:** Full Contract-First Feature Build v2. Architect → contract lint (REVISE → fixed → APPROVED) → parallel implementation (Groups A+B concurrent, C sequential on types) → integration validator (SHIP) → 3-reviewer ceremony (UX FIX-BEFORE-SHIP, Code FIX-FORWARD, Security BLOCK) → consensus fix pass resolved all blockers + 8 warnings.
+
+**What shipped (Citadel vocabulary):**
+- **Envoy sync cluster** — Pull / Push / Resolve buttons wired to `flint_sync_pull` / `flint_sync_push` / `flint_resolve_all` via existing `mcp:call-tool` (no new IPC). `SyncActionCluster` is purely presentational; `useSyncActions` owns op-state + synchronous `syncOpRef` serialization guard + auth-expired error classifier that routes to a persistent SeverityChip.
+- **Alliance empty state** — `ConnectFigmaEmptyState` with 3 variants (`disconnected` / `connected-no-tokens` / `has-tokens` → null). Replaces the legacy empty div; FirstSyncPrompt left intact per nonGoal.
+- **Drift sub-tab** — `TokenGrid.viewMode` extended to `'drift'`; `DriftGroupSection` renders per-collection groups of `TokenDriftRow` (local swatch → Figma swatch → ΔE chip → "Pull this" button). Keyboard parity. When drift drops to 0, the empty state "No drift detected" renders (user chooses when to leave the tab).
+- **Asymmetric confirm flow** — Pull fires immediately; Push opens `ConfirmPushDialog`; Resolve opens `ConfirmResolveDialog` with strategy radio. Confirm button label dynamically reflects chosen strategy ("Use Figma values" / "Keep local values") so reflexive Enter telegraphs consequence.
+- **`localEditCount` + `pendingConflictCount`** sourced live from `flint_sync_check` on mount + on connection / drift changes (with `mountedRef` cleanup guard).
+
+**Security posture:**
+- **SEC.3 renderer allowlist** expanded from 7 → 12 entries in `shared/mcp-allowed-tools.ts`. Added 5 MINT.5.2 user-invokable sync tools. Each destructive variant confirm-gated in UI; `agentId='renderer'` hardcoded so AGV.4 trust tiers apply.
+- **`mcp:call-tool` Zod schema** added to `shared/ipc-validators.ts` + named export `mcpCallToolSchema`. Wired via `validateIPC` at both `electron/preload.ts` and `src/adapters/web-api.ts` — closes a defense-in-depth gap that predated Phase 2.
+- **`shared/errorSanitizer.ts`** (new) — strips control/bidi chars (Trojan-Source defense), redacts secret-shaped tokens, caps length 500, collapses "Only these tools can be called…" allowlist dump into plain copy. Applied at every `notificationStore.push` site in `useSyncActions`.
+- **Runtime Zod guard** on `ResolveStrategy` at dispatch — `z.enum(['prefer-figma','prefer-local']).parse()`.
+
+**UX polish from reviewers:**
+- Connect copy: title "Opening Figma" / message "Complete the approval in your browser to finish connecting." No Citadel name or "OAuth" in user-visible copy.
+- Persistent `SeverityChip` now rendered next to grade pill when `lastError.persistent === true` — completes the transient/persistent error split that was promised in the contract but not wired in the first pass.
+
+**nonGoals preserved (all 15):** no emit dropdown (Phase 3); no TokenImpactAccordion / read-only banner / ApprovalStagingArea collapse / aria-live (Phase 4); no OAuth flow changes; no new IPC channels; no new Zustand stores; no per-conflict resolution view; no FirstSyncPrompt relocation; no density revamp; no sync staleness banner.
+
+**Test results:**
+- Glass:  3038/3051 passing (+105 new Phase 2 + 20 errorSanitizer; 2 pre-existing StatusBar failures unrelated)
+- Core:   2431/2457 passing (26 pre-existing it.todo, 0 regressions)
+- TSC:    0 errors
+- mcp-policy: 121/121 passing
+
+**Artifacts on disk:**
+- `.flint-context/contracts/MINT.5-phase2-contract.md` + `.contract.ts` (APPROVED after schema-lint REVISE → fix cycle)
+- `.flint-context/reviews/MINT.5-phase2-contract-lint-2026-04-18.md`
+- `.flint-context/reviews/MINT.5-phase2-integration-2026-04-18.md` (SHIP)
+- `.flint-context/reviews/mint-phase2-{ux,code,security}-review-2026-04-18.md` + `.review.ts` siblings
+
+**Deferred to Phase 3:** emit/handoff dropdown, sync staleness banner, structured `MCPCallResult.classification` field (to replace the stringly-typed auth-expired classifier), per-tool Zod schemas.
+
+**Deferred to Phase 4:** TokenImpactAccordion, read-only banner, ApprovalStagingArea collapse, aria-live sync announcements, density revamp, `prefers-reduced-motion`, Figma-logo SVG accuracy.
+
+---
+
 ## Session: Competitive Gap Closure — Weekend Sprint (2026-04-18) — PLANNED
 
 **Goal:** Close 3 of 4 competitive weaknesses identified in [docs/strategy/COMPETITIVE-LANDSCAPE-2026-04-18.md](docs/strategy/COMPETITIVE-LANDSCAPE-2026-04-18.md) over Saturday + Sunday. Full plan at [docs/strategy/WEEKEND-PLAN-2026-04-18.md](docs/strategy/WEEKEND-PLAN-2026-04-18.md).

@@ -69,12 +69,13 @@ describe('TokenManager', () => {
         })
     })
 
-    // 3. Shows empty state when no tokens
+    // 3. Shows empty state when no tokens (MINT.5 Phase 2 — ConnectFigmaEmptyState replaces the legacy copy).
     it('shows empty state message when token list is empty', async () => {
         ;(window.flintAPI.tokens.readAll as ReturnType<typeof vi.fn>).mockResolvedValue([])
         render(<TokenManager />)
         await waitFor(() => {
-            expect(screen.getByText('No design tokens loaded. Connect Figma or import a tokens JSON file.')).toBeDefined()
+            // Phase 2: new ConnectFigmaEmptyState disconnected-variant heading.
+            expect(screen.getByText(/Connect Figma to sync your design tokens/i)).toBeDefined()
         })
     })
 

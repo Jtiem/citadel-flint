@@ -56,6 +56,7 @@ describe('SEC3-01 — RENDERER_ALLOWED_MCP_TOOLS structure', () => {
 
 describe('SEC3-02 — expected tools are present in the allowlist', () => {
     const EXPECTED_ALLOWED = [
+        // SEC.3 original
         'flint_status',
         'flint_audit',
         'flint_debt_report',
@@ -63,6 +64,12 @@ describe('SEC3-02 — expected tools are present in the allowlist', () => {
         'flint_generate_dbom',
         'flint_accessibility_report',
         'flint_audit_report',
+        // MINT.5 Phase 2 — user-invoked sync actions
+        'flint_sync_pull',
+        'flint_sync_push',
+        'flint_resolve_all',
+        'flint_sync_check',
+        'flint_figma_connect',
     ]
 
     for (const tool of EXPECTED_ALLOWED) {
@@ -71,8 +78,8 @@ describe('SEC3-02 — expected tools are present in the allowlist', () => {
         })
     }
 
-    it('has exactly the expected count of 7 tools', () => {
-        expect(RENDERER_ALLOWED_MCP_TOOLS.length).toBe(7)
+    it('has exactly the expected count of 12 tools (7 SEC.3 + 5 MINT.5.2 sync)', () => {
+        expect(RENDERER_ALLOWED_MCP_TOOLS.length).toBe(12)
     })
 })
 

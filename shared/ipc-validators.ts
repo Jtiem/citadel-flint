@@ -198,6 +198,25 @@ export const ipcSchemas = {
     }),
   },
 
+  /**
+   * mcp:call-tool — Invoke an MCP tool by name with an arguments object.
+   *
+   * Shape notes (matches `electron/main.ts:3515` handler):
+   *   - name: non-empty string (checked against SEC.3 renderer allowlist + AGV.1 per-agent ACL)
+   *   - args: plain object (no arrays, no null). `_agentId` is stripped before forwarding.
+   *
+   * Response is the MCP tool's raw output — intentionally unknown here because the shape
+   * varies per tool. Callers already narrow the response at the call site via
+   * per-tool TypeScript types.
+   */
+  'mcp:call-tool': {
+    payload: z.tuple([
+      z.string().min(1),
+      z.record(z.unknown()),
+    ]),
+    response: z.unknown(),
+  },
+
 } satisfies Record<string, { payload: z.ZodType; response: z.ZodType }>;
 
 // ─── Named Zod Exports (referenced by contract `validator` fields) ─
@@ -211,6 +230,16 @@ export const getCoverageSummaryPayloadSchema = ipcSchemas['flint:getCoverageSumm
 
 /** Phase 0 — response validator for `flint:getCoverageSummary` (CoverageSummary shape). */
 export const getCoverageSummaryResponseSchema = ipcSchemas['flint:getCoverageSummary'].response;
+
+/**
+ * MINT.5 Phase 2 — combined validator for `mcp:call-tool` payload tuple
+ * `[name: string, args: Record<string, unknown>]`. Used by the preload bridge
+ * to pre-validate MCP tool calls before they reach `mcpClient.callTool`.
+ */
+export const mcpCallToolSchema = ipcSchemas['mcp:call-tool'].payload;
+
+/** MINT.5 Phase 2 — response validator (unknown — per-tool shape). */
+export const mcpCallToolResponseSchema = ipcSchemas['mcp:call-tool'].response;
 
 // ─── Type Exports ───────────────────────────────────────────────────
 //

@@ -21,8 +21,10 @@
  */
 
 import { SeverityChip } from './governance/SeverityChip'
+import { SyncActionCluster } from './mint/SyncActionCluster'
 import type { TokenHealthData } from '../../hooks/useTokenHealth'
 import type { HealthGrade } from '../../../shared/healthScore'
+import type { SyncOp, SyncActionError } from '../../../.flint-context/contracts/MINT.5-phase2.contract'
 
 // ── HealthGradePill ────────────────────────────────────────────────────────────
 
@@ -92,6 +94,28 @@ export interface TokenHealthBarProps {
     driftCount?: number
     /** @deprecated Use health.buckets.scaleGaps instead. */
     scaleGapCount?: number
+    // ── MINT.5 Phase 2 §2.1 — Sync action cluster props ──────────────────────
+    /** Count of local token edits awaiting push to Figma. */
+    localEditCount?: number
+    /** Count of pending conflicts awaiting resolution. */
+    pendingConflictCount?: number
+    /** Current in-flight sync op (drives disabled/spinner state). */
+    syncOp?: SyncOp
+    /** Called when user clicks Pull in the cluster. */
+    onPull?: () => void
+    /** Called when user clicks Push in the cluster. */
+    onPush?: () => void
+    /** Called when user clicks Resolve in the cluster. */
+    onResolve?: () => void
+    /** Called when user clicks Connect Figma (disconnected fallback). */
+    onConnect?: () => void
+    /**
+     * FIX-2 (UX BLK-2) — When `lastError.persistent === true` the bar renders
+     * a persistent SeverityChip so the user is warned that the connection is
+     * in a broken state (auth expired / revoked). Transient errors are not
+     * surfaced here — they go to the toast queue via useSyncActions.
+     */
+    lastError?: SyncActionError | null
 }
 
 export function TokenHealthBar({
@@ -99,7 +123,25 @@ export function TokenHealthBar({
     figmaConnected,
     usageFileCount,
     health,
+    localEditCount,
+    pendingConflictCount,
+    syncOp,
+    onPull,
+    onPush,
+    onResolve,
+    onConnect,
+    lastError,
 }: TokenHealthBarProps) {
+    // FIX-2 (UX BLK-2): structural auth errors elevate to a persistent chip.
+    // The chip text is deliberately short; the toast retains the full message.
+    const showPersistentErrorChip = Boolean(lastError?.persistent)
+    // MINT.5 Phase 2 §2.1 — show the sync cluster whenever a Pull OR Connect
+    // callback is wired. The cluster is presentational; its own disabled-state
+    // matrix handles whether individual buttons are interactive.
+    const hasSyncCluster = Boolean(onPull || onConnect)
+    const clusterDriftCount = health?.buckets.drifted ?? 0
+    const clusterConflictCount = pendingConflictCount ?? health?.buckets.pendingConflicts ?? 0
+    const clusterLocalEditCount = localEditCount ?? 0
     return (
         <div
             className="flex shrink-0 flex-wrap items-center gap-2 border-b border-zinc-800/60 px-3 py-2"
@@ -110,6 +152,17 @@ export function TokenHealthBar({
             {/* Leading element: grade pill — only when health data available */}
             {health && (
                 <HealthGradePill grade={health.grade} score={health.score} />
+            )}
+
+            {/* FIX-2 (UX BLK-2): persistent auth-expired badge. Positioned
+                between the grade pill and the total-tokens pill so it reads
+                as a top-level status signal, not one of the bucket chips. */}
+            {showPersistentErrorChip && (
+                <SeverityChip
+                    severity="critical"
+                    label="Connection expired"
+                    data-testid="health-chip-sync-error"
+                />
             )}
 
             {/* Total tokens pill */}
@@ -192,6 +245,25 @@ export function TokenHealthBar({
                     <span className="inline-block h-1.5 w-1.5 rounded-full bg-blue-400" />
                     Used in {usageFileCount} file{usageFileCount !== 1 ? 's' : ''}
                 </span>
+            )}
+
+            {/* MINT.5 Phase 2 §2.1 — Sync action cluster at trailing edge.
+                Pushed to the right with ml-auto so it visually anchors on the
+                far side of the health bar. */}
+            {hasSyncCluster && (
+                <div className="ml-auto">
+                    <SyncActionCluster
+                        figmaConnected={figmaConnected}
+                        driftCount={clusterDriftCount}
+                        pendingConflictCount={clusterConflictCount}
+                        localEditCount={clusterLocalEditCount}
+                        syncOp={syncOp ?? null}
+                        onPull={onPull ?? (() => {})}
+                        onPush={onPush ?? (() => {})}
+                        onResolve={onResolve ?? (() => {})}
+                        onConnect={onConnect}
+                    />
+                </div>
             )}
         </div>
     )

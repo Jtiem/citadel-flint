@@ -17,19 +17,25 @@
  */
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
-import { Upload, X, Search, Palette, LayoutGrid, List, Eye } from 'lucide-react'
+import { Upload, X, Search, LayoutGrid, List, Eye, AlertTriangle } from 'lucide-react'
 import { useTokenStore } from '../../store/tokenStore'
 import { useNotificationStore } from '../../store/notificationStore'
 import type { DesignToken, TokenType, FigmaStatus, TokenUsageResult, ContrastPair, PendingToken } from '../../types/flint-api'
 import { FocusTrap } from './FocusTrap'
 import { TokenHealthBar } from './TokenHealthBar'
-import { TokenGroupSection, type ViewMode, type SyncBadgeStatus, detectScaleGaps } from './TokenGrid'
+import { TokenGroupSection, TokenDriftView, type ViewMode, type SyncBadgeStatus, detectScaleGaps } from './TokenGrid'
 import { useTokenUsage } from '../../hooks/useTokenUsage'
 import { useTokenHealth } from '../../hooks/useTokenHealth'
 import { ContrastAuditPanel } from './ContrastAuditPanel'
 import { ApprovalStagingArea } from './ApprovalStagingArea'
 import { FirstSyncPrompt } from './FirstSyncPrompt'
 import { TokenDetailPanel } from './TokenDetailPanel'
+// MINT.5 Phase 2 — sync action surfaces
+import { useSyncActions } from '../../hooks/useSyncActions'
+import { ConfirmPushDialog } from './mint/ConfirmPushDialog'
+import { ConfirmResolveDialog } from './mint/ConfirmResolveDialog'
+import { ConnectFigmaEmptyState } from './mint/ConnectFigmaEmptyState'
+import type { ResolveStrategy } from '../../../.flint-context/contracts/MINT.5-phase2.contract'
 
 // ── Import Modal ──────────────────────────────────────────────────────────────
 
@@ -202,6 +208,24 @@ export function TokenManager() {
     // MINT.4a: Project path for first-sync dismissal persistence
     const [projectPath, setProjectPath] = useState('')
 
+    // MINT.5 Phase 2 §2.4 — Confirm dialog state (Push + Resolve).
+    const [pushDialogOpen, setPushDialogOpen] = useState(false)
+    const [resolveDialogOpen, setResolveDialogOpen] = useState(false)
+    // Track which row is currently pulling for per-row spinner.
+    const [currentPullingPath, setCurrentPullingPath] = useState<string | null>(null)
+
+    // MINT.5 Phase 2 consensus FIX-1 — sourced from flint_sync_check.
+    // localEditCount derives from the SyncCheckReport's tokensDrifted when the
+    // recommendation is 'push_needed' (locally modified but no remote
+    // connection). pendingConflictCount mirrors report.pendingConflicts.
+    // These feed the Push and Resolve button disabled states and the confirm
+    // dialog copy. If flint_sync_check is unavailable or errors, we default
+    // to { 0, 0 } so the Push/Resolve buttons render disabled — safe fallback.
+    const [syncCheckCounts, setSyncCheckCounts] = useState<{
+        localEditCount: number
+        pendingConflictCount: number
+    }>({ localEditCount: 0, pendingConflictCount: 0 })
+
     // MINT.3a: Run contrast audit (cached)
     const runContrastAudit = useCallback(async () => {
         if (!window.flintAPI.tokens.auditContrast) return
@@ -330,9 +354,88 @@ export function TokenManager() {
         driftCount,
     } = useTokenUsage(tokens.length, localTokensForDrift)
 
+    // MINT.5 Phase 2 consensus FIX-7 (UX WARN-4) — Auto-revert removed.
+    // Previously this effect silently swapped viewMode from 'drift' to 'grid'
+    // when driftedTokens emptied out, which stranded the user in a new view
+    // without any narration. The replacement: the drift radio stays visible
+    // while the user is in drift view even after the count drops to 0, so the
+    // DriftGroupSection can render its own "No drift detected" empty state
+    // and the user picks when to leave. Once the user navigates away, the
+    // radio hides again per the existing render gate (driftedTokens.length > 0
+    // OR viewMode === 'drift').
+
     // MINT.5 §1.3 — Canonical health score via useTokenHealth.
     // Feeds TokenHealthBar with grade + score + bucket counts.
     const tokenHealth = useTokenHealth()
+
+    // MINT.5 Phase 2 consensus FIX-1 — Fetch local edit + pending conflict
+    // counts from flint_sync_check. Called on mount, when figmaConnected
+    // changes, and whenever drift changes (pull completes, new drift detected).
+    // MCP returns a JSON body we parse defensively — any shape mismatch falls
+    // back to the safe { 0, 0 } default.
+    const fetchSyncCheckCounts = useCallback(async () => {
+        const callTool = window.flintAPI?.mcp?.callTool
+        if (typeof callTool !== 'function') return
+        try {
+            const result = await callTool('flint_sync_check', {}) as
+                | { isError?: boolean; content?: Array<{ type?: string; text?: string }> }
+                | undefined
+            if (!result || result.isError === true) {
+                if (mountedRef.current) {
+                    setSyncCheckCounts({ localEditCount: 0, pendingConflictCount: 0 })
+                }
+                return
+            }
+            // The tool returns two content entries: a summary string and a
+            // JSON body. Find the JSON body and parse.
+            const body = result.content?.find((c) => {
+                const t = c?.text ?? ''
+                return typeof t === 'string' && t.trim().startsWith('{')
+            })?.text
+            if (typeof body !== 'string') return
+            const parsed = JSON.parse(body) as {
+                pendingConflicts?: unknown
+                tokensDrifted?: unknown
+                recommendation?: unknown
+            }
+            const pending = typeof parsed.pendingConflicts === 'number' && Number.isFinite(parsed.pendingConflicts)
+                ? Math.max(0, Math.trunc(parsed.pendingConflicts))
+                : 0
+            // tokensDrifted represents local changes awaiting push ONLY when the
+            // engine recommends push_needed. Otherwise they are remote drifts
+            // that Pull covers — not local edits.
+            const drifted = typeof parsed.tokensDrifted === 'number' && Number.isFinite(parsed.tokensDrifted)
+                ? Math.max(0, Math.trunc(parsed.tokensDrifted))
+                : 0
+            const localEdits = parsed.recommendation === 'push_needed' ? drifted : 0
+            if (mountedRef.current) {
+                setSyncCheckCounts({ localEditCount: localEdits, pendingConflictCount: pending })
+            }
+        } catch {
+            // Graceful degradation — keep previous counts on parse/IPC failure.
+            if (mountedRef.current) {
+                setSyncCheckCounts({ localEditCount: 0, pendingConflictCount: 0 })
+            }
+        }
+    }, [])
+
+    // MINT.5 Phase 2 §2.1 — useSyncActions owns the sync ops lifecycle.
+    // Destructive actions are guarded by dialogs; we pass no confirmPush/
+    // confirmResolve callbacks here because the dialogs are driven by open-state
+    // and resolve *after* user confirms via onConfirm handlers below.
+    const syncActions = useSyncActions({
+        onAfterSync: useCallback(() => {
+            fetchTokens().catch(console.error)
+            // Re-read sync check counts after any successful sync action so
+            // the Push/Resolve buttons update immediately.
+            fetchSyncCheckCounts().catch(() => { /* degrade silently */ })
+        }, [fetchTokens, fetchSyncCheckCounts]),
+    })
+
+    // Re-read sync-check counts when connection state or drift set changes.
+    useEffect(() => {
+        fetchSyncCheckCounts().catch(() => { /* degrade silently */ })
+    }, [fetchSyncCheckCounts, figmaConnected, driftedTokens.length])
 
     useEffect(() => {
         fetchTokens().catch(console.error)
@@ -385,6 +488,68 @@ export function TokenManager() {
         const dimensionGaps = detectScaleGaps(dimensionTokens)
         const typographyGaps = detectScaleGaps(typographyTokens)
         return dimensionGaps.length + typographyGaps.length
+    }, [tokens])
+
+    // MINT.5 Phase 2 §2.2 — Build the tokensByPath lookup required by
+    // DriftGroupSection. Keyed on token_path so rows can join to a DesignToken
+    // for type+collection metadata.
+    const tokensByPath = useMemo(() => {
+        const map = new Map<string, { token_path: string; token_type: string; collection_name: string }>()
+        for (const t of tokens) {
+            map.set(t.token_path, {
+                token_path: t.token_path,
+                token_type: t.token_type,
+                collection_name: t.collection_name,
+            })
+        }
+        return map
+    }, [tokens])
+
+    // MINT.5 Phase 2 §2.4 — Sync cluster handlers.
+    // Push and Resolve open confirm dialogs; Pull fires immediately (additive).
+    const handlePull = useCallback(() => {
+        syncActions.pull()
+    }, [syncActions])
+
+    const handlePush = useCallback(() => {
+        setPushDialogOpen(true)
+    }, [])
+
+    const handleResolve = useCallback(() => {
+        setResolveDialogOpen(true)
+    }, [])
+
+    const handleConnect = useCallback(() => {
+        syncActions.connect()
+    }, [syncActions])
+
+    // Push dialog confirm → fire push, close dialog.
+    const handlePushConfirm = useCallback(async () => {
+        setPushDialogOpen(false)
+        await syncActions.push()
+    }, [syncActions])
+
+    // Resolve dialog confirm → fire resolve with chosen strategy, close dialog.
+    const handleResolveConfirm = useCallback(async (strategy: ResolveStrategy) => {
+        setResolveDialogOpen(false)
+        await syncActions.resolve(strategy)
+    }, [syncActions])
+
+    // Drift row Pull-this handler. Marks the row-local pulling state so the
+    // DriftGroupSection can show a spinner on the correct row.
+    const handlePullOne = useCallback(async (tokenPath: string) => {
+        setCurrentPullingPath(tokenPath)
+        try {
+            await syncActions.pullOne(tokenPath)
+        } finally {
+            setCurrentPullingPath(null)
+        }
+    }, [syncActions])
+
+    // Drift row onSelect → open the token detail panel when the row activates.
+    const handleDriftRowSelect = useCallback((tokenPath: string) => {
+        const found = tokens.find((t) => t.token_path === tokenPath)
+        if (found) setSelectedToken(found)
     }, [tokens])
 
     // Search-filtered token list (MINT.2b: dead-only filter + usage sort)
@@ -488,7 +653,11 @@ export function TokenManager() {
                     {tokens.length} token{tokens.length !== 1 ? 's' : ''}
                 </span>
                 <div className="ml-auto flex items-center gap-1.5">
-                    {/* MINT.1b: View mode toggle */}
+                    {/* MINT.1b / MINT.5 Phase 2 §2.2: View mode toggle.
+                        Includes 'drift' tab when drift exists. Drift tab badge
+                        count equals driftedTokens.length. The drift radio is
+                        hidden when drift count is 0 (matches nonGoal: only the
+                        auto-revert is added; no empty drift tab surface). */}
                     <div className="flex items-center rounded border border-zinc-700 bg-zinc-800/60" role="radiogroup" aria-label="Token view mode">
                         <button
                             type="button"
@@ -507,7 +676,7 @@ export function TokenManager() {
                         <button
                             type="button"
                             onClick={() => setViewMode('list')}
-                            className={`rounded-r px-1.5 py-1 transition-colors ${
+                            className={`${(driftedTokens.length > 0 || viewMode === 'drift') ? '' : 'rounded-r'} px-1.5 py-1 transition-colors ${
                                 viewMode === 'list'
                                     ? 'bg-zinc-700 text-zinc-200'
                                     : 'text-zinc-500 hover:text-zinc-300'
@@ -518,6 +687,36 @@ export function TokenManager() {
                         >
                             <List className="h-3 w-3" />
                         </button>
+                        {/* FIX-7 (UX WARN-4): keep the drift radio visible while
+                            the user is viewing drift, even after the drift count
+                            falls to 0. Without this, clearing drift via Pull
+                            silently strands the user in an empty-looking view. */}
+                        {(driftedTokens.length > 0 || viewMode === 'drift') && (
+                            <button
+                                type="button"
+                                onClick={() => setViewMode('drift')}
+                                className={`rounded-r flex items-center gap-1 px-1.5 py-1 transition-colors ${
+                                    viewMode === 'drift'
+                                        ? 'bg-amber-600/20 text-amber-300'
+                                        : 'text-zinc-500 hover:text-zinc-300'
+                                }`}
+                                role="radio"
+                                aria-checked={viewMode === 'drift'}
+                                aria-label={`Drift (${driftedTokens.length})`}
+                                data-testid="viewmode-drift-radio"
+                            >
+                                <AlertTriangle className="h-3 w-3" aria-hidden="true" />
+                                <span className="text-[10px] font-medium">
+                                    Drift
+                                </span>
+                                <span
+                                    className="inline-flex min-w-[14px] items-center justify-center rounded-full bg-amber-500/30 px-1 text-[9px] font-semibold text-amber-200"
+                                    data-testid="viewmode-drift-badge"
+                                >
+                                    {driftedTokens.length}
+                                </span>
+                            </button>
+                        )}
                     </div>
 
                     {/* MINT.3a: Contrast audit button */}
@@ -564,6 +763,18 @@ export function TokenManager() {
                     figmaConnected={figmaConnected}
                     usageFileCount={usageFileCount}
                     health={tokenHealth}
+                    /* FIX-1 (UX BLK-1 / Code WARN-2): real localEditCount +
+                       pendingConflictCount from flint_sync_check. */
+                    localEditCount={syncCheckCounts.localEditCount}
+                    pendingConflictCount={syncCheckCounts.pendingConflictCount}
+                    syncOp={syncActions.syncOp}
+                    /* FIX-2 (UX BLK-2): forward lastError so the bar can render
+                       a persistent SeverityChip on auth-expired errors. */
+                    lastError={syncActions.lastError}
+                    onPull={handlePull}
+                    onPush={handlePush}
+                    onResolve={handleResolve}
+                    onConnect={handleConnect}
                 />
             )}
 
@@ -657,39 +868,51 @@ export function TokenManager() {
                 )}
 
                 {!isLoading && tokens.length === 0 && (
-                    <div
-                        className="flex flex-col items-center justify-center px-6 py-12 text-center"
-                        data-testid="tokens-empty-state"
-                    >
-                        <Palette className="h-8 w-8 text-zinc-600 mb-3" aria-hidden="true" />
-                        <p className="text-sm text-zinc-500 leading-relaxed max-w-[240px]">
-                            No design tokens loaded. Connect Figma or import a tokens JSON file.
-                        </p>
-                        <button
-                            type="button"
-                            onClick={() => setShowImport(true)}
-                            className="mt-4 rounded border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs text-zinc-300 transition-colors hover:border-indigo-500/40 hover:bg-indigo-900/20 hover:text-indigo-300"
-                        >
-                            Import JSON
-                        </button>
+                    /* MINT.5 Phase 2 §2.3 — ConnectFigmaEmptyState replaces
+                       the old tokens-empty-state block. The component itself
+                       decides which variant to render (disconnected / connected-
+                       no-tokens / has-tokens returns null). */
+                    <div data-testid="tokens-empty-state">
+                        <ConnectFigmaEmptyState
+                            figmaConnected={figmaConnected}
+                            tokenCount={tokens.length}
+                            syncOp={syncActions.syncOp}
+                            onConnect={handleConnect}
+                            onPullFromFigma={handlePull}
+                            onOpenImport={() => setShowImport(true)}
+                        />
                     </div>
                 )}
 
-                {[...grouped.entries()].map(([collectionName, byType]) => (
-                    <TokenGroupSection
-                        key={collectionName}
-                        collectionName={collectionName}
-                        byType={byType}
-                        viewMode={viewMode}
-                        getSyncStatus={getSyncStatus}
-                        figmaConnected={figmaConnected}
-                        allCollectionTokens={tokensByCollection.get(collectionName) ?? []}
-                        usageMap={usageMap}
+                {/* MINT.5 Phase 2 §2.2 — Drift sub-tab routing.
+                    When viewMode === 'drift', render TokenDriftView instead of
+                    TokenGroupSection. The view groups drifted tokens by
+                    collection internally. */}
+                {viewMode === 'drift' ? (
+                    <TokenDriftView
                         driftedTokens={driftedTokens}
-                        contrastMap={contrastMap}
-                        onTokenSelect={setSelectedToken}
+                        tokensByPath={tokensByPath}
+                        onPullOne={handlePullOne}
+                        onSelect={handleDriftRowSelect}
+                        currentPullingPath={currentPullingPath}
                     />
-                ))}
+                ) : (
+                    [...grouped.entries()].map(([collectionName, byType]) => (
+                        <TokenGroupSection
+                            key={collectionName}
+                            collectionName={collectionName}
+                            byType={byType}
+                            viewMode={viewMode}
+                            getSyncStatus={getSyncStatus}
+                            figmaConnected={figmaConnected}
+                            allCollectionTokens={tokensByCollection.get(collectionName) ?? []}
+                            usageMap={usageMap}
+                            driftedTokens={driftedTokens}
+                            contrastMap={contrastMap}
+                            onTokenSelect={setSelectedToken}
+                        />
+                    ))
+                )}
 
                 {/* Store-level error (shown at bottom so it doesn't push content) */}
                 {error && !showImport && (
@@ -730,6 +953,20 @@ export function TokenManager() {
                     contrastPairs={contrastMap?.get(selectedToken.token_path)}
                 />
             )}
+
+            {/* ── MINT.5 Phase 2 §2.4 — Confirm dialogs ────────────────────── */}
+            <ConfirmPushDialog
+                isOpen={pushDialogOpen}
+                localEditCount={syncCheckCounts.localEditCount}
+                onConfirm={handlePushConfirm}
+                onCancel={() => setPushDialogOpen(false)}
+            />
+            <ConfirmResolveDialog
+                isOpen={resolveDialogOpen}
+                conflictCount={syncCheckCounts.pendingConflictCount}
+                onConfirm={handleResolveConfirm}
+                onCancel={() => setResolveDialogOpen(false)}
+            />
         </div>
     )
 }

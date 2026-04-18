@@ -30,32 +30,30 @@
 
 ---
 
-## Swarm: MINT.5 Phase 2 — Sync Action Surfaces
+## Swarm: Phase 2 — PostCSS Parser + CSS Modules + Tailwind v4 CSS-first
 
 **Status:** CONTRACT DRAFTING (architect spawned 2026-04-18)
-**Scope:** Pull/Push/Resolve action buttons in TokenHealthBar, Connect Figma empty state (C4 FirstSyncPrompt elevation), drift pipeline UX closure (C1), and any deferred UX items 5–15 the architect pulls into scope.
+**Scope:** Third and final phase of the CSS/styling governance expansion. Add PostCSS-based parsing for external `.css`/`.scss`/`.module.css` files so Flint can see styles declared outside JSX. Resolve CSS Modules (`import s from './x.module.css'` → `s.active`). Parse Tailwind v4 CSS-first `@theme {}` blocks. Build a per-project `:root`-scoped custom property map so bare `var(--x)` references resolve. Upgrades Phase 0 coverage verdicts: `external-stylesheet-imported`, `css-modules-reference`, `unresolvable-var`, and `tailwind-config-extension` (for v4 CSS-first case) flip from `partial` / `skipped-unsupported` → `parsed` when resolvable.
 
-### Files to CREATE (anticipated — architect will confirm)
+### Files to CREATE (anticipated)
 | File | Purpose |
 |------|---------|
-| `src/components/ui/token/SyncActionBar.tsx` | Pull / Push / Resolve button cluster |
-| `src/components/ui/token/ConnectFigmaEmptyState.tsx` | Empty-state card when no connection |
-| `src/hooks/useTokenSync.ts` | Sync state reducer, maps IPC sync results |
-| `src/components/ui/token/__tests__/*` | Component + hook tests |
-| `.flint-context/contracts/MINT.5-phase2-contract.md` | Contract artifact |
-| `.flint-context/contracts/MINT.5-phase2.contract.ts` | Executable contract |
+| `.flint-context/contracts/PHASE2-postcss-css-modules-contract.md` | Contract artifact |
+| `.flint-context/contracts/PHASE2-postcss-css-modules.contract.ts` | Executable contract |
+| `flint-mcp/src/core/cssStylesheetLoader.ts` | PostCSS parser for `.css`/`.scss`/`.module.css` files |
+| `flint-mcp/src/core/cssModulesResolver.ts` | Resolves `import s from './x.module.css'` → class name map |
+| `flint-mcp/src/core/cssCustomPropertyMap.ts` | Project-scoped `:root` custom property resolver |
+| `flint-mcp/src/core/tailwindV4ThemeParser.ts` | Parses `@theme {}` blocks into `ResolvedTailwindTheme` |
+| Plus test files + fixtures |
 
 ### Files to MODIFY (anticipated)
 | File | What changes |
 |------|--------------|
-| `src/components/ui/TokenHealthBar.tsx` | Host SyncActionBar + conditional empty state |
-| `src/components/ui/TokenManager.tsx` | Wire sync callbacks, pending-conflict surfacing |
-| `electron/preload.ts` | Expose sync action bridges if any new ones needed |
-| `src/types/flint-api.d.ts` | Type surface for new sync hooks |
-| `shared/ipc-validators.ts` | Zod schemas for any new IPC channels |
-| `server/index.ts` | Web-parity mirror |
+| `flint-mcp/src/core/coverageClassifier.ts` | Upgrade 4 reason paths when stylesheets/modules/v4-theme resolve |
+| `flint-mcp/src/core/MithrilLinter.ts` | Accept stylesheet token map; `var(--x)` lookup against custom property map |
+| `flint-mcp/package.json` | Add `postcss`, `postcss-scss` (optional), `postcss-modules` deps |
 
-**Coordination note:** This swarm owns `TokenHealthBar.tsx`, `TokenManager.tsx`, and the `token/` subtree. No concurrent Mint work until this lands.
+**Coordination note:** Phase 2 lives entirely in the MCP engine. No IPC changes, no Glass UI changes. Depends on Phase 1 committed (it is — `a5c09fb`). No overlap with MINT.5, RUNTIME.1, FIGMA-LINT.1, POS.1. Safe to run in parallel with all other active swarms.
 
 ---
 

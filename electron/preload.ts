@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { BRAND, ipcChannel } from '../shared/brand.ts'
+import { validateIPC, mcpCallToolSchema } from '../shared/ipc-validators.ts'
 
 /**
  * The Preload Flint — all communication between the React Renderer
@@ -794,8 +795,20 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
      *   renderer → preload → main → mcpClient → stdio → MCP server child process
      */
     mcp: {
-        callTool: (name: string, args: Record<string, unknown>): Promise<unknown> =>
-            ipcRenderer.invoke('mcp:call-tool', name, args),
+        callTool: (name: string, args: Record<string, unknown>): Promise<unknown> => {
+            // MINT.5 Phase 2 consensus FIX-4 (Security WARN-1):
+            // Validate the [name, args] tuple against mcpCallToolSchema at the
+            // preload bridge — Design by Contract at the process boundary.
+            // On validation failure we throw a SANITIZED message (no Zod
+            // internals leaked) because the error flows into user-visible
+            // toasts via useSyncActions.
+            try {
+                validateIPC('mcp:call-tool', [name, args], mcpCallToolSchema)
+            } catch {
+                throw new Error('Invalid MCP tool call — request rejected by the Glass sandbox.')
+            }
+            return ipcRenderer.invoke('mcp:call-tool', name, args)
+        },
 
         readResource: (uri: string): Promise<unknown> =>
             ipcRenderer.invoke('mcp:read-resource', uri),

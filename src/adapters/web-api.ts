@@ -10,6 +10,7 @@
  */
 
 import { useNotificationStore } from '../store/notificationStore'
+import { validateIPC, mcpCallToolSchema } from '../../shared/ipc-validators'
 
 // ── MCP connection failure toast (P0) ─────────────────────────────────────────
 // Only fire once per page load — reconnect attempts should not spam the user.
@@ -495,8 +496,17 @@ export function createWebFlintAPI() {
 
     // ── MCP integration ─────────────────────────────────────────────────────
     mcp: {
-      callTool: (name: string, args: Record<string, unknown>) =>
-        invoke('mcp:call-tool', name, args) as Promise<unknown>,
+      callTool: (name: string, args: Record<string, unknown>) => {
+        // MINT.5 Phase 2 consensus FIX-4 (Security WARN-1):
+        // Validate [name, args] against mcpCallToolSchema before dispatch.
+        // Matches electron/preload.ts — web parity is inherited.
+        try {
+          validateIPC('mcp:call-tool', [name, args], mcpCallToolSchema)
+        } catch {
+          return Promise.reject(new Error('Invalid MCP tool call — request rejected by the Glass sandbox.'))
+        }
+        return invoke('mcp:call-tool', name, args) as Promise<unknown>
+      },
       readResource: (uri: string) => invoke('mcp:read-resource', uri) as Promise<unknown>,
       status: () => invoke('mcp:status') as Promise<{ connected: boolean; serverPid: number | null }>,
       reconnect: () => invoke('mcp:reconnect') as Promise<void>,

@@ -21,6 +21,7 @@
 import type { DesignToken, TokenType, TokenUsageResult, ContrastPair } from '../../types/flint-api'
 import type { TokenDrift } from '../../hooks/useTokenUsage'
 import { SeverityChip } from './governance/SeverityChip'
+import { DriftGroupSection } from './mint/DriftGroupSection'
 
 // ── Sync badge types (shared with TokenManager) ─────────────────────────────
 
@@ -700,7 +701,11 @@ export function isGridFriendly(tokenType: TokenType): boolean {
 
 // ── Exported grid section ────────────────────────────────────────────────────
 
-export type ViewMode = 'list' | 'grid'
+/**
+ * MINT.5 Phase 2 §2.2 — ViewMode extends to include 'drift'. Matches the
+ * `Phase2ViewMode` alias in the contract; canonical name in Flint is `ViewMode`.
+ */
+export type ViewMode = 'list' | 'grid' | 'drift'
 
 interface TokenGroupSectionProps {
     collectionName: string
@@ -718,6 +723,42 @@ interface TokenGroupSectionProps {
     contrastMap?: Map<string, ContrastPair[]>
     /** MINT.4d: Callback when a token is clicked to open detail panel. */
     onTokenSelect?: (token: DesignToken) => void
+}
+
+// ── MINT.5 Phase 2 §2.2 — DriftView (collection-agnostic) ───────────────────
+
+/**
+ * Drift view entry point — routes the drift sub-tab render through the
+ * DriftGroupSection component. Sits at the top of TokenManager's scroll
+ * container (not inside TokenGroupSection) because drift already groups
+ * by collection internally.
+ */
+export interface TokenDriftViewProps {
+    driftedTokens: TokenDrift[]
+    tokensByPath: Map<string, { token_path: string; token_type: string; collection_name: string }>
+    onPullOne: (tokenPath: string) => void
+    onSelect: (tokenPath: string) => void
+    currentPullingPath: string | null
+}
+
+export function TokenDriftView({
+    driftedTokens,
+    tokensByPath,
+    onPullOne,
+    onSelect,
+    currentPullingPath,
+}: TokenDriftViewProps) {
+    return (
+        <div className="px-3 py-3" data-testid="token-drift-view">
+            <DriftGroupSection
+                driftedTokens={driftedTokens}
+                tokensByPath={tokensByPath}
+                onPullOne={onPullOne}
+                onSelect={onSelect}
+                currentPullingPath={currentPullingPath}
+            />
+        </div>
+    )
 }
 
 export function TokenGroupSection({
@@ -757,7 +798,9 @@ export function TokenGroupSection({
             </div>
 
             {[...byType.entries()].map(([tokenType, group]) => {
-                // Deduplicate for grid: only show light/default tokens, pair with dark
+                // Deduplicate for grid: only show light/default tokens, pair with dark.
+                // MINT.5 Phase 2: drift mode is handled outside this component —
+                // we treat it as list mode if it ever reaches us defensively.
                 const primaryTokens = viewMode === 'grid'
                     ? group.filter((t) => t.mode.toLowerCase() !== 'dark')
                     : group
