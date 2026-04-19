@@ -945,10 +945,19 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     const isDemoRead = (resolved: string): boolean =>
       resolved === path.join(serverRoot, 'demos') || resolved.startsWith(demosDir)
 
+    // `beta:load-demo-project` extracts demos into os.tmpdir() and the app then
+    // reads files from that temp path. realpathSync resolves the macOS
+    // `/tmp` → `/private/var/folders/...` symlink so the prefix check in
+    // sharedValidateFilePath matches whether the caller passes the symlink or
+    // the canonical path.
+    let tmpRealRoot: string
+    try { tmpRealRoot = realpathSync(os.tmpdir()) } catch { tmpRealRoot = os.tmpdir() }
+
     const validated = sharedValidateFilePath({
       filePath,
       homeDir: os.homedir(),
       allowedExtensions: ['.tsx', '.ts', '.jsx', '.js', '.html', '.vue', '.svelte'],
+      extraAllowedRoots: [tmpRealRoot],
       selfHostCheck: (resolved) => {
         if (isDemoRead(resolved)) return
         if (selfHosting.isSelfHostedPath(resolved)) {

@@ -127,9 +127,13 @@ export function buildSrcdoc(
     // Expose React named exports as globals so stripped import statements resolve.
     // e.g. "import { useState } from 'react'" is stripped by the transform, but
     // the code still calls useState(...) -- this makes it work.
+    // Component + PureComponent are the class bases; required whenever a demo
+    // or user file declares "class X extends Component". Missing them surfaces
+    // as "ReferenceError: Component is not defined" at iframe runtime.
     var { useState, useEffect, useRef, useMemo, useCallback, useContext,
           useReducer, useLayoutEffect, useId, Fragment, createContext,
-          forwardRef, memo, cloneElement, Children, isValidElement } = React;
+          forwardRef, memo, cloneElement, Children, isValidElement,
+          Component, PureComponent } = React;
   <\/script>
   <script>
     // Generic component stubs — always loaded as the base layer.
