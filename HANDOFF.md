@@ -6,13 +6,45 @@
 
 ---
 
-## Session: FIXTURE.1.1 — DTCG Token Shape Adapter (2026-04-19) — IN PROGRESS
+## Session: FIXTURE.1.1 — DTCG Token Shape Adapter (2026-04-19) — COMPLETE
 
-**Goal:** Close FIXTURE.1's documented drift. The integration report (2026-04-19) shipped FIXTURE.1 as SHIP-WITH-DOCUMENTED-DRIFT because the headline invariant `demo-compliant-clean === 0` fails: `banner-compliant.tsx` returns 5 MITHRIL violations (4× TYP-002, 1× SPC-001) even though the fixture loads `design-tokens.json` correctly via `resolveFixture`. Root cause per integration report: DTCG → linter token-shape normalization gap. Tokens load; linter's lookup misses them because it expects legacy flat shape while `design-tokens.json` uses DTCG nested shape.
+**Goal:** Close FIXTURE.1's documented drift. Root cause: linter's token consumer read legacy flat shape while `design-tokens.json` uses DTCG nested shape, so every literal pixel became a false positive regardless of fixture quality.
 
-**Scope:** Build a DTCG → canonical-token adapter in the MithrilLinter token-resolution path. Target invariant: `banner-compliant` → 0 violations, `banner-broken` ≥ 5 violations, distinguishable.
+**Approach:** Pure adapter module at `flint-mcp/src/core/dtcgTokenAdapter.ts` with one-line swap at `server.ts:2038`. No new IPC, stores, or UI. Alias resolution (single-hop, multi-hop, cycle-safe, broken-ref typed) folded in per Justin's call. Negative-integer FNV-1a hashed IDs verified disjoint from DB-positive IDs.
 
-**Phase:** Phase 1 contract drafting — flint-architect spawned.
+**Files created:**
+- `flint-mcp/src/core/dtcgTokenAdapter.ts` (381 lines)
+- `flint-mcp/src/core/__tests__/dtcgTokenAdapter.test.ts` (46 tests)
+- `flint-mcp/src/core/__tests__/dtcgTokenAdapter.bench.ts`
+- `.flint-context/contracts/FIXTURE.1.1-contract.md` + `.contract.ts`
+- `.flint-context/reviews/FIXTURE.1.1-{contract-lint,ux-review,code-review,security-review}-2026-04-19.{md,review.ts}`
+
+**Files modified:**
+- `flint-mcp/src/server.ts` — one-line swap + import
+- `flint-mcp/src/__tests__/server.audit-fixture.test.ts` — tightened drift canary
+- `demos/01-rag-ui-builder/banner-broken.tsx` — genuinely drifted values + one loud drift
+- `demos/01-rag-ui-builder/design-tokens.json` — demo alias + intentional broken alias
+
+**Review ceremony:** 3 parallel reviews (UX, code, security). Security found 3 blockers + 2 warnings; all fixed in post-review sweep. Code reviewer ran per-invariant pass/fail table (10/10 pass) — closes the FIXTURE.1 pilot rubric miss.
+
+**Deferred (explicitly non-goal):**
+- UX WARN-2 → CX.3 error taxonomy (plain-English `ALIAS_CYCLE` / `ALIAS_BROKEN_REF` mappings)
+- UX SUG-2 → multi-collection DTCG support (architectural)
+- Code INFO-3 → non-fixture token load sites at `server.ts:1972, 2179`
+
+**Canary results (DTCG tokens loaded):**
+- `banner-compliant.tsx` — 3 total violations, **MITHRIL-TYP-002 + SPC-001 === 0** ✅
+- `banner-broken.tsx` — **5 violations** ✅
+- Distinguishable: broken=5 > compliant=3 ✅
+
+**Test counts:**
+```
+MCP:   5652/5652 passing (+49 new)
+Glass: 3181/3194 (2 pre-existing RUNTIME.1, 0 new)
+TSC:   0 errors (root + flint-mcp)
+```
+
+**Beta Gate 1 status:** FIXTURE.1.1 closes items #3 and #4 at the engine level. Item #5 (slash command human-readable output) still pending.
 
 ---
 

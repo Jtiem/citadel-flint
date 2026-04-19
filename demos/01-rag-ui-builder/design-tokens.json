@@ -116,6 +116,16 @@
       "$type": "dimension",
       "$value": "24px",
       "$description": "Banner headlines"
+    },
+    "cta": {
+      "$type": "dimension",
+      "$value": "{fontSize.sm}",
+      "$description": "CTA button label — alias of fontSize.sm (demonstrates adapter alias resolution)"
+    },
+    "broken-alias": {
+      "$type": "dimension",
+      "$value": "{fontSize.nonexistent}",
+      "$description": "Intentionally broken alias — exercises ALIAS_BROKEN_REF error path in live audits"
     }
   }
 }

@@ -19,6 +19,8 @@ import { A11yLinter, auditWithSurface } from "./core/A11yLinter.js";
 // ── FIXTURE.1 imports (append-only) ──────────────────────────────────────────
 import { resolveFixture } from "./core/fixtureResolver.js";
 import type { FlintFixtureSurface } from "../../shared/fixture-schema.js";
+// ── FIXTURE.1.1 import (append-only) ─────────────────────────────────────────
+import { normalizeTokenShape } from "./core/dtcgTokenAdapter.js";
 import { HydroPasteEngine } from "./core/hydroPaste.js";
 import { moveNode, injectComponent, applyTokenFix, assembleLayout, deleteNode, updateProp, updateClassName, updateTextContent, wrapNode, emitImport, emitHook, emitHandler, emitCallback, emitConditional, emitMap, composeSlot } from "./core/ast-modifier.js";
 import { TelemetryLogger } from "./core/telemetry.js";
@@ -2035,7 +2037,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                     if (resolvedFixture.resolvedTokensPath && resolvedFixture.resolvedTokensPath !== tokensPath) {
                         try {
                             const rawFixtureTokens = JSON.parse(fs.readFileSync(resolvedFixture.resolvedTokensPath, "utf-8"));
-                            tokens = Array.isArray(rawFixtureTokens) ? rawFixtureTokens : Object.values(rawFixtureTokens);
+                            tokens = normalizeTokenShape(rawFixtureTokens).tokens;
                         } catch {
                             auditWarnings.push(`Fixture tokens file could not be read — using project default tokens.`);
                         }

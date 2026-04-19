@@ -30,23 +30,6 @@
 
 ---
 
-## Swarm: FIXTURE.1.1 — DTCG Token Shape Adapter (closes FIXTURE.1 drift)
-
-**Status:** CONTRACT DRAFTING (architect spawned 2026-04-19)
-**Scope:** Close the documented drift from FIXTURE.1 integration report. The plumbing (`resolveFixture`, `auditAllWithSurface`, `fixtureContext` payload) all works; the failing invariant is `demo-compliant-clean === 0` because MithrilLinter's token consumer reads a legacy flat token shape while `design-tokens.json` is DTCG nested. Build a DTCG → linter-canonical token adapter so the compliant banner demo audits clean and the broken demo remains distinguishable.
-
-### Files to CREATE (contracts phase)
-| File | Purpose |
-|------|---------|
-| `.flint-context/contracts/FIXTURE.1.1-contract.md` | Contract artifact |
-| `.flint-context/contracts/FIXTURE.1.1.contract.ts` | Executable contract |
-
-### Coordination notes
-- Pure append to MithrilLinter token resolution path — no overlap with RUNTIME.1 (runtime-dom), FIGMA-LINT.1 (Universal AST), or existing FIXTURE.1 surface filter.
-- Invariant to hit: `banner-compliant.tsx` MITHRIL-TYP-002 + MITHRIL-SPC-001 count === 0 with DTCG tokens loaded.
-
----
-
 ## Swarm: FIXTURE.1 — Audit Context System (Beta Gate 1 items #3-#4)
 
 **Status:** CONTRACT DRAFTING (architect spawned 2026-04-19)
