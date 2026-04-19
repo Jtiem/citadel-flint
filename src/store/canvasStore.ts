@@ -23,6 +23,7 @@
 
 import { create } from 'zustand'
 import type { FileTreeNode, FlintPolicy, LinterWarning } from '../types/flint-api'
+import type { RuntimeAuditResult } from '../types/runtime-audit'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -277,6 +278,33 @@ interface CanvasState {
     _leftPanelSavedWidth: number
     /** Stored width to restore when expanding the right panel. */
     _rightPanelSavedWidth: number
+
+    // ── RUNTIME.1: axe-core runtime audit findings ──────────────────────────
+    /**
+     * Latest RuntimeAuditResult produced by the axe-core sandbox adapter, or
+     * null when no audit has run for the active file (either the user has not
+     * triggered one yet, or the active file just changed and the slice was
+     * cleared). Ephemeral — never persisted (Commandment 14 / no SQLite).
+     */
+    runtimeFindings: RuntimeAuditResult | null
+
+    // ── FIXTURE.1: latest MCP audit response context ────────────────────────
+    /**
+     * Transient snapshot of the most recent audit_ui_component / flint_audit
+     * MCP response. Only the `fixtureContext` sub-field is consumed by the
+     * StatusBar pill; the full payload is not stored.
+     *
+     * null  → no audit has run yet for the active file.
+     * {}    → audit ran but no fixture was resolved (pill stays hidden).
+     * { fixtureContext: { label, source, surface } } → pill renders label.
+     */
+    latestAudit: {
+        fixtureContext?: {
+            label?: string
+            source: string | null
+            surface?: string
+        }
+    } | null
 }
 
 interface CanvasActions {
@@ -467,6 +495,27 @@ interface CanvasActions {
     /** Toggles the right panel between collapsed and expanded. */
     toggleRightPanel: () => void
 
+    // ── RUNTIME.1: axe-core runtime audit findings ──────────────────────────
+    /**
+     * Writes the latest RuntimeAuditResult produced by the adapter into the
+     * store. Pass null to clear. Called by `useRuntimeAudit` on IPC success.
+     */
+    setRuntimeFindings: (result: RuntimeAuditResult | null) => void
+    /**
+     * Clears the runtimeFindings slice. Called when `activeFilePath` changes
+     * so stale findings from a previous file never leak into the merged
+     * violation list.
+     */
+    clearRuntimeFindings: () => void
+
+    // ── FIXTURE.1: latest MCP audit response ─────────────────────────────────
+    /**
+     * Writes the latest audit response context into the store.
+     * Called by any component or hook that receives an audit_ui_component /
+     * flint_audit MCP response. Pass null to clear on file change.
+     */
+    setLatestAudit: (audit: CanvasState['latestAudit']) => void
+
     /**
      * Returns to the Launch Screen by nullifying all workspace state.
      * Cancels any pending auto-save timer before clearing state.
@@ -647,6 +696,12 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     _leftPanelSavedWidth: DEFAULT_LEFT_PANEL_WIDTH,
     _rightPanelSavedWidth: DEFAULT_RIGHT_PANEL_WIDTH,
 
+    // RUNTIME.1: axe-core runtime audit findings (ephemeral)
+    runtimeFindings: null,
+
+    // FIXTURE.1: latest MCP audit response context (ephemeral)
+    latestAudit: null,
+
     startDrag: (sourceId) => set({ dragSourceId: sourceId }),
     endDrag: () => set({ dragSourceId: null }),
     setActiveSelection: (id) => set({ activeSelection: id }),
@@ -706,7 +761,10 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
         if (seq !== _setActiveFileSeq) return // superseded
         useEditorStore.getState().clearAST()
 
-        set({ activeFilePath: filePath, saveState: 'idle' })
+        // RUNTIME.1: Clear the previous file's runtime findings so the merged
+        // view never shows stale axe results after a file switch. Mirrors the
+        // Clean Slate Protocol above — same rationale, different surface.
+        set({ activeFilePath: filePath, saveState: 'idle', runtimeFindings: null })
 
         // ── Hydrate editor with new file content ─────────────────────────────
         try {
@@ -896,6 +954,13 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
             }
         }),
 
+    // ── RUNTIME.1: axe-core runtime audit findings ──────────────────────────
+    setRuntimeFindings: (result) => set({ runtimeFindings: result }),
+    clearRuntimeFindings: () => set({ runtimeFindings: null }),
+
+    // ── FIXTURE.1: latest MCP audit response context ─────────────────────────
+    setLatestAudit: (audit) => set({ latestAudit: audit }),
+
     closeWorkspace: () => {
         if (_saveTimer !== null) {
             clearTimeout(_saveTimer)
@@ -940,6 +1005,8 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
             rightPanelCollapsed: false,
             _leftPanelSavedWidth: DEFAULT_LEFT_PANEL_WIDTH,
             _rightPanelSavedWidth: DEFAULT_RIGHT_PANEL_WIDTH,
+            // RUNTIME.1: Clear runtime findings — never leak a prior file's audit
+            runtimeFindings: null,
         })
     },
 

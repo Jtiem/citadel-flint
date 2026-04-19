@@ -48,6 +48,7 @@ const rule070: A11yRule = {
     level: 'A',
     category: 'forms',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description: '<fieldset> elements must contain a <legend> child.',
 
     visitElement(path, _context) {
@@ -104,6 +105,7 @@ const rule071: A11yRule = {
     level: 'A',
     category: 'forms',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description: '<input> with required attribute must also have aria-required="true".',
 
     visitElement(path, _context) {
@@ -163,6 +165,7 @@ const rule072: A11yRule = {
     level: 'A',
     category: 'forms',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description: '<input> with aria-invalid must have aria-describedby pointing to an error message.',
 
     visitElement(path, _context) {
@@ -206,6 +209,7 @@ const rule073: A11yRule = {
     level: 'AA',
     category: 'forms',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description: 'The autocomplete attribute must use valid HTML5 autofill detail tokens.',
 
     visitElement(path, _context) {
@@ -264,6 +268,7 @@ const rule074: A11yRule = {
     level: 'AA',
     category: 'forms',
     severity: 'warning',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description:
         '<input type="password"> must have an autocomplete attribute of "current-password" or "new-password" ' +
         'so password managers and ATs can correctly identify the field.',
@@ -336,6 +341,7 @@ const rule075: A11yRule = {
     level: 'A',
     category: 'forms',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description:
         '<output> elements should be associated with form controls via htmlFor, ' +
         'or must have aria-live to announce dynamic results.',

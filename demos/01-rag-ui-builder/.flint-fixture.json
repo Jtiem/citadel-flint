@@ -1,0 +1,5 @@
+{
+  "surface": "component",
+  "tokens": "./design-tokens.json",
+  "label": "RAG UI demo (Tailwind defaults)"
+}

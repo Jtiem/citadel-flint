@@ -31,6 +31,7 @@ const rule080: A11yRule = {
     level: 'AA',
     category: 'live-regions',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description:
         'Elements with role="alert" must not set aria-live="polite". ' +
         'role="alert" implies aria-live="assertive". ' +
@@ -107,6 +108,7 @@ const rule081: A11yRule = {
     level: 'A',
     category: 'live-regions',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description: 'Elements with role="dialog" or role="alertdialog" must have aria-modal="true".',
 
     visitElement(path, _context) {
@@ -165,6 +167,7 @@ const rule082: A11yRule = {
     level: 'AA',
     category: 'live-regions',
     severity: 'warning',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description:
         'aria-live="assertive" on non-alert elements interrupts the user. ' +
         'Use aria-live="polite" or role="status" for non-urgent updates.',
@@ -220,6 +223,7 @@ const rule083: A11yRule = {
     level: 'AA',
     category: 'live-regions',
     severity: 'warning',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description:
         'Elements with aria-live should set aria-atomic to clarify whether the whole region ' +
         'or only changed nodes should be announced.',

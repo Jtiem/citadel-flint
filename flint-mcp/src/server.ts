@@ -14,8 +14,11 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { parse } from "@babel/parser";
 import _generate from "@babel/generator";
-import { auditAll } from "./core/MithrilLinter.js";
-import { A11yLinter } from "./core/A11yLinter.js";
+import { auditAll, auditAllWithSurface } from "./core/MithrilLinter.js";
+import { A11yLinter, auditWithSurface } from "./core/A11yLinter.js";
+// ── FIXTURE.1 imports (append-only) ──────────────────────────────────────────
+import { resolveFixture } from "./core/fixtureResolver.js";
+import type { FlintFixtureSurface } from "../../shared/fixture-schema.js";
 import { HydroPasteEngine } from "./core/hydroPaste.js";
 import { moveNode, injectComponent, applyTokenFix, assembleLayout, deleteNode, updateProp, updateClassName, updateTextContent, wrapNode, emitImport, emitHook, emitHandler, emitCallback, emitConditional, emitMap, composeSlot } from "./core/ast-modifier.js";
 import { TelemetryLogger } from "./core/telemetry.js";
@@ -2017,17 +2020,42 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                     }
                 }
 
+                // ── FIXTURE.1: resolve per-directory audit context ──────────
+                let fixtureContext: { label?: string; source: string | null } | null = null;
+                let fixtureSurface: FlintFixtureSurface | undefined;
+                try {
+                    const resolvedFixture = resolveFixture(componentPath, componentProjectRoot);
+                    if (resolvedFixture.source !== null) {
+                        fixtureContext = { label: resolvedFixture.fixture.label, source: resolvedFixture.source };
+                    } else {
+                        fixtureContext = null;
+                    }
+                    fixtureSurface = resolvedFixture.fixture.surface;
+                    // Override tokens from fixture-declared path if it resolves successfully
+                    if (resolvedFixture.resolvedTokensPath && resolvedFixture.resolvedTokensPath !== tokensPath) {
+                        try {
+                            const rawFixtureTokens = JSON.parse(fs.readFileSync(resolvedFixture.resolvedTokensPath, "utf-8"));
+                            tokens = Array.isArray(rawFixtureTokens) ? rawFixtureTokens : Object.values(rawFixtureTokens);
+                        } catch {
+                            auditWarnings.push(`Fixture tokens file could not be read — using project default tokens.`);
+                        }
+                    }
+                } catch (fixtureErr: any) {
+                    auditWarnings.push(`Fixture resolution failed: ${fixtureErr?.message ?? 'unknown error'}`);
+                }
+                // ── end FIXTURE.1 ────────────────────────────────────────────
+
                 const policyOpts = {
                     deltaE_threshold: resolved.mithril.deltaE_threshold,
                     deltaE_critical_threshold: resolved.mithril.deltaE_critical_threshold,
                     ...(auditRegistry && { registry: auditRegistry }),
                 };
                 const mithrilWarnings = resolved.mithril.mode !== 'off'
-                    ? auditAll(ast as any, tokens, policyOpts)
+                    ? auditAllWithSurface(ast as any, tokens, fixtureSurface, policyOpts)
                     : new Map();
                 const a11yResult = resolved.a11y.mode !== 'off'
-                    ? A11yLinter.auditStructured(ast as any, componentPath)
-                    : { filePath: componentPath, totalRules: 0, passed: 0, failed: 0, compliancePercent: 100, violations: [], criterionResults: [], fixableCount: 0, timestamp: new Date().toISOString() };
+                    ? auditWithSurface(ast as any, componentPath, fixtureSurface)
+                    : { filePath: componentPath, totalRules: 0, passed: 0, failed: 0, compliancePercent: 100, violations: [], criterionResults: [], fixableCount: 0, timestamp: new Date().toISOString() } as any;
 
                 const mithrilCount = mithrilWarnings.size;
                 const a11yCount = a11yResult.violations.length;
@@ -2103,9 +2131,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 const warningNote = auditWarnings.length > 0
                     ? `\n\nWarnings:\n${auditWarnings.map(w => `• ${w}`).join("\n")}`
                     : "";
+                // FIXTURE.1: include fixture context in response (null-safe)
+                const fixtureNote = fixtureContext
+                    ? `\n\nAudit context: ${fixtureContext.label ?? path.basename(fixtureContext.source ?? 'fixture')} (${fixtureSurface ?? 'component'} surface)`
+                    : "";
                 return finishAudit({
                     content: [
-                        { type: "text", text: `${finalSummary}\n\nRecommendation: ${auditRecommendation}\n\n${finalFormatted}${warningNote}` },
+                        { type: "text", text: `${finalSummary}\n\nRecommendation: ${auditRecommendation}\n\n${finalFormatted}${warningNote}${fixtureNote}` },
                     ],
                 });
             } catch (err: any) {

@@ -29,6 +29,9 @@ import { useNotificationStore } from '../../store/notificationStore'
 import { SyncStatus } from '../ui/SyncStatus'
 import { BetaFeedbackModal } from '../ui/BetaFeedbackModal'
 import { CoverageBadge } from './CoverageBadge'
+import { RuntimeAuditPill } from './RuntimeAuditPill'
+import { useRuntimeAudit } from '../../hooks/useRuntimeAudit'
+import { useRuntimeAxeFlag } from '../../hooks/useRuntimeAxeFlag'
 import type { FigmaStatus, BetaInfo, UpdateInfo, UpdateDownloadProgress } from '../../types/flint-api'
 import { formatRelativeTime } from '../../utils/relativeTime'
 
@@ -199,6 +202,117 @@ function IDESyncChip({ onConnectIDE }: { onConnectIDE?: () => void }) {
                 </div>
             )}
         </div>
+    )
+}
+
+// ── RuntimeAuditGate (RUNTIME.1) ──────────────────────────────────────────────
+
+/**
+ * Double-gated container for the RuntimeAuditPill.
+ *
+ * Contract invariant `flag-off-ui-silent`: when `runtime.axe.enabled` is false
+ * OR no file is active, this component renders NOTHING — zero DOM nodes — so
+ * `queryByTestId('runtime-audit-pill')` returns null.
+ *
+ * Progressive disclosure: even with the flag on, the pill stays hidden until
+ * a file is active so users without an open project never see an orphaned
+ * pill that has no preview to audit.
+ */
+function RuntimeAuditGate() {
+    const flagEnabled = useRuntimeAxeFlag()
+    const activeFilePath = useCanvasStore((s) => s.activeFilePath)
+
+    // Flag-off-ui-silent: zero DOM nodes when flag is off.
+    if (!flagEnabled) return null
+    // Progressive disclosure: also hidden until a file is active.
+    if (activeFilePath === null) return null
+
+    return <RuntimeAuditSurface />
+}
+
+/**
+ * Renders the actual pill + optional sub-message. Split from the gate so the
+ * useRuntimeAudit hook is only mounted when both gates pass.
+ */
+function RuntimeAuditSurface() {
+    const { status, result, run } = useRuntimeAudit()
+    const findingCount = result?.violations?.length ?? 0
+
+    const onClick = useCallback(() => {
+        // The real `previewHtml` is captured by Group A's main-process handler
+        // from the active LivePreview iframe. Here we pass an empty payload —
+        // the adapter treats absence as "use the current LivePreview HTML".
+        void run({})
+    }, [run])
+
+    const isNoPreview = status === 'no-preview'
+
+    return (
+        <div className="relative flex items-center gap-1.5">
+            <RuntimeAuditPill
+                status={status}
+                findingCount={findingCount}
+                onClick={onClick}
+            />
+            {isNoPreview && (
+                <span
+                    data-testid="runtime-audit-no-preview-message"
+                    className="text-[10px] text-zinc-500"
+                >
+                    Runtime audit skipped — no preview
+                </span>
+            )}
+        </div>
+    )
+}
+
+// ── AuditContextPill (FIXTURE.1) ──────────────────────────────────────────────
+
+/**
+ * Reads `canvasStore.latestAudit.fixtureContext` and renders a small status
+ * pill showing the resolved fixture label.
+ *
+ * Contract invariants:
+ *   - Renderless (zero DOM nodes) when fixtureContext or label is absent.
+ *   - Labels are truncated via CSS `max-w-[160px] truncate` (not a char cap),
+ *     so proportional-font widths are honored. The full label lives in the
+ *     `title` attribute AND `aria-label` so screen readers and hover tooltips
+ *     both carry it.
+ *   - `role="status"` satisfies Warden (Commandment 5 — A11y is a compiler error).
+ *   - Focusable (`tabIndex={0}`) so keyboard users can reveal the native tooltip
+ *     on focus (FIXTURE.1-UX-SUG-1).
+ *   - Prefixed with "Context · " so sighted users read the pill as an
+ *     audit-context signal, not a brand badge (FIXTURE.1-UX-WARN-2).
+ *   - Surface name shown in tooltip as "Surface: <surface>" per test spec.
+ */
+function AuditContextPill() {
+    const latestAudit = useCanvasStore((s) => s.latestAudit)
+
+    const label = latestAudit?.fixtureContext?.label
+    const surface = latestAudit?.fixtureContext?.surface
+
+    // Renderless when no label is present — zero DOM nodes.
+    if (!label) return null
+
+    // Tooltip always carries full label + surface when available. CSS truncation
+    // handles visible overflow; the title value is unconditional so keyboard-focus
+    // and mouse-hover both reveal the full context.
+    const tooltipParts: string[] = [label]
+    if (surface) tooltipParts.push(`Surface: ${surface}`)
+    const tooltip = tooltipParts.join(' · ')
+
+    return (
+        <span
+            role="status"
+            aria-label={`Audit context: ${label}`}
+            title={tooltip}
+            tabIndex={0}
+            data-testid="audit-context-pill"
+            className="flex min-h-[24px] max-w-[160px] items-center gap-1 truncate rounded border border-indigo-500/30 bg-zinc-800 px-1.5 py-0.5 text-xs text-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+        >
+            <span className="opacity-60">Context ·</span>
+            <span className="truncate">{label}</span>
+        </span>
     )
 }
 
@@ -781,6 +895,16 @@ export function StatusBar({ onConnectIDE, isDemo, onOpenOwnProject, onManageFigm
             {/* ── Coverage Badge (Phase 0 — Coverage Honesty) ──────────────────── */}
             {/* Self-contained: calls useCoverageSummary() internally. No store. */}
             <CoverageBadge />
+
+            {/* ── Audit Context Pill (FIXTURE.1) ────────────────────────────────── */}
+            {/* Renderless when no fixture was resolved (latestAudit is null or has
+                no fixtureContext.label). Pill order: [coverage] [audit context] [runtime]. */}
+            <AuditContextPill />
+
+            {/* ── Runtime Audit Pill (RUNTIME.1 — axe-core adapter) ────────────── */}
+            {/* Double-gated: feature flag + activeFilePath. Renders ZERO DOM nodes
+                when either gate is false (contract invariant flag-off-ui-silent). */}
+            <RuntimeAuditGate />
 
             {/* ── Herald: IDE Sync Indicator (progressive disclosure) ──────────── */}
             {/* Hidden until the first flint:ide-file-selected event. Then shows

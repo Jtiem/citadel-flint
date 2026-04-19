@@ -31,6 +31,7 @@ const rule007: A11yRule = {
     level: 'A',
     category: 'keyboard',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description: 'tabIndex > 0 disrupts the natural tab order.',
 
     visitElement(path, _context) {
@@ -99,6 +100,7 @@ const rule020: A11yRule = {
     level: 'A',
     category: 'keyboard',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description:
         'Non-interactive elements (div, span, etc.) with onClick must have role, tabIndex, and onKeyDown for keyboard accessibility.',
 
@@ -179,6 +181,7 @@ const rule021: A11yRule = {
     level: 'A',
     category: 'keyboard',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description: 'Mouse-only event handlers must have keyboard equivalents.',
 
     visitElement(path, _context) {
@@ -224,6 +227,7 @@ const rule022: A11yRule = {
     level: 'AA',
     category: 'keyboard',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description: 'Elements must not remove the focus indicator via outline: none or outline: 0.',
 
     visitElement(path, _context) {
@@ -323,6 +327,7 @@ const rule100: A11yRule = {
     level: 'A',
     category: 'keyboard',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description:
         'Non-interactive elements (div, span, section, etc.) with event handlers like onClick must ' +
         'have a semantic role (e.g. role="button") and tabIndex to be accessible. ' +

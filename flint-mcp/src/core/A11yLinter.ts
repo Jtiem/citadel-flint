@@ -12,9 +12,31 @@
  * EXP.6a expands this to 40 rules; EXP.6a-ext expands to 50 rules. The `audit()` return type is preserved as
  * `A11yViolations` (Record<string, string[]>) for backward compatibility.
  * New callers should use `auditStructured()` which returns `A11yAuditResult`.
+ *
+ * ── RUNTIME.1 (appended 2026-04-18) ─────────────────────────────────────────
+ *
+ * axe-core runtime findings flow through a PARALLEL pipeline and share the
+ * `A11yViolationDetail` shape declared in `./a11y/types.ts`. The runtime
+ * adapter (electron/main.ts `runtime:run-axe` + server/index.ts web-parity
+ * handler) normalizes axe-core results into A11yViolationDetail objects with:
+ *
+ *   - `ruleId`: either a Warden ID (from ../axeRuleMap.ts) or `RUNTIME-<axe-id>`
+ *   - `sourceAuthority: 'runtime-dom'` (attached by the merger downstream)
+ *
+ * A11yLinter's AST-time output is unchanged. The merger in the renderer
+ * (`useMergedA11yFindings` hook) deduplicates `(mappedWardenRuleId, elementId)`
+ * pairs across AST + runtime authorities; SARIF emitters that consume the
+ * resulting union treat `sourceAuthority: 'runtime-dom'` identically to any
+ * other authority value.
+ *
+ * Future Warden rule authors: do NOT add rules to axe. New AST-time rules go
+ * in `./a11y/rules/*.ts` exclusively. axe-only DOM findings surface with the
+ * `RUNTIME-` prefix and remain first-class in the dashboard.
  */
 
 import type { File as BabelFile } from '@babel/types'
+// ── FIXTURE.1 import (append-only) ───────────────────────────────────────────
+import type { FlintFixtureSurface, RuleAppliesTo } from '../../../shared/fixture-schema.js'
 import { auditSync, registerRules, getRegisteredRules } from './a11y/runner.js'
 import { namesLabelsRules } from './a11y/rules/names-labels.js'
 import { keyboardRules } from './a11y/rules/keyboard.js'
@@ -154,4 +176,74 @@ export const A11yLinter = {
 
         return { ...baseResult, coverage }
     },
+}
+
+// ── FIXTURE.1 — Surface applicability filter (append-only) ───────────────────
+//
+// Added by flint-ast-surgeon. RUNTIME.1 and FIGMA-LINT.1 append their own
+// sections after this one. Do NOT restructure the existing A11yLinter object.
+
+/**
+ * Single-source applicability predicate — re-exported from shared/fixture-schema.ts
+ * so the inclusion table is not duplicated across linters (FIXTURE.1-CODE-002).
+ * See `ruleMatchesSurface` in shared/fixture-schema.ts for the inclusion table.
+ */
+import { ruleMatchesSurface } from '../../../shared/fixture-schema.js'
+export { ruleMatchesSurface }
+
+/**
+ * FIXTURE.1 — Surface-aware structured audit.
+ *
+ * Wraps `auditStructured` and silently drops violations from rules whose
+ * `appliesTo` does not match the fixture surface. The filtering is applied
+ * post-audit (the runner still traverses, but violations from mismatched
+ * rules are removed before returning). This keeps the change append-only
+ * without modifying the runner.
+ *
+ * For the authoritative silent-skip semantics see the contract:
+ *   FIXTURE.1-contract.md § "Rule applicability metadata"
+ *
+ * @param ast        Babel AST.
+ * @param filePath   File path for reporting.
+ * @param surface    Fixture surface. When undefined, falls back to 'any' (all rules run).
+ * @param opts       Optional Phase 0 coverage passthrough.
+ */
+export function auditWithSurface(
+    ast: BabelFile,
+    filePath: string,
+    surface: FlintFixtureSurface | undefined,
+    opts?: AuditStructuredOptions,
+): A11yAuditResultWithCoverage {
+    ensureRulesRegistered()
+    const baseResult = A11yLinter.auditStructured(ast, filePath, opts)
+    if (!surface) return baseResult
+
+    // Build a lookup of ruleId → appliesTo from registered rules.
+    const ruleAppliesTo = new Map<string, RuleAppliesTo | undefined>()
+    for (const rule of getRegisteredRules()) {
+        ruleAppliesTo.set(rule.id, rule.appliesTo)
+    }
+
+    // Silent-skip: filter out violations from rules that don't match the surface.
+    const filteredViolations = baseResult.violations.filter((v) => {
+        const appliesTo = ruleAppliesTo.get(v.ruleId)
+        return ruleMatchesSurface(appliesTo, surface)
+    })
+
+    // Recalculate pass/fail counts to keep the result internally consistent.
+    const failedRuleIds = new Set(filteredViolations.map((v) => v.ruleId))
+    const failed = failedRuleIds.size
+    const passed = baseResult.totalRules - failed
+    const compliancePercent = baseResult.totalRules > 0
+        ? Math.round((passed / baseResult.totalRules) * 100)
+        : 100
+
+    return {
+        ...baseResult,
+        violations: filteredViolations,
+        failed,
+        passed,
+        compliancePercent,
+        fixableCount: filteredViolations.filter((v) => v.fixable).length,
+    }
 }

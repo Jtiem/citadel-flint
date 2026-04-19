@@ -6,6 +6,64 @@
 
 ---
 
+## Session: FORGE.1 Phase 2 Group A — IPC Layer (2026-04-19) — COMPLETE
+
+**Goal:** Wire the `project:smart-open` IPC channel end-to-end (Electron + Web + preload + types + web adapter) and create `it.todo` test scaffold for Group B. Also verify the 4 already-existing FORGE.2 handlers (`project:detect-environment`, `project:auto-configure`, `project:run-baseline`, `project:get-health-grade`) are correctly exposed through the preload bridge with the validators that were already added to `shared/ipc-validators.ts` at Phase 1.5.
+
+**Files changed:**
+- `electron/GitManager.ts` — added `clone(url, destDir)` public method (Commandment 14)
+- `electron/main.ts` — appended `project:smart-open` handler (heuristic: anchored `/^(https?:\/\/|git@|ssh:\/\/)/` → git clone via GitManager, else folder open)
+- `server/index.ts` — web parity mirror of `project:smart-open`
+- `electron/preload.ts` — exposed `window.flintAPI.project.smartOpen(input)` + confirmed 4 existing channel exposures are present
+- `src/types/flint-api.d.ts` — `smartOpen` declaration on `ProjectAPI`
+- `src/adapters/web-api.ts` — `smartOpen` in project block of web adapter
+- `electron/__tests__/projectSmartOpen.test.ts` — `it.todo` scaffold (all contract testBoundaries scoped to `project:smart-open` + validator + heuristic)
+
+**Validators confirmed in `shared/ipc-validators.ts`:** `projectSmartOpenSchema`, `projectDetectEnvironmentSchema`, `projectAutoConfigureSchema`, `projectRunBaselineSchema`, `projectGetHealthGradeSchema` — all 5 already landed at Phase 1.5.
+
+**What remains (Group B):**
+- Fill `it.todo` → real assertions in `electron/__tests__/projectSmartOpen.test.ts`
+- `LaunchScreen.tsx` 3-channel refactor + orphan removal
+- `DetectionPreview.tsx` new component
+- `LaunchScreen.test.tsx` + `DetectionPreview.test.tsx`
+
+---
+
+## Session: FORGE.1 — Phase 2 Group B — UI Layer (2026-04-19) — COMPLETE
+
+**Goal:** LaunchScreen 3-channel collapse + DetectionPreview component (FORGE.1 contract, Group B scope).
+
+**What shipped:**
+- `src/components/ui/LaunchScreen.tsx` — replaced 4-tile JTBD array with 3 ForgeChannels (Start from idea / Start from Figma / Start from existing code). "Start from idea" calls `project:create-scratchpad` with no folder picker. "Start from existing code" calls `project:smartOpen` (Group A IPC) with graceful fallback to `onOpenFolder`. Orphan `setFigmaSetupOpen(false)` deleted. Dead imports removed.
+- `src/components/ui/DetectionPreview.tsx` — NEW. Renders `ProjectEnvironment` with per-field override controls. MUI default applied when `componentLibrary` is null. `onCancel()` called with zero args. `onConfirm(overrides)` merges only changed fields.
+- `src/components/ui/__tests__/LaunchScreen.test.tsx` — 40 tests (rewritten for 3-channel set; all contract invariants covered).
+- `src/components/ui/__tests__/DetectionPreview.test.tsx` — 30 new tests.
+- `src/components/ui/__tests__/NewProjectFlow.test.tsx` — 4 Journey-10 tests updated from old 4-tile assertions.
+
+**Test results:** Glass: 3180+/3182 passing. Pre-existing StatusBar 2 failures unchanged. MCP: 5550/5550. Core: 2579/2579. TSC: 0 errors.
+
+**Dependency on Group A:** `project:smartOpen` (window.flintAPI.project.smartOpen) is gracefully degraded — if Group A IPC hasn't landed, "Start from existing code" falls back to `onOpenFolder`. No hard failure.
+
+---
+
+## Session: FORGE.1 — Channel Consolidation + Smart Detection (2026-04-19) — CONTRACT DRAFTING
+
+**Goal:** Beta-blocker fix (BETA-READINESS-CHECKLIST Gate 2). Forge Sprint 1 of 4: collapse LaunchScreen from 8 entry channels to 3 (Start from idea / Start from Figma / Start from existing code) with smart-detection surfacing for the existing-code channel before commit. Net-new "Start from idea" channel that satisfies the no-folder-picker-before-first-render rule. Sprint 2-4 (visual polish, copy refinement, animation) explicitly deferred.
+
+**Investigation findings (file:line):**
+- `src/components/ui/LaunchScreen.tsx` currently exposes 4 tiles + primary "New Project" CTA + DemoScenarioPicker + Recent Projects list + Paste-Audit + footer "Open any folder" + "Connect to IDE" — verified 8 entry channels matching Justin's estimate.
+- `LaunchScreen.tsx:228` — orphan `setFigmaSetupOpen(false)` call references a state setter that no longer exists (FigmaSetupWizard removed 2026-04-15). Compile risk; needs removal in Sprint 1.
+- `shared/projectDetector.ts` — full `ProjectEnvironment` detector already shipped (FORGE.2a). Detects framework, CSS, library, tokens, component count, TS, monorepo. Used by both Electron and Web.
+- `electron/main.ts:2138-2398` — `project:detect-environment`, `project:auto-configure`, `project:run-baseline`, `project:get-health-grade` IPC handlers ALL EXIST. Web parity confirmed at `server/index.ts:1400-1521`.
+- **Gap:** None of the 4 FORGE.2 IPC handlers have Zod validators in `shared/ipc-validators.ts`. Sprint 1 must register them.
+- **Net-new for Sprint 1:** "Start from idea" channel (no folder picker before first render — uses `project:create-scratchpad`); single "Start from existing code" channel that auto-routes folder vs git URL via heuristic; `project:smart-open` IPC handler that wraps the existing detect→preview→commit flow; `DetectionPreview` component that surfaces results before user commits.
+
+**Phase 1 artifacts:**
+- `.flint-context/contracts/FORGE.1-contract.md`
+- `.flint-context/contracts/FORGE.1.contract.ts`
+
+---
+
 ## Session: COUNSEL.1 — Unify the Health Score (2026-04-19) — IN PROGRESS
 
 **Goal:** Beta-blocker fix (BETA-READINESS-CHECKLIST Gate 1). Counsel Sprint 1 of 4: collapse all remaining health-score divergences into the canonical `shared/healthScore.ts` module so StatusBar coverage badge, GovernanceDashboard, `flint_debt_report`, and `flint_generate_dbom` always return identical numbers for the same input. Visual redesign explicitly deferred to Sprints 2–4.
@@ -3347,3 +3405,31 @@ See `docs/FLINT-MASTER-PLAN.md` Section 3 for the full module table. All phases 
 4. Duplicated MRS formula in `riskApproval.test.ts` — no sync enforcement with `orchestrator.ts`
 
 **Note:** Master Plan uses V.1 (Risk Scoring) and V.2 (Mutation Provenance). JTBD plan uses V.1-gd (Governance Dashboard) and V.2-af (Activity Feed). These are different features — use full phase codes to avoid confusion.
+
+---
+
+## 2026-04-19 — COUNSEL.1 Phase 2 (Unify Health Score)
+
+**Goal:** Collapse three inline copies of health-score formula in flint-mcp/ to single source of truth at shared/healthScore.ts. Restore advisory-bucket penalty in DBOM. Mark legacy positional shims @deprecated. Extend cross-surface parity test with 16-row matrix.
+
+**Files in scope:** debtReportService.ts (delegating wrapper), dbom/generator.ts (pass advisoryCount), governance/dbomService.ts (use canonical helper), dashboard/types.ts (JSDoc), shared/healthScore.ts (@deprecated shim), useGovernanceHealth.ts (@deprecated JSDoc), shared/__tests__/healthScore.parity.test.ts (extend).
+
+### COUNSEL.1 results (2026-04-19, COMPLETE):
+- **Files modified (6 prod + 1 test):**
+  - `flint-mcp/src/core/dashboard/debtReportService.ts` — `computeHealthScore` and `scoreToGrade` are now @deprecated positional shims that delegate to `shared/healthScore.ts`. Stale parity-comment header removed. Imports `canonicalComputeHealthScore` and `canonicalGradeFromScore` from `../../../../shared/healthScore.js` (same `../../../../` pattern as existing `coverage-types.js` import).
+  - `flint-mcp/src/core/dbom/generator.ts` — switched import to `shared/healthScore.js`. Added `totalAdvisories` accumulator (Mithril severities other than `critical`/`amber` now bucket here). Project healthScore call uses object-arg `computeHealthScore({...})` and destructures both `score` and `grade` (eliminating the dropped advisory bucket — divergence B fix).
+  - `flint-mcp/src/core/governance/dbomService.ts` — per-component score now calls canonical `computeHealthScore({...})` instead of inline `Math.max(0, Math.min(100, 100 - (criticals*10 + warnings*3)))`. Buckets advisories from `comp.violations` (divergence C fix).
+  - `flint-mcp/src/core/dashboard/types.ts` — `DebtReport` JSDoc rewritten to point at the canonical formula in `shared/healthScore.ts` (divergence D fix).
+  - `src/hooks/useGovernanceHealth.ts` — `computeCanonicalHealthScore` positional shim marked `@deprecated` with migration guidance to the object-arg form.
+  - `shared/healthScore.ts` — no change (no positional shim exists in that file).
+  - `shared/__tests__/healthScore.parity.test.ts` — extended with the COUNSEL.1 16-row parity matrix exercising all four surfaces (canonical, debtReportService deprecated shim, dbom/generator project healthScore, dbomService per-component). Asserts `|delta| === 0` between every pairwise combination on every row, plus advisory-bucket canary `{0,0,5,0} → 95/A` and coverage-grade-independence.
+- **Test counts:**
+  - MCP: 5550/5550 passing (0 new — refactor; existing safety-promises and debtReportService tests cover the formula thoroughly)
+  - Glass: 3126/3128 passing (2 pre-existing StatusBar Figma-disconnect failures, baseline-confirmed unrelated to COUNSEL.1)
+  - Core: 2556/2556 passing (97 in parity test file; 16 new matrix rows + canary + coverage-independence)
+  - TSC: 0 errors
+- **Headline invariant met:** parity matrix asserts `|delta| === 0` across all four surfaces for all 16 rows (executes in <10ms — well under the 500ms budget).
+- **Deviations from contract:** None substantive. Notes:
+  - Did not delete `scoreToGrade` from `debtReportService.ts`; per contract I instead made it `@deprecated` and re-routed it through `gradeFromScore`. This preserves call-site compatibility for the 50+ consumers across the package.
+  - The dbom-generator-adapter and dbomService-per-component-adapter in the parity test mirror the post-refactor call paths (each uses canonical `computeHealthScore`). They are the same surface by construction now — which IS the headline invariant. Any future re-divergence in those files will fail this test only if those call sites stop calling the canonical helper, which is the intended canary.
+- **Out-of-scope items honored:** No UI, IPC, MCP tool, MCP resource, Mithril/Warden rule, or coverage-honesty change.

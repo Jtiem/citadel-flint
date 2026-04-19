@@ -19,6 +19,8 @@ import type { FlintConfig } from '../core/config.js'
 import { handleFlintAuditBatch } from './audit.js'
 import { handleFlintFix } from './fix.js'
 import { BRAND, toolName } from '../brand.js'
+// ── FIXTURE.1 import (append-only) ───────────────────────────────────────────
+import { resolveFixture } from '../core/fixtureResolver.js'
 
 // ---- Types ------------------------------------------------------------------
 
@@ -200,6 +202,24 @@ export async function handleFlintSwarmAuditFix(
         }
         return { ...emptyReport, summary: generateSwarmSummary(emptyReport), recommendation: generateSwarmRecommendation(emptyReport) }
     }
+
+    // ── FIXTURE.1: pre-warm the fixture-resolver cache ───────────────────────
+    // The resolver uses a module-level Map keyed by directory. Calling it once
+    // per unique directory primes the cache so all per-file audit calls within
+    // the same swarm run pay the disk read at most once per directory.
+    const seenDirs = new Set<string>()
+    for (const fp of filePaths) {
+        const dir = path.dirname(fp)
+        if (!seenDirs.has(dir)) {
+            seenDirs.add(dir)
+            try {
+                resolveFixture(fp, projectRoot)
+            } catch {
+                // Malformed fixture — let the per-file audit surface the error.
+            }
+        }
+    }
+    // ── end FIXTURE.1 ────────────────────────────────────────────────────────
 
     // Step 2: Audit all discovered files
     const batchResult = await handleFlintAuditBatch(

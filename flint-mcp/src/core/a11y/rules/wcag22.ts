@@ -44,6 +44,7 @@ const rule110: A11yRule = {
     level: 'AA',
     category: 'keyboard',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description:
         'All functionality that uses dragging (onDragStart, onDrag, onDrop) must also be ' +
         'operable with a single pointer (onClick, onPointerDown, etc.).',
@@ -93,6 +94,7 @@ const rule111: A11yRule = {
     level: 'AA',
     category: 'keyboard',
     severity: 'warning',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description:
         'Touch targets on interactive elements must be at least 24x24 CSS pixels. ' +
         'Detect patterns like w-4/h-4 Tailwind classes or inline width/height < 24px.',
@@ -207,6 +209,7 @@ const rule112: A11yRule = {
     level: 'AA',
     category: 'keyboard',
     severity: 'warning',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description:
         'Elements with position fixed/sticky and a z-index may obscure keyboard-focused ' +
         'elements beneath them. Add aria-hidden="true" to purely decorative overlays, ' +
@@ -269,6 +272,7 @@ const rule113: A11yRule = {
     level: 'AA',
     category: 'keyboard',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description:
         'Interactive elements (buttons, links, inputs) must not remove the focus outline ' +
         'without providing a visible replacement focus indicator (focus:ring-*, focus-visible:*).',
@@ -326,6 +330,7 @@ const rule114: A11yRule = {
     level: 'AA',
     category: 'forms',
     severity: 'warning',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description:
         'Forms with multiple inputs of the same type (email/tel) should use autocomplete ' +
         'so users do not have to re-enter information they have already provided.',
@@ -418,6 +423,7 @@ const rule115: A11yRule = {
     level: 'AA',
     category: 'forms',
     severity: 'warning',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description:
         '<input type="password"> must not have autocomplete="off" without providing ' +
         'an alternative authentication mechanism (e.g., password manager support).',
@@ -489,6 +495,7 @@ const rule116: A11yRule = {
     level: 'AAA',
     category: 'keyboard',
     severity: 'warning',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description:
         'Advisory: elements with position fixed/sticky and any z-index may partially ' +
         'obscure focused elements. WCAG 2.4.12 (Enhanced) requires full visibility.',
@@ -542,6 +549,7 @@ const rule117: A11yRule = {
     level: 'AAA',
     category: 'forms',
     severity: 'warning',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description:
         '<input type="password"> must have autocomplete set to "current-password" or ' +
         '"new-password" so that password managers and AT can assist with authentication.',

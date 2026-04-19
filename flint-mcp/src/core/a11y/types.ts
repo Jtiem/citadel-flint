@@ -7,6 +7,9 @@
 
 import type { File as BabelFile, JSXElement } from '@babel/types'
 import type { NodePath } from '@babel/traverse'
+// ── FIXTURE.1 ────────────────────────────────────────────────────────────────
+import type { RuleAppliesTo } from '../../../../shared/fixture-schema.js'
+export type { RuleAppliesTo }
 
 /**
  * WCAG 2.1 success criterion identifier.
@@ -51,6 +54,15 @@ export interface A11yRule {
     category: A11yRuleCategory
     /** Default severity. */
     severity: A11yRuleSeverity
+    /**
+     * FIXTURE.1 — Surface applicability.
+     * - 'document'  → only run on fixtures with surface='document'
+     * - 'section'   → run on 'document' or 'section'
+     * - 'component' → run on all surfaces (most permissive; reserved for symmetry)
+     * - 'any'       → run on all surfaces (default when undefined)
+     * When undefined, behavior is identical to 'any' (backward-compatible).
+     */
+    appliesTo?: RuleAppliesTo
     /** Human-readable description of what the rule checks. */
     description: string
     /**

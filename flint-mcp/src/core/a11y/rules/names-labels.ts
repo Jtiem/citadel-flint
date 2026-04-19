@@ -35,6 +35,7 @@ const rule001: A11yRule = {
     level: 'A',
     category: 'names-labels',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description: '<img> elements must have an alt attribute.',
 
     visitElement(path, _context) {
@@ -84,6 +85,7 @@ const rule002: A11yRule = {
     level: 'A',
     category: 'names-labels',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description: '<button> elements must have an accessible name.',
 
     visitElement(path, _context) {
@@ -139,6 +141,7 @@ const rule003: A11yRule = {
     level: 'A',
     category: 'names-labels',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description: '<a> elements must have an accessible name.',
 
     visitElement(path, _context) {
@@ -194,6 +197,7 @@ const rule004: A11yRule = {
     level: 'A',
     category: 'names-labels',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description: '<input> elements must have a programmatic label.',
 
     visitElement(path, _context) {
@@ -249,6 +253,7 @@ const rule005: A11yRule = {
     level: 'A',
     category: 'names-labels',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description: '<select> elements must have an accessible label.',
 
     visitElement(path, _context) {
@@ -303,6 +308,7 @@ const rule006: A11yRule = {
     level: 'A',
     category: 'names-labels',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description: '<textarea> elements must have an accessible label.',
 
     visitElement(path, _context) {
@@ -357,6 +363,7 @@ const rule011: A11yRule = {
     level: 'A',
     category: 'names-labels',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description: '<img> alt attribute must not be a filename.',
 
     visitElement(path, _context) {
@@ -409,6 +416,7 @@ const rule012: A11yRule = {
     level: 'A',
     category: 'names-labels',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description: '<svg> elements must have a <title>, aria-label, or role="img" + aria-label.',
 
     visitElement(path, _context) {
@@ -474,6 +482,7 @@ const rule013: A11yRule = {
     level: 'A',
     category: 'names-labels',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description: '<input type="image"> must have an alt attribute.',
 
     visitElement(path, _context) {
@@ -526,6 +535,7 @@ const rule014: A11yRule = {
     level: 'A',
     category: 'names-labels',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description: 'Link text must not be generic ("click here", "read more", etc.).',
 
     visitElement(path, _context) {
@@ -572,6 +582,7 @@ const rule018: A11yRule = {
     level: 'A',
     category: 'names-labels',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description: '<iframe> elements must have a title attribute describing the embedded content.',
 
     visitElement(path, _context) {

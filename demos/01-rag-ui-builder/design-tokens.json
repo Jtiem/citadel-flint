@@ -58,22 +58,49 @@
       "$value": "8px",
       "$description": "Compact spacing"
     },
+    "3": {
+      "$type": "dimension",
+      "$value": "12px",
+      "$description": "CTA vertical padding"
+    },
     "4": {
       "$type": "dimension",
       "$value": "16px",
-      "$description": "Standard component padding"
+      "$description": "Standard component padding / gap"
     },
     "6": {
       "$type": "dimension",
       "$value": "24px",
-      "$description": "Card / panel padding"
+      "$description": "Card / panel padding / CTA horizontal padding"
+    },
+    "12": {
+      "$type": "dimension",
+      "$value": "48px",
+      "$description": "Banner interior padding"
+    }
+  },
+  "radius": {
+    "sm": {
+      "$type": "dimension",
+      "$value": "8px",
+      "$description": "Button / input radius"
+    },
+    "md": {
+      "$type": "dimension",
+      "$value": "12px",
+      "$description": "Card / banner radius"
     }
   },
   "fontSize": {
+    "xs": {
+      "$type": "dimension",
+      "$value": "12px",
+      "$description": "Uppercase label text"
+    },
     "sm": {
       "$type": "dimension",
       "$value": "14px",
-      "$description": "Secondary UI text"
+      "$description": "Secondary UI / CTA label"
     },
     "base": {
       "$type": "dimension",
@@ -84,6 +111,11 @@
       "$type": "dimension",
       "$value": "20px",
       "$description": "Sub-headings and card titles"
+    },
+    "xl": {
+      "$type": "dimension",
+      "$value": "24px",
+      "$description": "Banner headlines"
     }
   }
 }

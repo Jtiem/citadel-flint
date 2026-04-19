@@ -138,6 +138,7 @@ const rule030: A11yRule = {
     level: 'A',
     category: 'aria',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description: 'role attribute must be a valid WAI-ARIA role.',
 
     visitElement(path, _context) {
@@ -195,6 +196,7 @@ const rule031: A11yRule = {
     level: 'A',
     category: 'aria',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description: 'Elements with certain ARIA roles must have required child roles present.',
 
     visitElement(path, _context) {
@@ -251,6 +253,7 @@ const rule032: A11yRule = {
     level: 'A',
     category: 'aria',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description: 'Elements with certain ARIA roles must be inside a required parent role.',
 
     visitElement(path, _context) {
@@ -312,6 +315,7 @@ const rule033: A11yRule = {
     level: 'A',
     category: 'aria',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description: 'Elements with certain ARIA roles must have required ARIA attributes.',
 
     visitElement(path, _context) {
@@ -381,6 +385,7 @@ const rule034: A11yRule = {
     level: 'A',
     category: 'aria',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description: 'ARIA attribute names must be valid WAI-ARIA attributes.',
 
     visitElement(path, _context) {
@@ -467,6 +472,7 @@ const rule035: A11yRule = {
     level: 'A',
     category: 'aria',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description: 'ARIA attribute values must match allowed types.',
 
     visitElement(path, _context) {
@@ -522,6 +528,7 @@ const rule036: A11yRule = {
     level: 'A',
     category: 'aria',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description: 'aria-hidden="true" must not be applied to focusable elements.',
 
     visitElement(path, _context) {
@@ -602,6 +609,7 @@ const rule037: A11yRule = {
     level: 'A',
     category: 'aria',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description: 'Elements must not have duplicate ARIA attributes.',
 
     visitElement(path, _context) {
@@ -667,6 +675,7 @@ const rule038: A11yRule = {
     level: 'A',
     category: 'aria',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description: 'Interactive elements must not have role="presentation" or role="none".',
 
     visitElement(path, _context) {

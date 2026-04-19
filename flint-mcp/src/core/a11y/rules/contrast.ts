@@ -45,6 +45,7 @@ const rule060: A11yRule = {
     level: 'AA',
     category: 'contrast',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description: 'Normal text must have a contrast ratio of at least 4.5:1.',
 
     visitElement(path, _context) {
@@ -94,6 +95,7 @@ const rule061: A11yRule = {
     level: 'AA',
     category: 'contrast',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description: 'Large text must have a contrast ratio of at least 3:1.',
 
     visitElement(path, _context) {
@@ -143,6 +145,7 @@ const rule062: A11yRule = {
     level: 'AA',
     category: 'contrast',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description: 'UI components must have a non-text contrast ratio of at least 3:1.',
 
     visitElement(path, _context) {

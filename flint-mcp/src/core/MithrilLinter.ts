@@ -2402,3 +2402,49 @@ export function auditAllWithCoverage(
 
     return { warnings, coverage }
 }
+
+// ── FIXTURE.1 — Mithril surface applicability filter (append-only) ───────────
+//
+// Added by flint-ast-surgeon. RUNTIME.1 and FIGMA-LINT.1 append their own
+// sections after this one. Do NOT restructure the existing auditAll visitors.
+
+import type { FlintFixtureSurface as _FlintFixtureSurface } from '../../../shared/fixture-schema.js'
+import { ruleMatchesSurface as _mithrilRuleMatchesSurface } from '../../../shared/fixture-schema.js'
+import { MITHRIL_APPLIES_TO } from './mithrilAppliesTo.js'
+
+/**
+ * FIXTURE.1 — Mithril surface-aware audit.
+ *
+ * Delegates to `auditAllWithCoverage` (or `auditAll` when no coverage is
+ * needed) then silently removes warnings from rules whose `appliesTo` in
+ * `MITHRIL_APPLIES_TO` does not match the fixture surface.
+ *
+ * Because all Mithril rules are `'any'` in FIXTURE.1, this filter currently
+ * passes every warning through unchanged. The wrapper is established here so
+ * future re-classifications only require an update to `mithrilAppliesTo.ts`.
+ *
+ * @param ast      Babel AST.
+ * @param tokens   Design tokens.
+ * @param surface  Fixture surface. When undefined, all rules run (legacy).
+ * @param options  AuditAllOptions (passed through to auditAll unchanged).
+ */
+export function auditAllWithSurface(
+    ast: File,
+    tokens: DesignToken[],
+    surface: _FlintFixtureSurface | undefined,
+    options?: AuditAllOptions,
+): Map<string, LinterWarning> {
+    const warnings = auditAll(ast, tokens, options)
+    if (!surface) return warnings
+
+    const filtered = new Map<string, LinterWarning>()
+    for (const [id, warning] of warnings) {
+        const appliesTo = warning.ruleId ? MITHRIL_APPLIES_TO[warning.ruleId] : undefined
+        // Single-source predicate (FIXTURE.1-CODE-002 — de-duplicated from A11yLinter)
+        if (_mithrilRuleMatchesSurface(appliesTo, surface)) {
+            filtered.set(id, warning)
+        }
+        // else: silently skipped — no log, no suppressed entry
+    }
+    return filtered
+}

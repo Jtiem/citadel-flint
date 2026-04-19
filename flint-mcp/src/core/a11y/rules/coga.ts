@@ -34,6 +34,7 @@ const rule001: A11yRule = {
     level: 'A',
     category: 'forms',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description:
         'Form controls must have a visible label or accessible name. ' +
         'Placeholder text alone is not a substitute for a label.',
@@ -122,6 +123,7 @@ const rule002: A11yRule = {
     level: 'A',
     category: 'names-labels',
     severity: 'warning',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description:
         'When sessions have a time limit, users must be warned at least 20 seconds before ' +
         'timeout and given a way to extend. Look for session/logout text without a dialog pattern.',
@@ -192,6 +194,7 @@ const rule003: A11yRule = {
     level: 'A',
     category: 'forms',
     severity: 'warning',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description:
         'Forms with more than 7 input or select fields without a fieldset grouping may be ' +
         'too complex for users with cognitive disabilities. Use <fieldset> to group related fields.',
@@ -269,6 +272,7 @@ const rule004: A11yRule = {
     level: 'A',
     category: 'forms',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description:
         'Error states must not rely on color alone. Elements with red/error color classes ' +
         'must also have aria-invalid="true" or an adjacent role="alert" message.',
@@ -341,6 +345,7 @@ const rule005: A11yRule = {
     level: 'A',
     category: 'names-labels',
     severity: 'warning',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description:
         'Help and support links should have a consistent, descriptive aria-label so ' +
         'screen reader users can reliably find them across pages.',
@@ -394,6 +399,7 @@ const rule006: A11yRule = {
     level: 'AA',
     category: 'forms',
     severity: 'warning',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description:
         'Input fields collecting personal data (name, email, address, phone) should have ' +
         'autocomplete attributes to help users with cognitive disabilities avoid re-entering ' +
@@ -463,6 +469,7 @@ const rule007: A11yRule = {
     level: 'A',
     category: 'forms',
     severity: 'warning',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description:
         'Placeholder text longer than 60 characters is too complex for users with cognitive ' +
         'disabilities. Keep placeholder text short and use visible labels for instructions.',
@@ -506,6 +513,7 @@ const rule008: A11yRule = {
     level: 'AA',
     category: 'forms',
     severity: 'warning',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description:
         '<input> elements collecting personal data must have an autocomplete attribute ' +
         'so that users with cognitive disabilities can use saved data to complete forms.',
