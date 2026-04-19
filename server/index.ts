@@ -931,11 +931,26 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     // Use the shared validator — consistent with electron/main.ts.
     // Provides: type check, absolute path, extension allowlist, realpathSync
     // home-scope enforcement, and self-hosting guard in one place.
+    //
+    // Self-hosting guard exception: the guard's stated purpose is to prevent
+    // the Vite HMR → reload → flash loop, which is a *write*-side concern
+    // (see banner at line 186: "All writes to source files are blocked").
+    // Reads do not trigger HMR. The `demos/` subtree in particular holds
+    // read-only demo assets that users legitimately open from the IDE-sync
+    // bridge (`.flint/ide-active-file.json`) and from the LaunchScreen demo
+    // tiles. Without this exception, `tryAutoResume` throws silently when
+    // `lastActiveFile` points at a demo path and Glass falls to the launch
+    // screen with no explanation.
+    const demosDir = path.join(serverRoot, 'demos') + path.sep
+    const isDemoRead = (resolved: string): boolean =>
+      resolved === path.join(serverRoot, 'demos') || resolved.startsWith(demosDir)
+
     const validated = sharedValidateFilePath({
       filePath,
       homeDir: os.homedir(),
       allowedExtensions: ['.tsx', '.ts', '.jsx', '.js', '.html', '.vue', '.svelte'],
       selfHostCheck: (resolved) => {
+        if (isDemoRead(resolved)) return
         if (selfHosting.isSelfHostedPath(resolved)) {
           throw new Error('file:read — refusing to read Flint source tree (self-hosting guard)')
         }
