@@ -243,7 +243,7 @@ export function EmitDropdown({ disabled = false, emitOp, onEmit }: EmitDropdownP
 
       {/* ── Menu ── */}
       {isOpen && (
-        <ul
+        <div
           ref={menuRef}
           id={menuId}
           role="menu"
@@ -258,7 +258,7 @@ export function EmitDropdown({ disabled = false, emitOp, onEmit }: EmitDropdownP
         >
           {/* Section headers — purely visual, platform groups */}
           {PLATFORMS.map(({ platform, label }, platformIdx) => (
-            <li key={platform} role="none">
+            <div key={platform} role="none">
               {/* Platform section divider (except first) */}
               {platformIdx > 0 && (
                 <div className="my-1 border-t border-zinc-800" role="separator" aria-hidden="true" />
@@ -271,7 +271,7 @@ export function EmitDropdown({ disabled = false, emitOp, onEmit }: EmitDropdownP
                 const previewIdx = platformIdx * 2
                 const previewItem = MENU_ITEMS[previewIdx]
                 return (
-                  <li
+                  <div
                     key={previewItem.testId}
                     ref={el => { itemRefs.current[previewIdx] = el }}
                     role="menuitem"
@@ -286,7 +286,7 @@ export function EmitDropdown({ disabled = false, emitOp, onEmit }: EmitDropdownP
                     )}
                   >
                     <span className="flex-1">{previewItem.label}</span>
-                  </li>
+                  </div>
                 )
               })()}
               {/* Write item */}
@@ -294,7 +294,7 @@ export function EmitDropdown({ disabled = false, emitOp, onEmit }: EmitDropdownP
                 const writeIdx = platformIdx * 2 + 1
                 const writeItem = MENU_ITEMS[writeIdx]
                 return (
-                  <li
+                  <div
                     key={writeItem.testId}
                     ref={el => { itemRefs.current[writeIdx] = el }}
                     role="menuitem"
@@ -309,12 +309,12 @@ export function EmitDropdown({ disabled = false, emitOp, onEmit }: EmitDropdownP
                     )}
                   >
                     <span className="flex-1">{writeItem.label}</span>
-                  </li>
+                  </div>
                 )
               })()}
-            </li>
+            </div>
           ))}
-        </ul>
+        </div>
       )}
     </div>
   )
