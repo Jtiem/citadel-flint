@@ -107,6 +107,11 @@ const ALLOWED_MCP_ONLY_EXPORTS: readonly string[] = [
     // Phase 2 PostCSS — MCP-only CSS var() resolver wrapper
     // Glass var() resolution remains single-pass fallback-only (no project-wide custom property map).
     'parseCssColorToHexWithMap',   // Phase 2: MCP-only wrapper that resolves CSS var() via customPropertyMap
+
+    // RUNTIME.1 / FIXTURE.1 — MCP-only surface-aware audit wrapper.
+    // Accepts a fixture surface type to apply fixture-scoped rule applicability.
+    // Glass reads audit results via IPC; it does not call the linter directly.
+    'auditAllWithSurface',         // RUNTIME.1/FIXTURE.1: surface-aware audit; Glass reads via IPC
 ]
 
 // ── Helpers ────────────────────────────────────────────────────────────────────

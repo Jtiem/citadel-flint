@@ -6,6 +6,16 @@
 
 ---
 
+## Session: FIXTURE.1.1 — DTCG Token Shape Adapter (2026-04-19) — IN PROGRESS
+
+**Goal:** Close FIXTURE.1's documented drift. The integration report (2026-04-19) shipped FIXTURE.1 as SHIP-WITH-DOCUMENTED-DRIFT because the headline invariant `demo-compliant-clean === 0` fails: `banner-compliant.tsx` returns 5 MITHRIL violations (4× TYP-002, 1× SPC-001) even though the fixture loads `design-tokens.json` correctly via `resolveFixture`. Root cause per integration report: DTCG → linter token-shape normalization gap. Tokens load; linter's lookup misses them because it expects legacy flat shape while `design-tokens.json` uses DTCG nested shape.
+
+**Scope:** Build a DTCG → canonical-token adapter in the MithrilLinter token-resolution path. Target invariant: `banner-compliant` → 0 violations, `banner-broken` ≥ 5 violations, distinguishable.
+
+**Phase:** Phase 1 contract drafting — flint-architect spawned.
+
+---
+
 ## Session: FORGE.1 Phase 2 Group A — IPC Layer (2026-04-19) — COMPLETE
 
 **Goal:** Wire the `project:smart-open` IPC channel end-to-end (Electron + Web + preload + types + web adapter) and create `it.todo` test scaffold for Group B. Also verify the 4 already-existing FORGE.2 handlers (`project:detect-environment`, `project:auto-configure`, `project:run-baseline`, `project:get-health-grade`) are correctly exposed through the preload bridge with the validators that were already added to `shared/ipc-validators.ts` at Phase 1.5.
@@ -3433,3 +3443,59 @@ See `docs/FLINT-MASTER-PLAN.md` Section 3 for the full module table. All phases 
   - Did not delete `scoreToGrade` from `debtReportService.ts`; per contract I instead made it `@deprecated` and re-routed it through `gradeFromScore`. This preserves call-site compatibility for the 50+ consumers across the package.
   - The dbom-generator-adapter and dbomService-per-component-adapter in the parity test mirror the post-refactor call paths (each uses canonical `computeHealthScore`). They are the same surface by construction now — which IS the headline invariant. Any future re-divergence in those files will fail this test only if those call sites stop calling the canonical helper, which is the intended canary.
 - **Out-of-scope items honored:** No UI, IPC, MCP tool, MCP resource, Mithril/Warden rule, or coverage-honesty change.
+
+---
+
+## FORGE.1 Phase 2 consolidated fix-forward (resumed) — 2026-04-19
+
+Resumed after previous agent rate-limit. Backend security fixes (SEC-HIGH-1/2, SEC-MED-1/2/3/4/5) verified ALREADY-DONE on disk via git diff. Remaining work:
+- CODE-BLK-1: convert 28 `it.todo` in `projectSmartOpen.test.ts` to real assertions
+- Deliberate-breakage probes for SEC-HIGH-1 (slug `..` traversal) and SEC-HIGH-2 (symlink attack)
+- CONS-1/CONS-2 wiring through preload + web-api + flint-api types + LaunchScreen
+- UX-B3 plain-language labels in DetectionPreview
+- UX-W3 CheckCircle reframe + UX-W4 inline Figma URL + UX-W5 effective-vs-detected
+- CODE-SUG-1 contract `< 100ms` text update + CODE-SUG-2 MUI label constant
+
+### COMPLETED 2026-04-19
+
+**Test results:**
+- MCP:   5603/5603 passing (0 new — Glass-side work)
+- Glass: 3181/3194 passing (40 new in projectSmartOpen.test.ts; 2 pre-existing StatusBar Figma-disconnect failures, baseline-confirmed via `git stash` before/after — same 2 failures noted in COUNSEL.1 HANDOFF entry)
+- Core:  2619/2645 passing (40 new from projectSmartOpen.test.ts; remaining todos unrelated)
+- TSC:   0 errors
+
+**Per-finding status:**
+- SEC-HIGH-1 slug traversal: ALREADY-DONE (backend) + FIXED (5 deliberate-breakage tests added)
+- SEC-HIGH-2 symlink attack: ALREADY-DONE (backend) + FIXED (4 deliberate-breakage tests added)
+- SEC-MED-1 timeout + shallow: ALREADY-DONE
+- SEC-MED-2 SSRF policy (web only): ALREADY-DONE
+- SEC-MED-3 schema hardening: ALREADY-DONE
+- SEC-MED-4 credential prompt neutralization: ALREADY-DONE + FIXED (env-scrub assertion test added)
+- SEC-MED-5 path normalization with realpath: ALREADY-DONE
+- CODE-BLK-1 fill it.todo scaffolds: FIXED (28 it.todo → 40 real assertions, all passing)
+- CONS-1 wire MUI default: PARTIAL backend → FIXED (preload/web-api/types/LaunchScreen wired)
+- CONS-2 thread DetectionPreview overrides: PARTIAL backend → FIXED (preload/web-api/types/LaunchScreen wired)
+- UX-B3 plain-language labels: FIXED (Built with / Component kit / Styling / Code type / Design tokens)
+- UX-W3 confident MUI default: FIXED (CheckCircle + emerald + "Using MUI (change if needed)")
+- UX-W4 inline Figma URL: FIXED (inline input below from-figma channel; reuses onNewProject)
+- UX-W5 effective-vs-detected: FIXED (libraryChanged/frameworkChanged/cssChanged comparisons)
+- UX-W1 audit-only shortcut: DEFERRED (TODO comment near CHANNELS array; Sprint 2)
+- CODE-WARN-3 stale console.log: ALREADY-DONE (removed from GitManager AST walker)
+- CODE-SUG-1 contract `< 100ms` text: FIXED (rewrite to "same async flush" in both .md and .contract.ts)
+- CODE-SUG-2 MUI label constant: FIXED (`MUI_LABEL` extracted in DetectionPreview.tsx)
+- LOW-1, LOW-2, LOW-3: DEFERRED per task spec.
+
+**Files touched (this session):**
+- `electron/__tests__/projectSmartOpen.test.ts`
+- `electron/preload.ts`
+- `src/types/flint-api.d.ts`
+- `src/adapters/web-api.ts`
+- `src/components/ui/LaunchScreen.tsx`
+- `src/components/ui/DetectionPreview.tsx`
+- `src/components/ui/__tests__/DetectionPreview.test.tsx`
+- `.flint-context/contracts/FORGE.1-contract.md`
+- `.flint-context/contracts/FORGE.1.contract.ts`
+
+**Contract amendments:**
+- `from-idea-ipc-roundtrip` invariant: measurable + threshold rewritten from "Vitest mock timing < 100ms" to "same async flush — no dialog:openFolder calls, no extra IPC round-trips." Wall-clock was an unstable proxy for the property we actually care about (no intermediate dialog/IPC between click and canvas mount); LaunchScreen.test.tsx already verifies the spy-on-dialog assertion.
+

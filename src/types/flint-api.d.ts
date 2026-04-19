@@ -532,7 +532,7 @@ export interface ProjectAPI {
      *
      * One click → canvas. No dialogs.
      */
-    createScratchpad: () => Promise<FileTreeNode>
+    createScratchpad: (payload?: { libraryDefault?: string }) => Promise<FileTreeNode>
 
     /**
      * CK.3: Re-scans the active project for React components via Babel AST,
@@ -570,7 +570,13 @@ export interface ProjectAPI {
      * was detected) and flint_reindex_registry. All MCP calls are best-effort.
      * Returns { configured: false } when MCP is not connected or no project is open.
      */
-    autoConfigureProject: () => Promise<{ configured: boolean; library: string | null; reindexed: boolean }>
+    autoConfigureProject: (payload?: {
+        overrides?: {
+            framework?: string
+            componentLibrary?: string
+            cssFramework?: string
+        }
+    }) => Promise<{ configured: boolean; library: string | null; reindexed: boolean }>
 
     /**
      * FORGE.4b: Reads the cached debt snapshot for a project and returns
@@ -601,6 +607,27 @@ export interface ProjectAPI {
      * Returns an unsubscribe function for useEffect cleanup.
      */
     onBaselineProgress?: (callback: (data: { phase: string; percent: number }) => void) => () => void
+
+    /**
+     * FORGE.1: "Start from existing code" smart-open channel.
+     *
+     * Accepts either an absolute folder path or a git URL (https://, git@, ssh://).
+     * The main process heuristic-routes:
+     *   - git URL  → git clone via GitManager (Commandment 14) → detect environment
+     *   - folder   → detect environment directly
+     *
+     * The caller renders DetectionPreview from the returned environment before
+     * calling project:auto-configure to commit the configuration.
+     *
+     * @param input — Absolute folder path or git URL. Validated by projectSmartOpenSchema (min 1).
+     * @returns SmartOpenResult with projectPath, detected environment, and routing source.
+     */
+    smartOpen: (input: string) => Promise<{
+        projectPath: string
+        /** Full ProjectEnvironment — typed as unknown here; callers narrow at DetectionPreview boundary. */
+        environment: ProjectEnvironment
+        source: 'folder' | 'git-clone'
+    }>
 }
 
 /** IPC surface for native OS menu events pushed by the main process. */

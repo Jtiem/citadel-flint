@@ -20,7 +20,7 @@ Target: **Private Beta**, **web build only** (Electron deferred), 5–10 invited
 
 - [ ] All P0 issues from `docs/strategy/UX-AUDIT-2026-04-04.md` closed
 - [ ] All P1 issues closed or explicitly deferred with note
-- [ ] Forge Sprint 1 complete (project initiation: 3 channels + smart detection)
+- [x] Forge Sprint 1 complete (project initiation: 3 channels + smart detection)
 - [ ] Mint Sprint 1 complete (token list → governance observability)
 - [ ] LaunchScreen v2 shipped (2 primary actions + text link)
 - [ ] New Project flow: idea → one click → describe and build (no folder picker first)

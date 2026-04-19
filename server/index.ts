@@ -1196,7 +1196,11 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     return null
   })
 
-  handlers.set('project:create-scratchpad', async () => {
+  handlers.set('project:create-scratchpad', async (payload?: unknown) => {
+    // CONS-1 fix-forward: accept optional { libraryDefault } payload.
+    const { projectCreateScratchpadSchema } = await import('../shared/ipc-validators.js')
+    const parsed = projectCreateScratchpadSchema.parse(payload)
+    const libraryDefault = parsed?.libraryDefault ?? null
     const flintProjectsDir = path.join(os.homedir(), `${BRAND.product} Projects`)
     await fs.mkdir(flintProjectsDir, { recursive: true })
 
@@ -1229,6 +1233,31 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
         export_gate: { block_on_mithril: true, block_on_a11y: true, block_on_overrides: true },
         baseline: { enabled: false },
       }, null, 2) + '\n')
+    }
+
+    // CONS-1: persist library default for downstream auto-configure.
+    if (libraryDefault) {
+      try {
+        await safeAtomicWrite(
+          path.join(flintDir, 'detected-environment.json'),
+          JSON.stringify({
+            framework: { name: 'react', version: 'latest' },
+            cssFramework: { name: 'tailwind', version: 'latest' },
+            componentLibrary: { name: libraryDefault, version: 'latest' },
+            hasDesignTokens: false,
+            tokenSource: null,
+            componentCount: 0,
+            detectedAt: new Date().toISOString(),
+            uiFramework: 'React',
+            cssFrameworkLabel: 'Tailwind CSS',
+            tokenFormat: null,
+            typescript: true,
+            componentLibraryLabel: libraryDefault,
+          }, null, 2),
+        )
+      } catch (err) {
+        console.error(`${BRAND.logPrefix} project:create-scratchpad: write libraryDefault failed:`, err)
+      }
     }
 
     registryUpsert.run(randomUUID(), projectName, targetPath)
@@ -1505,7 +1534,12 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
 
   // ── project:auto-configure (FORGE.2b) ─────────────────────────────────────
   // Reads detected environment and calls MCP tools to configure the project.
-  handlers.set('project:auto-configure', async () => {
+  handlers.set('project:auto-configure', async (payload?: unknown) => {
+    // CONS-2 fix-forward: accept optional { overrides } payload.
+    const { projectAutoConfigureSchema } = await import('../shared/ipc-validators.js')
+    const parsed = projectAutoConfigureSchema.parse(payload)
+    const overrides = parsed?.overrides ?? undefined
+
     if (!activeProjectRoot) {
       return { configured: false, library: null, reindexed: false }
     }
@@ -1533,6 +1567,11 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
       }
     } catch {
       // No detected-environment.json yet — proceed without library config
+    }
+
+    // CONS-2: overrides win over the detected value.
+    if (overrides?.componentLibrary) {
+      library = overrides.componentLibrary
     }
 
     // Call flint_set_library if a component library was detected
@@ -1648,6 +1687,162 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
 
     sendProgress('complete', 100)
     return { violations, grade, score, filesAudited }
+  })
+
+  // ── project:smart-open (FORGE.1) ─────────────────────────────────────────
+  // Web-parity mirror of the Electron project:smart-open handler.
+  // Same heuristic: anchored regex determines git clone vs folder open.
+  // Git clones use execFileAsync (array args — no shell interpolation).
+  // Commandment 14: this is the web build equivalent of routing through
+  // GitManager. The server has no GitManager singleton, so we call execFileAsync
+  // directly with array arguments — same safety guarantee, no shell interp.
+  handlers.set('project:smart-open', async (payload: unknown) => {
+    const { projectSmartOpenSchema } = await import('../shared/ipc-validators.js')
+    const { input } = projectSmartOpenSchema.parse(payload)
+
+    const GIT_URL_RE = /^(https?:\/\/|git@|ssh:\/\/)/
+    const home = os.homedir()
+    const detectorFs: DetectorFS = {
+      readFile: (fp: string, enc: 'utf-8') => fs.readFile(fp, enc),
+      exists: async (fp: string) => existsSync(fp),
+    }
+
+    let projectPath: string
+    let source: 'folder' | 'git-clone'
+
+    if (GIT_URL_RE.test(input)) {
+      source = 'git-clone'
+
+      // SEC-MED-2: Web build only — reject git URLs whose host resolves to
+      // RFC1918, loopback, or link-local space. The Electron desktop is
+      // user-trusted and exempt; this gate fires only when the git URL would
+      // be cloned by the public web server. The check is best-effort: DNS
+      // failures are treated as suspect and reject the request.
+      try {
+        const url = new URL(input.startsWith('git@') ? input.replace(/^git@([^:]+):/, 'ssh://$1/') : input)
+        const host = url.hostname
+        if (host) {
+          const dns = await import('node:dns/promises')
+          const addresses = await dns.lookup(host, { all: true }).catch(() => [])
+          for (const addr of addresses) {
+            const ip = addr.address
+            if (
+              /^127\./.test(ip) || ip === '::1' ||
+              /^10\./.test(ip) ||
+              /^192\.168\./.test(ip) ||
+              /^172\.(1[6-9]|2\d|3[0-1])\./.test(ip) ||
+              /^169\.254\./.test(ip) || /^fe80:/i.test(ip)
+            ) {
+              throw new Error(`[Flint] project:smart-open: refusing to clone from non-public host (${host} → ${ip})`)
+            }
+          }
+        }
+      } catch (err) {
+        // Re-throw policy violations; swallow DNS-only errors to avoid blocking
+        // legitimate clones in air-gapped networks. SSRF-relevant errors carry
+        // the explicit "refusing to clone" prefix.
+        if (err instanceof Error && err.message.includes('refusing to clone')) throw err
+      }
+
+      // SEC-HIGH-1: slug traversal hardening (parity with Electron path).
+      let slug = input
+        .replace(/\.git$/, '')
+        .split('/')
+        .filter(Boolean)
+        .pop() ?? ''
+      if (!slug || slug === '.' || slug === '..' || /[\\/\0]/.test(slug)) {
+        slug = randomUUID()
+      }
+
+      const flintProjectsDir = path.join(home, 'Flint Projects')
+      if (!existsSync(flintProjectsDir)) {
+        mkdirSync(flintProjectsDir, { recursive: true })
+      }
+      const candidate = path.resolve(flintProjectsDir, slug)
+      if (!candidate.startsWith(flintProjectsDir + path.sep)) {
+        throw new Error(`[Flint] project:smart-open: invalid clone destination — would escape ${flintProjectsDir}`)
+      }
+      projectPath = candidate
+
+      // SEC-HIGH-2 + SEC-MED-1 + SEC-MED-4: symlinks off, shallow + timeout, env scrub.
+      try {
+        await execFileAsync(
+          'git',
+          [
+            '-c', 'core.symlinks=false',
+            '-c', 'core.askPass=true',
+            'clone',
+            '--depth=1',
+            '--single-branch',
+            '--',
+            input,
+            projectPath,
+          ],
+          {
+            timeout: 120_000,
+            env: {
+              ...process.env,
+              GIT_TERMINAL_PROMPT: '0',
+              GIT_ASKPASS: 'echo',
+              SSH_ASKPASS: 'echo',
+            },
+          },
+        )
+      } catch (err) {
+        const e = err as NodeJS.ErrnoException & { signal?: string; stderr?: string }
+        if (e.signal === 'SIGTERM' || e.code === 'ETIMEDOUT') {
+          throw new Error(`[Flint] project:smart-open: clone-timeout — git clone exceeded 120s for ${input}`)
+        }
+        const stderr = String(e.stderr ?? '')
+        if (
+          /could not read/i.test(stderr) ||
+          /authentication failed/i.test(stderr) ||
+          /permission denied/i.test(stderr) ||
+          /terminal prompts disabled/i.test(stderr)
+        ) {
+          throw new Error(`[Flint] project:smart-open: auth-required — credentials needed for ${input}`)
+        }
+        throw err
+      }
+    } else {
+      source = 'folder'
+
+      if (!path.isAbsolute(input)) {
+        throw new Error(`[Flint] project:smart-open: input must be an absolute path (got: ${input})`)
+      }
+      // SEC-MED-5: realpath-aware prefix check.
+      let resolvedHome = home
+      try {
+        const { realpath } = await import('node:fs/promises')
+        resolvedHome = await realpath(home)
+      } catch { /* fall back to home */ }
+      const resolved = path.resolve(input)
+      if (!resolved.startsWith(resolvedHome + path.sep) && resolved !== resolvedHome) {
+        throw new Error(`[Flint] project:smart-open: path must be within the home directory`)
+      }
+      if (!existsSync(resolved)) {
+        throw new Error(`[Flint] project:smart-open: not a directory — path does not exist: ${resolved}`)
+      }
+      projectPath = resolved
+    }
+
+    const environment = await detectProjectEnvironment(projectPath, detectorFs)
+
+    try {
+      const flintDir = path.join(projectPath, '.flint')
+      if (!existsSync(flintDir)) {
+        await fs.mkdir(flintDir, { recursive: true })
+      }
+      await safeAtomicWrite(
+        path.join(flintDir, 'detected-environment.json'),
+        JSON.stringify(environment, null, 2),
+      )
+    } catch (err) {
+      console.error(`${BRAND.logPrefix} FORGE.1: smart-open: Failed to write detected-environment.json:`, err)
+    }
+
+    activeProjectRoot = projectPath
+    return { projectPath, environment, source }
   })
 
   handlers.set('project:reindex', async () => {

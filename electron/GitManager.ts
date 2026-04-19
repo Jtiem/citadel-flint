@@ -46,13 +46,6 @@ function findFlintIdOffsets(node: Node, targetId: string): [number, number] | nu
             if (
                 attr.type === 'JSXAttribute' &&
                 attr.name.type === 'JSXIdentifier' &&
-                attr.name.name === 'data-flint-id'
-            ) {
-                console.log('found data-flint-id attr:', attr.value)
-            }
-            if (
-                attr.type === 'JSXAttribute' &&
-                attr.name.type === 'JSXIdentifier' &&
                 attr.name.name === 'data-flint-id' &&
                 attr.value?.type === 'StringLiteral' &&
                 attr.value.value === targetId &&
@@ -231,6 +224,75 @@ export class GitManager {
             console.error('parse failed:', e)
             return null
         }
+    }
+
+    /**
+     * Clones a remote git repository into `destDir`.
+     *
+     * Uses execFile with array arguments — no shell interpolation (Commandment 14).
+     * The URL is validated by the caller's anchored-regex heuristic before this
+     * method is invoked; GitManager does not re-validate the URL shape.
+     *
+     * Hardening (Phase 2 fix-forward):
+     *   - SEC-HIGH-2: `core.symlinks=false` blocks symlink-based escape attacks.
+     *     A malicious repo can ship symlinks that point at ~/.ssh/, ~/.aws/, etc.;
+     *     disabling symlinks at clone time means the working tree only contains
+     *     plain files even if the upstream history references symlinks.
+     *   - SEC-MED-1: `--depth=1 --single-branch` reduces clone surface and time;
+     *     the 120s `timeout` aborts hanging clones (slow network, huge mono-repo).
+     *   - SEC-MED-4: env scrubs `GIT_TERMINAL_PROMPT`/`GIT_ASKPASS`/`SSH_ASKPASS`
+     *     so a private repo cannot block the main process waiting on credentials.
+     *
+     * Errors:
+     *   - `clone-timeout` — kill signal SIGTERM after 120s (rethrown with code).
+     *   - `auth-required` — non-zero exit with credential-related stderr.
+     *   - other — original error rethrown unchanged.
+     *
+     * @param url     — A git-cloneable URL (https://, git@, or ssh://).
+     * @param destDir — Absolute path to the directory that will contain the clone.
+     *                  The parent must already exist; `git clone` creates `destDir`.
+     */
+    async clone(url: string, destDir: string): Promise<void> {
+        try {
+            await execFileAsync(
+                'git',
+                [
+                    '-c', 'core.symlinks=false',
+                    '-c', 'core.askPass=true',
+                    'clone',
+                    '--depth=1',
+                    '--single-branch',
+                    '--',
+                    url,
+                    destDir,
+                ],
+                {
+                    timeout: 120_000,
+                    env: {
+                        ...process.env,
+                        GIT_TERMINAL_PROMPT: '0',
+                        GIT_ASKPASS: 'echo',
+                        SSH_ASKPASS: 'echo',
+                    },
+                },
+            )
+        } catch (err) {
+            const e = err as NodeJS.ErrnoException & { signal?: string; stderr?: string }
+            if (e.signal === 'SIGTERM' || e.code === 'ETIMEDOUT') {
+                throw new Error(`[Flint] GitManager: clone-timeout — git clone exceeded 120s for ${url}`)
+            }
+            const stderr = String(e.stderr ?? '')
+            if (
+                /could not read/i.test(stderr) ||
+                /authentication failed/i.test(stderr) ||
+                /permission denied/i.test(stderr) ||
+                /terminal prompts disabled/i.test(stderr)
+            ) {
+                throw new Error(`[Flint] GitManager: auth-required — credentials needed for ${url}`)
+            }
+            throw err
+        }
+        console.log(`[Flint] GitManager: cloned ${url} → ${destDir}`)
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { BRAND, ipcChannel } from '../shared/brand.ts'
-import { validateIPC, mcpCallToolSchema, MCP_TOOL_ARG_SCHEMAS } from '../shared/ipc-validators.ts'
+import { validateIPC, mcpCallToolSchema, MCP_TOOL_ARG_SCHEMAS, projectSmartOpenSchema } from '../shared/ipc-validators.ts'
 
 /**
  * The Preload Flint — all communication between the React Renderer
@@ -505,10 +505,10 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
          * with no folder picker dialog. Returns the FileTreeNode tree rooted
          * at the new project directory.
          */
-        createScratchpad: (): Promise<{
+        createScratchpad: (payload?: { libraryDefault?: string }): Promise<{
             name: string; path: string; type: 'file' | 'directory'; children?: unknown[]
         }> =>
-            ipcRenderer.invoke('project:create-scratchpad'),
+            ipcRenderer.invoke('project:create-scratchpad', payload),
 
         /**
          * CK.3: Re-scans the active project for React components, merges the
@@ -534,8 +534,14 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
          * flint_set_library (if a library was detected) and flint_reindex_registry.
          * All MCP calls are best-effort. Returns whether configuration succeeded.
          */
-        autoConfigureProject: (): Promise<{ configured: boolean; library: string | null; reindexed: boolean }> =>
-            ipcRenderer.invoke('project:auto-configure'),
+        autoConfigureProject: (payload?: {
+            overrides?: {
+                framework?: string
+                componentLibrary?: string
+                cssFramework?: string
+            }
+        }): Promise<{ configured: boolean; library: string | null; reindexed: boolean }> =>
+            ipcRenderer.invoke('project:auto-configure', payload),
 
         /**
          * FORGE.4b: Reads the cached debt snapshot for a project and returns
@@ -567,6 +573,29 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
             return () => {
                 ipcRenderer.removeListener('project:baseline-progress', listener)
             }
+        },
+
+        /**
+         * FORGE.1: "Start from existing code" channel.
+         *
+         * Accepts either an absolute folder path or a git URL (https://, git@, ssh://).
+         * The main process heuristic-routes:
+         *   - git URL → git clone via GitManager (Commandment 14) → detect
+         *   - folder path → detect directly
+         *
+         * Returns the resolved project path, the detected ProjectEnvironment,
+         * and a `source` field indicating which routing path was taken.
+         *
+         * Payload is validated against `projectSmartOpenSchema` (z.object({ input: z.string().min(1) }))
+         * before the IPC call is made.
+         */
+        smartOpen: (input: string): Promise<{
+            projectPath: string
+            environment: unknown
+            source: 'folder' | 'git-clone'
+        }> => {
+            projectSmartOpenSchema.parse({ input })
+            return ipcRenderer.invoke('project:smart-open', { input })
         },
     },
 

@@ -165,6 +165,22 @@ import { promisify } from 'node:util'
 import { transformSync } from '@babel/core'
 
 const execFileAsync = promisify(execFile)
+
+/**
+ * SEC-MED-5 helper: returns the realpath of `p` so symlinked roots collapse
+ * before the smart-open prefix check. Falls back to the original path when
+ * realpath fails (e.g. the path no longer exists) — callers must still gate
+ * on existsSync after this returns.
+ */
+async function realpathSafe(p: string): Promise<string> {
+    try {
+        const { realpath } = await import('node:fs/promises')
+        return await realpath(p)
+    } catch {
+        return p
+    }
+}
+
 import { fileTransactionManager } from './FileTransactionManager.js'
 import { gitManager } from './GitManager.js'
 import { jsxAttribute, jsxIdentifier, stringLiteral } from '@babel/types'
@@ -1899,7 +1915,14 @@ app.whenReady().then(async () => {
     //   6. Register in the global registry.
     //   7. Set activeProjectRoot and start the MCP client.
     //   8. Scan and return the FileTreeNode tree.
-    ipcMain.handle('project:create-scratchpad', async (): Promise<FileTreeNode> => {
+    ipcMain.handle('project:create-scratchpad', async (_e, payload?: unknown): Promise<FileTreeNode> => {
+        // CONS-1 fix-forward: accept optional { libraryDefault } payload so the
+        // from-idea channel can wire its MUI default through the IPC boundary.
+        // Validation runs even when the payload is undefined (the schema accepts
+        // either undefined or the strict object).
+        const { projectCreateScratchpadSchema } = await import('../shared/ipc-validators.ts')
+        const parsed = projectCreateScratchpadSchema.parse(payload)
+        const libraryDefault = parsed?.libraryDefault ?? null
         const flintProjectsDir = path.join(app.getPath('home'), `${BRAND.product} Projects`)
         await mkdir(flintProjectsDir, { recursive: true })
 
@@ -1927,6 +1950,34 @@ app.whenReady().then(async () => {
             path.join(flintDir, 'design-tokens.json'),
             '[]\n',
         )
+
+        // CONS-1: persist the from-idea library default so subsequent
+        // project:auto-configure picks it up via the standard detected-environment.json
+        // pipeline. Best-effort; failure to write is non-fatal.
+        if (libraryDefault) {
+            try {
+                await writeFile(
+                    path.join(flintDir, 'detected-environment.json'),
+                    JSON.stringify({
+                        framework: { name: 'react', version: 'latest' },
+                        cssFramework: { name: 'tailwind', version: 'latest' },
+                        componentLibrary: { name: libraryDefault, version: 'latest' },
+                        hasDesignTokens: false,
+                        tokenSource: null,
+                        componentCount: 0,
+                        detectedAt: new Date().toISOString(),
+                        uiFramework: 'React',
+                        cssFrameworkLabel: 'Tailwind CSS',
+                        tokenFormat: null,
+                        typescript: true,
+                        componentLibraryLabel: libraryDefault,
+                    }, null, 2),
+                    'utf-8',
+                )
+            } catch (err) {
+                console.error(`${BRAND.logPrefix} project:create-scratchpad: write libraryDefault failed:`, err)
+            }
+        }
 
         // Git init
         await gitManager.ensureRepo(targetPath).catch(err => {
@@ -2232,11 +2283,19 @@ app.whenReady().then(async () => {
     // Reads the detected environment (or accepts it inline) and calls MCP tools
     // to configure the project: flint_set_library + flint_reindex_registry.
     // All MCP calls are best-effort — errors are logged, never thrown.
-    ipcMain.handle('project:auto-configure', async (): Promise<{
+    ipcMain.handle('project:auto-configure', async (_e, payload?: unknown): Promise<{
         configured: boolean
         library: string | null
         reindexed: boolean
     }> => {
+        // CONS-2 fix-forward: accept optional { overrides } payload from
+        // DetectionPreview so the user's framework/library/CSS corrections actually
+        // reach the configure pipeline. Validation accepts undefined for legacy
+        // call sites and the strict object for the new path.
+        const { projectAutoConfigureSchema } = await import('../shared/ipc-validators.ts')
+        const parsed = projectAutoConfigureSchema.parse(payload)
+        const overrides = parsed?.overrides ?? undefined
+
         if (!activeProjectRoot) {
             return { configured: false, library: null, reindexed: false }
         }
@@ -2265,6 +2324,12 @@ app.whenReady().then(async () => {
             }
         } catch {
             // No detected-environment.json yet — proceed without library config
+        }
+
+        // CONS-2: overrides win over the detected value. The DetectionPreview
+        // Confirm action carries any user-corrected library here.
+        if (overrides?.componentLibrary) {
+            library = overrides.componentLibrary
         }
 
         // Call flint_set_library if a component library was detected
@@ -2410,6 +2475,120 @@ app.whenReady().then(async () => {
             if (!data.grade || data.score == null) return null
             return { grade: data.grade, score: data.score, updatedAt: data.timestamp ?? new Date().toISOString() }
         } catch { return null }
+    })
+
+    // ── project:smart-open (FORGE.1) ──────────────────────────────────────────
+    // Single entry-point for the "Start from existing code" channel.
+    //
+    // Heuristic: anchored regex `/^(https?:\/\/|git@|ssh:\/\/)/` — any input
+    // that matches is treated as a git URL and routed through GitManager.clone
+    // (Commandment 14 — no raw child_process.exec). Anything else is treated as
+    // an absolute folder path and routed through the existing detectProjectEnvironment
+    // pipeline. UNC paths (\\server\share) fail the regex and are treated as folder
+    // paths; if the path does not exist they will throw a typed error.
+    //
+    // Returns SmartOpenResult: { projectPath, environment, source }.
+    ipcMain.handle('project:smart-open', async (_e, payload: unknown): Promise<{
+        projectPath: string
+        environment: ProjectEnvironment
+        source: 'folder' | 'git-clone'
+    }> => {
+        // Validate payload shape using the FORGE.1 Zod schema
+        const { projectSmartOpenSchema } = await import('../shared/ipc-validators.ts')
+        const { input } = projectSmartOpenSchema.parse(payload)
+
+        const GIT_URL_RE = /^(https?:\/\/|git@|ssh:\/\/)/
+
+        const home = app.getPath('home')
+        const detectorFs: DetectorFS = {
+            readFile: (fp: string, enc: 'utf-8') => readFile(fp, enc),
+            exists: async (fp: string) => existsSync(fp),
+        }
+
+        let projectPath: string
+        let source: 'folder' | 'git-clone'
+
+        if (GIT_URL_RE.test(input)) {
+            // ── Git clone path ────────────────────────────────────────────────
+            source = 'git-clone'
+
+            // SEC-HIGH-1: Slug traversal hardening.
+            // A URL like "https://x/repo/.." would derive slug ".." which lets
+            // the clone destination escape ~/Flint Projects. Reject any slug
+            // that is missing, "." / "..", or contains path separators / NULs;
+            // fall back to a random UUID so the clone still proceeds safely.
+            let slug = input
+                .replace(/\.git$/, '')
+                .split('/')
+                .filter(Boolean)
+                .pop() ?? ''
+            if (!slug || slug === '.' || slug === '..' || /[\\/\0]/.test(slug)) {
+                slug = randomUUID()
+            }
+
+            // Clone into ~/Flint Projects/<slug> (mirrors the scratchpad convention)
+            const flintProjectsDir = path.join(home, 'Flint Projects')
+            if (!existsSync(flintProjectsDir)) {
+                mkdirSync(flintProjectsDir, { recursive: true })
+            }
+            // SEC-HIGH-1 (defense in depth): re-resolve the destination and assert
+            // it stays inside flintProjectsDir even if the slug somehow escaped the
+            // checks above. A future regex change cannot silently re-introduce the
+            // traversal vulnerability without tripping this assertion.
+            const candidate = path.resolve(flintProjectsDir, slug)
+            if (!candidate.startsWith(flintProjectsDir + path.sep)) {
+                throw new Error(`[Flint] project:smart-open: invalid clone destination — would escape ${flintProjectsDir}`)
+            }
+            projectPath = candidate
+
+            // Route through GitManager — never raw exec (Commandment 14).
+            // GitManager.clone applies SEC-HIGH-2 (core.symlinks=false), SEC-MED-1
+            // (timeout + shallow), and SEC-MED-4 (env scrub).
+            await gitManager.clone(input, projectPath)
+        } else {
+            // ── Folder path ───────────────────────────────────────────────────
+            source = 'folder'
+
+            // Security: must be an absolute path inside the user's home directory
+            if (!path.isAbsolute(input)) {
+                throw new Error(`[Flint] project:smart-open: input must be an absolute path (got: ${input})`)
+            }
+            // SEC-MED-5: Resolve the path so any "." / ".." / symlink traversal
+            // is collapsed BEFORE the prefix check. Compare against the realpath
+            // of the home directory so a symlinked $HOME does not bypass the gate.
+            const resolvedHome = await realpathSafe(home)
+            const resolved = path.resolve(input)
+            if (!resolved.startsWith(resolvedHome + path.sep) && resolved !== resolvedHome) {
+                throw new Error(`[Flint] project:smart-open: path must be within the home directory`)
+            }
+            if (!existsSync(resolved)) {
+                throw new Error(`[Flint] project:smart-open: not a directory — path does not exist: ${resolved}`)
+            }
+            projectPath = resolved
+        }
+
+        // Run detection on the resolved project path
+        const environment = await detectProjectEnvironment(projectPath, detectorFs)
+
+        // Write detected environment to .flint/ (mirrors project:detect-environment side-effect)
+        try {
+            const flintDir = path.join(projectPath, '.flint')
+            if (!existsSync(flintDir)) {
+                await mkdir(flintDir, { recursive: true })
+            }
+            await writeFile(
+                path.join(flintDir, 'detected-environment.json'),
+                JSON.stringify(environment, null, 2),
+                'utf-8',
+            )
+        } catch (err) {
+            console.error(`${logTag('FORGE.1')} smart-open: Failed to write detected-environment.json:`, err)
+        }
+
+        // Update active project root so downstream handlers (auto-configure, baseline) work
+        activeProjectRoot = projectPath
+
+        return { projectPath, environment, source }
     })
 
     // ── mcp:get-recent-file-focus ──────────────────────────────────────────────

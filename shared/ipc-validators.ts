@@ -424,6 +424,86 @@ export const MCP_TOOL_ARG_SCHEMAS: Record<string, z.ZodType<Record<string, unkno
 
 // ─── End of MINT.5 Phase 3 additions ──────────────────────────────────────────
 
+// ─── FORGE.1 — Channel Consolidation + Smart Detection ───────────────────────
+//
+// Append-only Zod exports referenced by `.flint-context/contracts/FORGE.1.contract.ts`.
+//
+// Shapes match the live handler signatures in `electron/main.ts` and
+// `server/index.ts` (verified 2026-04-19):
+//   - project:detect-environment, project:auto-configure, project:run-baseline
+//     all derive their target from the main-process `activeProjectRoot` and
+//     accept NO renderer payload. The validator is therefore `z.undefined()`.
+//   - project:get-health-grade takes a single string `projectPath` arg
+//     (electron/main.ts:2401) — validated as `z.string().min(1)`.
+//   - project:smart-open is the new FORGE.1 channel; payload `{ input: string }`
+//     where `input` is either an absolute folder path or a git URL.
+
+/**
+ * FORGE.1 — payload validator for `project:smart-open`. Folder path or git URL.
+ *
+ * SEC-MED-3: hardened against control / format characters and unbounded length.
+ * Mirrors the CHRON.1 `governance:record-approval-reason` filePath rule above.
+ * The 4096-char ceiling is well above any sane filesystem path or git URL while
+ * blocking blob payloads from sneaking through the IPC boundary.
+ */
+export const projectSmartOpenSchema = z.object({
+  input: z.string().min(1).max(4096).refine(
+    (s) => !/[\p{Cc}\p{Cf}]/u.test(s),
+    { message: 'input must not contain control or format characters' }
+  ),
+}).strict()
+
+/**
+ * FORGE.1 — payload validator for `project:detect-environment`.
+ * Handler reads main-process `activeProjectRoot`; renderer sends no payload.
+ */
+export const projectDetectEnvironmentSchema = z.undefined()
+
+/**
+ * FORGE.1 — payload validator for `project:auto-configure`.
+ *
+ * Phase 2 fix-forward (CONS-2): now accepts an optional overrides object so the
+ * DetectionPreview can pass user-corrected detection values into the configure
+ * pipeline. `undefined` payload is still accepted for the legacy call site.
+ */
+export const projectAutoConfigureSchema = z.union([
+  z.undefined(),
+  z.object({
+    overrides: z.object({
+      framework: z.string().min(1).max(200).optional(),
+      componentLibrary: z.string().min(1).max(200).optional(),
+      cssFramework: z.string().min(1).max(200).optional(),
+    }).strict().optional(),
+  }).strict(),
+])
+
+/**
+ * FORGE.1 fix-forward (CONS-1) — payload validator for `project:create-scratchpad`.
+ * Optional `libraryDefault` carries the from-idea channel's MUI default through
+ * the IPC boundary so the scratchpad is scaffolded with the right component-kit
+ * pre-selection.
+ */
+export const projectCreateScratchpadSchema = z.union([
+  z.undefined(),
+  z.object({
+    libraryDefault: z.string().min(1).max(200).optional(),
+  }).strict(),
+])
+
+/**
+ * FORGE.1 — payload validator for `project:run-baseline`.
+ * Handler reads main-process `activeProjectRoot`; renderer sends no payload.
+ */
+export const projectRunBaselineSchema = z.undefined()
+
+/**
+ * FORGE.1 — payload validator for `project:get-health-grade`.
+ * Single positional `projectPath` string (electron/main.ts:2401).
+ */
+export const projectGetHealthGradeSchema = z.string().min(1)
+
+// ─── End of FORGE.1 additions ────────────────────────────────────────────────
+
 /**
  * Creates a validated IPC invoker for use in preload.ts.
  * Wraps ipcRenderer.invoke with payload + response validation.

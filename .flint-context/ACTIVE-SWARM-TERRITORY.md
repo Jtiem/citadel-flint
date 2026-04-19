@@ -30,6 +30,23 @@
 
 ---
 
+## Swarm: FIXTURE.1.1 — DTCG Token Shape Adapter (closes FIXTURE.1 drift)
+
+**Status:** CONTRACT DRAFTING (architect spawned 2026-04-19)
+**Scope:** Close the documented drift from FIXTURE.1 integration report. The plumbing (`resolveFixture`, `auditAllWithSurface`, `fixtureContext` payload) all works; the failing invariant is `demo-compliant-clean === 0` because MithrilLinter's token consumer reads a legacy flat token shape while `design-tokens.json` is DTCG nested. Build a DTCG → linter-canonical token adapter so the compliant banner demo audits clean and the broken demo remains distinguishable.
+
+### Files to CREATE (contracts phase)
+| File | Purpose |
+|------|---------|
+| `.flint-context/contracts/FIXTURE.1.1-contract.md` | Contract artifact |
+| `.flint-context/contracts/FIXTURE.1.1.contract.ts` | Executable contract |
+
+### Coordination notes
+- Pure append to MithrilLinter token resolution path — no overlap with RUNTIME.1 (runtime-dom), FIGMA-LINT.1 (Universal AST), or existing FIXTURE.1 surface filter.
+- Invariant to hit: `banner-compliant.tsx` MITHRIL-TYP-002 + MITHRIL-SPC-001 count === 0 with DTCG tokens loaded.
+
+---
+
 ## Swarm: FIXTURE.1 — Audit Context System (Beta Gate 1 items #3-#4)
 
 **Status:** CONTRACT DRAFTING (architect spawned 2026-04-19)
@@ -130,9 +147,28 @@
 
 ---
 
-## Swarm: FORGE.1 Phase 2 Group A — IPC Layer (flint-electron-ipc)
+## Swarm: FORGE.1 Phase 2 Consolidated Fix-Forward (flint-coder)
 
 **Status:** IN PROGRESS (2026-04-19)
+**Scope:** Address SEC-HIGH-1/2, SEC-MED-1/3/4/5, CODE-BLK-1, CONS-1/2, UX-B3/W3/W4/W5, CODE-WARN-3, CODE-SUG-1/2 from FORGE.1 Phase 2 reviews.
+
+### Files to MODIFY
+- `electron/main.ts` (slug sanitization, symlink-off, timeout, env, path normalization, smart-open + auto-configure overrides)
+- `server/index.ts` (web parity for above + SSRF check)
+- `electron/GitManager.ts` (clone hardening, remove stale console.log)
+- `shared/ipc-validators.ts` (input length + control-char rejection, scratchpad schema, auto-configure overrides)
+- `electron/preload.ts` (createScratchpad payload, auto-configure overrides payload)
+- `src/types/flint-api.d.ts` (signatures for above)
+- `src/adapters/web-api.ts` (web adapter parity)
+- `src/components/ui/LaunchScreen.tsx` (CONS-1 wiring, CONS-2 wiring, UX-W4 figma URL prompt)
+- `src/components/ui/DetectionPreview.tsx` (UX-B3 plain labels, UX-W3 reframe, UX-W5 override hint, CODE-SUG-2 constants)
+- `electron/__tests__/projectSmartOpen.test.ts` (fill 28 it.todo + new SEC-HIGH probe tests)
+- `.flint-context/contracts/FORGE.1-contract.md`, `.contract.ts` (CODE-SUG-1 + auto-configure overrides shape)
+- `HANDOFF.md`
+
+## Swarm: FORGE.1 Phase 2 Group A — IPC Layer (flint-electron-ipc)
+
+**Status:** SUPERSEDED BY FIX-FORWARD (2026-04-19)
 **Scope:** `project:smart-open` IPC channel + preload exposure + type declaration + web adapter + test scaffold. Validator backfill for 4 existing FORGE.2 channels (already landed in shared/ipc-validators.ts at Phase 1.5 — confirming preload wiring).
 
 ### Files to MODIFY
@@ -207,4 +243,7 @@
 | `README.md` | Angle A messaging in intro |
 
 **Coordination note:** No code territory claimed. Pure content. Safe to run in parallel with all other swarms.
+
+
+<!-- FORGE.1 Phase 2 fix-forward — COMPLETE 2026-04-19 (territory cleared) -->
 
