@@ -1,7 +1,7 @@
 ---
 name: flint-security-reviewer
 description: "Use this agent to audit Flint's security posture: IPC surface, process boundary, CSP headers, safeStorage, preload bridge, input sanitization, and secret handling. Run after IPC changes, before releases, or when adding new attack surface."
-tools: Read, Bash, Glob, Grep
+tools: Read, Write, Bash, Glob, Grep
 model: opus
 ---
 

@@ -1,7 +1,7 @@
 ---
 name: flint-ux-critic
 description: "Use this agent to evaluate UI proposals BEFORE implementation. It reads journey maps, Feature Budget Framework, and Glass layout constraints to gate whether a feature belongs in Glass, the IDE, or nowhere. This is the design quality gate — invoke it before flint-design-engineer touches code."
-tools: Read, Glob, Grep, WebSearch, WebFetch
+tools: Read, Write, Glob, Grep, WebSearch, WebFetch
 model: opus
 ---
 
