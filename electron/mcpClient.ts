@@ -31,12 +31,16 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline'
 import { app } from 'electron'
+import { classifyMCPError } from '../shared/mcp-classification.js'
+import type { MCPCallClassification } from '../shared/mcp-classification.js'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface MCPCallResult {
     content: Array<{ type: string; text?: string }>
     isError?: boolean
+    /** MINT.5 Phase 3 — structured classification attached by callTool() post-processing. */
+    classification?: MCPCallClassification
 }
 
 export interface MCPResourceResult {
@@ -163,7 +167,12 @@ class MCPClient {
     async callTool(name: string, args: Record<string, unknown>): Promise<MCPCallResult> {
         this._assertConnected()
         const result = await this._rpc('tools/call', { name, arguments: args })
-        return result as MCPCallResult
+        const raw = result as MCPCallResult
+        // MINT.5 Phase 3: attach classification to every result so renderer consumers
+        // can inspect result.classification instead of text-matching the error body.
+        const rawText = raw.content?.[0]?.text ?? ''
+        const classification = classifyMCPError({ rawText, isError: raw.isError === true })
+        return { ...raw, classification }
     }
 
     /** Reads an MCP resource by URI and returns its contents. */

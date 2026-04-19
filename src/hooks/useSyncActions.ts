@@ -74,12 +74,30 @@ function extractMessage(result: { content?: Array<{ type?: string; text?: string
 }
 
 /**
- * Classify whether an MCP error represents an auth-expired / revoked connection.
- * Phase 2 uses keyword matching on the response text because MCP CallToolResult
- * has no status-header field in the shared type. If/when a structured status
- * field is added (Phase 3+), swap this for that field.
+ * Phase 3 — MCPCallResult.classification.
+ *
+ * Determines whether an MCP error represents a persistent failure (auth-expired
+ * or rate-limited). Reads `result.classification` from the result envelope,
+ * which is set in `electron/mcpClient.ts` and `server/mcpClient.ts` by
+ * `classifyMCPError` (shared/mcp-classification.ts).
+ *
+ * Falls back to keyword matching on the raw message text for one phase as a
+ * backwards-compat backstop: if the main process is at a build that predates
+ * the classification field, the keyword check keeps the persistent-chip
+ * behavior intact. Keyword fallback will be removed in Phase 4.
+ *
+ * @param classification — MCPCallResult.classification field, or undefined for legacy results.
+ * @param message        — Raw (pre-sanitize) response text used as backstop.
  */
-function isAuthExpiredError(message: string): boolean {
+function isPersistentError(
+    classification: string | undefined,
+    message: string,
+): boolean {
+    // Phase 3 primary path: use the structured classification field.
+    if (classification !== undefined) {
+        return classification === 'auth-expired' || classification === 'rate-limited'
+    }
+    // Phase 3 backstop (removed in Phase 4): keyword matching for legacy builds.
     const lower = message.toLowerCase()
     return (
         lower.includes('auth-expired') ||
@@ -165,7 +183,9 @@ export function useSyncActions(options: UseSyncActionsOptions = {}): UseSyncActi
                     // user-visible message and lastError.message have any secrets
                     // redacted and the allowlist dump collapsed.
                     const rawMessage = extractMessage(result)
-                    const persistent = isAuthExpiredError(rawMessage)
+                    // Phase 3: read result.classification (optional — legacy degrade to keyword).
+                    const classification = (result as { classification?: string }).classification
+                    const persistent = isPersistentError(classification, rawMessage)
                     const safeMessage = sanitizeError(rawMessage)
                     const nextError: SyncActionError = {
                         tool: toolName,
@@ -206,7 +226,9 @@ export function useSyncActions(options: UseSyncActionsOptions = {}): UseSyncActi
                     err instanceof Error && err.message
                         ? err.message
                         : 'Could not reach the governance engine.'
-                const persistent = isAuthExpiredError(rawMessage)
+                // Thrown errors never carry a classification field —
+                // fall back to keyword matching for the persistent determination.
+                const persistent = isPersistentError(undefined, rawMessage)
                 // FIX-3 (Security WARN-2): sanitize before surfacing.
                 const safeMessage = sanitizeError(rawMessage)
                 const nextError: SyncActionError = {

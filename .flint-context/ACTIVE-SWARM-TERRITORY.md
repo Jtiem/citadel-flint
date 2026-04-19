@@ -84,6 +84,32 @@
 
 ---
 
+## Swarm: COUNSEL.1 — Unify the Health Score (Sprint 1)
+
+**Status:** CONTRACT DRAFTING (architect spawned 2026-04-19)
+**Scope:** Beta-blocker fix. Three divergent health-score code paths funnel into one canonical `shared/healthScore.ts`. `flint-mcp/src/core/dashboard/debtReportService.ts:135` (fork-copy formula), `flint-mcp/src/core/dbom/generator.ts:469` (drops advisory bucket), and `flint-mcp/src/core/governance/dbomService.ts:341` (inline per-component arithmetic) all replaced by delegating calls. Hooks audited; deprecation shim on the legacy `computeHealthScore` positional signature.
+
+### Files to CREATE (contracts phase)
+| File | Purpose |
+|------|---------|
+| `.flint-context/contracts/COUNSEL.1-contract.md` | Contract artifact |
+| `.flint-context/contracts/COUNSEL.1.contract.ts` | Executable contract |
+
+### Files to MODIFY (Phase 2 — after contract approval)
+| File | What changes |
+|------|--------------|
+| `flint-mcp/src/core/dashboard/debtReportService.ts` | Replace inline `computeHealthScore` with delegating wrapper that imports `shared/healthScore.ts`; keep positional signature as deprecation shim |
+| `flint-mcp/src/core/dbom/generator.ts` | Pass advisory bucket to `computeHealthScore`; switch import to `shared/healthScore.ts` |
+| `flint-mcp/src/core/governance/dbomService.ts` | Replace inline per-component arithmetic with `computeHealthScore` from canonical module |
+| `flint-mcp/src/core/dashboard/types.ts` | JSDoc correction — current comment claims `mithrilCount × 5 - a11yCount × 10` formula which is wrong |
+| `src/hooks/useGovernanceHealth.ts` | Keep delegating wrapper; add `@deprecated` JSDoc on positional `computeCanonicalHealthScore` shim |
+| `src/hooks/useTokenHealth.ts` | No change to math (already delegates); add cross-package parity test reference |
+| `shared/__tests__/healthScore.parity.test.ts` (NEW) | Cross-surface parity test: same inputs → identical score in every consumer |
+
+**Coordination note:** No file overlap with MINT.5.3, RUNTIME.1, FIGMA-LINT.1, POS.1. flint-mcp dashboard files are otherwise quiet. Safe to run in parallel.
+
+---
+
 ## Swarm: POS.1 — Positioning Content
 
 **Status:** RESEARCH IN PROGRESS (researcher spawned 2026-04-18)

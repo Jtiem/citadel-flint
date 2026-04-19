@@ -70,6 +70,8 @@ describe('SEC3-02 — expected tools are present in the allowlist', () => {
         'flint_resolve_all',
         'flint_sync_check',
         'flint_figma_connect',
+        // MINT.5 Phase 3 — Scout emit (dryRun-default, read-shaped from renderer)
+        'flint_emit_tokens',
     ]
 
     for (const tool of EXPECTED_ALLOWED) {
@@ -78,8 +80,14 @@ describe('SEC3-02 — expected tools are present in the allowlist', () => {
         })
     }
 
-    it('has exactly the expected count of 12 tools (7 SEC.3 + 5 MINT.5.2 sync)', () => {
-        expect(RENDERER_ALLOWED_MCP_TOOLS.length).toBe(12)
+    // boundary: emit-renderer-allowlist-frozen invariant
+    it('has exactly the expected count of 13 tools (7 SEC.3 + 5 MINT.5.2 sync + 1 MINT.5.3 emit)', () => {
+        expect(RENDERER_ALLOWED_MCP_TOOLS.length).toBe(13)
+    })
+
+    it('includes flint_emit_tokens (MINT.5 Phase 3 Scout addition)', () => {
+        // boundary: emit-renderer-allowlist-frozen — flint_emit_tokens is in the set
+        expect(RENDERER_ALLOWED_MCP_TOOLS).toContain('flint_emit_tokens')
     })
 })
 

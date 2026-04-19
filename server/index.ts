@@ -48,7 +48,7 @@ import { ideFileSyncTick, type IDEFileSyncState } from './ideFileSyncTick.js'
 import { detectProjectEnvironment, type DetectorFS } from '../shared/projectDetector.js'
 import { validateFilePath as sharedValidateFilePath } from '../shared/validateFilePath.js'
 import { sanitizeReason } from '../shared/reasonSanitizer.js'
-import { ipcSchemas } from '../shared/ipc-validators.js'
+import { ipcSchemas, MCP_TOOL_ARG_SCHEMAS } from '../shared/ipc-validators.js'
 import type { CoverageSummary } from '../shared/coverage-types.js'
 import { ZERO_COVERAGE_SUMMARY } from '../shared/coverage-types.js'
 import { sanitizeTokenValue, sanitizeTokenDescription } from '../shared/tokenValueSanitizer.js'
@@ -2591,10 +2591,30 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
         `Only these tools can be called from Glass: ${RENDERER_ALLOWED_MCP_TOOLS.join(', ')}`,
       )
     }
-    return mcp.callTool(
-      toolName,
-      (args ?? {}) as Record<string, unknown>,
-    )
+
+    // MINT.5 Phase 3 — per-tool argument validation gate (web parity mirror of
+    // electron/preload.ts). Consult MCP_TOOL_ARG_SCHEMAS before forwarding to
+    // mcpClient.callTool. If the tool has a registered schema and the args fail,
+    // return a validation-error envelope immediately — mcpClient is NOT called.
+    // Unknown tools (not in map) pass through unchanged.
+    const resolvedArgs = (args ?? {}) as Record<string, unknown>
+    const perToolSchema = MCP_TOOL_ARG_SCHEMAS[toolName]
+    if (perToolSchema !== undefined) {
+      const parseResult = perToolSchema.safeParse(resolvedArgs)
+      if (!parseResult.success) {
+        const issue = parseResult.error.issues[0]
+        const sanitized = issue
+          ? `${issue.path.join('.') || 'args'}: ${issue.message}`
+          : 'Invalid arguments'
+        return {
+          content: [{ type: 'text', text: sanitized }],
+          isError: true,
+          classification: 'validation-error',
+        }
+      }
+    }
+
+    return mcp.callTool(toolName, resolvedArgs)
   })
 
   handlers.set('mcp:read-resource', async (uri: unknown) => {
@@ -4123,6 +4143,272 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
 
     // Runtime validation: postcondition check at the IPC boundary.
     return ipcSchemas['flint:getCoverageSummary'].response.parse(result)
+  })
+
+  // ── RUNTIME.1: axe-core Runtime Adapter (web-parity) ─────────────────────
+  //
+  // APPEND ONLY. Mirror of the electron/main.ts `runtime:run-axe` handler.
+  // In the web build we launch a headless Playwright chromium page (same
+  // pattern as thumbnailService) with network disabled via route interception,
+  // inject axe-core, run axe.run(), and return the normalized result.
+  //
+  // The IPC handler is ALWAYS callable regardless of the runtime.axe.enabled
+  // feature flag — only the UI surfaces are gated. This lets tests and
+  // scripted callers invoke the adapter freely.
+  //
+  // Expected axe-core version is pinned at 4.10.3. On mismatch the response
+  // resolves with status="version-mismatch" rather than throwing.
+
+  const EXPECTED_AXE_VERSION_WEB = '4.10.3'
+
+  async function loadAxeBundleWeb(): Promise<string | null> {
+    try {
+      // `require.resolve` would work here in CJS but we're in ESM. Use the
+      // dynamic import trick: point Node at the package's main export and read
+      // its on-disk location. If unavailable, return null (handler emits
+      // status=error with code=axe-core-missing).
+      const candidates = [
+        path.join(process.cwd(), 'node_modules', 'axe-core', 'axe.min.js'),
+        path.join(__dirname, '..', 'node_modules', 'axe-core', 'axe.min.js'),
+        path.join(__dirname, '..', '..', 'node_modules', 'axe-core', 'axe.min.js'),
+      ]
+      for (const candidate of candidates) {
+        if (existsSync(candidate)) {
+          return await fs.readFile(candidate, 'utf8')
+        }
+      }
+      return null
+    } catch {
+      return null
+    }
+  }
+
+  async function loadPlaywrightForRuntime(): Promise<any | null> {
+    try {
+      const pw = await import('playwright')
+      return pw.chromium ?? null
+    } catch {
+      return null
+    }
+  }
+
+  handlers.set('runtime:run-axe', async (rawPayload: unknown) => {
+    const startedAt = Date.now()
+    const parsed = ipcSchemas['runtime:run-axe'].payload.safeParse(rawPayload)
+    if (!parsed.success) {
+      return ipcSchemas['runtime:run-axe'].response.parse({
+        status: 'error',
+        timestamp: new Date().toISOString(),
+        axeVersion: EXPECTED_AXE_VERSION_WEB,
+        nodeCount: 0,
+        durationMs: Date.now() - startedAt,
+        violations: [],
+        error: {
+          code: 'invalid-payload',
+          message: parsed.error.issues.map((i) => i.message).join('; '),
+        },
+      })
+    }
+    const { previewHtml, rules } = parsed.data
+
+    // Empty-preview sentinel
+    if (!previewHtml || previewHtml.trim().length === 0) {
+      return ipcSchemas['runtime:run-axe'].response.parse({
+        status: 'no-preview',
+        timestamp: new Date().toISOString(),
+        axeVersion: EXPECTED_AXE_VERSION_WEB,
+        nodeCount: 0,
+        durationMs: Date.now() - startedAt,
+        violations: [],
+      })
+    }
+
+    const axeSource = await loadAxeBundleWeb()
+    if (!axeSource) {
+      return ipcSchemas['runtime:run-axe'].response.parse({
+        status: 'error',
+        timestamp: new Date().toISOString(),
+        axeVersion: EXPECTED_AXE_VERSION_WEB,
+        nodeCount: 0,
+        durationMs: Date.now() - startedAt,
+        violations: [],
+        error: {
+          code: 'axe-core-missing',
+          message:
+            'axe-core bundle not found. Run `npm install axe-core@4.10.3` from the project root.',
+        },
+      })
+    }
+
+    const chromium = await loadPlaywrightForRuntime()
+    if (!chromium) {
+      return ipcSchemas['runtime:run-axe'].response.parse({
+        status: 'error',
+        timestamp: new Date().toISOString(),
+        axeVersion: EXPECTED_AXE_VERSION_WEB,
+        nodeCount: 0,
+        durationMs: Date.now() - startedAt,
+        violations: [],
+        error: {
+          code: 'playwright-missing',
+          message:
+            'Playwright chromium is not installed. Run `npm install playwright` from the project root.',
+        },
+      })
+    }
+
+    let browser: any = null
+    try {
+      browser = await chromium.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-dev-shm-usage'],
+      })
+      const context = await browser.newContext()
+      // Commandment 4: block all network during audit.
+      await context.route('**/*', (route: any) => {
+        const url = route.request().url()
+        if (url.startsWith('data:') || url.startsWith('about:') || url.startsWith('file:')) {
+          route.continue()
+          return
+        }
+        route.abort()
+      })
+      const page = await context.newPage()
+      const dataUrl = `data:text/html;charset=utf-8;base64,${Buffer.from(previewHtml, 'utf8').toString('base64')}`
+      await page.goto(dataUrl, { waitUntil: 'load' })
+      await page.addScriptTag({ content: axeSource })
+      const sandboxResult: any = await page.evaluate(
+        ({ expectedVersion, ruleFilter }: { expectedVersion: string; ruleFilter: string[] | null }) => {
+          const w = window as any
+          if (!w.axe || typeof w.axe.run !== 'function') {
+            return { __runtimeError: 'axe-bootstrap-failed' }
+          }
+          const actualVersion = w.axe.version || 'unknown'
+          if (actualVersion !== expectedVersion) {
+            return { __versionMismatch: true, actualVersion }
+          }
+          const opts = ruleFilter && ruleFilter.length > 0
+            ? { runOnly: { type: 'rule', values: ruleFilter } }
+            : {}
+          return w.axe.run(document, opts).then((r: any) => ({
+            __ok: true,
+            actualVersion,
+            violations: r.violations || [],
+            passes: (r.passes || []).length,
+            incomplete: (r.incomplete || []).length,
+            inapplicable: (r.inapplicable || []).length,
+          }))
+        },
+        { expectedVersion: EXPECTED_AXE_VERSION_WEB, ruleFilter: rules ?? null }
+      )
+
+      if (sandboxResult?.__versionMismatch) {
+        return ipcSchemas['runtime:run-axe'].response.parse({
+          status: 'version-mismatch',
+          timestamp: new Date().toISOString(),
+          axeVersion: sandboxResult.actualVersion ?? 'unknown',
+          nodeCount: 0,
+          durationMs: Date.now() - startedAt,
+          violations: [],
+          error: {
+            code: 'axe-version-mismatch',
+            message: `Expected axe-core ${EXPECTED_AXE_VERSION_WEB}, got ${sandboxResult.actualVersion}.`,
+          },
+        })
+      }
+
+      if (sandboxResult?.__runtimeError || !sandboxResult?.__ok) {
+        return ipcSchemas['runtime:run-axe'].response.parse({
+          status: 'error',
+          timestamp: new Date().toISOString(),
+          axeVersion: EXPECTED_AXE_VERSION_WEB,
+          nodeCount: 0,
+          durationMs: Date.now() - startedAt,
+          violations: [],
+          error: {
+            code: 'axe-run-failed',
+            message: sandboxResult?.__runtimeError ?? 'Unknown sandbox error',
+          },
+        })
+      }
+
+      // Normalize axe results via the shared axeRuleMap.
+      let mapFn: (id: string) => string | null
+      try {
+        const mod = await import('../flint-mcp/src/core/axeRuleMap.js')
+        mapFn = mod.mapAxeRuleToWardenRule
+      } catch {
+        mapFn = () => null
+      }
+
+      const axeImpactToSeverity = (impact: string | null | undefined):
+        | 'critical' | 'warning' | 'info' | 'advisory' => {
+        switch (impact) {
+          case 'critical': return 'critical'
+          case 'serious': return 'critical'
+          case 'moderate': return 'warning'
+          case 'minor': return 'info'
+          default: return 'advisory'
+        }
+      }
+
+      const normalized: any[] = []
+      let nodeIndex = 0
+      for (const v of sandboxResult.violations || []) {
+        const mapped = mapFn(v.id)
+        const ruleId = mapped ?? `RUNTIME-${v.id}`
+        const severity = axeImpactToSeverity(v.impact)
+        const wcag = (v.tags || []).find((t: string) => t.startsWith('wcag')) ?? ''
+        for (const node of v.nodes || []) {
+          const elementId = Array.isArray(node.target) && typeof node.target[0] === 'string'
+            ? node.target[0]
+            : `runtime-node-${nodeIndex}`
+          nodeIndex += 1
+          normalized.push({
+            ruleId,
+            elementId,
+            message: v.help || v.description || `axe violation: ${v.id}`,
+            severity,
+            wcag,
+            fixable: false,
+            explanation: v.description,
+            recovery: node.failureSummary,
+          })
+        }
+      }
+
+      const nodeCount =
+        (sandboxResult.passes ?? 0) +
+        (sandboxResult.incomplete ?? 0) +
+        (sandboxResult.inapplicable ?? 0) +
+        normalized.length
+
+      return ipcSchemas['runtime:run-axe'].response.parse({
+        status: normalized.length > 0 ? 'violations' : 'passed',
+        timestamp: new Date().toISOString(),
+        axeVersion: sandboxResult.actualVersion ?? EXPECTED_AXE_VERSION_WEB,
+        nodeCount,
+        durationMs: Date.now() - startedAt,
+        violations: normalized,
+      })
+    } catch (err) {
+      return ipcSchemas['runtime:run-axe'].response.parse({
+        status: 'error',
+        timestamp: new Date().toISOString(),
+        axeVersion: EXPECTED_AXE_VERSION_WEB,
+        nodeCount: 0,
+        durationMs: Date.now() - startedAt,
+        violations: [],
+        error: {
+          code: 'sandbox-failed',
+          message: err instanceof Error ? err.message : String(err),
+        },
+      })
+    } finally {
+      if (browser) {
+        try { await browser.close() } catch { /* best-effort teardown */ }
+      }
+    }
   })
 
   // ── Start Server ───────────────────────────────────────────────────────────

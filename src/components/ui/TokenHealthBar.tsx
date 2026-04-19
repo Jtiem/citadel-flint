@@ -22,9 +22,11 @@
 
 import { SeverityChip } from './governance/SeverityChip'
 import { SyncActionCluster } from './mint/SyncActionCluster'
+import { EmitDropdown } from './mint/EmitDropdown'
 import type { TokenHealthData } from '../../hooks/useTokenHealth'
 import type { HealthGrade } from '../../../shared/healthScore'
 import type { SyncOp, SyncActionError } from '../../../.flint-context/contracts/MINT.5-phase2.contract'
+import type { EmitOp, EmitPlatform, EmitMode } from '../../../.flint-context/contracts/MINT.5-phase3.contract'
 
 // ── HealthGradePill ────────────────────────────────────────────────────────────
 
@@ -116,6 +118,11 @@ export interface TokenHealthBarProps {
      * surfaced here — they go to the toast queue via useSyncActions.
      */
     lastError?: SyncActionError | null
+    // ── MINT.5 Phase 3 §3.1 — Emit cluster props ─────────────────────────────
+    /** Current in-flight emit op (drives spinner/disabled state on the dropdown). */
+    emitOp?: EmitOp
+    /** Called when user picks a platform+mode from the emit dropdown. */
+    onEmit?: (platforms: EmitPlatform[], mode: EmitMode) => void
 }
 
 export function TokenHealthBar({
@@ -131,6 +138,8 @@ export function TokenHealthBar({
     onResolve,
     onConnect,
     lastError,
+    emitOp,
+    onEmit,
 }: TokenHealthBarProps) {
     // FIX-2 (UX BLK-2): structural auth errors elevate to a persistent chip.
     // The chip text is deliberately short; the toast retains the full message.
@@ -139,6 +148,8 @@ export function TokenHealthBar({
     // callback is wired. The cluster is presentational; its own disabled-state
     // matrix handles whether individual buttons are interactive.
     const hasSyncCluster = Boolean(onPull || onConnect)
+    // MINT.5 Phase 3 §3.1 — show the emit dropdown whenever connected or tokens exist.
+    const hasEmitCluster = Boolean((figmaConnected || totalTokens > 0) && onEmit)
     const clusterDriftCount = health?.buckets.drifted ?? 0
     const clusterConflictCount = pendingConflictCount ?? health?.buckets.pendingConflicts ?? 0
     const clusterLocalEditCount = localEditCount ?? 0
@@ -251,7 +262,7 @@ export function TokenHealthBar({
                 Pushed to the right with ml-auto so it visually anchors on the
                 far side of the health bar. */}
             {hasSyncCluster && (
-                <div className="ml-auto">
+                <div className={hasEmitCluster ? undefined : 'ml-auto'}>
                     <SyncActionCluster
                         figmaConnected={figmaConnected}
                         driftCount={clusterDriftCount}
@@ -262,6 +273,20 @@ export function TokenHealthBar({
                         onPush={onPush ?? (() => {})}
                         onResolve={onResolve ?? (() => {})}
                         onConnect={onConnect}
+                    />
+                </div>
+            )}
+
+            {/* MINT.5 Phase 3 §3.1 — Emit dropdown at trailing edge.
+                Rendered when figmaConnected or tokens exist and onEmit is wired.
+                Uses ml-auto when SyncActionCluster is absent so it still anchors
+                to the far right. */}
+            {hasEmitCluster && (
+                <div className={hasSyncCluster ? undefined : 'ml-auto'} data-testid="emit-cluster">
+                    <EmitDropdown
+                        emitOp={emitOp ?? null}
+                        onEmit={onEmit!}
+                        disabled={false}
                     />
                 </div>
             )}

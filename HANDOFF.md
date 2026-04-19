@@ -6,6 +6,67 @@
 
 ---
 
+## Session: COUNSEL.1 — Unify the Health Score (2026-04-19) — IN PROGRESS
+
+**Goal:** Beta-blocker fix (BETA-READINESS-CHECKLIST Gate 1). Counsel Sprint 1 of 4: collapse all remaining health-score divergences into the canonical `shared/healthScore.ts` module so StatusBar coverage badge, GovernanceDashboard, `flint_debt_report`, and `flint_generate_dbom` always return identical numbers for the same input. Visual redesign explicitly deferred to Sprints 2–4.
+
+**Investigation findings (file:line):**
+- `shared/healthScore.ts` already exists as the canonical formula (introduced by CHRON.1-repair / C2). Most surfaces correctly delegate.
+- **Divergence A — `flint-mcp/src/core/dashboard/debtReportService.ts:135`:** `computeHealthScore` is a fork-copy that re-implements arithmetic instead of importing `shared/healthScore.ts`. The header comment claims parity, but parity is enforced by convention, not by the type system. This is exactly how the original 4-formula divergence happened.
+- **Divergence B — `flint-mcp/src/core/dbom/generator.ts:469`:** `computeHealthScore(totalCriticals, totalWarnings, 0)` calls the positional 4-arg signature with **only 2 buckets**, silently dropping the `advisoryCount` penalty. DBOM healthScore therefore diverges from `flint_debt_report` whenever advisory-severity violations exist.
+- **Divergence C — `flint-mcp/src/core/governance/dbomService.ts:341`:** Per-component score uses an inline `Math.max(0, Math.min(100, 100 - (criticals * 10 + warnings * 3)))` expression — bypasses the canonical module entirely; no advisory penalty, no override penalty.
+- **Stale doc — `flint-mcp/src/core/dashboard/types.ts:21`:** JSDoc claims formula is `100 - mithrilCount × 5 - a11yCount × 10`, which has never been correct.
+
+**Chosen unified formula:** `shared/healthScore.ts` `computeHealthScore({ criticalCount, amberCount, advisoryCount, overrideCount })`. Already canonical; Sprint 1 enforces that every consumer (including DBOM core, DBOM enrichment, debt report) calls it directly via import — no re-implementation, no positional shims that drop buckets. A new cross-package parity test (`shared/__tests__/healthScore.parity.test.ts`) will assert that for a fixed input vector, every consumer returns identical `{ score, grade }`.
+
+**Phase 1 artifacts:**
+- `.flint-context/contracts/COUNSEL.1-contract.md`
+- `.flint-context/contracts/COUNSEL.1.contract.ts`
+
+---
+
+## Session: MINT.5 Phase 3 — Sync Polish + Type Safety (2026-04-19) — COMPLETE + PILOT SHIPPED
+
+**Goal:** Close the 4 deferred items from Phase 2 AND run the Review Ceremony Cheaper-Pilot (A+B+E) end-to-end as the first proof-of-concept.
+
+**Workflow:** Full Contract-First v2 — architect → contract-linter (REVISE → APPROVED, 3 single-line fixes) → 5 parallel Group A implementers → Group B integration → 3 scoped pilot reviewers (single-message dispatch) → integration validator → SHIP.
+
+**What shipped (Citadel vocabulary):**
+- **Scout emit cluster** — `EmitDropdown` + `ConfirmEmitDialog` + `useEmitTokens` hook on TokenHealthBar. Wraps `flint_emit_tokens` MCP tool; dryRun-by-default with confirm-gated write. 5 platforms: CSS variables, Tailwind config, Swift, Kotlin, JSON.
+- **Envoy staleness banner** — `SyncStalenessBanner` driven by `flint_sync_check`. 24-hour default threshold; per-session dismissal via `syncStalenessStore` Zustand slice with auto-clear on fresh sync. Polled every 60s by `useSyncStaleness`.
+- **Structured `MCPCallResult.classification`** — Discriminated union `'auth-expired' | 'rate-limited' | 'network-error' | 'tool-error' | 'validation-error' | 'unknown'` computed once in both `electron/mcpClient.ts` and `server/mcpClient.ts`. Phase 2 keyword-matching helper in `useSyncActions` retired (one-phase keyword fallback for legacy compat).
+- **Per-tool Zod schemas** — 5 schemas + `MCP_TOOL_ARG_SCHEMAS` lookup, registered append-only in `shared/ipc-validators.ts`. Consulted by both Electron preload bridge and `server/index.ts` web parity before any IPC fires. Failures route to `validation-error` classification without triggering IPC.
+
+**Final test counts:**
+- MCP:   5550/5550 passing
+- Glass: 3126/3128 passing (+40 new; 2 pre-existing StatusBar failures unrelated, owned by RUNTIME.1 work-in-progress)
+- Core:  2537/2537 passing (+183 new it() blocks + 5 bench blocks)
+- TSC:   0 errors
+
+**Pilot results (Review Ceremony Cheaper-Pilot, A+B+E):**
+- **Output artifact reduction: 53.9%** (47.6 KB pilot vs 103.4 KB Phase 2 baseline across 6 files each).
+- **Lever A (scoped contexts): WORKED.** All 3 reviewers confirmed scoping was sufficient. Only 1 cross-scope read (security verifying classification trust boundary in `shared/mcp-classification.ts`).
+- **Lever B (structured-only `.review.ts`): PARTIAL.** Code reviewer (has Write tool) emitted directly. UX + security reviewers lack Write — surfaced findings inline; orchestrator persisted. Real pilot finding: agent tool definitions need updating before Lever B is fully automated.
+- **Lever E (cache window): UNCERTAIN.** First-round cache hit possibly worked; can't cleanly measure because midnight usage-limit interruption forced re-spawn (lost cache).
+- **Regression canary (integration validator): ZERO MISSES.** Integration validator found no findings the 3 scoped reviewers had missed.
+- **Verdicts:** UX FIX-FORWARD (1 warning HTML nesting, 2 suggestions copy), Code FIX-FORWARD (3 suggestions), Security SHIP (2 suggestions), Integration SHIP.
+
+**Pilot meta-findings (process improvements for next phase):**
+1. `flint-ux-critic` and `flint-security-reviewer` agent definitions need Write tool (or the orchestrator-persistence pattern formalized).
+2. Phase 2 baseline lacks per-agent input-token data on disk; next pilot should run an unscoped reviewer in parallel as A/B control to measure full token cost.
+3. Security reviewer suggested orchestrator could pre-extract relevant ranges from large files (e.g., `electron/preload.ts` is 2000+ lines, only ~40 in scope) for further savings.
+
+**Artifacts on disk:**
+- `.flint-context/contracts/MINT.5-phase3-contract.md` + `.contract.ts` (APPROVED Round 2)
+- `.flint-context/reviews/MINT.5-phase3-contract-lint-2026-04-18.md`
+- `.flint-context/reviews/MINT.5-phase3-{ux,code,security}-review-2026-04-19.{md,review.ts}`
+- `.flint-context/reviews/MINT.5-phase3-integration-2026-04-19.md`
+- `scripts/render-review.ts` (commit `7c28f67` — pilot's renderer infrastructure)
+
+**Deferred to Phase 4:** TokenImpactAccordion, read-only banner, ApprovalStagingArea collapse, aria-live sync announcements, density revamp, prefers-reduced-motion, per-tool Zod for `flint_emit_tokens` (security SUG-2), tuple-vs-positional Zod schema cleanup (security SUG-1), staleness threshold via `flint.config.yaml`.
+
+---
+
 ## Session: MINT.5 Phase 2 — Sync Action Surfaces (2026-04-18) — COMPLETE
 
 **Goal:** Close the Mint sync UX loop. Phase 1 hardened the foundation (sanitizer, drift re-enable, canonical health score, severity grammar, dual-queue listener). Phase 2 adds the visible sync actions: Pull / Push / Resolve in `TokenHealthBar`, Connect Figma empty state, drift review sub-tab in `TokenGrid`.

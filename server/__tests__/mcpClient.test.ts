@@ -418,7 +418,14 @@ describe('MCPClient — callTool/readResource shape (connected)', () => {
     client.injectResponse({ jsonrpc: '2.0', id: sentId, result: mockResult })
 
     const result = await callPromise
-    expect(result).toEqual(mockResult)
+    // Phase 3: server/mcpClient.ts attaches classification to every result.
+    // Expect the original fields to be present; classification may be added.
+    expect(result.content).toEqual(mockResult.content)
+    expect(result.isError).toBe(mockResult.isError)
+    // classification field is optional (MCPCallResultV3); if present, it must be 'unknown' for success
+    if ('classification' in result) {
+      expect(result.classification).toBe('unknown')
+    }
   })
 
   it.todo('callTool rejects when MCP server process is unreachable (spawn fails)')

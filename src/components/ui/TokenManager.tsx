@@ -36,6 +36,13 @@ import { ConfirmPushDialog } from './mint/ConfirmPushDialog'
 import { ConfirmResolveDialog } from './mint/ConfirmResolveDialog'
 import { ConnectFigmaEmptyState } from './mint/ConnectFigmaEmptyState'
 import type { ResolveStrategy } from '../../../.flint-context/contracts/MINT.5-phase2.contract'
+// MINT.5 Phase 3 — emit + staleness surfaces
+import { SyncStalenessBanner } from './mint/SyncStalenessBanner'
+import { ConfirmEmitDialog } from './mint/ConfirmEmitDialog'
+import { useEmitTokens } from '../../hooks/useEmitTokens'
+import { useSyncStaleness } from '../../hooks/useSyncStaleness'
+import { useSyncStalenessStore } from '../../store/syncStalenessStore'
+import type { EmitPlatform, EmitMode } from '../../../.flint-context/contracts/MINT.5-phase3.contract'
 
 // ── Import Modal ──────────────────────────────────────────────────────────────
 
@@ -213,6 +220,14 @@ export function TokenManager() {
     const [resolveDialogOpen, setResolveDialogOpen] = useState(false)
     // Track which row is currently pulling for per-row spinner.
     const [currentPullingPath, setCurrentPullingPath] = useState<string | null>(null)
+
+    // MINT.5 Phase 3 §3.1 — Emit confirm dialog state.
+    const [emitDialogOpen, setEmitDialogOpen] = useState(false)
+    // Pending emit request: platforms staged while the confirm dialog is open.
+    const [pendingEmitPlatforms, setPendingEmitPlatforms] = useState<EmitPlatform[]>([])
+    // Default output dir — shown in the confirm dialog. The tool resolves the
+    // real path on the main side; we surface a sensible default in the UI.
+    const emitOutputDir = `${projectPath || '.'}/.flint/platform-tokens`
 
     // MINT.5 Phase 2 consensus FIX-1 — sourced from flint_sync_check.
     // localEditCount derives from the SyncCheckReport's tokensDrifted when the
@@ -437,6 +452,22 @@ export function TokenManager() {
         fetchSyncCheckCounts().catch(() => { /* degrade silently */ })
     }, [fetchSyncCheckCounts, figmaConnected, driftedTokens.length])
 
+    // MINT.5 Phase 3 §3.1 — Emit tokens hook.
+    // Write mode is handled via the ConfirmEmitDialog open/close cycle; we do
+    // not pass a confirmWrite callback here because confirmation is driven at the
+    // component layer (onEmit→setEmitDialogOpen→handleEmitConfirm→emit).
+    const { emitOp, emit } = useEmitTokens()
+
+    // MINT.5 Phase 3 §3.2 — Sync staleness hook.
+    // Polls flint_sync_check every 60s while figmaConnected. Enabled only when
+    // Figma is connected (no point in showing "stale" when there's no sync source).
+    const syncStaleness = useSyncStaleness({
+        projectRoot: projectPath,
+        enabled: figmaConnected,
+    })
+    const dismissedAt = useSyncStalenessStore((s) => s.dismissedAt)
+    const isDismissed = dismissedAt !== null
+
     useEffect(() => {
         fetchTokens().catch(console.error)
         fetchFigmaState()
@@ -534,6 +565,32 @@ export function TokenManager() {
         setResolveDialogOpen(false)
         await syncActions.resolve(strategy)
     }, [syncActions])
+
+    // MINT.5 Phase 3 §3.1 — Emit dropdown handler.
+    // For 'preview' mode: call emit immediately (read-shaped, no confirmation).
+    // For 'write' mode: stage the platforms and open the confirm dialog.
+    const handleEmit = useCallback((platforms: EmitPlatform[], mode: EmitMode) => {
+        if (mode === 'preview') {
+            emit(platforms, 'preview').catch(console.error)
+        } else {
+            // Stage write request and show confirm dialog.
+            setPendingEmitPlatforms(platforms)
+            setEmitDialogOpen(true)
+        }
+    }, [emit])
+
+    // Emit confirm: user confirmed write-to-disk — call emit with write mode.
+    const handleEmitConfirm = useCallback(async () => {
+        setEmitDialogOpen(false)
+        await emit(pendingEmitPlatforms, 'write')
+        setPendingEmitPlatforms([])
+    }, [emit, pendingEmitPlatforms])
+
+    // Emit cancel: user dismissed the confirm dialog.
+    const handleEmitCancel = useCallback(() => {
+        setEmitDialogOpen(false)
+        setPendingEmitPlatforms([])
+    }, [])
 
     // Drift row Pull-this handler. Marks the row-local pulling state so the
     // DriftGroupSection can show a spinner on the correct row.
@@ -756,6 +813,22 @@ export function TokenManager() {
                 }}
             />
 
+            {/* ── MINT.5 Phase 3 §3.2 — Sync staleness banner.
+                Rendered above the health bar so it reads as a top-level alert,
+                not a sub-element of the health summary. Renderless when not
+                stale, not connected, or dismissed this session. */}
+            {figmaConnected && (
+                <div className="px-3 pt-2" data-testid="staleness-banner-wrapper">
+                    <SyncStalenessBanner
+                        isStale={syncStaleness.isStale}
+                        isDismissed={isDismissed}
+                        hoursSinceSync={syncStaleness.hoursSinceSync ?? 0}
+                        onPull={handlePull}
+                        onDismiss={syncStaleness.dismiss}
+                    />
+                </div>
+            )}
+
             {/* ── MINT.1a: Health Bar ─────────────────────────────────────── */}
             {tokens.length > 0 && (
                 <TokenHealthBar
@@ -775,6 +848,9 @@ export function TokenManager() {
                     onPush={handlePush}
                     onResolve={handleResolve}
                     onConnect={handleConnect}
+                    /* MINT.5 Phase 3 §3.1 — Emit cluster props. */
+                    emitOp={emitOp}
+                    onEmit={handleEmit}
                 />
             )}
 
@@ -966,6 +1042,15 @@ export function TokenManager() {
                 conflictCount={syncCheckCounts.pendingConflictCount}
                 onConfirm={handleResolveConfirm}
                 onCancel={() => setResolveDialogOpen(false)}
+            />
+
+            {/* ── MINT.5 Phase 3 §3.1 — Emit confirm dialog ───────────────── */}
+            <ConfirmEmitDialog
+                isOpen={emitDialogOpen}
+                platforms={pendingEmitPlatforms}
+                outputDir={emitOutputDir}
+                onConfirm={handleEmitConfirm}
+                onCancel={handleEmitCancel}
             />
         </div>
     )

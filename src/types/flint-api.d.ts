@@ -910,10 +910,37 @@ export interface MCPEvent {
     filePath?: string
 }
 
+/**
+ * Discriminated union for MCP call result classification (MINT.5 Phase 3).
+ * Computed in `electron/mcpClient.ts` and `server/mcpClient.ts` before the
+ * result reaches any renderer consumer. Single source in `shared/mcp-classification.ts`.
+ *
+ * - `'auth-expired'`     — Figma OAuth token expired or revoked.
+ * - `'rate-limited'`     — Upstream API rate limit hit (429 / too many requests).
+ * - `'network-error'`    — Network unreachable, DNS failure, ECONNREFUSED.
+ * - `'tool-error'`       — Tool ran but returned isError=true with a domain message.
+ * - `'validation-error'` — Renderer preload Zod gate rejected the call (no IPC fired).
+ * - `'unknown'`          — No classifier matched, or the call succeeded.
+ */
+export type MCPCallClassification =
+    | 'auth-expired'
+    | 'rate-limited'
+    | 'network-error'
+    | 'tool-error'
+    | 'validation-error'
+    | 'unknown'
+
 /** Result of an MCP tool call — mirrors MCP CallToolResult schema. */
 export interface MCPCallResult {
     content: Array<{ type: string; text?: string }>
     isError?: boolean
+    /**
+     * Structured classification of the result (MINT.5 Phase 3).
+     * Optional so legacy code paths that haven't been updated degrade gracefully.
+     * Main process attaches `'unknown'` for success, a specific class for errors.
+     * Phase 4 will tighten this to required.
+     */
+    classification?: MCPCallClassification
 }
 
 /** Result of reading an MCP resource — mirrors MCP ReadResourceResult schema. */
@@ -1184,6 +1211,21 @@ export interface EnrichedContext extends FlintContext {
     activeOverrideCount: number
     /** ISO 8601 UTC timestamp of when this enriched snapshot was assembled. */
     enrichedAt: string
+
+    // ── RUNTIME.1: Feature flag surface ───────────────────────────────────────
+    //
+    // Session-context surface for feature flags. Piggybacks on the existing
+    // `flint_get_context` channel rather than adding a new IPC per flag
+    // (contract decision #7). Missing key → treated as false (safe default).
+    /**
+     * Feature flag payload. Each entry is read by a corresponding `use*Flag`
+     * hook in the renderer. Absence of a key is always treated as `false`
+     * to preserve the safe-default posture.
+     */
+    features?: {
+        /** RUNTIME.1 `runtime.axe.enabled` — hidden by default on first ship. */
+        runtimeAxeEnabled?: boolean
+    }
 }
 
 // ── Phase CV2.3: Component Cards on Canvas ────────────────────────────────────
@@ -2171,6 +2213,62 @@ export interface FlintAPI {
          * No payload. Response is Zod-validated at the IPC boundary.
          */
         getSummary: () => Promise<CoverageSummary>
+    }
+
+    /**
+     * RUNTIME.1 — axe-core Runtime Adapter surface.
+     *
+     * Exposes a single method for invoking the DOM-layer accessibility audit.
+     * The primary LivePreview CSP is NEVER modified by the sandbox; a separate
+     * BrowserWindow (Electron) or Playwright chromium page (web) hosts axe.
+     *
+     * The handler is always live regardless of the `runtime.axe.enabled`
+     * feature flag — only the UI surfaces (StatusBar pill + GovernanceDashboard
+     * accordion) are flag-gated on first ship.
+     *
+     * Contract:  .flint-context/contracts/RUNTIME.1-contract.md
+     * Validator: shared/ipc-validators.ts runtimeRunAxePayloadSchema
+     */
+    runtime: {
+        /**
+         * Run the axe-core DOM audit against a preview HTML document.
+         *
+         * @param request.previewHtml — full HTML document to audit. Empty string
+         *                              short-circuits to `{ status: 'no-preview' }`.
+         * @param request.previewUrl  — optional URL-ish string for logging. Never
+         *                              fetched — the sandbox has network blocked.
+         * @param request.rules       — optional axe rule-ID filter. When absent,
+         *                              runs all enabled rules from the bundled tag set.
+         */
+        runAxe: (request: {
+            previewHtml: string
+            previewUrl?: string
+            rules?: string[]
+        }) => Promise<{
+            status:
+                | 'idle'
+                | 'running'
+                | 'passed'
+                | 'violations'
+                | 'no-preview'
+                | 'version-mismatch'
+                | 'error'
+            timestamp: string
+            axeVersion: string
+            nodeCount: number
+            durationMs: number
+            violations: Array<{
+                ruleId: string
+                elementId: string
+                message: string
+                severity: 'critical' | 'warning' | 'info' | 'advisory'
+                wcag: string
+                fixable: boolean
+                explanation?: string
+                recovery?: string
+            }>
+            error?: { code: string; message: string }
+        }>
     }
 }
 

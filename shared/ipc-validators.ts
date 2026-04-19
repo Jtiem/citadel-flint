@@ -198,6 +198,55 @@ export const ipcSchemas = {
     }),
   },
 
+  // ── RUNTIME.1: axe-core Runtime Adapter ────────────────────────
+  //
+  // `runtime:run-axe` spawns a sandboxed BrowserWindow (Electron) or
+  // hidden Playwright page (web) with a tight CSP scoped to the axe-core
+  // bundle, renders the provided `previewHtml`, runs `axe.run()`, and
+  // returns a normalized RuntimeAuditResult. The IPC handler is ALWAYS
+  // live, but the user-facing UI surfaces are gated behind
+  // `runtime.axe.enabled` in flint.config.yaml (default: false).
+  //
+  // Payload maps to RuntimeAuditRequest in RUNTIME.1.contract.ts.
+  // Response maps to RuntimeAuditResult in RUNTIME.1.contract.ts.
+
+  'runtime:run-axe': {
+    payload: z.object({
+      previewHtml: z.string(),
+      previewUrl: z.string().optional(),
+      rules: z.array(z.string()).optional(),
+    }),
+    response: z.object({
+      status: z.enum([
+        'idle',
+        'running',
+        'passed',
+        'violations',
+        'no-preview',
+        'version-mismatch',
+        'error',
+      ]),
+      timestamp: z.string().min(1),
+      axeVersion: z.string(),
+      nodeCount: z.number().int().nonnegative(),
+      durationMs: z.number().nonnegative(),
+      violations: z.array(z.object({
+        ruleId: z.string(),
+        elementId: z.string(),
+        message: z.string(),
+        severity: z.enum(['critical', 'warning', 'info', 'advisory']),
+        wcag: z.string(),
+        fixable: z.boolean(),
+        explanation: z.string().optional(),
+        recovery: z.string().optional(),
+      })),
+      error: z.object({
+        code: z.string(),
+        message: z.string(),
+      }).optional(),
+    }),
+  },
+
   /**
    * mcp:call-tool — Invoke an MCP tool by name with an arguments object.
    *
@@ -230,6 +279,12 @@ export const getCoverageSummaryPayloadSchema = ipcSchemas['flint:getCoverageSumm
 
 /** Phase 0 — response validator for `flint:getCoverageSummary` (CoverageSummary shape). */
 export const getCoverageSummaryResponseSchema = ipcSchemas['flint:getCoverageSummary'].response;
+
+/** RUNTIME.1 — payload validator for `runtime:run-axe` (RuntimeAuditRequest shape). */
+export const runtimeRunAxePayloadSchema = ipcSchemas['runtime:run-axe'].payload;
+
+/** RUNTIME.1 — response validator for `runtime:run-axe` (RuntimeAuditResult shape). */
+export const runtimeRunAxeResponseSchema = ipcSchemas['runtime:run-axe'].response;
 
 /**
  * MINT.5 Phase 2 — combined validator for `mcp:call-tool` payload tuple
@@ -299,6 +354,75 @@ export function validateIPCResponse<T extends IPCChannel>(
   }
   return result.data as z.infer<IPCSchemas[T]['response']>;
 }
+
+// ─── MINT.5 Phase 3 — Per-Tool MCP Argument Schemas ───────────────────────────
+//
+// Five Zod schemas for the renderer-callable sync tools. These are APPEND-ONLY
+// additions — the existing `ipcSchemas`, `mcpCallToolSchema`, and all named
+// exports above are untouched.
+//
+// Shape derived directly from the case blocks in flint-mcp/src/server.ts:3224-3298
+// so the Zod gate never rejects calls the engine actually accepts (R4 mitigation).
+//
+// The `MCP_TOOL_ARG_SCHEMAS` lookup is consulted by `electron/preload.ts` and
+// `server/index.ts` before forwarding the mcp:call-tool IPC to the MCP server.
+// Unknown tool names fall through (no schema → no gate → pass through unchanged).
+//
+// Coordinate with RUNTIME.1: that phase appends inside the `ipcSchemas` object and
+// named-export region above. Phase 3 adds top-level exports at the bottom — no
+// textual overlap, no merge conflict.
+
+/** Arguments for `flint_sync_pull`. */
+export const flintSyncPullArgsSchema = z.object({
+  projectRoot: z.string().min(1),
+  scope: z.literal('token').optional(),
+  tokenPath: z.string().optional(),
+}).strict()
+
+/** Arguments for `flint_sync_push`. */
+export const flintSyncPushArgsSchema = z.object({
+  projectRoot: z.string().min(1),
+}).strict()
+
+/** Arguments for `flint_resolve_all`. */
+export const flintResolveAllArgsSchema = z.object({
+  projectRoot: z.string().min(1),
+  resolution: z.enum(['local', 'remote']),
+}).strict()
+
+/** Arguments for `flint_resolve_conflict`. */
+export const flintResolveConflictArgsSchema = z.object({
+  conflictId: z.string().min(1),
+  resolution: z.enum(['local', 'remote', 'merged']),
+  mergedValue: z.string().optional(),
+}).strict()
+
+/** Arguments for `flint_sync_check`. */
+export const flintSyncCheckArgsSchema = z.object({
+  projectRoot: z.string().min(1),
+}).strict()
+
+/**
+ * Lookup map from MCP tool name → Zod argument schema.
+ *
+ * The preload bridge (`electron/preload.ts`) and the web bridge (`server/index.ts`)
+ * consult this map before forwarding `mcp:call-tool` IPC. If the tool name is
+ * present, the args are validated; failures return a `validation-error` envelope
+ * without calling `ipcRenderer.invoke` / `mcpClient.callTool`.
+ * If the tool name is absent (not in the map), the call passes through unchanged.
+ *
+ * To register a new tool: add the Zod schema export above and add an entry here.
+ * Also append the tool name to `MCP_TOOL_ARG_SCHEMA_NAMES` in the contract.
+ */
+export const MCP_TOOL_ARG_SCHEMAS: Record<string, z.ZodType<Record<string, unknown>>> = {
+  flint_sync_pull: flintSyncPullArgsSchema,
+  flint_sync_push: flintSyncPushArgsSchema,
+  flint_resolve_all: flintResolveAllArgsSchema,
+  flint_resolve_conflict: flintResolveConflictArgsSchema,
+  flint_sync_check: flintSyncCheckArgsSchema,
+}
+
+// ─── End of MINT.5 Phase 3 additions ──────────────────────────────────────────
 
 /**
  * Creates a validated IPC invoker for use in preload.ts.

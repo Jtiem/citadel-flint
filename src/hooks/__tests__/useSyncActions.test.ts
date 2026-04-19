@@ -367,9 +367,13 @@ describe('useSyncActions', () => {
     })
 
     it('marks lastError.persistent=true and emits a critical notification on auth-expired error', async () => {
+        // Phase 3 refactor: persistent flag is now driven by result.classification
+        // (classification='auth-expired'), not just keyword-text matching.
+        // The keyword-fallback survives as a backstop until Phase 4.
         getCallToolMock().mockResolvedValueOnce({
             isError: true,
             content: [{ type: 'text', text: 'auth-expired: re-authenticate with Figma' }],
+            classification: 'auth-expired', // Phase 3: structured field
         })
         const { result } = renderHook(() => useSyncActions())
 
@@ -385,6 +389,78 @@ describe('useSyncActions', () => {
         // critical severity is forced to persistent (autoDismissMs=0) by the
         // notification store regardless of our requested value.
         expect(criticalToast?.autoDismissMs).toBe(0)
+    })
+
+    // ── Phase 3: classification field drives persistent flag ─────────────────
+    // boundary: useSyncActions consumes classification
+
+    it('[Phase 3] sets lastError.persistent=true from result.classification="auth-expired" (not text matching)', async () => {
+        // boundary: useSyncActions consumes classification
+        // The classification field is the primary signal; the hook should read
+        // result.classification rather than scanning rawText.
+        getCallToolMock().mockResolvedValueOnce({
+            isError: true,
+            content: [{ type: 'text', text: 'Figma OAuth session expired' }], // no "auth-expired" keyword
+            classification: 'auth-expired', // but structured field is present
+        })
+        const { result } = renderHook(() => useSyncActions())
+
+        await act(async () => {
+            await result.current.pull()
+        })
+
+        // persistent=true must be driven by classification='auth-expired'
+        expect(result.current.lastError?.persistent).toBe(true)
+    })
+
+    it('[Phase 3] unclassified error (classification=undefined) → persistent=false', async () => {
+        // boundary: useSyncActions consumes classification — edge: unclassified → persistent=false
+        // When classification is absent (e.g. older main process not yet updated),
+        // the hook should treat it as 'unknown' and set persistent=false.
+        getCallToolMock().mockResolvedValueOnce({
+            isError: true,
+            content: [{ type: 'text', text: 'network timeout' }],
+            // No classification field — simulates pre-Phase-3 main process
+        })
+        const { result } = renderHook(() => useSyncActions())
+
+        await act(async () => {
+            await result.current.pull()
+        })
+
+        expect(result.current.lastError?.persistent).toBe(false)
+    })
+
+    it('[Phase 3] classification="rate-limited" also sets persistent=true', async () => {
+        // boundary: useSyncActions consumes classification — edge: rate-limited → persistent=true
+        getCallToolMock().mockResolvedValueOnce({
+            isError: true,
+            content: [{ type: 'text', text: 'Too many requests, retry after 60s' }],
+            classification: 'rate-limited',
+        })
+        const { result } = renderHook(() => useSyncActions())
+
+        await act(async () => {
+            await result.current.pull()
+        })
+
+        expect(result.current.lastError?.persistent).toBe(true)
+    })
+
+    it('[Phase 3] classification="tool-error" sets persistent=false', async () => {
+        // boundary: useSyncActions consumes classification — tool-error is not persistent
+        getCallToolMock().mockResolvedValueOnce({
+            isError: true,
+            content: [{ type: 'text', text: 'projectRoot not found' }],
+            classification: 'tool-error',
+        })
+        const { result } = renderHook(() => useSyncActions())
+
+        await act(async () => {
+            await result.current.pull()
+        })
+
+        expect(result.current.lastError?.persistent).toBe(false)
     })
 
     it('catches thrown errors from window.flintAPI and surfaces them via lastError', async () => {
