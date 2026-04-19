@@ -49,8 +49,11 @@ export interface GovernanceHealthResult {
 /**
  * Compute a health score from pre-bucketed severity counts.
  *
- * Kept for backward compatibility with existing callers (the signature is
- * positional rather than object-based). Delegates to shared/healthScore.ts.
+ * @deprecated COUNSEL.1 — Use the object-arg form
+ *   `computeHealthScore({ criticalCount, amberCount, advisoryCount, overrideCount })`
+ * imported directly from `shared/healthScore.ts`. This positional 4-arg shim
+ * is the same shape that produced divergence B in the MCP DBOM generator
+ * (silently zeroed advisoryCount). Kept for one-release back-compat only.
  *
  * @param criticals - Count of critical-severity violations (penalty ×10)
  * @param warnings  - Count of warning/amber-severity violations  (penalty ×3)

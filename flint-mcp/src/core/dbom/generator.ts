@@ -24,7 +24,7 @@ import * as t from '@babel/types'
 import { auditAll } from '../MithrilLinter.js'
 import { A11yLinter } from '../A11yLinter.js'
 import { loadPolicy } from '../config-loader.js'
-import { computeHealthScore, scoreToGrade } from '../dashboard/debtReportService.js'
+import { computeHealthScore } from '../../../../shared/healthScore.js'
 import type { DesignToken } from '../../types.js'
 import type {
     DesignBillOfMaterials,
@@ -323,6 +323,32 @@ function readBaselineMeta(projectRoot: string): { setAt: string } | null {
     return null
 }
 
+// ── Project health score (extracted for parity-test exercise) ────────────────
+
+/**
+ * Compute the DBOM project-level health score.
+ *
+ * This is the EXACT computation `generateDBOM` performs at step 7. It is
+ * exported so the COUNSEL.1 cross-surface parity test can exercise this
+ * production code path directly — without it, the parity test would call
+ * `computeHealthScore` itself and would not catch a regression that
+ * re-inlined the math here. `overrideCount` is hard-coded 0 because filesystem
+ * scans cannot see live overrides; if you change that policy, change it here
+ * and the parity test will continue to bind both sites to the canonical formula.
+ */
+export function computeDbomProjectHealth(buckets: {
+    criticalCount: number
+    amberCount: number
+    advisoryCount: number
+}): { score: number; grade: 'A' | 'B' | 'C' | 'D' | 'F' } {
+    return computeHealthScore({
+        criticalCount: buckets.criticalCount,
+        amberCount: buckets.amberCount,
+        advisoryCount: buckets.advisoryCount,
+        overrideCount: 0,
+    })
+}
+
 // ── DBOM generator ────────────────────────────────────────────────────────────
 
 /**
@@ -372,9 +398,10 @@ export async function generateDBOM(projectRoot: string, glob?: string): Promise<
         tokens.map((tok) => [tok.token_path, new Set<string>()]),
     )
 
-    // Severity accumulators for health score
+    // Severity accumulators for health score (COUNSEL.1: advisoryCount restored)
     let totalCriticals = 0
     let totalWarnings = 0
+    let totalAdvisories = 0
 
     // Policy options for MithrilLinter
     const policyOptions = {
@@ -429,7 +456,8 @@ export async function generateDBOM(projectRoot: string, glob?: string): Promise<
                     nodeId,
                 })
                 if (warning.severity === 'critical') totalCriticals++
-                else totalWarnings++
+                else if (warning.severity === 'amber') totalWarnings++
+                else totalAdvisories++
             }
         }
 
@@ -466,8 +494,15 @@ export async function generateDBOM(projectRoot: string, glob?: string): Promise<
     }
 
     // ── 7. Health score + grade + compliance status ────────────────────────────
-    const healthScore = computeHealthScore(totalCriticals, totalWarnings, 0)
-    const grade = scoreToGrade(healthScore)
+    // COUNSEL.1: pass advisoryCount via canonical object-arg form. Previous
+    // 4-arg shim silently dropped advisoryCount — see contract divergence B.
+    // Extracted to exported `computeDbomProjectHealth` so the COUNSEL.1 parity
+    // test can exercise this exact production code path (not a mock copy).
+    const { score: healthScore, grade } = computeDbomProjectHealth({
+        criticalCount: totalCriticals,
+        amberCount: totalWarnings,
+        advisoryCount: totalAdvisories,
+    })
 
     let complianceStatus: 'compliant' | 'non-compliant' | 'partial'
     if (totalCriticals === 0 && totalWarnings === 0) {

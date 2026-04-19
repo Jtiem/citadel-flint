@@ -20,6 +20,11 @@ import type { DebtReport, DebtHistoryEntry, DashboardData } from './types.js'
 import { resolveWeights } from '../governance/scoringWeightsService.js'
 import { loadProjectConfig } from '../config-loader.js'
 import type { CoverageSummary, CoverageVerdict, CoverageReason } from '../../../../shared/coverage-types.js'
+import {
+    computeHealthScore as canonicalComputeHealthScore,
+    gradeFromScore as canonicalGradeFromScore,
+    type HealthGrade,
+} from '../../../../shared/healthScore.js'
 
 // ── Glob helper ──────────────────────────────────────────────────────────────
 
@@ -111,26 +116,16 @@ function extractRuleId(message: string): string {
     return match?.[1] ?? 'UNKNOWN'
 }
 
-// ── Health score & grade ────────────────────────────────────────────────────
+// ── Health score & grade (delegating shims, COUNSEL.1) ──────────────────────
 
 /**
- * CANONICAL HEALTH SCORE FORMULA (CHRON.1-repair / C2).
+ * @deprecated Use the object-arg form
+ *   `computeHealthScore({ criticalCount, amberCount, advisoryCount, overrideCount })`
+ * from `shared/healthScore.ts` directly. This positional 4-arg shim exists only
+ * for back-compat with legacy MCP callers and delegates to the canonical
+ * helper. New code MUST import from `shared/healthScore.ts`.
  *
- * Mirror of shared/healthScore.ts — that file is the source of truth for every
- * Flint surface (Glass hook, CI debt CLI, SARIF, DBOM). The flint-mcp build
- * uses rootDir: './src' and cannot import files outside the package, so this
- * function is inlined with a cross-package parity test that fails loudly if
- * the two ever drift.
- *
- * Formula:
- *   score = clamp(100
- *             - criticalCount * 10
- *             - amberCount    * 3
- *             - advisoryCount * 1
- *             - overrideCount * 3,
- *           0, 100)
- *
- * Grade bands: A >= 90, B >= 80, C >= 70, D >= 60, F < 60.
+ * Returns just the integer score (0..100) for legacy compatibility.
  */
 export function computeHealthScore(
     criticals: number,
@@ -138,29 +133,20 @@ export function computeHealthScore(
     infos: number,
     overrides: number = 0,
 ): number {
-    const c = Math.max(0, Math.floor(criticals ?? 0))
-    const w = Math.max(0, Math.floor(warnings ?? 0))
-    const i = Math.max(0, Math.floor(infos ?? 0))
-    const o = Math.max(0, Math.floor(overrides ?? 0))
-    const raw = 100 - c * 10 - w * 3 - i * 1 - o * 3
-    return Math.max(0, Math.min(100, Math.round(raw)))
+    return canonicalComputeHealthScore({
+        criticalCount: criticals,
+        amberCount: warnings,
+        advisoryCount: infos,
+        overrideCount: overrides,
+    }).score
 }
 
 /**
- * Maps a health score (0-100) to a letter grade.
- *   A: 90-100
- *   B: 80-89
- *   C: 70-79
- *   D: 60-69
- *   F: 0-59
+ * @deprecated Use `gradeFromScore` from `shared/healthScore.ts`. This is a
+ * thin re-export that exists for back-compat with legacy MCP callers.
  */
-export function scoreToGrade(score: number): 'A' | 'B' | 'C' | 'D' | 'F' {
-    if (!Number.isFinite(score)) return 'F'
-    if (score >= 90) return 'A'
-    if (score >= 80) return 'B'
-    if (score >= 70) return 'C'
-    if (score >= 60) return 'D'
-    return 'F'
+export function scoreToGrade(score: number): HealthGrade {
+    return canonicalGradeFromScore(score)
 }
 
 // ── Coverage aggregation ────────────────────────────────────────────────────
