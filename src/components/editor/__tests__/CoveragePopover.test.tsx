@@ -18,6 +18,12 @@
  *   - REASON_LABELS has 9 entries with plain-English copy (Fix 2)
  *   - tailwind-config-extension label reflects load-failure, not missing-feature (Phase 1 fix)
  *   - dynamic-class-expression label hints at unresolvable shapes, not generic clsx usage (Phase 1 fix)
+ *
+ * Phase 2 UX fixes (BLK-1, BLK-2, WARN-1, WARN-2):
+ *   - external-stylesheet-imported: failure-focused copy, no "doesn't read yet"
+ *   - css-modules-reference: failure-focused copy, no "doesn't resolve yet"
+ *   - unresolvable-var: explains circular/undefined chain, not bare var() usage
+ *   - Reason ordering: user-fixable reasons (parse-failure) appear before environmental reasons
  */
 
 import { describe, it, expect, vi } from 'vitest'
@@ -280,12 +286,38 @@ describe('REASON_LABELS — plain-English copy (Fix 2)', () => {
         const label = REASON_LABELS['css-modules-reference']
         // New copy must say more than the bare jargon term
         expect(label.length).toBeGreaterThan('CSS Modules'.length + 10)
-        expect(label).toMatch(/yet/i)
     })
 
     it('no label contains "Unresolvable CSS variable" as-is (old jargon copy)', () => {
         const label = REASON_LABELS['unresolvable-var']
         expect(label).not.toBe('Unresolvable CSS variable')
+    })
+
+    // ── Phase 2 UX fixes: BLK-1, BLK-2, WARN-1 ───────────────────────────────
+
+    it('BLK-1: external-stylesheet-imported label describes a failure, not a missing feature', () => {
+        const label = REASON_LABELS['external-stylesheet-imported']
+        // Must reference failure (missing file, parse error, or size)
+        expect(label).toMatch(/couldn't read|missing file|parse error|size limit/i)
+        // Must NOT contain the old "doesn't read" framing
+        expect(label).not.toMatch(/doesn't read/i)
+        expect(label).not.toMatch(/doesn't read .css/i)
+    })
+
+    it('BLK-2: css-modules-reference label describes a resolution failure, not a missing feature', () => {
+        const label = REASON_LABELS['css-modules-reference']
+        // Must reference failure
+        expect(label).toMatch(/couldn't resolve|missing file|parse error|outside your project/i)
+        // Must NOT contain the old "doesn't resolve yet" framing
+        expect(label).not.toMatch(/doesn't resolve/i)
+    })
+
+    it('WARN-1: unresolvable-var label explains what "unresolvable" means', () => {
+        const label = REASON_LABELS['unresolvable-var']
+        // Must explain the failure condition (not defined / circular)
+        expect(label).toMatch(/not defined|circular reference|:root/i)
+        // Must NOT use the old vague framing
+        expect(label).not.toBe("References a CSS variable Flint can't resolve")
     })
 })
 
@@ -324,5 +356,55 @@ describe('CoveragePopover — idle mode', () => {
     it('idle mode does not render the coverage-percent element', () => {
         render(<CoveragePopover mode="idle" onClose={vi.fn()} />)
         expect(screen.queryByTestId('coverage-percent')).toBeNull()
+    })
+})
+
+// ─── WARN-2: Reason ordering — user-fixable before environmental ──────────────
+
+describe('CoveragePopover — reason ordering (WARN-2)', () => {
+    it('parse-failure appears before external-stylesheet-imported in the list', () => {
+        const summary = makeSummary({
+            governedSurfacePercent: 40,
+            totalFiles: 5,
+            parsedFiles: 2,
+            partialFiles: 1,
+            skippedFiles: 2,
+            skippedFilesByReason: {
+                ...ZERO_REASONS,
+                'parse-failure': 1,
+                'external-stylesheet-imported': 1,
+            },
+        })
+        render(<CoveragePopover summary={summary} onClose={vi.fn()} />)
+        const list = screen.getByTestId('coverage-reasons-list')
+        const items = list.querySelectorAll('li')
+        expect(items.length).toBe(2)
+        // parse-failure (priority 1) must be first
+        expect(items[0].textContent).toMatch(/parse|syntax/i)
+        // external-stylesheet-imported (priority 10) must be second
+        expect(items[1].textContent).toMatch(/couldn't read|missing file|parse error|size limit/i)
+    })
+
+    it('all user-fixable reasons appear before all environmental reasons', () => {
+        // Summary with one user-fixable (dynamic-class-expression=3) and one environmental (css-in-js-detected=2)
+        const summary = makeSummary({
+            governedSurfacePercent: 50,
+            totalFiles: 5,
+            parsedFiles: 2,
+            partialFiles: 1,
+            skippedFiles: 2,
+            skippedFilesByReason: {
+                ...ZERO_REASONS,
+                'dynamic-class-expression': 3,
+                'css-in-js-detected': 2,
+            },
+        })
+        render(<CoveragePopover summary={summary} onClose={vi.fn()} />)
+        const list = screen.getByTestId('coverage-reasons-list')
+        const items = list.querySelectorAll('li')
+        expect(items.length).toBe(2)
+        // dynamic-class-expression (priority 3) before css-in-js-detected (priority 20)
+        expect(items[0].textContent).toMatch(/imported helper|function result|variable in a ternary/i)
+        expect(items[1].textContent).toMatch(/CSS-in-JS/i)
     })
 })

@@ -1,0 +1,13 @@
+{
+  "_note": "Import from a subdirectory ./shared/ — still within the project root (13-sibling-dir). Must resolve successfully.",
+  "imports": [
+    {
+      "bindingName": "s",
+      "modulePath": "./shared/button.module.css",
+      "resolved": true,
+      "failureReason": null,
+      "namedImports": [],
+      "classBindings_keys": ["sharedBtn", "sharedBtnDisabled"]
+    }
+  ]
+}

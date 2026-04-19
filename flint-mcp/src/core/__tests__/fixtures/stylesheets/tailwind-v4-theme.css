@@ -1,0 +1,41 @@
+/**
+ * Tailwind v4 CSS-first theme fixture.
+ * Used to test tailwindV4ThemeParser @theme block extraction.
+ * Variable names follow the Tailwind v4 convention:
+ *   --color-* → colors section
+ *   --spacing-* → spacing section
+ *   --font-family-* → fontFamily section
+ */
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #0066cc;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #6c757d;
+  --color-secondary-foreground: #ffffff;
+  --color-background: #ffffff;
+  --color-foreground: #0f172a;
+  --color-muted: #f1f5f9;
+  --color-muted-foreground: #64748b;
+  --color-accent: #f59e0b;
+  --color-destructive: #dc2626;
+
+  --spacing-px: 1px;
+  --spacing-0: 0;
+  --spacing-1: 0.25rem;
+  --spacing-2: 0.5rem;
+  --spacing-3: 0.75rem;
+  --spacing-4: 1rem;
+  --spacing-6: 1.5rem;
+  --spacing-8: 2rem;
+  --spacing-12: 3rem;
+  --spacing-16: 4rem;
+
+  --font-family-sans: ui-sans-serif, system-ui, sans-serif;
+  --font-family-mono: ui-monospace, SFMono-Regular, monospace;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius: 0.5rem;
+}

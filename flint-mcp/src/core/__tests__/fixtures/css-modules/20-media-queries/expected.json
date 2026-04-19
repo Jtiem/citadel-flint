@@ -1,0 +1,13 @@
+{
+  "_note": "Classes inside @media queries are still top-level classes in CSS Modules terms. postcss-modules walks inside @media and reports them. The parser must not crash on @media blocks.",
+  "imports": [
+    {
+      "bindingName": "s",
+      "modulePath": "style.module.css",
+      "resolved": true,
+      "failureReason": null,
+      "namedImports": [],
+      "classBindings_keys": ["responsiveBtn", "stack"]
+    }
+  ]
+}

@@ -773,3 +773,350 @@ export const J = () => <div className="bg-brand-primary">J</div>
     })
 
 })
+
+// ── Phase 2 Upgrade Cases ─────────────────────────────────────────────────────
+//
+// CONTRACT-SOURCE: .flint-context/contracts/PHASE2-postcss-css-modules.contract.ts
+// testBoundaries targeted:
+//   "external-stylesheet-imported" upgrade when parsedStylesheets all ok:true
+//   "css-modules-reference" upgrade when cssModules all resolved:true
+//   "unresolvable-var" upgrade when customPropertyMap resolves all vars
+//   "tailwind-config-extension" upgrade when tailwindV4Theme has blockCount >= 1
+//
+// Invariants:
+//   coverage-upgrade-parity = 1.0 — all 4 Phase 2 upgrade scenarios work
+//   phase0/phase1-grade-formula-stability = 0 — existing tests still green
+
+describe('coverageClassifier — Phase 2 upgrade cases', () => {
+
+    function parseSourceP2(source: string) {
+        return parse(source, {
+            sourceType: 'module',
+            plugins: ['typescript', 'jsx'],
+        })
+    }
+
+    function inputP2(overrides: Record<string, unknown> & { filePath: string }) {
+        return {
+            source: '',
+            ast: null,
+            ...overrides,
+        } as ClassifierInput
+    }
+
+    // ── 46. External stylesheet + matching parsedStylesheets ok:true → parsed ────
+    //
+    // CONTRACT: external-stylesheet-imported upgrade
+    // given: file with `import './styles.css'`; externalStylesheets provided all ok:true
+    // then: flips external-stylesheet-imported → parsed
+
+    it('46 — Phase 2: external stylesheet + all ok:true externalStylesheets → verdict parsed', () => {
+        const source = `
+import './styles.css'
+export const A = () => <div className="container">A</div>
+`
+        const ast = parseSourceP2(source)
+        const externalStylesheets = [{ ok: true }]
+
+        const verdict = classifyCoverage(inputP2({
+            filePath: '/src/A.tsx', source, ast, externalStylesheets,
+        }))
+        expect(verdict.status).toBe('parsed')
+        expect(verdict.reason).toBeNull()
+    })
+
+    // ── 47. External stylesheet WITHOUT matching entry → stays partial ─────────
+
+    it('47 — Phase 2: external stylesheet with NO externalStylesheets → stays partial', () => {
+        const source = `
+import './styles.css'
+export const B = () => <div className="container">B</div>
+`
+        const ast = parseSourceP2(source)
+
+        const verdict = classifyCoverage(inputP2({
+            filePath: '/src/B.tsx', source, ast,
+            // externalStylesheets NOT provided
+        }))
+        expect(verdict.status).toBe('partial')
+        expect(verdict.reason).toBe('external-stylesheet-imported' satisfies CoverageReason)
+    })
+
+    // ── 48. External stylesheet with ok:false entry → stays partial ───────────
+
+    it('48 — Phase 2: external stylesheet with one ok:false → stays partial', () => {
+        const source = `
+import './styles.css'
+import './broken.css'
+export const C = () => <div className="x">C</div>
+`
+        const ast = parseSourceP2(source)
+        const externalStylesheets = [
+            { ok: true },
+            { ok: false }, // one failed
+        ]
+
+        const verdict = classifyCoverage(inputP2({
+            filePath: '/src/C.tsx', source, ast, externalStylesheets,
+        }))
+        expect(verdict.status).toBe('partial')
+        expect(verdict.reason).toBe('external-stylesheet-imported' satisfies CoverageReason)
+    })
+
+    // ── 49. CSS Modules import + resolved:true in cssModules → parsed ─────────
+    //
+    // CONTRACT: css-modules-reference upgrade
+
+    it('49 — Phase 2: CSS Modules import + resolved:true cssModules → verdict parsed', () => {
+        const source = `
+import s from './Button.module.css'
+export const D = () => <div className={s.active}>D</div>
+`
+        const ast = parseSourceP2(source)
+        const cssModules = {
+            sourcePath: '/src/D.tsx',
+            imports: [
+                {
+                    bindingName: 's',
+                    modulePath: '/src/Button.module.css',
+                    classBindings: [{ localClassName: 'active', scopedClassName: 'Button__active___abc12', line: 1 }],
+                    namedImports: [],
+                    resolved: true,
+                    failureReason: null,
+                },
+            ],
+        }
+
+        const verdict = classifyCoverage(inputP2({
+            filePath: '/src/D.tsx', source, ast, cssModules,
+        }))
+        expect(verdict.status).toBe('parsed')
+        expect(verdict.reason).toBeNull()
+    })
+
+    // ── 50. CSS Modules import + resolved:false → stays partial ───────────────
+
+    it('50 — Phase 2: CSS Modules import + resolved:false → stays partial', () => {
+        const source = `
+import s from './Missing.module.css'
+export const E = () => <div className={s.active}>E</div>
+`
+        const ast = parseSourceP2(source)
+        const cssModules = {
+            sourcePath: '/src/E.tsx',
+            imports: [
+                {
+                    bindingName: 's',
+                    modulePath: '/src/Missing.module.css',
+                    classBindings: [],
+                    namedImports: [],
+                    resolved: false,
+                    failureReason: 'module-not-found',
+                },
+            ],
+        }
+
+        const verdict = classifyCoverage(inputP2({
+            filePath: '/src/E.tsx', source, ast, cssModules,
+        }))
+        expect(verdict.status).toBe('partial')
+        expect(verdict.reason).toBe('css-modules-reference' satisfies CoverageReason)
+    })
+
+    // ── 51. bare var(--x) + customPropertyMap resolving → parsed ─────────────
+    //
+    // CONTRACT: unresolvable-var upgrade
+
+    it('51 — Phase 2: var(--brand-color) + customPropertyMap resolves it → verdict parsed', () => {
+        const source = `
+export const F = () => (
+    <div style={{ color: 'var(--brand-color)' }}>F</div>
+)
+`
+        const ast = parseSourceP2(source)
+        const customPropertyMap = {
+            map: new Map([['--brand-color', '#0066cc']]),
+            resolve: (expr: string) => {
+                // Resolve bare var(--brand-color)
+                const match = expr.match(/^var\((--[^,)]+)\)$/)
+                if (match) {
+                    return customPropertyMap.map.get(match[1]) ?? null
+                }
+                return null
+            },
+            sourcePaths: ['/src/theme.css'],
+        }
+
+        const verdict = classifyCoverage(inputP2({
+            filePath: '/src/F.tsx', source, ast, customPropertyMap,
+        }))
+        expect(verdict.status).toBe('parsed')
+        expect(verdict.reason).toBeNull()
+    })
+
+    // ── 52. bare var(--x) + customPropertyMap missing --x → stays partial ─────
+
+    it('52 — Phase 2: var(--missing-var) + customPropertyMap without it → stays partial', () => {
+        const source = `
+export const G = () => (
+    <div style={{ color: 'var(--missing-var)' }}>G</div>
+)
+`
+        const ast = parseSourceP2(source)
+        const customPropertyMap = {
+            map: new Map<string, string>(), // empty map
+            resolve: (_expr: string) => null,
+            sourcePaths: [],
+        }
+
+        const verdict = classifyCoverage(inputP2({
+            filePath: '/src/G.tsx', source, ast, customPropertyMap,
+        }))
+        expect(verdict.status).toBe('partial')
+        expect(verdict.reason).toBe('unresolvable-var' satisfies CoverageReason)
+    })
+
+    // ── 53. v4 CSS-first @theme parsed (blockCount >= 1) → flips tailwind-config-extension ──
+    //
+    // CONTRACT: tailwind-config-extension upgrade for v4-CSS-first
+
+    it('53 — Phase 2: tailwindV4Theme blockCount >= 1 → tailwind-config-extension flips to parsed', () => {
+        const source = `
+export const H = () => <div className="bg-brand-primary">H</div>
+`
+        const ast = parseSourceP2(source)
+        const tailwindV4Theme = {
+            sourcePath: '/src/app.css',
+            sections: { colors: { 'brand.primary': '#0066cc' } },
+            knownClasses: new Set(['bg-brand-primary']),
+            blockCount: 1,
+        }
+
+        const verdict = classifyCoverage(inputP2({
+            filePath: '/src/H.tsx', source, ast,
+            tailwindConfigUnparsed: true, // would normally trigger the rule
+            tailwindV4Theme,
+        }))
+        expect(verdict.status).toBe('parsed')
+        expect(verdict.reason).toBeNull()
+    })
+
+    // ── 54. v4 CSS-first with blockCount 0 → stays partial ────────────────────
+
+    it('54 — Phase 2: tailwindV4Theme blockCount 0 → tailwind-config-extension stays partial', () => {
+        const source = `
+export const I = () => <div className="bg-brand-primary">I</div>
+`
+        const ast = parseSourceP2(source)
+        const tailwindV4Theme = {
+            sourcePath: '/src/app.css',
+            sections: {},
+            knownClasses: new Set<string>(),
+            blockCount: 0, // no @theme blocks found
+        }
+
+        const verdict = classifyCoverage(inputP2({
+            filePath: '/src/I.tsx', source, ast,
+            tailwindConfigUnparsed: true,
+            tailwindV4Theme,
+        }))
+        expect(verdict.status).toBe('partial')
+        expect(verdict.reason).toBe('tailwind-config-extension' satisfies CoverageReason)
+    })
+
+    // ── 55. Phase 0 + Phase 1 regression: all existing paths still work ────────
+    //
+    // Invariant: phase0/phase1-grade-formula-stability = 0
+
+    it('55 — Phase 2 regression: Phase 0 plain clsx still partial (no Phase 2 fields)', () => {
+        const source = `
+import clsx from 'clsx'
+export const K = ({ active }: any) => <div className={clsx('base', active)}>K</div>
+`
+        const ast = parseSourceP2(source)
+        // No Phase 1 or Phase 2 fields
+        const verdict = classifyCoverage(inputP2({ filePath: '/src/K.tsx', source, ast }))
+        expect(verdict.status).toBe('partial')
+        expect(verdict.reason).toBe('dynamic-class-expression' satisfies CoverageReason)
+    })
+
+    it('55b — Phase 2 regression: Phase 1 tailwindConfig ok:true still works', () => {
+        const source = `
+export const L = () => <div className="bg-brand-primary">L</div>
+`
+        const ast = parseSourceP2(source)
+        const tailwindConfig = {
+            ok: true as const,
+            theme: { sourcePath: '/project/tailwind.config.js', version: 'v3' as const, mtimeMs: Date.now(), sections: {}, knownClasses: new Set<string>() },
+        }
+
+        const verdict = classifyCoverage(inputP2({
+            filePath: '/src/L.tsx', source, ast,
+            tailwindConfigUnparsed: true,
+            tailwindConfig,
+        }))
+        expect(verdict.status).toBe('parsed')
+        expect(verdict.reason).toBeNull()
+    })
+
+    // ── 56. Both cssModules and externalStylesheets provided — all ok → parsed ──
+
+    it('56 — Phase 2: both cssModules (resolved) + externalStylesheets (ok) → parsed', () => {
+        const source = `
+import './theme.css'
+import s from './Button.module.css'
+export const M = () => <div className={s.active}>M</div>
+`
+        const ast = parseSourceP2(source)
+        const cssModules = {
+            sourcePath: '/src/M.tsx',
+            imports: [{
+                bindingName: 's',
+                modulePath: '/src/Button.module.css',
+                classBindings: [{ localClassName: 'active', scopedClassName: 'Button__active___abc', line: 1 }],
+                namedImports: [],
+                resolved: true,
+                failureReason: null,
+            }],
+        }
+        const externalStylesheets = [{ ok: true }]
+
+        const verdict = classifyCoverage(inputP2({
+            filePath: '/src/M.tsx', source, ast, cssModules, externalStylesheets,
+        }))
+        expect(verdict.status).toBe('parsed')
+        expect(verdict.reason).toBeNull()
+    })
+
+    // ── 57. Partial CSS modules resolution (one failed) → stays partial ────────
+
+    it('57 — Phase 2: cssModules with one failed import → stays partial', () => {
+        const source = `
+import s from './Good.module.css'
+import t from './Bad.module.css'
+export const N = () => <div className={s.active}><span className={t.item} /></div>
+`
+        const ast = parseSourceP2(source)
+        const cssModules = {
+            sourcePath: '/src/N.tsx',
+            imports: [
+                {
+                    bindingName: 's', modulePath: '/src/Good.module.css',
+                    classBindings: [{ localClassName: 'active', scopedClassName: 'Good__active___xyz', line: 1 }],
+                    namedImports: [], resolved: true, failureReason: null,
+                },
+                {
+                    bindingName: 't', modulePath: '/src/Bad.module.css',
+                    classBindings: [], namedImports: [], resolved: false, failureReason: 'module-not-found',
+                },
+            ],
+        }
+
+        const verdict = classifyCoverage(inputP2({
+            filePath: '/src/N.tsx', source, ast, cssModules,
+        }))
+        expect(verdict.status).toBe('partial')
+        expect(verdict.reason).toBe('css-modules-reference' satisfies CoverageReason)
+    })
+
+})

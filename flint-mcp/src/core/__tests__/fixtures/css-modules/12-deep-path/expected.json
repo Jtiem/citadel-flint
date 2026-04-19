@@ -1,0 +1,13 @@
+{
+  "_note": "Multi-level deep path — still inside projectRoot. Must resolve successfully.",
+  "imports": [
+    {
+      "bindingName": "s",
+      "modulePath": "deeply/nested/button.module.css",
+      "resolved": true,
+      "failureReason": null,
+      "namedImports": [],
+      "classBindings_keys": ["btn", "btnPrimary", "btnSmall"]
+    }
+  ]
+}

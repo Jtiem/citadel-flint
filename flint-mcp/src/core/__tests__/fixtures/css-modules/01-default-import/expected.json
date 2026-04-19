@@ -1,0 +1,12 @@
+{
+  "imports": [
+    {
+      "bindingName": "s",
+      "modulePath": "style.module.css",
+      "resolved": true,
+      "failureReason": null,
+      "namedImports": [],
+      "classBindings_keys": ["active", "hidden"]
+    }
+  ]
+}

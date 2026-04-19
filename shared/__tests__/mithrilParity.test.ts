@@ -103,6 +103,10 @@ const ALLOWED_MCP_ONLY_EXPORTS: readonly string[] = [
     // Phase 0 Coverage Honesty — MCP-only coverage integration
     // Glass does not expose auditAllWithCoverage; coverage flows from hook → IPC.
     'auditAllWithCoverage',        // Phase 0: MCP-only wrapper; Glass reads coverage via useCoverageSummary hook
+
+    // Phase 2 PostCSS — MCP-only CSS var() resolver wrapper
+    // Glass var() resolution remains single-pass fallback-only (no project-wide custom property map).
+    'parseCssColorToHexWithMap',   // Phase 2: MCP-only wrapper that resolves CSS var() via customPropertyMap
 ]
 
 // ── Helpers ────────────────────────────────────────────────────────────────────

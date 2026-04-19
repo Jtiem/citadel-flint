@@ -152,6 +152,12 @@ export interface PolicyOptions {
      * Populated by auditAll from AuditAllOptions.tailwindTheme — do not set directly.
      */
     _knownTailwindClasses?: ReadonlySet<string>
+    /**
+     * Phase 2 (internal): Project-wide CSS custom property map propagated from AuditAllOptions.
+     * Used by checkStyleProps / parseCssColorToHexWithMap to resolve bare var(--x) references.
+     * Populated by auditAll — do not set directly.
+     */
+    _customPropertyMap?: ReadonlyMap<string, string>
 }
 
 interface TokenMatch {
@@ -364,12 +370,54 @@ export function parseCssColorToHex(value: string): string | null {
         }
         return null
     }
+    // NOTE: bare var(--x) with no fallback resolves to null here.
+    // Use parseCssColorToHexWithMap to also consult a customPropertyMap.
 
     // CSS named colors (16 basic set)
     const named = CSS_NAMED_COLORS[trimmed.toLowerCase()]
     if (named !== undefined) return named
 
     return null
+}
+
+/**
+ * Phase 2 variant of parseCssColorToHex that also consults a customPropertyMap when
+ * a bare var(--x) reference has no inline literal fallback.
+ *
+ * Resolution chain (depth-limited to 8 hops, visited set prevents cycles):
+ *  1. Try parseCssColorToHex (handles literals, rgb/hsl, fallback vars).
+ *  2. If still null and value is a bare var(--x), look up --x in customPropertyMap.
+ *  3. Recurse on the mapped value (may itself be var(--y) or a literal).
+ *  4. If chain doesn't resolve to a literal, returns null (safe — no false drift).
+ */
+export function parseCssColorToHexWithMap(
+    value: string,
+    customPropertyMap: ReadonlyMap<string, string> | undefined,
+    _visited: ReadonlySet<string> = new Set(),
+    _depth: number = 0,
+): string | null {
+    // First try the standard resolver (handles literals, fallbacks).
+    const standard = parseCssColorToHex(value)
+    if (standard !== null) return standard
+
+    // Bail out if no map, max depth reached, or value isn't a bare var()
+    if (customPropertyMap === undefined || _depth >= 8) return null
+    const trimmed = value.trim()
+    if (!/^var\s*\(/i.test(trimmed)) return null
+
+    // Extract property name from bare var(--x) — no fallback (fallback already handled above)
+    const bareVarMatch = /^var\(\s*(--[\w-]+)\s*\)$/.exec(trimmed)
+    if (bareVarMatch === null) return null
+
+    const propName = bareVarMatch[1]
+    if (_visited.has(propName)) return null // cycle guard
+
+    const mapped = customPropertyMap.get(propName)
+    if (mapped === undefined) return null
+
+    const nextVisited = new Set(_visited)
+    nextVisited.add(propName)
+    return parseCssColorToHexWithMap(mapped.trim(), customPropertyMap, nextVisited, _depth + 1)
 }
 
 // ── Language-agnostic style prop checker ──────────────────────────────────────
@@ -421,8 +469,9 @@ export function checkStyleProps(
         if (INLINE_COLOR_PROPS.has(prop) && stringValue !== null) {
             const colMode = options?.ruleModes?.['MITHRIL-IST-COL']
             if (colMode === 'off') continue
-            const hexVal = parseCssColorToHex(stringValue)
-            if (hexVal === null) continue // var(), named color, currentColor → skip
+            // Phase 2: use the map-aware resolver so bare var(--x) can be looked up
+            const hexVal = parseCssColorToHexWithMap(stringValue, options?._customPropertyMap)
+            if (hexVal === null) continue // unresolvable var(), currentColor → skip
             const match = findClosestToken(hexVal, tokens)
             if (match === null) continue // no color tokens — can't evaluate
             if (match.deltaE <= threshold) continue
@@ -1915,6 +1964,18 @@ export interface AuditAllOptions extends PolicyOptions {
      * When provided, Mithril checks `definite ∪ possible` classes for drift violations.
      */
     classExpansions?: readonly ExpandedClassExpression[]
+    /**
+     * Phase 2 (PHASE2-PostCSS): Project-wide CSS custom property map from cssCustomPropertyMap.
+     * When provided, Mithril's `var(--x)` resolver consults this map when a bare reference
+     * has no inline literal fallback.
+     */
+    customPropertyMap?: ReadonlyMap<string, string>
+    /**
+     * Phase 2 (PHASE2-PostCSS): Partial theme sections parsed from `@theme {}` blocks in CSS.
+     * These are merged with `tailwindTheme` so Tailwind v4 CSS-first configs feed the same
+     * drift-detection pipeline as Phase 1 JS configs.
+     */
+    stylesheetThemes?: ReadonlyArray<Partial<Record<string, Record<string, string>>>>
 }
 
 /**
@@ -1962,6 +2023,59 @@ function mergeThemeTokens(
             if (!existingPaths.has(tp)) {
                 merged.push(makeThemeToken(tp, tokenType, value))
                 existingPaths.add(tp)
+            }
+        }
+    }
+
+    return merged
+}
+
+/**
+ * Phase 2 internal: Merge CSS @theme block sections (from cssStylesheetLoader) into
+ * a DesignToken[]. The section keys map the same way as tailwindTheme sections so the
+ * CIEDE2000 matchers work without any additional plumbing.
+ *
+ * Only string-valued entries are added. Empty or duplicate paths are skipped.
+ */
+function mergeStylesheetThemeTokens(
+    tokens: DesignToken[],
+    stylesheetThemes: ReadonlyArray<Partial<Record<string, Record<string, string>>>>,
+): DesignToken[] {
+    const merged = [...tokens]
+    const existingPaths = new Set(tokens.map((t) => t.token_path))
+
+    // Map section names → DesignToken token_type (mirrors Phase 1 sectionTokenTypes)
+    const sectionTypeMap: Record<string, DesignToken['token_type']> = {
+        colors: 'color',
+        spacing: 'dimension',
+        fontFamily: 'fontFamily',
+        fontSize: 'dimension',
+        fontWeight: 'fontWeight',
+        boxShadow: 'shadow',
+        opacity: 'opacity',
+    }
+
+    for (const theme of stylesheetThemes) {
+        for (const [sectionName, sectionData] of Object.entries(theme)) {
+            if (sectionData === undefined) continue
+            const tokenType: DesignToken['token_type'] = sectionTypeMap[sectionName] ?? 'color'
+            for (const [key, value] of Object.entries(sectionData)) {
+                if (typeof value !== 'string' || value.length === 0) continue
+                const tp = sectionName === 'colors'
+                    ? `stylesheet.${key}`
+                    : `stylesheet.${sectionName}.${key}`
+                if (!existingPaths.has(tp)) {
+                    merged.push({
+                        id: 0,
+                        token_path: tp,
+                        token_type: tokenType,
+                        token_value: value,
+                        description: null,
+                        collection_name: 'stylesheet',
+                        mode: 'default',
+                    })
+                    existingPaths.add(tp)
+                }
             }
         }
     }
@@ -2058,6 +2172,22 @@ export function auditAll(ast: File, tokens: DesignToken[], options?: AuditAllOpt
         workingOptions = {
             ...options,
             _knownTailwindClasses: options.tailwindTheme.knownClasses,
+        }
+    }
+
+    // Phase 2: merge stylesheetThemes (CSS @theme blocks) into the token set.
+    // This mirrors Phase 1's tailwindTheme merge so v4 CSS-first configs feed the
+    // same CIEDE2000 drift pipeline. Must happen BEFORE any visitor runs.
+    if (options?.stylesheetThemes !== undefined && options.stylesheetThemes.length > 0) {
+        workingTokens = mergeStylesheetThemeTokens(workingTokens, options.stylesheetThemes)
+    }
+
+    // Phase 2: thread customPropertyMap into PolicyOptions so checkStyleProps can
+    // resolve bare var(--x) references via parseCssColorToHexWithMap.
+    if (options?.customPropertyMap !== undefined) {
+        workingOptions = {
+            ...(workingOptions ?? options),
+            _customPropertyMap: options.customPropertyMap,
         }
     }
 

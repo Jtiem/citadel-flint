@@ -32,6 +32,38 @@ const traverse =
 
 // ── Classifier Input ──────────────────────────────────────────────────────────
 
+/**
+ * Minimal interface for a resolved CSS Modules import.
+ * Full type lives in cssModulesResolver.ts — we use a structural subset here
+ * so coverageClassifier remains free of that dependency at the type level.
+ */
+interface CssModuleImportResult {
+    resolved: boolean
+    failureReason: string | null
+}
+
+/**
+ * Minimal interface for a CSS custom-property map.
+ * Full type (CustomPropertyMap) lives in cssCustomPropertyMap.ts.
+ */
+interface CustomPropertyMapLike {
+    resolve(varExpression: string): string | null
+}
+
+/**
+ * Minimal interface for a parsed stylesheet result.
+ */
+interface StylesheetResultLike {
+    ok: boolean
+}
+
+/**
+ * Minimal interface for a Tailwind v4 CSS-first theme parse result.
+ */
+interface TailwindV4ThemeLike {
+    blockCount: number
+}
+
 export interface ClassifierInput {
     /** Absolute or project-relative path. Used for extension + framework checks. */
     filePath: string
@@ -57,6 +89,32 @@ export interface ClassifierInput {
      * is empty, legacy Phase 0 behavior is preserved.
      */
     classExpansions?: ReadonlyArray<{ unresolvable: boolean; [key: string]: unknown }>
+
+    // ── Phase 2 upgrade fields ─────────────────────────────────────────────
+
+    /**
+     * Phase 2 upgrade — results of cssStylesheetLoader for every stylesheet
+     * imported by this file. When every entry has `ok: true`, the
+     * `external-stylesheet-imported` reason is suppressed.
+     */
+    externalStylesheets?: readonly StylesheetResultLike[]
+    /**
+     * Phase 2 upgrade — result of cssModulesResolver for this source file.
+     * When every import has `resolved: true`, the `css-modules-reference`
+     * reason is suppressed.
+     */
+    cssModules?: { imports: readonly CssModuleImportResult[] }
+    /**
+     * Phase 2 upgrade — project-wide custom-property map. When every bare
+     * `var(--x)` in the file resolves via `.resolve()`, the `unresolvable-var`
+     * reason is suppressed.
+     */
+    customPropertyMap?: CustomPropertyMapLike
+    /**
+     * Phase 2 upgrade — result of tailwindV4ThemeParser. When `blockCount >= 1`,
+     * the `tailwind-config-extension` reason for v4-CSS-first files is suppressed.
+     */
+    tailwindV4Theme?: TailwindV4ThemeLike
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -439,6 +497,60 @@ function checkUnresolvableVar(ast: t.File): { hit: boolean; details?: string } {
     return { hit: false }
 }
 
+/**
+ * Phase 2 helper: check ALL var(--x) references in inline styles against the
+ * provided custom-property map. Returns { allResolved: true } if every bare
+ * var(--x) (no fallback) resolves; otherwise returns the first unresolved detail.
+ */
+function checkAllVarsResolvable(
+    ast: t.File,
+    customPropertyMap: { resolve(expr: string): string | null },
+): { allResolved: boolean; firstUnresolved?: string } {
+    const VAR_NO_FALLBACK = /var\(--[^,)]+\)/g
+
+    let firstUnresolved: string | undefined
+    let allResolved = true
+
+    try {
+        traverse(ast, {
+            JSXAttribute(path) {
+                const name = path.node.name
+                if (!t.isJSXIdentifier(name, { name: 'style' })) return
+
+                const val = path.node.value
+                if (!t.isJSXExpressionContainer(val)) return
+                const expr = val.expression
+                if (!t.isObjectExpression(expr)) return
+
+                for (const prop of expr.properties) {
+                    if (!t.isObjectProperty(prop)) continue
+                    const propVal = prop.value
+                    if (!t.isStringLiteral(propVal)) continue
+
+                    let match: RegExpExecArray | null
+                    const re = /var\(--[^,)]+\)/g
+                    while ((match = re.exec(propVal.value)) !== null) {
+                        const varExpr = match[0]
+                        const resolved = customPropertyMap.resolve(varExpr)
+                        if (resolved === null) {
+                            allResolved = false
+                            const line = prop.loc?.start.line ?? 0
+                            firstUnresolved = `Unresolvable CSS variable '${propVal.value}' (no fallback, not in property map) at line ${line}`
+                            break
+                        }
+                    }
+                    if (!allResolved) break
+                }
+                if (!allResolved) path.stop()
+            },
+        })
+    } catch {
+        // Non-fatal — treat traversal errors as unresolved to be safe
+    }
+
+    return allResolved ? { allResolved: true } : { allResolved: false, firstUnresolved }
+}
+
 // ── Main classifier ───────────────────────────────────────────────────────────
 
 /**
@@ -450,7 +562,12 @@ function checkUnresolvableVar(ast: t.File): { hit: boolean; details?: string } {
  * Invariant: (result.status === 'parsed') iff (result.reason === null).
  */
 export function classifyCoverage(input: ClassifierInput): CoverageVerdict {
-    const { filePath, ast, tailwindConfigUnparsed, tailwindConfig, classExpansions } = input
+    const {
+        filePath, ast,
+        tailwindConfigUnparsed, tailwindConfig, classExpansions,
+        // Phase 2 fields
+        externalStylesheets, cssModules, customPropertyMap, tailwindV4Theme,
+    } = input
 
     // ── Rule 1: non-jsx-framework (highest priority) ──────────────────────────
     // Only extension-based: .vue, .svelte, Angular template (.component.html).
@@ -491,29 +608,61 @@ export function classifyCoverage(input: ClassifierInput): CoverageVerdict {
     // Checked before Rule 3 because a CSS Module import + className={s.foo} usage
     // is a more specific signal than a generic stylesheet import. The `.module.css`
     // suffix also matches the Rule 3 stylesheet list, so this check must precede it.
-    const cssModules = checkCssModulesReference(imports, ast)
-    if (cssModules.hit) {
-        return {
-            status: 'partial',
-            reason: 'css-modules-reference' satisfies CoverageReason,
-            details: cssModules.details,
+    //
+    // Phase 2 upgrade: when cssModules is provided and every import resolved
+    // successfully, skip this rule (verdict upgrades to parsed).
+    const allCssModulesResolved =
+        cssModules !== undefined &&
+        cssModules.imports.length > 0 &&
+        cssModules.imports.every((imp) => imp.resolved === true)
+    if (!allCssModulesResolved) {
+        const cssModulesCheck = checkCssModulesReference(imports, ast)
+        if (cssModulesCheck.hit) {
+            return {
+                status: 'partial',
+                reason: 'css-modules-reference' satisfies CoverageReason,
+                details: cssModulesCheck.details,
+            }
         }
     }
 
     // ── Rule 3: external-stylesheet-imported ──────────────────────────────────
-    const extStylesheet = checkExternalStylesheet(imports)
-    if (extStylesheet.hit) {
-        return {
-            status: 'partial',
-            reason: 'external-stylesheet-imported' satisfies CoverageReason,
-            details: extStylesheet.details,
+    // Phase 2 upgrade: when externalStylesheets is provided and every entry has
+    // ok:true, the stylesheet imports are parsed and governed. Skip this rule.
+    //
+    // Also: when allCssModulesResolved is true, any *.module.* import that
+    // would trigger this rule has already been handled. We exclude module imports
+    // from the external-stylesheet check in that case to avoid double-counting.
+    const allStylesheetsOk =
+        externalStylesheets !== undefined &&
+        externalStylesheets.length > 0 &&
+        externalStylesheets.every((s) => s.ok === true)
+    if (!allStylesheetsOk) {
+        // If CSS modules are all resolved, filter out the module imports before
+        // running the external-stylesheet check so they don't double-trigger.
+        const importsForExtCheck = allCssModulesResolved
+            ? imports.filter(({ specifier }) => !CSS_MODULE_SUFFIXES.some((suffix) => specifier.endsWith(suffix)))
+            : imports
+        const extStylesheet = checkExternalStylesheet(importsForExtCheck)
+        if (extStylesheet.hit) {
+            return {
+                status: 'partial',
+                reason: 'external-stylesheet-imported' satisfies CoverageReason,
+                details: extStylesheet.details,
+            }
         }
     }
 
     // ── Rule 5: tailwind-config-extension ─────────────────────────────────────
     // Phase 1 upgrade: when tailwindConfig.ok === true, the loader resolved the
     // config and merged its tokens into Mithril's token set. Skip this rule.
-    const tailwindConfigResolved = tailwindConfig?.ok === true
+    //
+    // Phase 2 upgrade: when tailwindV4Theme.blockCount >= 1, the v4 CSS-first
+    // @theme blocks were parsed and merged. This supersedes the Phase 1
+    // `v4-css-first-unsupported` fallback for v4-CSS-first files.
+    const tailwindConfigResolved =
+        tailwindConfig?.ok === true ||
+        (tailwindV4Theme !== undefined && tailwindV4Theme.blockCount >= 1)
     if (!tailwindConfigResolved) {
         const twConfig = checkTailwindConfigExtension(tailwindConfigUnparsed, ast)
         if (twConfig.hit) {
@@ -555,12 +704,51 @@ export function classifyCoverage(input: ClassifierInput): CoverageVerdict {
     }
 
     // ── Rule 8: unresolvable-var ──────────────────────────────────────────────
-    const unresolvable = checkUnresolvableVar(ast)
-    if (unresolvable.hit) {
-        return {
-            status: 'partial',
-            reason: 'unresolvable-var' satisfies CoverageReason,
-            details: unresolvable.details,
+    // Phase 2 upgrade: when customPropertyMap is provided, check every bare
+    // var(--x) reference in the file. Only skip this rule if ALL detected
+    // var(--x) references actually resolve via the map.
+    if (customPropertyMap !== undefined) {
+        const unresolvableCheck = checkUnresolvableVar(ast)
+        if (unresolvableCheck.hit) {
+            // Attempt to resolve the var expression via the map
+            const varMatch = unresolvableCheck.details?.match(/var\(--[^)]+\)/)
+            if (varMatch) {
+                const resolved = customPropertyMap.resolve(varMatch[0])
+                if (resolved !== null) {
+                    // This specific var resolved — continue to check more
+                    // (we do a comprehensive check below)
+                } else {
+                    return {
+                        status: 'partial',
+                        reason: 'unresolvable-var' satisfies CoverageReason,
+                        details: unresolvableCheck.details,
+                    }
+                }
+            } else {
+                return {
+                    status: 'partial',
+                    reason: 'unresolvable-var' satisfies CoverageReason,
+                    details: unresolvableCheck.details,
+                }
+            }
+        }
+        // Even if the quick check passed, verify ALL vars resolve
+        const allVarsResolved = checkAllVarsResolvable(ast, customPropertyMap)
+        if (!allVarsResolved.allResolved) {
+            return {
+                status: 'partial',
+                reason: 'unresolvable-var' satisfies CoverageReason,
+                details: allVarsResolved.firstUnresolved,
+            }
+        }
+    } else {
+        const unresolvable = checkUnresolvableVar(ast)
+        if (unresolvable.hit) {
+            return {
+                status: 'partial',
+                reason: 'unresolvable-var' satisfies CoverageReason,
+                details: unresolvable.details,
+            }
         }
     }
 

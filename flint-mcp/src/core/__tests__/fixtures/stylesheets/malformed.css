@@ -1,0 +1,8 @@
+/* Deliberately malformed CSS for parse-error testing */
+:root {
+  --primary: #0066cc;
+
+/* Missing closing brace — PostCSS should throw */
+.button {
+  color: var(--primary)
+  background: red /* missing semicolon before block close */

@@ -39,7 +39,10 @@
     "sqlite3": "^5.1.7",
     "yaml": "^2.7.1",
     "ts-node": "^10.9.2",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "postcss": "^8.4.0",
+    "postcss-scss": "^4.0.0",
+    "postcss-modules": "^6.0.0"
   },
   "devDependencies": {
     "@types/babel__traverse": "^7.28.0",

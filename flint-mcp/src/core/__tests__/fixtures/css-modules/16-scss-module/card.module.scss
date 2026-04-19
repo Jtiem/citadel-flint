@@ -1,0 +1,26 @@
+.card {
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+
+  &:hover {
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  }
+}
+
+.cardHeader {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.cardBody {
+  padding: 1.5rem;
+}
+
+.cardFooter {
+  padding: 1rem 1.5rem;
+  border-top: 1px solid #e2e8f0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}

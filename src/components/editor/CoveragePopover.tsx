@@ -30,21 +30,46 @@ import type { CoverageSummary, CoverageReason } from '../../../shared/coverage-t
 //
 // Plain-English, intent-focused copy. Each label:
 //   - Names what's in the code so the user knows which file to check
-//   - Says "yet" or "today" to signal this is a coverage gap, not broken code
+//   - For user-fixable reasons: says what went wrong in the user's code/env
+//   - For environmental reasons: says "yet" or "today" to signal Flint limitation
 //   - Avoids "supports / doesn't support" framing — says what Flint can't do
+//
+// Phase 2 label updates (BLK-1, BLK-2, WARN-1):
+//   - external-stylesheet-imported: now fires only on parse/load failure (not all .css imports)
+//   - css-modules-reference: now fires only on resolution failure (not all CSS Modules imports)
+//   - unresolvable-var: now fires only when chain resolves to nothing (not bare var() usage)
 //
 // Append-only — do not rename keys; they mirror the wire-stable CoverageReason enum.
 
 export const REASON_LABELS: Record<CoverageReason, string> = {
     'css-in-js-detected': "Uses CSS-in-JS (styled-components, emotion) — Flint can't see these styles yet",
-    'external-stylesheet-imported': "Imports an external stylesheet — Flint doesn't read .css/.scss files yet",
-    'css-modules-reference': "Uses CSS Modules — Flint doesn't resolve module class maps yet",
+    'external-stylesheet-imported': "Flint couldn't read an imported stylesheet (missing file, parse error, or over 2MB size limit)",
+    'css-modules-reference': "Flint couldn't resolve a CSS Modules import (missing file, parse error, or outside your project)",
     'dynamic-class-expression': "A className merge has a branch Flint can't resolve yet (imported helper, function result, or variable in a ternary)",
-    'unresolvable-var': "References a CSS variable Flint can't resolve",
+    'unresolvable-var': "References a CSS variable Flint couldn't resolve (not defined in any :root block, or circular reference)",
     'tailwind-config-extension': "Flint couldn't load your Tailwind config (syntax error, Tailwind v4 CSS-first, or unsupported Node API)",
     'non-jsx-framework': "Vue, Svelte, or Angular component — Flint only understands React today",
     'non-literal-ternary-branch': "Uses a className ternary with a variable branch — Flint can't resolve it",
     'parse-failure': "Couldn't parse this file (syntax error or unsupported syntax)",
+}
+
+// ── Reason ordering (WARN-2) ──────────────────────────────────────────────────
+//
+// User-fixable reasons surface before environmental/Flint-limitation reasons.
+// Lower number = higher priority (appears first in the rendered list).
+
+const REASON_PRIORITY: Record<CoverageReason, number> = {
+    // User can fix these — surface first
+    'parse-failure': 1,
+    'non-literal-ternary-branch': 2,
+    'dynamic-class-expression': 3,
+    'unresolvable-var': 4,
+    // External/environmental — surface last
+    'external-stylesheet-imported': 10,
+    'css-modules-reference': 11,
+    'tailwind-config-extension': 12,
+    'css-in-js-detected': 20,
+    'non-jsx-framework': 21,
 }
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -121,6 +146,7 @@ export function CoveragePopover({ summary, onClose, mode = 'breakdown' }: Covera
 
     const nonZeroReasons = (Object.entries(skippedFilesByReason) as [CoverageReason, number][])
         .filter(([, count]) => count > 0)
+        .sort(([a], [b]) => (REASON_PRIORITY[a] ?? 99) - (REASON_PRIORITY[b] ?? 99))
 
     const hasSkipped = partialFiles > 0 || skippedFiles > 0
 

@@ -1,0 +1,8 @@
+/* Deliberately malformed CSS — unterminated block */
+.active {
+  color: green;
+
+.broken {
+  /* this selector was never closed above */
+  font-weight: bold;
+}

@@ -1,0 +1,27 @@
+.btn-primary {
+  background-color: #0066cc;
+  color: #ffffff;
+}
+
+.btn-secondary {
+  background-color: #6c757d;
+  color: #ffffff;
+}
+
+.btn_large {
+  padding: 0.75rem 1.5rem;
+  font-size: 1.25rem;
+}
+
+.btn_secondary {
+  /* Note: both dash and underscore variants exist in this file */
+  opacity: 0.9;
+}
+
+.icon-left {
+  padding-left: 2rem;
+}
+
+.is-loading {
+  cursor: wait;
+}

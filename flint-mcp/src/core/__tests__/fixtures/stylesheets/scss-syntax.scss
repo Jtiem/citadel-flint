@@ -1,0 +1,51 @@
+/**
+ * SCSS syntax fixture.
+ * Tests that cssStylesheetLoader handles SCSS gracefully via postcss-scss:
+ * - $variable declarations are present but NOT captured (non-goal #3)
+ * - @mixin bodies are walked but NOT evaluated
+ * - Nested rules are accepted
+ * - :root custom properties ARE captured
+ */
+
+$brand-color: #0066cc;
+$font-stack: 'Inter', sans-serif;
+$spacing-base: 8px;
+
+@mixin flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@mixin button-variant($bg, $color) {
+  background-color: $bg;
+  color: $color;
+
+  &:hover {
+    opacity: 0.9;
+  }
+}
+
+:root {
+  --primary: #0066cc;
+  --spacing-sm: 0.5rem;
+  --spacing-md: 1rem;
+}
+
+.button {
+  @include flex-center;
+  @include button-variant($brand-color, white);
+  padding: $spacing-base * 1.5 $spacing-base * 2;
+  font-family: $font-stack;
+  border-radius: 4px;
+
+  &.small {
+    padding: $spacing-base * 0.75 $spacing-base;
+    font-size: 0.875rem;
+  }
+
+  &.large {
+    padding: $spacing-base * 2 $spacing-base * 3;
+    font-size: 1.125rem;
+  }
+}

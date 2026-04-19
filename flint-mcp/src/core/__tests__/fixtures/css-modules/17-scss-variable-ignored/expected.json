@@ -1,0 +1,13 @@
+{
+  "_note": "SCSS $variables are present but Phase 2 does not evaluate them (non-goal #3). postcss-modules still extracts the class selectors because class names do not depend on $var evaluation.",
+  "imports": [
+    {
+      "bindingName": "s",
+      "modulePath": "tokens.module.scss",
+      "resolved": true,
+      "failureReason": null,
+      "namedImports": [],
+      "classBindings_keys": ["tokenBox", "tokenBoxSmall"]
+    }
+  ]
+}

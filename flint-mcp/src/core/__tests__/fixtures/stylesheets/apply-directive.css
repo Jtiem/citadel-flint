@@ -1,0 +1,26 @@
+/**
+ * @apply directive fixture.
+ * Tests that cssStylesheetLoader captures @apply usages in applyDirectives.
+ * Phase 2 does not execute @apply — it only captures the directive for
+ * future analysis.
+ */
+:root {
+  --primary: #0066cc;
+}
+
+.btn {
+  @apply flex items-center justify-center;
+  @apply px-4 py-2;
+  @apply rounded-md;
+  @apply font-medium;
+  @apply transition-colors;
+}
+
+.btn-primary {
+  @apply bg-blue-600 text-white;
+  @apply hover:bg-blue-700;
+}
+
+.card {
+  @apply rounded-lg shadow-md overflow-hidden;
+}

@@ -1,0 +1,13 @@
+{
+  "_note": "Pseudo-elements (::before, ::after) do not produce additional class names in postcss-modules output. Only top-level class selectors (.tooltip, .tooltipVisible) appear in classBindings. The parser must not crash on ::before/::after.",
+  "imports": [
+    {
+      "bindingName": "s",
+      "modulePath": "style.module.css",
+      "resolved": true,
+      "failureReason": null,
+      "namedImports": [],
+      "classBindings_keys": ["tooltip", "tooltipVisible"]
+    }
+  ]
+}

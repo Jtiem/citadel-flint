@@ -1,0 +1,14 @@
+/**
+ * Cyclic CSS variable fixture.
+ * Tests that cssCustomPropertyMap.resolve() handles cycles without hanging.
+ *
+ * Cycle: --a → var(--b) → var(--a) → ...
+ *
+ * Expected: resolve("var(--a)") returns null (cycle detected, no literal fallback).
+ *           The resolver must NOT infinite-loop.
+ */
+:root {
+  --a: var(--b);
+  --b: var(--a);
+  --isolated: #ff0000;
+}

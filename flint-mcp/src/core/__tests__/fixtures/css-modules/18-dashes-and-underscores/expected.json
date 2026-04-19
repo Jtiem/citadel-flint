@@ -1,0 +1,20 @@
+{
+  "_note": "Class names with dashes and underscores. CSS allows both; postcss-modules exposes them as-is. Bracket notation s['btn-primary'] is a JSX usage pattern — the resolver reports all defined classes regardless of how they are accessed.",
+  "imports": [
+    {
+      "bindingName": "s",
+      "modulePath": "style.module.css",
+      "resolved": true,
+      "failureReason": null,
+      "namedImports": [],
+      "classBindings_keys": [
+        "btn-primary",
+        "btn-secondary",
+        "btn_large",
+        "btn_secondary",
+        "icon-left",
+        "is-loading"
+      ]
+    }
+  ]
+}
