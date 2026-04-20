@@ -21,7 +21,7 @@ The demos assume Flint MCP is built and running. Connect a client (Claude Code, 
 | `build-resources/demos/dashboard-after/` | **AI with Flint** | Same dashboard prompt, generated with token + a11y + brand constraints on. Compare side-by-side with `dashboard-before`. |
 | `demos/03-mithril-shadow-audit/` | **Mithril color drift** | Pricing card whose author eyeballed colors from a Figma screenshot. CIEDE2000 surfaces perceptual drift invisible to the eye. |
 | `demos/04-sentinel/` | **Warden UX + a11y** | An AI-generated order form with 31 violations — Hick's Law (10-button toolbar), Miller's Law (16 always-visible fields), and WCAG 2.1 AA failures. |
-| `demos/figma-d2c/` | **Mason D2C** _(rebuild in-flight)_ | Figma design → library-aware code generation. Currently under reconstruction with MUI as the default target library. |
+| `demos/figma-d2c/` | **Mason D2C** | Figma design → library-aware code generation. Top-level `AccountSettings.tsx` now uses Material UI (project default). Variants for shadcn and Tailwind-only preserved at `expected-output/` for reference. |
 
 ### In-app demo picker
 

@@ -127,9 +127,25 @@ cd ~/Lunar-Elevator-Bridge && npm run dev:web
 
 ---
 
-## Runbook 6 — Figma D2C (`demos/figma-d2c`) _— rebuild in-flight_
+## Runbook 6 — Figma D2C (`demos/figma-d2c`)
 
-This demo is under reconstruction (DEMO.CUT.2). Do not use in beta walkthroughs until the runbook is re-written and the component renders cleanly against real MUI imports.
+**Time:** ~2 min
+**Citadel coverage:** Mason (Figma → code) + library-aware mapping
+**Audience:** Designers curious about what "AI design-to-code with governance" produces.
+
+### Setup
+- Open `demos/figma-d2c/AccountSettings.tsx` in Glass (LivePreview renders via Babel).
+- The component uses real Material UI (`@mui/material/*`) imports — project default library.
+- Reference variants at `expected-output/{mui,shadcn,tailwind}/` show what the same Figma source produces under different library choices.
+
+### Steps
+1. **Show the Figma source** (if screen-share available): `figma.com/design/vjl1FUdEAYouaXZQByCiZd` node 4007:1808 — account settings panel.
+2. **Render in LivePreview** — avatar, tabs, profile card, timezone/language selects.
+3. **Say "audit this component"** — Mithril/Warden run on the generated output.
+4. **Compare with `expected-output/shadcn/`** (open the file, don't try to render) — same Figma source, different library target. Shows that Mason is library-aware, not template-bound.
+
+### What to say
+> "Mason reads your Figma file and generates code that matches your actual stack. Same design, MUI output for a MUI project, shadcn output for a shadcn project. Flint knows which library you use via `flint_set_library`."
 
 ---
 
