@@ -6,6 +6,30 @@
 
 ---
 
+## Session: RUNTIME.1-ship — Web-minimum ship (Issues 2 + 5) (2026-04-20) — LANDED INSIDE ed80f89
+
+**Goal:** Land RUNTIME.1 (axe-core runtime adapter) on web behind `runtime.axe.enabled: false`. Fix Issues 2 + 5 from 2026-04-18 integration review; defer Electron path + extended test coverage.
+
+**What shipped (bundled inside commit `ed80f89 feat(glasstypo.1): ...`):**
+- **Issue 2 closed:** `npm install axe-core@4.10.3`. Web handler `server/index.ts:4421` no longer short-circuits `axe-core-missing`.
+- **Issue 5 closed:** `canvasStore.livePreviewHtml` slice + setter. `LivePreview.tsx` snapshots srcdoc to store on every render (4 builder paths: HTML, Vue, Svelte, React Babel). `StatusBar.tsx` `RuntimeAuditSurface` reads it + passes `{ previewHtml }` into `useRuntimeAudit.run()`. Null snapshot → adapter short-circuits to `no-preview` sentinel. Cleared on activeFilePath change + workspace close.
+
+**Remaining RUNTIME.1 gaps (acceptable behind flag):**
+- Issue 1: Electron main handler + preload bridge — feature web-only for now.
+- Issue 3/6: type/test gaps that close when Issue 1 lands.
+- Issue 4: GovernanceDashboard-level integration test.
+- Issue 7: latency benchmark file.
+
+**Scope note:** My RUNTIME.1-ship work got bundled into Justin's GLASSTYPO.1 commit (ed80f89) rather than landing as its own commit. Functionally equivalent.
+
+**Test counts:**
+- MCP: 5652/5652 passing
+- Glass: 3288/3290 (2 pre-existing StatusBar.test WIP failures unchanged)
+- Core: 2619/2619 passing
+- TSC: 0 errors
+
+---
+
 ## Session: DEMO.CUT.1 — Demo Set Consolidation (2026-04-19) — PHASE 1 COMPLETE
 
 **Goal:** Close Beta Gate 1 "clean audit→fix→re-audit loop on all demos" + Gate 6 source material by cutting demo set from 13 → 5 high-quality survivors.
@@ -41,6 +65,16 @@ TSC:   0 errors
 - **Gate 1 verification:** run audit→fix→re-audit loop across all 5 survivors after figma-d2c rebuilds; document clean state as Gate 1 sign-off.
 - **Mirror survivors into `build-resources/demos/` if needed:** `03-mithril-shadow-audit` + `04-sentinel` currently live in `demos/` (developer sandbox) but aren't in the LaunchScreen picker. If beta testers want quick access via picker, mirror them (or add more scenarios).
 - **PatientForm/MetricDashboard manifest entries pointed at `./demo-after` / `./demo-before`** — those files never existed at those paths. Removed as dead refs, but worth flagging: that manifest needs a full audit pass at some point.
+
+---
+
+## Session: INSPECTOR.1 — Context-Aware Properties Panel (2026-04-20) — IN PROGRESS
+
+**Goal:** Turn the Properties panel into a Figma-grade context-aware inspector. Three coupled behaviors: (1) auto-tab-switch to Properties when a node is selected; (2) element-type → relevant-property mapping with auto-expansion of the right accordions (select `<h1>` → surfaces typography, hides irrelevant rows); (3) off-token value flagging inline — when a node's actual className/style/attr isn't in the token set, render the raw value in the input with a warning badge. Reuses Mithril's drift detection logic — surfaces it inline rather than only as violations.
+
+**Approach:** Contract-first. Architect spawned to frame the element-type registry + selection-driven tab-switch plumbing + off-token flagging integration with the existing GLASSTYPO.1 primitives.
+
+**Phase:** Phase 1 contract drafting — flint-architect spawned.
 
 ---
 

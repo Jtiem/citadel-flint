@@ -30,28 +30,6 @@
 
 ---
 
-## Swarm: RUNTIME.1-ship — Web-only minimum ship (Issues 2 + 5)
-
-**Status:** IN PROGRESS (2026-04-19)
-**Scope:** Land RUNTIME.1 on web behind the `runtime.axe.enabled: false` flag. Fixes 2 of 7 integration-review issues; defers Electron gap (Issues 1, 3, 6) and test coverage (4, 7) behind the disabled flag.
-
-### Fixes to apply
-- **Issue 2:** `npm install` to materialize axe-core@4.10.3 (already declared in package.json)
-- **Issue 5:** Wire `previewHtml` capture from active LivePreview iframe into `RuntimeAuditGate.run()` in StatusBar.tsx
-
-### Files to CREATE
-- None (infrastructure already in place)
-
-### Files to MODIFY
-- `src/components/editor/StatusBar.tsx` — `RuntimeAuditGate` sources real `previewHtml` from LivePreview ref
-- Possibly `src/hooks/useRuntimeAudit.ts` or a new hook if capture needs renderer-side coordination
-
-### Coordination notes
-- Orthogonal to GLASSTYPO.1 (no StatusBar formatter churn — we'll keep our edit surgical).
-- Flag stays `false` by default; no UI surface visible in beta unless user opts in.
-
----
-
 ## Swarm: DEMO.CUT.2a — Gate 1 Audit Loop Verification (4 survivors)
 
 **Status:** IN PROGRESS (2026-04-19)
@@ -69,6 +47,25 @@
 
 ### Coordination notes
 - Read-only on all `.tsx` files except where `flint_fix` needs to mutate. Isolated from GLASSTYPO.1 + RUNTIME.1 in-flight work.
+
+---
+
+## Swarm: INSPECTOR.1 — Context-Aware Properties Panel
+
+**Status:** CONTRACT DRAFTING (architect spawned 2026-04-20)
+**Scope:** Three tightly-coupled behaviors for the Properties panel: (1) auto-tab-switch to Properties when a node is selected; (2) element-type → relevant-property map that drives which inspector accordions show and auto-expand (e.g., selecting `<h1>` surfaces typography, hides layout-specific rows); (3) off-token value flagging — every property input reads the AST node's actual class/style/attr value, compares to the active token set, renders as chip when matched, renders raw value with warning badge when not matched. Reuses Mithril's existing drift detection for the comparison logic — surfaces it inline rather than only as violations.
+
+### Files to CREATE (contracts phase)
+| File | Purpose |
+|------|---------|
+| `.flint-context/contracts/INSPECTOR.1-contract.md` | Contract artifact |
+| `.flint-context/contracts/INSPECTOR.1.contract.ts` | Executable contract |
+
+### Coordination notes
+- Builds on GLASSTYPO.1 primitives (Section, PropertyRow, StatBadge) — do not modify those.
+- Touches `src/components/ui/PropertiesPanel.tsx`, `src/components/inspector/*.tsx`, probably adds a new element-type registry module at `src/core/` or `src/config/`, may add a selection-driven tab-switch hook.
+- Likely touches `canvasStore` / `editorStore` for selection-change wiring.
+- No overlap with RUNTIME.1 (axe runtime), FIGMA-LINT.1, FIXTURE.1, COUNSEL.1.
 
 ---
 
