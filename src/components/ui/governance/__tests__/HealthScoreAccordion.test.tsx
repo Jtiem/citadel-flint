@@ -45,39 +45,43 @@ describe('HealthScoreAccordion', () => {
 
     it('renders the Score breakdown header button', () => {
         render(<HealthScoreAccordion {...defaultProps} />)
-        expect(screen.getByText('Score breakdown')).toBeDefined()
+        // GLASSTYPO.1: Section title is "Score breakdown — {grade}" (grade appended)
+        expect(screen.getByRole('button', { name: /Score breakdown/ })).toBeDefined()
     })
 
-    it('accordion is open by default', () => {
-        render(<HealthScoreAccordion {...defaultProps} />)
-        expect(screen.getByTestId('next-step-prompt')).toBeDefined()
-    })
-
-    it('collapses when header button is clicked', () => {
-        render(<HealthScoreAccordion {...defaultProps} />)
-        fireEvent.click(screen.getByText('Score breakdown'))
-        expect(screen.queryByTestId('next-step-prompt')).toBeNull()
-    })
-
-    it('re-expands after two clicks', () => {
-        render(<HealthScoreAccordion {...defaultProps} />)
-        const btn = screen.getByText('Score breakdown')
-        fireEvent.click(btn)
-        fireEvent.click(btn)
-        expect(screen.getByTestId('next-step-prompt')).toBeDefined()
-    })
-
-    it('accordion button has aria-expanded=true when open', () => {
+    it('accordion starts collapsed by default (passive metric — GLASSTYPO.1)', () => {
+        // GLASSTYPO.1 contract: score breakdown is passive info → expandedWhen: () => false
         render(<HealthScoreAccordion {...defaultProps} />)
         const btn = screen.getByRole('button', { name: /Score breakdown/ })
+        expect(btn.getAttribute('aria-expanded')).toBe('false')
+    })
+
+    it('expands when header button is clicked', () => {
+        render(<HealthScoreAccordion {...defaultProps} />)
+        const btn = screen.getByRole('button', { name: /Score breakdown/ })
+        fireEvent.click(btn)
         expect(btn.getAttribute('aria-expanded')).toBe('true')
     })
 
-    it('accordion button has aria-expanded=false when closed', () => {
+    it('collapses after two clicks (toggle back)', () => {
+        render(<HealthScoreAccordion {...defaultProps} />)
+        const btn = screen.getByRole('button', { name: /Score breakdown/ })
+        fireEvent.click(btn) // expand
+        fireEvent.click(btn) // collapse
+        expect(btn.getAttribute('aria-expanded')).toBe('false')
+    })
+
+    it('accordion button has aria-expanded=false when collapsed', () => {
+        render(<HealthScoreAccordion {...defaultProps} />)
+        const btn = screen.getByRole('button', { name: /Score breakdown/ })
+        expect(btn.getAttribute('aria-expanded')).toBe('false')
+    })
+
+    it('accordion button has aria-expanded=true after clicking to expand', () => {
         render(<HealthScoreAccordion {...defaultProps} />)
         const btn = screen.getByRole('button', { name: /Score breakdown/ })
         fireEvent.click(btn)
-        expect(btn.getAttribute('aria-expanded')).toBe('false')
+        expect(btn.getAttribute('aria-expanded')).toBe('true')
     })
 
     // ── Next-step coaching sentence ───────────────────────────────────────────

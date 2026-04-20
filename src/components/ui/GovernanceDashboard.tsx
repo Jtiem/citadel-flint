@@ -40,6 +40,8 @@ import { GovernanceFooter } from './governance/GovernanceFooter'
 import { AnomalyBanner } from './governance/AnomalyBanner'
 import { FixPreviewDrawerHost } from './governance/FixPreviewDrawerHost'
 import { MoreDetailsPanel } from './governance/MoreDetailsPanel'
+import Section from './primitives/Section'
+import type { SectionContext } from './primitives/Section'
 import { TopRulesAccordion } from './governance/TopRulesAccordion'
 import { SessionBaselineAccordion } from './governance/SessionBaselineAccordion'
 import { McpActivityAccordion } from './governance/McpActivityAccordion'
@@ -47,6 +49,9 @@ import { TokenImpactAccordion } from './governance/TokenImpactAccordion'
 import { PendingApprovalsAccordion } from './governance/PendingApprovalsAccordion'
 import { AuditLogAccordion } from './governance/AuditLogAccordion'
 import { CoverageSection } from './governance/CoverageSection'
+import { RuntimeAuditAccordion } from './governance/RuntimeAuditAccordion'
+import { useRuntimeAxeFlag } from '../../hooks/useRuntimeAxeFlag'
+import { useMergedA11yFindingsFromStore } from '../../hooks/useMergedA11yFindings'
 import { extractHardcodedClassFromMsg, extractRuleIdFromMsg, A11Y_NOT_AUTO_FIXABLE } from './governance/ViolationCard'
 import { applyUndo } from '../../core/recoveryController'
 import { sanitiseToastMessage } from '../../utils/sanitiseToastMessage'
@@ -191,6 +196,13 @@ export function GovernanceDashboard({
     const coverage   = useGovernanceCoverage()
     const pending    = useGovernancePendingMutations()
     const mcpActivity = useGovernanceMcpActivity()
+
+    // ── RUNTIME.1: axe-core runtime findings ────────────────────────────────
+    // The flag is double-gating: the accordion ONLY mounts when
+    // `runtime.axe.enabled === true`. Merged derivation is always live —
+    // cost is zero when runtimeFindings === null.
+    const runtimeAxeEnabled = useRuntimeAxeFlag()
+    const mergedRuntimeFindings = useMergedA11yFindingsFromStore()
 
     // Accordion open state
     const [isTopRulesOpen, setIsTopRulesOpen]   = useState(false)
@@ -379,8 +391,16 @@ export function GovernanceDashboard({
         if (w) void fixActions.toggleInlineDiff(key, extractRuleIdFromMsg(w.message) ?? w.type, activeFilePath)
     }, [categories.visibleLinterWarnings, fixActions, activeFilePath])
 
+    // SectionContext for ViolationsList Section predicate
+    const sectionCtx: SectionContext = {
+        score,
+        totalViolations,
+        pendingApprovals: pending.pending.length,
+        hasRuntimeViolations: mergedRuntimeFindings.some((f) => f.sourceAuthorities.includes('runtime-dom')),
+    }
+
     return (
-        <div className="flex flex-col" role="region" aria-label="Governance health dashboard">
+        <div className="flex flex-col" role="region" aria-label="Governance health dashboard" data-schema-role="primary-content">
             <h2 className="sr-only">Governance Health</h2>
 
             <GovernanceHeader
@@ -418,26 +438,34 @@ export function GovernanceDashboard({
 
             {tokenCount > 0 && (mithrilCount > 0 || a11yCount > 0 || overridesExist) && (
                 <div ref={violationsSectionRef}>
-                    <ViolationsList
-                        mithrilCards={mithrilCards} a11yCards={a11yCards}
-                        resurfacedCardKeys={defer.resurfacedCardKeys} resurfaceTick={defer.resurfaceTick}
-                        deferredCardKeys={defer.deferredCardKeys} overridesExist={overridesExist}
-                        acceptedCount={fixActions.acceptedFixes.length} autoFixableCount={fixActions.autoFixableEntries.length}
-                        a11yFixableCount={fixActions.autoFixableA11yEntries.length} manualCount={fixActions.manualA11yEntries.length}
-                        sessionProgress={notifications.sessionInitialCount > 0 ? { fixed: Math.max(0, notifications.sessionInitialCount - totalViolations), total: notifications.sessionInitialCount } : undefined}
-                        isBaselineSet={delta.isBaselineSet} effortEstimate={effortEstimate} activeFilePath={activeFilePath} getNodeName={getNodeName}
-                        onApplyAccepted={() => void fixActions.applyAcceptedFixes()} onAutoFixMithril={fixActions.handleFixAll}
-                        onFixAllA11y={() => void fixActions.handleBatchFixA11y()} onReviewManual={() => void 0}
-                        onToggleExpand={toggleExpand}
-                        onFix={(_, fixItem) => fixActions.handleFixSingle(fixItem)} onPreviewFix={onPreviewFixKey}
-                        onAcceptFix={(key, fixItem) => fixActions.acceptInlineFix(key, fixItem)} onSkipFix={fixActions.skipInlineFix}
-                        onFlag={onFlagKey} onUnflag={defer.handleUnflag}
-                        onDefer={(key, d) => defer.setDeferDurations((prev) => new Map([...prev, [key, d]]))}
-                        onDeferReasonChange={(key, r) => defer.setDeferReasons((prev) => new Map([...prev, [key, r]]))}
-                        onDeferDurationChange={(key, d) => defer.setDeferDurations((prev) => new Map([...prev, [key, d]]))}
-                        onSubmitDefer={onSubmitDeferKey} onCancelDefer={defer.toggleDeferForm} onPin={togglePin}
-                        onOverride={handleOverrideFromCard}
-                    />
+                    <Section
+                        title={`Issues (${totalViolations})`}
+                        schemaRole="primary-content"
+                        expandedWhen={(ctx) => ctx.totalViolations > 0}
+                        ctx={sectionCtx}
+                        id="violations-section"
+                    >
+                        <ViolationsList
+                            mithrilCards={mithrilCards} a11yCards={a11yCards}
+                            resurfacedCardKeys={defer.resurfacedCardKeys} resurfaceTick={defer.resurfaceTick}
+                            deferredCardKeys={defer.deferredCardKeys} overridesExist={overridesExist}
+                            acceptedCount={fixActions.acceptedFixes.length} autoFixableCount={fixActions.autoFixableEntries.length}
+                            a11yFixableCount={fixActions.autoFixableA11yEntries.length} manualCount={fixActions.manualA11yEntries.length}
+                            sessionProgress={notifications.sessionInitialCount > 0 ? { fixed: Math.max(0, notifications.sessionInitialCount - totalViolations), total: notifications.sessionInitialCount } : undefined}
+                            isBaselineSet={delta.isBaselineSet} effortEstimate={effortEstimate} activeFilePath={activeFilePath} getNodeName={getNodeName}
+                            onApplyAccepted={() => void fixActions.applyAcceptedFixes()} onAutoFixMithril={fixActions.handleFixAll}
+                            onFixAllA11y={() => void fixActions.handleBatchFixA11y()} onReviewManual={() => void 0}
+                            onToggleExpand={toggleExpand}
+                            onFix={(_, fixItem) => fixActions.handleFixSingle(fixItem)} onPreviewFix={onPreviewFixKey}
+                            onAcceptFix={(key, fixItem) => fixActions.acceptInlineFix(key, fixItem)} onSkipFix={fixActions.skipInlineFix}
+                            onFlag={onFlagKey} onUnflag={defer.handleUnflag}
+                            onDefer={(key, d) => defer.setDeferDurations((prev) => new Map([...prev, [key, d]]))}
+                            onDeferReasonChange={(key, r) => defer.setDeferReasons((prev) => new Map([...prev, [key, r]]))}
+                            onDeferDurationChange={(key, d) => defer.setDeferDurations((prev) => new Map([...prev, [key, d]]))}
+                            onSubmitDefer={onSubmitDeferKey} onCancelDefer={defer.toggleDeferForm} onPin={togglePin}
+                            onOverride={handleOverrideFromCard}
+                        />
+                    </Section>
                 </div>
             )}
 
@@ -468,6 +496,11 @@ export function GovernanceDashboard({
                 <PendingApprovalsAccordion isOpen={isPendingOpen} onToggle={() => setIsPendingOpen((v) => !v)} pendingMutations={pending.pending as PendingMutation[]} onApprove={(id) => void pending.approve(String(id))} onReject={(id) => void pending.reject(String(id))} />
                 <AuditLogAccordion isOpen={isAuditLogOpen} onToggle={handleAuditLogToggle} auditLog={auditLog.entries as AuditLogEntry[]} auditLogLoaded={auditLogLoaded} auditLogLoading={auditLog.isLoading} auditLogHasMore={auditLog.hasMore} onLoadMore={() => void auditLog.loadMore()} />
                 <CoverageSection jurisdictionCoverage={coverage.jurisdictionCoverage as Record<string, { covered: number; total: number }> | null} inheritanceChain={coverage.inheritanceChain as string[]} isLoadingConfig={coverage.isLoadingConfig} />
+                {/* RUNTIME.1 runtime accordion — flag-gated per contract invariant
+                    `flag-off-ui-silent` (= 0 DOM nodes when flag is off). */}
+                {runtimeAxeEnabled && (
+                    <RuntimeAuditAccordion findings={mergedRuntimeFindings} />
+                )}
             </MoreDetailsPanel>
         </div>
     )

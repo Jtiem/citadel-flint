@@ -30,6 +30,28 @@
 
 ---
 
+## Swarm: RUNTIME.1-ship — Web-only minimum ship (Issues 2 + 5)
+
+**Status:** IN PROGRESS (2026-04-19)
+**Scope:** Land RUNTIME.1 on web behind the `runtime.axe.enabled: false` flag. Fixes 2 of 7 integration-review issues; defers Electron gap (Issues 1, 3, 6) and test coverage (4, 7) behind the disabled flag.
+
+### Fixes to apply
+- **Issue 2:** `npm install` to materialize axe-core@4.10.3 (already declared in package.json)
+- **Issue 5:** Wire `previewHtml` capture from active LivePreview iframe into `RuntimeAuditGate.run()` in StatusBar.tsx
+
+### Files to CREATE
+- None (infrastructure already in place)
+
+### Files to MODIFY
+- `src/components/editor/StatusBar.tsx` — `RuntimeAuditGate` sources real `previewHtml` from LivePreview ref
+- Possibly `src/hooks/useRuntimeAudit.ts` or a new hook if capture needs renderer-side coordination
+
+### Coordination notes
+- Orthogonal to GLASSTYPO.1 (no StatusBar formatter churn — we'll keep our edit surgical).
+- Flag stays `false` by default; no UI surface visible in beta unless user opts in.
+
+---
+
 ## Swarm: DEMO.CUT.2a — Gate 1 Audit Loop Verification (4 survivors)
 
 **Status:** IN PROGRESS (2026-04-19)
@@ -47,24 +69,6 @@
 
 ### Coordination notes
 - Read-only on all `.tsx` files except where `flint_fix` needs to mutate. Isolated from GLASSTYPO.1 + RUNTIME.1 in-flight work.
-
----
-
-## Swarm: GLASSTYPO.1 — Glass Typography Token System
-
-**Status:** CONTRACT DRAFTING (architect spawned 2026-04-19)
-**Scope:** Close Glass's dogfooding gap — 483 occurrences across 67 files use spacing tokens (`text-[var(--spacing.N, ...)]`) where font-size is meant. This is semantically wrong (spacing ≠ typography) and renders tiny text at 8px/12px throughout the panel UI. Introduce a proper Glass typography token scale (`--font-size.xs/sm/base/lg/xl` or similar) at the CSS variable layer, then migrate all 483 call sites. Re-audit Glass with Mithril to confirm the dogfooding gap is closed.
-
-### Files to CREATE (contracts phase)
-| File | Purpose |
-|------|---------|
-| `.flint-context/contracts/GLASSTYPO.1-contract.md` | Contract artifact |
-| `.flint-context/contracts/GLASSTYPO.1.contract.ts` | Executable contract |
-
-### Coordination notes
-- Touches 67 files in `src/**` — collides with almost any other active swarm in Glass. Sequence this one alone or risk merge conflicts.
-- `src/App.tsx`, `src/components/editor/StatusBar.tsx`, `src/components/ui/GovernanceDashboard.tsx`, `src/components/ui/governance/HealthScoreAccordion.tsx` all have high-density font-size mis-uses.
-- RUNTIME.1 and FIXTURE.1 already append-only on StatusBar/dashboard — coordinate so RUNTIME.1 lands first or they sequence cleanly.
 
 ---
 

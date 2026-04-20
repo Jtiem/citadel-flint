@@ -288,6 +288,18 @@ interface CanvasState {
      */
     runtimeFindings: RuntimeAuditResult | null
 
+    // ── RUNTIME.1: live preview HTML snapshot ────────────────────────────────
+    /**
+     * The latest srcdoc HTML written to the LivePreview iframe. Snapshot-on-
+     * update — LivePreview writes here every time it sets `iframe.srcdoc`. The
+     * RuntimeAuditSurface reads it at click time and forwards to the axe-core
+     * adapter via `useRuntimeAudit.run({ previewHtml })`.
+     *
+     * null → no preview has rendered yet. The adapter short-circuits to
+     *        `status: 'no-preview'` in that case.
+     */
+    livePreviewHtml: string | null
+
     // ── FIXTURE.1: latest MCP audit response context ────────────────────────
     /**
      * Transient snapshot of the most recent audit_ui_component / flint_audit
@@ -508,6 +520,9 @@ interface CanvasActions {
      */
     clearRuntimeFindings: () => void
 
+    // ── RUNTIME.1: live preview HTML setter ──────────────────────────────────
+    setLivePreviewHtml: (html: string | null) => void
+
     // ── FIXTURE.1: latest MCP audit response ─────────────────────────────────
     /**
      * Writes the latest audit response context into the store.
@@ -698,6 +713,8 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
 
     // RUNTIME.1: axe-core runtime audit findings (ephemeral)
     runtimeFindings: null,
+    // RUNTIME.1: live preview HTML snapshot (ephemeral)
+    livePreviewHtml: null,
 
     // FIXTURE.1: latest MCP audit response context (ephemeral)
     latestAudit: null,
@@ -764,7 +781,7 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
         // RUNTIME.1: Clear the previous file's runtime findings so the merged
         // view never shows stale axe results after a file switch. Mirrors the
         // Clean Slate Protocol above — same rationale, different surface.
-        set({ activeFilePath: filePath, saveState: 'idle', runtimeFindings: null })
+        set({ activeFilePath: filePath, saveState: 'idle', runtimeFindings: null, livePreviewHtml: null })
 
         // ── Hydrate editor with new file content ─────────────────────────────
         try {
@@ -957,6 +974,7 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     // ── RUNTIME.1: axe-core runtime audit findings ──────────────────────────
     setRuntimeFindings: (result) => set({ runtimeFindings: result }),
     clearRuntimeFindings: () => set({ runtimeFindings: null }),
+    setLivePreviewHtml: (html) => set({ livePreviewHtml: html }),
 
     // ── FIXTURE.1: latest MCP audit response context ─────────────────────────
     setLatestAudit: (audit) => set({ latestAudit: audit }),
@@ -1007,6 +1025,7 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
             _rightPanelSavedWidth: DEFAULT_RIGHT_PANEL_WIDTH,
             // RUNTIME.1: Clear runtime findings — never leak a prior file's audit
             runtimeFindings: null,
+            livePreviewHtml: null,
         })
     },
 

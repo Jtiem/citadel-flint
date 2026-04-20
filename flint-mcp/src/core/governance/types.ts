@@ -21,6 +21,12 @@ export type SourceAuthority =
     | 'Section 508'
     | 'Flint Design System'
     | 'Custom'
+    // RUNTIME.1 (appended 2026-04-18) — findings produced by the axe-core
+    // DOM-layer runtime adapter. Consumers that render authority as a string
+    // handle this value without code change; dedup logic in
+    // useMergedA11yFindings collapses AST + runtime pairs into multi-authority
+    // rows when (mappedWardenRuleId, elementId) matches.
+    | 'runtime-dom'
 
 /**
  * Provenance metadata for a single governance rule.

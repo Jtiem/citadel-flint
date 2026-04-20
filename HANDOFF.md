@@ -44,13 +44,53 @@ TSC:   0 errors
 
 ---
 
-## Session: GLASSTYPO.1 — Glass Typography Token System (2026-04-19) — IN PROGRESS
+## Session: GLASSTYPO.1 — Glass Interaction Schema + Figma-Rhythm Type Scale + Primitive Vocabulary (Governance + Properties Canary) — COMPLETE
 
-**Goal:** Close Glass's self-dogfooding gap. A code review triggered by a visible UI defect (tiny 8px text in the Governance panel) uncovered **483 occurrences across 67 files** of `text-[var(--spacing.N, ...)]` — using spacing tokens where font-size is intended. Glass itself is failing Mithril's typography rules.
+**Goal:** Close Glass's self-dogfooding gap AND rebuild the visual hierarchy from scratch using Figma as the reference model. Trigger: a visible UI defect (8px text in Governance panel) + Justin's diagnosis ("the current UI is a hierarchical mess"). Root cause: Glass used spacing tokens as font-size and had no typography token set OR interaction vocabulary of its own.
 
-**Approach (Justin: "Proper fix"):** Introduce a dedicated Glass typography token scale at the CSS variable layer (`--font-size.xs/sm/base/lg/xl` or similar), define pixel values to match current de-facto sizes, then migrate all 483 call sites deterministically. Re-audit Glass with Mithril to confirm the dogfooding gap is closed.
+**Approach (3 contract revisions, canary-scoped to Governance + Properties panels):**
+- Defined a 7-role **Glass Interaction Schema** (cta-primary, cta-secondary, nav-link, primary-content, support-evidence, metadata, state-signal) where every component declares a role and the visual treatment flows from the role.
+- Added a 5-token **type scale** (`--text-title 13/600`, `--text-body 12/400`, `--text-label 11/500`, `--text-micro 10/500`, `--text-display 20/600`) + 4-token **color ladder** (primary / secondary / tertiary / accent) to `src/index.css` `@theme` block.
+- Built 6 **Figma-rhythm primitives** at `src/components/ui/primitives/`: `Section` (collapsible with `expandedWhen: (ctx) => boolean` predicate — literal booleans rejected at compile time), `PropertyRow`, `FooterActionBar`, `MetadataTooltip`, `StatBadge`, `PanelTabLabel`.
+- Added **Section open-state visual spec**: 3% primary tint + 1px accent left border + 10px indent + 16px between-section spacing.
+- Migrated **Governance panel canary** (20 files) + **Properties panel canary** (5 files) to new vocabulary. Deleted legacy `Accordion` export from `inspector/primitives.tsx` (fully consolidated behind `Section`).
+- `expandedWhen` rule enforced: sections expand IFF user has an actionable lever (Score breakdown collapses always; Issues expands when `count > 0`).
+- Accent color confined to CTA roles only (nav-links stay secondary).
+- `PanelTabLabel` is the sole primitive permitted to render all-caps.
 
-**Phase:** Phase 1 contract drafting — flint-architect spawned.
+**Review ceremony (3 parallel):**
+- UX: FIX-FORWARD (3 warnings on coverage gaps) — "Glass now reads as a hierarchy, not flat text."
+- Code: per-invariant pass/fail table verdict — 23/25 pass outright + 1 stale test (fixed in sweep).
+- Security: FIX-FORWARD (1 warning on `FooterLink.href` scheme allowlist — fixed in sweep).
+
+**Fix sweep:** 7 items, 5 DONE cleanly (stale test, schema-role coverage, FooterLink scheme allowlist, contract grep regex tightening, inline-style convention documented). 2 PARTIAL (84 raw-hue utilities in CSS const maps like `GRADE_TEXT` deferred to GLASSTYPO.2; 2 tw-font-utilities are string literals in fix-guide data, not className).
+
+**Files landed:**
+- Created: `src/index.css` (tokens), 6 primitives at `src/components/ui/primitives/` + sibling tests, `.flint-context/contracts/GLASSTYPO.1-contract.md` + `.contract.ts`, 4 review reports (UX/code/security/contract-lint + .review.ts siblings).
+- Modified: 20 files in `src/components/ui/governance/` + `GovernanceDashboard.tsx`, 5 files in `src/components/inspector/` + `PropertiesPanel.tsx`, `package.json` (+ @mui/material + @emotion dependencies — `OverrideReasonDialog.tsx` has been importing them since `feat(chron.1)` without a manifest declaration; installed now).
+
+**Final grep invariants (all 0 or justified):**
+- spacing-var font-sizes in canary: 0
+- ad-hoc zinc text in canary: 0
+- inline `uppercase` outside PanelTabLabel: 0
+- accent leak in CTAs: 0
+- Accordion imports from `inspector/primitives`: 0
+- raw-hue utilities: 84 (deferred as GLASSTYPO.2 — CSS const maps + primitive-encapsulated state-signal badges; not a regression)
+- tw-font-utilities: 2 (both string literals in fix-guide data; not className attrs)
+
+**Test counts:**
+```
+Glass: 3288/3301 passing (+100 net new from phase — 4 section-open-state, 70 primitive tests, 19 governance canary, 26 properties canary; 2 pre-existing StatusBar failures, 11 todo)
+TSC:   0 errors (root + flint-mcp)
+```
+
+**Deferred (filed as next phases):**
+- GLASSTYPO.2 — migrate remaining 65+ files outside the 2 canary panels; move CSS const maps (`GRADE_TEXT`, `SEVERITY_DOT`, etc.) behind per-grade/per-severity tokens.
+- INSPECTOR.1 — context-aware Properties panel: auto-tab-switch on selection, element-type → relevant-property mapping, off-token value flagging inline (show raw value with warning badge when property isn't in token set).
+
+---
+
+## Session: FIXTURE.1.1 — DTCG Token Shape Adapter (2026-04-19) — COMPLETE
 
 ---
 

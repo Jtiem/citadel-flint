@@ -1,5 +1,82 @@
 @import "tailwindcss";
 
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* GLASSTYPO.1 — Group A: Glass Interaction Schema Tokens                     */
+/* Defines the 5 type-scale tokens and 4 text-color hierarchy tokens.         */
+/* Tailwind v4 @theme generates direct utility classes from these vars:       */
+/*   text-title, text-body, text-label, text-micro, text-display              */
+/*   text-primary, text-secondary, text-tertiary, text-accent                 */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+@theme {
+  /* ── Type-scale: 5 size tokens (schema-named, not t-shirt sized) ─────── */
+  --text-display: 20px; /* Primary-content headline metric (score number) ONLY */
+  --text-title:   13px; /* Primary-content section headers, PanelTabLabel base */
+  --text-body:    12px; /* Support-evidence default; CTA-primary label         */
+  --text-label:   11px; /* Metadata, State-signal, Nav-link, CTA-secondary     */
+  --text-micro:   10px; /* kbd chips; Metadata when --text-label is too loud   */
+
+  /* ── Type-scale: companion line-height and weight tokens ─────────────── */
+  /* (referenced by primitives via CSS calc/custom properties)              */
+  --text-display-lh:     1.2;
+  --text-display-weight: 600;
+  --text-title-lh:       1.4;
+  --text-title-weight:   600;
+  --text-body-lh:        1.5;
+  --text-body-weight:    400;
+  --text-label-lh:       1.4;
+  --text-label-weight:   500;
+  --text-micro-lh:       1.3;
+  --text-micro-weight:   500;
+
+  /* ── Color hierarchy: 4 text-color tokens (two-plus-two, not four-gray) */
+  /* primary + secondary are the everyday pair.                             */
+  /* tertiary is compression-only (Metadata role under density pressure).   */
+  /* accent is CTA-* roles only — zero decorative use.                     */
+
+  /* near-white; zinc-50 equivalent — primary content default */
+  --text-primary:   oklch(0.985 0 0);
+  /* mid-gray; achromatic zinc-400 equivalent — support-evidence + nav-link */
+  --text-secondary: oklch(0.708 0 0);
+  /* dim gray; achromatic zinc-500 equivalent — Metadata under density ONLY */
+  --text-tertiary:  oklch(0.556 0 0);
+  /* indigo-400 exact (oklch match to Tailwind v4 indigo-400 = oklch(0.673 0.182 276.935)) */
+  /* Matches all existing text-indigo-400 call sites — zero hue shift       */
+  --text-accent:    oklch(0.673 0.182 276.935);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* GLASSTYPO.1 — Legacy --spacing.N variables (NON-BREAKING migration)        */
+/* 483 call sites outside the canary use text-[var(--spacing.N, Npx)].        */
+/* These explicit declarations shadow the fallback values so any              */
+/* future browser that resolves the var before the fallback still gets        */
+/* the correct measurement. Do NOT remove — invariant: count > 0.            */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* Legacy --spacing.N custom properties. These mirror the Tailwind 4px-grid */
+  /* scale so the 483 text-[var(--spacing.N, fallback)] call sites outside   */
+  /* the GLASSTYPO.1 canary continue to resolve correctly. Do NOT remove.    */
+  /* NON-BREAKING invariant: grep count of "--spacing" in this file must > 0 */
+  --spacing.0:   0px;
+  --spacing.1:   4px;
+  --spacing.2:   8px;
+  --spacing.3:   12px;
+  --spacing.4:   16px;
+  --spacing.5:   20px;
+  --spacing.6:   24px;
+  --spacing.7:   28px;
+  --spacing.8:   32px;
+  --spacing.9:   36px;
+  --spacing.10:  40px;
+  --spacing.11:  44px;
+  --spacing.12:  48px;
+  --spacing.14:  56px;
+  --spacing.16:  64px;
+  --spacing.20:  80px;
+  --spacing.24:  96px;
+}
+
 /* ── T3.3: Dark scrollbar for sidebar panels ─────────────────────────────── */
 * {
     scrollbar-color: #27272a #18181b; /* zinc-800 on zinc-900 */

@@ -2,7 +2,11 @@
  * primitives.test.tsx
  *
  * ARIA accessibility tests for inspector primitive components.
- * Covers: Accordion, TokenAutocomplete, ColorPickerSwatch, PopoverPicker.
+ * Covers: TokenAutocomplete, ColorPickerSwatch, PopoverPicker.
+ *
+ * GLASSTYPO.1 rev 3: Accordion has been deleted from inspector/primitives.tsx
+ * and migrated to Section (src/components/ui/primitives/Section.tsx).
+ * Accordion tests removed — equivalent coverage lives in Section.test.tsx.
  *
  * CompactSelect uses a native <select> element which is natively accessible
  * and does not require ARIA additions.
@@ -12,88 +16,10 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import React, { useRef } from 'react'
 import {
-    Accordion,
     TokenAutocomplete,
     ColorPickerSwatch,
     PopoverPicker,
 } from '../primitives'
-
-// ── Accordion ─────────────────────────────────────────────────────────────────
-
-describe('Accordion', () => {
-    it('renders trigger button with aria-expanded=true when open by default', () => {
-        render(
-            <Accordion title="Section A">
-                <span>content</span>
-            </Accordion>
-        )
-        const btn = screen.getByRole('button', { name: /Section A/i })
-        expect(btn.getAttribute('aria-expanded')).toBe('true')
-    })
-
-    it('renders trigger button with aria-expanded=false when defaultOpen=false', () => {
-        render(
-            <Accordion title="Closed" defaultOpen={false}>
-                <span>hidden content</span>
-            </Accordion>
-        )
-        const btn = screen.getByRole('button', { name: /Closed/i })
-        expect(btn.getAttribute('aria-expanded')).toBe('false')
-    })
-
-    it('toggles aria-expanded when clicked', () => {
-        render(
-            <Accordion title="Toggle Me">
-                <span>content</span>
-            </Accordion>
-        )
-        const btn = screen.getByRole('button', { name: /Toggle Me/i })
-        expect(btn.getAttribute('aria-expanded')).toBe('true')
-
-        fireEvent.click(btn)
-        expect(btn.getAttribute('aria-expanded')).toBe('false')
-
-        fireEvent.click(btn)
-        expect(btn.getAttribute('aria-expanded')).toBe('true')
-    })
-
-    it('trigger aria-controls matches the panel id', () => {
-        render(
-            <Accordion title="Linked">
-                <span>panel content</span>
-            </Accordion>
-        )
-        const btn = screen.getByRole('button', { name: /Linked/i })
-        const panelId = btn.getAttribute('aria-controls')
-        expect(panelId).toBeTruthy()
-
-        const panel = document.getElementById(panelId!)
-        expect(panel).not.toBeNull()
-    })
-
-    it('panel has role=region and is labelled by the trigger', () => {
-        render(
-            <Accordion title="Labelled Panel">
-                <span>inside</span>
-            </Accordion>
-        )
-        const region = screen.getByRole('region')
-        expect(region).toBeDefined()
-
-        const btn = screen.getByRole('button', { name: /Labelled Panel/i })
-        const labelledBy = region.getAttribute('aria-labelledby')
-        expect(labelledBy).toBe(btn.id)
-    })
-
-    it('panel is not in the DOM when closed', () => {
-        render(
-            <Accordion title="Hidden" defaultOpen={false}>
-                <span>hidden content</span>
-            </Accordion>
-        )
-        expect(screen.queryByRole('region')).toBeNull()
-    })
-})
 
 // ── TokenAutocomplete ─────────────────────────────────────────────────────────
 

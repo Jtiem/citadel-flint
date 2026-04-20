@@ -4,6 +4,7 @@
  * Covers C14: S8.3 MRS Pending Approvals accordion.
  */
 
+import '@testing-library/jest-dom'
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { PendingApprovalsAccordion } from '../PendingApprovalsAccordion'
@@ -71,8 +72,10 @@ describe('PendingApprovalsAccordion', () => {
         expect(screen.getByText('2 pending')).toBeDefined()
     })
 
-    it('does not render list items when closed', () => {
-        render(
+    it('section body is hidden when section starts collapsed (no live ctx provided)', () => {
+        // GLASSTYPO.1: Section uses expandedWhen predicate. Without ctx, pendingApprovals=0 → collapsed.
+        // The list is in the DOM but hidden via [hidden] attribute on the region.
+        const { container } = render(
             <PendingApprovalsAccordion
                 isOpen={false}
                 onToggle={noop}
@@ -81,7 +84,8 @@ describe('PendingApprovalsAccordion', () => {
                 onReject={noop}
             />,
         )
-        expect(screen.queryByTestId('pending-approvals-list')).toBeNull()
+        const region = container.querySelector('[role="region"]')
+        expect(region).toHaveAttribute('hidden')
     })
 
     it('renders list items when open', () => {
@@ -186,18 +190,21 @@ describe('PendingApprovalsAccordion', () => {
         expect(handler).toHaveBeenCalledWith(2)
     })
 
-    it('calls onToggle when accordion header is clicked', () => {
-        const handler = vi.fn()
-        render(
+    it('toggles open/closed when accordion header is clicked', () => {
+        // GLASSTYPO.1: Section manages its own open state; isOpen/onToggle props are
+        // retained for backward compat but the Section drives the aria-expanded state.
+        const { container } = render(
             <PendingApprovalsAccordion
                 isOpen={false}
-                onToggle={handler}
+                onToggle={noop}
                 pendingMutations={sampleMutations}
                 onApprove={noop}
                 onReject={noop}
             />,
         )
-        fireEvent.click(screen.getByText('Pending Approvals').closest('button')!)
-        expect(handler).toHaveBeenCalledOnce()
+        const btn = screen.getByText('Pending Approvals').closest('button')!
+        expect(btn.getAttribute('aria-expanded')).toBe('false')
+        fireEvent.click(btn)
+        expect(btn.getAttribute('aria-expanded')).toBe('true')
     })
 })

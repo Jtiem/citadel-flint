@@ -36,7 +36,7 @@ const BG_CLASS: Record<ChipSeverity, string> = {
 const TEXT_CLASS: Record<ChipSeverity, string> = {
     critical: 'text-red-400',
     amber:    'text-amber-400',
-    advisory: 'text-zinc-400',
+    advisory: '[color:var(--text-secondary)]',
 }
 
 /**

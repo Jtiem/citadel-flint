@@ -198,7 +198,9 @@ describe('GovernanceDashboard — COUNSEL.4 Brilliant Moments', () => {
             await waitFor(() => {
                 expect(screen.getByTestId('sparkline-empty')).toBeTruthy()
             })
-            expect(screen.getByTestId('sparkline-empty').textContent).toContain('Tracking starts after first audit')
+            // GLASSTYPO.1: "Tracking starts after first audit" moved to MetadataTooltip (passive info).
+            // Inline text now reads "No history yet" — tooltip carries the explanation.
+            expect(screen.getByTestId('sparkline-empty').textContent).toContain('No history yet')
         })
     })
 
