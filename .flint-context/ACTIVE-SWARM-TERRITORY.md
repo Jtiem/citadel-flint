@@ -30,6 +30,26 @@
 
 ---
 
+## Swarm: DEMO.CUT.2a — Gate 1 Audit Loop Verification (4 survivors)
+
+**Status:** IN PROGRESS (2026-04-19)
+**Scope:** Run audit→fix→re-audit clean loop on the 4 already-rendering survivors (03, 04, multi-component-app, dashboard-before/after). figma-d2c rebuild deferred to DEMO.CUT.2b. Produces a documented Gate 1 sign-off artifact at `.flint-context/gates/BETA-GATE-1-demo-audit-loop-2026-04-19.md`.
+
+### Files to CREATE
+- `.flint-context/gates/BETA-GATE-1-demo-audit-loop-2026-04-19.md` (sign-off artifact)
+
+### Files to READ (no modifications planned)
+- `demos/03-mithril-shadow-audit/drift-component.tsx`
+- `demos/04-sentinel/violating-ux.tsx`
+- `build-resources/demos/multi-component-app/*.tsx`
+- `build-resources/demos/dashboard-before/MetricDashboard.tsx`
+- `build-resources/demos/dashboard-after/MetricDashboard.tsx`
+
+### Coordination notes
+- Read-only on all `.tsx` files except where `flint_fix` needs to mutate. Isolated from GLASSTYPO.1 + RUNTIME.1 in-flight work.
+
+---
+
 ## Swarm: GLASSTYPO.1 — Glass Typography Token System
 
 **Status:** CONTRACT DRAFTING (architect spawned 2026-04-19)

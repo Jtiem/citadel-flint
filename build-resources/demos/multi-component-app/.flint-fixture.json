@@ -1,5 +1,5 @@
 {
   "surface": "component",
   "tokens": "./design-tokens.json",
-  "label": "Mithril shadow-audit demo"
+  "label": "Multi-component app — full workflow demo"
 }
