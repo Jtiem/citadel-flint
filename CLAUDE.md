@@ -352,6 +352,9 @@ All tools registered in `flint-mcp/src/server.ts`:
 | Rule Pack Registry (10 packs, 64 rules, domain/jurisdiction grouping) | ERM.1 | **ONLINE** |
 | Rule Pack MCP Tools (list, enable, disable, set_mode, compliance_coverage) | ERM.1 | **ONLINE** |
 | Enterprise Rule Management Glass UI (catalog, profiles, coverage, inheritance) | ERM.3 | **ONLINE** |
+| Coverage Honesty (per-file `CoverageVerdict`, 9 reason codes, `governedSurfacePercent`, StatusBar `CoverageBadge` + `CoveragePopover`) | PHASE0 | **ONLINE** |
+| Tailwind Config Ingestion (sandboxed `vm.runInNewContext` loader, explicit require allowlist, `resolveConfig` + `knownClasses` set, mtime cache) | PHASE1 | **ONLINE** |
+| Class Composition Expansion (partial-evaluator for `clsx`/`cva`/`classnames`/`cn`/`twMerge`/`tw` with nested-call folding and cva variant dedup) | PHASE1 | **ONLINE** |
 
 ### Stores
 
@@ -555,6 +558,10 @@ Do not port designer features to the extension or developer features to Glass un
 | `flint-mcp/src/core/tailwindMigrator.ts` | EXP.3 — Tailwind v3→v4 AST class migration engine |
 | `flint-mcp/src/core/a11y/rules/` | Warden rules — 50 WCAG 2.1 AA rules (9 modules: names-labels, keyboard, structure, aria, landmarks, contrast, forms, live-regions, motion) |
 | `flint-mcp/src/core/htmlIntrinsics.ts` | Canonical HTML intrinsic element set shared by MithrilLinter, hydroPaste, and orchestrator |
+| `flint-mcp/src/core/coverageClassifier.ts` | Phase 0 — per-file `CoverageVerdict` with 9 reason codes; Phase 1 upgrade paths suppress verdicts when config/expansion resolves |
+| `flint-mcp/src/core/tailwindConfigLoader.ts` | Phase 1 — sandboxed `vm.runInNewContext` loader for `tailwind.config.*`, explicit require allowlist, mtime cache, error redaction |
+| `flint-mcp/src/core/classExpressionExpander.ts` | Phase 1 — partial-evaluator for `clsx`/`cva`/`classnames`/`cn`/`twMerge`/`tw` call sites; returns `{ definite, possible, unresolvable }` |
+| `flint-mcp/src/core/dashboard/debtReportService.ts` | Phase 0 — `computeCoverageSummary()` aggregation, writes `.flint/coverage-cache.json`, governed-surface-% in debt report |
 | `flint-mcp/src/core/hydroPaste.ts` | Mason — Figma-to-JSX transform engine (component classification + code generation) |
 | `flint-mcp/src/core/figmaMcpParser.ts` | Figma MCP `get_design_context` response parser |
 | `flint-mcp/src/core/figmaJsxTransformer.ts` | Figma node tree → JSX AST transformer |
