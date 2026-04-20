@@ -6,6 +6,54 @@
 
 ---
 
+## Session: DEMO.CUT.1 — Demo Set Consolidation (2026-04-19) — PHASE 1 COMPLETE
+
+**Goal:** Close Beta Gate 1 "clean audit→fix→re-audit loop on all demos" + Gate 6 source material by cutting demo set from 13 → 5 high-quality survivors.
+
+**Keep (5):** `demos/03-mithril-shadow-audit` (Mithril drift), `demos/04-sentinel` (Warden UX/a11y), `demos/figma-d2c` (Mason D2C — Phase 2 rebuild), `build-resources/demos/dashboard-before` + `dashboard-after` (AI ungoverned vs governed), `build-resources/demos/multi-component-app` (full workflow — hero demo). `demos/01-rag-ui-builder/` preserved as FIXTURE.1.1 test canary only.
+
+**Deleted (6):** `demos/02-self-correcting`, `demos/05-semantic-refactor`, `demos/06-macro-recovery`, `build-resources/demos/{a11y-audit,design-system-migration,token-drift}`. Plus defunct `tests/demo/hospital-exec.spec.ts` (targeted deleted a11y-audit demo).
+
+**What shipped (Phase 1):**
+- 6 demo folders + 1 e2e spec deleted via `git rm -rf`
+- 3 slash commands deleted: `.claude/commands/demo/{audit-good,audit-bad,buggy}.md`
+- `DemoScenarioPicker` rewired from 4 doomed scenarios → 3 survivor scenarios (`multi-component-app`, `dashboard-before`, `dashboard-after`) with new copy + icons
+- `src/App.tsx` 2× `loadDemoProject('a11y-audit')` → `loadDemoProject('multi-component-app')`
+- `server/cli.ts` VALID_DEMO_NAMES + default + help text + examples updated to survivors
+- `server/__tests__/cli.test.ts` mirror copy + 4 test cases updated
+- `tests/e2e/helpers.ts` demo name updated
+- `src/components/ui/__tests__/LaunchScreen.test.tsx` 3 tests updated (new scenario IDs/copy/times)
+- `src/components/editor/__tests__/StatusBar.fixtureContext.test.tsx` label + source path updated
+- `demos/_preview/DemoPreview.tsx` pruned: dropped BuggyComponent + LegacyDivs imports + demo entries + dead `dataTableProps` block
+- `demos/flint-manifest.json` pruned: DataTable, ProfileSettingsLegacy, RepoCard, PatientForm, MetricDashboard entries removed
+- Full rewrites: `demos/README.md`, `demos/DEMO-SCRIPT.md` (90s → 10-min beta-designer-focused), `demos/RUNBOOKS.md` (9 demos → 5 survivors + deferred stub for figma-d2c)
+
+**Test counts:**
+```
+MCP:   5652/5652 passing
+Glass: 3270/3272 passing (2 pre-existing RUNTIME.1 StatusBar failures — unrelated)
+Core:  2619/2619 passing
+TSC:   0 errors
+```
+
+**What remains (Phase 2 — separate session):**
+- **figma-d2c rebuild:** full ground-up with real MUI imports (not missing `@/components/ui/*`). Contract-First Feature Build v2 candidate. Blocks Beta Gate 1 item "clean audit loop on all demos."
+- **Gate 1 verification:** run audit→fix→re-audit loop across all 5 survivors after figma-d2c rebuilds; document clean state as Gate 1 sign-off.
+- **Mirror survivors into `build-resources/demos/` if needed:** `03-mithril-shadow-audit` + `04-sentinel` currently live in `demos/` (developer sandbox) but aren't in the LaunchScreen picker. If beta testers want quick access via picker, mirror them (or add more scenarios).
+- **PatientForm/MetricDashboard manifest entries pointed at `./demo-after` / `./demo-before`** — those files never existed at those paths. Removed as dead refs, but worth flagging: that manifest needs a full audit pass at some point.
+
+---
+
+## Session: GLASSTYPO.1 — Glass Typography Token System (2026-04-19) — IN PROGRESS
+
+**Goal:** Close Glass's self-dogfooding gap. A code review triggered by a visible UI defect (tiny 8px text in the Governance panel) uncovered **483 occurrences across 67 files** of `text-[var(--spacing.N, ...)]` — using spacing tokens where font-size is intended. Glass itself is failing Mithril's typography rules.
+
+**Approach (Justin: "Proper fix"):** Introduce a dedicated Glass typography token scale at the CSS variable layer (`--font-size.xs/sm/base/lg/xl` or similar), define pixel values to match current de-facto sizes, then migrate all 483 call sites deterministically. Re-audit Glass with Mithril to confirm the dogfooding gap is closed.
+
+**Phase:** Phase 1 contract drafting — flint-architect spawned.
+
+---
+
 ## Session: FIXTURE.1.1 — DTCG Token Shape Adapter (2026-04-19) — COMPLETE
 
 **Goal:** Close FIXTURE.1's documented drift. Root cause: linter's token consumer read legacy flat shape while `design-tokens.json` uses DTCG nested shape, so every literal pixel became a false positive regardless of fixture quality.

@@ -21,10 +21,9 @@ import { mkdtempSync, mkdirSync, rmSync } from 'node:fs'
 // also update this copy — a deliberate coupling signal.
 
 const VALID_DEMO_NAMES = new Set([
-  'token-drift',
-  'a11y-audit',
-  'design-system-migration',
   'multi-component-app',
+  'dashboard-before',
+  'dashboard-after',
 ])
 
 function parseArgs(argv: string[]): {
@@ -46,7 +45,7 @@ function parseArgs(argv: string[]): {
     port: 4201,
     open: true,
     demo: false,
-    demoName: 'token-drift',
+    demoName: 'multi-component-app',
     help: false,
     version: false,
     init: false,
@@ -162,28 +161,28 @@ describe('parseArgs', () => {
     expect(args.open).toBe(true)
   })
 
-  it('--demo sets demo: true and defaults demoName to token-drift', () => {
+  it('--demo sets demo: true and defaults demoName to multi-component-app', () => {
     const args = parseArgs([...base, '--demo'])
     expect(args.demo).toBe(true)
-    expect(args.demoName).toBe('token-drift')
+    expect(args.demoName).toBe('multi-component-app')
     expect(args.open).toBe(true)
   })
 
   it('--demo with a valid name sets demoName', () => {
-    const args = parseArgs([...base, '--demo', 'a11y-audit'])
+    const args = parseArgs([...base, '--demo', 'dashboard-before'])
     expect(args.demo).toBe(true)
-    expect(args.demoName).toBe('a11y-audit')
+    expect(args.demoName).toBe('dashboard-before')
   })
 
   it('--demo with an invalid name keeps default demoName', () => {
     const args = parseArgs([...base, '--demo', 'unknown-demo'])
-    expect(args.demoName).toBe('token-drift')
+    expect(args.demoName).toBe('multi-component-app')
   })
 
   it('-d is an alias for --demo', () => {
-    const args = parseArgs([...base, '-d', 'design-system-migration'])
+    const args = parseArgs([...base, '-d', 'dashboard-after'])
     expect(args.demo).toBe(true)
-    expect(args.demoName).toBe('design-system-migration')
+    expect(args.demoName).toBe('dashboard-after')
   })
 
   it('--version sets version flag', () => {

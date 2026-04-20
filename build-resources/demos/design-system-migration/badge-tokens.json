@@ -1,9 +1,0 @@
-{
-  "colors": {
-    "primary": "#1a56db",
-    "gray": {
-      "600": "#4b5563"
-    }
-  },
-  "_note": "OUTDATED: This is the v3 token schema. tokens have been renamed. See design-tokens.json for current DTCG format."
-}

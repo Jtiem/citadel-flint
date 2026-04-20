@@ -708,7 +708,7 @@ function App() {
                         setDemoLoadError('Demo loading is not available in this environment')
                     } else {
                         try {
-                            const result = await window.flintAPI.beta.loadDemoProject('a11y-audit')
+                            const result = await window.flintAPI.beta.loadDemoProject('multi-component-app')
                             if (result && 'projectPath' in result) {
                                 const tree = await window.flintAPI.project.openPath(result.projectPath)
                                 if (tree) {
@@ -916,7 +916,7 @@ function App() {
                 buildId={betaInfo.buildId}
                 daysRemaining={betaInfo.daysRemaining}
                 onTryDemo={async () => {
-                    const result = await window.flintAPI.beta?.loadDemoProject('a11y-audit')
+                    const result = await window.flintAPI.beta?.loadDemoProject('multi-component-app')
                     if (result && 'projectPath' in result) {
                         const tree = await window.flintAPI.project.openPath(result.projectPath)
                         if (tree) {

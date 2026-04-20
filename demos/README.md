@@ -1,6 +1,6 @@
-# Flint MCP — Demo Fixtures
+# Flint — Demo Fixtures
 
-Runnable, repeatable demo scenarios for the Flint governance engine. Each subfolder is a self-contained story: an input file (or pair of files) that demonstrates one capability of Flint MCP, plus a `README.md` describing what to run and what to expect.
+Curated demo scenarios for the Flint private beta. Each demo is a self-contained story that shows one or more Citadel capabilities (Mithril, Warden, Gate, Sweep, Mason) working on realistic code.
 
 ## Prerequisites
 
@@ -8,40 +8,53 @@ Runnable, repeatable demo scenarios for the Flint governance engine. Each subfol
 cd flint-mcp && npm install && npm run build
 ```
 
-The demos assume Flint MCP is built and running. Connect a client (Claude Code, Cursor, or any MCP-compatible IDE) to the server before stepping through a demo.
+The demos assume Flint MCP is built and running. Connect a client (Claude Code, Cursor, or any MCP-compatible IDE) to the server, or load a demo in Flint Glass via the LaunchScreen picker.
 
 ---
 
 ## Demo Index
 
-| # | Folder | One-line description |
-|---|--------|----------------------|
-| 01 | `01-rag-ui-builder/` | AI reads the component registry via RAG and rewrites a hardcoded notification panel to use semantic design tokens |
-| 02 | `02-self-correcting/` | Flint's in-memory TSC loop catches three AI-hallucinated type errors before they reach the user as a diff |
-| 03 | `03-mithril-shadow-audit/` | CIEDE2000 perceptual color diffing surfaces five drift violations on a pricing card whose author eyeballed colors from a Figma screenshot |
-| 04 | `04-sentinel/` | The Flint Sentinel rejects an AI-generated order form for violating Hick's Law (10-button toolbar) and Miller's Law (16 always-visible fields) |
-| 05 | `05-semantic-refactor/` | Legacy `<div className="box">` soup is surgically upgraded to typed design system primitives (`Box`, `Stack`, `TextField`) without changing rendered output |
-| 06 | `06-macro-recovery/` | Git Time Machine identifies two deleted AST subtrees and transplants them back surgically — without reverting the surrounding refactor |
-| 07 | _(planned)_ `07-figma-sync/` | Bidirectional token sync: Figma variables pushed via SDI webhook, Flint reconciles drift against the running design system |
-| 08 | _(planned)_ `08-ci-gate/` | `flint audit` run as a CI step — SARIF output, exit code 1 on critical violations, PR blocked until resolved |
-| 09 | _(planned)_ `09-a11y-expand/` | 30-rule A11Y expansion catches heading skips, missing landmark regions, and generic link text across a multi-component page |
+| Location | Name | What it shows |
+|----------|------|---------------|
+| `build-resources/demos/multi-component-app/` | **Full workflow** | 5-component SaaS dashboard at mixed grades (A → F). Audit → sweep → watch health climb → Export Gate blocks remaining manual a11y fixes. This is the headline beta demo. |
+| `build-resources/demos/dashboard-before/` | **AI without governance** | A "brutalist" dashboard AI generated with no rails — hardcoded colors, ignored tokens, broken contrast. |
+| `build-resources/demos/dashboard-after/` | **AI with Flint** | Same dashboard prompt, generated with token + a11y + brand constraints on. Compare side-by-side with `dashboard-before`. |
+| `demos/03-mithril-shadow-audit/` | **Mithril color drift** | Pricing card whose author eyeballed colors from a Figma screenshot. CIEDE2000 surfaces perceptual drift invisible to the eye. |
+| `demos/04-sentinel/` | **Warden UX + a11y** | An AI-generated order form with 31 violations — Hick's Law (10-button toolbar), Miller's Law (16 always-visible fields), and WCAG 2.1 AA failures. |
+| `demos/figma-d2c/` | **Mason D2C** _(rebuild in-flight)_ | Figma design → library-aware code generation. Currently under reconstruction with MUI as the default target library. |
+
+### In-app demo picker
+
+The LaunchScreen's three demo scenarios (`DemoScenarioPicker`) map to the three `build-resources/demos/` projects:
+
+- **Try the full workflow** → `multi-component-app`
+- **AI without governance** → `dashboard-before`
+- **AI with Flint** → `dashboard-after`
+
+`demos/03-mithril-shadow-audit/` and `demos/04-sentinel/` are developer-facing sandboxes surfaced via `demos/_preview/DemoPreview.tsx`, not the in-app picker.
+
+---
+
+## Fixture
+
+`demos/01-rag-ui-builder/` is preserved as a **test canary only** for FIXTURE.1.1 — it is no longer a user-facing demo. Do not reference it in beta collateral.
 
 ---
 
 ## Running a Demo
 
-Each demo is meant to be opened in a Flint-connected IDE session. The general pattern:
+1. Open the demo folder as a Flint project (via Glass LaunchScreen or `--demo` CLI flag).
+2. Let the component file load in the canvas.
+3. Invoke the relevant MCP tool from the demo's walkthrough (`audit_ui_component`, `flint_swarm_audit_fix`, `flint_fix`).
+4. Observe violations, auto-fixes, and health changes in Flint Glass.
 
-1. Point the MCP server at the demo directory as the working root.
-2. Open the component file in the IDE.
-3. Invoke the relevant MCP tool listed in the demo README (e.g. `audit_ui_component`, `flint_ast_mutate`, `flint_query_registry`).
-4. Observe violations, auto-fixes, or recovered AST nodes in Flint Glass.
+See [RUNBOOKS.md](RUNBOOKS.md) for step-by-step walkthroughs and [DEMO-SCRIPT.md](DEMO-SCRIPT.md) for the 90-second demo-video script.
 
 ---
 
 ## Shared Token File
 
-`demos/design-tokens.json` is the canonical W3C DTCG token file used across all demos. Individual demo subfolders may include a local copy for self-containment.
+`demos/design-tokens.json` is the canonical W3C DTCG token file used across `demos/`. Individual demo subfolders may include a local copy for self-containment.
 
 **Token summary:**
 

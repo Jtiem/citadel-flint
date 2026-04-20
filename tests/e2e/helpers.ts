@@ -56,7 +56,7 @@ export async function loadDemoProject(page: Page): Promise<string> {
     const res = await fetch('/api/ipc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ channel: 'beta:load-demo-project', args: [{ demoName: 'a11y-audit' }] }),
+      body: JSON.stringify({ channel: 'beta:load-demo-project', args: [{ demoName: 'multi-component-app' }] }),
     })
     const json = await res.json() as { result?: { projectPath?: string } }
     return json.result?.projectPath ?? null

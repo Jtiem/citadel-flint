@@ -334,20 +334,19 @@ describe('LaunchScreen — 3-channel consolidation (FORGE.1)', () => {
         const props = defaultProps()
         render(<LaunchScreen {...props} />)
         await waitFor(() => screen.getByTestId('demo-scenario-picker'))
-        fireEvent.click(screen.getByTestId('demo-scenario-audit-component'))
+        fireEvent.click(screen.getByTestId('demo-scenario-full-workflow'))
         await waitFor(() => {
-            expect(props.onLoadDemo).toHaveBeenCalledWith('token-drift')
+            expect(props.onLoadDemo).toHaveBeenCalledWith('multi-component-app')
         })
     })
 
-    it('demo scenario picker shows 4 scenario cards', async () => {
+    it('demo scenario picker shows 3 scenario cards', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
         render(<LaunchScreen {...defaultProps()} />)
         await waitFor(() => {
-            expect(screen.getByText('Audit a component')).toBeDefined()
-            expect(screen.getByText('Fix violations')).toBeDefined()
-            expect(screen.getByText('Design system health')).toBeDefined()
-            expect(screen.getByText('Migrate a design system')).toBeDefined()
+            expect(screen.getByText('Try the full workflow')).toBeDefined()
+            expect(screen.getByText('AI without governance')).toBeDefined()
+            expect(screen.getByText('AI with Flint')).toBeDefined()
         })
     })
 
@@ -355,7 +354,7 @@ describe('LaunchScreen — 3-channel consolidation (FORGE.1)', () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
         render(<LaunchScreen {...defaultProps()} />)
         await waitFor(() => {
-            expect(screen.getAllByText('~2 min').length).toBeGreaterThanOrEqual(1)
+            expect(screen.getAllByText('~1 min').length).toBeGreaterThanOrEqual(1)
             expect(screen.getAllByText('~3 min').length).toBeGreaterThanOrEqual(1)
         })
     })

@@ -123,12 +123,12 @@ describe('AuditContextPill (FIXTURE.1)', () => {
     })
 
     it('tooltip carries full label when label is long (CSS truncation does NOT drop from title)', () => {
-        const longLabel = 'Self-correcting demo context'
+        const longLabel = 'Mithril shadow audit demo context'
         useCanvasStore.setState({
             latestAudit: {
                 fixtureContext: {
                     label: longLabel,
-                    source: '/project/demos/02-self-correcting/.flint-fixture.json',
+                    source: '/project/demos/03-mithril-shadow-audit/.flint-fixture.json',
                     surface: 'component',
                 },
             },

@@ -5,12 +5,12 @@
  * with goal-oriented scenario cards that show: title, one-line description,
  * estimated time, and a load button.
  *
- * Max 4 scenarios. Each maps to a demo project name that LaunchScreen's
- * `onLoadDemo` handler understands.
+ * 3 scenarios mapped to the 3 projects in `build-resources/demos/`. Each maps to
+ * a demo project name that LaunchScreen's `onLoadDemo` handler understands.
  */
 
 import { useState } from 'react'
-import { FileSearch, Wrench, BarChart2, Shield, Loader2 } from 'lucide-react'
+import { Wrench, Sparkles, ShieldAlert, Loader2 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
 // ── Scenario definitions ─────────────────────────────────────────────────────
@@ -26,36 +26,28 @@ export interface DemoScenario {
 
 export const DEMO_SCENARIOS: DemoScenario[] = [
     {
-        id: 'audit-component',
-        title: 'Audit a component',
-        description: 'Scan a React component for token drift and accessibility issues',
-        time: '~2 min',
-        demoName: 'token-drift',
-        icon: FileSearch,
-    },
-    {
-        id: 'fix-violations',
-        title: 'Fix violations',
-        description: 'Auto-remediate color, spacing, and a11y violations in one pass',
-        time: '~2 min',
-        demoName: 'a11y-audit',
+        id: 'full-workflow',
+        title: 'Try the full workflow',
+        description: 'Audit a 5-component app, auto-fix what Flint can, watch the Export Gate block what it can\'t',
+        time: '~3 min',
+        demoName: 'multi-component-app',
         icon: Wrench,
     },
     {
-        id: 'design-system-health',
-        title: 'Design system health',
-        description: 'See your health score, grade, and top violated rules',
-        time: '~3 min',
-        demoName: 'multi-component-app',
-        icon: BarChart2,
+        id: 'ai-ungoverned',
+        title: 'AI without governance',
+        description: 'See what AI ships when nothing is enforcing your design system',
+        time: '~1 min',
+        demoName: 'dashboard-before',
+        icon: ShieldAlert,
     },
     {
-        id: 'ds-migration',
-        title: 'Migrate a design system',
-        description: 'Upgrade Tailwind v3 to v4 with AST-level class transforms',
-        time: '~3 min',
-        demoName: 'design-system-migration',
-        icon: Shield,
+        id: 'ai-governed',
+        title: 'AI with Flint',
+        description: 'Same dashboard, generated with token + a11y + brand constraints on',
+        time: '~1 min',
+        demoName: 'dashboard-after',
+        icon: Sparkles,
     },
 ]
 
