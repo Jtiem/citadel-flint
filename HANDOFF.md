@@ -6,6 +6,47 @@
 
 ---
 
+## Session: Review-Pilot A/B verification (2026-04-20) — COMPLETE, PROTOCOL AMENDED
+
+**Goal:** Turn the MINT.5 Phase 3 "Cheaper-Pilot" POC (verdict UNCERTAIN on Lever E) into a standardized workflow, then validate via A/B measurement.
+
+**What ran:** 4 parallel reviewers against the shipped MINT.5 Phase 3 diff (commit 1db3e7f) — 3 scoped (ux/code/security per new protocol) + 1 unscoped code-reviewer control.
+
+**Token + byte measurements:**
+- UX scoped: 78.9k tokens, ~72 KB
+- Code scoped: 109.8k tokens, ~115 KB
+- Security scoped: 86.1k tokens, ~90 KB
+- **Scoped total:** 274.8k tokens, ~277 KB
+- **Unscoped control (code):** 120.1k tokens, ~140 KB actual (404 KB candidate)
+
+**Findings diff (scoped vs unscoped control):**
+- Scoped-only wins: security's tmpdir carve-out (SEC-MED-1, biggest finding of run), renderer-tool-schema coverage gap (SEC-LOW-1), UX write-mode fail-open + confirm opacity.
+- Unscoped-only wins (scoped miss): 6 code-domain warnings — rate-limited persistence, useSyncStaleness projectRoot dep, negative-hours guard, focusedIndex clamp, duplicated preload/server validation gate, DNS pattern gap.
+- Overlap: 1 finding (classification keyword fallback).
+
+**Verdict by lever:**
+- Lever A (domain partition ux/code/security): KEEP — specialists catch things generalists miss.
+- Lever A (over-narrowing code scope): REGRESSION — narrowed code scope skipped tests and missed 6 warnings. Widen to "impl + tests + callers".
+- Lever B (structured `.review.ts`): KEEP — all 4 emitted without fallback.
+- Lever E (cache window): DROP — sub-agents run in isolated contexts; prompt-cache does not span reviewer instances. Original 53.9% artifact savings were actually Lever A.
+- Integration-validator canary: PROMOTED from recommended to mandatory — non-zero miss rate even with correct scoping.
+
+**Amendments shipped:**
+- [CLAUDE.md:498-503](CLAUDE.md) — rewrote "Cheaper-Pilot levers" section (Lever E dropped, code scope widened, canary mandatory).
+- [.claude/workflows/feature-build.md:320-357](.claude/workflows/feature-build.md) — Phase 2.5 updated; v2.3 row added to Process Improvements Log.
+
+**Artifacts on disk:**
+- `.flint-context/reviews/pilot-ab/MINT.5-phase3-{ux,code,security}-review-2026-04-20-scoped.{md,review.ts}`
+- `.flint-context/reviews/pilot-ab/MINT.5-phase3-code-review-2026-04-20-UNSCOPED.{md,review.ts}`
+
+**Actionable findings surfaced (to triage separately — not in scope of this session):**
+- SEC-MED-1: `server/index.ts:934-961` tmpdir carve-out too broad.
+- 6 code warnings from unscoped control (rate-limited persistence, staleness deps, negative hours, focus clamp, dup validation gate, DNS patterns).
+
+**Agent Write-tool status:** Both `flint-ux-critic` and `flint-security-reviewer` already had Write in their frontmatter — the original pilot's "Lever B PARTIAL" finding was stale.
+
+---
+
 ## Session: RUNTIME.1-ship — Web-minimum ship (Issues 2 + 5) (2026-04-20) — LANDED INSIDE ed80f89
 
 **Goal:** Land RUNTIME.1 (axe-core runtime adapter) on web behind `runtime.axe.enabled: false`. Fix Issues 2 + 5 from 2026-04-18 integration review; defer Electron path + extended test coverage.
