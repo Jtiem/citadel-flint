@@ -3,7 +3,7 @@
     "flint": {
       "command": "/usr/local/bin/node",
       "args": [
-        "/Users/tiemann/Lunar-Elevator-Bridge/flint-mcp/dist/flint-mcp/src/server.js"
+        "/Users/tiemann/Lunar-Elevator-Bridge/flint-mcp/dist/server.js"
       ],
       "cwd": "/Users/tiemann/Lunar-Elevator-Bridge"
     },
