@@ -317,6 +317,21 @@ interface CanvasState {
             surface?: string
         }
     } | null
+
+    // ── INSPECTOR.1: manual tab override ────────────────────────────────────
+    /**
+     * True when the user has manually clicked a non-Properties tab while a
+     * node was selected. Blocks `useAutoTabSwitch` from auto-switching back to
+     * the Properties tab on the next selection change.
+     *
+     * Reset to false:
+     *   - by `setActiveSelection(null)` (deselect clears the override so the
+     *     next selection can auto-switch again)
+     *   - by `closeWorkspace`
+     *
+     * Never persisted across sessions (ODQ-5: session-scoped only).
+     */
+    userOverrodeTab: boolean
 }
 
 interface CanvasActions {
@@ -536,6 +551,15 @@ interface CanvasActions {
      * Cancels any pending auto-save timer before clearing state.
      */
     closeWorkspace: () => void
+
+    // ── INSPECTOR.1: manual tab override ────────────────────────────────────
+    /**
+     * Sets `userOverrodeTab = true`. Idempotent — calling when already true
+     * produces no state update. Called from the right-sidebar tab bar click
+     * handler in App.tsx when the user clicks a non-Properties tab while a
+     * node is selected.
+     */
+    markTabOverridden: () => void
     /**
      * Export Gate selector (Phase E — Commandments 5 + 6).
      *
@@ -719,9 +743,20 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     // FIXTURE.1: latest MCP audit response context (ephemeral)
     latestAudit: null,
 
+    // INSPECTOR.1: session-scoped manual tab override (default false)
+    userOverrodeTab: false,
+
     startDrag: (sourceId) => set({ dragSourceId: sourceId }),
     endDrag: () => set({ dragSourceId: null }),
-    setActiveSelection: (id) => set({ activeSelection: id }),
+    setActiveSelection: (id) => {
+        // INSPECTOR.1: deselect resets the override so the next selection can
+        // auto-switch to the Properties tab again.
+        if (id === null) {
+            set({ activeSelection: null, userOverrodeTab: false })
+        } else {
+            set({ activeSelection: id })
+        }
+    },
 
     setWorkspaceFiles: (tree) => set({ workspaceFiles: tree }),
 
@@ -979,6 +1014,12 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     // ── FIXTURE.1: latest MCP audit response context ─────────────────────────
     setLatestAudit: (audit) => set({ latestAudit: audit }),
 
+    // ── INSPECTOR.1: manual tab override ────────────────────────────────────
+    markTabOverridden: () => {
+        if (get().userOverrodeTab) return // idempotent
+        set({ userOverrodeTab: true })
+    },
+
     closeWorkspace: () => {
         if (_saveTimer !== null) {
             clearTimeout(_saveTimer)
@@ -1026,6 +1067,8 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
             // RUNTIME.1: Clear runtime findings — never leak a prior file's audit
             runtimeFindings: null,
             livePreviewHtml: null,
+            // INSPECTOR.1: Reset manual tab override on workspace close
+            userOverrodeTab: false,
         })
     },
 

@@ -48,6 +48,7 @@ import { TabUnlockTooltip } from './components/ui/TabUnlockTooltip'
 import { TAB_NARRATION } from '../docs/contracts/sprint-clarity-2.contract'
 import { useContextSync } from './hooks/useContextSync'
 import { useMCPEventListener } from './hooks/useMCPEventListener'
+import { useAutoTabSwitch } from './hooks/useAutoTabSwitch'
 import { useAutopilot } from './hooks/useAutopilot'
 import { useIDEFileSync } from './hooks/useIDEFileSync'
 import { useTokenUsage } from './hooks/useTokenUsage'
@@ -90,8 +91,9 @@ function findPrimaryFile(tree: FileTreeNode): string | null {
 
 function App() {
     const [leftTab, setLeftTab] = useState<'layers' | 'components' | 'assets'>('layers')
-    const rightTab    = useCanvasStore((s) => s.rightTab)
-    const setRightTab = useCanvasStore((s) => s.setRightTab)
+    const rightTab          = useCanvasStore((s) => s.rightTab)
+    const setRightTab       = useCanvasStore((s) => s.setRightTab)
+    const markTabOverridden = useCanvasStore((s) => s.markTabOverridden)
     const governanceRuleFilter = useCanvasStore((s) => s.governanceRuleFilter)
     const [ipcStatus, setIpcStatus] = useState<string>('Connecting…')
     const [ipcOk, setIpcOk] = useState<boolean>(false)
@@ -218,12 +220,17 @@ function App() {
     // 3 s after the user has deliberately chosen a tab.
     const lastManualTabSwitchRef = useRef<number>(0)
 
-    // Wrap setRightTab so manual tab clicks record the timestamp and mark seen.
+    // Wrap setRightTab so manual tab clicks record the timestamp, mark seen,
+    // and set userOverrodeTab so useAutoTabSwitch respects the user's choice.
+    // INSPECTOR.1 Group C: markTabOverridden() is called here (manual click path).
+    // useAutoTabSwitch calls setRightTab directly (programmatic path) — it does
+    // NOT call markTabOverridden, so the flag stays false unless the user acts.
     const handleSetRightTab = useCallback((tab: typeof rightTab) => {
         lastManualTabSwitchRef.current = Date.now()
         markTabSeen(tab)
         setRightTab(tab)
-    }, [markTabSeen, setRightTab])
+        markTabOverridden()  // INSPECTOR.1: flag this as a user-initiated switch
+    }, [markTabSeen, setRightTab, markTabOverridden])
 
     const activeFileName = activeFilePath ? activeFilePath.split('/').pop() ?? null : null
 
@@ -252,6 +259,11 @@ function App() {
         catch (err) { console.warn('[Flint] App: global audit failed', err) }
         finally { setIsAuditingGlobal(false) }
     }, [])
+
+    // ── INSPECTOR.1: Auto tab switch on selection (Group C) ──────────────────
+    // Watches activeSelection; null→id transitions switch to Properties tab
+    // unless the user manually overrode the tab this session.
+    useAutoTabSwitch()
 
     // ── Context Flint (Phase 1A) ─────────────────────────────────────────────
     useContextSync()

@@ -68,13 +68,73 @@ TSC:   0 errors
 
 ---
 
-## Session: INSPECTOR.1 — Context-Aware Properties Panel (2026-04-20) — IN PROGRESS
+## Session: INSPECTOR.1 — Context-Aware Properties Panel (2026-04-20) — COMPLETE
 
-**Goal:** Turn the Properties panel into a Figma-grade context-aware inspector. Three coupled behaviors: (1) auto-tab-switch to Properties when a node is selected; (2) element-type → relevant-property mapping with auto-expansion of the right accordions (select `<h1>` → surfaces typography, hides irrelevant rows); (3) off-token value flagging inline — when a node's actual className/style/attr isn't in the token set, render the raw value in the input with a warning badge. Reuses Mithril's drift detection logic — surfaces it inline rather than only as violations.
+**Goal:** Turn the Properties panel into a Figma-grade context-aware inspector. Three coupled behaviors: auto-tab-switch to Properties when a node is selected, element-type → relevant-property mapping with auto-expansion of the right accordions, off-token value flagging inline with warning badges.
 
-**Approach:** Contract-first. Architect spawned to frame the element-type registry + selection-driven tab-switch plumbing + off-token flagging integration with the existing GLASSTYPO.1 primitives.
+**Architecture (3 parallelism groups + review ceremony + fix sweep):**
+- **Group A** (state-architect + ast-surgeon + test-writer): pure-function registry at `src/core/elementTypePropertyMap.ts` mapping 24 tags across 5 buckets (Text, Container, Media, Interactive, Form) + generic fallback; `matchValueToToken` extension to `src/utils/tokenMatcher.ts` for non-color categories (exact-match on typography/spacing/radius/shadow); `scanArbitraryTypography` + `scanArbitrarySpacing` Babel traversals in `src/utils/astScanner.ts`; `useAutoTabSwitch` hook gated on null→id selection transitions; `canvasStore` slice additions (`userOverrodeTab` + `markTabOverridden`) with resets on `setActiveSelection(null)` and `closeWorkspace`.
+- **Group B** (design-engineer): 4 new inspector section components at `src/components/inspector/` — `TypographySection`, `FormPropsSection`, `MediaPropsSection`, `A11ySection` — all composed from GLASSTYPO.1 primitives (`Section`, `PropertyRow`, `StatBadge`, `MetadataTooltip`). Off-token flagging via `matchValueToToken`.
+- **Group C** (design-engineer): `PropertiesPanel` rewired to render dynamic Section list sourced from `getRelevantSections(tagName)`; `App.tsx` wires `markTabOverridden()` into manual tab-click handler; `useAutoTabSwitch` mounted at App root.
 
-**Phase:** Phase 1 contract drafting — flint-architect spawned.
+**Review ceremony (3 parallel):**
+- UX: REVISE (1 HIGH on auto-expand wiring, 2 MEDIUM, 2 LOW)
+- Code: APPROVE WITH CHANGES (1 BLOCKER on missing PropertiesPanel integration test)
+- Security: APPROVED (0 blocking; 2 low hardening)
+
+**Fix sweep (7 items, all DONE):**
+- UX F1 (HIGH): auto-expand registry wired — `initiallyExpanded` prop on all 4 Group B sections derived from `getAutoExpandedSections()`. Selecting `<h1>` → Typography auto-expands only.
+- Code BLOCKER: `PropertiesPanel.inspector1.test.tsx` created — 62-test matrix across 29 tags covering `relevant-sections-only-rendered`, `auto-expand-matches-registry`, n=20 auto-tab-switch, 5-selection manual-override.
+- UX F3: WCAG H67 — `alt=""` downgraded from critical to neutral "decorative" badge.
+- Code F4: `TypographySection` text-* allowlist blocks `text-center/ellipsis/nowrap/balance/…` from fontSize extraction.
+- UX F5: off-token color badges now surface closest token name via tooltip.
+- UX F4: generic fallback reordered `[Layout, Typography, Appearance, A11y, NodeProperties]` — custom components are container-shaped.
+- Security LOW-2: all 10 bucket arrays marked `as const satisfies readonly InspectorSection[]`.
+
+**Deferred:**
+- Code F2: pre-existing duplicate CIEDE2000 at `src/utils/color/colorMath.ts:114` — invariant `token-match-reuses-mithril` partially violated by this unrelated file; queued as a consolidation phase.
+
+**Files created:**
+- `src/core/elementTypePropertyMap.ts` + test (62 matrix tests)
+- `src/hooks/useAutoTabSwitch.ts` + test
+- `src/components/inspector/{Typography,FormProps,MediaProps,A11y}Section.tsx` + 4 tests
+- `src/components/ui/__tests__/PropertiesPanel.inspector1.test.tsx` (matrix)
+- `src/__tests__/App.autoTabSwitch.test.tsx`
+- `.flint-context/contracts/INSPECTOR.1-contract.md` + `.contract.ts`
+- 4 review reports (contract-lint + ux + code + security) + .review.ts siblings
+
+**Files modified:**
+- `src/utils/tokenMatcher.ts` (+ `matchValueToToken`)
+- `src/utils/astScanner.ts` (+ typography/spacing scanners)
+- `src/store/canvasStore.ts` (+ userOverrodeTab + markTabOverridden)
+- `src/components/ui/PropertiesPanel.tsx` (dynamic section rendering)
+- `src/App.tsx` (tab-override wiring + useAutoTabSwitch mount)
+
+**Final invariants (post-fix-sweep):**
+- `auto-tab-switch-on-selection`: PASS (100% over n=20)
+- `respects-manual-tab-switch`: PASS (0 overrides across 5-loop test)
+- `relevant-sections-only-rendered`: PASS (0 diff across 29-tag matrix)
+- `auto-expand-matches-registry`: PASS (empty XOR across all tags)
+- `off-token-flag-present-when-value-unknown`: PASS
+- `off-token-flag-absent-when-value-matches`: PASS
+- `no-new-ipc`: PASS (0)
+- `no-new-mcp-surface`: PASS (0)
+
+**Test counts:**
+```
+Glass: 3520/3522 passing (+118 net from phase — 62 matrix + 28 Group B + 25 Group C + 3 scaffolds)
+TSC:   0 errors (root + flint-mcp)
+```
+
+The 2 remaining failures are pre-existing `StatusBar.test.tsx` Figma disconnect locator failures (RUNTIME.1 scope).
+
+**Deferred for future phases:**
+- INSPECTOR.2 — user-facing element-type registration API, per-user custom component mapping, persistence across sessions.
+- Consolidate duplicate CIEDE2000 (`src/utils/color/colorMath.ts` → delegates to `tokenMatcher.ts`).
+
+---
+
+## Session: GLASSTYPO.1 — Glass Interaction Schema + Figma-Rhythm Type Scale + Primitive Vocabulary (Governance + Properties Canary) — COMPLETE
 
 ---
 

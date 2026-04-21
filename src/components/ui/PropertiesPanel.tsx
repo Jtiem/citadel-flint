@@ -42,6 +42,16 @@ import { tokenToClass } from '../../utils/classMapper';
 import type { TokenType } from '../../types/flint-api';
 import type { VisualLayer } from '../../core/ast-parser';
 import { AnnotationList } from './AnnotationList';
+// INSPECTOR.1 Group C: element-type registry + new inspector sections
+import {
+  getRelevantSections,
+  getAutoExpandedSections,
+  type InspectorSection,
+} from '../../core/elementTypePropertyMap';
+import TypographySection from '../inspector/TypographySection';
+import FormPropsSection from '../inspector/FormPropsSection';
+import MediaPropsSection from '../inspector/MediaPropsSection';
+import A11ySection from '../inspector/A11ySection';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -301,6 +311,146 @@ function NodeProperties({
         </div>;
 }
 
+// ── INSPECTOR.1: Section display name map ────────────────────────────────────
+
+const SECTION_TITLES: Record<InspectorSection, string> = {
+  Typography:     'Typography',
+  Layout:         'Layout',
+  Appearance:     'Appearance',
+  MediaProps:     'Media',
+  FormProps:      'Form',
+  A11y:           'Accessibility',
+  NodeProperties: 'Element Properties',
+};
+
+/**
+ * Renders the ordered, element-type-aware list of inspector sections for
+ * `layer`. Each section is gated by `getRelevantSections(tagName)` and
+ * expands automatically only if listed in `getAutoExpandedSections(tagName)`.
+ *
+ * Sections that have their own internal Section wrapper (TypographySection,
+ * FormPropsSection, MediaPropsSection, A11ySection) render bare (no double
+ * Section wrapper). The Layout, Appearance, and NodeProperties sections are
+ * wrapped here because their underlying components (LayoutPanel, ClassBuilder,
+ * NodeProperties) don't self-wrap.
+ */
+function renderDynamicSections(
+  layer: VisualLayer,
+  nodeId: string,
+  onCommit: (className: string) => void,
+  onCommitStyle: (value: string) => void,
+  onCommitText: (value: string) => void,
+  onCommitProp: (propName: string, value: string | undefined) => void,
+): React.ReactNode {
+  const tagName = layer.tagName ?? 'unknown';
+  const relevant = getRelevantSections(tagName);
+  const autoExpanded = new Set(getAutoExpandedSections(tagName));
+
+  return relevant.map((section, idx) => {
+    const title = SECTION_TITLES[section];
+    // First section does not carry stack spacing (panel header already provides gap)
+    const stackItem = idx > 0;
+    const isExpanded = autoExpanded.has(section);
+    const expandedWhen = isExpanded ? () => true as boolean : () => false as boolean;
+
+    switch (section) {
+      case 'Typography':
+        return (
+          <TypographySection
+            key={section}
+            layer={layer}
+            onCommit={onCommit}
+            initiallyExpanded={isExpanded}
+          />
+        );
+
+      case 'Layout':
+        // LayoutPanel has its own header; wrap in a Section so it participates in
+        // the collapse/expand rhythm.
+        return (
+          <Section
+            key={section}
+            title={title}
+            schemaRole="primary-content"
+            expandedWhen={expandedWhen}
+            stackItem={stackItem}
+          >
+            <LayoutPanel className={layer.className ?? ''} onChange={onCommit} />
+          </Section>
+        );
+
+      case 'Appearance':
+        // ClassBuilder owns the Appearance section; wrap in a Section.
+        return (
+          <Section
+            key={section}
+            title={title}
+            schemaRole="primary-content"
+            expandedWhen={expandedWhen}
+            stackItem={stackItem}
+          >
+            <ClassBuilder className={layer.className ?? ''} onCommit={onCommit} />
+          </Section>
+        );
+
+      case 'MediaProps':
+        return (
+          <MediaPropsSection
+            key={section}
+            layer={layer}
+            onCommitProp={onCommitProp}
+            initiallyExpanded={isExpanded}
+          />
+        );
+
+      case 'FormProps':
+        return (
+          <FormPropsSection
+            key={section}
+            layer={layer}
+            onCommitProp={onCommitProp}
+            initiallyExpanded={isExpanded}
+          />
+        );
+
+      case 'A11y':
+        return (
+          <A11ySection
+            key={section}
+            layer={layer}
+            onCommitProp={onCommitProp}
+            initiallyExpanded={isExpanded}
+          />
+        );
+
+      case 'NodeProperties':
+        // NodeProperties starts collapsed per ODQ-3 (not in any bucket's autoExpand).
+        // It is never the "primary" section for any element type — users open it
+        // when they explicitly want the raw AST prop grid.
+        return (
+          <Section
+            key={section}
+            title={title}
+            schemaRole="primary-content"
+            expandedWhen={() => isExpanded}
+            stackItem={stackItem}
+          >
+            <NodeProperties
+              layer={layer}
+              nodeId={nodeId}
+              onCommitStyle={onCommitStyle}
+              onCommitText={onCommitText}
+              onCommitProp={onCommitProp}
+            />
+          </Section>
+        );
+
+      default:
+        return null;
+    }
+  });
+}
+
 // ── PropertiesPanel ───────────────────────────────────────────────────────────
 
 export function PropertiesPanel() {
@@ -541,34 +691,33 @@ export function PropertiesPanel() {
                 </span>
             </div>
 
-            {/* Auto Layout controls */}
-            <div className="shrink-0">
-                <LayoutPanel className={selectedLayer.className ?? ''} onChange={handleCommit} />
-            </div>
-
             {/* Token-driven class builder — Amber glow on Mithril Violation; dimmed when locked */}
             <div className={`flex flex-1 flex-col overflow-hidden transition-shadow duration-200 ${isNodeLocked ? 'pointer-events-none opacity-40' : hasAmberViolation ? 'ring-2 ring-inset ring-amber-500/70' : ''}`}>
                 {/* Mithril Violation card — visible when drift > MITHRIL_THRESHOLD */}
                 {driftResult !== null && <MithrilViolationCard deltaE={driftResult.deltaE} tokenName={driftResult.tokenName} hexColor={driftResult.hexColor} tokenValue={driftResult.tokenValue} onAutoFix={handleAutoFix} />}
                 <div className="min-h-0 flex-1 overflow-y-auto">
-                    <ClassBuilder className={selectedLayer.className ?? ''} onCommit={handleCommit} />
+                    {/* INSPECTOR.1 Group C: dynamic section list sourced from the element-type
+                        registry. Each section is wrapped in the Section primitive and rendered
+                        only when it is in the relevant list for this tagName.
 
-                    {/* Read-only / Editable AST property grid (bottom).
-                        expandedWhen: () => true — Element Properties expands when a
-                        node is selected. Per Justin's GLASSTYPO.1 rev-3 directive:
-                        "When an element is selected the properties panel should open
-                        to the most relevant tab and accordions expanded." Editing
-                        props IS an actionable lever — the schema rule "expand when
-                        user has an action" applies. Context-aware tab-jump and
-                        relevance filtering land in INSPECTOR.1. */}
-                    <Section
-                      title="Element Properties"
-                      schemaRole="primary-content"
-                      expandedWhen={() => true}
-                      stackItem={false}
-                    >
-                        <NodeProperties layer={selectedLayer} nodeId={effectiveId} onCommitStyle={handleStyleCommit} onCommitText={handleTextCommit} onCommitProp={handlePropCommit} />
-                    </Section>
+                        Auto-expand rule (ODQ-3): exactly the primary section(s) declared in
+                        getAutoExpandedSections(tagName) start expanded; all others start
+                        collapsed. For generic/unknown tags all sections start collapsed.
+
+                        ClassBuilder (Appearance) is rendered inline before the dynamic
+                        sections because it contains its own scroll area and must remain
+                        at the top of the overflow-y container.
+
+                        DriftDetector placement is preserved below the dynamic sections
+                        (moved to the shrink-0 slot after the overflow container). */}
+                    {renderDynamicSections(
+                      selectedLayer,
+                      effectiveId,
+                      handleCommit,
+                      handleStyleCommit,
+                      handleTextCommit,
+                      handlePropCommit,
+                    )}
                 </div>
             </div>
 
