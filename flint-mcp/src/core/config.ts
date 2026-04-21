@@ -284,6 +284,15 @@ export interface FlintProjectConfig {
         }
         baseline?: { enabled?: boolean }
         policies?: PolicyRef[]
+        // RUNTIME.1 (appended 2026-04-18) — axe-core runtime adapter block.
+        // Matches the nested-rule pattern above. Default: disabled on first ship.
+        runtime?: {
+            axe?: {
+                /** When true, the StatusBar pill and GovernanceDashboard accordion
+                 *  become visible. IPC handler stays live regardless of flag. */
+                enabled?: boolean
+            }
+        }
     }
 
     scoring?: {
@@ -446,4 +455,47 @@ export function projectConfigToPolicy(config: FlintProjectConfig): FlintPolicy {
         },
         domain: config.domain,
     }
+}
+
+// ── RUNTIME.1: axe-core Runtime Feature Flag ────────────────────────────────
+//
+// The flag lives in flint.config.yaml under rules.runtime.axe.enabled.
+// Resolution semantics per RUNTIME.1.contract.md § Decisions Locked #7:
+//
+//   - `rules.runtime.axe.enabled: false` (default) → UI surfaces absent,
+//     IPC handler still callable.
+//   - `rules.runtime.axe.enabled: true` → UI surfaces render normally.
+//   - Missing key → treat as false (safe default).
+
+/**
+ * Returns true when the axe-core runtime adapter flag is explicitly enabled.
+ *
+ * Accepts either a raw FlintProjectConfig (YAML-derived) or any partial shape
+ * that exposes `rules.runtime.axe.enabled`. Only strict boolean true enables —
+ * truthy strings like `"true"` return false (YAML parsers normally coerce
+ * booleans correctly, so strings indicate user error and should not enable).
+ *
+ * @example
+ *   // flint.config.yaml
+ *   // rules:
+ *   //   runtime:
+ *   //     axe:
+ *   //       enabled: true
+ *   isRuntimeAxeEnabled(parsedConfig) // → true
+ *
+ *   isRuntimeAxeEnabled({ project: 'demo' }) // → false (no flag)
+ *   isRuntimeAxeEnabled({}) // → false (empty object)
+ */
+export function isRuntimeAxeEnabled(
+    config: FlintProjectConfig | { rules?: { runtime?: { axe?: { enabled?: boolean } } } } | null | undefined
+): boolean {
+    if (!config || typeof config !== 'object') return false
+    const rules = (config as { rules?: { runtime?: { axe?: { enabled?: unknown } } } }).rules
+    if (!rules || typeof rules !== 'object') return false
+    const runtime = rules.runtime
+    if (!runtime || typeof runtime !== 'object') return false
+    const axe = runtime.axe
+    if (!axe || typeof axe !== 'object') return false
+    // Strict boolean check — truthy strings, numbers, or objects do not enable.
+    return axe.enabled === true
 }

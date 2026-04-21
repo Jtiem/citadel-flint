@@ -317,9 +317,9 @@ If any agent reports a contract gap, return to Phase 1 for a targeted revision, 
 
 ---
 
-## Phase 2.5: Review Gate (Sequential — /review)
+## Phase 2.5: Review Gate (Parallel — Cheaper-Pilot ceremony)
 
-**Run `/review` on all changes before committing.** This gate is mandatory for all agent-produced code.
+**Run the 3-reviewer ceremony on all changes before committing.** Mandatory for all agent-produced code.
 
 The review catches issues that TSC and tests miss:
 - Commandment violations
@@ -327,6 +327,36 @@ The review catches issues that TSC and tests miss:
 - Architectural anti-patterns
 - Missing test coverage
 - Scope creep beyond the contract
+
+### Cheaper-Pilot Protocol (standardized 2026-04-20 from MINT.5 Phase 3 POC + A/B verification)
+
+Dispatch all three reviewers in a **single message** (parallel tool-call block) for wall-clock parallelism. Sub-agents run in isolated contexts — prompt-cache does NOT span reviewer boundaries, so parallel dispatch is about latency, not cache sharing.
+
+| Reviewer | Scope (Lever A) |
+|---|---|
+| `flint-ux-critic` | Components/hooks/stores the user touches; journey maps; copy surfaces |
+| `flint-code-reviewer` | All modified implementation files **PLUS their test files and direct callers** (A/B showed a narrowed code scope misses ~6 warnings per phase) |
+| `flint-security-reviewer` | IPC handlers, `preload.ts`, `shared/ipc-validators.ts`, `shared/mcp-allowed-tools.ts`, anything crossing the process boundary |
+
+Do NOT hand reviewers the full diff set. The contract's Impact Map defines scope per role. Do NOT narrow the code reviewer below "impl + tests + callers" — that was the dominant A/B regression.
+
+### Output (Lever B — structured-only)
+
+Every reviewer emits BOTH:
+1. Markdown report at `.flint-context/reviews/<phase>-{ux,code,security}-review-<date>.md`
+2. Typed sibling at `.flint-context/reviews/<phase>-{ux,code,security}-review-<date>.review.ts` exporting `ReviewFinding[]` per [shared/review-schema.ts](../../shared/review-schema.ts)
+
+All three agents have Write tool — no orchestrator-persistence fallback. Missing `.review.ts` = incomplete ceremony.
+
+Reviewers do NOT assign letter grades. Verdicts derive from finding-severity counts via `deriveVerdict()`. Use `aggregateConsensus()` to surface disagreement rather than synthesize it away.
+
+### Regression canary
+
+After the 3 scoped reviewers finish, run `flint-integration-validator` (Phase 3) with full scope. If it surfaces findings the scoped reviewers missed, the scoping was too tight — widen for the next phase and log the miss in HANDOFF.md.
+
+### Surfacing findings
+
+Paste key findings from each report into chat. The user makes all grade/threshold calls. Do not mark work COMPLETE until the user has seen findings and approved the threshold.
 
 Code that fails review must be fixed before proceeding.
 
@@ -452,3 +482,5 @@ Phase 3:  flint-integration-validator → Integration Report
 |---|---|---|
 | v1 | 2026-02 | Original 3-phase workflow |
 | v2 | 2026-03-27 | Executable contracts, Phase 1.5 lint, test-from-contract, IPC runtime validation, Phase 2.5 review |
+| v2.2 | 2026-04-20 | Cheaper-Pilot standardized into Phase 2.5 (scoped contexts, structured-only output, single-message dispatch, integration-validator canary) after MINT.5 Phase 3 POC (53.9% artifact reduction, zero missed findings) |
+| v2.3 | 2026-04-20 | A/B verification on MINT.5 Phase 3 (1 unscoped control vs 3 scoped). Kept Lever A (domain partition) + Lever B (structured `.review.ts`). DROPPED Lever E (cache window) — sub-agents run in isolated contexts, no cross-agent cache sharing. Code reviewer scope widened to include test files + direct callers after narrowed scope missed 6 warnings. Integration-validator canary promoted from recommended → mandatory. |

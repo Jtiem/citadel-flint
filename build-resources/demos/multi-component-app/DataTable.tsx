@@ -14,37 +14,50 @@ interface DataTableProps {
   headers: string[];
   rows: (string | number)[][];
 }
-
-export function DataTable({ headers, rows }: DataTableProps) {
+export function DataTable({
+  headers,
+  rows
+}: DataTableProps) {
   return (
     // VIOLATION: no caption
-    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+    <table style={{
+      width: '100%',
+      borderCollapse: 'collapse',
+      fontSize: '13px'
+    }}>
       <thead>
-        <tr style={{ backgroundColor: '#f9fafb' }}>
-          {headers.map((h, i) => (
-            // VIOLATION: no scope="col", no aria-sort
-            <th key={i} style={{ padding: '12px 16px', textAlign: 'left', color: '#6b6b6b', fontWeight: '500' }}>
+        <tr style={{
+          backgroundColor: '#f9fafb'
+        }}>
+          {headers.map((h, i) =>
+          // VIOLATION: no scope="col", no aria-sort
+          <th key={i} style={{
+            padding: '12px 16px',
+            textAlign: 'left',
+            color: "var(--color.on-surface-muted, #6B7280)",
+            fontWeight: '500'
+          }}>
               {h}
-            </th>
-          ))}
+            </th>)}
         </tr>
       </thead>
       <tbody>
-        {rows.map((row, ri) => (
-          <tr key={ri} style={{ borderTop: '1px solid #f3f4f6' }}>
-            {row.map((cell, ci) => (
-              <td key={ci} style={{ padding: '12px 16px', color: '#374151' }}>
-                {cell === 'Active' ? (
-                  <span style={{ color: '#16a34a', fontWeight: '500' }}>{cell}</span>
-                ) : cell === 'Pending' ? (
-                  <span style={{ color: '#ca8a04', fontWeight: '500' }}>{cell}</span>
-                ) : (
-                  cell
-                )}
-              </td>
-            ))}
-          </tr>
-        ))}
+        {rows.map((row, ri) => <tr key={ri} style={{
+          borderTop: '1px solid #f3f4f6'
+        }}>
+            {row.map((cell, ci) => <td key={ci} style={{
+            padding: '12px 16px',
+            color: "var(--color.on-surface, #111827)"
+          }}>
+                {cell === 'Active' ? <span style={{
+              color: '#16a34a',
+              fontWeight: '500'
+            }}>{cell}</span> : cell === 'Pending' ? <span style={{
+              color: "var(--color.warning, #D97706)",
+              fontWeight: '500'
+            }}>{cell}</span> : cell}
+              </td>)}
+          </tr>)}
       </tbody>
     </table>
   );

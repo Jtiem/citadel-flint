@@ -200,6 +200,17 @@ export function createMockFlintAPI() {
         coverage: {
             getSummary: vi.fn().mockResolvedValue(null),
         },
+        // RUNTIME.1: axe-core runtime adapter (flag-off by default in tests)
+        runtime: {
+            runAxe: vi.fn().mockResolvedValue({
+                status: 'no-preview',
+                timestamp: new Date().toISOString(),
+                axeVersion: '4.10.3',
+                nodeCount: 0,
+                durationMs: 0,
+                violations: [],
+            }),
+        },
         setup: {
             detectIDEs: vi.fn().mockResolvedValue({
                 ides: [],
@@ -302,6 +313,8 @@ export function resetAllStores() {
         seenTabs: new Set(['governance', 'properties']),
         unlockedLeftTabs: new Set(['layers']),
         hasUsedBreakpoint: false,
+        // RUNTIME.1: clear axe-core runtime findings between tests
+        runtimeFindings: null,
     })
 
     // ACX.5: reset governance and import summary stores (includes ERM fields)

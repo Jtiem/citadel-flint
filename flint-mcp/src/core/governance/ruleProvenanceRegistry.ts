@@ -682,9 +682,31 @@ export const RULE_PROVENANCE_REGISTRY: ReadonlyMap<string, RuleProvenance> = ent
 /**
  * Resolve provenance for a ruleId. Returns a fallback provenance
  * when the ruleId is not in the registry (unknown or custom rules).
+ *
+ * RUNTIME.1 (appended 2026-04-18): Rule IDs with the `RUNTIME-` prefix
+ * originate from the axe-core runtime adapter and have no Warden counterpart.
+ * They resolve to a fallback provenance with `sourceAuthority: 'runtime-dom'`
+ * so downstream consumers (SARIF emitters, audit reports, dashboards)
+ * recognize the authority.
  */
 export function resolveProvenance(ruleId: string): RuleProvenance {
-    return entryByRuleId.get(ruleId) ?? {
+    const registered = entryByRuleId.get(ruleId)
+    if (registered) return registered
+
+    // RUNTIME.1 — axe-only rules surface as `RUNTIME-<axe-rule-id>` from the
+    // normalizer. Classify them with the runtime-dom authority.
+    if (ruleId.startsWith('RUNTIME-')) {
+        return {
+            ruleId,
+            ruleName: ruleId,
+            sourceAuthority: 'runtime-dom',
+            regulatoryReference: 'axe-core DOM audit',
+            lastUpdated: new Date().toISOString().slice(0, 10),
+            rationale: 'Runtime DOM-layer finding without an AST-time Warden equivalent.',
+        }
+    }
+
+    return {
         ruleId,
         ruleName: ruleId,
         sourceAuthority: 'Flint Design System',
@@ -751,6 +773,8 @@ export function buildComplianceSummary(
         'Section 508': 0,
         'Flint Design System': 0,
         'Custom': 0,
+        // RUNTIME.1 (appended 2026-04-18) — zero seed for runtime-dom authority.
+        'runtime-dom': 0,
     }
 
     const bySeverity: Record<'critical' | 'warning' | 'info', number> = {
