@@ -201,12 +201,14 @@ function isWithinHome(filePath: string): boolean {
   const home = os.homedir()
   const resolved = path.resolve(filePath)
   if (resolved === home || resolved.startsWith(home + path.sep)) return true
-  // Allow OS temp directory — demo projects are copied there by beta:load-demo-project.
+  // Allow the demo extraction subdirectory — beta:load-demo-project copies demos
+  // to <tmpdir>/flint-beta-demo/demo-<timestamp>/. Scope the carve-out to that
+  // prefix rather than all of tmpdir (SEC-MED-1).
   // realpathSync resolves macOS /tmp → /private/tmp symlink so the prefix check works.
   try {
     const resolvedReal = realpathSync(resolved)
-    const tmpReal = realpathSync(os.tmpdir())
-    if (resolvedReal.startsWith(tmpReal + path.sep)) return true
+    const demoTmpReal = path.join(realpathSync(os.tmpdir()), 'flint-beta-demo')
+    if (resolvedReal.startsWith(demoTmpReal + path.sep)) return true
   } catch { /* path doesn't exist yet — fall through to false */ }
   return false
 }
@@ -945,19 +947,22 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     const isDemoRead = (resolved: string): boolean =>
       resolved === path.join(serverRoot, 'demos') || resolved.startsWith(demosDir)
 
-    // `beta:load-demo-project` extracts demos into os.tmpdir() and the app then
-    // reads files from that temp path. realpathSync resolves the macOS
+    // `beta:load-demo-project` extracts demos into <tmpdir>/flint-beta-demo/.
+    // Scope the allowed root to that subdirectory — not all of tmpdir — so
+    // arbitrary temp files (caches, other apps' data) are not readable via
+    // file:read (SEC-MED-1). realpathSync resolves the macOS
     // `/tmp` → `/private/var/folders/...` symlink so the prefix check in
     // sharedValidateFilePath matches whether the caller passes the symlink or
     // the canonical path.
-    let tmpRealRoot: string
-    try { tmpRealRoot = realpathSync(os.tmpdir()) } catch { tmpRealRoot = os.tmpdir() }
+    let demoTmpRoot: string
+    try { demoTmpRoot = path.join(realpathSync(os.tmpdir()), 'flint-beta-demo') }
+    catch { demoTmpRoot = path.join(os.tmpdir(), 'flint-beta-demo') }
 
     const validated = sharedValidateFilePath({
       filePath,
       homeDir: os.homedir(),
       allowedExtensions: ['.tsx', '.ts', '.jsx', '.js', '.html', '.vue', '.svelte'],
-      extraAllowedRoots: [tmpRealRoot],
+      extraAllowedRoots: [demoTmpRoot],
       selfHostCheck: (resolved) => {
         if (isDemoRead(resolved)) return
         if (selfHosting.isSelfHostedPath(resolved)) {
