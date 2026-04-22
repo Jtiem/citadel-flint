@@ -77,7 +77,7 @@ export default function MetricDashboard() {
           {[40, 55, 45, 62, 78, 65, 82, 70, 88, 75, 92, 85].map((h, i) => (
             <div key={i} className="flex flex-1 flex-col items-center gap-1">
               <div
-                className="w-full rounded-none bg-brand-vibrant border border-border-heavy transition-colors hover:bg-brand-vibrant-hover"
+                className="w-full rounded-none bg-brand-vibrant border border-border-heavy motion-safe:transition-colors hover:bg-brand-vibrant-hover"
                 style={{ height: `${h}%` }}
               />
               <span className="text-xs font-medium uppercase text-text-secondary">
@@ -93,7 +93,8 @@ export default function MetricDashboard() {
         <h2 className="mb-4 text-lg font-bold uppercase tracking-wider text-text-primary font-heading">
           Recent Orders
         </h2>
-        <table className="w-full" role="table">
+        <table className="w-full">
+          <caption className="sr-only">Recent Orders — order ID, customer name, amount, and status</caption>
           <thead>
             <tr className="border-b-2 border-border-heavy text-left text-sm uppercase tracking-wider text-text-secondary">
               <th className="pb-3 font-bold" scope="col">Order ID</th>
