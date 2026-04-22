@@ -131,6 +131,17 @@ const __filename_ = fileURLToPath(import.meta.url)
 const PACKAGE_ROOT = path.resolve(path.dirname(__filename_), '..', '..')
 const PRESETS_DIR = path.join(PACKAGE_ROOT, 'presets')
 
+// ── Config mtime cache (PERF-LOW-10) ───────────────────────────────────────
+// Avoids re-reading and re-parsing flint.config.yaml on every tool call.
+// Keyed by projectRoot. Invalidated whenever the file's mtime changes.
+
+interface ConfigCacheEntry {
+    mtimeMs: number
+    config: FlintConfig
+}
+
+const configCache = new Map<string, ConfigCacheEntry>()
+
 // ── Project root resolution ─────────────────────────────────────────────────
 
 /**
@@ -754,6 +765,21 @@ export function loadConfig(
     projectRoot: string,
     options?: ConfigLoaderOptions
 ): FlintConfig {
+    // PERF-LOW-10: return cached config when the yaml file's mtime is unchanged.
+    // Skip caching in strict mode (CI) to ensure fresh validation.
+    if (!options?.strict) {
+        const yamlPath = path.join(projectRoot, 'flint.config.yaml')
+        try {
+            const { mtimeMs } = fs.statSync(yamlPath)
+            const cached = configCache.get(projectRoot)
+            if (cached !== undefined && cached.mtimeMs === mtimeMs) {
+                return cached.config
+            }
+        } catch {
+            // yaml file doesn't exist — fall through to normal loading
+        }
+    }
+
     let policy: FlintPolicy
     let yamlConfig: FlintProjectConfig | null = null
 
@@ -796,11 +822,24 @@ export function loadConfig(
         }
     }
 
-    return {
+    const result: FlintConfig = {
         projectRoot,
         domains,
         policy,
     }
+
+    // PERF-LOW-10: store result in cache with current yaml mtime.
+    if (!options?.strict) {
+        const yamlPath = path.join(projectRoot, 'flint.config.yaml')
+        try {
+            const { mtimeMs } = fs.statSync(yamlPath)
+            configCache.set(projectRoot, { mtimeMs, config: result })
+        } catch {
+            // yaml file missing — no cache entry
+        }
+    }
+
+    return result
 }
 
 /**

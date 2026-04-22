@@ -117,22 +117,17 @@ function rowToEntry(row: MutationRow): MutationLedgerEntry {
 
 export class MutationLedgerService {
     private readonly db: Database.Database
+    private readonly stmtInsert: ReturnType<Database.Database['prepare']>
+    private readonly stmtGetBySession: ReturnType<Database.Database['prepare']>
+    private readonly stmtGetRecent: ReturnType<Database.Database['prepare']>
+    private readonly stmtCountByType: ReturnType<Database.Database['prepare']>
+    private readonly stmtCountByFile: ReturnType<Database.Database['prepare']>
+    private readonly stmtPrune: ReturnType<Database.Database['prepare']>
 
     constructor(db: Database.Database) {
         this.db = db
         this.db.exec(INIT_SQL)
-    }
-
-    // -------------------------------------------------------------------------
-    // Write
-    // -------------------------------------------------------------------------
-
-    /**
-     * Insert a single mutation record. The `id` and `timestamp` fields are
-     * optional — the database DEFAULT expressions generate them when omitted.
-     */
-    recordMutation(entry: Omit<MutationLedgerEntry, 'id' | 'timestamp'> & { id?: string; timestamp?: string }): void {
-        const stmt = this.db.prepare(`
+        this.stmtInsert = this.db.prepare(`
             INSERT INTO mutations_ledger (
                 id,
                 timestamp,
@@ -155,8 +150,41 @@ export class MutationLedgerService {
                 COALESCE(?, '{}')
             )
         `)
+        this.stmtGetBySession = this.db.prepare(
+            'SELECT * FROM mutations_ledger WHERE session_id = ? ORDER BY timestamp ASC',
+        )
+        this.stmtGetRecent = this.db.prepare(
+            'SELECT * FROM mutations_ledger ORDER BY timestamp DESC LIMIT ?',
+        )
+        this.stmtCountByType = this.db.prepare(`
+            SELECT operation_type, COUNT(*) AS cnt
+            FROM mutations_ledger
+            WHERE timestamp >= ?
+            GROUP BY operation_type
+        `)
+        this.stmtCountByFile = this.db.prepare(`
+            SELECT file_path, COUNT(*) AS cnt
+            FROM mutations_ledger
+            WHERE timestamp >= ?
+            GROUP BY file_path
+            ORDER BY cnt DESC
+            LIMIT ?
+        `)
+        this.stmtPrune = this.db.prepare(
+            'DELETE FROM mutations_ledger WHERE timestamp < ?',
+        )
+    }
 
-        stmt.run(
+    // -------------------------------------------------------------------------
+    // Write
+    // -------------------------------------------------------------------------
+
+    /**
+     * Insert a single mutation record. The `id` and `timestamp` fields are
+     * optional — the database DEFAULT expressions generate them when omitted.
+     */
+    recordMutation(entry: Omit<MutationLedgerEntry, 'id' | 'timestamp'> & { id?: string; timestamp?: string }): void {
+        this.stmtInsert.run([
             entry.id ?? null,
             entry.timestamp ?? null,
             entry.filePath,
@@ -173,7 +201,7 @@ export class MutationLedgerService {
             entry.metadata && Object.keys(entry.metadata).length > 0
                 ? JSON.stringify(entry.metadata)
                 : null,
-        )
+        ])
     }
 
     // -------------------------------------------------------------------------
@@ -244,11 +272,7 @@ export class MutationLedgerService {
      * Return all mutations belonging to a session, oldest-first.
      */
     getMutationsBySession(sessionId: string): MutationLedgerEntry[] {
-        const rows = this.db
-            .prepare(
-                'SELECT * FROM mutations_ledger WHERE session_id = ? ORDER BY timestamp ASC',
-            )
-            .all(sessionId) as MutationRow[]
+        const rows = this.stmtGetBySession.all(sessionId) as MutationRow[]
         return rows.map(rowToEntry)
     }
 
@@ -256,9 +280,7 @@ export class MutationLedgerService {
      * Return the most recent N mutations, newest-first.
      */
     getRecentMutations(limit: number): MutationLedgerEntry[] {
-        const rows = this.db
-            .prepare('SELECT * FROM mutations_ledger ORDER BY timestamp DESC LIMIT ?')
-            .all(limit) as MutationRow[]
+        const rows = this.stmtGetRecent.all(limit) as MutationRow[]
         return rows.map(rowToEntry)
     }
 
@@ -271,14 +293,7 @@ export class MutationLedgerService {
      * timestamp is >= `since` (ISO 8601 UTC string).
      */
     getMutationCountsByType(since: string): Record<string, number> {
-        const rows = this.db
-            .prepare(
-                `SELECT operation_type, COUNT(*) AS cnt
-                 FROM mutations_ledger
-                 WHERE timestamp >= ?
-                 GROUP BY operation_type`,
-            )
-            .all(since) as Array<{ operation_type: string; cnt: number }>
+        const rows = this.stmtCountByType.all(since) as Array<{ operation_type: string; cnt: number }>
 
         const result: Record<string, number> = {}
         for (const row of rows) {
@@ -295,17 +310,7 @@ export class MutationLedgerService {
         since: string,
         limit: number,
     ): Array<{ filePath: string; count: number }> {
-        const rows = this.db
-            .prepare(
-                `SELECT file_path, COUNT(*) AS cnt
-                 FROM mutations_ledger
-                 WHERE timestamp >= ?
-                 GROUP BY file_path
-                 ORDER BY cnt DESC
-                 LIMIT ?`,
-            )
-            .all(since, limit) as Array<{ file_path: string; cnt: number }>
-
+        const rows = this.stmtCountByFile.all([since, limit]) as Array<{ file_path: string; cnt: number }>
         return rows.map((row) => ({ filePath: row.file_path, count: row.cnt }))
     }
 
@@ -318,9 +323,7 @@ export class MutationLedgerService {
      * (ISO 8601 UTC). Returns the number of rows deleted.
      */
     pruneMutations(olderThan: string): number {
-        const result = this.db
-            .prepare('DELETE FROM mutations_ledger WHERE timestamp < ?')
-            .run(olderThan)
+        const result = this.stmtPrune.run(olderThan)
         return result.changes
     }
 }

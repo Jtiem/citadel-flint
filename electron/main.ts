@@ -5131,10 +5131,14 @@ app.whenReady().then(async () => {
         autopilotLastMtime = 0
 
         // Poll every 500 ms for mtime changes — avoids fsevents crashes on macOS 26.
+        // PERF-LOW-16: the mtime guard (`mtimeMs > autopilotLastMtime`) ensures
+        // runAutopilotAudit is only invoked when the file actually changes.
+        // The debounce further coalesces rapid saves before triggering the audit.
         autopilotPollInterval = setInterval(async () => {
             try {
                 const { mtimeMs } = await fsStat(resolvedPath)
                 if (mtimeMs > autopilotLastMtime) {
+                    // File changed — update mtime and schedule debounced audit.
                     autopilotLastMtime = mtimeMs
                     if (autopilotDebounceTimer) clearTimeout(autopilotDebounceTimer)
                     autopilotDebounceTimer = setTimeout(() => {
@@ -5142,6 +5146,7 @@ app.whenReady().then(async () => {
                         void runAutopilotAudit(resolvedPath)
                     }, AUTOPILOT_DEBOUNCE_MS)
                 }
+                // File unchanged — skip rule evaluation entirely (no-op tick).
             } catch { /* file removed or inaccessible */ }
         }, 500)
 

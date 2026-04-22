@@ -21,6 +21,7 @@
  */
 
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { BRAND } from '../../../shared/brand';
 import reactUMD from '../../preview-vendor/react.prod.js?raw';
 import reactDOMUMD from '../../preview-vendor/react-dom.prod.js?raw';
@@ -327,13 +328,29 @@ export function buildPlaceholderSrcdoc(framework: string): string {
 <\/html>`;
 }
 export function LivePreview() {
-  const rawCode = useEditorStore(state => state.rawCode);
-  const setCode = useEditorStore(state => state.setCode);
-  const selectedNodeId = useEditorStore(state => state.selectedNodeId);
-  const setSelectedNode = useEditorStore(state => state.setSelectedNode);
-  const hoveredId = useEditorStore(state => state.hoveredId);
-  const setHoveredId = useEditorStore(state => state.setHoveredId);
-  const tokens = useTokenStore(state => state.tokens);
+  // PERF-HIGH-12: Consolidate editorStore subscriptions into a single selector
+  // with shallow equality — eliminates 8 independent re-render subscriptions.
+  const {
+    rawCode,
+    setCode,
+    selectedNodeId,
+    setSelectedNode,
+    hoveredId,
+    setHoveredId,
+    moveLayerNode,
+    visualTree,
+  } = useEditorStore(useShallow(state => ({
+    rawCode: state.rawCode,
+    setCode: state.setCode,
+    selectedNodeId: state.selectedNodeId,
+    setSelectedNode: state.setSelectedNode,
+    hoveredId: state.hoveredId,
+    setHoveredId: state.setHoveredId,
+    moveLayerNode: state.moveLayerNode,
+    visualTree: state.visualTree,
+  })));
+  // PERF-HIGH-12: Single subscription for tokenStore.
+  const { tokens } = useTokenStore(useShallow(state => ({ tokens: state.tokens })));
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [transformError, setTransformError] = useState<string | null>(null);
 
@@ -367,10 +384,35 @@ export function LivePreview() {
     });
   }, []);
 
-  // ── Phase REM.2.2: Governance Autopilot diff toggle ─────────────────────
-  const autopilotEnabled = useCanvasStore(s => s.autopilotEnabled);
-  const governedCode = useCanvasStore(s => s.governedCode);
-  const governedFixCount = useCanvasStore(s => s.governedFixCount);
+  // ── Phase REM.2.2 + PERF-HIGH-12: Merge all canvasStore subscriptions into
+  // a single shallow selector — eliminates 12 independent re-render triggers.
+  const {
+    autopilotEnabled,
+    governedCode,
+    governedFixCount,
+    dragSourceId,
+    startDrag,
+    endDrag,
+    setActiveSelection,
+    canvasMode,
+    setCanvasMode,
+    setLivePreviewHtml, // RUNTIME.1
+    previewBreakpoint,
+    workspaceFiles,
+  } = useCanvasStore(useShallow(s => ({
+    autopilotEnabled: s.autopilotEnabled,
+    governedCode: s.governedCode,
+    governedFixCount: s.governedFixCount,
+    dragSourceId: s.dragSourceId,
+    startDrag: s.startDrag,
+    endDrag: s.endDrag,
+    setActiveSelection: s.setActiveSelection,
+    canvasMode: s.canvasMode,
+    setCanvasMode: s.setCanvasMode,
+    setLivePreviewHtml: s.setLivePreviewHtml,
+    previewBreakpoint: s.previewBreakpoint,
+    workspaceFiles: s.workspaceFiles,
+  })));
   const [showGoverned, setShowGoverned] = useState(false);
 
   // Reset to original view whenever governed code is cleared
@@ -382,16 +424,7 @@ export function LivePreview() {
   const previewCode = showGoverned && governedCode ? governedCode : rawCode;
 
   // ── Ghost Proxy drag state + canvas selection ─────────────────────────────
-  const dragSourceId = useCanvasStore(s => s.dragSourceId);
-  const startDrag = useCanvasStore(s => s.startDrag);
-  const endDrag = useCanvasStore(s => s.endDrag);
-  const setActiveSelection = useCanvasStore(s => s.setActiveSelection);
-  const canvasMode = useCanvasStore(s => s.canvasMode);
-  const setCanvasMode = useCanvasStore(s => s.setCanvasMode);
-  const setLivePreviewHtml = useCanvasStore(s => s.setLivePreviewHtml); // RUNTIME.1
-  const previewBreakpoint = useCanvasStore(s => s.previewBreakpoint);
-  const workspaceFiles = useCanvasStore(s => s.workspaceFiles);
-  const moveLayerNode = useEditorStore(s => s.moveLayerNode);
+  // (All canvasStore + editorStore subscriptions consolidated above)
   const isDragging = dragSourceId !== null;
   /** Stable ref so Shield callbacks never capture a stale sourceId. */
   const dragSourceIdRef = useRef<string | null>(null);
@@ -426,8 +459,8 @@ export function LivePreview() {
   const [isCardDragOver, setIsCardDragOver] = useState(false);
 
   // ── Smart Insert (CV2.5+) ─────────────────────────────────────────────────
-  // visualTree drives the Smart Insert panel shown when a card is dragged over.
-  const visualTree = useEditorStore(s => s.visualTree);
+  // visualTree drives the Smart Insert panel — destructured from the combined
+  // editorStore selector above.
 
   /**
    * The component card data captured on dragEnter. Null when no card is in flight.

@@ -443,6 +443,21 @@ function getSyncHistoryService(projectRoot: string): SyncHistoryService {
 /** Active project configuration — initialised in runServer() */
 let flintConfig: FlintConfig = DEFAULT_CONFIG;
 
+// PERF-LOW-11: Mithril audit result cache. Since auditAll/auditAllWithSurface are
+// pure functions (no class instance), we cache their output keyed by a hash of the
+// source file content + token fingerprint. TTL: 60 seconds.
+interface MithrilAuditCacheEntry {
+    warnings: Map<string, import('./types.js').LinterWarning>
+    cachedAt: number
+}
+const _mithrilAuditCache = new Map<string, MithrilAuditCacheEntry>()
+const MITHRIL_CACHE_TTL_MS = 60_000
+
+function getMithrilCacheKey(source: string, tokenCount: number, policyJson: string): string {
+    const hash = crypto.createHash('sha1').update(source).digest('hex').slice(0, 16)
+    return `${hash}:${tokenCount}:${crypto.createHash('sha1').update(policyJson).digest('hex').slice(0, 8)}`
+}
+
 // ---------------------------------------------------------------------------
 // Strategy 1: The Greeter — context-aware welcome message
 // ---------------------------------------------------------------------------
@@ -2052,9 +2067,22 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                     deltaE_critical_threshold: resolved.mithril.deltaE_critical_threshold,
                     ...(auditRegistry && { registry: auditRegistry }),
                 };
-                const mithrilWarnings = resolved.mithril.mode !== 'off'
-                    ? auditAllWithSurface(ast as any, tokens, fixtureSurface, policyOpts)
-                    : new Map();
+                // PERF-LOW-11: check Mithril audit cache before running the full
+                // visitor suite. Key: sha1(source) + tokenCount + sha1(policyJson).
+                let mithrilWarnings: Map<string, import('./types.js').LinterWarning>
+                if (resolved.mithril.mode !== 'off') {
+                    const policyJson = JSON.stringify(policyOpts)
+                    const mithrilCacheKey = getMithrilCacheKey(code, tokens.length, policyJson)
+                    const mithrilCached = _mithrilAuditCache.get(mithrilCacheKey)
+                    if (mithrilCached !== undefined && Date.now() - mithrilCached.cachedAt < MITHRIL_CACHE_TTL_MS) {
+                        mithrilWarnings = mithrilCached.warnings
+                    } else {
+                        mithrilWarnings = auditAllWithSurface(ast as any, tokens, fixtureSurface, policyOpts)
+                        _mithrilAuditCache.set(mithrilCacheKey, { warnings: mithrilWarnings, cachedAt: Date.now() })
+                    }
+                } else {
+                    mithrilWarnings = new Map()
+                }
                 const a11yResult = resolved.a11y.mode !== 'off'
                     ? auditWithSurface(ast as any, componentPath, fixtureSurface)
                     : { filePath: componentPath, totalRules: 0, passed: 0, failed: 0, compliancePercent: 100, violations: [], criterionResults: [], fixableCount: 0, timestamp: new Date().toISOString() } as any;

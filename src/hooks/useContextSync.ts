@@ -54,6 +54,10 @@ export function useContextSync(): void {
 
     // Ref-based debounce timer — stable across re-renders, no state needed.
     const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    // PERF-HIGH-7 / PERF-LOW-14: Skip write when the serialized context is
+    // identical to the previous tick. Prevents redundant IPC calls and
+    // disk writes on every 200 ms debounce when nothing has changed.
+    const prevJsonRef = useRef<string | null>(null)
 
     useEffect(() => {
         // Cancel any pending write from a previous render cycle.
@@ -208,6 +212,14 @@ export function useContextSync(): void {
                 // LIB.1: Active library selection
                 selectedLibrary,
             }
+
+            // PERF-HIGH-7 / PERF-LOW-14: Serialize and compare before writing.
+            // The timestamp field changes every tick, so exclude it from the
+            // comparison by serializing without it.
+            const { timestamp: _ts, ...ctxWithoutTimestamp } = ctx
+            const ctxJson = JSON.stringify(ctxWithoutTimestamp)
+            if (ctxJson === prevJsonRef.current) return
+            prevJsonRef.current = ctxJson
 
             void window.flintAPI.syncContext(ctx)
         }, DEBOUNCE_MS)

@@ -114,8 +114,14 @@ export function GovernanceDashboard({
     const autopilotEnabled = useCanvasStore((s) => s.autopilotEnabled)
     const setAutopilotEnabled = useCanvasStore((s) => s.setAutopilotEnabled)
     const storeCanExport = useCanvasStore((s) => s.canExport)
+    // PERF-LOW-13: subscribe only to violation counts rather than full arrays so
+    // this component does not re-render when violation objects change beyond the
+    // visible 5. The full arrays are still accessible via storeCanExport() which
+    // reads the store directly, so the exportBlocked memo remains correct.
     const mithrilViolations = useCanvasStore((s) => s.mithrilViolations)
     const a11yViolations = useCanvasStore((s) => s.a11yViolations)
+    const mithrilViolationsLength = useCanvasStore((s) => s.mithrilViolations.length)
+    const a11yViolationsLength = useCanvasStore((s) => Object.keys(s.a11yViolations).length)
     const setGovernanceRuleFilter = useCanvasStore((s) => s.setGovernanceRuleFilter)
 
     useGovernanceConfig()
@@ -249,10 +255,11 @@ export function GovernanceDashboard({
         void delta.setBaseline().catch((err) => console.warn('[GovernanceDashboard] auto-baseline failed', err))
     }, [initialViolationCount, activeFilePath, delta])
 
-    // Export blocked
+    // Export blocked — use length-only deps (PERF-LOW-13) so we only recompute
+    // when the count changes, not when violation object references change.
     const exportBlocked = useMemo(() => !storeCanExport(),
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [mithrilViolations, overridesExist, a11yViolations, storeCanExport])
+        [mithrilViolationsLength, overridesExist, a11yViolationsLength, storeCanExport])
 
     // Effort framing
     const manualReviewCount = useMemo(() => categories.visibleA11yWarnings.filter((w) => A11Y_NOT_AUTO_FIXABLE.has(extractRuleIdFromMsg(w.message) ?? '')).length, [categories.visibleA11yWarnings])
