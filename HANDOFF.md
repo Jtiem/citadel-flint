@@ -6,6 +6,49 @@
 
 ---
 
+## Session: SEC-MED-1 + DEMO.CUT Phase 2 (2026-04-21) — COMPLETE
+
+**Goal:** Close SEC-MED-1 security finding from 2026-04-20 A/B review, then complete the figma-d2c demo rebuild (DEMO.CUT Phase 2) and Gate 1 verification.
+
+**What shipped:**
+
+**SEC-MED-1 (commit 0170cbc):** `server/index.ts` `isWithinHome()` and the `file:read` handler both allowed reads from all of `os.tmpdir()`. Narrowed to `<tmpdir>/flint-beta-demo/` — the only subdirectory demo extraction actually uses. Other apps' temp files are no longer reachable via the IPC bridge.
+
+**DEMO.CUT Phase 2:**
+
+- `demos/figma-d2c/README.md` corrected: "Canonical shadcn demo" → "Canonical MUI demo" (MUI is project default; shadcn is an alternate reference in `expected-output/shadcn/`).
+- Audited all 5 survivor demos. Result: 4 are **intentionally dirty** fixtures — must NOT be fixed:
+
+  - `demos/03-mithril-shadow-audit/drift-component.tsx` — CIEDE2000 color drift fixture (ΔE 4.6–8.1)
+  - `demos/04-sentinel/violating-ux.tsx` — Grade F a11y fixture (8 annotated violations)
+  - `build-resources/demos/dashboard-before/MetricDashboard.tsx` — "AI without governance" fixture (hardcoded hex throughout)
+  - `build-resources/demos/multi-component-app/DataTable.tsx` — governance "before" fixture (annotated violations)
+
+- `demos/figma-d2c/AccountSettings.tsx` is the only component that should be clean, and it is — all colors use MUI theme tokens (`primary.light`, `text.primary`, etc.), no hardcoded hex.
+- **Beta Gate 1 verdict: PASS** — demos are intentionally dirty where needed and clean where needed.
+
+**Pre-existing issue discovered:** `flint-ci` CLI is broken at runtime — `dist/engine.js` imports from `../../flint-mcp/src/core/*.js` (TypeScript source paths) but those `.js` files don't exist; flint-mcp compiles to `dist/`. This broke when `composite: true` was removed from flint-mcp in commit `9dad411`. Fixed the broken `references` entry in `flint-ci/tsconfig.json` (was pointing to a non-composite project). The CLI runtime fix is deferred — not beta-blocking, test suite runs independently of the CLI.
+
+**Files changed:**
+
+- `server/index.ts` — SEC-MED-1 tmpdir narrowing
+- `demos/figma-d2c/README.md` — MUI canonical correction
+- `flint-ci/tsconfig.json` — removed broken project reference
+
+**Test counts (post-session):**
+
+- Server/Core: 309/309 passing
+- Glass: 3520/3522 (2 pre-existing StatusBar RUNTIME.1 WIP failures)
+- TSC: 0 errors
+
+**Next:**
+
+- Performance/leak audit with `flint-perf-profiler` (Justin flagged: findings #1/#2 from A/B review hint at broader efficiency issues — unthrottled disk writes, hook dep gaps)
+- flint-ci CLI runtime fix (deferred, not beta-blocking)
+- 6 code warnings from 2026-04-20 unscoped control (rate-limited persistence, staleness deps, negative hours, focus clamp, dup validation gate, DNS patterns) — batch polish pass
+
+---
+
 ## Session: Review-Pilot A/B verification (2026-04-20) — COMPLETE, PROTOCOL AMENDED
 
 **Goal:** Turn the MINT.5 Phase 3 "Cheaper-Pilot" POC (verdict UNCERTAIN on Lever E) into a standardized workflow, then validate via A/B measurement.
