@@ -2675,8 +2675,21 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 projectRoot: string;
             };
             const swarmResult = await handleFlintSwarmAuditFix(swarmArgs, flintConfig);
+            const swarmFileTable = swarmResult.fileReports.length > 0
+                ? `| File | Before | After | Fixed |\n|------|--------|-------|-------|\n` +
+                  swarmResult.fileReports.map(r =>
+                      `| ${path.basename(r.filePath)} | ${r.violationsBefore} | ${r.violationsAfter} | ${r.fixed ? '✓' : '—'} |`
+                  ).join('\n')
+                : '_No files with violations._';
+            const swarmMarkdown =
+                `## Flint Sweep Result\n\n` +
+                `${swarmResult.summary}\n\n` +
+                `**Recommendation:** ${swarmResult.recommendation}\n\n` +
+                `### Files Scanned: ${swarmResult.filesScanned} · Violations: ${swarmResult.totalViolations} · Fixes Applied: ${swarmResult.fixesApplied}\n\n` +
+                `${swarmFileTable}\n\n` +
+                `**Health:** ${swarmResult.healthBefore} → ${swarmResult.healthAfter}`;
             return {
-                content: [{ type: "text", text: JSON.stringify(swarmResult, null, 2) }],
+                content: [{ type: "text", text: swarmMarkdown }],
             };
         }
 

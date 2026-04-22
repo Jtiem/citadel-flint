@@ -14,7 +14,7 @@ Target: **Private Beta**, **web build only** (Electron deferred), 5–10 invited
 - [x] Counsel: dashboard verdict matches StatusBar coverage badge on every file
 - [ ] Mithril/Warden: zero false-positive regressions on demo fixtures (`demos/**/*.tsx`)
 - [ ] Audit→Fix→Re-audit loop produces a clean run on all demo files
-- [ ] `/audit`, `/fix`, `/report`, `/sweep` all return human-readable output (no raw JSON dumps)
+- [x] `/audit`, `/fix`, `/report`, `/sweep` all return human-readable output (no raw JSON dumps)
 
 ## Gate 2 — UX Burn-down
 
