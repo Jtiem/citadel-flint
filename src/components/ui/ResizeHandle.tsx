@@ -74,7 +74,7 @@ export function ResizeHandle({
       barRef.current.setAttribute('data-dragging', 'true');
     }
   }, [onMouseMove, onMouseUp]);
-  return <div ref={barRef} onMouseDown={onMouseDown} onDoubleClick={onDoubleClick} role="separator" aria-orientation="vertical" aria-label="Resize panel" className={['group', 'relative z-10', 'flex shrink-0 cursor-col-resize items-center justify-center', 'w-6',
+  return <div ref={barRef} onMouseDown={onMouseDown} onDoubleClick={onDoubleClick} role="separator" aria-orientation="vertical" aria-label="Resize panel" className={['group', 'relative z-50', 'flex shrink-0 cursor-col-resize items-center justify-center', 'w-6',
   // 24px — meets WCAG 2.5.5 minimum touch target (W-23)
   'self-stretch', 'bg-transparent', 'transition-colors duration-100'].join(' ')}>
             {/* Narrow 4px visual bar centered inside the 24px hit area */}

@@ -21,7 +21,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useOnboardingTooltip } from '../../hooks/useOnboardingTooltip';
 import { BRAND } from '../../../shared/brand';
-import { ShieldCheck, ShieldAlert, X, RefreshCw, Unplug, FolderInput, MessageSquare, Tablet, Smartphone, Download, Upload, RotateCcw, Loader2, MoreHorizontal } from 'lucide-react';
+import { ShieldCheck, ShieldAlert, X, RefreshCw, Unplug, FolderInput, MessageSquare, Tablet, Smartphone, Download, Upload, RotateCcw, Loader2, MoreHorizontal, Copy } from 'lucide-react';
 import { useCanvasStore } from '../../store/canvasStore';
 import { BREAKPOINT_LABELS } from '../../store/canvasStore';
 import { useEditorStore } from '../../store/editorStore';
@@ -670,6 +670,24 @@ export function StatusBar({
                                     {figmaStatus?.tokenCount ?? 0}
                                 </dd>
                             </div>
+                            <div className="flex items-center justify-between gap-2" data-testid="endpoint-row">
+                                <dt className="text-zinc-400">Endpoint</dt>
+                                <dd className="flex min-w-0 items-center gap-1.5 text-zinc-300">
+                                    <span className="truncate font-mono text-[11px]">{`http://127.0.0.1:${figmaStatus?.port ?? 4545}`}</span>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            void navigator.clipboard.writeText(`http://127.0.0.1:${figmaStatus?.port ?? 4545}`);
+                                        }}
+                                        className="rounded p-0.5 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+                                        data-testid="endpoint-copy-btn"
+                                        aria-label="Copy ingestion endpoint URL"
+                                        title="Copy ingestion endpoint URL"
+                                    >
+                                        <Copy className="h-3 w-3" />
+                                    </button>
+                                </dd>
+                            </div>
                         </dl>
 
                         {/* Separator */}
@@ -701,7 +719,7 @@ export function StatusBar({
                                 <RefreshCw className="h-3 w-3" />
                                 Refresh Status
                             </button>
-                            <button type="button" onClick={handleDisconnect} className="flex flex-1 items-center justify-center gap-1.5 rounded border border-red-700/40 bg-red-900/10 px-2 py-1.5 text-xs text-red-400 transition-colors hover:border-red-600/60 hover:bg-red-900/20 hover:text-red-300" title="Disconnect Figma sync">
+                            <button type="button" onClick={handleDisconnect} className="flex flex-1 items-center justify-center gap-1.5 rounded border border-red-700/40 bg-red-900/10 px-2 py-1.5 text-xs text-red-400 transition-colors hover:border-red-600/60 hover:bg-red-900/20 hover:text-red-300" aria-label="Stop the ingestion server and disconnect from Figma" title="Stop the ingestion server">
                                 <Unplug className="h-3 w-3" />
                                 Disconnect
                             </button>
