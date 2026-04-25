@@ -557,6 +557,30 @@ export const projectGetHealthGradeSchema = z.string().min(1)
 
 // ─── End of FORGE.1 additions ────────────────────────────────────────────────
 
+// ─── BETA.TEL: Telemetry Consent IPC Validators ───────────────────────────────
+//
+// Closes BLK-3 (no IPC contract) from the beta-telemetry review.
+// Two renderer→main channels:
+//   telemetry:get-consent — void payload, ConsentRecord response
+//   telemetry:set-consent — { state: 'accepted' | 'declined' } payload, ConsentRecord response
+//
+// Named exports are the contract `validator` field values — grep-able by
+// the Phase 1.5 contract linter and the Phase 3 integration validator.
+
+/** BETA.TEL — response schema for `telemetry:get-consent` (ConsentRecord shape). */
+export const telemetryGetConsentResponseSchema = z.object({
+  state: z.enum(['unset', 'accepted', 'declined']),
+  decidedAt: z.string().optional(),
+  sessionId: z.string().min(1),
+})
+
+/** BETA.TEL — payload schema for `telemetry:set-consent`. */
+export const telemetrySetConsentPayloadSchema = z.object({
+  state: z.enum(['accepted', 'declined']),
+})
+
+// ─── End of BETA.TEL additions ────────────────────────────────────────────────
+
 /**
  * Creates a validated IPC invoker for use in preload.ts.
  * Wraps ipcRenderer.invoke with payload + response validation.

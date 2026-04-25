@@ -2808,7 +2808,36 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
       return gateResult.envelope
     }
 
-    return mcp.callTool(toolName, gateResult.args)
+    // BETA.TEL — emit tool-name only; never args. Privacy contract enforced
+    // by the discriminated-union signature.
+    webEmit('mcp.tool_called', { toolName })
+
+    // BETA.TEL — emit audit completion when an audit-shaped tool finishes.
+    const isAuditTool = toolName === 'audit_ui_component' || toolName === 'flint_audit' || toolName === 'flint_swarm_audit_fix'
+    const auditStart = isAuditTool ? Date.now() : 0
+    const result = await mcp.callTool(toolName, gateResult.args)
+    if (isAuditTool) {
+      // Best-effort parse; default to zeros if shape is unfamiliar.
+      let fileCount = 0
+      let violationCount = 0
+      try {
+        const text = (result as { content?: Array<{ text?: string }> }).content?.[0]?.text ?? '{}'
+        const jsonEnd = text.lastIndexOf('}')
+        const jsonText = jsonEnd !== -1 ? text.slice(0, jsonEnd + 1) : text
+        const parsed = JSON.parse(jsonText) as { fileCount?: number; mithrilCount?: number; a11yCount?: number; violations?: unknown[] }
+        fileCount = typeof parsed.fileCount === 'number' ? parsed.fileCount : 1
+        violationCount =
+          (typeof parsed.mithrilCount === 'number' ? parsed.mithrilCount : 0) +
+          (typeof parsed.a11yCount === 'number' ? parsed.a11yCount : 0) +
+          (Array.isArray(parsed.violations) ? parsed.violations.length : 0)
+      } catch { /* fallthrough */ }
+      webEmit('audit.completed', {
+        fileCount,
+        violationCount,
+        durationMs: Date.now() - auditStart,
+      })
+    }
+    return result
   })
 
   handlers.set('mcp:read-resource', async (uri: unknown) => {
@@ -3370,6 +3399,164 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
   handlers.set('ai:seed-rag', async () => {
     return rag.seedFromProject(activeProjectRoot)
   })
+
+  // ── BETA.TEL: Telemetry Consent (web parity, BLK-2 + BLK-3) ────────────────
+  //
+  // Mirror of electron/main.ts telemetry:get-consent + telemetry:set-consent.
+  // The web build has no app.getPath('userData'); consent is stored in
+  // os.homedir()/.flint/ which is the equivalent persistent config directory
+  // on the web server host.
+  //
+  // betaTelemetry.ts imports `electron/{net,app}` so it cannot be imported here.
+  // Web parity (per feedback_web_parity_drift.md) is provided by an inline
+  // emitter that mirrors the discriminated-union signature.
+
+  // Discriminated-union event signature — must stay in lockstep with the
+  // contract in .flint-context/contracts/BETA-TELEMETRY-WIRING.contract.ts.
+  // Adding a new event requires extending the contract first.
+  type WebTelemetryEvent =
+    | { name: 'app.launched';    payload: { locale: string } }
+    | { name: 'app.crashed';     payload: { message: string; stack: string } }
+    | { name: 'mcp.tool_called'; payload: { toolName: string } }
+    | { name: 'audit.completed'; payload: { fileCount: number; violationCount: number; durationMs: number } }
+    | { name: 'session.ended';   payload: { durationMs: number } }
+
+  const webTelemetryDir = path.join(os.homedir(), BRAND.configDir)
+  const webTelemetryQueuePath = () => path.join(webTelemetryDir, 'telemetry-queue.json')
+  const webTelemetryUrl = process.env.FLINT_TELEMETRY_URL ?? ''
+  const webTelemetrySecret = (process.env.FLINT_TELEMETRY_SECRET ?? '').trim()
+
+  // In-memory buffer; persisted on flush + before-shutdown only (matches
+  // betaTelemetry.ts's WARN-2 pattern).
+  let webTelemetryBuffer: Array<{ name: string; payload: unknown; ts: string }> = []
+  let webSessionStart = Date.now()
+  let webFlushTimer: ReturnType<typeof setInterval> | null = null
+
+  function redactWebStack(stack: string): string {
+    if (!stack) return ''
+    return stack
+      .replace(/\/Users\/[^/]+\//g, '<homedir>/')
+      .replace(/\/home\/[^/]+\//g, '<homedir>/')
+      .replace(/C:\\Users\\[^\\]+\\/g, '<homedir>/')
+  }
+
+  function webReadConsentState(): string {
+    try {
+      const p = path.join(webTelemetryDir, 'beta-consent.json')
+      if (existsSync(p)) {
+        const raw = JSON.parse(readFileSync(p, 'utf-8')) as { state?: string }
+        return typeof raw.state === 'string' ? raw.state : 'unset'
+      }
+    } catch { /* fall through */ }
+    return 'unset'
+  }
+
+  function webEmit<E extends WebTelemetryEvent>(name: E['name'], payload: E['payload']): void {
+    // Consent gate — only emit if user opted in.
+    if (webReadConsentState() !== 'accepted') return
+
+    const entry = {
+      name,
+      payload: name === 'app.crashed'
+        ? { ...(payload as { message: string; stack: string }), stack: redactWebStack((payload as { stack: string }).stack) }
+        : payload,
+      ts: new Date().toISOString(),
+    }
+    webTelemetryBuffer.push(entry)
+  }
+
+  async function webFlushTelemetry(): Promise<void> {
+    if (webTelemetryBuffer.length === 0) return
+    if (!webTelemetryUrl) {
+      // No sink configured — persist to disk so events aren't lost.
+      try {
+        if (!existsSync(webTelemetryDir)) mkdirSync(webTelemetryDir, { recursive: true })
+        writeFileSync(webTelemetryQueuePath(), JSON.stringify(webTelemetryBuffer, null, 2))
+      } catch { /* best-effort */ }
+      return
+    }
+    const batch = webTelemetryBuffer.slice()
+    try {
+      const headers: Record<string, string> = { 'content-type': 'application/json' }
+      if (webTelemetrySecret) headers['X-Flint-Secret'] = webTelemetrySecret
+      const res = await fetch(webTelemetryUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ events: batch }),
+      })
+      if (res.ok) {
+        webTelemetryBuffer = []
+      }
+      // On non-OK response, retain queue for next flush (mirrors
+      // betaTelemetry.ts WARN-1 / network-failure behavior).
+    } catch {
+      // Network error → retain queue; persist to disk as backstop.
+      try {
+        if (!existsSync(webTelemetryDir)) mkdirSync(webTelemetryDir, { recursive: true })
+        writeFileSync(webTelemetryQueuePath(), JSON.stringify(webTelemetryBuffer, null, 2))
+      } catch { /* best-effort */ }
+    }
+  }
+
+  /** Web-build telemetry boot — mirrors Electron's startTelemetry(). */
+  function startTelemetry(): void {
+    webSessionStart = Date.now()
+    // Hydrate queue from disk if present (post-crash recovery).
+    try {
+      if (existsSync(webTelemetryQueuePath())) {
+        const raw = JSON.parse(readFileSync(webTelemetryQueuePath(), 'utf-8')) as unknown
+        if (Array.isArray(raw)) {
+          webTelemetryBuffer = raw as typeof webTelemetryBuffer
+        }
+      }
+    } catch { /* malformed queue → treat as empty */ }
+
+    webEmit('app.launched', { locale: process.env.LANG?.split('.')[0] ?? 'en' })
+
+    if (webFlushTimer) clearInterval(webFlushTimer)
+    webFlushTimer = setInterval(() => { void webFlushTelemetry() }, 60_000)
+  }
+  startTelemetry()
+
+  {
+    const webConsentDir = path.join(os.homedir(), BRAND.configDir)
+    const webConsentPath = () => path.join(webConsentDir, 'beta-consent.json')
+
+    function webReadConsent(): { state: string; decidedAt?: string; sessionId: string } {
+      try {
+        if (existsSync(webConsentPath())) {
+          const raw = JSON.parse(readFileSync(webConsentPath(), 'utf-8')) as Record<string, unknown>
+          if (raw && typeof raw.state === 'string' && typeof raw.sessionId === 'string') {
+            return raw as { state: string; decidedAt?: string; sessionId: string }
+          }
+        }
+      } catch { /* fall through */ }
+      const fresh = { state: 'unset', sessionId: randomUUID() }
+      try {
+        if (!existsSync(webConsentDir)) mkdirSync(webConsentDir, { recursive: true })
+        writeFileSync(webConsentPath(), JSON.stringify(fresh, null, 2))
+      } catch { /* best-effort */ }
+      return fresh
+    }
+
+    handlers.set('telemetry:get-consent', async () => {
+      return webReadConsent()
+    })
+
+    handlers.set('telemetry:set-consent', async (payload: unknown) => {
+      const p = payload as { state?: string }
+      if (p?.state !== 'accepted' && p?.state !== 'declined') {
+        throw new Error('telemetry:set-consent — state must be "accepted" or "declined"')
+      }
+      const current = webReadConsent()
+      const next = { ...current, state: p.state, decidedAt: new Date().toISOString() }
+      try {
+        if (!existsSync(webConsentDir)) mkdirSync(webConsentDir, { recursive: true })
+        writeFileSync(webConsentPath(), JSON.stringify(next, null, 2))
+      } catch { /* best-effort */ }
+      return next
+    })
+  }
 
   // ── Beta ───────────────────────────────────────────────────────────────────
 
@@ -4618,6 +4805,11 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
         server,
         wss,
         close: async () => {
+          // BETA.TEL — final session telemetry before teardown.
+          webEmit('session.ended', { durationMs: Date.now() - webSessionStart })
+          if (webFlushTimer) { clearInterval(webFlushTimer); webFlushTimer = null }
+          await webFlushTelemetry().catch(() => {})
+
           if (autopilotWatcher) { clearInterval(autopilotWatcher); autopilotWatcher = null }
           const ideStop = (globalThis as Record<string, unknown>).__flintIDEFileSyncStop
           if (typeof ideStop === 'function') (ideStop as () => void)()

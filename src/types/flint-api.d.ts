@@ -1722,6 +1722,28 @@ export interface CoverageSummary {
     timestamp: string
 }
 
+// ── BETA.TEL: Telemetry Consent Types ────────────────────────────────────────
+
+/** Consent state machine — matches betaTelemetry.ts on the main process side. */
+export type ConsentState = 'unset' | 'accepted' | 'declined'
+
+/**
+ * Persisted consent record returned from `window.flintAPI.telemetry.getConsent()`.
+ * `state === 'unset'` means the user has never been prompted.
+ */
+export interface ConsentRecord {
+    state: ConsentState
+    /** ISO 8601; absent until the user accepts or declines. */
+    decidedAt?: string
+    /** UUID v4 — stable for the life of the install. */
+    sessionId: string
+}
+
+/** Payload for `window.flintAPI.telemetry.setConsent()`. */
+export interface TelemetrySetConsentPayload {
+    state: 'accepted' | 'declined'
+}
+
 export interface FlintAPI {
     /** Health-check: verifies the IPC flint is functional. */
     ping: () => Promise<string>
@@ -2032,6 +2054,30 @@ export interface FlintAPI {
      * Resolves a previously deferred violation by setting resolved_at.
      */
     resolveDeferredViolation?: (file: string, ruleId: string, nodeId?: string) => Promise<void>
+
+    // ── BETA.TEL: Telemetry Consent (BLK-3) ─────────────────────────────────
+
+    /**
+     * Telemetry consent API — read/write the user's opt-in decision.
+     *
+     * All consent operations go through IPC; the renderer never touches
+     * the userData/ directory directly (Commandment 14 / Bypass Prohibition).
+     *
+     * TelemetryConsentDialog calls `setConsent` on Accept/Decline.
+     * App.tsx calls `getConsent` on mount to decide whether to show the dialog.
+     */
+    telemetry: {
+        /**
+         * Returns the current consent record.
+         * `state === 'unset'` means the user has not yet been asked.
+         */
+        getConsent: () => Promise<ConsentRecord>
+        /**
+         * Persists the user's accept or decline decision.
+         * Returns the updated ConsentRecord with `decidedAt` stamped.
+         */
+        setConsent: (payload: TelemetrySetConsentPayload) => Promise<ConsentRecord>
+    }
 
     // ── Beta Distribution ────────────────────────────────────────────────────
 

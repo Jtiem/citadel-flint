@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { BRAND, ipcChannel } from '../shared/brand.ts'
-import { validateIPC, mcpCallToolSchema, validateMcpToolArgs, projectSmartOpenSchema } from '../shared/ipc-validators.ts'
+import { validateIPC, mcpCallToolSchema, validateMcpToolArgs, projectSmartOpenSchema, telemetrySetConsentPayloadSchema, telemetryGetConsentResponseSchema } from '../shared/ipc-validators.ts'
 
 /**
  * The Preload Flint — all communication between the React Renderer
@@ -1666,5 +1666,32 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
     coverage: {
         getSummary: (): Promise<import('../shared/coverage-types.ts').CoverageSummary> =>
             ipcRenderer.invoke('flint:getCoverageSummary'),
+    },
+
+    // ── BETA.TEL: Telemetry Consent (BLK-3) ──────────────────────────────────
+    //
+    // All consent reads/writes go through this surface — the renderer never
+    // touches userData/ directly (Commandment 14 / Bypass Prohibition).
+    // Zod validators applied at the bridge (Commandment 16 / v2.1 hardening).
+
+    telemetry: {
+        /**
+         * Returns the current consent record without mutation.
+         * `state: 'unset'` means the user has never been asked.
+         */
+        getConsent: async (): Promise<{ state: 'unset' | 'accepted' | 'declined'; decidedAt?: string; sessionId: string }> => {
+            const raw = await ipcRenderer.invoke('telemetry:get-consent')
+            return telemetryGetConsentResponseSchema.parse(raw)
+        },
+
+        /**
+         * Persists an accept/decline decision and returns the updated record.
+         * Zod validates the payload before it crosses the process boundary.
+         */
+        setConsent: async (payload: { state: 'accepted' | 'declined' }): Promise<{ state: 'unset' | 'accepted' | 'declined'; decidedAt?: string; sessionId: string }> => {
+            const validated = telemetrySetConsentPayloadSchema.parse(payload)
+            const raw = await ipcRenderer.invoke('telemetry:set-consent', validated)
+            return telemetryGetConsentResponseSchema.parse(raw)
+        },
     },
 })

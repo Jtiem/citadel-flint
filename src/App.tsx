@@ -43,6 +43,7 @@ import { LaunchScreen } from './components/ui/LaunchScreen'
 import { tryAutoResume } from './lib/autoResume'
 import { SetupWizard } from './components/ui/SetupWizard'
 import { BetaWelcome, shouldShowBetaWelcome } from './components/ui/BetaWelcome'
+import { TelemetryConsentDialog } from './components/ui/TelemetryConsentDialog'
 import { FocusTrap } from './components/ui/FocusTrap'
 import { TabUnlockTooltip } from './components/ui/TabUnlockTooltip'
 import { TAB_NARRATION } from '../docs/contracts/sprint-clarity-2.contract'
@@ -139,6 +140,11 @@ function App() {
     // Default to done (no blank flash). The useEffect below flips this to false
     // only when we confirm this is a beta build AND the welcome hasn't been shown.
     const [betaWelcomeDone, setBetaWelcomeDone] = useState(true)
+    // ── BETA.TEL: Telemetry consent gate ──────────────────────────────────────
+    // null  = not yet checked (IPC in-flight)
+    // true  = dialog should be visible (consent.state === 'unset')
+    // false = dialog dismissed or consent already decided
+    const [showTelemetryConsent, setShowTelemetryConsent] = useState<boolean | null>(null)
     // ── Auto-resume gate (LAUNCH.2) ──────────────────────────────────────────
     // Tracks whether we've attempted to restore the last session.
     // null = not checked yet, true = attempted (regardless of outcome)
@@ -767,6 +773,33 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
+    // ── BETA.TEL: Read consent state on mount ────────────────────────────────
+    // Reads the persisted consent record via IPC. If state === 'unset', the
+    // dialog becomes visible. If the IPC is not wired yet (Group A not landed)
+    // or throws, we default to not showing the dialog — privacy-safe fallback.
+    useEffect(() => {
+        const api = window.flintAPI as Record<string, unknown> & typeof window.flintAPI
+        const telemetryApi = api?.telemetry as
+            | { getConsent?: () => Promise<{ state: string }> }
+            | undefined
+        if (typeof telemetryApi?.getConsent !== 'function') {
+            // IPC not wired yet — skip silently
+            setShowTelemetryConsent(false)
+            return
+        }
+        void telemetryApi
+            .getConsent!()
+            .then((record) => {
+                setShowTelemetryConsent(record.state === 'unset')
+            })
+            .catch((err) => {
+                console.warn('[Flint] App: telemetry.getConsent failed', err)
+                // On IPC failure, default to not showing the dialog
+                setShowTelemetryConsent(false)
+            })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
+
     // ── Auto-resume: last-file → session → demo precedence (LAUNCH.2/3) ─────────
     // Runs once after the setup + beta gates resolve. Priority order:
     //   1. URL hash / query param — reserved for future deep-link support
@@ -979,7 +1012,7 @@ function App() {
     // GLASS.2.2: When any modal is open, the main app content is aria-hidden
     // so screen readers focus on the dialog. Modals render as siblings outside
     // the aria-hidden wrapper via a React Fragment.
-    const isAnyModalOpen = showExportModal || showGovernancePanel || showSetupWizardModal
+    const isAnyModalOpen = showExportModal || showGovernancePanel || showSetupWizardModal || showTelemetryConsent === true
 
     return (
         <>
@@ -1431,6 +1464,13 @@ function App() {
             <FocusTrap>
                 <SetupWizard onComplete={() => setShowSetupWizardModal(false)} />
             </FocusTrap>
+        )}
+        {/* BETA.TEL: Telemetry consent gate — shown once on first launch when
+             consent.state === 'unset'. Dismisses on Accept or Decline. */}
+        {showTelemetryConsent === true && (
+            <TelemetryConsentDialog
+                onDecided={() => setShowTelemetryConsent(false)}
+            />
         )}
         </>
     )

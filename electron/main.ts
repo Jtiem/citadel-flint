@@ -13,6 +13,8 @@ import os from 'node:os'
 import { snapToToken } from './ingestion/index.js'
 import { loadAgentPolicy } from './agentPolicy.js'
 import { checkBetaExpiry, startVersionCheck, stopVersionCheck, getBetaInfo } from './betaGuard.js'
+import { startTelemetry, getConsent, setConsent, emit as telemetryEmit } from './betaTelemetry.js'
+import { telemetrySetConsentPayloadSchema } from '../shared/ipc-validators.ts'
 import {
     initAutoUpdater,
     checkForUpdates as autoUpdateCheck,
@@ -205,6 +207,82 @@ const PRELOAD_PATH = path.join(__dirname, 'preload.js')
 let mainWindow: BrowserWindow | null = null
 let stopServer: (() => void) | null = null
 
+// ── Embedded web server lifecycle ────────────────────────────────────────────
+// In packaged builds, the BrowserWindow loads the WEB UI from a localhost
+// Express server, not the legacy electron-direct dist/ renderer. The server
+// is `dist-server/cli.mjs` (bundled from server/) — same code as
+// `npm run start:web` uses. Spawned as a child Node process via
+// ELECTRON_RUN_AS_NODE=1, the same pattern flint-mcp uses.
+import type { ChildProcess } from 'node:child_process'
+import { spawn } from 'node:child_process'
+let webServerProcess: ChildProcess | null = null
+let webServerUrl: string | null = null
+
+async function pickFreePort(): Promise<number> {
+    const net = await import('node:net')
+    return await new Promise<number>((resolve, reject) => {
+        const srv = net.createServer()
+        srv.unref()
+        srv.on('error', reject)
+        srv.listen(0, '127.0.0.1', () => {
+            const addr = srv.address()
+            const port = typeof addr === 'object' && addr ? addr.port : 0
+            srv.close(() => resolve(port))
+        })
+    })
+}
+
+async function ensureWebServer(): Promise<string> {
+    if (webServerUrl) return webServerUrl
+
+    const port = await pickFreePort()
+    const projectRoot = process.env.FLINT_DEV_WORKSPACE
+        ? path.resolve(process.env.FLINT_DEV_WORKSPACE)
+        : path.join(app.getPath('userData'), 'default-project')
+    if (!existsSync(projectRoot)) mkdirSync(projectRoot, { recursive: true })
+
+    // Resolve the bundled server CLI. asarUnpack ensures it's outside the asar.
+    const cliPath = app.isPackaged
+        ? path.join(process.resourcesPath, 'app.asar.unpacked', 'dist-server', 'cli.mjs')
+        : path.join(__dirname, '..', 'dist-server', 'cli.mjs')
+
+    if (!existsSync(cliPath)) {
+        throw new Error(`Embedded server CLI not found at ${cliPath}. Did you run npm run build:server?`)
+    }
+
+    webServerProcess = spawn(
+        process.execPath,
+        [cliPath, '--project', projectRoot, '--port', String(port), '--no-open'],
+        {
+            env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+            stdio: ['ignore', 'pipe', 'pipe'],
+        },
+    )
+
+    webServerProcess.stdout?.on('data', (c: Buffer) => console.log(`[FlintWeb] ${c.toString().trimEnd()}`))
+    webServerProcess.stderr?.on('data', (c: Buffer) => console.error(`[FlintWeb] ${c.toString().trimEnd()}`))
+    webServerProcess.on('exit', (code, sig) => {
+        console.log(`[FlintWeb] server exited code=${code} signal=${sig}`)
+        webServerProcess = null
+        webServerUrl = null
+    })
+
+    // Probe until the server responds, up to ~10s.
+    const url = `http://127.0.0.1:${port}`
+    for (let i = 0; i < 100; i++) {
+        try {
+            const res = await fetch(url)
+            if (res.ok || res.status < 500) {
+                webServerUrl = url
+                console.log(`[Flint] Embedded web server ready at ${url}`)
+                return url
+            }
+        } catch { /* not ready yet */ }
+        await new Promise((r) => setTimeout(r, 100))
+    }
+    throw new Error('Embedded web server failed to become ready within 10s')
+}
+
 // ── GOV.2: Session UUID ───────────────────────────────────────────────────────
 // Generated once at app launch and used as the sessionId for all governance
 // event telemetry within this Glass session. A new UUID is produced on every
@@ -360,7 +438,7 @@ const PRODUCTION_CSP = [
     "frame-src 'self' blob: http://localhost:* http://127.0.0.1:*",
 ].join('; ')
 
-function createWindow(): void {
+async function createWindow(): Promise<void> {
     mainWindow = new BrowserWindow({
         width: 1400,
         height: 900,
@@ -407,11 +485,19 @@ function createWindow(): void {
         })
     })
 
-    // Load the Vite dev server in development, or the built files in production
+    // Load the Vite dev server in development, or the embedded web server in
+    // production. The legacy `dist/` electron-direct renderer is preserved
+    // (the Vite build still produces it) but is no longer the shipping path.
     if (process.env.VITE_DEV_SERVER_URL) {
         mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL)
     } else {
-        mainWindow.loadFile(path.join(RENDERER_DIST, 'index.html'))
+        try {
+            const url = await ensureWebServer()
+            await mainWindow.loadURL(url)
+        } catch (err) {
+            console.error('[Flint] Embedded web server failed; falling back to dist/index.html:', err)
+            await mainWindow.loadFile(path.join(RENDERER_DIST, 'index.html'))
+        }
     }
 
     // ── Beta version check ────────────────────────────────────────────────
@@ -737,6 +823,10 @@ app.whenReady().then(async () => {
     // Must run before any window creation. Shows expiry dialog and quits if
     // the build has expired.
     if (!checkBetaExpiry()) return
+
+    // ── BETA.TEL: Start telemetry (BLK-2) ────────────────────────────────────
+    // Consent-gated: emit() is a no-op until the user clicks Accept.
+    startTelemetry()
 
     // Initialise the database first (imported for side-effects: tables are
     // created synchronously inside store.ts on module load).
@@ -2379,6 +2469,7 @@ app.whenReady().then(async () => {
         let filesAudited = 0
         let grade = 'N/A'
         let score = 0
+        const auditStartMs = Date.now()
 
         // Phase 1 — full swarm audit
         try {
@@ -2457,6 +2548,14 @@ app.whenReady().then(async () => {
         }
 
         emitProgress('done', 100)
+
+        // BETA.TEL: audit.completed — counts only, no file paths
+        telemetryEmit('audit.completed', {
+            fileCount: filesAudited,
+            violationCount: violations,
+            durationMs: Date.now() - auditStartMs,
+        })
+
         return { violations, grade, score, filesAudited }
     })
 
@@ -3719,6 +3818,9 @@ app.whenReady().then(async () => {
             const { _agentId, ...cleanArgs } = argsObj
 
             const result = await mcpClient.callTool(name, cleanArgs)
+
+            // BETA.TEL: emit mcp.tool_called — tool name only, never args (WARN-4)
+            telemetryEmit('mcp.tool_called', { toolName: name })
 
             // AGV.1: Track mutation count for rate limiting
             if (['flint_ast_mutate', 'flint_fix', 'flint_sync_tokens', 'flint_ingest_figma'].includes(name)) {
@@ -5176,7 +5278,7 @@ app.whenReady().then(async () => {
         if (autopilotDebounceTimer) clearTimeout(autopilotDebounceTimer)
     })
 
-    createWindow()
+    void createWindow()
     buildAppMenu()
 
     // ── Starter template for scratchpad index.html ──────────────────────
@@ -5505,9 +5607,23 @@ app.whenReady().then(async () => {
 
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {
-            createWindow()
+            void createWindow()
         }
     })
+})
+
+// ── BETA.TEL: Telemetry Consent IPC (BLK-3) ──────────────────────────────────
+//
+// Two channels — both consent-gated in the renderer via window.flintAPI.telemetry.
+// Validators: telemetryGetConsentResponseSchema, telemetrySetConsentPayloadSchema.
+
+ipcMain.handle('telemetry:get-consent', (): import('./betaTelemetry.js').ConsentRecord => {
+    return getConsent()
+})
+
+ipcMain.handle('telemetry:set-consent', (_event, payload: unknown): import('./betaTelemetry.js').ConsentRecord => {
+    const parsed = telemetrySetConsentPayloadSchema.parse(payload)
+    return setConsent(parsed.state)
 })
 
 // ── Beta Distribution IPC ────────────────────────────────────────────────────
@@ -6774,6 +6890,19 @@ app.on('will-quit', () => {
     // OS port is released immediately. This prevents EADDRINUSE on fast
     // dev-server reloads where Electron restarts before the OS reclaims 4545.
     stopServer?.()
+
+    // Tear down the embedded web server child process so its TCP port is
+    // released cleanly. SIGTERM gives it a chance to close its own
+    // connections; if it ignores us, SIGKILL after 1s.
+    if (webServerProcess && !webServerProcess.killed) {
+        try {
+            webServerProcess.kill('SIGTERM')
+            const proc = webServerProcess
+            setTimeout(() => { if (!proc.killed) proc.kill('SIGKILL') }, 1000)
+        } catch { /* best-effort */ }
+        webServerProcess = null
+        webServerUrl = null
+    }
 
     // Phase W.3: shut down the MCP server child process on app exit.
     // stop() is async but will-quit is synchronous — fire-and-forget is acceptable
