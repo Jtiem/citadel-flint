@@ -2,7 +2,69 @@
 
 **Date:** 2026-04-25
 **Architecture:** Flint MCP (headless governance engine) + Flint Glass (desktop wrapper hosting the web build) + Flint Web (browser distribution; same React UI)
-**Test baseline:** 5,699/5,699 MCP | 3,540/3,540 Glass | 2,780/2,780 Core | 56/56 CI — TSC: 0 errors. Core has 38 pre-existing `better-sqlite3` NODE_MODULE_VERSION mismatch failures in dev (fix: `npm rebuild better-sqlite3`; not beta-blocking). Strict-mode debt documented in `docs/beta/BETA-TECH-DEBT.md`.
+**Test baseline:** 5,699/5,699 MCP | 3,544/3,544 Glass | 2,806/2,806 Core | 56/56 CI — TSC: 0 errors. Core has 38 pre-existing `better-sqlite3` NODE_MODULE_VERSION mismatch failures in dev (fix: `npm rebuild better-sqlite3`; not beta-blocking). Strict-mode debt documented in `docs/beta/BETA-TECH-DEBT.md`.
+
+---
+
+## Session: Beta polish phase 2 — tests, consent UX, Worker hardening, dead code, seed-from-project, a11y hardening (2026-04-25) — COMPLETE
+
+**Goal:** Close Tier 1 and Tier 2 backlog items from the first beta-polish batch. Ship the 47 governance tests, harden the Worker, fix consent dialog UX warnings, clean dead code, wire seed-from-project end-to-end, and close 31 a11y violations across three Glass components.
+
+### What shipped (6 commits)
+
+* **`331cec0`** — test(governance): backfill 47 tests across `mutationProvenanceService` (+27), `trustTierService` (+12), and `agentRiskService` (+8). Closed Tier 2.1 quality-bar item. All three services were ONLINE with zero test coverage before this commit.
+
+* **`24a0da9`** — fix(beta-consent): close 3 UX warnings on `TelemetryConsentDialog`. Added "What gets collected?" expander listing 5 data points. Balanced Decline button visual weight to match Accept. Filed `.flint-context/follow-ups/settings-privacy-needed-2026-04-25.md` tracking the Settings → Privacy panel that doesn't exist yet.
+
+* **`61fd8c2`** — fix(worker): replace string equality HMAC check with `crypto.subtle.timingSafeEqual` (WARN-1 from security re-review). Added structured `console.error` for Slack/KV failures (WARN-5). Added `Content-Length > 64KB` rejection before `request.json()` (SUG-1). Closed all three deferred Worker security items.
+
+* **`5fa3343`** — chore(dead-code): 14 stale JSDoc comments referencing Sprint-2 deleted modules updated to reflect current state. Orphan `vi.mock` blocks removed from `AppMountGate.test.tsx`. Filed `.flint-context/follow-ups/dogfood-a11y-debt-2026-04-25.md` tracking remaining a11y debt in ExportModal and GhostCodeSnippet that this commit identified.
+
+* **`601daff`** — feat(production-build): `tokens:seed-from-project` IPC wired end-to-end — handler in `electron/main.ts` + web parity in `server/index.ts` + preload + web adapter + `hydrateWorkspace` caller in `App.tsx`. New `shared/dtcgFlatten.ts` helper (24 tests). Production CSP now includes `'unsafe-eval'` (required for srcdoc LivePreview) and `ws://` for embedded server WebSocket. Preload conditionally excluded in production builds. Bundles prior-session work coherently with the seed-from-project feature.
+
+* **`e5d2d7e`** — fix(a11y): 31 a11y violations closed across three components. ExportModal (22): motion-safe guards, heading hierarchy fixed to h1/h2, `role=dialog` + aria attrs added. GhostCodeSnippet (5): landmark roles, focus management. TelemetryConsentDialog (4): `role=dialog`, aria labelling. Warden self-audit PASSED for all three components after fixes.
+
+### Test baseline after session
+
+```text
+MCP:   5,699/5,699 passing (0 new — engine unchanged)
+Glass: 3,544/3,544 passing (+4 net from a11y test additions)
+Core:  2,806/2,806 passing (+24 new from dtcgFlatten + ipc-validators)
+CI:    56/56 passing
+TSC:   0 errors
+```
+
+38 pre-existing `better-sqlite3` NODE_MODULE_VERSION failures in Core remain (dev environment rebuild issue — not beta-blocking).
+
+### Tree triage finding — action required next session
+
+During the `e5d2d7e` a11y work, 57 modified files were found in the working tree that are unrelated to this session's commits. They span multiple themes from prior sessions and were not committed because it was unclear which were intentional and complete:
+
+* TypeScript strictness fixes (`as Record<X>` → `as unknown as Record<X>`) across GovernanceDashboard, LaunchScreen, and others
+* `.claude/settings.json` additions (the `flint-audit-on-edit` PostToolUse hook)
+* `flint-mcp/` core refactors: MithrilLinter, policyEngine, tailwindConfigLoader, AnimationLinter
+* Sprint contract files touched: CHRON.1, MINT.5
+* Test selector updates downstream of strictness fixes
+* Demo project cleanup
+* `electron/autoUpdater.ts`, `electron/betaTelemetry.ts` — changes beyond the BETA-TELEMETRY-WIRING ceremony
+* `src/main.tsx` web adapter installation refactor
+* `src/store/canvasStore.ts` — RightTab type extended with `'notes'`
+
+Next session must do a tree-triage pass: group these into coherent commits by theme, verify each theme is complete, and ship them before more work piles on top.
+
+### Post-hoc security review (in flight)
+
+`flint-security-reviewer` was dispatched in parallel to retroactively review commit `601daff` — the CSP + preload-only-in-dev changes were security-relevant and shipped without a review ceremony. Results will land at `.flint-context/reviews/POST-HOC-601daff-security-review-2026-04-25.md`. If it surfaces FIX or BLOCK findings, address them before the next beta invite.
+
+### What remains
+
+* Tree triage (see above — priority 0 for next session)
+* Post-hoc security review findings from `601daff`
+* Settings → Privacy panel (filed as follow-up: `.flint-context/follow-ups/settings-privacy-needed-2026-04-25.md`)
+* BETA-POLISH.5 (Worker rate limiting + Slack dedup) — deferred per security re-review recommendation; revisit at first signs of abuse
+* Demo audit loop on `DemoCard.tsx` (open work item from prior session, still pending)
+* Real ship test with `.env.beta` secrets
+* Playbook polish (25 items in `.flint-context/playbook-research/polish-findings-2026-04-25.md`)
 
 ---
 

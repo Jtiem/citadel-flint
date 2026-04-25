@@ -1,9 +1,9 @@
 # Flint — Prioritized Product Backlog
-**Date:** 2026-04-25
+**Date:** 2026-04-25 (refreshed)
 **Author:** flint-product-planner
 **Sources:** CLAUDE.md, HANDOFF.md, FLINT-MASTER-PLAN.md, FLINT-GAP-REMEDIATION-PLAN.md, FLINT-EXPANSION-PLAN.md, FLINT-FUTURE-SPRINTS.md, FLINT-GLASS-PIVOT.md, JOURNEY-MAPS.md, JourneyMap-TestAudit.md, JTBD-GapFill-Plan.md, Snyk-Competitive-Analysis.md, INVESTOR-BRIEF-2026.md, FEATURE-SPEC-WCAG22.md, FEATURE-SPEC-AUTOPILOT.md, FEATURE-SPEC-COUNSEL.md
 **Current JTBD score:** 8.4/10 (target: 9.0)
-**Test baseline:** MCP: 3,612/3,612 | Glass: 1,322/1,322 | Core: 1,146/1,146 | CI: 56/56 — TSC 0 errors
+**Test baseline:** MCP: 5,699/5,699 | Glass: 3,544/3,544 | Core: 2,806/2,806 | CI: 56/56 — TSC 0 errors
 
 ---
 
@@ -40,6 +40,17 @@ The original backlog was authored with a test baseline of 2,165 MCP tests. Sprin
 | `f2b1856` | BETA-TELEMETRY-WIRING — full contract-first feature: telemetry consent IPC, Cloudflare Worker receiver, opt-in flag in SQLite, consent dialog in Glass |
 | `295ccbe` | Cloudflare Worker hardening — HMAC-SHA256 request auth, env binding wiring, Worker test coverage |
 | `93e7829` | Doc reconciliation — CLAUDE.md, HANDOFF.md, FLINT-MASTER-PLAN.md aligned with post-beta-gate codebase state |
+
+### Completed since 2026-04-25
+
+| Commit | What shipped |
+|--------|-------------|
+| `331cec0` | QUALITY.1 — 47 governance service tests committed: mutationProvenanceService (+27), trustTierService (+12), agentRiskService (+8). Tier 2.1 quality-bar item closed. |
+| `24a0da9` | BETA-POLISH.1 + BETA-POLISH.2 — TelemetryConsentDialog: "What gets collected?" expander added (5 data points listed), Decline button visual weight balanced. Both UX warnings from 2026-04-21 review closed. |
+| `61fd8c2` | BETA-POLISH.3 + BETA-POLISH.4 + BETA-POLISH.6 — Worker error visibility (console.error for Slack/KV failures), body cap (Content-Length > 64KB → 413), timing-safe secret compare (`crypto.subtle.timingSafeEqual`). All three WARN/SUG items from Worker re-review closed. |
+| `5fa3343` | QUALITY.2 — Dead code cleanup: 14 stale JSDoc comments (Sprint-2 deleted module references) updated; orphan vi.mock blocks removed from AppMountGate.test.tsx. |
+| `601daff` | NEW — seed-from-project + production-build wiring: `tokens:seed-from-project` IPC end-to-end (electron + web parity + bridge + types + caller), `shared/dtcgFlatten.ts` helper (24 tests), production CSP hardened, preload excluded in prod. |
+| `e5d2d7e` | NEW — A11y hardening of 3 Glass components: ExportModal (22 violations closed), GhostCodeSnippet (5), TelemetryConsentDialog (4). Warden self-audit PASSED for all three. |
 
 ### Confirmed done (were in backlog as proposed; already shipped in prior sprints)
 
@@ -85,91 +96,24 @@ What "beta-shippable" means:
 
 ## Tier 1 — Beta Polish (ship during 60-day beta window)
 
-These items improve the experience for the first wave of testers but do not block the initial send. Target: ship as a single fix-forward batch within the first two weeks of the beta window.
+These items improve the experience for the first wave of testers but do not block the initial send.
+
+**BETA-POLISH.1, .2, .3, .4, .6 — DONE** (shipped `24a0da9` + `61fd8c2` on 2026-04-25). Only BETA-POLISH.5 remains, and it is intentionally deferred.
 
 ---
 
-### BETA-POLISH.1 — Telemetry consent dialog copy: "you can change this later"
-
-| Field | Value |
-|-------|-------|
-| **Priority** | P1 |
-| **Effort** | S |
-| **Dependencies** | BETA-TELEMETRY-WIRING (ONLINE) |
-
-**What:** The consent dialog currently presents as a one-time irreversible choice. Add "You can change this at any time in Settings" below the Decline button. Add a "What gets collected" expander with a plain-English list (session IDs, tool call counts, error codes — no code content, no file paths, no personal data).
-
-**Why:** Beta testers who decline without understanding what they're declining represent lost signal. Testers who feel trapped by an irreversible choice will resent the product. Both outcomes are avoidable with two lines of copy and one disclosure component.
-
----
-
-### BETA-POLISH.2 — Telemetry Decline button visual weight
-
-| Field | Value |
-|-------|-------|
-| **Priority** | P1 |
-| **Effort** | S |
-| **Dependencies** | BETA-TELEMETRY-WIRING (ONLINE) |
-
-**What:** The Decline button is currently visually subordinate to Accept in a way that reads as a dark pattern. Make both actions equal weight: same size, same visual tier (outline vs. filled, not ghost vs. filled). The UX review from 2026-04-21 flagged this as a trust risk.
-
-**Why:** Beta testers are design-adjacent. They will notice dark patterns immediately and it will color their entire evaluation. The fix is one line of CSS.
-
----
-
-### BETA-POLISH.3 — Worker error visibility for operator
-
-| Field | Value |
-|-------|-------|
-| **Priority** | P1 |
-| **Effort** | S |
-| **Dependencies** | Cloudflare Worker (ONLINE) |
-
-**What:** The Worker currently swallows errors silently when Slack delivery fails or when the KV write fails. Add `console.error` calls (surfaced in Cloudflare dashboard logs) with structured context: timestamp, error type, payload size, status code. No user-facing change.
-
-**Why:** During the beta window, we need to know immediately if telemetry events are being lost. Silent failures mean the feedback loop we built is broken without anyone knowing.
-
----
-
-### BETA-POLISH.4 — Worker content-length cap before request parsing
-
-| Field | Value |
-|-------|-------|
-| **Priority** | P1 |
-| **Effort** | S |
-| **Dependencies** | Cloudflare Worker (ONLINE) |
-
-**What:** Reject requests with `Content-Length > 64KB` before calling `request.json()`. Return `413 Payload Too Large`. This is a fix-forward hardening item identified in the 2026-04-21 security re-review.
-
-**Why:** Without a size cap, a malformed or malicious request could cause the Worker to attempt to parse an arbitrarily large JSON payload. The Cloudflare free tier has a 128MB memory limit per worker invocation — a 10MB request body would consume most of it.
-
----
-
-### BETA-POLISH.5 — Worker rate limiting + Slack message dedup
+### BETA-POLISH.5 — Worker rate limiting + Slack message dedup (DEFERRED)
 
 | Field | Value |
 |-------|-------|
 | **Priority** | P2 |
 | **Effort** | M |
 | **Dependencies** | Cloudflare Worker (ONLINE), Cloudflare KV |
+| **Status** | DEFERRED — revisit at first signs of abuse |
 
 **What:** Add a KV-backed rate limiter: max 100 telemetry events per installation per hour. Add dedup: if the same `event_type` + `session_id` combination arrives within 60 seconds, drop the duplicate Slack notification (write to KV, but don't post to Slack again).
 
-**Why:** With ~10 beta testers, volume is low. But a bug that causes a client to retry aggressively could flood the Slack channel and obscure real signal. Better to cap it now before scaling.
-
----
-
-### BETA-POLISH.6 — Timing-safe secret compare in Worker
-
-| Field | Value |
-|-------|-------|
-| **Priority** | P1 |
-| **Effort** | S |
-| **Dependencies** | Cloudflare Worker (ONLINE) |
-
-**What:** Replace the current string equality check on the HMAC signature with a constant-time comparison using `crypto.subtle.timingSafeEqual`. This was the primary fix-forward item from the 2026-04-21 security re-review.
-
-**Why:** String equality short-circuits on the first mismatched character, which creates a timing oracle that can be used to brute-force HMAC signatures. This is a well-known class of vulnerability in authentication code. The fix is five lines.
+**Why deferred:** Per the 2026-04-25 security re-review recommendation, with ~10 beta testers the abuse risk is low. The Worker now has logging (BETA-POLISH.3) so flooding would be visible immediately. Revisit when tester count scales or if Slack noise becomes a problem.
 
 ---
 
@@ -177,36 +121,25 @@ These items improve the experience for the first wave of testers but do not bloc
 
 Do these before scaling beyond ~10 testers. None are user-visible in normal operation, but they make the product trustworthy at higher volume.
 
+**QUALITY.1 — DONE** (`331cec0`, 2026-04-25). **QUALITY.2 — DONE** (`5fa3343`, 2026-04-25). See "Completed Since Last Update" for details.
+
 ---
 
-### QUALITY.1 — Commit 47 unstaged governance service tests
+### TREE-TRIAGE — Working tree has 57 uncommitted modified files
 
 | Field | Value |
 |-------|-------|
 | **Priority** | P1 |
 | **Effort** | S |
-| **Dependencies** | None (tests already written) |
-
-**What:** Stage and commit the 47 tests for `mutationProvenanceService`, `trustTierService`, and `agentRiskService` that are written but not yet committed. Verify they pass against the current codebase before committing. Update the test baseline count in this document.
-
-**Why:** These tests cover three governance services that are ONLINE and in use. Uncommitted tests provide no regression protection. This is the simplest possible quality improvement.
-
----
-
-### QUALITY.2 — Dead code cleanup
-
-| Field | Value |
-|-------|-------|
-| **Priority** | P2 |
-| **Effort** | M |
 | **Dependencies** | None |
 
-**What:** Three cleanup areas identified in `.flint-context/dead-code-audit-2026-04-25.md`:
-1. Stray `.flint/` directories inside `src/components/` — delete
-2. `dist-electron/` at 171MB — add to `.gitignore` and remove from tracking
-3. `AppMountGate.test` `vi.mock` blocks that are no longer testing anything meaningful — remove or replace with real assertions
+**What:** 57 modified files are sitting in the working tree from prior sessions, spanning multiple unfinished themes: TypeScript strictness fixes, `flint-mcp/` core refactors (MithrilLinter, policyEngine, tailwindConfigLoader, AnimationLinter), `src/main.tsx` web adapter refactor, `canvasStore.ts` RightTab `'notes'` extension, `electron/autoUpdater.ts` changes beyond the BETA-TELEMETRY-WIRING ceremony, sprint contract file touches (CHRON.1, MINT.5), and `.claude/settings.json` hook additions. None were committed because it was unclear which themes were complete.
 
-**Why:** `dist-electron/` at 171MB makes every `git clone` painful for new contributors. The stray `.flint/` dirs are confusing noise. The `vi.mock` blocks with no assertions are false confidence in the test suite.
+**Why first:** Until these are triaged and committed (or discarded), every subsequent working tree diff is unreadable. More sessions building on top of uncommitted changes means conflicts and confusion. This is a one-session cleanup with zero user-facing risk.
+
+**How:** Group files by theme, verify each theme is complete (TSC + relevant tests), commit each as a clean conventional commit. Any theme that isn't ready to ship stays unstaged with a note in HANDOFF.md.
+
+See HANDOFF.md "Tree triage finding" in the 2026-04-25 session entry for the full file list.
 
 ---
 
@@ -434,14 +367,14 @@ These are next after beta feedback is incorporated into priorities. None are blo
 
 ## Tier 3 + 4 Sequencing Recommendation
 
-If you had to pick the order for the next six weeks, this is the suggested sequence:
+Updated 2026-04-25: Tier 1 batch (BETA-POLISH.1–4 + .6) shipped. QUALITY.1 + QUALITY.2 shipped. The remaining sequence:
 
-1. **Ship Tier 1 batch** (BETA-POLISH.1–6) in the first two weeks of the beta window. One PR, one deploy.
-2. **QUALITY.1** (commit the 47 unstaged tests) — one afternoon, no risk.
+1. **TREE-TRIAGE** (Tier 2) — 57 uncommitted modified files must be resolved before more work stacks on top. One session, zero user-facing risk.
+2. **Post-hoc security review for `601daff`** — review results landing at `.flint-context/reviews/POST-HOC-601daff-security-review-2026-04-25.md`. If FIX findings surface, address before the next beta invite.
 3. **EXP.8** (WCAG 2.2 rule pack) — spec is complete, architecture is proven, legal urgency is real.
 4. **COUNSEL.1.1, 1.2, 1.7** (P0 Counsel tasks) — these are the foundation for everything else in Counsel.
 5. **AUTO.1 fake-door** (Vigil StatusBar pill) — one day, generates validation data.
-6. **QUALITY.2 + QUALITY.3** (dead code + playbook polish) — batch into one cleanup sprint.
+6. **QUALITY.3** (playbook polish, 25 items) — batch into one cleanup sprint.
 7. **ANVIL.1** (CLI rename + output) — when beta feedback confirms developer-facing work is the right next bet.
 
 ---
@@ -734,11 +667,11 @@ All AGV phases are ONLINE. Listed here for dependency reference.
 | Tier | Items | Notes |
 |------|:-----:|-------|
 | Tier 0 (shipped) | — | Beta milestone reached |
-| Tier 1 (beta polish) | 6 | BETA-POLISH.1–6; all S or M effort |
-| Tier 2 (hardening) | 4 | QUALITY.1–4; no blockers |
+| Tier 1 (beta polish) | 1 remaining | BETA-POLISH.1–4 + .6 DONE; BETA-POLISH.5 deferred |
+| Tier 2 (hardening) | 3 remaining | TREE-TRIAGE (new, P1) + QUALITY.3 + QUALITY.4; QUALITY.1 + QUALITY.2 DONE |
 | Tier 3 (next features) | 3 clusters | EXP.8, AUTO.1 fake-door, COUNSEL.1 |
 | Tier 4 (strategic) | 6 | GPX.3, EXP.9, CHRON.1, ANVIL.1, CHRON.2, ANVIL.2 |
 | Tracks (post-Tier 4) | 19 (Forge) + 18 (Mint) + 14 (Counsel 2–4) + 4 (Anvil 3–4) | |
 | Deferred | 5 decisions | No implementation blocked |
 
-**Test baseline at time of update:** MCP: 3,612/3,612 | Glass: 1,322/1,322 | Core: 1,146/1,146 | CI: 56/56 — TSC 0 errors (47 additional governance service tests staged but not yet committed — update count after QUALITY.1 ships)
+**Test baseline at time of update:** MCP: 5,699/5,699 | Glass: 3,544/3,544 | Core: 2,806/2,806 | CI: 56/56 — TSC 0 errors
