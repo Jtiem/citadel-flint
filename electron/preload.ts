@@ -132,6 +132,17 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
             ipcRenderer.invoke('tokens:clear-all'),
 
         /**
+         * Reads <projectRoot>/.flint/design-tokens.json (or fallback
+         * <projectRoot>/design-tokens.json), flattens DTCG, clears the store, and
+         * seeds. Returns { seeded, source, sourcePath?, error? } so the renderer
+         * can fall back to baseline tokens when source==='none'.
+         */
+        seedFromProject: (
+            projectRoot: string,
+        ): Promise<{ seeded: number; source: 'project' | 'none'; sourcePath?: string; error?: string }> =>
+            ipcRenderer.invoke('tokens:seed-from-project', projectRoot),
+
+        /**
          * Removes the `component_overrides` row associated with `flintId`.
          * Called by the AST deleteNode garbage collector (Phase E) to release
          * export locks after a node is deleted from the source file.
@@ -627,7 +638,7 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
      * `filePath` in the local git repository. Each entry exposes the abbreviated
      * hash, the commit message, and a Unix timestamp (seconds since epoch).
      *
-     * Used by RecoveryPanel to populate the file's Time Machine timeline.
+     * Used by future Command Palette Time Machine entry to populate the file's timeline.
      *
      * Returns an empty array when the file is not tracked by git or the repo
      * does not exist yet.

@@ -170,6 +170,24 @@ export interface TokensAPI {
     clearAll: () => Promise<{ changes: number }>
 
     /**
+     * Reads `<projectRoot>/.flint/design-tokens.json` (or fallback
+     * `<projectRoot>/design-tokens.json`), flattens the W3C DTCG token tree,
+     * clears the existing token store, and seeds the project's tokens.
+     *
+     * Returns `source: 'project'` when a DTCG file was found and seeded, or
+     * `source: 'none'` when no file existed (the renderer should then fall
+     * back to baseline tokens via `seedTokens()`).
+     */
+    seedFromProject: (
+        projectRoot: string,
+    ) => Promise<{
+        seeded: number
+        source: 'project' | 'none'
+        sourcePath?: string
+        error?: string
+    }>
+
+    /**
      * Removes the `component_overrides` row associated with `flintId`.
      * Called by the AST deleteNode garbage collector (Phase E) to prevent
      * "Zombie" export locks after a node is deleted from the source file.
@@ -1923,7 +1941,7 @@ export interface FlintAPI {
      * Returns a chronological list of up to 50 shadow commits that have touched
      * `filePath` in the local git repository.
      *
-     * Used by `RecoveryPanel` to populate the file's Time Machine timeline.
+     * Used by future Command Palette Time Machine entry to populate the file's timeline.
      * Returns an empty array when the file is not tracked by git.
      */
     gitLog: (filePath: string) => Promise<GitLogEntry[]>
@@ -2046,7 +2064,7 @@ export interface FlintAPI {
 
     /**
      * Returns all unresolved deferred violations (resolved_at IS NULL).
-     * Used by GovernanceOverlay to show "Deferred" badges.
+     * Used by GovernanceDashboard to show "Deferred" badges.
      */
     getDeferredViolations?: () => Promise<DeferredViolationRow[]>
 
@@ -2210,7 +2228,7 @@ export interface FlintAPI {
     /** Loads governance rule overrides from .flint/rule-overrides.json. */
     getRuleOverrides?: () => Promise<{ version: 1; rules: Record<string, unknown> } | null>
 
-    // ── ActivityFeed file navigation (optional) ──────────────────────────────
+    // ── MCP event listener file navigation (optional) ────────────────────────
 
     /** Opens a file in the host IDE / canvas. Optional. */
     openFile?: (filePath: string) => void

@@ -14,6 +14,7 @@
 
 import { computeExpiresAt, type DeferDuration } from '../shared/deferralUtils'
 import { RENDERER_ALLOWED_MCP_TOOLS } from '../shared/mcp-allowed-tools'
+import { flattenDtcg } from '../shared/dtcgFlatten'
 import express from 'express'
 import { WebSocketServer, WebSocket } from 'ws'
 import http from 'node:http'
@@ -903,6 +904,54 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     console.log(`${BRAND.logPrefix} tokens:clear-all: removed ${result.changes} tokens`)
     broadcastTokensUpdated()
     return { changes: result.changes }
+  })
+
+  // Web parity: mirrors electron/main.ts tokens:seed-from-project. Reads
+  // <projectRoot>/.flint/design-tokens.json or <projectRoot>/design-tokens.json,
+  // flattens DTCG, clears the store, and seeds.
+  handlers.set('tokens:seed-from-project', async (projectRoot: unknown) => {
+    if (typeof projectRoot !== 'string' || projectRoot.length === 0) {
+      return { seeded: 0, source: 'none' as const, error: 'invalid project root' }
+    }
+    const candidates = [
+      path.join(projectRoot, '.flint', 'design-tokens.json'),
+      path.join(projectRoot, 'design-tokens.json'),
+    ]
+    let dtcgPath: string | null = null
+    for (const candidate of candidates) {
+      if (existsSync(candidate)) {
+        dtcgPath = candidate
+        break
+      }
+    }
+    if (!dtcgPath) {
+      return { seeded: 0, source: 'none' as const }
+    }
+    try {
+      const raw = await fs.readFile(dtcgPath, 'utf8')
+      const parsed = JSON.parse(raw) as unknown
+      const tokens = flattenDtcg(parsed)
+      stmtClearAll.run()
+      for (const t of tokens) {
+        stmtCreate.run(
+          t.token_path,
+          t.token_type,
+          t.token_value,
+          t.description ?? null,
+          'default',
+          'default',
+        )
+      }
+      broadcastTokensUpdated()
+      console.log(
+        `${BRAND.logPrefix} tokens:seed-from-project: seeded ${tokens.length} tokens from ${dtcgPath}`,
+      )
+      return { seeded: tokens.length, source: 'project' as const, sourcePath: dtcgPath }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.warn(`${BRAND.logPrefix} tokens:seed-from-project failed: ${message}`)
+      return { seeded: 0, source: 'none' as const, error: message }
+    }
   })
 
   // ── Component Overrides ────────────────────────────────────────────────────
@@ -3588,7 +3637,12 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
   handlers.set('beta:load-demo-project', async (payload?: { demoName?: string }) => {
     try {
       const demoName = payload?.demoName
-      const resourcesBase = path.resolve(__dirname, '..', 'build-resources')
+      // When spawned by Electron, FLINT_RESOURCES_PATH points to
+      // process.resourcesPath, where electron-builder's extraResources rule
+      // copies build-resources/. The relative fallback is for `npm run dev:web`.
+      const resourcesBase = process.env.FLINT_RESOURCES_PATH
+        ? path.join(process.env.FLINT_RESOURCES_PATH, 'build-resources')
+        : path.resolve(__dirname, '..', 'build-resources')
 
       // If a named demo is requested, look in build-resources/demos/<demoName>/
       // Fall back to build-resources/demo-project/ for the default case.

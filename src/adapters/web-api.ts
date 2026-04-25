@@ -297,6 +297,13 @@ export function createWebFlintAPI() {
         invoke('tokens:update', tokenPath, updates) as Promise<{ changes: number }>,
       delete: (id: number) => invoke('tokens:delete', id) as Promise<{ changes: number }>,
       clearAll: () => invoke('tokens:clear-all') as Promise<{ changes: number }>,
+      seedFromProject: (projectRoot: string) =>
+        invoke('tokens:seed-from-project', projectRoot) as Promise<{
+          seeded: number
+          source: 'project' | 'none'
+          sourcePath?: string
+          error?: string
+        }>,
       clearOverride: (flintId: string) => invoke('tokens:clear-override', flintId) as Promise<void>,
       upsertOverride: (flintId: string, propertyKey: string, propertyValue: string) =>
         invoke('tokens:upsert-override', flintId, propertyKey, propertyValue) as Promise<void>,

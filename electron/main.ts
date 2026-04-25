@@ -3,6 +3,7 @@ import type { MenuItemConstructorOptions } from 'electron'
 import path from 'node:path'
 import { BRAND, ipcChannel, logTag } from '../shared/brand.ts'
 import { computeExpiresAt } from '../shared/deferralUtils.ts'
+import { flattenDtcg } from '../shared/dtcgFlatten.ts'
 import type { DeferDuration } from '../shared/deferralUtils.ts'
 import { fileURLToPath } from 'node:url'
 import { readdir, readFile, writeFile, mkdir, stat as fsStat, open as fsOpen, cp } from 'node:fs/promises'
@@ -254,7 +255,16 @@ async function ensureWebServer(): Promise<string> {
         process.execPath,
         [cliPath, '--project', projectRoot, '--port', String(port), '--no-open'],
         {
-            env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+            env: {
+                ...process.env,
+                ELECTRON_RUN_AS_NODE: '1',
+                // The server's beta:load-demo-project handler needs to find
+                // build-resources/demo-project. In the packaged app it lives at
+                // process.resourcesPath/build-resources/, not relative to the
+                // server's __dirname. Pass it explicitly so the server doesn't
+                // need to guess Electron-specific paths.
+                FLINT_RESOURCES_PATH: process.resourcesPath,
+            },
             stdio: ['ignore', 'pipe', 'pipe'],
         },
     )
@@ -430,21 +440,32 @@ const DEVELOPMENT_CSP = [
 
 const PRODUCTION_CSP = [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline'",
+    // 'unsafe-eval' is required by the LivePreview engine — user JSX is
+    // transpiled to JS and then evaluated at runtime via new Function().
+    // The web build runs the same code path; the dev CSP already allows it.
+    "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
     "style-src 'self' 'unsafe-inline'",
-    "connect-src 'self' http://127.0.0.1:*",
+    // Embedded Express server handles HTTP IPC + WS broadcasts on a
+    // localhost port. Both schemes must be allowed.
+    "connect-src 'self' ws://localhost:* ws://127.0.0.1:* http://127.0.0.1:* http://localhost:*",
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
     "frame-src 'self' blob: http://localhost:* http://127.0.0.1:*",
 ].join('; ')
 
 async function createWindow(): Promise<void> {
+    // In production (packaged build), the BrowserWindow loads the web UI from
+    // the embedded Express server. That UI talks to the server over HTTP/WS —
+    // it has no need for Electron's preload bridge, and attaching the preload
+    // pollutes window.flintAPI with a read-only Electron-IPC surface that
+    // collides with the web adapter. So: only attach the preload in dev.
+    const usePreload = !!process.env.VITE_DEV_SERVER_URL
     mainWindow = new BrowserWindow({
         width: 1400,
         height: 900,
         title: BRAND.appTitle,
         webPreferences: {
-            preload: PRELOAD_PATH,
+            ...(usePreload ? { preload: PRELOAD_PATH } : {}),
             contextIsolation: true,
             nodeIntegration: false,
             // Fix 5 (P3-2): sandbox: true is architecturally blocked here.
@@ -589,7 +610,7 @@ ipcMain.handle(
             console.error(`${BRAND.logPrefix} mcpClient.start failed after openFolder:`, err)
         })
         // File watcher: restart scan for new project root
-        void (globalThis as Record<string, unknown>)['__flintStartFileWatcher']?.()
+        void (globalThis as unknown as Record<string, () => void>)['__flintStartFileWatcher']?.()
         // CV2.2: Initialize thumbnail generator for the new project root
         getThumbnailGenerator(folderPath)
         // CK.1: Seed RAG store with component docs + tokens
@@ -1012,6 +1033,54 @@ app.whenReady().then(async () => {
         console.log(`${BRAND.logPrefix} tokens:clear-all: removed ${result.changes} tokens`)
         broadcastTokensUpdated()
         return { changes: result.changes }
+    })
+
+    // Reads <projectRoot>/.flint/design-tokens.json (or fallback <projectRoot>/design-tokens.json),
+    // flattens the DTCG tree into NewDesignToken[], clears the existing token store, and seeds.
+    // Returns { seeded, source } so the renderer can fall back to baseline tokens when source==='none'.
+    ipcMain.handle('tokens:seed-from-project', async (_event, projectRoot: unknown) => {
+        if (typeof projectRoot !== 'string' || projectRoot.length === 0) {
+            return { seeded: 0, source: 'none' as const, error: 'invalid project root' }
+        }
+        const candidates = [
+            path.join(projectRoot, '.flint', 'design-tokens.json'),
+            path.join(projectRoot, 'design-tokens.json'),
+        ]
+        let dtcgPath: string | null = null
+        for (const candidate of candidates) {
+            if (existsSync(candidate)) {
+                dtcgPath = candidate
+                break
+            }
+        }
+        if (!dtcgPath) {
+            return { seeded: 0, source: 'none' as const }
+        }
+        try {
+            const raw = await readFile(dtcgPath, 'utf8')
+            const parsed = JSON.parse(raw) as unknown
+            const tokens = flattenDtcg(parsed)
+            stmtClearAll.run()
+            for (const t of tokens) {
+                stmtCreate.run(
+                    t.token_path,
+                    t.token_type,
+                    t.token_value,
+                    t.description ?? null,
+                    'default',
+                    'default',
+                )
+            }
+            broadcastTokensUpdated()
+            console.log(
+                `${BRAND.logPrefix} tokens:seed-from-project: seeded ${tokens.length} tokens from ${dtcgPath}`,
+            )
+            return { seeded: tokens.length, source: 'project' as const, sourcePath: dtcgPath }
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err)
+            console.warn(`${BRAND.logPrefix} tokens:seed-from-project failed: ${message}`)
+            return { seeded: 0, source: 'none' as const, error: message }
+        }
     })
 
     // ── Component Override Clear Handler (Phase E — Garbage Collection) ────────
@@ -2087,7 +2156,7 @@ app.whenReady().then(async () => {
             console.error(`${BRAND.logPrefix} mcpClient.start failed after create-scratchpad:`, err)
         })
         // File watcher: restart scan for new project root
-        void (globalThis as Record<string, unknown>)['__flintStartFileWatcher']?.()
+        void (globalThis as unknown as Record<string, () => void>)['__flintStartFileWatcher']?.()
         // CV2.2: Initialize thumbnail generator for the new project root
         getThumbnailGenerator(targetPath)
         // CK.1: Seed RAG store with component docs + tokens
@@ -2167,7 +2236,7 @@ app.whenReady().then(async () => {
                 console.error(`${BRAND.logPrefix} mcpClient.start failed after openPath:`, err)
             })
             // File watcher: restart scan for new project root
-            void (globalThis as Record<string, unknown>)['__flintStartFileWatcher']?.()
+            void (globalThis as unknown as Record<string, () => void>)['__flintStartFileWatcher']?.()
             // CV2.2: Initialize thumbnail generator for the new project root
             getThumbnailGenerator(normalized)
             // CK.1: Seed RAG store with component docs + tokens
@@ -2985,7 +3054,7 @@ app.whenReady().then(async () => {
                 // Padding
                 const pt = styles.paddingTop, pr = styles.paddingRight, pb = styles.paddingBottom, pl = styles.paddingLeft
                 if (pt != null || pr != null || pb != null || pl != null) {
-                    if (pt === pr && pr === pb && pb === pl && pt > 0) {
+                    if (pt != null && pt === pr && pr === pb && pb === pl && pt > 0) {
                         const p = spacingToTw(pt)
                         cls.push(p ? `p-${p}` : `p-[${pt}px]`)
                     } else {
@@ -3138,7 +3207,7 @@ app.whenReady().then(async () => {
                     }
 
                     // Skip nodes explicitly marked (e.g., Chips we can't render yet)
-                    if (resolver.skip) return { _skip: true }
+                    if (resolver.skip) return { _skip: true } as unknown as HydroResolvedDef
 
                     // Build resolved def
                     const def: HydroResolvedDef = {
@@ -3155,7 +3224,7 @@ app.whenReady().then(async () => {
                     if (resolver.variantToProp) {
                         const { field, map } = resolver.variantToProp
                         const variantVal = parsed[field] || props[field]
-                        if (variantVal && map[variantVal]) {
+                        if (typeof variantVal === 'string' && map[variantVal]) {
                             def.defaultProps = { ...def.defaultProps, ...map[variantVal] }
                         }
                     }
@@ -3178,7 +3247,8 @@ app.whenReady().then(async () => {
 
                 // Handle raw text nodes from Figma (type "_TextNode")
                 if (nodeData.figmaComponent === '_TextNode') {
-                    const text = nodeData.props?.content || ''
+                    const rawText = nodeData.props?.content
+                    const text = typeof rawText === 'string' ? rawText : ''
                     if (!text) return null
                     const twClass = stylesToTailwind(nodeData.styles)
                     if (twClass) {
@@ -3325,7 +3395,7 @@ app.whenReady().then(async () => {
             const generate: (node: import('@babel/types').Node) => { code: string } =
                 typeof _genMod === 'function' ? _genMod as unknown as (node: import('@babel/types').Node) => { code: string }
                 : typeof _genMod.default === 'function' ? _genMod.default as unknown as (node: import('@babel/types').Node) => { code: string }
-                : typeof (_genMod.default as Record<string, unknown>)?.default === 'function' ? (_genMod.default as Record<string, unknown>).default as unknown as (node: import('@babel/types').Node) => { code: string }
+                : typeof (_genMod.default as unknown as Record<string, unknown>)?.default === 'function' ? (_genMod.default as unknown as Record<string, unknown>).default as unknown as (node: import('@babel/types').Node) => { code: string }
                 : (_genMod as Record<string, unknown>).generate as (node: import('@babel/types').Node) => { code: string }
 
             // Generate per-element snippets paired with their imports
@@ -3540,9 +3610,9 @@ app.whenReady().then(async () => {
 
             async function walk(dir: string): Promise<void> {
                 if (results.length >= 100) return
-                let entries: Awaited<ReturnType<typeof readdir>>
+                let entries: Array<{ name: string; isDirectory: () => boolean; isFile: () => boolean }>
                 try {
-                    entries = await readdir(dir, { withFileTypes: true })
+                    entries = (await readdir(dir, { withFileTypes: true })) as unknown as typeof entries
                 } catch { return }
                 for (const entry of entries) {
                     if (results.length >= 100) break
@@ -3639,20 +3709,20 @@ app.whenReady().then(async () => {
                         ideFileSyncLastMtime = mtimeMs
                         const raw = await readFile(filePath, 'utf8')
                         const parsed = JSON.parse(raw) as { path?: string; explicit?: boolean }
-                        const filePath = parsed.path
+                        const parsedPath = parsed.path
                         const isExplicit = parsed.explicit === true
                         if (
-                            typeof filePath === 'string' &&
-                            path.isAbsolute(filePath) &&
+                            typeof parsedPath === 'string' &&
+                            path.isAbsolute(parsedPath) &&
                             activeProjectRoot &&
-                            filePath.startsWith(activeProjectRoot + path.sep) &&
+                            parsedPath.startsWith(activeProjectRoot + path.sep) &&
                             // Explicit commands bypass the lastPath dedup guard so
                             // the user can always reload the same file intentionally.
-                            (isExplicit || filePath !== ideFileSyncLastPath)
+                            (isExplicit || parsedPath !== ideFileSyncLastPath)
                         ) {
-                            ideFileSyncLastPath = filePath
+                            ideFileSyncLastPath = parsedPath
                             BrowserWindow.getAllWindows().forEach((w) => {
-                                if (!w.isDestroyed()) w.webContents.send(ipcChannel('ide-file-selected'), { path: filePath, explicit: isExplicit })
+                                if (!w.isDestroyed()) w.webContents.send(ipcChannel('ide-file-selected'), { path: parsedPath, explicit: isExplicit })
                             })
                         }
                     }
@@ -5602,7 +5672,7 @@ app.whenReady().then(async () => {
             console.error(`${BRAND.logPrefix} mcpClient.start failed for auto-scratchpad:`, err)
         })
         // File watcher: restart scan for auto-scratchpad project root
-        void (globalThis as Record<string, unknown>)['__flintStartFileWatcher']?.()
+        void (globalThis as unknown as Record<string, () => void>)['__flintStartFileWatcher']?.()
     }
 
     app.on('activate', () => {

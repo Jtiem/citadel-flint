@@ -360,6 +360,21 @@ function App() {
     // ── Shared hydrate helper ─────────────────────────────────────────────────
     const hydrateWorkspace = async (tree: FileTreeNode) => {
         setWorkspaceFiles(tree)
+        // Seed the design token store from the project's DTCG file before any
+        // component renders, so LivePreview's CSS var injection has the right
+        // values. Falls back to baseline tokens if the project ships no DTCG.
+        try {
+            const result = await window.flintAPI.tokens.seedFromProject(tree.path)
+            if (result.source === 'none') {
+                const tokens = useTokenStore.getState().tokens
+                if (tokens.length === 0) {
+                    const { seedTokens } = await import('./core/seedTokens')
+                    await seedTokens()
+                }
+            }
+        } catch (err) {
+            console.warn('[Flint] tokens.seedFromProject failed:', err)
+        }
         const primaryPath = findPrimaryFile(tree)
         if (primaryPath) await setActiveFile(primaryPath)
     }
@@ -778,7 +793,7 @@ function App() {
     // dialog becomes visible. If the IPC is not wired yet (Group A not landed)
     // or throws, we default to not showing the dialog — privacy-safe fallback.
     useEffect(() => {
-        const api = window.flintAPI as Record<string, unknown> & typeof window.flintAPI
+        const api = window.flintAPI as unknown as Record<string, unknown> & typeof window.flintAPI
         const telemetryApi = api?.telemetry as
             | { getConsent?: () => Promise<{ state: string }> }
             | undefined
