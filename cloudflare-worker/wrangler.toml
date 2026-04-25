@@ -1,0 +1,16 @@
+name = "flint-telemetry"
+main = "src/index.ts"
+compatibility_date = "2026-04-01"
+
+# KV namespace for persisted telemetry events.
+# Placeholder id — replace with real id from `wrangler kv namespace create TELEMETRY_KV`.
+[[kv_namespaces]]
+binding = "TELEMETRY_KV"
+id = "8c486a3fec4c41f09cc0a9068d03cf4e"
+
+# Secrets (set via `wrangler secret put`, not in this file):
+#   SLACK_WEBHOOK_URL   — Slack incoming-webhook URL
+#   SHARED_SECRET       — Optional pre-shared secret for endpoint gating
+
+[observability]
+enabled = true
