@@ -275,14 +275,39 @@ export function GhostCodeSnippet() {
 
   // Pill button: shown when a node is selected but the panel has not been opened.
   if (!manualOpen) {
-    return <button type="button" onClick={() => setManualOpen(true)} className="pointer-events-auto absolute bottom-6 left-1/2 z-50 -translate-x-1/2 flex items-center gap-1.5 rounded-full border border-zinc-700/50 bg-zinc-900/90 px-3 py-1.5 text-[var(--spacing.2, 8px)] text-zinc-400 shadow-lg backdrop-blur-sm hover:text-zinc-200 hover:border-zinc-600 transition-colors" aria-label="View source code">
+    // A11Y-090: motion-safe guard on transition-colors
+    return <button type="button" onClick={() => setManualOpen(true)} className="pointer-events-auto absolute bottom-6 left-1/2 z-50 -translate-x-1/2 flex items-center gap-1.5 rounded-full border border-zinc-700/50 bg-zinc-900/90 px-3 py-1.5 text-[var(--spacing.2, 8px)] text-zinc-400 shadow-lg backdrop-blur-sm hover:text-zinc-200 hover:border-zinc-600 motion-safe:transition-colors" aria-label="View source code">
                 <Code2 size={10} />
                 View Source
             </button>;
   }
   return <div className="pointer-events-auto absolute bottom-6 left-1/2 z-50 -translate-x-1/2 w-[var(--spacing.12, 48px)] rounded-lg border border-zinc-700/50 bg-zinc-900/90 shadow-2xl backdrop-blur-sm" role="complementary" aria-label={`Source snippet for ${tagLabel}`} data-testid="ghost-code-snippet">
             {/* ── Drag handle ───────────────────────────────────────── */}
-            <div className="flex items-center justify-center py-1 cursor-ns-resize" onMouseDown={handleDragMouseDown} aria-label="Drag to resize" role="separator" aria-orientation="horizontal" data-testid="ghost-code-snippet-drag-handle">
+            {/* A11Y-021/100: tabIndex + onKeyDown make it keyboard-reachable.   */}
+            {/* A11Y-033: role="separator" requires aria-valuenow/min/max so     */}
+            {/* screen readers can announce the current panel height.            */}
+            <div
+              className="flex items-center justify-center py-1 cursor-ns-resize"
+              role="separator"
+              aria-orientation="horizontal"
+              aria-label="Drag to resize code panel"
+              aria-valuenow={codeHeight}
+              aria-valuemin={MIN_HEIGHT}
+              aria-valuemax={MAX_HEIGHT}
+              tabIndex={0}
+              onMouseDown={handleDragMouseDown}
+              onKeyDown={e => {
+                // Arrow keys adjust height; Space/Enter are no-ops (resize is continuous)
+                if (e.key === 'ArrowUp') {
+                  e.preventDefault();
+                  setCodeHeight(h => Math.min(MAX_HEIGHT, h + 20));
+                } else if (e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  setCodeHeight(h => Math.max(MIN_HEIGHT, h - 20));
+                }
+              }}
+              data-testid="ghost-code-snippet-drag-handle"
+            >
                 <div className="h-1.5 w-12 rounded-full bg-zinc-600" />
             </div>
 
@@ -303,7 +328,7 @@ export function GhostCodeSnippet() {
                     </span>
                 </div>
 
-                <button type="button" onClick={() => setManualOpen(false)} className="shrink-0 rounded p-0.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-100 ml-2" title="Dismiss snippet (Esc)" aria-label="Dismiss code snippet">
+                <button type="button" onClick={() => setManualOpen(false)} className="shrink-0 rounded p-0.5 text-zinc-500 motion-safe:transition-colors hover:bg-zinc-800 hover:text-zinc-100 ml-2" title="Dismiss snippet (Esc)" aria-label="Dismiss code snippet">
                     <X size={12} />
                 </button>
             </div>

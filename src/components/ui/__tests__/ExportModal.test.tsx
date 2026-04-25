@@ -70,11 +70,12 @@ describe('ExportModal', () => {
         mithrilViolations: ['node-abc']
       });
       render(<ExportModal onClose={() => undefined} />);
-      // The header h2 contains "Blocked". The body may also contain "blocked"
-      // (lower-case) in an explanation message — use the h2 specifically.
+      // The header h1 contains "Blocked". The body may also contain "blocked"
+      // (lower-case) in an explanation message — use the h1 specifically.
+      // (Modal title was changed from h2 to h1 per A11Y-010 fix.)
       await waitFor(() => {
-        const h2 = document.querySelector('h2');
-        expect(h2?.textContent).toMatch(/Blocked/i);
+        const h1 = document.querySelector('h1');
+        expect(h1?.textContent).toMatch(/Blocked/i);
       });
     });
     it('renders "Critical" header when a warning has severity === "critical"', async () => {
@@ -105,10 +106,11 @@ describe('ExportModal', () => {
         mithrilViolations: ['node-abc']
       });
       render(<ExportModal onClose={() => undefined} />);
-      // Use the h2 element specifically — body also contains "blocked" in explanation text.
+      // Use the h1 element specifically — body also contains "blocked" in explanation text.
+      // (Modal title changed from h2 to h1 per A11Y-010 fix.)
       await waitFor(() => {
-        const h2 = document.querySelector('h2');
-        expect(h2?.textContent).toMatch(/Blocked/i);
+        const h1 = document.querySelector('h1');
+        expect(h1?.textContent).toMatch(/Blocked/i);
       });
     });
   });
@@ -281,14 +283,12 @@ describe('ExportModal', () => {
     });
     it('calls onClose when the backdrop is clicked', async () => {
       const onClose = vi.fn();
-      const {
-        container
-      } = render(<ExportModal onClose={onClose} />);
+      render(<ExportModal onClose={onClose} />);
       await waitFor(() => screen.getByLabelText('Close export modal'));
 
-      // The backdrop is the outermost div rendered by ExportModal.
-      const backdrop = container.firstChild as HTMLElement;
-      fireEvent.click(backdrop);
+      // The backdrop dismiss button is a <button> behind the dialog card.
+      // (Refactored from a bare div onClick to a proper button for A11Y-020/100.)
+      fireEvent.click(screen.getByLabelText('Close export modal backdrop'));
       expect(onClose).toHaveBeenCalledOnce();
     });
     it('calls onClose when the close button in the header is clicked', async () => {
@@ -411,9 +411,11 @@ describe('ExportModal — GAP-3 violation sort order', () => {
       expect(screen.getByText('override-xyz')).toBeDefined();
     });
     // a11y section header precedes override section header in DOM
+    // (Section headings changed from h3 to h2 per A11Y-010 fix — h1 is modal
+    // title, h2 are section headers, preserving a proper heading sequence.)
     const a11yHeader = screen.getByText(/Accessibility Issues/i);
     const overrideHeader = screen.getByText(/Unapplied Style Changes/i);
-    const all = Array.from(document.querySelectorAll('h3'));
+    const all = Array.from(document.querySelectorAll('h2'));
     const a11yIdx = all.indexOf(a11yHeader as HTMLHeadingElement);
     const overrideIdx = all.indexOf(overrideHeader as HTMLHeadingElement);
     expect(a11yIdx).toBeLessThan(overrideIdx);
