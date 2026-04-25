@@ -32,6 +32,10 @@
  *   TCDLG-16 — A11y focus trap: Shift+Tab from Accept (first) wraps to Decline (last)
  *   TCDLG-17 — A11y focus trap: initial focus lands on Accept button
  *   TCDLG-18 — A11y focus trap: no crash when dialog has no focusable children
+ *   TCDLG-19 — disclosure: "What gets collected?" summary is present and collapsed by default
+ *   TCDLG-20 — disclosure: expanding it shows all five event descriptions
+ *   TCDLG-21 — copy: body mentions "off until you opt in here" (honest reversibility)
+ *   TCDLG-22 — Decline button has a visible border (peer visual weight with Accept)
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
@@ -88,7 +92,7 @@ function mockFlintAPIWithConsent(state: ConsentRecord['state']) {
   } satisfies ConsentRecord)
 
   ;(window as { flintAPI: unknown }).flintAPI = {
-    ...(window as { flintAPI: Record<string, unknown> }).flintAPI,
+    ...(window as unknown as { flintAPI: Record<string, unknown> }).flintAPI,
     telemetry: {
       getConsent,
       setConsent,
@@ -337,6 +341,74 @@ describe('TelemetryConsentDialog — A11y attributes', () => {
     const descEl = document.getElementById(descId!)
     expect(descEl).toBeTruthy()
     expect(descEl!.textContent!.length).toBeGreaterThan(0)
+  })
+})
+
+describe('TelemetryConsentDialog — disclosure and copy (UX warnings 1+2)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('TCDLG-19 — "What gets collected?" disclosure is present and collapsed by default', async () => {
+    if (!TelemetryConsentDialog) return
+    mockFlintAPIWithConsent('unset')
+    renderDialog()
+    await flushFocusTimer()
+
+    const disclosure = screen.getByTestId('telemetry-disclosure')
+    expect(disclosure).toBeDefined()
+    // <details> must NOT have the open attribute by default
+    expect((disclosure as HTMLDetailsElement).open).toBe(false)
+    expect(screen.getByText('What gets collected?')).toBeDefined()
+  })
+
+  it('TCDLG-20 — expanding the disclosure shows all five event descriptions', async () => {
+    if (!TelemetryConsentDialog) return
+    mockFlintAPIWithConsent('unset')
+    renderDialog()
+    await flushFocusTimer()
+
+    const summary = screen.getByText('What gets collected?')
+    await act(async () => {
+      fireEvent.click(summary)
+    })
+
+    const list = screen.getByTestId('telemetry-disclosure-list')
+    expect(list).toBeDefined()
+    // All five categories must be mentioned
+    expect(list.textContent).toMatch(/App launches/i)
+    expect(list.textContent).toMatch(/Crashes/i)
+    expect(list.textContent).toMatch(/Tool names/i)
+    expect(list.textContent).toMatch(/Audit summaries/i)
+    expect(list.textContent).toMatch(/Session length/i)
+  })
+
+  it('TCDLG-21 — body copy is honest about reversibility: says "off until you opt in here"', async () => {
+    if (!TelemetryConsentDialog) return
+    mockFlintAPIWithConsent('unset')
+    renderDialog()
+    await flushFocusTimer()
+
+    const desc = screen.getByTestId
+      ? document.getElementById('telemetry-dialog-description')
+      : null
+    expect(desc).toBeTruthy()
+    expect(desc!.textContent).toMatch(/off until you opt in here/i)
+  })
+
+  it('TCDLG-22 — Decline button has a border class (peer visual weight with Accept)', async () => {
+    if (!TelemetryConsentDialog) return
+    mockFlintAPIWithConsent('unset')
+    renderDialog()
+    await flushFocusTimer()
+
+    const declineBtn = screen.getByTestId('telemetry-decline-btn')
+    // Border presence is tested via className — this guards against regressions
+    // that strip the border and return Decline to ghost-only styling.
+    expect(declineBtn.className).toMatch(/border/)
   })
 })
 

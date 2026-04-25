@@ -14,6 +14,10 @@
  *     affirmatively click Accept)
  *   - Escape key routes to Decline path
  *
+ * Backdrop click is intentionally a no-op. Consent decisions must be explicit
+ * — accidental dismissal via outside click is not an acceptable interaction for
+ * a consent prompt.
+ *
  * Commandment 2: Token-backed Tailwind classes for text colors (text-primary,
  * text-secondary, text-accent) defined in src/index.css @theme. Surface and
  * border zinc classes follow the codebase modal convention (see ExportModal).
@@ -103,8 +107,34 @@ export function TelemetryConsentDialog({ onDecided }: TelemetryConsentDialogProp
               Flint Beta can send anonymous usage events and your feedback
               submissions to help us improve. No file contents or design data
               leave your machine. Telemetry is{' '}
-              <span className="font-medium text-primary">off until you opt in.</span>
+              <span className="font-medium text-primary">off until you opt in here.</span>
             </p>
+
+            {/* ── What gets collected — collapsed disclosure (Warning 2) ──────── */}
+            <details
+              className="group rounded border border-zinc-700/50 bg-zinc-800/40"
+              data-testid="telemetry-disclosure"
+            >
+              <summary className="flex cursor-pointer select-none items-center gap-2 px-3 py-2 text-xs font-medium text-zinc-400 hover:text-zinc-100 motion-safe:transition-colors">
+                <span
+                  className="inline-block motion-safe:transition-transform group-open:rotate-90"
+                  aria-hidden="true"
+                >
+                  ›
+                </span>
+                What gets collected?
+              </summary>
+              <ul
+                className="space-y-1.5 px-4 pb-3 pt-1 text-xs text-secondary"
+                data-testid="telemetry-disclosure-list"
+              >
+                <li>App launches — OS, app version, and display language. No IP address.</li>
+                <li>Crashes — the error message and a redacted stack trace. Never your file contents.</li>
+                <li>Tool names you use — the name only, never the inputs or arguments.</li>
+                <li>Audit summaries — file count, violation count, and how long the audit took. No file paths.</li>
+                <li>Session length — time from app open to close. Nothing else.</li>
+              </ul>
+            </details>
 
             {/* Error state — surfaced inline, does not dismiss the dialog */}
             {error && (
@@ -120,12 +150,17 @@ export function TelemetryConsentDialog({ onDecided }: TelemetryConsentDialogProp
 
           {/* ── Actions ──────────────────────────────────────────────────────── */}
           <div className="flex items-center justify-end gap-2 border-t border-zinc-800 px-5 py-3">
-            {/* Decline — initial focus target (privacy-safe default) */}
+            {/*
+              Decline — initial focus target (privacy-safe default).
+              Uses a bordered ghost style so both buttons read as peer choices,
+              not primary CTA + escape hatch. Focus order and initial focus do
+              the privacy-priming; visual weight is balanced. (Warning 4 fix.)
+            */}
             <button
               ref={declineRef}
               onClick={handleDecline}
               disabled={isPending}
-              className="rounded px-4 py-1.5 text-sm font-medium text-secondary motion-safe:transition-colors hover:bg-zinc-800 hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 disabled:opacity-50"
+              className="rounded border border-zinc-700 px-4 py-1.5 text-sm font-medium text-zinc-200 motion-safe:transition-colors hover:bg-zinc-800 hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 disabled:opacity-50"
               data-testid="telemetry-decline-btn"
             >
               Decline
