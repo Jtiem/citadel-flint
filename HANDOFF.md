@@ -1,8 +1,98 @@
 # Flint — Developer Handoff
 
-**Date:** 2026-03-21
+**Date:** 2026-04-24
 **Architecture:** Flint MCP (headless governance engine) + Flint Glass (Electron observability layer) + Flint Web (browser distribution)
-**Test baseline:** 3,612/3,612 MCP | 1,537/1,537 Glass | 1,087/1,087 Core | 56/56 CI — TSC 0 errors
+**Test baseline:** 5,652/5,652 MCP | 3,270/3,270 Glass | 2,619/2,619 Core | 56/56 CI — TSC 0 errors
+
+---
+
+## Session: perf — 16 hotspot elimination (2026-04-21) — COMPLETE (commit 79488c2)
+
+**Goal:** Eliminate known performance hotspots across MCP engine, Electron, and Glass identified by the A/B review.
+
+**What shipped:** SQLite prepared-statement caching in `mutationLedgerService`, `mutationProvenanceService`, and `anomalyDetectionService` (re-compilation on every write eliminated). React store subscriptions in `LivePreview` consolidated from 21 to 3 `useShallow` selectors. `useContextSync` skip-on-no-change guard (no IPC write when context is identical). `GovernanceDashboard` trimmed to length-only violation subscriptions. Electron file-watcher overlapping-tick guard added; `useRemotePresence` poll gated behind active project file; IDE sync interval replaced with exponential back-off (200ms→2s); annotations poll gated behind panel-open.
+
+**Files changed:** `electron/main.ts`, `flint-mcp/src/core/config-loader.ts`, 3 governance services, `flint-mcp/src/server.ts`, `src/components/editor/LivePreview.tsx`, `src/components/ui/GovernanceDashboard.tsx`, `src/hooks/useContextSync.ts`.
+
+---
+
+## Session: fix(beta-gate1) — dashboard-after a11y + Gate 1 checklist (2026-04-21) — COMPLETE (commit d74b94a)
+
+**Goal:** Close the final Gate 1 a11y issues on the `dashboard-after` demo fixture.
+
+**What shipped:** Motion guard added to `transition-colors`; `sr-only` caption added to table; redundant `role="table"` removed. All 5 Gate 1 checklist items checked off in `docs/strategy/BETA-READINESS-CHECKLIST.md`.
+
+**Files changed:** `build-resources/demos/dashboard-after/MetricDashboard.tsx`, `docs/strategy/BETA-READINESS-CHECKLIST.md`.
+
+---
+
+## Session: feat(demo.cut.2) — Gate 1 sign-off + figma-d2c MUI canonical (2026-04-21) — COMPLETE (commit 4ca8b60)
+
+**Goal:** Final Gate 1 sign-off — correct figma-d2c demo labeling and fix broken flint-ci project reference.
+
+**What shipped:** `demos/figma-d2c/README.md` corrected from "shadcn" to "MUI" as canonical library. `flint-ci/tsconfig.json` broken project reference to flint-mcp removed. Beta Gate 1 verdict: PASS.
+
+**Files changed:** `HANDOFF.md`, `demos/figma-d2c/README.md`, `flint-ci/tsconfig.json`.
+
+---
+
+## Session: feat(inspector.1) — Context-Aware Properties Panel (2026-04-20) — COMPLETE (commit 12d82f3)
+
+**Goal:** Turn the Properties panel into a Figma-grade context-aware inspector with element-type routing.
+
+**What shipped:** `src/core/elementTypePropertyMap.ts` registry mapping 24 HTML tags across 5 buckets (Text, Container, Media, Interactive, Form). `useAutoTabSwitch` hook auto-switches to Properties tab on node select. Off-token value flagging inline. 4 new inspector sections: `TypographySection`, `FormPropsSection`, `MediaPropsSection`, `A11ySection`. `canvasStore` extended with `userOverrodeTab` + `markTabOverridden`. 62-test matrix.
+
+**Files changed:** `src/core/elementTypePropertyMap.ts`, `src/components/ui/PropertiesPanel.tsx`, `src/utils/tokenMatcher.ts`, `src/hooks/useAutoTabSwitch.ts`, `src/store/canvasStore.ts`.
+
+---
+
+## Session: feat(fixture.1.1) — DTCG token shape adapter + review fix-sweep (2026-04-19) — COMPLETE (commit 2eb8d7e)
+
+**Goal:** Close FIXTURE.1's documented token-shape drift. Linter was reading legacy flat token shape while design-tokens.json uses DTCG nested form, causing false positives.
+
+**What shipped:** `flint-mcp/src/core/dtcgTokenAdapter.ts` pure adapter with single-hop and multi-hop alias resolution, cycle safety, broken-ref typing. One-line swap at `server.ts:2038`. Post-review security sweep: depth cap 64, INVALID_VALUE_TYPE guard on Symbol/function/$value, negative FNV-1a hash IDs verified disjoint from DB-positive IDs.
+
+**Files changed:** `flint-mcp/src/core/dtcgTokenAdapter.ts`, `flint-mcp/src/server.ts`.
+
+---
+
+## Session: feat(forge) — 3-channel launch consolidation (2026-04-19) — COMPLETE (commit 235c5dd)
+
+**Goal:** Collapse 4-tile launch screen to 3 focused channels with smart project detection.
+
+**What shipped:** `LaunchScreen` redesigned to 3 channels (idea / Figma / existing code). `DetectionPreview` component for smart-open results. `project:smart-open` IPC with slug traversal guard, symlink resolution, GIT_ASKPASS suppression, 30s clone timeout, SSRF gate on web build. MUI wired as per-project default end-to-end. 40 new tests.
+
+**Files changed:** `src/components/ui/LaunchScreen.tsx`, `electron/main.ts`, `server/index.ts`, plus test files.
+
+---
+
+## Session: feat(fixture.1) — Audit Context System + cheaper-pilot replication (2026-04-19) — COMPLETE (commit 882343a)
+
+**Goal:** Fix Beta Gate 1 items #3 + #4 (demo audit showing "Tokens Loaded: 0" and page-landmark rules applied to component fixtures).
+
+**What shipped:** `shared/fixture-schema.ts` (FlintFixture/ResolvedFixture/RuleAppliesTo Zod types). `flint-mcp/src/core/fixtureResolver.ts` walk-up `.flint-fixture.json` finder (tsconfig-style nearest-wins), security-hardened post-review. Cheaper-pilot ceremony run against the diff.
+
+**Files changed:** `shared/fixture-schema.ts`, `flint-mcp/src/core/fixtureResolver.ts`, `flint-mcp/src/server.ts`.
+
+---
+
+## Session: fix(mint.5.3) — close UX WARN-1 + persist integration report (2026-04-19) — COMPLETE (commit 8c1d448)
+
+**Goal:** Close two pilot-cleanup items from the MINT.5.3 review ceremony.
+
+**What shipped:** `EmitDropdown` invalid HTML nesting fixed — swapped `<ul>/<li>` to `<div role="menu">/<div role="menuitem">`. Integration validator now persists its report to disk instead of returning inline-only. 16 EmitDropdown tests still pass; no test changes needed.
+
+**Files changed:** `src/components/ui/EmitDropdown.tsx`, agent definitions for `flint-integration-validator`.
+
+---
+
+## Session: fix(agents) — close Write-tool gap (2026-04-19) — COMPLETE (commit 4dcca0c)
+
+**Goal:** Ensure `flint-ux-critic` and `flint-security-reviewer` can write their `.review.ts` files directly without orchestrator fallback.
+
+**What shipped:** Write tool added to `flint-ux-critic` and `flint-security-reviewer` agent definitions. `flint-integration-validator` instruction gap fixed — now persists report to `.flint-context/reviews/` as part of its output contract.
+
+**Files changed:** `.claude/agents/flint-ux-critic.md`, `.claude/agents/flint-security-reviewer.md`, `.claude/agents/flint-integration-validator.md`.
 
 ---
 

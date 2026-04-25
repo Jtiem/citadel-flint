@@ -485,7 +485,7 @@ export function detectReturningUser(projectRoot: string): boolean {
  * Returns a reasonable static count derived from the CLAUDE.md tool table (54 registered).
  * This is intentionally static — the count is known at build time and avoids circular deps.
  */
-const REGISTERED_TOOL_COUNT = 59;
+const REGISTERED_TOOL_COUNT = 61;
 
 /**
  * Build the MCP server instructions string.

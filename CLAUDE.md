@@ -14,7 +14,7 @@ Two components:
 
 Flint MCP does all the work. Flint Glass reads MCP Resources to display state and calls MCP Tools to trigger actions. Glass owns zero business logic. Chat lives in the host IDE (Claude Code, Cursor, VS Code). Flint Glass is the observability layer, not a chat host.
 
-**Figma Integration:** Figma MCP is the **only** Figma integration path. The custom Figma plugin (`figma-plugin/`) was deprecated and deleted on 2026-04-15. Do not reference, recreate, or suggest the Figma plugin. The ingestion server (`localhost:4545`) remains as an internal API but is not a product feature — do not surface it in UI or documentation. Use `/figma <url>` for design-to-code, `/connect` for OAuth setup, and `/tokens` for token sync.
+**Figma Integration:** Figma MCP is the **only** Figma integration path. The custom Figma plugin (`figma-plugin/`) was deprecated on 2026-04-15 (directory retained for historical reference, unmaintained). Do not reference, recreate, or suggest the Figma plugin. The ingestion server (`localhost:4545`) remains as an internal API but is not a product feature — do not surface it in UI or documentation. Use `/figma <url>` for design-to-code, `/connect` for OAuth setup, and `/tokens` for token sync.
 
 ## Feature Names (The Citadel)
 
@@ -95,7 +95,7 @@ Any feature crossing this boundary needs an IPC channel via `contextBridge`.
 
 ## MCP Surface
 
-### Tools (54 registered)
+### Tools (61 registered)
 
 All tools registered in `flint-mcp/src/server.ts`:
 
@@ -155,8 +155,15 @@ All tools registered in `flint-mcp/src/server.ts`:
 | `flint_pack_import` | GPX — import governance pack with conflict detection |
 | `flint_pack_rollback` | GPX — rollback a previously imported pack |
 | `flint_defer_violation` | Defer a violation for later resolution (snooze) |
+| `flint_list_rule_packs` | List available governance rule packs by domain and jurisdiction |
+| `flint_enable_pack` | Enable a governance rule pack by adding its preset |
+| `flint_disable_pack` | Disable a governance rule pack by removing its preset |
+| `flint_set_rule_mode` | Set per-rule enforcement mode (coercive/normative/advisory/off) |
+| `flint_compliance_coverage` | Per-jurisdiction rule coverage analysis (WCAG 2.2, HIPAA, etc.) |
+| `flint_quickstart` | Scaffold a demo component with intentional violations for first-time users |
+| `flint_drift_trend` | Design system compliance trending — weekly violations, fix rate, repeat offenders |
 
-### Resources (13 registered)
+### Resources (14 registered)
 
 | URI | What it exposes |
 |-----|----------------|
@@ -172,15 +179,19 @@ All tools registered in `flint-mcp/src/server.ts`:
 | `flint://overrides` | Current override count and summary by rule/session |
 | `flint://agent-risk` | Per-agent risk posture and escalation status |
 | `flint://anomalies` | Current anomaly count and latest detected anomalies from statistical baseline |
+| `flint://governance/trends` | Drift trending — weekly violation counts, fix rate, repeat offender files, adoption score, and alerts |
 | `flint://figma-connection` | Active Figma connection status for the project |
 
-### Prompts (3 registered)
+### Prompts (6 registered)
 
 | Prompt | Purpose |
 |--------|---------|
 | `flint-intent-composer` | UX/UI Architecture Sentinel persona for design-to-code translation |
 | `flint-sentinel` | Domain-configurable governance engine persona |
 | `flint-workflow-guide` | Step-by-step workflow guidance for new MCP clients discovering Flint |
+| `flint-quick-audit` | Audit the current file for governance violations (design tokens, accessibility, brand compliance) |
+| `flint-fix-all` | Audit and auto-fix all governance violations in the current file |
+| `flint-onboard-project` | First-time project setup — index design system, run baseline audit, and get a governance health score |
 
 ## Module Status
 
@@ -247,6 +258,8 @@ All tools registered in `flint-mcp/src/server.ts`:
 | Web Build (Express+WS server, 94 IPC handlers, `web-api.ts` adapter) | WEB | **ONLINE** |
 | Progressive Disclosure (tab unlock, empty states, contextual tooltips, status bar gating) | PD | **ONLINE** |
 | Governance Education (plain-language labels, "Why?" rows, glossary, rule descriptions) | EDU | **ONLINE** |
+| Glass Interaction Schema (6 primitives: Section, PropertyRow, FooterActionBar, MetadataTooltip, StatBadge, PanelTabLabel; Figma-rhythm type scale + color ladder) | GLASSTYPO.1 | **ONLINE** |
+| Context-Aware Properties Panel (element-type registry mapping 24 tags, auto-tab-switch on node select, off-token value flagging inline) | INSPECTOR.1 | **ONLINE** |
 
 ### Collaboration + Sync
 
@@ -372,6 +385,7 @@ All tools registered in `flint-mcp/src/server.ts`:
 | `annotationStore` | Annotation CRUD, fs.watch push sync, rendering state |
 | `importSummaryStore` | Ingestion heal summary, tier-2 snap resolution, undo-all-heals |
 | `componentCardStore` | Component card grid state (Build/Govern canvas modes), card positions, selection, category overrides |
+| `syncStalenessStore` | Per-session Envoy staleness banner dismissal (not persisted) |
 
 ## The 16 Commandments
 
@@ -598,6 +612,8 @@ Do not port designer features to the extension or developer features to Glass un
 | `electron/consensusGateService.ts` | V.4 — Multi-agent epistemic consensus gate evaluation |
 | `electron/mrsEngine.ts` | MRS risk scoring engine (Electron-side) |
 | `electron/figmaOAuth.ts` | Alliance — Figma OAuth flow handler |
+| `electron/ragService.ts` | Offline RAG pipeline; 384-dim embeddings via @huggingface/transformers; `vec_design_system` virtual table |
+| `electron/templateService.ts` | Project scaffolding; copies bundled templates with path-traversal prevention |
 
 ### Glass UI
 | File | Role |
