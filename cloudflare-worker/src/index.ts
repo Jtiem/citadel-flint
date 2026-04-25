@@ -92,6 +92,22 @@ const JSON_HEADERS = { 'Content-Type': 'application/json' }
 // 14 days. Long enough to spot patterns, short enough to feel privacy-first.
 const KV_TTL_SECONDS = 60 * 60 * 24 * 14
 
+// Hard cap on request body size. A well-formed batch of 100 events is well
+// under 64KB; anything larger is either a bug or an abuse attempt.
+const MAX_BODY_BYTES = 64 * 1024
+
+/**
+ * Constant-time string comparison via WebCrypto's timingSafeEqual.
+ * Returns false for length mismatch without leaking timing on the contents.
+ */
+function timingSafeEqualStrings(a: string, b: string): boolean {
+    const enc = new TextEncoder()
+    const aBytes = enc.encode(a)
+    const bBytes = enc.encode(b)
+    if (aBytes.byteLength !== bBytes.byteLength) return false
+    return crypto.subtle.timingSafeEqual(aBytes, bBytes)
+}
+
 export default {
     async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
         const url = new URL(request.url)
@@ -112,8 +128,16 @@ export default {
         }
 
         const provided = request.headers.get('X-Flint-Secret') ?? ''
-        if (provided !== env.SHARED_SECRET) {
+        if (!timingSafeEqualStrings(provided, env.SHARED_SECRET)) {
             return new Response('Unauthorized', { status: 401 })
+        }
+
+        // Reject oversized bodies before parsing. If Content-Length is missing
+        // or unparseable, refuse — every legitimate Glass client sets it.
+        const contentLengthHeader = request.headers.get('content-length')
+        const contentLength = contentLengthHeader ? Number(contentLengthHeader) : NaN
+        if (!Number.isFinite(contentLength) || contentLength > MAX_BODY_BYTES) {
+            return new Response('Payload too large', { status: 413 })
         }
 
         let rawBody: unknown
@@ -135,10 +159,20 @@ export default {
         const { events } = parsed.data
 
         // Persist to KV (fire-and-forget) + forward to Slack (awaited).
-        ctx.waitUntil(storeInKV(events, env))
+        // Both error paths log via console.error so failures surface in
+        // `wrangler tail` instead of disappearing silently.
+        ctx.waitUntil(
+            storeInKV(events, env).catch((err) => {
+                console.error('[flint-telemetry] kv-write failed', err)
+            }),
+        )
 
         if (env.SLACK_WEBHOOK_URL) {
-            try { await forwardToSlack(events, env.SLACK_WEBHOOK_URL) } catch { /* swallow */ }
+            try {
+                await forwardToSlack(events, env.SLACK_WEBHOOK_URL)
+            } catch (err) {
+                console.error('[flint-telemetry] slack-forward failed', err)
+            }
         }
 
         return new Response(JSON.stringify({ received: events.length }), {
