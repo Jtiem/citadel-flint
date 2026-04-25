@@ -178,10 +178,13 @@ export function useSyncStaleness(options: UseSyncStalenessOptions): UseSyncStale
             clearInterval(intervalId)
             mountedRef.current = false
         }
-    // Re-run when enabled/pollIntervalMs change. projectRoot and thresholdHours
-    // changes are handled via refs — they take effect on the next poll tick.
+    // Re-run when enabled/pollIntervalMs/projectRoot change. projectRoot is in
+    // the dep array so a hot project switch re-subscribes immediately and the
+    // first poll uses the new root (W2, code review 2026-04-20).
+    // thresholdHours still flows via ref — it only affects display math, not
+    // the IPC call shape, so a re-subscribe is unnecessary.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [enabled, pollIntervalMs])
+    }, [enabled, pollIntervalMs, projectRoot])
 
     // ── Return ───────────────────────────────────────────────────────────────
 

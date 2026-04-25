@@ -94,10 +94,14 @@ export function EmitDropdown({
   // When the menu opens, reset focus to first item.
   useEffect(() => {
     if (isOpen) {
-      setFocusedIndex(0);
+      // Clamp focusedIndex against MENU_ITEMS.length to guard against any future
+      // dynamic platform list (W4, code review 2026-04-20). Today MENU_ITEMS is
+      // static so this is forward-compat; tomorrow it may not be.
+      const safeIndex = MENU_ITEMS.length > 0 ? 0 : -1;
+      setFocusedIndex(safeIndex);
       // Let the menu mount before focusing
       const timer = setTimeout(() => {
-        itemRefs.current[0]?.focus();
+        if (safeIndex >= 0) itemRefs.current[safeIndex]?.focus();
       }, 0);
       return () => clearTimeout(timer);
     }

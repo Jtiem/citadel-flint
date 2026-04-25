@@ -422,6 +422,59 @@ export const MCP_TOOL_ARG_SCHEMAS: Record<string, z.ZodType<Record<string, unkno
   flint_sync_check: flintSyncCheckArgsSchema,
 }
 
+/**
+ * Per-tool MCP argument validation gate — single source of truth.
+ *
+ * Both `electron/preload.ts` and `server/index.ts` consult this gate before
+ * forwarding a tool call. Returning `{ ok: false, envelope }` short-circuits
+ * the IPC/MCP path with a `validation-error` classification envelope; callers
+ * MUST NOT proceed to the underlying transport on failure.
+ *
+ * Unknown tools (not registered in `MCP_TOOL_ARG_SCHEMAS`) pass through with
+ * `{ ok: true, args }` unchanged — that's the documented behavior of the gate.
+ *
+ * Resolves W5 (code review 2026-04-20): the structurally-identical validation
+ * blocks in preload + server were correct but duplicated. This helper keeps
+ * the gate logic colocated with the schema map so they can never drift.
+ */
+export type MCPValidationResult =
+  | { ok: true; args: Record<string, unknown> }
+  | {
+      ok: false;
+      envelope: {
+        content: Array<{ type: 'text'; text: string }>;
+        isError: true;
+        classification: 'validation-error';
+      };
+    }
+
+export function validateMcpToolArgs(
+  name: string,
+  args: Record<string, unknown> | undefined,
+): MCPValidationResult {
+  const resolvedArgs = (args ?? {}) as Record<string, unknown>
+  const perToolSchema = MCP_TOOL_ARG_SCHEMAS[name]
+  if (perToolSchema === undefined) {
+    return { ok: true, args: resolvedArgs }
+  }
+  const parseResult = perToolSchema.safeParse(resolvedArgs)
+  if (parseResult.success) {
+    return { ok: true, args: resolvedArgs }
+  }
+  const issue = parseResult.error.issues[0]
+  const sanitized = issue
+    ? `${issue.path.join('.') || 'args'}: ${issue.message}`
+    : 'Invalid arguments'
+  return {
+    ok: false,
+    envelope: {
+      content: [{ type: 'text', text: sanitized }],
+      isError: true,
+      classification: 'validation-error',
+    },
+  }
+}
+
 // ─── End of MINT.5 Phase 3 additions ──────────────────────────────────────────
 
 // ─── FORGE.1 — Channel Consolidation + Smart Detection ───────────────────────

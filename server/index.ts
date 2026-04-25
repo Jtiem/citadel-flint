@@ -48,7 +48,7 @@ import { ideFileSyncTick, type IDEFileSyncState } from './ideFileSyncTick.js'
 import { detectProjectEnvironment, type DetectorFS } from '../shared/projectDetector.js'
 import { validateFilePath as sharedValidateFilePath } from '../shared/validateFilePath.js'
 import { sanitizeReason } from '../shared/reasonSanitizer.js'
-import { ipcSchemas, MCP_TOOL_ARG_SCHEMAS } from '../shared/ipc-validators.js'
+import { ipcSchemas, validateMcpToolArgs } from '../shared/ipc-validators.js'
 import type { CoverageSummary } from '../shared/coverage-types.js'
 import { ZERO_COVERAGE_SUMMARY } from '../shared/coverage-types.js'
 import { sanitizeTokenValue, sanitizeTokenDescription } from '../shared/tokenValueSanitizer.js'
@@ -1145,14 +1145,20 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
   // ── Project / Directory Operations ─────────────────────────────────────────
 
   handlers.set('project:openPath', async (folderPath: unknown) => {
-    if (typeof folderPath !== 'string') return null
+    if (typeof folderPath !== 'string') {
+      console.warn('[project:openPath] rejected — folderPath not a string:', typeof folderPath)
+      return null
+    }
 
     const normalized = path.normalize(folderPath)
     // Resolve symlinks before the home-dir check to prevent symlink escape
     // (e.g., ~/evil -> /etc would pass the prefix check on the symlink path).
     let realPath = normalized
     try { realPath = realpathSync(normalized) } catch { /* dir may not exist */ }
-    if (!isWithinHome(realPath)) return null
+    if (!isWithinHome(realPath)) {
+      console.warn(`[project:openPath] rejected by isWithinHome: input=${folderPath} realPath=${realPath} home=${os.homedir()} tmpdirReal=${(() => { try { return realpathSync(os.tmpdir()) } catch { return os.tmpdir() } })()}`)
+      return null
+    }
 
     try {
       const tree = await scanDirectory(normalized)
@@ -1170,7 +1176,8 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
         broadcast('flint:project-opened', { path: normalized })
       }
       return tree
-    } catch {
+    } catch (err) {
+      console.warn('[project:openPath] failed inside try block:', err instanceof Error ? err.message : err)
       return null
     }
   })
@@ -2793,28 +2800,15 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     }
 
     // MINT.5 Phase 3 — per-tool argument validation gate (web parity mirror of
-    // electron/preload.ts). Consult MCP_TOOL_ARG_SCHEMAS before forwarding to
-    // mcpClient.callTool. If the tool has a registered schema and the args fail,
-    // return a validation-error envelope immediately — mcpClient is NOT called.
-    // Unknown tools (not in map) pass through unchanged.
+    // electron/preload.ts). W5: both bridges now consume validateMcpToolArgs()
+    // from shared/ipc-validators.ts so the gate logic cannot drift.
     const resolvedArgs = (args ?? {}) as Record<string, unknown>
-    const perToolSchema = MCP_TOOL_ARG_SCHEMAS[toolName]
-    if (perToolSchema !== undefined) {
-      const parseResult = perToolSchema.safeParse(resolvedArgs)
-      if (!parseResult.success) {
-        const issue = parseResult.error.issues[0]
-        const sanitized = issue
-          ? `${issue.path.join('.') || 'args'}: ${issue.message}`
-          : 'Invalid arguments'
-        return {
-          content: [{ type: 'text', text: sanitized }],
-          isError: true,
-          classification: 'validation-error',
-        }
-      }
+    const gateResult = validateMcpToolArgs(toolName, resolvedArgs)
+    if (!gateResult.ok) {
+      return gateResult.envelope
     }
 
-    return mcp.callTool(toolName, resolvedArgs)
+    return mcp.callTool(toolName, gateResult.args)
   })
 
   handlers.set('mcp:read-resource', async (uri: unknown) => {

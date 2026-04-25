@@ -67,6 +67,8 @@ const NETWORK_ERROR_PATTERNS: readonly string[] = [
     'enotfound',
     'econnreset',
     'etimedout',
+    'eai_again',      // Node intermittent DNS failure (W8, code review 2026-04-20)
+    'getaddrinfo',    // Node DNS resolver error prefix
     'network error',
     'network_error',
     'dns failure',

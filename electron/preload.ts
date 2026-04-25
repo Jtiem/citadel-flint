@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { BRAND, ipcChannel } from '../shared/brand.ts'
-import { validateIPC, mcpCallToolSchema, MCP_TOOL_ARG_SCHEMAS, projectSmartOpenSchema } from '../shared/ipc-validators.ts'
+import { validateIPC, mcpCallToolSchema, validateMcpToolArgs, projectSmartOpenSchema } from '../shared/ipc-validators.ts'
 
 /**
  * The Preload Flint — all communication between the React Renderer
@@ -837,25 +837,15 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
                 throw new Error('Invalid MCP tool call — request rejected by the Glass sandbox.')
             }
 
-            // MINT.5 Phase 3 — per-tool argument validation gate.
-            // Consult MCP_TOOL_ARG_SCHEMAS before forwarding the call. If the tool
-            // has a registered schema and the args fail, return a validation-error
-            // envelope immediately — ipcRenderer.invoke is NOT called (invariant:
-            // validation-gate-zero-network). Unknown tools (not in map) pass through.
-            const perToolSchema = MCP_TOOL_ARG_SCHEMAS[name]
-            if (perToolSchema !== undefined) {
-                const parseResult = perToolSchema.safeParse(args)
-                if (!parseResult.success) {
-                    const issue = parseResult.error.issues[0]
-                    const sanitized = issue
-                        ? `${issue.path.join('.') || 'args'}: ${issue.message}`
-                        : 'Invalid arguments'
-                    return Promise.resolve({
-                        content: [{ type: 'text', text: sanitized }],
-                        isError: true,
-                        classification: 'validation-error',
-                    })
-                }
+            // MINT.5 Phase 3 — per-tool argument validation gate (W5 helper).
+            // Single source of truth: validateMcpToolArgs() lives in
+            // shared/ipc-validators.ts and is consumed identically here and in
+            // server/index.ts. On validation failure we short-circuit with the
+            // validation-error envelope — ipcRenderer.invoke is NOT called
+            // (invariant: validation-gate-zero-network).
+            const gateResult = validateMcpToolArgs(name, args)
+            if (!gateResult.ok) {
+                return Promise.resolve(gateResult.envelope)
             }
 
             return ipcRenderer.invoke('mcp:call-tool', name, args)

@@ -159,17 +159,29 @@ export const useEmitTokens: UseEmitTokensHook = (options: UseEmitTokensOptions =
                         tool: 'flint_emit_tokens',
                         message: safeMessage,
                         timestamp: Date.now(),
-                        // auth-expired and rate-limited are persistent (same logic as useSyncActions).
-                        persistent: classification === 'auth-expired' || classification === 'rate-limited',
+                        // Only auth-expired is truly persistent — it requires user
+                        // action (re-auth) to resolve. Rate-limited is transient
+                        // because the upstream 429 typically self-resolves; we
+                        // surface it with a longer autoDismiss instead of pinning
+                        // the banner indefinitely (W1, code review 2026-04-20).
+                        persistent: classification === 'auth-expired',
                     }
                     setLastError(nextError)
+
+                    // Rate-limited gets a longer dismissal window (30s) to give the
+                    // user time to read it without stranding the banner.
+                    const autoDismissMs = nextError.persistent
+                        ? 0
+                        : classification === 'rate-limited'
+                            ? 30000
+                            : 8000
 
                     pushNotification({
                         type: 'error',
                         title: 'Emit failed',
                         message: safeMessage,
                         severity: nextError.persistent ? 'critical' : 'error',
-                        autoDismissMs: nextError.persistent ? 0 : 8000,
+                        autoDismissMs,
                     })
                     return
                 }

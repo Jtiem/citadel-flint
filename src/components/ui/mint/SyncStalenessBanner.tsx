@@ -90,6 +90,9 @@ export function SyncStalenessBanner({
  * from pre-computed hours rather than milliseconds.
  */
 function formatHours(hours: number): string {
+  // Guard against negative hours (clock skew, future timestamps).
+  // Without this, formatHours(-0.5) returns "-30 minutes" (W3, code review 2026-04-20).
+  if (hours < 0) return 'a few moments'
   if (hours < 1) {
     const minutes = Math.round(hours * 60)
     return `${minutes} minute${minutes !== 1 ? 's' : ''}`
