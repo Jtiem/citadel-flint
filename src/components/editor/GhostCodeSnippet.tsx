@@ -8,7 +8,7 @@
  *
  * Design decisions:
  *   - Rendered as a React portal into document.body so parent overflow:hidden
- *     cannot clip the card (mirrors GhostOverlay pattern).
+ *     cannot clip the card (z-index over canvas wrapper).
  *   - pointer-events:none on the backdrop; the card itself re-enables them.
  *   - No Monaco / CodeMirror — CSS-class-based keyword highlighting only.
  *   - Dismisses on Escape or explicit close button; resets on node change.

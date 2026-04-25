@@ -3,7 +3,7 @@
  *
  * GOV-FIX-2: Verifies that the "Fix" button on an auto-fixable Mithril
  * violation calls applyBatch with applyTokenFix ops (not flint_fix MCP),
- * matching the GovernanceOverlay pattern.
+ * matching the GovernanceDashboard pattern.
  *
  * Tests:
  *   - Fix button calls editorStore.applyBatch with applyTokenFix

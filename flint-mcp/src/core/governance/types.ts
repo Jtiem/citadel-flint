@@ -207,7 +207,7 @@ export interface MutationFilters {
  * - 'human'     — direct UI interaction in Flint Glass
  * - 'agent'     — AI agent call via MCP tool (flint_ast_mutate)
  * - 'auto-heal' — IngestionAuditor tier-1 heal pass
- * - 'auto-fix'  — flint_fix tool or GovernanceOverlay auto-fix
+ * - 'auto-fix'  — flint_fix tool or GovernanceDashboard auto-fix
  * - 'import'    — bulk import / scaffolding operation
  */
 export type ProvenanceSource = 'human' | 'agent' | 'auto-heal' | 'auto-fix' | 'import'

@@ -59,14 +59,6 @@ vi.mock('../../components/ui/TokenManager', () => ({
     TokenManager: () => <div data-testid="token-manager" />,
 }))
 
-vi.mock('../../components/ui/ActivityFeed', () => ({
-    ActivityFeed: () => <div data-testid="activity-feed" />,
-}))
-
-vi.mock('../../components/ui/RecoveryPanel', () => ({
-    RecoveryPanel: () => <div data-testid="recovery-panel" />,
-}))
-
 vi.mock('../../components/ui/ExportModal', () => ({
     ExportModal: () => <div data-testid="export-modal" />,
 }))
@@ -320,7 +312,7 @@ describe('App — Demo-first onboarding gate (WS1)', () => {
             ],
         }
 
-        const api = window.flintAPI as ReturnType<typeof createMockFlintAPI>
+        const api = window.flintAPI as unknown as ReturnType<typeof createMockFlintAPI>
         ;(api.setup!.checkFirstLaunch as ReturnType<typeof vi.fn>).mockResolvedValue({
             isFirstLaunch: true,
         })
@@ -347,7 +339,7 @@ describe('App — Demo-first onboarding gate (WS1)', () => {
 
     // ── WS1 test 2 ────────────────────────────────────────────────────────────
     it('falls through to LaunchScreen when demo load fails on first launch', async () => {
-        const api = window.flintAPI as ReturnType<typeof createMockFlintAPI>
+        const api = window.flintAPI as unknown as ReturnType<typeof createMockFlintAPI>
         ;(api.setup!.checkFirstLaunch as ReturnType<typeof vi.fn>).mockResolvedValue({
             isFirstLaunch: true,
         })
@@ -592,7 +584,7 @@ describe('App — auto-resume LaunchScreen loop regression (LAUNCH.2)', () => {
     it('stays on LaunchScreen when getLastSession returns null (no previous session)', async () => {
         // getLastSession already returns null in the default createMockFlintAPI()
         // (see setup.ts line ~105). Confirm this is the case.
-        const api = window.flintAPI as ReturnType<typeof createMockFlintAPI>
+        const api = window.flintAPI as unknown as ReturnType<typeof createMockFlintAPI>
         expect(api.session.getLastSession).toBeDefined()
 
         await act(async () => {
@@ -623,7 +615,7 @@ describe('App — auto-resume LaunchScreen loop regression (LAUNCH.2)', () => {
             ],
         }
 
-        const api = window.flintAPI as ReturnType<typeof createMockFlintAPI>
+        const api = window.flintAPI as unknown as ReturnType<typeof createMockFlintAPI>
         // Override getLastSession to return a real non-scratchpad session
         ;(api.session.getLastSession as ReturnType<typeof vi.fn>).mockResolvedValue({
             path: '/Users/test/my-app',
@@ -654,7 +646,7 @@ describe('App — auto-resume LaunchScreen loop regression (LAUNCH.2)', () => {
     // When getLastSession returns a scratchpad session, auto-resume must skip it
     // (the guard `if (session.isScratchpad) return`). LaunchScreen stays.
     it('stays on LaunchScreen when getLastSession returns a scratchpad session', async () => {
-        const api = window.flintAPI as ReturnType<typeof createMockFlintAPI>
+        const api = window.flintAPI as unknown as ReturnType<typeof createMockFlintAPI>
         ;(api.session.getLastSession as ReturnType<typeof vi.fn>).mockResolvedValue({
             path: '/Users/test/Flint Projects/Untitled-1',
             name: 'Untitled-1',

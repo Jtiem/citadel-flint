@@ -161,13 +161,13 @@ interface CanvasState {
     /**
      * Bounding boxes for every flint node that has reported a NODE_LAYOUT
      * postMessage from the iframe. Keyed by data-flint-id.
-     * Used by ShieldOverlay to position governance badges and heat tints.
+     * Used by GovernanceDashboard to position violation references.
      */
     nodeLayouts: Record<string, NodeLayout>
     /**
      * The currently active tab in the right inspector panel.
-     * Stored here so ShieldOverlay can switch to 'properties' on badge click
-     * without prop-drilling through LivePreview → ShieldOverlay.
+     * Stored here so GovernanceDashboard can switch to 'properties' on click
+     * without prop-drilling through LivePreview → GovernanceDashboard.
      */
     rightTab: RightTab
     // --- Figma & Sync ---
@@ -222,15 +222,15 @@ interface CanvasState {
 
     // ── GLASS.1d: Violation scroll target ────────────────────────────────────
     /**
-     * When non-null, GovernanceOverlay scrolls to the violation row for this
-     * flint ID and resets the value to null. Set by ShieldOverlay badge click
-     * to link the canvas badge to the authoritative violation list.
+     * When non-null, GovernanceDashboard scrolls to the violation row for this
+     * flint ID and resets the value to null. Set by canvas-side click handlers
+     * to link a node selection to the authoritative violation list.
      */
     scrollToViolationId: string | null
 
     // ── GLASS.1e: Governance rule filter ──────────────────────────────────────
     /**
-     * When non-null, GovernanceOverlay filters its violation list to only show
+     * When non-null, GovernanceDashboard filters its violation list to only show
      * violations matching this type. Set by GovernanceDashboard when the user
      * clicks a top-violated-rules row. Cleared by setting to null.
      */
@@ -397,12 +397,12 @@ interface CanvasActions {
     setCanvasMode: (mode: CanvasMode) => void
     /**
      * Records a single node's bounding box as reported by the iframe.
-     * Called from ShieldOverlay when a NODE_LAYOUT postMessage arrives.
+     * Called from the iframe NODE_LAYOUT postMessage handler.
      */
     setNodeLayout: (id: string, layout: NodeLayout) => void
     /**
-     * Switches the active right inspector tab. Called by ShieldOverlay when
-     * the user clicks a violation badge (click-to-properties).
+     * Switches the active right inspector tab. Called when the user
+     * clicks through to a violation's properties (click-to-properties).
      */
     setRightTab: (tab: RightTab) => void
     /**
@@ -478,13 +478,13 @@ interface CanvasActions {
     recordIDESyncEvent: (filePath: string) => void
     // ── GLASS.1d: Violation scroll target ────────────────────────────────────
     /**
-     * Sets the flint ID that GovernanceOverlay should scroll to.
+     * Sets the flint ID that GovernanceDashboard should scroll to.
      * Pass null to clear after the scroll completes.
      */
     setScrollToViolationId: (id: string | null) => void
     // ── GLASS.1e: Governance rule filter ──────────────────────────────────────
     /**
-     * Filters the GovernanceOverlay violation list to a specific violation type.
+     * Filters the GovernanceDashboard violation list to a specific violation type.
      * Pass null to clear the filter and show all violations.
      */
     setGovernanceRuleFilter: (type: LinterWarning['type'] | null) => void

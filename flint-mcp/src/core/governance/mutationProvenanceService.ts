@@ -5,7 +5,7 @@
  *   - 'human'     — direct Flint Glass UI interaction
  *   - 'agent'     — AI agent via flint_ast_mutate MCP tool
  *   - 'auto-heal' — IngestionAuditor tier-1 heal pass
- *   - 'auto-fix'  — flint_fix tool or GovernanceOverlay auto-fix
+ *   - 'auto-fix'  — flint_fix tool or GovernanceDashboard auto-fix
  *   - 'import'    — bulk import / scaffolding operation
  *
  * Uses better-sqlite3 (synchronous API). Constructor accepts a Database

@@ -258,7 +258,7 @@ export function ExportModal({
 
   // ── GOV-FIX-2: attempt auto-fix for a fixable Mithril violation ──────────
   // For auto-fixable violations (nearestToken is set): apply the token fix via
-  // editorStore.applyBatch (same pattern as GovernanceOverlay). This avoids
+  // editorStore.applyBatch (same pattern as GovernanceDashboard). This avoids
   // the SEC.3 allowlist restriction on flint_fix MCP calls from the renderer.
   // For non-fixable violations: fall through to select the node for manual fix.
   const applyBatch = useEditorStore(s => s.applyBatch);
