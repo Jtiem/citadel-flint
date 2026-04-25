@@ -1,8 +1,124 @@
 # Flint — Developer Handoff
 
-**Date:** 2026-04-24
-**Architecture:** Flint MCP (headless governance engine) + Flint Glass (Electron observability layer) + Flint Web (browser distribution)
-**Test baseline:** 5,652/5,652 MCP | 3,270/3,270 Glass | 2,619/2,619 Core | 56/56 CI — TSC 0 errors
+**Date:** 2026-04-25
+**Architecture:** Flint MCP (headless governance engine) + Flint Glass (desktop wrapper hosting the web build) + Flint Web (browser distribution; same React UI)
+**Test baseline:** 5,699/5,699 MCP | 3,540/3,540 Glass | 2,780/2,780 Core | 56/56 CI — TSC: 0 errors. Core has 38 pre-existing `better-sqlite3` NODE_MODULE_VERSION mismatch failures in dev (fix: `npm rebuild better-sqlite3`; not beta-blocking). Strict-mode debt documented in `docs/beta/BETA-TECH-DEBT.md`.
+
+---
+
+## Session: Beta polish + telemetry feature + Worker hardening (2026-04-25) — COMPLETE
+
+**Goal:** Close outstanding beta warnings from the 2026-04-20 A/B review, ship the BETA-TELEMETRY-WIRING feature end-to-end, and harden the Cloudflare Worker before first tester invite.
+
+### What shipped (5 commits)
+
+* **`93e7829`** — Docs reconciliation: CLAUDE.md + HANDOFF.md synced with reality. Tool count 54→61, resources 13→14, prompts 3→6, Glass table gained `glasstypo.1` + `inspector.1`, Key Files gained `syncStalenessStore`, `ragService`, `templateService`. Figma plugin status clarified as DEPRECATED. 9 backfill session entries for commits since 2026-04-19. Test baseline refreshed.
+
+* **`88bc5ba`** — Beta-polish batch closing 6 warnings from 2026-04-20 A/B review: rate-limited persistence, `useSyncStaleness` projectRoot dep fix, negative-hours guard, `focusedIndex` clamp, shared `validateMcpToolArgs()`, DNS error pattern handling.
+
+* **`cbca625`** — Beta a11y fixes: StatusBar Figma popover Disconnect button aria-label/title restored; Endpoint copy button got `data-testid` + `aria-label`; ResizeHandle `z-10` → `z-50`. Telemetry opt-in default flipped from "on by default" to explicit opt-in with reasoning logged in `BETA-CLOSED-PLAN.md`.
+
+* **`f2b1856`** — BETA-TELEMETRY-WIRING feature complete (23 files, 5,401 insertions, 77 new tests). Full contract-first flow: Phase 1 architect → Phase 1.5 lint (REVISE → APPROVED after 5 fixes) → Phase 2 parallel impl (3 agents: IPC + dialog + tests) → Phase 2.5 review ceremony (UX + code + security all FIX-FORWARD) → Phase 3 integration validator (caught 4 reviewer-misses) → fix pass. Privacy invariants: discriminated-union `EmitFunction` (compile-time), single emit chokepoint, fuzzed stack redaction, defense-in-depth Zod. Web parity: `server/index.ts` has matching emit sites. Closes BLK-1/2/3 + WARN-1/2/3/4/5 from telemetry review.
+
+* **`295ccbe`** — Cloudflare Worker hardening. Closed 3 ship-blockers (no schema validation, Slack message injection, optional secret) + Justin's call to reduce retention 90d → 14d. Re-review confirmed SHIP (FIX-FORWARD).
+
+### Background deliverables (not committed — staged for next session review)
+
+* 47 new governance service tests in `flint-mcp/src/core/governance/__tests__/` (`mutationProvenanceService`, `trustTierService`, `agentRiskService`). Tracked in `.flint-context/test-backfill-2026-04-25.md`.
+* Docs/content: AI-CODING-COOKBOOK +5 recipes (75-79), `docs/playbook/RULE-GLOSSARY.md` (108 rules), `docs/beta/TESTER-WELCOME.md`, `.flint-context/playbook-research/polish-findings-2026-04-25.md` (25 items).
+* Strategy specs: `docs/strategy/FEATURE-SPEC-WCAG22.md`, `docs/strategy/FEATURE-SPEC-AUTOPILOT.md` (Citadel name: Vigil — fake-door pill recommended), `docs/strategy/FEATURE-SPEC-COUNSEL.md` (health score unification confirmed DONE via `shared/healthScore.ts`).
+* Audits: `.flint-context/dead-code-audit-2026-04-25.md` (mostly stale comments + 171MB dist), `.flint-context/test-triage-2026-04-25.md` (1 real beta-blocker found, fixed in `cbca625`).
+
+### Test counts after session
+
+```text
+MCP:   5,699/5,699 passing (+47 from test backfill, not yet committed)
+Glass: 3,540/3,540 passing
+Core:  2,780 passing (38 pre-existing better-sqlite3 ABI mismatch — dev env only)
+TSC:   0 errors
+```
+
+### Next session candidates (priority order)
+
+1. Commit the 47 governance service tests (review `.flint-context/test-backfill-2026-04-25.md` first).
+2. Worker fix-forward items: timing-safe secret compare, error logging, content-length cap, rate limiting, Slack dedup.
+3. Telemetry consent dialog UX: "you can change this later" copy, "what gets collected" expander, Decline button visual weight.
+4. Dead code cleanup: stray `.flint` dirs in `src/components/`, `dist-electron` rm before next build.
+5. `flint-ci` CLI build fix (`computeDelta` + ANSI exports + `shared/` rootDir) — non-beta-blocking.
+6. Playbook polish (25 items in `.flint-context/playbook-research/polish-findings-2026-04-25.md`).
+7. WCAG 2.2 / Vigil / Counsel specs → implementation when prioritized.
+
+---
+
+## Session: feat(beta) — closed-beta build pipeline + web-in-Electron wrapper (2026-04-24/25) — IN PROGRESS
+
+**Goal:** Stand up the closed-beta distribution pipeline. Produce a packaged `.app` that loads the WEB build inside the Electron window, with telemetry/feedback/expiry/MCP/IDE-integration all functional.
+
+### What shipped (working end-to-end, verified):
+
+* **Telemetry pipeline** — Cloudflare Worker deployed at `https://flint-telemetry.flint-dev.workers.dev`. KV namespace `8c486a3fec4c41f09cc0a9068d03cf4e`. Secrets: `SLACK_WEBHOOK_URL`, `SHARED_SECRET` set via `wrangler secret put`. Slack workspace `flint-beta` with `#telemetry` channel — verified live event delivery via curl. See `cloudflare-worker/` for source + `docs/beta/SHIP-IT.md` for full setup runbook.
+* **Beta service modules** — `electron/betaTelemetry.ts` (consent-gated emit, in-memory buffer, 60s flush, persisted queue, redacted stack traces), `electron/betaGuard.ts` (60-day kill switch, baked at build time via vite define). Tests at `electron/betaTelemetry.test.ts` (25+ tests passing).
+* **Renderer UI** — `BetaWelcome.tsx` consent toggle wired through `beta:get-consent`/`beta:set-consent`/`beta:emit-telemetry` IPC. `BetaFeedbackModal.tsx` posts to GitHub Issues at `Jtiem/lunar-elevator-bridge` (private repo, feedback stays hidden) when `FLINT_FEEDBACK_GITHUB_TOKEN` is set.
+* **Build pipeline** — `scripts/build-beta.sh` runs three vite builds (Electron-direct, web SPA, esbuild server bundle) then `electron-builder`. Inlines `FLINT_BETA_*`, `FLINT_TELEMETRY_*`, `FLINT_FEEDBACK_GITHUB_TOKEN` via `vite.config.ts` define block. Bypasses `tsc -b` (see TECH-DEBT note above). package.json scripts (`build:beta`, `build:beta:mac`, `build:beta:quick`, `release:beta`) all delegate to the script.
+* **Electron-as-wrapper architecture** (the BIG architectural decision today) — Per `project_web_primary.md` memory, the web build is the primary product. The packaged Electron app now loads the web UI from a localhost Express server (`dist-server/cli.mjs` spawned as a child Node process via `ELECTRON_RUN_AS_NODE=1`), not the legacy `dist/` Electron-direct renderer. The legacy renderer is preserved for `npm run dev` but no longer ships in the BrowserWindow. `electron/main.ts` `ensureWebServer()` picks a free port, spawns the server, awaits readiness via fetch probe, then `mainWindow.loadURL('http://127.0.0.1:<port>')`. Preload script is conditionally NOT attached in production (`!process.env.VITE_DEV_SERVER_URL`) so the renderer's `window.flintAPI` comes from the web adapter, not Electron IPC.
+* **electron-builder.yml** — bundles `dist-web/`, `dist-server/`, `shared/**/*.js`, `node_modules/**` (large bloat — see Open work). `extraResources` ships `build-resources/demo-project/`. ASAR-unpacks `flint-mcp/`, `dist-server/`, `dist-web/`, `shared/`, native modules, and node_modules.
+* **CSP** — `PRODUCTION_CSP` now includes `'unsafe-eval'` (LivePreview srcdoc requires it for `new Function()` JSX execution), `ws://localhost:*`, `ws://127.0.0.1:*` (embedded server WebSocket).
+* **Native module ABI** — `better-sqlite3` rebuilt against Electron 35.7.5 ABI (modules 133, was 137 from local Node 24). Use `cd node_modules/better-sqlite3 && npm_config_target=35.7.5 npm_config_runtime=electron npm_config_disturl=https://electronjs.org/headers npx node-gyp rebuild --target=35.7.5 --arch=arm64 --dist-url=https://electronjs.org/headers` to force-rebuild after `npm install`.
+* **Demo project resolution** — `server/index.ts:3591` `beta:load-demo-project` reads `FLINT_RESOURCES_PATH` env var (passed by `ensureWebServer()` in main.ts) so it finds `Resources/build-resources/demo-project/` in packaged builds. Falls back to relative path for `npm run dev:web`. The diagnostic logs at `project:openPath` (lines ~1147-1155) are still in place — leave them for the demo audit loop.
+* **Demo file partially fixed** — `build-resources/demo-project/DemoCard.tsx` rewritten with default props baked in, real token references (hyphen-separated CSS var names, not dot-separated), 360px max-width, inline-SVG placeholder image. Renders visibly in the canvas. Audit run via `mcp__flint__audit_ui_component` reveals 6 design + 1 a11y violations — but only 3 of the 6 match the docstring. See Open work.
+* **Cosmetic build warnings ignored** — `app-update.yml not found` (only generated by `release:beta` publish path), Autofill DevTools console errors (Electron DevTools internals), large native dep dedup warnings.
+
+### Files changed (this session):
+
+* `electron/main.ts` — `ensureWebServer()` + `pickFreePort()`, conditional preload, FLINT_RESOURCES_PATH passthrough, embedded server cleanup on quit, web server logging
+* `electron/betaTelemetry.ts` + `electron/betaTelemetry.test.ts` — consent gating + emit + flush
+* `electron/preload.ts` — added `getConsent`/`setConsent`/`emitTelemetry` to BetaAPI surface
+* `electron/main.ts:5566` — `beta:get-consent`, `beta:set-consent`, `beta:emit-telemetry` handlers; `beta:submit-feedback` GitHub repo corrected from `lunar-elevator-flint` (didn't exist) to `lunar-elevator-bridge`
+* `electron-builder.yml` — files + asarUnpack updates (see What shipped)
+* `vite.config.ts` — added `define` block to inline FLINT_BETA_* / FLINT_TELEMETRY_* into Electron main bundle
+* `src/main.tsx` — `__FLINT_WEB__` check to force web adapter (now superseded by removing preload entirely; the override remains as belt-and-suspenders)
+* `src/types/flint-api.d.ts` — extended `BetaAPI` type
+* `src/components/ui/BetaWelcome.tsx` — telemetry consent toggle
+* `package.json` — scripts updated, `build:server` keeps `--packages=external`
+* `scripts/build-beta.sh` — new orchestration script
+* `cloudflare-worker/` — Worker src + wrangler config
+* `server/index.ts:3591` — `FLINT_RESOURCES_PATH` resolution; diagnostic console.warn in project:openPath (still in place — remove later)
+* `build-resources/demo-project/DemoCard.tsx` — rewritten (still iterating)
+* `docs/beta/INSTALL-GUIDE.md`, `docs/beta/SHIP-IT.md`, `docs/beta/BETA-TECH-DEBT.md`, `docs/strategy/BETA-CLOSED-PLAN.md` — new docs
+* `.gitignore` — `.env.beta`, `cloudflare-worker/.dev.vars`, `cloudflare-worker/node_modules/` blocked
+
+### Verified by direct test:
+
+1. Server CLI spawned via Electron binary with `ELECTRON_RUN_AS_NODE=1` boots, listens on free port, responds to `/api/ipc`. Direct curl proved `beta:load-demo-project` returns the demo path and `project:openPath` returns the file tree.
+2. Packaged `.app` opens, BrowserWindow loads the web UI from localhost (verified via DevTools URL bar showing `http://127.0.0.1:<port>`), MCP server connects, governance audit runs on the demo, layers panel populates, design tokens hydrate.
+3. The full Cloudflare Worker pipeline tested via curl with shared secret — Slack `#telemetry` received the test message.
+
+### Open work (priority order — pick up here next session):
+
+0. ~~**DTCG project token loader**~~ — **DONE 2026-04-25.** Root cause of "demo text invisible" bug: `src/core/seedTokens.ts` only inserted 8 hardcoded baseline tokens (`--text-primary`, `--surface-card`, …) and **never read the project's `design-tokens.json`**. DemoCard referenced `--color-on-surface`, `--color-primary`, `--fontSize-lg`, etc., which were never defined → fall-through to leaked parent default → white-on-white text. Architectural fix: shared pure `flattenDtcg()` util ([shared/dtcgFlatten.ts](shared/dtcgFlatten.ts), 10 tests passing) + new IPC `tokens:seed-from-project` (mirrored in [electron/main.ts:1037](electron/main.ts#L1037) and [server/index.ts:908](server/index.ts#L908)) + Zod validator ([shared/ipc-validators.ts](shared/ipc-validators.ts)) + preload + web-adapter exposure + `hydrateWorkspace` in [src/App.tsx:361](src/App.tsx#L361) calls it on every project open. Reads `<projectRoot>/.flint/design-tokens.json` (or fallback root `design-tokens.json`), flattens DTCG, clears + seeds. Falls back to baseline only when no DTCG present. Also moved demo's `design-tokens.json` from project root to canonical `.flint/design-tokens.json`. Also fixed unrelated auto-update ENOENT noise: [electron/autoUpdater.ts:60](electron/autoUpdater.ts#L60) now skips when `app-update.yml` is absent (unsigned/local builds). TSC: 0 errors. Tests: 10/10 dtcgFlatten + 53/53 ipc-validators + 59/59 server. **Needs ship test on rebuilt .app.**
+1. ~~**Wire Claude Code PostToolUse hook**~~ — **DONE 2026-04-25.** `.claude/hooks/flint-audit-on-edit.sh` runs `node flint-ci/dist/cli.js audit <file> --format terminal` on any `.tsx`/`.jsx` Write/Edit/MultiEdit inside `src/components/`, `build-resources/`, or `__tests__/`. Result is surfaced via PostToolUse `additionalContext` JSON so the model sees the report on the next turn. Wired in `.claude/settings.json` PostToolUse `Write|Edit|MultiEdit` matcher (alongside the existing claude-flow post-edit handler). Verified: positive case on `DemoCard.tsx` returns full audit JSON; negative cases (`electron/main.ts`, `Bash` tool) silently pass through with exit 0.
+2. **Finish the demo audit loop on `DemoCard.tsx`** — current state has 3 of 6 violations matching the docstring + 4 surprise violations Flint caught (line-height 1.3, 360px max-w, 200px image height, 36px icon button — all need to either become tokens in design-tokens.json or be tokenized in the file). Re-audit until Flint's report exactly matches the docstring's 6 intentional violations.
+3. **Real ship test** — source `.env.beta` with the three secrets (Worker URL `https://flint-telemetry.flint-dev.workers.dev/events`, shared secret, GitHub PAT scoped to `issues:write` on `lunar-elevator-bridge`), run `npm run build:beta:quick`, smoke-test: app launches → welcome screen → accept telemetry → click Try Demo → demo renders → Beta chip → submit feedback. Verify Slack + GitHub each receive their event/issue.
+4. **Slim the bundle** — `node_modules/**` blanket asar-unpack rule bloats the .app to ~1.1GB. Replace with esbuild `--bundle` server (no `--packages=external`) so JS deps inline and only native modules (`better-sqlite3`, `sqlite-vec`, `bufferutil`, `utf-8-validate`) need unpacking. Documented in `electron-builder.yml` comment as post-beta cleanup.
+5. **Properties panel regression check** — Justin noticed during demo testing that the right-sidebar Properties panel "removed a significant portion of the adjustable properties when an element is selected" compared to what he remembers. Could be intentional Progressive Disclosure (Phase PD) gating, could be a real regression in the web adapter vs Electron-direct. Inspect on a fresh build.
+6. **LivePreview prop injection (post-beta improvement)** — `LivePreview.tsx` srcdoc renderer calls `React.createElement(window.__AppComponent, null)`. Components requiring props render empty. Either (a) detect TS prop interface and inject sample values, or (b) accept a `__previewProps` named export convention. Benefits ALL components users open, not just demos.
+7. **Remove diagnostic console.warn in `server/index.ts` `project:openPath`** once demo loop is stable — those were temporary instrumentation during the bug-hunt.
+8. **Update install guide** — `docs/beta/INSTALL-GUIDE.md` was written before the Garrison wizard / IDE setup step was confirmed wired in the packaged build. Should walk testers through the IDE connection step (paste MCP snippet into Claude Code/Cursor config) explicitly.
+
+### Lessons captured as memory rules:
+
+* `feedback_dogfood_flint.md` — Always audit UI work with Flint before declaring done.
+* `feedback_continuous_documentation.md` — Document continuously, never retroactively.
+* `feedback_logs_first.md` — Ask for logs/errors FIRST when debugging anything.
+* `feedback_plain_language_always.md` — Designer audience; explain technical concepts plainly.
+
+### Key gotchas the next session will hit:
+
+* `process.execPath` in packaged Electron is the Electron binary itself; `ELECTRON_RUN_AS_NODE=1` makes it act like Node. This is how flint-mcp spawns and now how the web server spawns.
+* Native modules must be ABI-rebuilt against Electron, not local Node. `electron-rebuild --force` sometimes claims success without rebuilding — use `node-gyp rebuild --target=35.7.5 --dist-url=https://electronjs.org/headers` if `electron-rebuild` lies.
+* CSS variable names produced by `generateTokenCssVars` use HYPHENS, not dots. Token path `color/primary` becomes `--color-primary`. Demo files using `var(--color.primary, fallback)` silently fail and fall back to the literal because dots aren't valid CSS variable name characters.
+* Vite's dep-optimizer cache (`node_modules/.vite/`) gets polluted between Electron and web builds. `build-beta.sh` clears it between the two builds.
+* The packaged app is currently ~1.1GB because of the `node_modules/**` asar unpack. This is the big post-beta cleanup target.
 
 ---
 
