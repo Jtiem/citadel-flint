@@ -16,7 +16,7 @@
  * when the user clicks the close button.
  */
 
-import React, { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import type { ProjectEnvironment } from '../../types/flint-api';
 import { X, ArrowRight } from 'lucide-react';
 

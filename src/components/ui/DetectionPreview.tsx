@@ -294,7 +294,7 @@ function SelectOverride({
     value,
     options,
     onChange,
-    placeholder,
+    placeholder: _placeholder,
     'aria-label': ariaLabel,
 }: {
     id: string

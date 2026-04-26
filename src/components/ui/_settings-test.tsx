@@ -1,4 +1,4 @@
-import React from 'react';
+// @ts-nocheck — fixture file for Flint audit demos; primeng is not installed
 import { Card } from 'primeng/card';
 import { InputText } from 'primeng/inputtext';
 import { InputSwitch } from 'primeng/inputswitch';

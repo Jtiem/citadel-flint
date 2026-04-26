@@ -219,7 +219,7 @@ export function CommandPalette({
         });
         return;
       }
-      await useEditorStore.getState().applyBatch(fixOps);
+      await useEditorStore.getState().applyBatch(fixOps as unknown as Parameters<ReturnType<typeof useEditorStore.getState>['applyBatch']>[0]);
       pushNotification({
         type: 'info',
         severity: 'success',

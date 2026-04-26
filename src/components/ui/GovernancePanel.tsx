@@ -47,6 +47,8 @@ interface GovernancePanelProps {
    * category containing this rule ID, and scrolls to + highlights that row.
    */
   focusRuleId?: string;
+  /** When provided, the panel opens directly to this tab instead of 'rules'. */
+  initialTab?: PanelTab;
 }
 
 // ── Panel tab type ────────────────────────────────────────────────────────────

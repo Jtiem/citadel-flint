@@ -54,7 +54,7 @@ export function AnnotationBadge() {
   if (openCount === 0) return null;
   const label = openCount === 1 ? '1 open annotation' : `${openCount} open annotations`;
   return <button type="button" className="group absolute left-2 top-2 z-10 flex items-center gap-1 rounded-full bg-indigo-600 px-2 py-0.5 text-[var(--spacing.2, 8px)] text-white shadow-sm" data-testid="annotation-badge" aria-label={label} onClick={() => {
-    useCanvasStore.getState().setRightTab('activity');
+    useCanvasStore.getState().setRightTab('notes');
   }}>
             {openCount}
             {/* Tooltip on hover */}

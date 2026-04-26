@@ -10,7 +10,7 @@
  * Renderer Process only — no Node.js imports.
  */
 
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
 import { X, Eye } from 'lucide-react';
 import type { ContrastPair } from '../../types/flint-api';
 export interface ContrastAuditPanelProps {

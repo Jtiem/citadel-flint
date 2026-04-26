@@ -15,7 +15,7 @@
  */
 
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, ShieldCheck, ShieldOff, SendHorizonal } from 'lucide-react';
+import { ChevronDown, ChevronRight, ShieldCheck, SendHorizonal } from 'lucide-react';
 import { Modal } from '../Modal';
 import { HEALTH_SCORE_WEIGHTS } from '../../../../shared/healthScore';
 import { gradeFromScore } from '../../../hooks/useGovernanceHealth';

@@ -315,7 +315,7 @@ export function LaunchScreen({
     try {
       // project:smart-open is provided by Group A (window.flintAPI.project.smartOpen).
       // If Group A hasn't landed yet, fall back to onOpenFolder for the folder path.
-      const smartOpen = (window.flintAPI.project as Record<string, unknown>).smartOpen as ((input: string) => Promise<{
+      const smartOpen = (window.flintAPI.project as unknown as Record<string, unknown>).smartOpen as ((input: string) => Promise<{
         projectPath: string;
         environment: ProjectEnvironment;
         source: 'folder' | 'git-clone';

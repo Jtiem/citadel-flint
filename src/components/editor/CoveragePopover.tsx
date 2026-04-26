@@ -123,6 +123,7 @@ export function CoveragePopover({
   }
 
   // ── Breakdown mode ────────────────────────────────────────────────────────
+  if (!summary) return null;
   const {
     totalFiles,
     parsedFiles,

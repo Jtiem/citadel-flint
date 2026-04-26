@@ -37,6 +37,10 @@ export interface FixableItem {
   hardcodedClass: string;
   /** The token class to replace it with, e.g. "bg-blue-500" */
   tokenClass: string;
+  /** Optional canonical token name for telemetry/diagnostics. */
+  tokenName?: string;
+  /** Whether the change is a color drift (vs spacing/typography/etc.). */
+  isColor?: boolean;
 }
 
 // ── DiffBlock (local, identical visual to DiffCard.DiffBlock) ─────────────────

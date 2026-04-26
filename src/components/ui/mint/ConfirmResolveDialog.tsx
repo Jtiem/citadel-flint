@@ -23,7 +23,7 @@ import { FocusTrap } from '../FocusTrap'
 import type {
     ConfirmResolveDialogProps,
     ResolveStrategy,
-} from '../../../.flint-context/contracts/MINT.5-phase2.contract'
+} from '../../../../.flint-context/contracts/MINT.5-phase2.contract'
 
 // ── Component ────────────────────────────────────────────────────────────────
 

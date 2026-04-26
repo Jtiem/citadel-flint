@@ -87,8 +87,8 @@ export function EmitDropdown({
   const [isOpen, setIsOpen] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState(0);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLUListElement>(null);
-  const itemRefs = useRef<(HTMLLIElement | null)[]>([]);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
   const menuId = useId();
 
   // When the menu opens, reset focus to first item.
@@ -159,7 +159,7 @@ export function EmitDropdown({
       setIsOpen(true);
     }
   }
-  function handleMenuKeyDown(e: React.KeyboardEvent<HTMLUListElement>) {
+  function handleMenuKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
     const count = MENU_ITEMS.length;
     if (e.key === 'Escape') {
       e.preventDefault();
@@ -200,7 +200,7 @@ export function EmitDropdown({
     setIsOpen(false);
     triggerRef.current?.focus();
   }
-  function handleItemKeyDown(e: React.KeyboardEvent<HTMLLIElement>, item: MenuItem) {
+  function handleItemKeyDown(e: React.KeyboardEvent<HTMLDivElement>, item: MenuItem) {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       handleItemSelect(item);

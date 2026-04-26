@@ -23,7 +23,7 @@ import { useNotificationStore } from '../../store/notificationStore';
 import type { DesignToken, TokenType, FigmaStatus, TokenUsageResult, ContrastPair, PendingToken } from '../../types/flint-api';
 import { FocusTrap } from './FocusTrap';
 import { TokenHealthBar } from './TokenHealthBar';
-import { TokenGroupSection, TokenDriftView, type ViewMode, type SyncBadgeStatus, detectScaleGaps } from './TokenGrid';
+import { TokenGroupSection, TokenDriftView, type ViewMode, type SyncBadgeStatus } from './TokenGrid';
 import { useTokenUsage } from '../../hooks/useTokenUsage';
 import { useTokenHealth } from '../../hooks/useTokenHealth';
 import { ContrastAuditPanel } from './ContrastAuditPanel';
@@ -335,7 +335,6 @@ export function TokenManager() {
     usageMap,
     deadTokenCount,
     driftedTokens,
-    driftCount
   } = useTokenUsage(tokens.length, localTokensForDrift);
 
   // MINT.5 Phase 2 consensus FIX-7 (UX WARN-4) — Auto-revert removed.
@@ -485,17 +484,6 @@ export function TokenManager() {
     }
     return allFiles.size;
   }, [usageResults]);
-
-  // MINT.4c: Compute total scale gap count across all dimension tokens
-  const scaleGapCount = useMemo(() => {
-    const dimensionTokens = tokens.filter(t => t.token_type === 'dimension');
-    if (dimensionTokens.length < 3) return 0;
-    // Also check typography scale (lineHeight, letterSpacing) and sizing
-    const typographyTokens = tokens.filter(t => t.token_type === 'lineHeight' || t.token_type === 'letterSpacing');
-    const dimensionGaps = detectScaleGaps(dimensionTokens);
-    const typographyGaps = detectScaleGaps(typographyTokens);
-    return dimensionGaps.length + typographyGaps.length;
-  }, [tokens]);
 
   // MINT.5 Phase 2 §2.2 — Build the tokensByPath lookup required by
   // DriftGroupSection. Keyed on token_path so rows can join to a DesignToken

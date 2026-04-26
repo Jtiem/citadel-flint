@@ -70,19 +70,6 @@ function buildFileParentMap(nodes: FileTreeNode[], parentMap: Map<string, FileTr
   return parentMap;
 }
 
-/**
- * Computes the depth of a node by walking the parent map.
- */
-function getFileDepth(path: string, parentMap: Map<string, FileTreeNode>): number {
-  let depth = 0;
-  let current = parentMap.get(path);
-  while (current) {
-    depth++;
-    current = parentMap.get(current.path);
-  }
-  return depth;
-}
-
 // ── FileItem ──────────────────────────────────────────────────────────────────
 
 interface FileItemProps {

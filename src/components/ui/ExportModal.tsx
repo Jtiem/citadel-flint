@@ -100,7 +100,6 @@ export function ExportModal({
   const setActiveSelection = useCanvasStore(s => s.setActiveSelection);
   const activeFilePath = useCanvasStore(s => s.activeFilePath);
   const setSelectedNode = useEditorStore(s => s.setSelectedNode);
-  const syncCode = useEditorStore(s => s.syncCode);
   const rawCode = useEditorStore(s => s.rawCode);
   const linterWarnings = useEditorStore(s => s.linterWarnings);
   const [overrideRows, setOverrideRows] = useState<OverrideRow[]>([]);

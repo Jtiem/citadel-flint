@@ -332,7 +332,6 @@ export function LivePreview() {
   // with shallow equality — eliminates 8 independent re-render subscriptions.
   const {
     rawCode,
-    setCode,
     selectedNodeId,
     setSelectedNode,
     hoveredId,

@@ -75,19 +75,6 @@ function buildParentMap(layers: VisualLayer[], parentMap: Map<string, VisualLaye
   return parentMap;
 }
 
-/**
- * Computes the depth of a node in the tree by walking the parent map.
- */
-function getDepth(id: string, parentMap: Map<string, VisualLayer>): number {
-  let depth = 0;
-  let current = parentMap.get(id);
-  while (current) {
-    depth++;
-    current = parentMap.get(current.id);
-  }
-  return depth;
-}
-
 // ── Icon map ───────────────────────────────────────────────────────────────────
 
 type IconComponent = React.FC<{

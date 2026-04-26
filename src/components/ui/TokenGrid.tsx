@@ -550,6 +550,7 @@ function TokenGridCard({
 const TYPE_LABEL: Record<TokenType, string> = {
   color: 'Color',
   dimension: 'Dimension',
+  fontSize: 'Font Size',
   fontFamily: 'Font Family',
   fontWeight: 'Font Weight',
   lineHeight: 'Line Height',
@@ -562,6 +563,7 @@ const TYPE_LABEL: Record<TokenType, string> = {
 const TYPE_DOT: Record<TokenType, string> = {
   color: 'bg-purple-400',
   dimension: 'bg-blue-400',
+  fontSize: 'bg-amber-400',
   fontFamily: 'bg-amber-400',
   fontWeight: 'bg-amber-400',
   lineHeight: 'bg-amber-400',

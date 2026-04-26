@@ -20,7 +20,7 @@
 import { useId, useRef } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { FocusTrap } from '../FocusTrap'
-import type { ConfirmPushDialogProps } from '../../../.flint-context/contracts/MINT.5-phase2.contract'
+import type { ConfirmPushDialogProps } from '../../../../.flint-context/contracts/MINT.5-phase2.contract'
 
 // ── Component ────────────────────────────────────────────────────────────────
 

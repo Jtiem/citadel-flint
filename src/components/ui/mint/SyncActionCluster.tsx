@@ -21,7 +21,7 @@
  */
 
 import { Download, Upload, GitMerge, Loader2, Unplug } from 'lucide-react'
-import type { SyncActionClusterProps } from '../../../.flint-context/contracts/MINT.5-phase2.contract'
+import type { SyncActionClusterProps } from '../../../../.flint-context/contracts/MINT.5-phase2.contract'
 
 // ── Component ────────────────────────────────────────────────────────────────
 

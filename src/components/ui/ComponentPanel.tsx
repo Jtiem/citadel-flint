@@ -170,7 +170,9 @@ export function ComponentPanel() {
       pushNotification({
         type: 'error',
         title: 'Invalid component',
-        message: 'Component name or import path contains invalid characters.'
+        message: 'Component name or import path contains invalid characters.',
+        severity: 'error',
+        autoDismissMs: 0,
       });
       return;
     }
