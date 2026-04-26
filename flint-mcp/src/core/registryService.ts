@@ -66,9 +66,11 @@ export interface ComponentEntry {
  * without a required `importPath`.
  */
 export class RegistryMergeError extends Error {
-    constructor(public readonly entryName: string) {
+    public readonly entryName: string
+    constructor(entryName: string) {
         super(`Registry merge error: new entry "${entryName}" is missing required "importPath"`)
         this.name = 'RegistryMergeError'
+        this.entryName = entryName
     }
 }
 

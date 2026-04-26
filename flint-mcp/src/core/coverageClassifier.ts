@@ -506,8 +506,6 @@ function checkAllVarsResolvable(
     ast: t.File,
     customPropertyMap: { resolve(expr: string): string | null },
 ): { allResolved: boolean; firstUnresolved?: string } {
-    const VAR_NO_FALLBACK = /var\(--[^,)]+\)/g
-
     let firstUnresolved: string | undefined
     let allResolved = true
 

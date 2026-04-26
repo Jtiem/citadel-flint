@@ -288,13 +288,6 @@ function transpileTs(source: string, filePath: string): string {
 
 // ── Theme flattening ──────────────────────────────────────────────────────────
 
-type RawThemeValue =
-    | string
-    | Record<string, string | Record<string, string>>
-    | (() => RawThemeValue)
-    | null
-    | undefined
-
 /**
  * Flatten a (possibly nested) Tailwind theme section into a dotted-key map.
  * e.g. { primary: { 500: "#0066cc" } } → { "primary.500": "#0066cc" }

@@ -329,8 +329,7 @@ function migrateTemplateLiteral(
  * @param source   Raw TSX/JSX source code.
  * @param options  Migration options. dryRun defaults to true.
  */
-export function migrateFile(source: string, options: MigrateOptions = {}): MigrateResult {
-    const { dryRun = true } = options
+export function migrateFile(source: string, _options: MigrateOptions = {}): MigrateResult {
     const allChanges: ClassChange[] = []
 
     let ast: t.File

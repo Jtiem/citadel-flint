@@ -30,7 +30,7 @@ import { checkSyncViolations, type DesignTokenFileEntry } from './sync/syncViola
 import { hexToLab, deltaE2000, computeContrastRatio } from './colorMath.js'
 import { TW_V3_TO_V4_MAP } from './tailwindMigrator.js'
 import type { TailwindVersion } from './tailwindVersionResolver.js'
-import { visitDarkModeSafety, projectHasDarkMode } from './darkModeSafety.js'
+import { visitDarkModeSafety } from './darkModeSafety.js'
 import { visitFluidOpportunities, type FluidSuggestionMode } from './fluidInterpolator.js'
 import { validateComposition } from './compositionValidator.js'
 import { detectHydrationViolations, type HydrationOptions } from './hydrationLinter.js'
@@ -1523,7 +1523,7 @@ function buildIntrinsicToRegistryMap(
 function buildPropHints(
     intrinsicTag: string,
     attrs: t.JSXAttribute[],
-    registryEntry: ComponentEntry,
+    _registryEntry: ComponentEntry,
 ): string[] {
     const hints: string[] = []
 
@@ -1538,7 +1538,6 @@ function buildPropHints(
     }
 
     const translations = attrTranslations[intrinsicTag] ?? {}
-    const registryProps = registryEntry.props ?? {}
 
     for (const attr of attrs) {
         if (!t.isJSXIdentifier(attr.name)) continue

@@ -22,7 +22,6 @@ import { generateDBOM as generateCoreDBOM } from '../dbom/generator.js'
 import { computeHealthScore } from '../../../../shared/healthScore.js'
 import type { DBOMViolation, DBOMA11yViolation } from '../dbom/types.js'
 import { buildComplianceSummary } from './ruleProvenanceRegistry.js'
-import { loadProjectContext } from '../projectContext.js'
 import type { DesignBillOfMaterials } from '../dbom/types.js'
 import type {
     DBOM,
@@ -31,7 +30,6 @@ import type {
     DBOMComponentEntry,
     DBOMComponentProvenance,
     DBOMPosture,
-    SourceAuthority,
 } from './types.js'
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -200,7 +198,7 @@ function inferComponentSource(
  *   - 'unknown'    — token is not used anywhere (dead token)
  */
 function classifyTokenCompliance(
-    tokenPath: string,
+    _tokenPath: string,
     tokenType: string,
     usedInFiles: string[],
     coreDBOM: DesignBillOfMaterials,

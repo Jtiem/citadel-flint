@@ -50,11 +50,6 @@ const COLOR_UTILITY_RE =
  * those prefixes were removed from COLOR_UTILITY_RE above, but kept for
  * documentation and future expansion.
  */
-const _NON_COLOR_SUFFIXES: ReadonlySet<string> = new Set([
-    'md', 'lg', 'xl', '2xl', 'sm', '1', '2', '4', '8',
-    'offset-1', 'offset-2', 'offset-4', 'none',
-])
-
 /**
  * Property groups — maps a Tailwind prefix to a canonical "property" for
  * pairing light/dark classes. E.g. both `bg-white` and `dark:bg-gray-900`

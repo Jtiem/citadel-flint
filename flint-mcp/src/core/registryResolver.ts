@@ -32,14 +32,15 @@ import path from 'node:path'
  */
 export class RegistryPathSandboxError extends Error {
     readonly code = 'FLINT_REGISTRY_PATH_SANDBOX' as const
-    constructor(
-        readonly attemptedRef: string,
-        readonly reason: string
-    ) {
+    readonly attemptedRef: string
+    readonly reason: string
+    constructor(attemptedRef: string, reason: string) {
         super(
             `[Flint Registry] ref '${attemptedRef}' rejected by sandbox: ${reason}`
         )
         this.name = 'RegistryPathSandboxError'
+        this.attemptedRef = attemptedRef
+        this.reason = reason
     }
 }
 

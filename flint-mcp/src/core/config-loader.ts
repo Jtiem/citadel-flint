@@ -52,14 +52,15 @@ export interface ConfigLoaderOptions {
  */
 export class ConfigPathSandboxError extends Error {
     readonly code = 'FLINT_CONFIG_PATH_SANDBOX' as const
-    constructor(
-        readonly attemptedRef: string,
-        readonly resolvedPath: string
-    ) {
+    readonly attemptedRef: string
+    readonly resolvedPath: string
+    constructor(attemptedRef: string, resolvedPath: string) {
         super(
             `[Flint Config] extends path '${attemptedRef}' resolves outside projectRoot: ${resolvedPath}`
         )
         this.name = 'ConfigPathSandboxError'
+        this.attemptedRef = attemptedRef
+        this.resolvedPath = resolvedPath
     }
 }
 
@@ -69,11 +70,13 @@ export class ConfigPathSandboxError extends Error {
  */
 export class ConfigValidationError extends Error {
     readonly code = 'FLINT_CONFIG_VALIDATION' as const
-    constructor(readonly errors: Array<{ path: string; message: string }>) {
+    readonly errors: Array<{ path: string; message: string }>
+    constructor(errors: Array<{ path: string; message: string }>) {
         super(
             `[Flint Config] validation failed:\n` +
             errors.map((e) => `  - ${e.path}: ${e.message}`).join('\n')
         )
+        this.errors = errors
         this.name = 'ConfigValidationError'
     }
 }
