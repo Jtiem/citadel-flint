@@ -36,6 +36,8 @@ shared/*.d.ts.map
 # Flint runtime event logs
 .flint/mcp-events.jsonl
 .flint/mcp-events.jsonl.bak
+**/.flint/telemetry-events.jsonl
+**/.flint/telemetry-events.jsonl.bak
 
 # Storybook (stale template — revive or delete later)
 src/stories/
