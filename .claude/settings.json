@@ -39,6 +39,11 @@
             "type": "command",
             "command": "node .claude/helpers/hook-handler.cjs post-edit",
             "timeout": 10000
+          },
+          {
+            "type": "command",
+            "command": ".claude/hooks/flint-audit-on-edit.sh",
+            "timeout": 30000
           }
         ]
       },
