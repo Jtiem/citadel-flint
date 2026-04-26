@@ -74,14 +74,6 @@ const MATRIX: string[] = [
   'unknownTag', // unknown lowercase → generic
 ]
 
-// Section → data-testid mapping for self-wrapping sections
-const SECTION_TESTID: Record<string, string> = {
-  Typography:     'typography-section',
-  MediaProps:     'media-props-section',
-  FormProps:      'form-props-section',
-  A11y:           'a11y-section',
-}
-
 // Section → aria-label (from the Section primitive button text) for Section-wrapped items
 const SECTION_TITLE: Record<string, string> = {
   Typography:     'Typography',

@@ -16,7 +16,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { ConfirmResolveDialog } from '../ConfirmResolveDialog';
-import type { ConfirmResolveDialogProps } from '../../../../.flint-context/contracts/MINT.5-phase2.contract';
+import type { ConfirmResolveDialogProps } from '../../../../../.flint-context/contracts/MINT.5-phase2.contract';
 function makeProps(overrides: Partial<ConfirmResolveDialogProps> = {}): ConfirmResolveDialogProps {
   return {
     isOpen: true,

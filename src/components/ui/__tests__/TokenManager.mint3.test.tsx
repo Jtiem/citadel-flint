@@ -16,7 +16,6 @@ import { TokenManager } from '../TokenManager'
 import { useTokenStore } from '../../../store/tokenStore'
 import type { DesignToken, ContrastPair, PendingToken } from '../../../types/flint-api'
 import { detectScaleGaps, getBestContrastGrade } from '../TokenGrid'
-import type { ContrastBadgeGrade } from '../TokenGrid'
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 

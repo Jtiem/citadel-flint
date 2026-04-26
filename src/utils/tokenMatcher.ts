@@ -226,8 +226,8 @@ const CATEGORY_TO_TOKEN_TYPE: Record<Exclude<TokenMatchCategory, 'color'>, strin
     fontWeight:    'fontWeight',
     lineHeight:    'lineHeight',
     letterSpacing: 'letterSpacing',
-    spacing:       'spacing',
-    borderRadius:  'borderRadius',
+    spacing:       'dimension',
+    borderRadius:  'dimension',
 }
 
 // ── matchValueToToken ─────────────────────────────────────────────────────────

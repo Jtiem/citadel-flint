@@ -134,7 +134,7 @@ describe('TokenDetailPanel — MINT.4d', () => {
 
     it('TDP-08: shows contrast pairings', () => {
         const pairs: ContrastPair[] = [
-            { fg: 'color.brand.primary', bg: 'color.surface.white', ratio: 4.8, passAA: true, passAAA: false },
+            { fg: 'color.brand.primary', bg: 'color.surface.white', fgValue: '#0066FF', bgValue: '#FFFFFF', ratio: 4.8, passAA: true, passAAA: false },
         ]
         render(
             <TokenDetailPanel

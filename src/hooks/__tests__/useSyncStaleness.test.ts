@@ -14,7 +14,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { renderHook, act, waitFor } from '@testing-library/react'
+import { renderHook, act } from '@testing-library/react'
 import { useSyncStaleness } from '../useSyncStaleness'
 import { useSyncStalenessStore } from '../../store/syncStalenessStore'
 import { useNotificationStore } from '../../store/notificationStore'
@@ -201,7 +201,7 @@ describe('useSyncStaleness — auto-clear dismissal', () => {
             'clearDismissal'
         )
 
-        const { result, unmount } = renderHook(() =>
+        const { unmount } = renderHook(() =>
             useSyncStaleness({
                 projectRoot: '/proj',
                 thresholdHours: SYNC_STALENESS_THRESHOLD_HOURS_DEFAULT,

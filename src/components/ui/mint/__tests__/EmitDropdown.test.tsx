@@ -16,7 +16,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent, act } from '@testing-library/react'
 import { EmitDropdown } from '../EmitDropdown'
-import type { EmitDropdownProps, EmitPlatform, EmitMode } from '../../../../../.flint-context/contracts/MINT.5-phase3.contract'
+import type { EmitDropdownProps, EmitPlatform } from '../../../../../.flint-context/contracts/MINT.5-phase3.contract'
 
 function makeProps(overrides: Partial<EmitDropdownProps> = {}): EmitDropdownProps {
     return {

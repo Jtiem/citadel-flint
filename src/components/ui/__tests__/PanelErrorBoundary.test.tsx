@@ -109,7 +109,7 @@ describe('PanelErrorBoundary', () => {
         // Our componentDidCatch calls console.error with the panelName context
         expect(consoleErrorSpy).toHaveBeenCalled()
         const callArgs = consoleErrorSpy.mock.calls.find(
-            (args) => typeof args[0] === 'string' && args[0].includes('Activity'),
+            (args: unknown[]) => typeof args[0] === 'string' && args[0].includes('Activity'),
         )
         expect(callArgs).toBeDefined()
     })

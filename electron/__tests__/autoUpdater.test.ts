@@ -118,7 +118,7 @@ afterEach(() => {
 describe('AU-01 — initAutoUpdater sets autoDownload to false', () => {
     it('sets autoUpdater.autoDownload = false', () => {
         const win = makeMockWindow()
-        initAutoUpdater(win as never)
+        initAutoUpdater(win as never, { forceForTesting: true })
         expect(mockAutoUpdater.autoDownload).toBe(false)
     })
 })
@@ -128,7 +128,7 @@ describe('AU-01 — initAutoUpdater sets autoDownload to false', () => {
 describe('AU-02 — initAutoUpdater sets autoInstallOnAppQuit to true', () => {
     it('sets autoUpdater.autoInstallOnAppQuit = true', () => {
         const win = makeMockWindow()
-        initAutoUpdater(win as never)
+        initAutoUpdater(win as never, { forceForTesting: true })
         expect(mockAutoUpdater.autoInstallOnAppQuit).toBe(true)
     })
 })
@@ -139,7 +139,7 @@ describe('AU-03 — initAutoUpdater uses beta channel by default', () => {
     it('sets allowPrerelease=true when channel is beta', () => {
         setUpdateChannel('beta')
         const win = makeMockWindow()
-        initAutoUpdater(win as never)
+        initAutoUpdater(win as never, { forceForTesting: true })
         expect(mockAutoUpdater.allowPrerelease).toBe(true)
     })
 })
@@ -150,7 +150,7 @@ describe('AU-04 — initAutoUpdater respects stable channel', () => {
     it('sets allowPrerelease=false when channel is stable', () => {
         setUpdateChannel('stable')
         const win = makeMockWindow()
-        initAutoUpdater(win as never)
+        initAutoUpdater(win as never, { forceForTesting: true })
         expect(mockAutoUpdater.allowPrerelease).toBe(false)
     })
 })
@@ -218,7 +218,7 @@ describe('AU-10 — setUpdateChannel("beta") flips allowPrerelease back', () => 
 describe('AU-11 — update-available event forwards correct shape', () => {
     it('sends flint:auto-update:available with version, releaseNotes, releaseDate, isBeta', () => {
         const win = makeMockWindow()
-        initAutoUpdater(win as never)
+        initAutoUpdater(win as never, { forceForTesting: true })
 
         mockAutoUpdater.emit('update-available', {
             version: '0.2.0-beta.1',
@@ -243,7 +243,7 @@ describe('AU-11 — update-available event forwards correct shape', () => {
 describe('AU-12 — download-progress event forwards correct shape', () => {
     it('sends flint:auto-update:progress with percent, bytesPerSecond, total, transferred', () => {
         const win = makeMockWindow()
-        initAutoUpdater(win as never)
+        initAutoUpdater(win as never, { forceForTesting: true })
 
         mockAutoUpdater.emit('download-progress', {
             bytesPerSecond: 500000,
@@ -269,7 +269,7 @@ describe('AU-12 — download-progress event forwards correct shape', () => {
 describe('AU-13 — update-downloaded event forwards correct shape', () => {
     it('sends flint:auto-update:downloaded with UpdateInfo shape', () => {
         const win = makeMockWindow()
-        initAutoUpdater(win as never)
+        initAutoUpdater(win as never, { forceForTesting: true })
 
         mockAutoUpdater.emit('update-downloaded', {
             version: '0.2.0',
@@ -295,7 +295,7 @@ describe('AU-14 — error event forwards message and does not throw', () => {
     it('sends flint:auto-update:error with the error message', () => {
         const win = makeMockWindow()
         const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-        initAutoUpdater(win as never)
+        initAutoUpdater(win as never, { forceForTesting: true })
 
         expect(() => {
             mockAutoUpdater.emit('error', new Error('Network timeout'))
@@ -312,7 +312,7 @@ describe('AU-14 — error event forwards message and does not throw', () => {
     it('does not send to renderer when window is destroyed', () => {
         const win = makeMockWindow(true) // destroyed = true
         const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-        initAutoUpdater(win as never)
+        initAutoUpdater(win as never, { forceForTesting: true })
 
         mockAutoUpdater.emit('error', new Error('Some error'))
         expect(win.webContents.send).not.toHaveBeenCalled()
@@ -325,7 +325,7 @@ describe('AU-14 — error event forwards message and does not throw', () => {
 describe('AU-15 — stopAutoUpdater prevents sends after stop', () => {
     it('does not forward events to renderer after stop', () => {
         const win = makeMockWindow()
-        initAutoUpdater(win as never)
+        initAutoUpdater(win as never, { forceForTesting: true })
         stopAutoUpdater()
 
         // Emitting after stop should not reach the window
@@ -344,7 +344,7 @@ describe('AU-15 — stopAutoUpdater prevents sends after stop', () => {
 describe('AU-16 — array releaseNotes are joined into a string', () => {
     it('joins note array entries with newlines', () => {
         const win = makeMockWindow()
-        initAutoUpdater(win as never)
+        initAutoUpdater(win as never, { forceForTesting: true })
 
         mockAutoUpdater.emit('update-available', {
             version: '1.0.0',
@@ -362,7 +362,7 @@ describe('AU-16 — array releaseNotes are joined into a string', () => {
 describe('AU-17 — null releaseNotes normalizes to null', () => {
     it('passes null releaseNotes through unchanged', () => {
         const win = makeMockWindow()
-        initAutoUpdater(win as never)
+        initAutoUpdater(win as never, { forceForTesting: true })
 
         mockAutoUpdater.emit('update-available', {
             version: '1.0.0',

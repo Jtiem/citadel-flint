@@ -23,9 +23,8 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
     MCP_TOOL_ARG_SCHEMAS,
-    flintSyncPullArgsSchema,
 } from '../../shared/ipc-validators'
-import type { MCPCallResultV3, MCPCallClassification } from '../../.flint-context/contracts/MINT.5-phase3.contract'
+import type { MCPCallResultV3 } from '../../.flint-context/contracts/MINT.5-phase3.contract'
 
 // ── Inline reproduction of the preload validation gate ────────────────────────
 // This mirrors exactly what electron/preload.ts must implement.

@@ -8,7 +8,6 @@
  *  - ARIA props render as PropertyRow entries
  */
 
-import React from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import A11ySection from '../A11ySection';

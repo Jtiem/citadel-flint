@@ -19,7 +19,7 @@
  *   MCC-06 — classification field is always present on the returned result
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { classifyMCPError } from '../../shared/mcp-classification'
 import type { MCPCallClassification, MCPCallResultV3 } from '../../.flint-context/contracts/MINT.5-phase3.contract'
 

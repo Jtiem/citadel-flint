@@ -2,7 +2,6 @@
  * FormPropsSection tests — INSPECTOR.1 Group B
  */
 
-import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import FormPropsSection from '../FormPropsSection';

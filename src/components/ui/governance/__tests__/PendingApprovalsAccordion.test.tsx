@@ -193,7 +193,7 @@ describe('PendingApprovalsAccordion', () => {
     it('toggles open/closed when accordion header is clicked', () => {
         // GLASSTYPO.1: Section manages its own open state; isOpen/onToggle props are
         // retained for backward compat but the Section drives the aria-expanded state.
-        const { container } = render(
+        render(
             <PendingApprovalsAccordion
                 isOpen={false}
                 onToggle={noop}

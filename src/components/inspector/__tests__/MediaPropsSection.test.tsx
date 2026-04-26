@@ -8,7 +8,6 @@
  *  - Off-token dimension → warning badge
  */
 
-import React from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import MediaPropsSection from '../MediaPropsSection';
@@ -29,8 +28,8 @@ describe('MediaPropsSection', () => {
   beforeEach(() => {
     useTokenStore.setState({
       tokens: [
-        { id: 1, token_path: 'spacing.4', token_value: '16px', token_type: 'spacing', collection: 'core' },
-        { id: 2, token_path: 'spacing.8', token_value: '32px', token_type: 'spacing', collection: 'core' },
+        { id: 1, token_path: 'spacing.4', token_value: '16px', token_type: 'dimension', collection_name: 'core', mode: 'default', description: null },
+        { id: 2, token_path: 'spacing.8', token_value: '32px', token_type: 'dimension', collection_name: 'core', mode: 'default', description: null },
       ],
       isLoading: false,
       error: null,

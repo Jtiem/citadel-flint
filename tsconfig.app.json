@@ -39,6 +39,14 @@
     "shared"
   ],
   "exclude": [
-    "src/stories"
+    "src/stories",
+    "src/**/__tests__/**",
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "shared/**/__tests__/**",
+    "shared/**/*.test.ts",
+    "shared/projectDetector.ts",
+    "shared/validateFilePath.ts",
+    "shared/tokenPath.ts"
   ]
 }

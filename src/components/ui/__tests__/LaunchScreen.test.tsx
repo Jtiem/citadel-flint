@@ -127,7 +127,7 @@ describe('LaunchScreen — 3-channel consolidation (FORGE.1)', () => {
 
         // Mock openFolder so we can confirm it is never called
         const openFolder = vi.fn().mockResolvedValue(null)
-        ;(window.flintAPI as Record<string, unknown>).openFolder = openFolder
+        ;(window.flintAPI as unknown as Record<string, unknown>).openFolder = openFolder
 
         const props = defaultProps()
         render(<LaunchScreen {...props} />)
@@ -174,7 +174,7 @@ describe('LaunchScreen — 3-channel consolidation (FORGE.1)', () => {
             type: 'directory',
             children: [],
         })
-        ;(window.flintAPI.project as Record<string, unknown>).createScratchpad = createScratchpad
+        ;(window.flintAPI.project as unknown as Record<string, unknown>).createScratchpad = createScratchpad
 
         const props = defaultProps()
         render(<LaunchScreen {...props} />)
@@ -221,7 +221,7 @@ describe('LaunchScreen — 3-channel consolidation (FORGE.1)', () => {
             environment: env,
             source: 'folder' as const,
         })
-        ;(window.flintAPI.project as Record<string, unknown>).smartOpen = smartOpen
+        ;(window.flintAPI.project as unknown as Record<string, unknown>).smartOpen = smartOpen
 
         render(<LaunchScreen {...defaultProps()} />)
         await waitFor(() => screen.getByText('Start from existing code'))
@@ -248,7 +248,7 @@ describe('LaunchScreen — 3-channel consolidation (FORGE.1)', () => {
             environment: env,
             source: 'folder' as const,
         })
-        ;(window.flintAPI.project as Record<string, unknown>).smartOpen = smartOpen
+        ;(window.flintAPI.project as unknown as Record<string, unknown>).smartOpen = smartOpen
 
         render(<LaunchScreen {...defaultProps()} />)
         await waitFor(() => screen.getByText('Start from existing code'))
@@ -417,7 +417,7 @@ describe('LaunchScreen — 3-channel consolidation (FORGE.1)', () => {
     it('renders health grade badge when getHealthGrade returns a grade', async () => {
         const project = makeProject({ name: 'Healthy App', path: '/tmp/healthy' })
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([project])
-        ;(window.flintAPI as Record<string, unknown>).project = {
+        ;(window.flintAPI as unknown as Record<string, unknown>).project = {
             ...(window.flintAPI.project ?? {}),
             getHealthGrade: vi.fn().mockResolvedValue({ grade: 'A+', score: 95, updatedAt: '2026-04-01T00:00:00Z' }),
         }
@@ -430,7 +430,7 @@ describe('LaunchScreen — 3-channel consolidation (FORGE.1)', () => {
     it('does not render a grade badge when getHealthGrade returns null', async () => {
         const project = makeProject({ name: 'Gradeless App' })
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([project])
-        ;(window.flintAPI as Record<string, unknown>).project = {
+        ;(window.flintAPI as unknown as Record<string, unknown>).project = {
             ...(window.flintAPI.project ?? {}),
             getHealthGrade: vi.fn().mockResolvedValue(null),
         }

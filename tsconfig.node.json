@@ -28,5 +28,11 @@
     "vite.config.ts",
     "electron/**/*.ts",
     "shared/**/*.ts"
+  ],
+  "exclude": [
+    "electron/**/__tests__/**",
+    "electron/**/*.test.ts",
+    "shared/**/__tests__/**",
+    "shared/**/*.test.ts"
   ]
 }

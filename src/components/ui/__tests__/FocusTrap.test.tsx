@@ -12,7 +12,7 @@
  *   - Empty content: no crash when there are no focusable elements
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, fireEvent, act } from '@testing-library/react';
 import { useRef } from 'react';
 import { FocusTrap } from '../FocusTrap';

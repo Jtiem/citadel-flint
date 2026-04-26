@@ -18,6 +18,8 @@
 
 import { autoUpdater } from 'electron-updater'
 import type { BrowserWindow } from 'electron'
+import { existsSync } from 'node:fs'
+import path from 'node:path'
 import { ipcChannel } from '../shared/brand.js'
 
 // ── Module state ─────────────────────────────────────────────────────────────
@@ -57,8 +59,30 @@ function normalizeReleaseNotes(notes: string | Array<{ note: string | null }> | 
  * Initialize the auto-updater. Call once after the main BrowserWindow is created.
  * Registers all event handlers and schedules the initial update check.
  */
-export function initAutoUpdater(win: BrowserWindow): void {
+export function initAutoUpdater(win: BrowserWindow, opts?: { forceForTesting?: boolean }): void {
     mainWin = win
+
+    // Skip when no update feed is configured (unsigned local builds, dev runs).
+    // electron-builder writes app-update.yml only when `publish` is set; without
+    // it, checkForUpdates() throws ENOENT on every launch.
+    // `forceForTesting: true` bypasses the guard for unit tests that mock
+    // electron-updater and want to verify the setup ran. Production callers
+    // never pass this — there is no env-var alternative on purpose.
+    if (opts?.forceForTesting !== true) {
+        try {
+            const { app } = require('electron') as typeof import('electron')
+            const cfgPath = path.join(
+                process.resourcesPath ?? app.getAppPath(),
+                'app-update.yml',
+            )
+            if (!app.isPackaged || !existsSync(cfgPath)) {
+                console.log('[Flint AutoUpdate] No update feed configured — disabled.')
+                return
+            }
+        } catch {
+            return
+        }
+    }
 
     // Configuration — user must confirm download; install on quit for convenience.
     autoUpdater.autoDownload = false

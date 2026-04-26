@@ -29,6 +29,7 @@ function makeSkippedByReason(overrides: Partial<Record<string, number>> = {}): C
         'tailwind-config-extension': 0,
         'non-jsx-framework': 0,
         'non-literal-ternary-branch': 0,
+        'parse-failure': 0,
         ...overrides,
     }
 }

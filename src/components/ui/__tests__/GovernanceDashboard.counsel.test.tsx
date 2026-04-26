@@ -74,7 +74,7 @@ describe('GovernanceDashboard — COUNSEL', () => {
         useTokenStore.setState({ tokens: [], isLoading: false, error: null })
         useCanvasStore.setState({ mithrilViolations: [], a11yViolations: {} })
         useEditorStore.setState({ linterWarnings: new Map() })
-        ;(window.flintAPI as Record<string, unknown>).baseline = {
+        ;(window.flintAPI as unknown as Record<string, unknown>).baseline = {
             isSet: vi.fn().mockResolvedValue(false),
             get: vi.fn().mockResolvedValue([]),
             set: vi.fn().mockResolvedValue(undefined),
@@ -289,7 +289,7 @@ describe('GovernanceDashboard — COUNSEL', () => {
 
     it('shows auto-enable banner when initialViolationCount > 10 and baseline is set', async () => {
         seedTokens([makeToken()])
-        ;(window.flintAPI as Record<string, unknown>).baseline = {
+        ;(window.flintAPI as unknown as Record<string, unknown>).baseline = {
             isSet: vi.fn().mockResolvedValue(true),
             get: vi.fn().mockResolvedValue([{ file_path: '/f', node_id: 'n', rule_id: 'color-drift', severity: 'amber', snapshot_value: null }]),
             set: vi.fn().mockResolvedValue(undefined),
@@ -305,7 +305,7 @@ describe('GovernanceDashboard — COUNSEL', () => {
 
     it('banner shows correct violation count in message', async () => {
         seedTokens([makeToken()])
-        ;(window.flintAPI as Record<string, unknown>).baseline = {
+        ;(window.flintAPI as unknown as Record<string, unknown>).baseline = {
             isSet: vi.fn().mockResolvedValue(true),
             get: vi.fn().mockResolvedValue([]),
             set: vi.fn().mockResolvedValue(undefined),
@@ -323,7 +323,7 @@ describe('GovernanceDashboard — COUNSEL', () => {
     it('banner "tap to see all" button calls baseline.clear', async () => {
         seedTokens([makeToken()])
         const clearMock = vi.fn().mockResolvedValue(undefined)
-        ;(window.flintAPI as Record<string, unknown>).baseline = {
+        ;(window.flintAPI as unknown as Record<string, unknown>).baseline = {
             isSet: vi.fn().mockResolvedValue(true),
             get: vi.fn().mockResolvedValue([]),
             set: vi.fn().mockResolvedValue(undefined),
@@ -342,7 +342,7 @@ describe('GovernanceDashboard — COUNSEL', () => {
 
     it('banner dismiss button hides the banner', async () => {
         seedTokens([makeToken()])
-        ;(window.flintAPI as Record<string, unknown>).baseline = {
+        ;(window.flintAPI as unknown as Record<string, unknown>).baseline = {
             isSet: vi.fn().mockResolvedValue(true),
             get: vi.fn().mockResolvedValue([]),
             set: vi.fn().mockResolvedValue(undefined),
@@ -524,7 +524,7 @@ describe('GovernanceDashboard — COUNSEL.2.2 Flagged for Review', () => {
         useTokenStore.setState({ tokens: [], isLoading: false, error: null })
         useCanvasStore.setState({ mithrilViolations: [], a11yViolations: {} })
         useEditorStore.setState({ linterWarnings: new Map() })
-        ;(window.flintAPI as Record<string, unknown>).baseline = {
+        ;(window.flintAPI as unknown as Record<string, unknown>).baseline = {
             isSet: vi.fn().mockResolvedValue(false),
             get: vi.fn().mockResolvedValue([]),
             set: vi.fn().mockResolvedValue(undefined),
@@ -614,7 +614,7 @@ describe('GovernanceDashboard — COUNSEL.3.2 Provenance Chip', () => {
         useTokenStore.setState({ tokens: [], isLoading: false, error: null })
         useCanvasStore.setState({ mithrilViolations: [], a11yViolations: {} })
         useEditorStore.setState({ linterWarnings: new Map() })
-        ;(window.flintAPI as Record<string, unknown>).baseline = {
+        ;(window.flintAPI as unknown as Record<string, unknown>).baseline = {
             isSet: vi.fn().mockResolvedValue(false),
             get: vi.fn().mockResolvedValue([]),
             set: vi.fn().mockResolvedValue(undefined),
@@ -676,7 +676,7 @@ describe('GovernanceDashboard — COUNSEL.3.3 Anomaly Alert Banner', () => {
         useTokenStore.setState({ tokens: [], isLoading: false, error: null })
         useCanvasStore.setState({ mithrilViolations: [], a11yViolations: {} })
         useEditorStore.setState({ linterWarnings: new Map() })
-        ;(window.flintAPI as Record<string, unknown>).baseline = {
+        ;(window.flintAPI as unknown as Record<string, unknown>).baseline = {
             isSet: vi.fn().mockResolvedValue(false),
             get: vi.fn().mockResolvedValue([]),
             set: vi.fn().mockResolvedValue(undefined),
@@ -738,7 +738,7 @@ describe('GovernanceDashboard — COUNSEL.3.3 Anomaly Alert Banner', () => {
     // ── COUNSEL.3.1: Rewind to clean state ───────────────────────────────────
 
     it('shows "Rewind to clean" link when score < 95 and a clean state exists', async () => {
-        ;(window.flintAPI.governance as Record<string, unknown>).getLastCleanState =
+        ;(window.flintAPI.governance as unknown as Record<string, unknown>).getLastCleanState =
             vi.fn().mockResolvedValue({ timestamp: '2026-03-30T10:00:00Z', score: 98 })
         seedTokens([makeToken()])
         // Add violations to drop score below 95
@@ -757,7 +757,7 @@ describe('GovernanceDashboard — COUNSEL.3.3 Anomaly Alert Banner', () => {
     })
 
     it('hides "Rewind to clean" link when score >= 95', async () => {
-        ;(window.flintAPI.governance as Record<string, unknown>).getLastCleanState =
+        ;(window.flintAPI.governance as unknown as Record<string, unknown>).getLastCleanState =
             vi.fn().mockResolvedValue({ timestamp: '2026-03-30T10:00:00Z', score: 100 })
         seedTokens([makeToken()])
         // No violations — score stays at 100
@@ -768,7 +768,7 @@ describe('GovernanceDashboard — COUNSEL.3.3 Anomaly Alert Banner', () => {
     })
 
     it('hides "Rewind to clean" link when no clean state exists', async () => {
-        ;(window.flintAPI.governance as Record<string, unknown>).getLastCleanState =
+        ;(window.flintAPI.governance as unknown as Record<string, unknown>).getLastCleanState =
             vi.fn().mockResolvedValue(null)
         seedTokens([makeToken()])
         const w = makeLinterWarning({ id: 'v1', severity: 'critical' })
@@ -782,13 +782,13 @@ describe('GovernanceDashboard — COUNSEL.3.3 Anomaly Alert Banner', () => {
     // ── COUNSEL.4.2: Compliance trajectory sparkline ─────────────────────────
 
     it('renders sparkline when health history has 2+ entries', async () => {
-        ;(window.flintAPI.governance as Record<string, unknown>).getHealthHistory =
+        ;(window.flintAPI.governance as unknown as Record<string, unknown>).getHealthHistory =
             vi.fn().mockResolvedValue([
                 { date: '2026-03-28T10:00:00Z', score: 85, grade: 'B' },
                 { date: '2026-03-29T10:00:00Z', score: 90, grade: 'A' },
                 { date: '2026-03-30T10:00:00Z', score: 92, grade: 'A' },
             ])
-        ;(window.flintAPI.governance as Record<string, unknown>).recordHealth =
+        ;(window.flintAPI.governance as unknown as Record<string, unknown>).recordHealth =
             vi.fn().mockResolvedValue(undefined)
         seedTokens([makeToken()])
         render(<GovernanceDashboard />)
@@ -802,9 +802,9 @@ describe('GovernanceDashboard — COUNSEL.3.3 Anomaly Alert Banner', () => {
     })
 
     it('does not render sparkline when history has fewer than 2 entries', async () => {
-        ;(window.flintAPI.governance as Record<string, unknown>).getHealthHistory =
+        ;(window.flintAPI.governance as unknown as Record<string, unknown>).getHealthHistory =
             vi.fn().mockResolvedValue([{ date: '2026-03-30T10:00:00Z', score: 95, grade: 'A' }])
-        ;(window.flintAPI.governance as Record<string, unknown>).recordHealth =
+        ;(window.flintAPI.governance as unknown as Record<string, unknown>).recordHealth =
             vi.fn().mockResolvedValue(undefined)
         seedTokens([makeToken()])
         render(<GovernanceDashboard />)
@@ -818,7 +818,7 @@ describe('GovernanceDashboard — COUNSEL.3.3 Anomaly Alert Banner', () => {
     // ── COUNSEL.4.1: Token impact preview ────────────────────────────────────
 
     it('shows token impact section when sync violations exist (inside More details)', async () => {
-        ;(window.flintAPI.governance as Record<string, unknown>).previewTokenImpact =
+        ;(window.flintAPI.governance as unknown as Record<string, unknown>).previewTokenImpact =
             vi.fn().mockResolvedValue({ affectedFiles: 4, estimatedImpact: 'medium' })
         seedTokens([makeToken()])
         const syncWarning = makeLinterWarning({
@@ -837,7 +837,7 @@ describe('GovernanceDashboard — COUNSEL.3.3 Anomaly Alert Banner', () => {
     })
 
     it('hides token impact section when no sync violations exist', async () => {
-        ;(window.flintAPI.governance as Record<string, unknown>).previewTokenImpact =
+        ;(window.flintAPI.governance as unknown as Record<string, unknown>).previewTokenImpact =
             vi.fn().mockResolvedValue({ affectedFiles: 0, estimatedImpact: 'low' })
         seedTokens([makeToken()])
         const mithrilWarning = makeLinterWarning({ type: 'color-drift', id: 'n1' })
@@ -853,7 +853,7 @@ describe('GovernanceDashboard — COUNSEL.3.3 Anomaly Alert Banner', () => {
     // ── S8.3: Pending approvals ──────────────────────────────────────────────
 
     it('shows pending approvals section when mutations await approval', async () => {
-        ;(window.flintAPI.governance as Record<string, unknown>).getPendingMutations =
+        ;(window.flintAPI.governance as unknown as Record<string, unknown>).getPendingMutations =
             vi.fn().mockResolvedValue([
                 { id: 1, type: 'insertNode', filePath: '/src/App.tsx', riskScore: 65, riskTier: 'Amber', agentId: 'agent-1' },
                 { id: 2, type: 'deleteNode', filePath: '/src/Home.tsx', riskScore: 85, riskTier: 'Red' },
@@ -870,7 +870,7 @@ describe('GovernanceDashboard — COUNSEL.3.3 Anomaly Alert Banner', () => {
     })
 
     it('hides pending approvals section when no mutations pending', async () => {
-        ;(window.flintAPI.governance as Record<string, unknown>).getPendingMutations =
+        ;(window.flintAPI.governance as unknown as Record<string, unknown>).getPendingMutations =
             vi.fn().mockResolvedValue([])
         seedTokens([makeToken()])
         render(<GovernanceDashboard />)
@@ -884,11 +884,11 @@ describe('GovernanceDashboard — COUNSEL.3.3 Anomaly Alert Banner', () => {
 
     it('approve button removes the mutation from the list', async () => {
         const approveFn = vi.fn().mockResolvedValue(undefined)
-        ;(window.flintAPI.governance as Record<string, unknown>).getPendingMutations =
+        ;(window.flintAPI.governance as unknown as Record<string, unknown>).getPendingMutations =
             vi.fn().mockResolvedValue([
                 { id: 42, type: 'insertNode', filePath: '/src/App.tsx', riskScore: 65, riskTier: 'Amber' },
             ])
-        ;(window.flintAPI.governance as Record<string, unknown>).approveMutation = approveFn
+        ;(window.flintAPI.governance as unknown as Record<string, unknown>).approveMutation = approveFn
         seedTokens([makeToken()])
         render(<GovernanceDashboard />)
         // GAP-1: Open "More details" first
@@ -909,11 +909,11 @@ describe('GovernanceDashboard — COUNSEL.3.3 Anomaly Alert Banner', () => {
 
     it('reject button removes the mutation from the list', async () => {
         const rejectFn = vi.fn().mockResolvedValue(undefined)
-        ;(window.flintAPI.governance as Record<string, unknown>).getPendingMutations =
+        ;(window.flintAPI.governance as unknown as Record<string, unknown>).getPendingMutations =
             vi.fn().mockResolvedValue([
                 { id: 99, type: 'deleteNode', filePath: '/src/Home.tsx', riskScore: 85, riskTier: 'Red' },
             ])
-        ;(window.flintAPI.governance as Record<string, unknown>).rejectMutation = rejectFn
+        ;(window.flintAPI.governance as unknown as Record<string, unknown>).rejectMutation = rejectFn
         seedTokens([makeToken()])
         render(<GovernanceDashboard />)
         // GAP-1: Open "More details" first
@@ -941,7 +941,7 @@ describe('GovernanceDashboard — COUNSEL.1 Sprint (additional tests)', () => {
         useTokenStore.setState({ tokens: [], isLoading: false, error: null })
         useCanvasStore.setState({ mithrilViolations: [], a11yViolations: {} })
         useEditorStore.setState({ linterWarnings: new Map() })
-        ;(window.flintAPI as Record<string, unknown>).baseline = {
+        ;(window.flintAPI as unknown as Record<string, unknown>).baseline = {
             isSet: vi.fn().mockResolvedValue(false),
             get: vi.fn().mockResolvedValue([]),
             set: vi.fn().mockResolvedValue(undefined),
@@ -981,7 +981,7 @@ describe('GovernanceDashboard — COUNSEL.1 Sprint (additional tests)', () => {
         useEditorStore.setState({ linterWarnings: warnings })
         useCanvasStore.setState({ activeFilePath: '/test/auto-baseline.tsx' })
         const setMock = vi.fn().mockResolvedValue(undefined)
-        ;(window.flintAPI as Record<string, unknown>).baseline = {
+        ;(window.flintAPI as unknown as Record<string, unknown>).baseline = {
             isSet: vi.fn().mockResolvedValue(false),
             get: vi.fn().mockResolvedValue([]),
             set: setMock,
@@ -999,7 +999,7 @@ describe('GovernanceDashboard — COUNSEL.1 Sprint (additional tests)', () => {
         useEditorStore.setState({ linterWarnings: new Map([['no-auto-1', warning]]) })
         useCanvasStore.setState({ activeFilePath: '/test/no-auto.tsx' })
         const setMock = vi.fn().mockResolvedValue(undefined)
-        ;(window.flintAPI as Record<string, unknown>).baseline = {
+        ;(window.flintAPI as unknown as Record<string, unknown>).baseline = {
             isSet: vi.fn().mockResolvedValue(false),
             get: vi.fn().mockResolvedValue([]),
             set: setMock,

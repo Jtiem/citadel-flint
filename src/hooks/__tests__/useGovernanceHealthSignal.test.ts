@@ -16,7 +16,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { renderHook, waitFor, act } from '@testing-library/react'
+import { renderHook, waitFor } from '@testing-library/react'
 import { useGovernanceHealthSignal, type HealthSignalInput } from '../useGovernanceHealthSignal'
 import { useTokenStore } from '../../store/tokenStore'
 
@@ -183,7 +183,7 @@ describe('useGovernanceHealthSignal', () => {
     it('does not call recordHealth when tokenCount is 0', async () => {
         useTokenStore.setState({ tokens: [] })
 
-        const { result, rerender } = renderHook(
+        const { rerender } = renderHook(
             (props: HealthSignalInput) => useGovernanceHealthSignal(props),
             { initialProps: makeInput({ score: 100 }) }
         )

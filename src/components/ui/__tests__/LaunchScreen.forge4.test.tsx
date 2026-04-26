@@ -58,7 +58,7 @@ describe('LaunchScreen — FORGE.4b Health Grades', () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([
             { id: '1', name: 'My Project', path: '/test/project', last_opened: Date.now() },
         ])
-        ;(window.flintAPI.project as Record<string, unknown>).getHealthGrade = vi.fn().mockResolvedValue({
+        ;(window.flintAPI.project as unknown as Record<string, unknown>).getHealthGrade = vi.fn().mockResolvedValue({
             grade: 'B+',
             score: 82,
             updatedAt: new Date().toISOString(),

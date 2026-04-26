@@ -68,6 +68,16 @@ export const ipcSchemas = {
     }),
   },
 
+  'tokens:seed-from-project': {
+    payload: z.string().min(1),
+    response: z.object({
+      seeded: z.number().int().nonnegative(),
+      source: z.enum(['project', 'none']),
+      sourcePath: z.string().optional(),
+      error: z.string().optional(),
+    }),
+  },
+
   // MINT.5: New channel — reads Figma↔local design token drift.
   // payload: no args (undefined), response: TokenDrift array.
   'tokens:read-figma-drift': {
@@ -261,7 +271,7 @@ export const ipcSchemas = {
   'mcp:call-tool': {
     payload: z.tuple([
       z.string().min(1),
-      z.record(z.unknown()),
+      z.record(z.string(), z.unknown()),
     ]),
     response: z.unknown(),
   },

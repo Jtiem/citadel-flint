@@ -25,6 +25,7 @@ function makeToken(id: number): DesignToken {
         token_value: '#ffffff',
         collection_name: 'Test',
         mode: 'default',
+        description: null,
     }
 }
 

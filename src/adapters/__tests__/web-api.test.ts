@@ -22,23 +22,6 @@ import {
   createWebFlintAPI,
 } from '../web-api'
 
-// ── fetch mock ────────────────────────────────────────────────────────────────
-
-function mockFetchResponse(result: unknown) {
-  return vi.fn().mockResolvedValue({
-    ok: true,
-    json: () => Promise.resolve({ result }),
-  } as Response)
-}
-
-function mockFetchError(message: string) {
-  return vi.fn().mockResolvedValue({
-    ok: false,
-    status: 500,
-    json: () => Promise.resolve({ result: null }),
-  } as Response)
-}
-
 // ── WebSocket mock (prevent real connection attempts in jsdom) ────────────────
 
 class MockWebSocket {

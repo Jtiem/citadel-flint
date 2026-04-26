@@ -12,7 +12,6 @@
  */
 
 import '@testing-library/jest-dom';
-import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
 import Section from '../Section';
@@ -222,7 +221,7 @@ describe('Section primitive', () => {
     expect(body).not.toBeNull();
     // jsdom resolves color-mix to empty string; we check the style attribute
     // is present and contains the color-mix declaration (structural signal)
-    const bg = body.style.background;
+    void body.style.background;
     // If jsdom resolves it to empty, fall back to style attribute string
     const rawStyle = body.getAttribute('style') ?? '';
     expect(rawStyle).toContain('color-mix');

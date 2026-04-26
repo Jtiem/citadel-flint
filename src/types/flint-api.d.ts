@@ -39,6 +39,7 @@ export interface ServerStatus {
 export type TokenType =
     | 'color'
     | 'dimension'
+    | 'fontSize'
     | 'fontFamily'
     | 'fontWeight'
     | 'lineHeight'
@@ -2398,6 +2399,7 @@ export type SourceAuthority =
     | 'SOC2'
     | 'FDA SaMD'
     | 'HIPAA'
+    | 'Section 508'
     | 'Flint Design System'
     | 'Custom'
 
@@ -2451,6 +2453,10 @@ export interface ProvenanceInfo {
     agentId?: string
     /** ISO timestamp of the mutation. */
     timestamp: string
+    /** Optional source file path for the mutation. */
+    filePath?: string
+    /** Optional rule identifier the mutation addressed. */
+    ruleId?: string
 }
 
 // ── COUNSEL.3.3: Anomaly Alert ──────────────────────────────────────────────

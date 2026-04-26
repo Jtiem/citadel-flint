@@ -27,11 +27,6 @@ import {
     MCP_TOOL_ARG_SCHEMAS,
 } from '../ipc-validators'
 import type {
-    FlintSyncPullArgs,
-    FlintSyncPushArgs,
-    FlintResolveAllArgs,
-    FlintResolveConflictArgs,
-    FlintSyncCheckArgs,
     MCPToolWithArgSchema,
 } from '../../.flint-context/contracts/MINT.5-phase3.contract'
 

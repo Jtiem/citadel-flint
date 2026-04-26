@@ -108,8 +108,8 @@ function renderDialog(
   if (!TelemetryConsentDialog) {
     throw new Error('TelemetryConsentDialog not yet implemented (Group B)')
   }
-  const onDecided = props?.onDecided ?? vi.fn()
-  const result = render(<TelemetryConsentDialog onDecided={onDecided} />)
+  const onDecided = (props?.onDecided ?? vi.fn()) as ReturnType<typeof vi.fn>
+  const result = render(<TelemetryConsentDialog onDecided={onDecided as unknown as TelemetryConsentDialogProps['onDecided']} />)
   return { onDecided, ...result }
 }
 
@@ -392,9 +392,7 @@ describe('TelemetryConsentDialog — disclosure and copy (UX warnings 1+2)', () 
     renderDialog()
     await flushFocusTimer()
 
-    const desc = screen.getByTestId
-      ? document.getElementById('telemetry-dialog-description')
-      : null
+    const desc = document.getElementById('telemetry-dialog-description')
     expect(desc).toBeTruthy()
     expect(desc!.textContent).toMatch(/off until you opt in here/i)
   })

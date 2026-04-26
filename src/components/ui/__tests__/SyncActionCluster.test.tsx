@@ -10,7 +10,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { SyncActionCluster } from '../mint/SyncActionCluster'
-import type { SyncActionClusterProps } from '../../../.flint-context/contracts/MINT.5-phase2.contract'
+import type { SyncActionClusterProps } from '../../../../.flint-context/contracts/MINT.5-phase2.contract'
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 

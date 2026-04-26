@@ -150,7 +150,7 @@ describe('MINT.5 — TokenHealthBar drift pill migration (syncStatuses removal)'
         render(
             <TokenHealthBar
                 {...BASE_PROPS}
-                // @ts-expect-error - deprecated prop intentionally passed to verify it's ignored
+                // @ts-ignore - deprecated prop intentionally passed to verify it's ignored
                 syncStatuses={['drifted', 'drifted', 'drifted']}
                 health={makeHealth({ drifted: 0 })}
                 figmaConnected={true}
@@ -234,7 +234,6 @@ describe('MINT.5 — TokenGrid: dead-token badge uses SeverityChip severity="adv
     // align with the contract testBoundaries.
 
     it('contract boundary satisfied: dead badge class comes from advisory SeverityChip palette', async () => {
-        const { render: r, screen: s } = await import('@testing-library/react')
         const { UsageBadge } = await import('../TokenGrid').then(m => {
             // UsageBadge is not exported — verify via rendering the dead-token-badge
             return { UsageBadge: null }

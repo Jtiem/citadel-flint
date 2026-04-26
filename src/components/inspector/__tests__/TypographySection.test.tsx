@@ -6,7 +6,6 @@
  *  - off-token-flag-absent-when-value-matches  (text-body → token chip, no warning)
  */
 
-import React from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import TypographySection from '../TypographySection';
@@ -32,9 +31,9 @@ describe('TypographySection', () => {
     // Seed a fontSize token so "14px" matches but "17px" does not
     useTokenStore.setState({
       tokens: [
-        { id: 1, token_path: 'fontSize.body', token_value: '14px', token_type: 'fontSize', collection: 'core' },
-        { id: 2, token_path: 'fontSize.lg',   token_value: '16px', token_type: 'fontSize', collection: 'core' },
-        { id: 3, token_path: 'fontFamily.sans', token_value: 'Inter, sans-serif', token_type: 'fontFamily', collection: 'core' },
+        { id: 1, token_path: 'fontSize.body', token_value: '14px', token_type: 'fontSize', collection_name: 'core', mode: 'default', description: null },
+        { id: 2, token_path: 'fontSize.lg',   token_value: '16px', token_type: 'fontSize', collection_name: 'core', mode: 'default', description: null },
+        { id: 3, token_path: 'fontFamily.sans', token_value: 'Inter, sans-serif', token_type: 'fontFamily', collection_name: 'core', mode: 'default', description: null },
       ],
       isLoading: false,
       error: null,

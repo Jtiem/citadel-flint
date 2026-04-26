@@ -46,7 +46,7 @@ describe('GovernanceDashboard', () => {
         // Ensure token store is empty before each test (setup.ts doesn't reset it)
         useTokenStore.setState({ tokens: [], isLoading: false, error: null })
         // Mock baseline API as undefined (not available in test environment)
-        ;(window.flintAPI as Record<string, unknown>).baseline = undefined
+        ;(window.flintAPI as unknown as Record<string, unknown>).baseline = undefined
     })
 
     // ── Fix 4: Zero-state copy ────────────────────────────────────────────────
@@ -381,7 +381,7 @@ describe('GovernanceDashboard', () => {
         localStorage.setItem('flint:user-prefs', JSON.stringify({ fixMode: 'auto' }))
         seedTokens([makeToken()])
         const applyBatch = vi.fn()
-        useEditorStore.setState({ applyBatch } as Parameters<typeof useEditorStore.setState>[0])
+        useEditorStore.setState({ applyBatch } as unknown as Parameters<typeof useEditorStore.setState>[0])
         useEditorStore.setState({
             linterWarnings: new Map([
                 ['node-m1', {

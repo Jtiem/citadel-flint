@@ -44,7 +44,6 @@ describe('useSyncActions', () => {
 
     it('returns ready=false when window.flintAPI is missing', async () => {
         const previous = window.flintAPI
-        // @ts-expect-error — intentionally blanking the API to test the guard
         delete (window as unknown as { flintAPI?: unknown }).flintAPI
         try {
             const { result } = renderHook(() => useSyncActions())

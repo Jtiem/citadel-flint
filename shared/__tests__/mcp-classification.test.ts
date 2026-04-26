@@ -17,7 +17,7 @@ import { classifyMCPError } from '../mcp-classification'
 import type { MCPCallClassification, ClassifyMCPError } from '../../.flint-context/contracts/MINT.5-phase3.contract'
 
 // Type compatibility check
-const _typeCheck: ClassifyMCPError = classifyMCPError
+void (classifyMCPError satisfies ClassifyMCPError)
 
 // ── classifyMCPError auth-expired ─────────────────────────────────────────────
 // boundary: classifyMCPError auth-expired

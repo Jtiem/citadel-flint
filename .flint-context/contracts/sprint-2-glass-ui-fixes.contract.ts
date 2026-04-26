@@ -9,7 +9,7 @@
  * patch into a full strict refactor. Final GovernanceDashboard.tsx must be < 500 LOC.
  */
 
-import type { FlintContract } from '../../shared/contract-schema'
+import type { LegacyFlintContract } from '../../shared/contract-schema'
 import type { LinterWarning, BaselineEntry } from '../../src/types/flint-api'
 
 // ─── Hook contracts (H1–H15) ────────────────────────────────────────
@@ -37,8 +37,15 @@ export interface FixableItem {
     tokenClass: string
 }
 
+export interface AutoFixableEntry {
+    nodeId: string
+    label: string
+    hardcodedClass: string
+    tokenClass: string
+}
+
 export interface UseGovernanceFixActionsResult {
-    autoFixableEntries: LinterWarning[]
+    autoFixableEntries: AutoFixableEntry[]
     autoFixableA11yEntries: LinterWarning[]
     manualA11yEntries: LinterWarning[]
     acceptedFixes: FixableItem[]
@@ -69,8 +76,8 @@ export interface UseGovernanceDeferResult {
     aiSourcedCardKeys: Set<string>
     resurfacedCardKeys: Set<string>
     resurfaceTick: number
-    setDeferReasons: (next: Map<string, string>) => void
-    setDeferDurations: (next: Map<string, string>) => void
+    setDeferReasons: import('react').Dispatch<import('react').SetStateAction<Map<string, string>>>
+    setDeferDurations: import('react').Dispatch<import('react').SetStateAction<Map<string, string>>>
     toggleDeferForm: (cardKey: string) => void
     submitDefer: (cardKey: string, ruleId: string, nodeId: string) => Promise<void>
     handleFlag: (cardKey: string, ruleId: string, nodeId: string) => Promise<void>
@@ -116,7 +123,8 @@ export interface UseGovernanceCleanStateResult {
 export interface UseGovernanceTokenImpactResult {
     impactPreview: unknown | null
     isComputing: boolean
-    refresh: () => Promise<void>
+    /** Optional `tokenName` triggers a recompute for that specific token. */
+    refresh: (tokenName?: string) => Promise<void>
 }
 
 export interface UseGovernanceHealthSignalResult {
@@ -129,7 +137,7 @@ export interface UseGovernanceHealthSignalResult {
 }
 
 export interface UseGovernanceCoverageResult {
-    jurisdictionCoverage: unknown[]
+    jurisdictionCoverage: unknown[] | Record<string, { covered: number; total: number }>
     inheritanceChain: unknown[]
     isLoadingConfig: boolean
 }
@@ -176,7 +184,7 @@ export type GetNodeNameFn = (tree: VisualNodeLike[], id: string) => string
 
 // ─── CONTRACT metadata ──────────────────────────────────────────────
 
-export const CONTRACT: FlintContract = {
+export const CONTRACT: LegacyFlintContract = {
     meta: {
         name: 'sprint-2-glass-ui-fixes',
         phase: 'UnifiedAPlus.Sprint2.v2',

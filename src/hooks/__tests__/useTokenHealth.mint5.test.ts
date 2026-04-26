@@ -123,7 +123,7 @@ describe('MINT.5 — useTokenHealth bucket mapping', () => {
             tokens.map((t) => ({ tokenName: t.token_path, cssVar: `--${t.token_path}`, usageCount: 0, files: [] }))
         )
 
-        const { result } = renderHook(() => useTokenHealth())
+        renderHook(() => useTokenHealth())
 
         // Advisory penalty is ×1; 10 dead tokens → score = 100 - 10 = 90 → grade A
         // (dead maps to advisoryCount in the bucket → ×1 deduction each)

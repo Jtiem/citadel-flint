@@ -41,9 +41,9 @@ function makeDefaultDeps(overrides: Partial<AutoResumeDeps> = {}): AutoResumeDep
     }
 
     const deps: AutoResumeDeps = {
-        readFile: vi.fn<[string], Promise<string>>().mockRejectedValue(new Error('ENOENT')),
+        readFile: vi.fn<(p: string) => Promise<string>>().mockRejectedValue(new Error('ENOENT')),
         findRootForFile: null,
-        openPath: vi.fn<[string], Promise<null>>().mockResolvedValue(null),
+        openPath: vi.fn<(p: string) => Promise<null>>().mockResolvedValue(null),
         getRecentFileFocus: vi.fn().mockResolvedValue(null),
         setWorkspaceFiles: vi.fn(),
         setActiveFile: vi.fn(async (p: string) => { _resolved.file = p }),

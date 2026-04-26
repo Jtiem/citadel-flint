@@ -21,8 +21,9 @@ import type { IsSyncStale, FormatStaleness } from '../../.flint-context/contract
 // ── Type compatibility checks ─────────────────────────────────────────────────
 // Verify the exported functions satisfy the contract interfaces.
 
-const _isSyncStaleCheck: IsSyncStale = isSyncStale
-const _formatStalenessCheck: FormatStaleness = formatStaleness
+// Type compat — `void` keeps the symbol live without storing it.
+void (isSyncStale satisfies IsSyncStale)
+void (formatStaleness satisfies FormatStaleness)
 
 // ── SYNC_STALENESS_THRESHOLD_HOURS_DEFAULT ────────────────────────────────────
 

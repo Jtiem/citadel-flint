@@ -56,7 +56,7 @@ beforeEach(() => {
   (window.flintAPI.readFile as ReturnType<typeof vi.fn>).mockResolvedValue('export default function Fixed() { return <div /> }')
   // Default: flint_fix succeeds
 ;
-  (window.flintAPI.mcp.callTool as ReturnType<typeof vi.fn>).mockResolvedValue({
+  (window.flintAPI.mcp!.callTool as ReturnType<typeof vi.fn>).mockResolvedValue({
     content: [{
       type: 'text',
       text: '{}'
@@ -171,7 +171,7 @@ describe('ExportModal — GOV-FIX-2 Fix button behaviour', () => {
       });
     });
     it('does NOT call flint_fix when a non-fixable node ID is clicked', async () => {
-      const callTool = window.flintAPI.mcp.callTool as ReturnType<typeof vi.fn>;
+      const callTool = window.flintAPI.mcp!.callTool as ReturnType<typeof vi.fn>;
       const onClose = vi.fn();
       render(<ExportModal onClose={onClose} />);
       await waitFor(() => {
@@ -212,7 +212,7 @@ describe('ExportModal — GOV-FIX-2 Fix button behaviour', () => {
         // With no file, handleSelectNode is called (fallback)
         expect(onClose).toHaveBeenCalledOnce();
       });
-      expect(window.flintAPI.mcp.callTool).not.toHaveBeenCalledWith('flint_fix', expect.anything());
+      expect(window.flintAPI.mcp!.callTool).not.toHaveBeenCalledWith('flint_fix', expect.anything());
     });
   });
 });

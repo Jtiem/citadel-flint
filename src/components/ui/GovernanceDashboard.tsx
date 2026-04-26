@@ -57,7 +57,6 @@ import { applyUndo } from '../../core/recoveryController'
 import { sanitiseToastMessage } from '../../utils/sanitiseToastMessage'
 import { useNotificationStore } from '../../store/notificationStore'
 import type { LinterWarning, PendingMutation, ProvenanceInfo, AnomalyAlert } from '../../types/flint-api'
-import type { FixableItem } from './FixPreviewDrawer'
 import type { DeferDuration } from '../../../shared/deferralUtils'
 import type { MithrilCardData, A11yCardData } from './governance/ViolationsList'
 import type { AuditLogEntry } from './governance/AuditLogAccordion'
@@ -118,8 +117,6 @@ export function GovernanceDashboard({
     // this component does not re-render when violation objects change beyond the
     // visible 5. The full arrays are still accessible via storeCanExport() which
     // reads the store directly, so the exportBlocked memo remains correct.
-    const mithrilViolations = useCanvasStore((s) => s.mithrilViolations)
-    const a11yViolations = useCanvasStore((s) => s.a11yViolations)
     const mithrilViolationsLength = useCanvasStore((s) => s.mithrilViolations.length)
     const a11yViolationsLength = useCanvasStore((s) => Object.keys(s.a11yViolations).length)
     const setGovernanceRuleFilter = useCanvasStore((s) => s.setGovernanceRuleFilter)
@@ -317,7 +314,7 @@ export function GovernanceDashboard({
         if (syncCount === 0) return
         const first = categories.visibleLinterWarnings.find((w) => w.type === 'sync')
         const name = first?.nearestToken ?? (first ? extractHardcodedClassFromMsg(first.message) : null) ?? ''
-        if (name) void tokenImpact.refresh(name)
+        if (name) void (tokenImpact.refresh as (n: string) => unknown)(name)
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [syncCount])
 
@@ -466,9 +463,9 @@ export function GovernanceDashboard({
                             onFix={(_, fixItem) => fixActions.handleFixSingle(fixItem)} onPreviewFix={onPreviewFixKey}
                             onAcceptFix={(key, fixItem) => fixActions.acceptInlineFix(key, fixItem)} onSkipFix={fixActions.skipInlineFix}
                             onFlag={onFlagKey} onUnflag={defer.handleUnflag}
-                            onDefer={(key, d) => defer.setDeferDurations((prev) => new Map([...prev, [key, d]]))}
-                            onDeferReasonChange={(key, r) => defer.setDeferReasons((prev) => new Map([...prev, [key, r]]))}
-                            onDeferDurationChange={(key, d) => defer.setDeferDurations((prev) => new Map([...prev, [key, d]]))}
+                            onDefer={(key, d) => defer.setDeferDurations(prev => new Map([...prev, [key, d]]))}
+                            onDeferReasonChange={(key, r) => defer.setDeferReasons(prev => new Map([...prev, [key, r]]))}
+                            onDeferDurationChange={(key, d) => defer.setDeferDurations(prev => new Map([...prev, [key, d]]))}
                             onSubmitDefer={onSubmitDeferKey} onCancelDefer={defer.toggleDeferForm} onPin={togglePin}
                             onOverride={handleOverrideFromCard}
                         />
@@ -502,7 +499,7 @@ export function GovernanceDashboard({
                 <TokenImpactAccordion isOpen={isTokenImpactOpen} onToggle={() => setIsTokenImpactOpen((v) => !v)} tokenImpact={tokenImpact.impactPreview as TokenImpactData | null} tokenImpactDetails={[]} isTokenImpactLoading={tokenImpact.isComputing} onPreviewImpact={() => void tokenImpact.refresh()} />
                 <PendingApprovalsAccordion isOpen={isPendingOpen} onToggle={() => setIsPendingOpen((v) => !v)} pendingMutations={pending.pending as PendingMutation[]} onApprove={(id) => void pending.approve(String(id))} onReject={(id) => void pending.reject(String(id))} />
                 <AuditLogAccordion isOpen={isAuditLogOpen} onToggle={handleAuditLogToggle} auditLog={auditLog.entries as AuditLogEntry[]} auditLogLoaded={auditLogLoaded} auditLogLoading={auditLog.isLoading} auditLogHasMore={auditLog.hasMore} onLoadMore={() => void auditLog.loadMore()} />
-                <CoverageSection jurisdictionCoverage={coverage.jurisdictionCoverage as Record<string, { covered: number; total: number }> | null} inheritanceChain={coverage.inheritanceChain as string[]} isLoadingConfig={coverage.isLoadingConfig} />
+                <CoverageSection jurisdictionCoverage={coverage.jurisdictionCoverage as unknown as Record<string, { covered: number; total: number }> | null} inheritanceChain={coverage.inheritanceChain as string[]} isLoadingConfig={coverage.isLoadingConfig} />
                 {/* RUNTIME.1 runtime accordion — flag-gated per contract invariant
                     `flag-off-ui-silent` (= 0 DOM nodes when flag is off). */}
                 {runtimeAxeEnabled && (

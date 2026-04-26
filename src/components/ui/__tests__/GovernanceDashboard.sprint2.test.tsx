@@ -18,7 +18,7 @@ describe('GovernanceDashboard — Sprint 2B toast on governance data failure', (
         useTokenStore.setState({ tokens: [], isLoading: false, error: null })
         useNotificationStore.setState({ notifications: [], history: [] })
         // Ensure baseline is not set
-        ;(window.flintAPI as Record<string, unknown>).baseline = undefined
+        ;(window.flintAPI as unknown as Record<string, unknown>).baseline = undefined
     })
 
     it('pushes a warning toast when getOverrideCount IPC fails on mount', async () => {

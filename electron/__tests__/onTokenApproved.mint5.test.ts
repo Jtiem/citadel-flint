@@ -13,7 +13,7 @@
  * BrowserWindow required in the test process.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import type {
     TokenApprovedEvent,
     TokenApprovedSource,
@@ -188,7 +188,6 @@ describe('MINT.5 — governance:on-token-approved glass-path broadcast (R8)', ()
     })
 
     it('no broadcast emitted when approve-token handler throws', async () => {
-        const broadcasts: string[] = []
         // Simulate a handler that throws mid-way (e.g., FTM write fails)
         async function brokenApprove(): Promise<void> {
             throw new Error('FTM write failed')
@@ -398,7 +397,7 @@ describe('MINT.5 — onTokenApproved preload bridge + web adapter', () => {
         }
 
         const received: TokenApprovedEvent[] = []
-        const unsub = subscribe('flint:governance:on-token-approved', (data: TokenApprovedEvent) => received.push(data))
+        subscribe('flint:governance:on-token-approved', (data: TokenApprovedEvent) => received.push(data))
 
         // Simulate WS message delivery
         const event: TokenApprovedEvent = { tokenName: 'colors.primary', source: 'mcp', timestamp: Date.now() }

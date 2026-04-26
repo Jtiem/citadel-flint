@@ -11,8 +11,6 @@ import { ZodError } from 'zod'
 import {
   FlintFixtureSchema,
   DEFAULT_FIXTURE,
-  type FlintFixture,
-  type FlintFixtureSurface,
   type FlintFixtureRuleMode,
 } from '../fixture-schema'
 

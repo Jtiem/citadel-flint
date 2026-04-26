@@ -50,7 +50,6 @@ import {
 // The contract is the source of truth for these shapes. We import the types
 // directly so that if the contract changes, TSC flags the test.
 import type {
-  ConsentState,
   ConsentRecord,
   TelemetrySetConsentPayload,
 } from '../../.flint-context/contracts/BETA-TELEMETRY-WIRING.contract'

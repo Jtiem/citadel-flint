@@ -421,7 +421,7 @@ describe('SEC-HIGH-2: symlink-attack probe', () => {
     it('the spy stub never receives an argv missing core.symlinks=false (regression lock)', async () => {
         const url = 'https://github.com/example/repo.git'
         const dest = '/tmp/repo'
-        await cloneSpy('git', buildCloneArgs(url, dest))
+        await (cloneSpy as unknown as (...args: unknown[]) => Promise<unknown>)('git', buildCloneArgs(url, dest))
         const callArgv = cloneSpy.mock.calls[0][1] as string[]
         expect(callArgv).toContain('core.symlinks=false')
     })

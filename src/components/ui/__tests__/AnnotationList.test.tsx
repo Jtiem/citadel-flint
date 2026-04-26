@@ -18,7 +18,7 @@
  *   - Existing AnnotationCards are still rendered alongside the "Add note" button
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { AnnotationList } from '../AnnotationList'
 import { useAnnotationStore } from '../../../store/annotationStore'

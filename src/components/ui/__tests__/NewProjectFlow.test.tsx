@@ -17,7 +17,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { LaunchScreen } from '../LaunchScreen'
 
 // ── Template fixture (read at module scope so tests share one copy) ────────────

@@ -11,7 +11,6 @@
  */
 
 import '@testing-library/jest-dom';
-import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
 import StatBadge from '../StatBadge';
@@ -56,7 +55,7 @@ describe('StatBadge primitive', () => {
   });
 
   it('all 4 variants produce distinct className sets', () => {
-    const { getAllByRole } = render(
+    render(
       <>
         <StatBadge variant="success">S</StatBadge>
         <StatBadge variant="warning">W</StatBadge>

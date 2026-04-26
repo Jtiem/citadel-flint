@@ -14,7 +14,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { useSyncStalenessStore, useSyncStalenessDismissedAt } from '../syncStalenessStore'
+import { useSyncStalenessStore } from '../syncStalenessStore'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
