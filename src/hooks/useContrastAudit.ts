@@ -12,7 +12,7 @@
  * Renderer Process only — no Node.js imports.
  */
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import type { ContrastPair } from '../types/flint-api'
 
 export interface ContrastAuditData {

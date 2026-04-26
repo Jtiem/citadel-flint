@@ -236,9 +236,6 @@ export const useEditorStore = create<EditorStore>((set, get) => {
         linterWarnings: new Map(),
 
         setCode: (code: string) => {
-            // Capture BEFORE set() so the file-load vs. typing check is
-            // comparing against the previous value (Commandment 10 fix).
-            const previousCode = get().rawCode
             const activeFilePath = useCanvasStore.getState().activeFilePath ?? 'file.tsx'
             const adapter = LanguageRegistry.getAdapter(activeFilePath)
             const parsed = adapter.parse(code)

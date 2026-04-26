@@ -44,7 +44,7 @@ interface UseGovernanceFixActionsInput {
 }
 
 export function useGovernanceFixActions({
-    timers,
+    timers: _timers,
     effectiveLinterWarnings,
     effectiveA11yWarnings,
 }: UseGovernanceFixActionsInput): UseGovernanceFixActionsResult {

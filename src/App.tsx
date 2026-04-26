@@ -9,8 +9,8 @@ import { vueAdapter } from './core/adapters/VueAdapter'
 import { svelteAdapter } from './core/adapters/SvelteAdapter'
 LanguageRegistry.register(['ts', 'tsx', 'js', 'jsx'], reactAdapter)
 LanguageRegistry.register(['html'], htmlAdapter)
-LanguageRegistry.register(['vue'], vueAdapter)
-LanguageRegistry.register(['svelte'], svelteAdapter)
+LanguageRegistry.register(['vue'], vueAdapter as unknown as Parameters<typeof LanguageRegistry.register>[1])
+LanguageRegistry.register(['svelte'], svelteAdapter as unknown as Parameters<typeof LanguageRegistry.register>[1])
 // ─────────────────────────────────────────────────────────────────────────────
 import { XYCanvas } from './components/editor/XYCanvas'
 import { LayerTree } from './components/ui/LayerTree'
@@ -241,7 +241,7 @@ function App() {
     const activeFileName = activeFilePath ? activeFilePath.split('/').pop() ?? null : null
 
     // ── Notes tab: selected node for annotation context ───────────────────────
-    const selectedNodeId = useEditorStore((s) => s.selectedNode)
+    const selectedNodeId = useEditorStore((s) => s.selectedNodeId)
 
     // ── T2.7: Annotation count badge ─────────────────────────────────────────
     const annotations = useAnnotations()
@@ -249,11 +249,6 @@ function App() {
         () => annotations.filter((a) => a.status === 'open').length,
         [annotations],
     )
-
-    // ── T2.3/Governance tab: violation selectors ─────────────────────────────
-    const mithrilViolations = useCanvasStore((s) => s.mithrilViolations)
-    const a11yViolations    = useCanvasStore((s) => s.a11yViolations)
-    const governanceIssueCount = mithrilViolations.length + Object.keys(a11yViolations).length
 
     // ── Run Audit header button ───────────────────────────────────────────────
     const [isAuditingGlobal, setIsAuditingGlobal] = useState(false)
@@ -874,9 +869,11 @@ function App() {
                         ? () => window.flintAPI.project.getActiveRoot!()
                         : null,
                     notify: (opts) => pushNotification({
+                        type: 'info',
+                        title: opts.message.slice(0, 80),
                         message: opts.message,
                         severity: opts.severity,
-                        autoDismiss: opts.autoDismiss,
+                        autoDismissMs: (opts as { autoDismiss?: number }).autoDismiss ?? 0,
                     }),
                     // shouldContinue: abort resume if the user already opened
                     // something while we were awaiting (race fix Code M2).
@@ -1013,6 +1010,7 @@ function App() {
         return (
             <>
                 <LaunchScreen
+                    onNewProject={() => handleNewProject()}
                     onOpenFolder={() => handleOpenFolder()}
                     onOpenRecent={(p) => handleOpenRecent(p)}
                     onLoadDemo={(demoName) => handleLoadDemo(demoName)}

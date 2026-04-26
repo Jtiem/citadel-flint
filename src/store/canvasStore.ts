@@ -29,7 +29,7 @@ import type { RuntimeAuditResult } from '../types/runtime-audit'
 
 export type SaveState = 'idle' | 'editing' | 'saving' | 'saved'
 export type CanvasMode = 'design' | 'interact'
-export type RightTab = 'governance' | 'properties' | 'tokens'
+export type RightTab = 'governance' | 'properties' | 'tokens' | 'notes'
 
 /**
  * Persisted tuple for the last-active file (LAUNCH.3 Security m3).
@@ -830,7 +830,7 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
         } catch (err) {
             // Log only the error code, never the raw error object (which can
             // contain user file paths in its message string). Security m1.
-            const code = (err as NodeJS.ErrnoException)?.code ?? 'unknown'
+            const code = (err as { code?: string })?.code ?? 'unknown'
             console.error('[Flint] Failed to read file:', code)
             // Code m3: clear the stale lastActiveFile so a failed read can't
             // survive and re-trigger on the next boot.
