@@ -2,7 +2,7 @@
   "name": "flint-glass",
   "private": true,
   "_private_note": "FIXME: remove private:true before npm publish",
-  "version": "0.2.0",
+  "version": "0.3.0-beta.1",
   "engines": {
     "node": ">=22.0.0"
   },
