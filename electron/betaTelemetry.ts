@@ -22,7 +22,7 @@
 
 import { app, net } from 'electron'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { copyFile, unlink } from 'node:fs/promises'
+import { copyFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'

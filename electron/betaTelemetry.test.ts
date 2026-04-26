@@ -265,7 +265,7 @@ describe('betaTelemetry — WARN-5: network failure retains queue', () => {
 
         // Trigger before-quit which calls persistBuffer() then flush()
         const beforeQuitHandler = mockApp.on.mock.calls.find(
-            ([event]: [string]) => event === 'before-quit'
+            (call: unknown[]) => call[0] === 'before-quit'
         )
         expect(beforeQuitHandler).toBeDefined()
         if (beforeQuitHandler) {
@@ -296,7 +296,7 @@ describe('betaTelemetry — WARN-5: network failure retains queue', () => {
 
         // Trigger before-quit to flush
         const beforeQuitHandler = mockApp.on.mock.calls.find(
-            ([event]: [string]) => event === 'before-quit'
+            (call: unknown[]) => call[0] === 'before-quit'
         )
         if (beforeQuitHandler) {
             beforeQuitHandler[1]()
@@ -370,7 +370,7 @@ describe('betaTelemetry — WARN-5: X-Flint-Secret header gating', () => {
 
         // Trigger flush via before-quit
         const beforeQuitHandler = mockApp.on.mock.calls.find(
-            ([event]: [string]) => event === 'before-quit'
+            (call: unknown[]) => call[0] === 'before-quit'
         )
         if (beforeQuitHandler) {
             beforeQuitHandler[1]()
@@ -396,7 +396,7 @@ describe('betaTelemetry — WARN-5: X-Flint-Secret header gating', () => {
         mod.startTelemetry()
 
         const beforeQuitHandler = mockApp.on.mock.calls.find(
-            ([event]: [string]) => event === 'before-quit'
+            (call: unknown[]) => call[0] === 'before-quit'
         )
         if (beforeQuitHandler) {
             beforeQuitHandler[1]()
@@ -422,7 +422,7 @@ describe('betaTelemetry — WARN-5: X-Flint-Secret header gating', () => {
         mod.startTelemetry()
 
         const beforeQuitHandler = mockApp.on.mock.calls.find(
-            ([event]: [string]) => event === 'before-quit'
+            (call: unknown[]) => call[0] === 'before-quit'
         )
         if (beforeQuitHandler) {
             beforeQuitHandler[1]()
@@ -448,7 +448,7 @@ describe('betaTelemetry — WARN-5: X-Flint-Secret header gating', () => {
         mod.startTelemetry()
 
         const beforeQuitHandler = mockApp.on.mock.calls.find(
-            ([event]: [string]) => event === 'before-quit'
+            (call: unknown[]) => call[0] === 'before-quit'
         )
         if (beforeQuitHandler) {
             beforeQuitHandler[1]()
@@ -488,7 +488,7 @@ describe('betaTelemetry — WARN-5: uncaughtException registration', () => {
 
         const syntheticErr = new Error('synthetic crash for test')
         syntheticErr.stack = 'Error: synthetic crash\n    at Object.<anonymous> (/Users/justin/Projects/X.tsx:42:5)'
-        process.emit('uncaughtException', syntheticErr, 'uncaughtException')
+        ;(process as unknown as { emit: (e: string, ...a: unknown[]) => void }).emit('uncaughtException', syntheticErr, 'uncaughtException')
 
         await new Promise((r) => setTimeout(r, 10))
 
@@ -513,7 +513,7 @@ describe('betaTelemetry — WARN-5: uncaughtException registration', () => {
         mod.startTelemetry()
 
         expect(() => {
-            process.emit('uncaughtException', null as unknown as Error, 'uncaughtException')
+            ;(process as unknown as { emit: (e: string, ...a: unknown[]) => void }).emit('uncaughtException', null as unknown as Error, 'uncaughtException')
         }).not.toThrow()
 
         mod.stopTelemetry()
@@ -529,7 +529,7 @@ describe('betaTelemetry — WARN-5: uncaughtException registration', () => {
         delete errWithoutStack.stack
 
         expect(() => {
-            process.emit('uncaughtException', errWithoutStack, 'uncaughtException')
+            ;(process as unknown as { emit: (e: string, ...a: unknown[]) => void }).emit('uncaughtException', errWithoutStack, 'uncaughtException')
         }).not.toThrow()
 
         mod.stopTelemetry()
@@ -545,7 +545,7 @@ describe('betaTelemetry — stack-trace redaction (invariant: stack-redaction)',
         mod._resetBufferForTests()
         const err = new Error('test')
         err.stack = rawStack
-        process.emit('uncaughtException', err, 'uncaughtException')
+        ;(process as unknown as { emit: (e: string, ...a: unknown[]) => void }).emit('uncaughtException', err, 'uncaughtException')
         await new Promise((r) => setTimeout(r, 5))
         // Check in-memory buffer (persistBuffer writes to disk; buffer may be cleared)
         // Fall back to disk queue if buffer was cleared by persistBuffer
@@ -586,7 +586,6 @@ describe('betaTelemetry — stack-trace redaction (invariant: stack-redaction)',
         mod.startTelemetry()
 
         const home = os.homedir()
-        const linuxHome = home.startsWith('/home/') ? home : '/home/testuser'
 
         // Manufacture a stack that looks like a Linux homedir path
         // redactHomedir uses os.homedir() — which in the test env is a real path.
@@ -695,7 +694,7 @@ describe('betaTelemetry — discriminated-union emit signature (WARN-4 / invaria
         mod.emit('mcp.tool_called', { toolName: 'audit_ui_component' })
 
         const buffer = mod._getBufferForTests()
-        const event = buffer.find((e: { name: string }) => e.name === 'mcp.tool_called')
+        const event = buffer.find((e: { name: string }) => e.name === 'mcp.tool_called')!
         expect(event).toBeDefined()
         const payloadKeys = Object.keys(event.payload)
         expect(payloadKeys).toEqual(['toolName'])
@@ -709,7 +708,7 @@ describe('betaTelemetry — discriminated-union emit signature (WARN-4 / invaria
         mod.emit('mcp.tool_called', { toolName: 'flint_审计' })
 
         const buffer = mod._getBufferForTests()
-        const event = buffer.find((e: { name: string }) => e.name === 'mcp.tool_called')
+        const event = buffer.find((e: { name: string }) => e.name === 'mcp.tool_called')!
         expect(event.payload.toolName).toBe('flint_审计')
     })
 
@@ -720,7 +719,7 @@ describe('betaTelemetry — discriminated-union emit signature (WARN-4 / invaria
         mod.emit('audit.completed', { fileCount: 12, violationCount: 3, durationMs: 1450 })
 
         const buffer = mod._getBufferForTests()
-        const event = buffer.find((e: { name: string }) => e.name === 'audit.completed')
+        const event = buffer.find((e: { name: string }) => e.name === 'audit.completed')!
         expect(event).toBeDefined()
         expect(event.payload.fileCount).toBe(12)
         expect(event.payload.violationCount).toBe(3)
@@ -738,7 +737,7 @@ describe('betaTelemetry — discriminated-union emit signature (WARN-4 / invaria
         mod.emit('audit.completed', { fileCount: 0, violationCount: 0, durationMs: 5 })
 
         const buffer = mod._getBufferForTests()
-        const event = buffer.find((e: { name: string }) => e.name === 'audit.completed')
+        const event = buffer.find((e: { name: string }) => e.name === 'audit.completed')!
         expect(event.payload.fileCount).toBe(0)
         expect(event.payload.violationCount).toBe(0)
     })
@@ -753,7 +752,7 @@ describe('betaTelemetry — discriminated-union emit signature (WARN-4 / invaria
         await new Promise((r) => setTimeout(r, 5))
 
         const beforeQuitHandler = mockApp.on.mock.calls.find(
-            ([event]: [string]) => event === 'before-quit'
+            (call: unknown[]) => call[0] === 'before-quit'
         )
         if (beforeQuitHandler) {
             beforeQuitHandler[1]()
@@ -772,7 +771,7 @@ describe('betaTelemetry — discriminated-union emit signature (WARN-4 / invaria
             // before-quit not registered in this test env
             mod.emit('session.ended', { durationMs: 61000 })
             const buffer = mod._getBufferForTests()
-            const event = buffer.find((e: { name: string }) => e.name === 'session.ended')
+            const event = buffer.find((e: { name: string }) => e.name === 'session.ended')!
             expect(event.payload.durationMs).toBeGreaterThanOrEqual(0)
         }
 
