@@ -23,7 +23,7 @@
  * density revamp, dismissal localStorage persistence.
  */
 
-import type { FlintContract } from '../../shared/contract-schema.js'
+import type { LegacyFlintContract } from '../../shared/contract-schema.js'
 import type { SyncActionError } from './MINT.5-phase2.contract.js'
 
 // ─── Re-exports for Phase 2-shared types ──────────────────────────────────────
@@ -322,7 +322,7 @@ export interface TokenHealthBarPhase3Extension {
 
 // ─── Contract Metadata ────────────────────────────────────────────────────────
 
-export const CONTRACT: FlintContract = {
+export const CONTRACT: LegacyFlintContract = {
     meta: {
         name: 'MINT.5-phase3-SyncPolishTypeSafety',
         phase: 'MINT.5.3',
@@ -1001,4 +1001,5 @@ export const CONTRACT: FlintContract = {
 // Suppress unused-warning for SyncActionError re-import in environments where
 // only the runtime CONTRACT export is consumed. The type is part of the public
 // surface for Phase 2 contract-shared consumers.
-type _SyncActionErrorBinding = SyncActionError
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+void (null as unknown as SyncActionError)
