@@ -68,6 +68,16 @@ export const ipcSchemas = {
     }),
   },
 
+  'tokens:seed-from-project': {
+    payload: z.string().min(1),
+    response: z.object({
+      seeded: z.number().int().nonnegative(),
+      source: z.enum(['project', 'none']),
+      sourcePath: z.string().optional(),
+      error: z.string().optional(),
+    }),
+  },
+
   // MINT.5: New channel — reads Figma↔local design token drift.
   // payload: no args (undefined), response: TokenDrift array.
   'tokens:read-figma-drift': {
@@ -167,7 +177,134 @@ export const ipcSchemas = {
     response: z.undefined(),
   },
 
+  // ── PHASE 0: Coverage Honesty ──────────────────────────────────
+  //
+  // `flint:getCoverageSummary` returns the aggregate CoverageSummary
+  // owned by the main-process DebtReportService. The response shape is
+  // the wire format for the renderer badge, `flint://dashboard`, and
+  // `flint://session-context`. The enum values are serialized into
+  // `.flint/debt-history.json` and are append-only — do not rename.
+
+  'flint:getCoverageSummary': {
+    payload: z.undefined(),
+    response: z.object({
+      governedSurfacePercent: z.number().min(0).max(100),
+      totalFiles: z.number().int().nonnegative(),
+      parsedFiles: z.number().int().nonnegative(),
+      partialFiles: z.number().int().nonnegative(),
+      skippedFiles: z.number().int().nonnegative(),
+      skippedFilesByReason: z.object({
+        'css-in-js-detected': z.number().int().nonnegative(),
+        'external-stylesheet-imported': z.number().int().nonnegative(),
+        'css-modules-reference': z.number().int().nonnegative(),
+        'dynamic-class-expression': z.number().int().nonnegative(),
+        'unresolvable-var': z.number().int().nonnegative(),
+        'tailwind-config-extension': z.number().int().nonnegative(),
+        'non-jsx-framework': z.number().int().nonnegative(),
+        'non-literal-ternary-branch': z.number().int().nonnegative(),
+        'parse-failure': z.number().int().nonnegative(),
+      }),
+      timestamp: z.string().min(1),
+    }),
+  },
+
+  // ── RUNTIME.1: axe-core Runtime Adapter ────────────────────────
+  //
+  // `runtime:run-axe` spawns a sandboxed BrowserWindow (Electron) or
+  // hidden Playwright page (web) with a tight CSP scoped to the axe-core
+  // bundle, renders the provided `previewHtml`, runs `axe.run()`, and
+  // returns a normalized RuntimeAuditResult. The IPC handler is ALWAYS
+  // live, but the user-facing UI surfaces are gated behind
+  // `runtime.axe.enabled` in flint.config.yaml (default: false).
+  //
+  // Payload maps to RuntimeAuditRequest in RUNTIME.1.contract.ts.
+  // Response maps to RuntimeAuditResult in RUNTIME.1.contract.ts.
+
+  'runtime:run-axe': {
+    payload: z.object({
+      previewHtml: z.string(),
+      previewUrl: z.string().optional(),
+      rules: z.array(z.string()).optional(),
+    }),
+    response: z.object({
+      status: z.enum([
+        'idle',
+        'running',
+        'passed',
+        'violations',
+        'no-preview',
+        'version-mismatch',
+        'error',
+      ]),
+      timestamp: z.string().min(1),
+      axeVersion: z.string(),
+      nodeCount: z.number().int().nonnegative(),
+      durationMs: z.number().nonnegative(),
+      violations: z.array(z.object({
+        ruleId: z.string(),
+        elementId: z.string(),
+        message: z.string(),
+        severity: z.enum(['critical', 'warning', 'info', 'advisory']),
+        wcag: z.string(),
+        fixable: z.boolean(),
+        explanation: z.string().optional(),
+        recovery: z.string().optional(),
+      })),
+      error: z.object({
+        code: z.string(),
+        message: z.string(),
+      }).optional(),
+    }),
+  },
+
+  /**
+   * mcp:call-tool — Invoke an MCP tool by name with an arguments object.
+   *
+   * Shape notes (matches `electron/main.ts:3515` handler):
+   *   - name: non-empty string (checked against SEC.3 renderer allowlist + AGV.1 per-agent ACL)
+   *   - args: plain object (no arrays, no null). `_agentId` is stripped before forwarding.
+   *
+   * Response is the MCP tool's raw output — intentionally unknown here because the shape
+   * varies per tool. Callers already narrow the response at the call site via
+   * per-tool TypeScript types.
+   */
+  'mcp:call-tool': {
+    payload: z.tuple([
+      z.string().min(1),
+      z.record(z.string(), z.unknown()),
+    ]),
+    response: z.unknown(),
+  },
+
 } satisfies Record<string, { payload: z.ZodType; response: z.ZodType }>;
+
+// ─── Named Zod Exports (referenced by contract `validator` fields) ─
+//
+// Contracts reference Zod validators by export name. These aliases
+// point at the live schemas above so flint-contract-linter can grep
+// for the export and confirm the validator exists at lint time.
+
+/** Phase 0 — payload validator for `flint:getCoverageSummary` (undefined). */
+export const getCoverageSummaryPayloadSchema = ipcSchemas['flint:getCoverageSummary'].payload;
+
+/** Phase 0 — response validator for `flint:getCoverageSummary` (CoverageSummary shape). */
+export const getCoverageSummaryResponseSchema = ipcSchemas['flint:getCoverageSummary'].response;
+
+/** RUNTIME.1 — payload validator for `runtime:run-axe` (RuntimeAuditRequest shape). */
+export const runtimeRunAxePayloadSchema = ipcSchemas['runtime:run-axe'].payload;
+
+/** RUNTIME.1 — response validator for `runtime:run-axe` (RuntimeAuditResult shape). */
+export const runtimeRunAxeResponseSchema = ipcSchemas['runtime:run-axe'].response;
+
+/**
+ * MINT.5 Phase 2 — combined validator for `mcp:call-tool` payload tuple
+ * `[name: string, args: Record<string, unknown>]`. Used by the preload bridge
+ * to pre-validate MCP tool calls before they reach `mcpClient.callTool`.
+ */
+export const mcpCallToolSchema = ipcSchemas['mcp:call-tool'].payload;
+
+/** MINT.5 Phase 2 — response validator (unknown — per-tool shape). */
+export const mcpCallToolResponseSchema = ipcSchemas['mcp:call-tool'].response;
 
 // ─── Type Exports ───────────────────────────────────────────────────
 //
@@ -227,6 +364,232 @@ export function validateIPCResponse<T extends IPCChannel>(
   }
   return result.data as z.infer<IPCSchemas[T]['response']>;
 }
+
+// ─── MINT.5 Phase 3 — Per-Tool MCP Argument Schemas ───────────────────────────
+//
+// Five Zod schemas for the renderer-callable sync tools. These are APPEND-ONLY
+// additions — the existing `ipcSchemas`, `mcpCallToolSchema`, and all named
+// exports above are untouched.
+//
+// Shape derived directly from the case blocks in flint-mcp/src/server.ts:3224-3298
+// so the Zod gate never rejects calls the engine actually accepts (R4 mitigation).
+//
+// The `MCP_TOOL_ARG_SCHEMAS` lookup is consulted by `electron/preload.ts` and
+// `server/index.ts` before forwarding the mcp:call-tool IPC to the MCP server.
+// Unknown tool names fall through (no schema → no gate → pass through unchanged).
+//
+// Coordinate with RUNTIME.1: that phase appends inside the `ipcSchemas` object and
+// named-export region above. Phase 3 adds top-level exports at the bottom — no
+// textual overlap, no merge conflict.
+
+/** Arguments for `flint_sync_pull`. */
+export const flintSyncPullArgsSchema = z.object({
+  projectRoot: z.string().min(1),
+  scope: z.literal('token').optional(),
+  tokenPath: z.string().optional(),
+}).strict()
+
+/** Arguments for `flint_sync_push`. */
+export const flintSyncPushArgsSchema = z.object({
+  projectRoot: z.string().min(1),
+}).strict()
+
+/** Arguments for `flint_resolve_all`. */
+export const flintResolveAllArgsSchema = z.object({
+  projectRoot: z.string().min(1),
+  resolution: z.enum(['local', 'remote']),
+}).strict()
+
+/** Arguments for `flint_resolve_conflict`. */
+export const flintResolveConflictArgsSchema = z.object({
+  conflictId: z.string().min(1),
+  resolution: z.enum(['local', 'remote', 'merged']),
+  mergedValue: z.string().optional(),
+}).strict()
+
+/** Arguments for `flint_sync_check`. */
+export const flintSyncCheckArgsSchema = z.object({
+  projectRoot: z.string().min(1),
+}).strict()
+
+/**
+ * Lookup map from MCP tool name → Zod argument schema.
+ *
+ * The preload bridge (`electron/preload.ts`) and the web bridge (`server/index.ts`)
+ * consult this map before forwarding `mcp:call-tool` IPC. If the tool name is
+ * present, the args are validated; failures return a `validation-error` envelope
+ * without calling `ipcRenderer.invoke` / `mcpClient.callTool`.
+ * If the tool name is absent (not in the map), the call passes through unchanged.
+ *
+ * To register a new tool: add the Zod schema export above and add an entry here.
+ * Also append the tool name to `MCP_TOOL_ARG_SCHEMA_NAMES` in the contract.
+ */
+export const MCP_TOOL_ARG_SCHEMAS: Record<string, z.ZodType<Record<string, unknown>>> = {
+  flint_sync_pull: flintSyncPullArgsSchema,
+  flint_sync_push: flintSyncPushArgsSchema,
+  flint_resolve_all: flintResolveAllArgsSchema,
+  flint_resolve_conflict: flintResolveConflictArgsSchema,
+  flint_sync_check: flintSyncCheckArgsSchema,
+}
+
+/**
+ * Per-tool MCP argument validation gate — single source of truth.
+ *
+ * Both `electron/preload.ts` and `server/index.ts` consult this gate before
+ * forwarding a tool call. Returning `{ ok: false, envelope }` short-circuits
+ * the IPC/MCP path with a `validation-error` classification envelope; callers
+ * MUST NOT proceed to the underlying transport on failure.
+ *
+ * Unknown tools (not registered in `MCP_TOOL_ARG_SCHEMAS`) pass through with
+ * `{ ok: true, args }` unchanged — that's the documented behavior of the gate.
+ *
+ * Resolves W5 (code review 2026-04-20): the structurally-identical validation
+ * blocks in preload + server were correct but duplicated. This helper keeps
+ * the gate logic colocated with the schema map so they can never drift.
+ */
+export type MCPValidationResult =
+  | { ok: true; args: Record<string, unknown> }
+  | {
+      ok: false;
+      envelope: {
+        content: Array<{ type: 'text'; text: string }>;
+        isError: true;
+        classification: 'validation-error';
+      };
+    }
+
+export function validateMcpToolArgs(
+  name: string,
+  args: Record<string, unknown> | undefined,
+): MCPValidationResult {
+  const resolvedArgs = (args ?? {}) as Record<string, unknown>
+  const perToolSchema = MCP_TOOL_ARG_SCHEMAS[name]
+  if (perToolSchema === undefined) {
+    return { ok: true, args: resolvedArgs }
+  }
+  const parseResult = perToolSchema.safeParse(resolvedArgs)
+  if (parseResult.success) {
+    return { ok: true, args: resolvedArgs }
+  }
+  const issue = parseResult.error.issues[0]
+  const sanitized = issue
+    ? `${issue.path.join('.') || 'args'}: ${issue.message}`
+    : 'Invalid arguments'
+  return {
+    ok: false,
+    envelope: {
+      content: [{ type: 'text', text: sanitized }],
+      isError: true,
+      classification: 'validation-error',
+    },
+  }
+}
+
+// ─── End of MINT.5 Phase 3 additions ──────────────────────────────────────────
+
+// ─── FORGE.1 — Channel Consolidation + Smart Detection ───────────────────────
+//
+// Append-only Zod exports referenced by `.flint-context/contracts/FORGE.1.contract.ts`.
+//
+// Shapes match the live handler signatures in `electron/main.ts` and
+// `server/index.ts` (verified 2026-04-19):
+//   - project:detect-environment, project:auto-configure, project:run-baseline
+//     all derive their target from the main-process `activeProjectRoot` and
+//     accept NO renderer payload. The validator is therefore `z.undefined()`.
+//   - project:get-health-grade takes a single string `projectPath` arg
+//     (electron/main.ts:2401) — validated as `z.string().min(1)`.
+//   - project:smart-open is the new FORGE.1 channel; payload `{ input: string }`
+//     where `input` is either an absolute folder path or a git URL.
+
+/**
+ * FORGE.1 — payload validator for `project:smart-open`. Folder path or git URL.
+ *
+ * SEC-MED-3: hardened against control / format characters and unbounded length.
+ * Mirrors the CHRON.1 `governance:record-approval-reason` filePath rule above.
+ * The 4096-char ceiling is well above any sane filesystem path or git URL while
+ * blocking blob payloads from sneaking through the IPC boundary.
+ */
+export const projectSmartOpenSchema = z.object({
+  input: z.string().min(1).max(4096).refine(
+    (s) => !/[\p{Cc}\p{Cf}]/u.test(s),
+    { message: 'input must not contain control or format characters' }
+  ),
+}).strict()
+
+/**
+ * FORGE.1 — payload validator for `project:detect-environment`.
+ * Handler reads main-process `activeProjectRoot`; renderer sends no payload.
+ */
+export const projectDetectEnvironmentSchema = z.undefined()
+
+/**
+ * FORGE.1 — payload validator for `project:auto-configure`.
+ *
+ * Phase 2 fix-forward (CONS-2): now accepts an optional overrides object so the
+ * DetectionPreview can pass user-corrected detection values into the configure
+ * pipeline. `undefined` payload is still accepted for the legacy call site.
+ */
+export const projectAutoConfigureSchema = z.union([
+  z.undefined(),
+  z.object({
+    overrides: z.object({
+      framework: z.string().min(1).max(200).optional(),
+      componentLibrary: z.string().min(1).max(200).optional(),
+      cssFramework: z.string().min(1).max(200).optional(),
+    }).strict().optional(),
+  }).strict(),
+])
+
+/**
+ * FORGE.1 fix-forward (CONS-1) — payload validator for `project:create-scratchpad`.
+ * Optional `libraryDefault` carries the from-idea channel's MUI default through
+ * the IPC boundary so the scratchpad is scaffolded with the right component-kit
+ * pre-selection.
+ */
+export const projectCreateScratchpadSchema = z.union([
+  z.undefined(),
+  z.object({
+    libraryDefault: z.string().min(1).max(200).optional(),
+  }).strict(),
+])
+
+/**
+ * FORGE.1 — payload validator for `project:run-baseline`.
+ * Handler reads main-process `activeProjectRoot`; renderer sends no payload.
+ */
+export const projectRunBaselineSchema = z.undefined()
+
+/**
+ * FORGE.1 — payload validator for `project:get-health-grade`.
+ * Single positional `projectPath` string (electron/main.ts:2401).
+ */
+export const projectGetHealthGradeSchema = z.string().min(1)
+
+// ─── End of FORGE.1 additions ────────────────────────────────────────────────
+
+// ─── BETA.TEL: Telemetry Consent IPC Validators ───────────────────────────────
+//
+// Closes BLK-3 (no IPC contract) from the beta-telemetry review.
+// Two renderer→main channels:
+//   telemetry:get-consent — void payload, ConsentRecord response
+//   telemetry:set-consent — { state: 'accepted' | 'declined' } payload, ConsentRecord response
+//
+// Named exports are the contract `validator` field values — grep-able by
+// the Phase 1.5 contract linter and the Phase 3 integration validator.
+
+/** BETA.TEL — response schema for `telemetry:get-consent` (ConsentRecord shape). */
+export const telemetryGetConsentResponseSchema = z.object({
+  state: z.enum(['unset', 'accepted', 'declined']),
+  decidedAt: z.string().optional(),
+  sessionId: z.string().min(1),
+})
+
+/** BETA.TEL — payload schema for `telemetry:set-consent`. */
+export const telemetrySetConsentPayloadSchema = z.object({
+  state: z.enum(['accepted', 'declined']),
+})
+
+// ─── End of BETA.TEL additions ────────────────────────────────────────────────
 
 /**
  * Creates a validated IPC invoker for use in preload.ts.

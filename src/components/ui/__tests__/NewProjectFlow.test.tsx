@@ -17,7 +17,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { LaunchScreen } from '../LaunchScreen'
 
 // ── Template fixture (read at module scope so tests share one copy) ────────────
@@ -68,16 +68,17 @@ function defaultLaunchProps() {
     }
 }
 
-// ── #33: LaunchScreen "New Project" button calls onNewProject ─────────────────
+// ── #33: LaunchScreen 3-channel layout (FORGE.1 Sprint 1) ────────────────────
 
-// Restored JTBD tile layout: "From Figma" is a tile, "New Project" is primary CTA.
-describe('#33 — LaunchScreen JTBD tiles + New Project CTA', () => {
-    it('renders "From Figma" as a JTBD tile', async () => {
+// FORGE.1: 4-tile JTBD layout replaced by 3 ForgeChannels.
+// "New Project" CTA removed; "Start from idea" channel is the new first moment.
+describe('#33 — LaunchScreen 3-channel layout (FORGE.1)', () => {
+    it('renders "Start from Figma" as a primary channel', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
         const props = defaultLaunchProps()
         render(<LaunchScreen {...props} />)
         await waitFor(() => {
-            expect(screen.getByText('From Figma')).toBeDefined()
+            expect(screen.getByText('Start from Figma')).toBeDefined()
         })
     })
 
@@ -85,7 +86,7 @@ describe('#33 — LaunchScreen JTBD tiles + New Project CTA', () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
         const props = defaultLaunchProps()
         render(<LaunchScreen {...props} />)
-        await waitFor(() => screen.getByText('New Project'))
+        await waitFor(() => screen.getByText('Start from idea'))
         expect(props.onOpenFolder).not.toHaveBeenCalled()
         expect(props.onLoadDemo).not.toHaveBeenCalled()
     })
@@ -180,27 +181,27 @@ describe('#40 — First-run nudge: renders when conditions are met', () => {
         expect(localStorage.getItem('flint-onboarding-nudge-dismissed')).toBeNull()
     })
 
-    // Restored JTBD layout: "New Project" CTA + 4 tiles + demo section.
-    it('renders "New Project" as the primary CTA on first visit', async () => {
+    // FORGE.1: "Start from idea" is now the primary first moment (no folder picker before first render).
+    it('renders "Start from idea" as the first channel on first visit', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
 
         render(<LaunchScreen {...defaultLaunchProps()} />)
 
         await waitFor(() => {
-            expect(screen.getByText('New Project')).toBeDefined()
+            expect(screen.getByText('Start from idea')).toBeDefined()
         })
     })
 
-    it('renders the JTBD tiles and demo section when no project is loaded', async () => {
+    it('renders 3 channels and demo section when no project is loaded', async () => {
         ;(window.flintAPI.registry.getRecent as ReturnType<typeof vi.fn>).mockResolvedValue([])
 
         const props = defaultLaunchProps()
         render(<LaunchScreen {...props} />)
 
         await waitFor(() => {
-            expect(screen.getByText('New Project')).toBeDefined()
-            expect(screen.getByText('From Figma')).toBeDefined()
-            expect(screen.getByText('Governance dashboard')).toBeDefined()
+            expect(screen.getByText('Start from idea')).toBeDefined()
+            expect(screen.getByText('Start from Figma')).toBeDefined()
+            expect(screen.getByText('Start from existing code')).toBeDefined()
             expect(screen.getByTestId('demo-scenario-picker')).toBeDefined()
         })
     })

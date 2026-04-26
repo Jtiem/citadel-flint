@@ -17,14 +17,16 @@ type CreateMock = ReturnType<typeof vi.fn>
 
 function setupFlintAPI(): CreateMock {
     const create = vi.fn(async (row: unknown) => ({ id: 1 }))
-    // @ts-expect-error — test-only injection
     global.window = global.window ?? {}
-    // @ts-expect-error — test-only injection
+    // @ts-expect-error — test-only injection (canary: TS still flags global.window.flintAPI mutation)
     global.window.flintAPI = {
         tokens: {
             create,
-            read: vi.fn().mockResolvedValue([]),
-            clear: vi.fn().mockResolvedValue({ success: true }),
+            readAll: vi.fn().mockResolvedValue([]),
+            clearAll: vi.fn().mockResolvedValue({ changes: 0 }),
+            update: vi.fn().mockResolvedValue({ changes: 0 }),
+            delete: vi.fn().mockResolvedValue({ changes: 0 }),
+            seedFromProject: vi.fn().mockResolvedValue({ seeded: 0, source: 'none' }),
         },
     }
     return create
@@ -49,7 +51,6 @@ describe('Mint security: flattenDTCG rejects prototype-pollution keys (H2)', () 
         await useTokenStore.getState().importTokensJSON(JSON.stringify(malicious))
 
         // Verify Object.prototype is NOT polluted.
-        // @ts-expect-error — checking for accidental pollution
         expect(({} as Record<string, unknown>).polluted).toBeUndefined()
 
         // Legitimate token still imported.

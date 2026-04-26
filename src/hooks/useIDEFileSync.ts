@@ -2,6 +2,10 @@ import { useEffect } from 'react'
 import { useCanvasStore } from '../store/canvasStore'
 import { useNotificationStore } from '../store/notificationStore'
 
+// Vite-style env access — `process` isn't defined in the renderer context.
+const process = (globalThis as { process?: { env: Record<string, string | undefined> } }).process
+    ?? { env: { NODE_ENV: 'production' } as Record<string, string | undefined> }
+
 /**
  * IDE→Glass File Sync hook (Herald).
  *

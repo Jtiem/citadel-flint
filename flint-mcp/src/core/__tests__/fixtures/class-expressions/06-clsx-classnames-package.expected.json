@@ -1,0 +1,8 @@
+[
+  {
+    "utility": "classnames",
+    "definite": ["flex", "items-center", "gap-2"],
+    "possible": [],
+    "unresolvable": false
+  }
+]

@@ -116,8 +116,11 @@ export async function handleFix(
     const riskLine = fixResult.riskGatedFixes?.length
         ? `\n\n**Risk-gated fixes (${fixResult.riskGatedFixes.length}):** These fixes need human confirmation before applying.`
         : ''
-    const fixSummaryPreamble = `## Flint Fix Result\n\n${fixResult.summary}\n\n**Recommendation:** ${fixResult.recommendation}${planSummaryLine}${semanticLine}${riskLine}`
+    const fixesDetail = fixResult.fixesApplied > 0
+        ? `\n\n**Fixes applied:** ${fixResult.fixesApplied} token violation(s) corrected.${fixResult.dryRun ? ' (dry run — no changes written)' : ''}`
+        : ''
+    const fixSummaryPreamble = `## Flint Fix Result\n\n${fixResult.summary}\n\n**Recommendation:** ${fixResult.recommendation}${planSummaryLine}${semanticLine}${riskLine}${fixesDetail}`
     return {
-        content: [{ type: 'text', text: `${fixSummaryPreamble}\n\n${enrichedFixText}` }],
+        content: [{ type: 'text', text: fixSummaryPreamble }],
     }
 }

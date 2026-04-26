@@ -199,9 +199,9 @@ export interface SarifOverrideProperties {
 
 // ── Contract Metadata ────────────────────────────────────────────────────────
 
-import type { FlintContract } from '../../shared/contract-schema.ts'
+import type { LegacyFlintContract } from '../../shared/contract-schema.ts'
 
-export const CONTRACT: FlintContract = {
+export const CONTRACT: LegacyFlintContract = {
     meta: {
         name: 'CHRON.1-ReasonOnOverride',
         phase: 'CHRON.1',

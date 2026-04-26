@@ -3,6 +3,7 @@ import type { MenuItemConstructorOptions } from 'electron'
 import path from 'node:path'
 import { BRAND, ipcChannel, logTag } from '../shared/brand.ts'
 import { computeExpiresAt } from '../shared/deferralUtils.ts'
+import { flattenDtcg } from '../shared/dtcgFlatten.ts'
 import type { DeferDuration } from '../shared/deferralUtils.ts'
 import { fileURLToPath } from 'node:url'
 import { readdir, readFile, writeFile, mkdir, stat as fsStat, open as fsOpen, cp } from 'node:fs/promises'
@@ -13,6 +14,8 @@ import os from 'node:os'
 import { snapToToken } from './ingestion/index.js'
 import { loadAgentPolicy } from './agentPolicy.js'
 import { checkBetaExpiry, startVersionCheck, stopVersionCheck, getBetaInfo } from './betaGuard.js'
+import { startTelemetry, getConsent, setConsent, emit as telemetryEmit } from './betaTelemetry.js'
+import { telemetrySetConsentPayloadSchema } from '../shared/ipc-validators.ts'
 import {
     initAutoUpdater,
     checkForUpdates as autoUpdateCheck,
@@ -29,6 +32,8 @@ import type { ProjectEnvironment, DetectorFS } from '../shared/projectDetector.t
 import { validateFilePath as sharedValidateFilePath } from '../shared/validateFilePath.ts'
 import { sanitizeReason } from '../shared/reasonSanitizer.ts'
 import { ipcSchemas } from '../shared/ipc-validators.ts'
+import type { CoverageSummary } from '../shared/coverage-types.ts'
+import { ZERO_COVERAGE_SUMMARY } from '../shared/coverage-types.ts'
 import { sanitizeTokenValue, sanitizeTokenDescription } from '../shared/tokenValueSanitizer.ts'
 import { validateTokenPath, TokenPathValidationError } from '../shared/tokenPath.ts'
 
@@ -163,6 +168,22 @@ import { promisify } from 'node:util'
 import { transformSync } from '@babel/core'
 
 const execFileAsync = promisify(execFile)
+
+/**
+ * SEC-MED-5 helper: returns the realpath of `p` so symlinked roots collapse
+ * before the smart-open prefix check. Falls back to the original path when
+ * realpath fails (e.g. the path no longer exists) — callers must still gate
+ * on existsSync after this returns.
+ */
+async function realpathSafe(p: string): Promise<string> {
+    try {
+        const { realpath } = await import('node:fs/promises')
+        return await realpath(p)
+    } catch {
+        return p
+    }
+}
+
 import { fileTransactionManager } from './FileTransactionManager.js'
 import { gitManager } from './GitManager.js'
 import { jsxAttribute, jsxIdentifier, stringLiteral } from '@babel/types'
@@ -186,6 +207,91 @@ const PRELOAD_PATH = path.join(__dirname, 'preload.js')
 
 let mainWindow: BrowserWindow | null = null
 let stopServer: (() => void) | null = null
+
+// ── Embedded web server lifecycle ────────────────────────────────────────────
+// In packaged builds, the BrowserWindow loads the WEB UI from a localhost
+// Express server, not the legacy electron-direct dist/ renderer. The server
+// is `dist-server/cli.mjs` (bundled from server/) — same code as
+// `npm run start:web` uses. Spawned as a child Node process via
+// ELECTRON_RUN_AS_NODE=1, the same pattern flint-mcp uses.
+import type { ChildProcess } from 'node:child_process'
+import { spawn } from 'node:child_process'
+let webServerProcess: ChildProcess | null = null
+let webServerUrl: string | null = null
+
+async function pickFreePort(): Promise<number> {
+    const net = await import('node:net')
+    return await new Promise<number>((resolve, reject) => {
+        const srv = net.createServer()
+        srv.unref()
+        srv.on('error', reject)
+        srv.listen(0, '127.0.0.1', () => {
+            const addr = srv.address()
+            const port = typeof addr === 'object' && addr ? addr.port : 0
+            srv.close(() => resolve(port))
+        })
+    })
+}
+
+async function ensureWebServer(): Promise<string> {
+    if (webServerUrl) return webServerUrl
+
+    const port = await pickFreePort()
+    const projectRoot = process.env.FLINT_DEV_WORKSPACE
+        ? path.resolve(process.env.FLINT_DEV_WORKSPACE)
+        : path.join(app.getPath('userData'), 'default-project')
+    if (!existsSync(projectRoot)) mkdirSync(projectRoot, { recursive: true })
+
+    // Resolve the bundled server CLI. asarUnpack ensures it's outside the asar.
+    const cliPath = app.isPackaged
+        ? path.join(process.resourcesPath, 'app.asar.unpacked', 'dist-server', 'cli.mjs')
+        : path.join(__dirname, '..', 'dist-server', 'cli.mjs')
+
+    if (!existsSync(cliPath)) {
+        throw new Error(`Embedded server CLI not found at ${cliPath}. Did you run npm run build:server?`)
+    }
+
+    webServerProcess = spawn(
+        process.execPath,
+        [cliPath, '--project', projectRoot, '--port', String(port), '--no-open'],
+        {
+            env: {
+                ...process.env,
+                ELECTRON_RUN_AS_NODE: '1',
+                // The server's beta:load-demo-project handler needs to find
+                // build-resources/demo-project. In the packaged app it lives at
+                // process.resourcesPath/build-resources/, not relative to the
+                // server's __dirname. Pass it explicitly so the server doesn't
+                // need to guess Electron-specific paths.
+                FLINT_RESOURCES_PATH: process.resourcesPath,
+            },
+            stdio: ['ignore', 'pipe', 'pipe'],
+        },
+    )
+
+    webServerProcess.stdout?.on('data', (c: Buffer) => console.log(`[FlintWeb] ${c.toString().trimEnd()}`))
+    webServerProcess.stderr?.on('data', (c: Buffer) => console.error(`[FlintWeb] ${c.toString().trimEnd()}`))
+    webServerProcess.on('exit', (code, sig) => {
+        console.log(`[FlintWeb] server exited code=${code} signal=${sig}`)
+        webServerProcess = null
+        webServerUrl = null
+    })
+
+    // Probe until the server responds, up to ~10s.
+    const url = `http://127.0.0.1:${port}`
+    for (let i = 0; i < 100; i++) {
+        try {
+            const res = await fetch(url)
+            if (res.ok || res.status < 500) {
+                webServerUrl = url
+                console.log(`[Flint] Embedded web server ready at ${url}`)
+                return url
+            }
+        } catch { /* not ready yet */ }
+        await new Promise((r) => setTimeout(r, 100))
+    }
+    throw new Error('Embedded web server failed to become ready within 10s')
+}
 
 // ── GOV.2: Session UUID ───────────────────────────────────────────────────────
 // Generated once at app launch and used as the sessionId for all governance
@@ -334,21 +440,32 @@ const DEVELOPMENT_CSP = [
 
 const PRODUCTION_CSP = [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline'",
+    // 'unsafe-eval' is required by the LivePreview engine — user JSX is
+    // transpiled to JS and then evaluated at runtime via new Function().
+    // The web build runs the same code path; the dev CSP already allows it.
+    "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
     "style-src 'self' 'unsafe-inline'",
-    "connect-src 'self' http://127.0.0.1:*",
+    // Embedded Express server handles HTTP IPC + WS broadcasts on a
+    // localhost port. Both schemes must be allowed.
+    "connect-src 'self' ws://localhost:* ws://127.0.0.1:* http://127.0.0.1:* http://localhost:*",
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
     "frame-src 'self' blob: http://localhost:* http://127.0.0.1:*",
 ].join('; ')
 
-function createWindow(): void {
+async function createWindow(): Promise<void> {
+    // In production (packaged build), the BrowserWindow loads the web UI from
+    // the embedded Express server. That UI talks to the server over HTTP/WS —
+    // it has no need for Electron's preload bridge, and attaching the preload
+    // pollutes window.flintAPI with a read-only Electron-IPC surface that
+    // collides with the web adapter. So: only attach the preload in dev.
+    const usePreload = !!process.env.VITE_DEV_SERVER_URL
     mainWindow = new BrowserWindow({
         width: 1400,
         height: 900,
         title: BRAND.appTitle,
         webPreferences: {
-            preload: PRELOAD_PATH,
+            ...(usePreload ? { preload: PRELOAD_PATH } : {}),
             contextIsolation: true,
             nodeIntegration: false,
             // Fix 5 (P3-2): sandbox: true is architecturally blocked here.
@@ -389,11 +506,19 @@ function createWindow(): void {
         })
     })
 
-    // Load the Vite dev server in development, or the built files in production
+    // Load the Vite dev server in development, or the embedded web server in
+    // production. The legacy `dist/` electron-direct renderer is preserved
+    // (the Vite build still produces it) but is no longer the shipping path.
     if (process.env.VITE_DEV_SERVER_URL) {
         mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL)
     } else {
-        mainWindow.loadFile(path.join(RENDERER_DIST, 'index.html'))
+        try {
+            const url = await ensureWebServer()
+            await mainWindow.loadURL(url)
+        } catch (err) {
+            console.error('[Flint] Embedded web server failed; falling back to dist/index.html:', err)
+            await mainWindow.loadFile(path.join(RENDERER_DIST, 'index.html'))
+        }
     }
 
     // ── Beta version check ────────────────────────────────────────────────
@@ -485,7 +610,7 @@ ipcMain.handle(
             console.error(`${BRAND.logPrefix} mcpClient.start failed after openFolder:`, err)
         })
         // File watcher: restart scan for new project root
-        void (globalThis as Record<string, unknown>)['__flintStartFileWatcher']?.()
+        void (globalThis as unknown as Record<string, () => void>)['__flintStartFileWatcher']?.()
         // CV2.2: Initialize thumbnail generator for the new project root
         getThumbnailGenerator(folderPath)
         // CK.1: Seed RAG store with component docs + tokens
@@ -720,6 +845,10 @@ app.whenReady().then(async () => {
     // the build has expired.
     if (!checkBetaExpiry()) return
 
+    // ── BETA.TEL: Start telemetry (BLK-2) ────────────────────────────────────
+    // Consent-gated: emit() is a no-op until the user clicks Accept.
+    startTelemetry()
+
     // Initialise the database first (imported for side-effects: tables are
     // created synchronously inside store.ts on module load).
     const { default: db } = await import('./store.js')
@@ -904,6 +1033,54 @@ app.whenReady().then(async () => {
         console.log(`${BRAND.logPrefix} tokens:clear-all: removed ${result.changes} tokens`)
         broadcastTokensUpdated()
         return { changes: result.changes }
+    })
+
+    // Reads <projectRoot>/.flint/design-tokens.json (or fallback <projectRoot>/design-tokens.json),
+    // flattens the DTCG tree into NewDesignToken[], clears the existing token store, and seeds.
+    // Returns { seeded, source } so the renderer can fall back to baseline tokens when source==='none'.
+    ipcMain.handle('tokens:seed-from-project', async (_event, projectRoot: unknown) => {
+        if (typeof projectRoot !== 'string' || projectRoot.length === 0) {
+            return { seeded: 0, source: 'none' as const, error: 'invalid project root' }
+        }
+        const candidates = [
+            path.join(projectRoot, '.flint', 'design-tokens.json'),
+            path.join(projectRoot, 'design-tokens.json'),
+        ]
+        let dtcgPath: string | null = null
+        for (const candidate of candidates) {
+            if (existsSync(candidate)) {
+                dtcgPath = candidate
+                break
+            }
+        }
+        if (!dtcgPath) {
+            return { seeded: 0, source: 'none' as const }
+        }
+        try {
+            const raw = await readFile(dtcgPath, 'utf8')
+            const parsed = JSON.parse(raw) as unknown
+            const tokens = flattenDtcg(parsed)
+            stmtClearAll.run()
+            for (const t of tokens) {
+                stmtCreate.run(
+                    t.token_path,
+                    t.token_type,
+                    t.token_value,
+                    t.description ?? null,
+                    'default',
+                    'default',
+                )
+            }
+            broadcastTokensUpdated()
+            console.log(
+                `${BRAND.logPrefix} tokens:seed-from-project: seeded ${tokens.length} tokens from ${dtcgPath}`,
+            )
+            return { seeded: tokens.length, source: 'project' as const, sourcePath: dtcgPath }
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err)
+            console.warn(`${BRAND.logPrefix} tokens:seed-from-project failed: ${message}`)
+            return { seeded: 0, source: 'none' as const, error: message }
+        }
     })
 
     // ── Component Override Clear Handler (Phase E — Garbage Collection) ────────
@@ -1897,7 +2074,14 @@ app.whenReady().then(async () => {
     //   6. Register in the global registry.
     //   7. Set activeProjectRoot and start the MCP client.
     //   8. Scan and return the FileTreeNode tree.
-    ipcMain.handle('project:create-scratchpad', async (): Promise<FileTreeNode> => {
+    ipcMain.handle('project:create-scratchpad', async (_e, payload?: unknown): Promise<FileTreeNode> => {
+        // CONS-1 fix-forward: accept optional { libraryDefault } payload so the
+        // from-idea channel can wire its MUI default through the IPC boundary.
+        // Validation runs even when the payload is undefined (the schema accepts
+        // either undefined or the strict object).
+        const { projectCreateScratchpadSchema } = await import('../shared/ipc-validators.ts')
+        const parsed = projectCreateScratchpadSchema.parse(payload)
+        const libraryDefault = parsed?.libraryDefault ?? null
         const flintProjectsDir = path.join(app.getPath('home'), `${BRAND.product} Projects`)
         await mkdir(flintProjectsDir, { recursive: true })
 
@@ -1926,6 +2110,34 @@ app.whenReady().then(async () => {
             '[]\n',
         )
 
+        // CONS-1: persist the from-idea library default so subsequent
+        // project:auto-configure picks it up via the standard detected-environment.json
+        // pipeline. Best-effort; failure to write is non-fatal.
+        if (libraryDefault) {
+            try {
+                await writeFile(
+                    path.join(flintDir, 'detected-environment.json'),
+                    JSON.stringify({
+                        framework: { name: 'react', version: 'latest' },
+                        cssFramework: { name: 'tailwind', version: 'latest' },
+                        componentLibrary: { name: libraryDefault, version: 'latest' },
+                        hasDesignTokens: false,
+                        tokenSource: null,
+                        componentCount: 0,
+                        detectedAt: new Date().toISOString(),
+                        uiFramework: 'React',
+                        cssFrameworkLabel: 'Tailwind CSS',
+                        tokenFormat: null,
+                        typescript: true,
+                        componentLibraryLabel: libraryDefault,
+                    }, null, 2),
+                    'utf-8',
+                )
+            } catch (err) {
+                console.error(`${BRAND.logPrefix} project:create-scratchpad: write libraryDefault failed:`, err)
+            }
+        }
+
         // Git init
         await gitManager.ensureRepo(targetPath).catch(err => {
             console.error(`${BRAND.logPrefix} project:create-scratchpad: ensureRepo failed for ${targetPath}`, err)
@@ -1944,7 +2156,7 @@ app.whenReady().then(async () => {
             console.error(`${BRAND.logPrefix} mcpClient.start failed after create-scratchpad:`, err)
         })
         // File watcher: restart scan for new project root
-        void (globalThis as Record<string, unknown>)['__flintStartFileWatcher']?.()
+        void (globalThis as unknown as Record<string, () => void>)['__flintStartFileWatcher']?.()
         // CV2.2: Initialize thumbnail generator for the new project root
         getThumbnailGenerator(targetPath)
         // CK.1: Seed RAG store with component docs + tokens
@@ -2024,7 +2236,7 @@ app.whenReady().then(async () => {
                 console.error(`${BRAND.logPrefix} mcpClient.start failed after openPath:`, err)
             })
             // File watcher: restart scan for new project root
-            void (globalThis as Record<string, unknown>)['__flintStartFileWatcher']?.()
+            void (globalThis as unknown as Record<string, () => void>)['__flintStartFileWatcher']?.()
             // CV2.2: Initialize thumbnail generator for the new project root
             getThumbnailGenerator(normalized)
             // CK.1: Seed RAG store with component docs + tokens
@@ -2230,11 +2442,19 @@ app.whenReady().then(async () => {
     // Reads the detected environment (or accepts it inline) and calls MCP tools
     // to configure the project: flint_set_library + flint_reindex_registry.
     // All MCP calls are best-effort — errors are logged, never thrown.
-    ipcMain.handle('project:auto-configure', async (): Promise<{
+    ipcMain.handle('project:auto-configure', async (_e, payload?: unknown): Promise<{
         configured: boolean
         library: string | null
         reindexed: boolean
     }> => {
+        // CONS-2 fix-forward: accept optional { overrides } payload from
+        // DetectionPreview so the user's framework/library/CSS corrections actually
+        // reach the configure pipeline. Validation accepts undefined for legacy
+        // call sites and the strict object for the new path.
+        const { projectAutoConfigureSchema } = await import('../shared/ipc-validators.ts')
+        const parsed = projectAutoConfigureSchema.parse(payload)
+        const overrides = parsed?.overrides ?? undefined
+
         if (!activeProjectRoot) {
             return { configured: false, library: null, reindexed: false }
         }
@@ -2263,6 +2483,12 @@ app.whenReady().then(async () => {
             }
         } catch {
             // No detected-environment.json yet — proceed without library config
+        }
+
+        // CONS-2: overrides win over the detected value. The DetectionPreview
+        // Confirm action carries any user-corrected library here.
+        if (overrides?.componentLibrary) {
+            library = overrides.componentLibrary
         }
 
         // Call flint_set_library if a component library was detected
@@ -2312,6 +2538,7 @@ app.whenReady().then(async () => {
         let filesAudited = 0
         let grade = 'N/A'
         let score = 0
+        const auditStartMs = Date.now()
 
         // Phase 1 — full swarm audit
         try {
@@ -2390,6 +2617,14 @@ app.whenReady().then(async () => {
         }
 
         emitProgress('done', 100)
+
+        // BETA.TEL: audit.completed — counts only, no file paths
+        telemetryEmit('audit.completed', {
+            fileCount: filesAudited,
+            violationCount: violations,
+            durationMs: Date.now() - auditStartMs,
+        })
+
         return { violations, grade, score, filesAudited }
     })
 
@@ -2408,6 +2643,120 @@ app.whenReady().then(async () => {
             if (!data.grade || data.score == null) return null
             return { grade: data.grade, score: data.score, updatedAt: data.timestamp ?? new Date().toISOString() }
         } catch { return null }
+    })
+
+    // ── project:smart-open (FORGE.1) ──────────────────────────────────────────
+    // Single entry-point for the "Start from existing code" channel.
+    //
+    // Heuristic: anchored regex `/^(https?:\/\/|git@|ssh:\/\/)/` — any input
+    // that matches is treated as a git URL and routed through GitManager.clone
+    // (Commandment 14 — no raw child_process.exec). Anything else is treated as
+    // an absolute folder path and routed through the existing detectProjectEnvironment
+    // pipeline. UNC paths (\\server\share) fail the regex and are treated as folder
+    // paths; if the path does not exist they will throw a typed error.
+    //
+    // Returns SmartOpenResult: { projectPath, environment, source }.
+    ipcMain.handle('project:smart-open', async (_e, payload: unknown): Promise<{
+        projectPath: string
+        environment: ProjectEnvironment
+        source: 'folder' | 'git-clone'
+    }> => {
+        // Validate payload shape using the FORGE.1 Zod schema
+        const { projectSmartOpenSchema } = await import('../shared/ipc-validators.ts')
+        const { input } = projectSmartOpenSchema.parse(payload)
+
+        const GIT_URL_RE = /^(https?:\/\/|git@|ssh:\/\/)/
+
+        const home = app.getPath('home')
+        const detectorFs: DetectorFS = {
+            readFile: (fp: string, enc: 'utf-8') => readFile(fp, enc),
+            exists: async (fp: string) => existsSync(fp),
+        }
+
+        let projectPath: string
+        let source: 'folder' | 'git-clone'
+
+        if (GIT_URL_RE.test(input)) {
+            // ── Git clone path ────────────────────────────────────────────────
+            source = 'git-clone'
+
+            // SEC-HIGH-1: Slug traversal hardening.
+            // A URL like "https://x/repo/.." would derive slug ".." which lets
+            // the clone destination escape ~/Flint Projects. Reject any slug
+            // that is missing, "." / "..", or contains path separators / NULs;
+            // fall back to a random UUID so the clone still proceeds safely.
+            let slug = input
+                .replace(/\.git$/, '')
+                .split('/')
+                .filter(Boolean)
+                .pop() ?? ''
+            if (!slug || slug === '.' || slug === '..' || /[\\/\0]/.test(slug)) {
+                slug = randomUUID()
+            }
+
+            // Clone into ~/Flint Projects/<slug> (mirrors the scratchpad convention)
+            const flintProjectsDir = path.join(home, 'Flint Projects')
+            if (!existsSync(flintProjectsDir)) {
+                mkdirSync(flintProjectsDir, { recursive: true })
+            }
+            // SEC-HIGH-1 (defense in depth): re-resolve the destination and assert
+            // it stays inside flintProjectsDir even if the slug somehow escaped the
+            // checks above. A future regex change cannot silently re-introduce the
+            // traversal vulnerability without tripping this assertion.
+            const candidate = path.resolve(flintProjectsDir, slug)
+            if (!candidate.startsWith(flintProjectsDir + path.sep)) {
+                throw new Error(`[Flint] project:smart-open: invalid clone destination — would escape ${flintProjectsDir}`)
+            }
+            projectPath = candidate
+
+            // Route through GitManager — never raw exec (Commandment 14).
+            // GitManager.clone applies SEC-HIGH-2 (core.symlinks=false), SEC-MED-1
+            // (timeout + shallow), and SEC-MED-4 (env scrub).
+            await gitManager.clone(input, projectPath)
+        } else {
+            // ── Folder path ───────────────────────────────────────────────────
+            source = 'folder'
+
+            // Security: must be an absolute path inside the user's home directory
+            if (!path.isAbsolute(input)) {
+                throw new Error(`[Flint] project:smart-open: input must be an absolute path (got: ${input})`)
+            }
+            // SEC-MED-5: Resolve the path so any "." / ".." / symlink traversal
+            // is collapsed BEFORE the prefix check. Compare against the realpath
+            // of the home directory so a symlinked $HOME does not bypass the gate.
+            const resolvedHome = await realpathSafe(home)
+            const resolved = path.resolve(input)
+            if (!resolved.startsWith(resolvedHome + path.sep) && resolved !== resolvedHome) {
+                throw new Error(`[Flint] project:smart-open: path must be within the home directory`)
+            }
+            if (!existsSync(resolved)) {
+                throw new Error(`[Flint] project:smart-open: not a directory — path does not exist: ${resolved}`)
+            }
+            projectPath = resolved
+        }
+
+        // Run detection on the resolved project path
+        const environment = await detectProjectEnvironment(projectPath, detectorFs)
+
+        // Write detected environment to .flint/ (mirrors project:detect-environment side-effect)
+        try {
+            const flintDir = path.join(projectPath, '.flint')
+            if (!existsSync(flintDir)) {
+                await mkdir(flintDir, { recursive: true })
+            }
+            await writeFile(
+                path.join(flintDir, 'detected-environment.json'),
+                JSON.stringify(environment, null, 2),
+                'utf-8',
+            )
+        } catch (err) {
+            console.error(`${logTag('FORGE.1')} smart-open: Failed to write detected-environment.json:`, err)
+        }
+
+        // Update active project root so downstream handlers (auto-configure, baseline) work
+        activeProjectRoot = projectPath
+
+        return { projectPath, environment, source }
     })
 
     // ── mcp:get-recent-file-focus ──────────────────────────────────────────────
@@ -2705,7 +3054,7 @@ app.whenReady().then(async () => {
                 // Padding
                 const pt = styles.paddingTop, pr = styles.paddingRight, pb = styles.paddingBottom, pl = styles.paddingLeft
                 if (pt != null || pr != null || pb != null || pl != null) {
-                    if (pt === pr && pr === pb && pb === pl && pt > 0) {
+                    if (pt != null && pt === pr && pr === pb && pb === pl && pt > 0) {
                         const p = spacingToTw(pt)
                         cls.push(p ? `p-${p}` : `p-[${pt}px]`)
                     } else {
@@ -2858,7 +3207,7 @@ app.whenReady().then(async () => {
                     }
 
                     // Skip nodes explicitly marked (e.g., Chips we can't render yet)
-                    if (resolver.skip) return { _skip: true }
+                    if (resolver.skip) return { _skip: true } as unknown as HydroResolvedDef
 
                     // Build resolved def
                     const def: HydroResolvedDef = {
@@ -2875,7 +3224,7 @@ app.whenReady().then(async () => {
                     if (resolver.variantToProp) {
                         const { field, map } = resolver.variantToProp
                         const variantVal = parsed[field] || props[field]
-                        if (variantVal && map[variantVal]) {
+                        if (typeof variantVal === 'string' && map[variantVal]) {
                             def.defaultProps = { ...def.defaultProps, ...map[variantVal] }
                         }
                     }
@@ -2898,7 +3247,8 @@ app.whenReady().then(async () => {
 
                 // Handle raw text nodes from Figma (type "_TextNode")
                 if (nodeData.figmaComponent === '_TextNode') {
-                    const text = nodeData.props?.content || ''
+                    const rawText = nodeData.props?.content
+                    const text = typeof rawText === 'string' ? rawText : ''
                     if (!text) return null
                     const twClass = stylesToTailwind(nodeData.styles)
                     if (twClass) {
@@ -3045,7 +3395,7 @@ app.whenReady().then(async () => {
             const generate: (node: import('@babel/types').Node) => { code: string } =
                 typeof _genMod === 'function' ? _genMod as unknown as (node: import('@babel/types').Node) => { code: string }
                 : typeof _genMod.default === 'function' ? _genMod.default as unknown as (node: import('@babel/types').Node) => { code: string }
-                : typeof (_genMod.default as Record<string, unknown>)?.default === 'function' ? (_genMod.default as Record<string, unknown>).default as unknown as (node: import('@babel/types').Node) => { code: string }
+                : typeof (_genMod.default as unknown as Record<string, unknown>)?.default === 'function' ? (_genMod.default as unknown as Record<string, unknown>).default as unknown as (node: import('@babel/types').Node) => { code: string }
                 : (_genMod as Record<string, unknown>).generate as (node: import('@babel/types').Node) => { code: string }
 
             // Generate per-element snippets paired with their imports
@@ -3260,9 +3610,9 @@ app.whenReady().then(async () => {
 
             async function walk(dir: string): Promise<void> {
                 if (results.length >= 100) return
-                let entries: Awaited<ReturnType<typeof readdir>>
+                let entries: Array<{ name: string; isDirectory: () => boolean; isFile: () => boolean }>
                 try {
-                    entries = await readdir(dir, { withFileTypes: true })
+                    entries = (await readdir(dir, { withFileTypes: true })) as unknown as typeof entries
                 } catch { return }
                 for (const entry of entries) {
                     if (results.length >= 100) break
@@ -3359,20 +3709,20 @@ app.whenReady().then(async () => {
                         ideFileSyncLastMtime = mtimeMs
                         const raw = await readFile(filePath, 'utf8')
                         const parsed = JSON.parse(raw) as { path?: string; explicit?: boolean }
-                        const filePath = parsed.path
+                        const parsedPath = parsed.path
                         const isExplicit = parsed.explicit === true
                         if (
-                            typeof filePath === 'string' &&
-                            path.isAbsolute(filePath) &&
+                            typeof parsedPath === 'string' &&
+                            path.isAbsolute(parsedPath) &&
                             activeProjectRoot &&
-                            filePath.startsWith(activeProjectRoot + path.sep) &&
+                            parsedPath.startsWith(activeProjectRoot + path.sep) &&
                             // Explicit commands bypass the lastPath dedup guard so
                             // the user can always reload the same file intentionally.
-                            (isExplicit || filePath !== ideFileSyncLastPath)
+                            (isExplicit || parsedPath !== ideFileSyncLastPath)
                         ) {
-                            ideFileSyncLastPath = filePath
+                            ideFileSyncLastPath = parsedPath
                             BrowserWindow.getAllWindows().forEach((w) => {
-                                if (!w.isDestroyed()) w.webContents.send(ipcChannel('ide-file-selected'), { path: filePath, explicit: isExplicit })
+                                if (!w.isDestroyed()) w.webContents.send(ipcChannel('ide-file-selected'), { path: parsedPath, explicit: isExplicit })
                             })
                         }
                     }
@@ -3538,6 +3888,9 @@ app.whenReady().then(async () => {
             const { _agentId, ...cleanArgs } = argsObj
 
             const result = await mcpClient.callTool(name, cleanArgs)
+
+            // BETA.TEL: emit mcp.tool_called — tool name only, never args (WARN-4)
+            telemetryEmit('mcp.tool_called', { toolName: name })
 
             // AGV.1: Track mutation count for rate limiting
             if (['flint_ast_mutate', 'flint_fix', 'flint_sync_tokens', 'flint_ingest_figma'].includes(name)) {
@@ -4950,10 +5303,14 @@ app.whenReady().then(async () => {
         autopilotLastMtime = 0
 
         // Poll every 500 ms for mtime changes — avoids fsevents crashes on macOS 26.
+        // PERF-LOW-16: the mtime guard (`mtimeMs > autopilotLastMtime`) ensures
+        // runAutopilotAudit is only invoked when the file actually changes.
+        // The debounce further coalesces rapid saves before triggering the audit.
         autopilotPollInterval = setInterval(async () => {
             try {
                 const { mtimeMs } = await fsStat(resolvedPath)
                 if (mtimeMs > autopilotLastMtime) {
+                    // File changed — update mtime and schedule debounced audit.
                     autopilotLastMtime = mtimeMs
                     if (autopilotDebounceTimer) clearTimeout(autopilotDebounceTimer)
                     autopilotDebounceTimer = setTimeout(() => {
@@ -4961,6 +5318,7 @@ app.whenReady().then(async () => {
                         void runAutopilotAudit(resolvedPath)
                     }, AUTOPILOT_DEBOUNCE_MS)
                 }
+                // File unchanged — skip rule evaluation entirely (no-op tick).
             } catch { /* file removed or inaccessible */ }
         }, 500)
 
@@ -4990,7 +5348,7 @@ app.whenReady().then(async () => {
         if (autopilotDebounceTimer) clearTimeout(autopilotDebounceTimer)
     })
 
-    createWindow()
+    void createWindow()
     buildAppMenu()
 
     // ── Starter template for scratchpad index.html ──────────────────────
@@ -5314,14 +5672,28 @@ app.whenReady().then(async () => {
             console.error(`${BRAND.logPrefix} mcpClient.start failed for auto-scratchpad:`, err)
         })
         // File watcher: restart scan for auto-scratchpad project root
-        void (globalThis as Record<string, unknown>)['__flintStartFileWatcher']?.()
+        void (globalThis as unknown as Record<string, () => void>)['__flintStartFileWatcher']?.()
     }
 
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {
-            createWindow()
+            void createWindow()
         }
     })
+})
+
+// ── BETA.TEL: Telemetry Consent IPC (BLK-3) ──────────────────────────────────
+//
+// Two channels — both consent-gated in the renderer via window.flintAPI.telemetry.
+// Validators: telemetryGetConsentResponseSchema, telemetrySetConsentPayloadSchema.
+
+ipcMain.handle('telemetry:get-consent', (): import('./betaTelemetry.js').ConsentRecord => {
+    return getConsent()
+})
+
+ipcMain.handle('telemetry:set-consent', (_event, payload: unknown): import('./betaTelemetry.js').ConsentRecord => {
+    const parsed = telemetrySetConsentPayloadSchema.parse(payload)
+    return setConsent(parsed.state)
 })
 
 // ── Beta Distribution IPC ────────────────────────────────────────────────────
@@ -6546,6 +6918,37 @@ ipcMain.handle('d2c:apply', async (_event, request: unknown): Promise<{
     }
 })
 
+// ── Phase 0: Coverage Honesty — flint:getCoverageSummary ──────────────────────
+//
+// Returns the aggregate CoverageSummary for the current project.
+// Reads `.flint/coverage-cache.json` written by debtReportService during the
+// last debt scan. Falls back to ZERO_COVERAGE_SUMMARY when:
+//   - No project is open (activeProjectRoot is null)
+//   - The cache file does not exist yet (pre-first-scan)
+//   - The cache file is corrupt JSON (log at debug, don't crash)
+//
+// Response is runtime-validated via Zod before return (Design by Contract).
+ipcMain.handle('flint:getCoverageSummary', async (): Promise<ReturnType<typeof ipcSchemas['flint:getCoverageSummary']['response']['parse']>> => {
+    let result: CoverageSummary = ZERO_COVERAGE_SUMMARY
+
+    if (activeProjectRoot) {
+        const cachePath = path.join(activeProjectRoot, '.flint', 'coverage-cache.json')
+        try {
+            const raw = await readFile(cachePath, 'utf-8')
+            result = JSON.parse(raw) as CoverageSummary
+        } catch (err) {
+            // Pre-first-scan (ENOENT) or corrupt cache — fall back to zero state.
+            // Log at debug level only; do not surface noise to the user.
+            if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+                console.debug('[flint:getCoverageSummary] cache read failed, using zero state:', err)
+            }
+        }
+    }
+
+    // Runtime validation: postcondition check at the IPC boundary.
+    return ipcSchemas['flint:getCoverageSummary'].response.parse(result)
+})
+
 app.on('will-quit', () => {
     // Stop beta version check polling
     stopVersionCheck()
@@ -6557,6 +6960,19 @@ app.on('will-quit', () => {
     // OS port is released immediately. This prevents EADDRINUSE on fast
     // dev-server reloads where Electron restarts before the OS reclaims 4545.
     stopServer?.()
+
+    // Tear down the embedded web server child process so its TCP port is
+    // released cleanly. SIGTERM gives it a chance to close its own
+    // connections; if it ignores us, SIGKILL after 1s.
+    if (webServerProcess && !webServerProcess.killed) {
+        try {
+            webServerProcess.kill('SIGTERM')
+            const proc = webServerProcess
+            setTimeout(() => { if (!proc.killed) proc.kill('SIGKILL') }, 1000)
+        } catch { /* best-effort */ }
+        webServerProcess = null
+        webServerUrl = null
+    }
 
     // Phase W.3: shut down the MCP server child process on app exit.
     // stop() is async but will-quit is synchronous — fire-and-forget is acceptable

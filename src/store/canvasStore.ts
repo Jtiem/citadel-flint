@@ -23,12 +23,13 @@
 
 import { create } from 'zustand'
 import type { FileTreeNode, FlintPolicy, LinterWarning } from '../types/flint-api'
+import type { RuntimeAuditResult } from '../types/runtime-audit'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 export type SaveState = 'idle' | 'editing' | 'saving' | 'saved'
 export type CanvasMode = 'design' | 'interact'
-export type RightTab = 'governance' | 'properties' | 'tokens'
+export type RightTab = 'governance' | 'properties' | 'tokens' | 'notes'
 
 /**
  * Persisted tuple for the last-active file (LAUNCH.3 Security m3).
@@ -160,13 +161,13 @@ interface CanvasState {
     /**
      * Bounding boxes for every flint node that has reported a NODE_LAYOUT
      * postMessage from the iframe. Keyed by data-flint-id.
-     * Used by ShieldOverlay to position governance badges and heat tints.
+     * Used by GovernanceDashboard to position violation references.
      */
     nodeLayouts: Record<string, NodeLayout>
     /**
      * The currently active tab in the right inspector panel.
-     * Stored here so ShieldOverlay can switch to 'properties' on badge click
-     * without prop-drilling through LivePreview → ShieldOverlay.
+     * Stored here so GovernanceDashboard can switch to 'properties' on click
+     * without prop-drilling through LivePreview → GovernanceDashboard.
      */
     rightTab: RightTab
     // --- Figma & Sync ---
@@ -221,15 +222,15 @@ interface CanvasState {
 
     // ── GLASS.1d: Violation scroll target ────────────────────────────────────
     /**
-     * When non-null, GovernanceOverlay scrolls to the violation row for this
-     * flint ID and resets the value to null. Set by ShieldOverlay badge click
-     * to link the canvas badge to the authoritative violation list.
+     * When non-null, GovernanceDashboard scrolls to the violation row for this
+     * flint ID and resets the value to null. Set by canvas-side click handlers
+     * to link a node selection to the authoritative violation list.
      */
     scrollToViolationId: string | null
 
     // ── GLASS.1e: Governance rule filter ──────────────────────────────────────
     /**
-     * When non-null, GovernanceOverlay filters its violation list to only show
+     * When non-null, GovernanceDashboard filters its violation list to only show
      * violations matching this type. Set by GovernanceDashboard when the user
      * clicks a top-violated-rules row. Cleared by setting to null.
      */
@@ -277,6 +278,60 @@ interface CanvasState {
     _leftPanelSavedWidth: number
     /** Stored width to restore when expanding the right panel. */
     _rightPanelSavedWidth: number
+
+    // ── RUNTIME.1: axe-core runtime audit findings ──────────────────────────
+    /**
+     * Latest RuntimeAuditResult produced by the axe-core sandbox adapter, or
+     * null when no audit has run for the active file (either the user has not
+     * triggered one yet, or the active file just changed and the slice was
+     * cleared). Ephemeral — never persisted (Commandment 14 / no SQLite).
+     */
+    runtimeFindings: RuntimeAuditResult | null
+
+    // ── RUNTIME.1: live preview HTML snapshot ────────────────────────────────
+    /**
+     * The latest srcdoc HTML written to the LivePreview iframe. Snapshot-on-
+     * update — LivePreview writes here every time it sets `iframe.srcdoc`. The
+     * RuntimeAuditSurface reads it at click time and forwards to the axe-core
+     * adapter via `useRuntimeAudit.run({ previewHtml })`.
+     *
+     * null → no preview has rendered yet. The adapter short-circuits to
+     *        `status: 'no-preview'` in that case.
+     */
+    livePreviewHtml: string | null
+
+    // ── FIXTURE.1: latest MCP audit response context ────────────────────────
+    /**
+     * Transient snapshot of the most recent audit_ui_component / flint_audit
+     * MCP response. Only the `fixtureContext` sub-field is consumed by the
+     * StatusBar pill; the full payload is not stored.
+     *
+     * null  → no audit has run yet for the active file.
+     * {}    → audit ran but no fixture was resolved (pill stays hidden).
+     * { fixtureContext: { label, source, surface } } → pill renders label.
+     */
+    latestAudit: {
+        fixtureContext?: {
+            label?: string
+            source: string | null
+            surface?: string
+        }
+    } | null
+
+    // ── INSPECTOR.1: manual tab override ────────────────────────────────────
+    /**
+     * True when the user has manually clicked a non-Properties tab while a
+     * node was selected. Blocks `useAutoTabSwitch` from auto-switching back to
+     * the Properties tab on the next selection change.
+     *
+     * Reset to false:
+     *   - by `setActiveSelection(null)` (deselect clears the override so the
+     *     next selection can auto-switch again)
+     *   - by `closeWorkspace`
+     *
+     * Never persisted across sessions (ODQ-5: session-scoped only).
+     */
+    userOverrodeTab: boolean
 }
 
 interface CanvasActions {
@@ -342,12 +397,12 @@ interface CanvasActions {
     setCanvasMode: (mode: CanvasMode) => void
     /**
      * Records a single node's bounding box as reported by the iframe.
-     * Called from ShieldOverlay when a NODE_LAYOUT postMessage arrives.
+     * Called from the iframe NODE_LAYOUT postMessage handler.
      */
     setNodeLayout: (id: string, layout: NodeLayout) => void
     /**
-     * Switches the active right inspector tab. Called by ShieldOverlay when
-     * the user clicks a violation badge (click-to-properties).
+     * Switches the active right inspector tab. Called when the user
+     * clicks through to a violation's properties (click-to-properties).
      */
     setRightTab: (tab: RightTab) => void
     /**
@@ -423,13 +478,13 @@ interface CanvasActions {
     recordIDESyncEvent: (filePath: string) => void
     // ── GLASS.1d: Violation scroll target ────────────────────────────────────
     /**
-     * Sets the flint ID that GovernanceOverlay should scroll to.
+     * Sets the flint ID that GovernanceDashboard should scroll to.
      * Pass null to clear after the scroll completes.
      */
     setScrollToViolationId: (id: string | null) => void
     // ── GLASS.1e: Governance rule filter ──────────────────────────────────────
     /**
-     * Filters the GovernanceOverlay violation list to a specific violation type.
+     * Filters the GovernanceDashboard violation list to a specific violation type.
      * Pass null to clear the filter and show all violations.
      */
     setGovernanceRuleFilter: (type: LinterWarning['type'] | null) => void
@@ -467,11 +522,44 @@ interface CanvasActions {
     /** Toggles the right panel between collapsed and expanded. */
     toggleRightPanel: () => void
 
+    // ── RUNTIME.1: axe-core runtime audit findings ──────────────────────────
+    /**
+     * Writes the latest RuntimeAuditResult produced by the adapter into the
+     * store. Pass null to clear. Called by `useRuntimeAudit` on IPC success.
+     */
+    setRuntimeFindings: (result: RuntimeAuditResult | null) => void
+    /**
+     * Clears the runtimeFindings slice. Called when `activeFilePath` changes
+     * so stale findings from a previous file never leak into the merged
+     * violation list.
+     */
+    clearRuntimeFindings: () => void
+
+    // ── RUNTIME.1: live preview HTML setter ──────────────────────────────────
+    setLivePreviewHtml: (html: string | null) => void
+
+    // ── FIXTURE.1: latest MCP audit response ─────────────────────────────────
+    /**
+     * Writes the latest audit response context into the store.
+     * Called by any component or hook that receives an audit_ui_component /
+     * flint_audit MCP response. Pass null to clear on file change.
+     */
+    setLatestAudit: (audit: CanvasState['latestAudit']) => void
+
     /**
      * Returns to the Launch Screen by nullifying all workspace state.
      * Cancels any pending auto-save timer before clearing state.
      */
     closeWorkspace: () => void
+
+    // ── INSPECTOR.1: manual tab override ────────────────────────────────────
+    /**
+     * Sets `userOverrodeTab = true`. Idempotent — calling when already true
+     * produces no state update. Called from the right-sidebar tab bar click
+     * handler in App.tsx when the user clicks a non-Properties tab while a
+     * node is selected.
+     */
+    markTabOverridden: () => void
     /**
      * Export Gate selector (Phase E — Commandments 5 + 6).
      *
@@ -647,9 +735,28 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
     _leftPanelSavedWidth: DEFAULT_LEFT_PANEL_WIDTH,
     _rightPanelSavedWidth: DEFAULT_RIGHT_PANEL_WIDTH,
 
+    // RUNTIME.1: axe-core runtime audit findings (ephemeral)
+    runtimeFindings: null,
+    // RUNTIME.1: live preview HTML snapshot (ephemeral)
+    livePreviewHtml: null,
+
+    // FIXTURE.1: latest MCP audit response context (ephemeral)
+    latestAudit: null,
+
+    // INSPECTOR.1: session-scoped manual tab override (default false)
+    userOverrodeTab: false,
+
     startDrag: (sourceId) => set({ dragSourceId: sourceId }),
     endDrag: () => set({ dragSourceId: null }),
-    setActiveSelection: (id) => set({ activeSelection: id }),
+    setActiveSelection: (id) => {
+        // INSPECTOR.1: deselect resets the override so the next selection can
+        // auto-switch to the Properties tab again.
+        if (id === null) {
+            set({ activeSelection: null, userOverrodeTab: false })
+        } else {
+            set({ activeSelection: id })
+        }
+    },
 
     setWorkspaceFiles: (tree) => set({ workspaceFiles: tree }),
 
@@ -706,7 +813,10 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
         if (seq !== _setActiveFileSeq) return // superseded
         useEditorStore.getState().clearAST()
 
-        set({ activeFilePath: filePath, saveState: 'idle' })
+        // RUNTIME.1: Clear the previous file's runtime findings so the merged
+        // view never shows stale axe results after a file switch. Mirrors the
+        // Clean Slate Protocol above — same rationale, different surface.
+        set({ activeFilePath: filePath, saveState: 'idle', runtimeFindings: null, livePreviewHtml: null })
 
         // ── Hydrate editor with new file content ─────────────────────────────
         try {
@@ -720,7 +830,7 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
         } catch (err) {
             // Log only the error code, never the raw error object (which can
             // contain user file paths in its message string). Security m1.
-            const code = (err as NodeJS.ErrnoException)?.code ?? 'unknown'
+            const code = (err as { code?: string })?.code ?? 'unknown'
             console.error('[Flint] Failed to read file:', code)
             // Code m3: clear the stale lastActiveFile so a failed read can't
             // survive and re-trigger on the next boot.
@@ -896,6 +1006,20 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
             }
         }),
 
+    // ── RUNTIME.1: axe-core runtime audit findings ──────────────────────────
+    setRuntimeFindings: (result) => set({ runtimeFindings: result }),
+    clearRuntimeFindings: () => set({ runtimeFindings: null }),
+    setLivePreviewHtml: (html) => set({ livePreviewHtml: html }),
+
+    // ── FIXTURE.1: latest MCP audit response context ─────────────────────────
+    setLatestAudit: (audit) => set({ latestAudit: audit }),
+
+    // ── INSPECTOR.1: manual tab override ────────────────────────────────────
+    markTabOverridden: () => {
+        if (get().userOverrodeTab) return // idempotent
+        set({ userOverrodeTab: true })
+    },
+
     closeWorkspace: () => {
         if (_saveTimer !== null) {
             clearTimeout(_saveTimer)
@@ -940,6 +1064,11 @@ export const useCanvasStore = create<CanvasState & CanvasActions>((set, get) => 
             rightPanelCollapsed: false,
             _leftPanelSavedWidth: DEFAULT_LEFT_PANEL_WIDTH,
             _rightPanelSavedWidth: DEFAULT_RIGHT_PANEL_WIDTH,
+            // RUNTIME.1: Clear runtime findings — never leak a prior file's audit
+            runtimeFindings: null,
+            livePreviewHtml: null,
+            // INSPECTOR.1: Reset manual tab override on workspace close
+            userOverrodeTab: false,
         })
     },
 

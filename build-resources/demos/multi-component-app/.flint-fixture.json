@@ -1,0 +1,5 @@
+{
+  "surface": "component",
+  "tokens": "./design-tokens.json",
+  "label": "Multi-component app — full workflow demo"
+}

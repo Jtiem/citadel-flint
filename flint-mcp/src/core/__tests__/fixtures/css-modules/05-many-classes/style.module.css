@@ -1,0 +1,53 @@
+.base {
+  display: flex;
+  align-items: center;
+}
+
+.small {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.5rem;
+}
+
+.medium {
+  font-size: 1rem;
+  padding: 0.5rem 1rem;
+}
+
+.large {
+  font-size: 1.25rem;
+  padding: 0.75rem 1.5rem;
+}
+
+.primary {
+  background-color: #0066cc;
+  color: white;
+}
+
+.secondary {
+  background-color: #6c757d;
+  color: white;
+}
+
+.danger {
+  background-color: #dc3545;
+  color: white;
+}
+
+.outline {
+  background-color: transparent;
+  border: 2px solid currentColor;
+}
+
+.ghost {
+  background-color: transparent;
+}
+
+.loading {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.disabled {
+  pointer-events: none;
+  opacity: 0.4;
+}

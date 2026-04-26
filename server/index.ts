@@ -14,6 +14,7 @@
 
 import { computeExpiresAt, type DeferDuration } from '../shared/deferralUtils'
 import { RENDERER_ALLOWED_MCP_TOOLS } from '../shared/mcp-allowed-tools'
+import { flattenDtcg } from '../shared/dtcgFlatten'
 import express from 'express'
 import { WebSocketServer, WebSocket } from 'ws'
 import http from 'node:http'
@@ -48,7 +49,9 @@ import { ideFileSyncTick, type IDEFileSyncState } from './ideFileSyncTick.js'
 import { detectProjectEnvironment, type DetectorFS } from '../shared/projectDetector.js'
 import { validateFilePath as sharedValidateFilePath } from '../shared/validateFilePath.js'
 import { sanitizeReason } from '../shared/reasonSanitizer.js'
-import { ipcSchemas } from '../shared/ipc-validators.js'
+import { ipcSchemas, validateMcpToolArgs } from '../shared/ipc-validators.js'
+import type { CoverageSummary } from '../shared/coverage-types.js'
+import { ZERO_COVERAGE_SUMMARY } from '../shared/coverage-types.js'
 import { sanitizeTokenValue, sanitizeTokenDescription } from '../shared/tokenValueSanitizer.js'
 import type { TokenShapeCategory } from '../shared/tokenValueSanitizer.js'
 import { validateTokenPath, TokenPathValidationError } from '../shared/tokenPath.js'
@@ -199,12 +202,14 @@ function isWithinHome(filePath: string): boolean {
   const home = os.homedir()
   const resolved = path.resolve(filePath)
   if (resolved === home || resolved.startsWith(home + path.sep)) return true
-  // Allow OS temp directory — demo projects are copied there by beta:load-demo-project.
+  // Allow the demo extraction subdirectory — beta:load-demo-project copies demos
+  // to <tmpdir>/flint-beta-demo/demo-<timestamp>/. Scope the carve-out to that
+  // prefix rather than all of tmpdir (SEC-MED-1).
   // realpathSync resolves macOS /tmp → /private/tmp symlink so the prefix check works.
   try {
     const resolvedReal = realpathSync(resolved)
-    const tmpReal = realpathSync(os.tmpdir())
-    if (resolvedReal.startsWith(tmpReal + path.sep)) return true
+    const demoTmpReal = path.join(realpathSync(os.tmpdir()), 'flint-beta-demo')
+    if (resolvedReal.startsWith(demoTmpReal + path.sep)) return true
   } catch { /* path doesn't exist yet — fall through to false */ }
   return false
 }
@@ -901,6 +906,54 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     return { changes: result.changes }
   })
 
+  // Web parity: mirrors electron/main.ts tokens:seed-from-project. Reads
+  // <projectRoot>/.flint/design-tokens.json or <projectRoot>/design-tokens.json,
+  // flattens DTCG, clears the store, and seeds.
+  handlers.set('tokens:seed-from-project', async (projectRoot: unknown) => {
+    if (typeof projectRoot !== 'string' || projectRoot.length === 0) {
+      return { seeded: 0, source: 'none' as const, error: 'invalid project root' }
+    }
+    const candidates = [
+      path.join(projectRoot, '.flint', 'design-tokens.json'),
+      path.join(projectRoot, 'design-tokens.json'),
+    ]
+    let dtcgPath: string | null = null
+    for (const candidate of candidates) {
+      if (existsSync(candidate)) {
+        dtcgPath = candidate
+        break
+      }
+    }
+    if (!dtcgPath) {
+      return { seeded: 0, source: 'none' as const }
+    }
+    try {
+      const raw = await fs.readFile(dtcgPath, 'utf8')
+      const parsed = JSON.parse(raw) as unknown
+      const tokens = flattenDtcg(parsed)
+      stmtClearAll.run()
+      for (const t of tokens) {
+        stmtCreate.run(
+          t.token_path,
+          t.token_type,
+          t.token_value,
+          t.description ?? null,
+          'default',
+          'default',
+        )
+      }
+      broadcastTokensUpdated()
+      console.log(
+        `${BRAND.logPrefix} tokens:seed-from-project: seeded ${tokens.length} tokens from ${dtcgPath}`,
+      )
+      return { seeded: tokens.length, source: 'project' as const, sourcePath: dtcgPath }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.warn(`${BRAND.logPrefix} tokens:seed-from-project failed: ${message}`)
+      return { seeded: 0, source: 'none' as const, error: message }
+    }
+  })
+
   // ── Component Overrides ────────────────────────────────────────────────────
 
   handlers.set('tokens:clear-override', async (flintId: unknown) => {
@@ -929,11 +982,38 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     // Use the shared validator — consistent with electron/main.ts.
     // Provides: type check, absolute path, extension allowlist, realpathSync
     // home-scope enforcement, and self-hosting guard in one place.
+    //
+    // Self-hosting guard exception: the guard's stated purpose is to prevent
+    // the Vite HMR → reload → flash loop, which is a *write*-side concern
+    // (see banner at line 186: "All writes to source files are blocked").
+    // Reads do not trigger HMR. The `demos/` subtree in particular holds
+    // read-only demo assets that users legitimately open from the IDE-sync
+    // bridge (`.flint/ide-active-file.json`) and from the LaunchScreen demo
+    // tiles. Without this exception, `tryAutoResume` throws silently when
+    // `lastActiveFile` points at a demo path and Glass falls to the launch
+    // screen with no explanation.
+    const demosDir = path.join(serverRoot, 'demos') + path.sep
+    const isDemoRead = (resolved: string): boolean =>
+      resolved === path.join(serverRoot, 'demos') || resolved.startsWith(demosDir)
+
+    // `beta:load-demo-project` extracts demos into <tmpdir>/flint-beta-demo/.
+    // Scope the allowed root to that subdirectory — not all of tmpdir — so
+    // arbitrary temp files (caches, other apps' data) are not readable via
+    // file:read (SEC-MED-1). realpathSync resolves the macOS
+    // `/tmp` → `/private/var/folders/...` symlink so the prefix check in
+    // sharedValidateFilePath matches whether the caller passes the symlink or
+    // the canonical path.
+    let demoTmpRoot: string
+    try { demoTmpRoot = path.join(realpathSync(os.tmpdir()), 'flint-beta-demo') }
+    catch { demoTmpRoot = path.join(os.tmpdir(), 'flint-beta-demo') }
+
     const validated = sharedValidateFilePath({
       filePath,
       homeDir: os.homedir(),
       allowedExtensions: ['.tsx', '.ts', '.jsx', '.js', '.html', '.vue', '.svelte'],
+      extraAllowedRoots: [demoTmpRoot],
       selfHostCheck: (resolved) => {
+        if (isDemoRead(resolved)) return
         if (selfHosting.isSelfHostedPath(resolved)) {
           throw new Error('file:read — refusing to read Flint source tree (self-hosting guard)')
         }
@@ -1114,14 +1194,20 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
   // ── Project / Directory Operations ─────────────────────────────────────────
 
   handlers.set('project:openPath', async (folderPath: unknown) => {
-    if (typeof folderPath !== 'string') return null
+    if (typeof folderPath !== 'string') {
+      console.warn('[project:openPath] rejected — folderPath not a string:', typeof folderPath)
+      return null
+    }
 
     const normalized = path.normalize(folderPath)
     // Resolve symlinks before the home-dir check to prevent symlink escape
     // (e.g., ~/evil -> /etc would pass the prefix check on the symlink path).
     let realPath = normalized
     try { realPath = realpathSync(normalized) } catch { /* dir may not exist */ }
-    if (!isWithinHome(realPath)) return null
+    if (!isWithinHome(realPath)) {
+      console.warn(`[project:openPath] rejected by isWithinHome: input=${folderPath} realPath=${realPath} home=${os.homedir()} tmpdirReal=${(() => { try { return realpathSync(os.tmpdir()) } catch { return os.tmpdir() } })()}`)
+      return null
+    }
 
     try {
       const tree = await scanDirectory(normalized)
@@ -1139,7 +1225,8 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
         broadcast('flint:project-opened', { path: normalized })
       }
       return tree
-    } catch {
+    } catch (err) {
+      console.warn('[project:openPath] failed inside try block:', err instanceof Error ? err.message : err)
       return null
     }
   })
@@ -1170,7 +1257,11 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     return null
   })
 
-  handlers.set('project:create-scratchpad', async () => {
+  handlers.set('project:create-scratchpad', async (payload?: unknown) => {
+    // CONS-1 fix-forward: accept optional { libraryDefault } payload.
+    const { projectCreateScratchpadSchema } = await import('../shared/ipc-validators.js')
+    const parsed = projectCreateScratchpadSchema.parse(payload)
+    const libraryDefault = parsed?.libraryDefault ?? null
     const flintProjectsDir = path.join(os.homedir(), `${BRAND.product} Projects`)
     await fs.mkdir(flintProjectsDir, { recursive: true })
 
@@ -1203,6 +1294,31 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
         export_gate: { block_on_mithril: true, block_on_a11y: true, block_on_overrides: true },
         baseline: { enabled: false },
       }, null, 2) + '\n')
+    }
+
+    // CONS-1: persist library default for downstream auto-configure.
+    if (libraryDefault) {
+      try {
+        await safeAtomicWrite(
+          path.join(flintDir, 'detected-environment.json'),
+          JSON.stringify({
+            framework: { name: 'react', version: 'latest' },
+            cssFramework: { name: 'tailwind', version: 'latest' },
+            componentLibrary: { name: libraryDefault, version: 'latest' },
+            hasDesignTokens: false,
+            tokenSource: null,
+            componentCount: 0,
+            detectedAt: new Date().toISOString(),
+            uiFramework: 'React',
+            cssFrameworkLabel: 'Tailwind CSS',
+            tokenFormat: null,
+            typescript: true,
+            componentLibraryLabel: libraryDefault,
+          }, null, 2),
+        )
+      } catch (err) {
+        console.error(`${BRAND.logPrefix} project:create-scratchpad: write libraryDefault failed:`, err)
+      }
     }
 
     registryUpsert.run(randomUUID(), projectName, targetPath)
@@ -1479,7 +1595,12 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
 
   // ── project:auto-configure (FORGE.2b) ─────────────────────────────────────
   // Reads detected environment and calls MCP tools to configure the project.
-  handlers.set('project:auto-configure', async () => {
+  handlers.set('project:auto-configure', async (payload?: unknown) => {
+    // CONS-2 fix-forward: accept optional { overrides } payload.
+    const { projectAutoConfigureSchema } = await import('../shared/ipc-validators.js')
+    const parsed = projectAutoConfigureSchema.parse(payload)
+    const overrides = parsed?.overrides ?? undefined
+
     if (!activeProjectRoot) {
       return { configured: false, library: null, reindexed: false }
     }
@@ -1507,6 +1628,11 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
       }
     } catch {
       // No detected-environment.json yet — proceed without library config
+    }
+
+    // CONS-2: overrides win over the detected value.
+    if (overrides?.componentLibrary) {
+      library = overrides.componentLibrary
     }
 
     // Call flint_set_library if a component library was detected
@@ -1622,6 +1748,162 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
 
     sendProgress('complete', 100)
     return { violations, grade, score, filesAudited }
+  })
+
+  // ── project:smart-open (FORGE.1) ─────────────────────────────────────────
+  // Web-parity mirror of the Electron project:smart-open handler.
+  // Same heuristic: anchored regex determines git clone vs folder open.
+  // Git clones use execFileAsync (array args — no shell interpolation).
+  // Commandment 14: this is the web build equivalent of routing through
+  // GitManager. The server has no GitManager singleton, so we call execFileAsync
+  // directly with array arguments — same safety guarantee, no shell interp.
+  handlers.set('project:smart-open', async (payload: unknown) => {
+    const { projectSmartOpenSchema } = await import('../shared/ipc-validators.js')
+    const { input } = projectSmartOpenSchema.parse(payload)
+
+    const GIT_URL_RE = /^(https?:\/\/|git@|ssh:\/\/)/
+    const home = os.homedir()
+    const detectorFs: DetectorFS = {
+      readFile: (fp: string, enc: 'utf-8') => fs.readFile(fp, enc),
+      exists: async (fp: string) => existsSync(fp),
+    }
+
+    let projectPath: string
+    let source: 'folder' | 'git-clone'
+
+    if (GIT_URL_RE.test(input)) {
+      source = 'git-clone'
+
+      // SEC-MED-2: Web build only — reject git URLs whose host resolves to
+      // RFC1918, loopback, or link-local space. The Electron desktop is
+      // user-trusted and exempt; this gate fires only when the git URL would
+      // be cloned by the public web server. The check is best-effort: DNS
+      // failures are treated as suspect and reject the request.
+      try {
+        const url = new URL(input.startsWith('git@') ? input.replace(/^git@([^:]+):/, 'ssh://$1/') : input)
+        const host = url.hostname
+        if (host) {
+          const dns = await import('node:dns/promises')
+          const addresses = await dns.lookup(host, { all: true }).catch(() => [])
+          for (const addr of addresses) {
+            const ip = addr.address
+            if (
+              /^127\./.test(ip) || ip === '::1' ||
+              /^10\./.test(ip) ||
+              /^192\.168\./.test(ip) ||
+              /^172\.(1[6-9]|2\d|3[0-1])\./.test(ip) ||
+              /^169\.254\./.test(ip) || /^fe80:/i.test(ip)
+            ) {
+              throw new Error(`[Flint] project:smart-open: refusing to clone from non-public host (${host} → ${ip})`)
+            }
+          }
+        }
+      } catch (err) {
+        // Re-throw policy violations; swallow DNS-only errors to avoid blocking
+        // legitimate clones in air-gapped networks. SSRF-relevant errors carry
+        // the explicit "refusing to clone" prefix.
+        if (err instanceof Error && err.message.includes('refusing to clone')) throw err
+      }
+
+      // SEC-HIGH-1: slug traversal hardening (parity with Electron path).
+      let slug = input
+        .replace(/\.git$/, '')
+        .split('/')
+        .filter(Boolean)
+        .pop() ?? ''
+      if (!slug || slug === '.' || slug === '..' || /[\\/\0]/.test(slug)) {
+        slug = randomUUID()
+      }
+
+      const flintProjectsDir = path.join(home, 'Flint Projects')
+      if (!existsSync(flintProjectsDir)) {
+        mkdirSync(flintProjectsDir, { recursive: true })
+      }
+      const candidate = path.resolve(flintProjectsDir, slug)
+      if (!candidate.startsWith(flintProjectsDir + path.sep)) {
+        throw new Error(`[Flint] project:smart-open: invalid clone destination — would escape ${flintProjectsDir}`)
+      }
+      projectPath = candidate
+
+      // SEC-HIGH-2 + SEC-MED-1 + SEC-MED-4: symlinks off, shallow + timeout, env scrub.
+      try {
+        await execFileAsync(
+          'git',
+          [
+            '-c', 'core.symlinks=false',
+            '-c', 'core.askPass=true',
+            'clone',
+            '--depth=1',
+            '--single-branch',
+            '--',
+            input,
+            projectPath,
+          ],
+          {
+            timeout: 120_000,
+            env: {
+              ...process.env,
+              GIT_TERMINAL_PROMPT: '0',
+              GIT_ASKPASS: 'echo',
+              SSH_ASKPASS: 'echo',
+            },
+          },
+        )
+      } catch (err) {
+        const e = err as NodeJS.ErrnoException & { signal?: string; stderr?: string }
+        if (e.signal === 'SIGTERM' || e.code === 'ETIMEDOUT') {
+          throw new Error(`[Flint] project:smart-open: clone-timeout — git clone exceeded 120s for ${input}`)
+        }
+        const stderr = String(e.stderr ?? '')
+        if (
+          /could not read/i.test(stderr) ||
+          /authentication failed/i.test(stderr) ||
+          /permission denied/i.test(stderr) ||
+          /terminal prompts disabled/i.test(stderr)
+        ) {
+          throw new Error(`[Flint] project:smart-open: auth-required — credentials needed for ${input}`)
+        }
+        throw err
+      }
+    } else {
+      source = 'folder'
+
+      if (!path.isAbsolute(input)) {
+        throw new Error(`[Flint] project:smart-open: input must be an absolute path (got: ${input})`)
+      }
+      // SEC-MED-5: realpath-aware prefix check.
+      let resolvedHome = home
+      try {
+        const { realpath } = await import('node:fs/promises')
+        resolvedHome = await realpath(home)
+      } catch { /* fall back to home */ }
+      const resolved = path.resolve(input)
+      if (!resolved.startsWith(resolvedHome + path.sep) && resolved !== resolvedHome) {
+        throw new Error(`[Flint] project:smart-open: path must be within the home directory`)
+      }
+      if (!existsSync(resolved)) {
+        throw new Error(`[Flint] project:smart-open: not a directory — path does not exist: ${resolved}`)
+      }
+      projectPath = resolved
+    }
+
+    const environment = await detectProjectEnvironment(projectPath, detectorFs)
+
+    try {
+      const flintDir = path.join(projectPath, '.flint')
+      if (!existsSync(flintDir)) {
+        await fs.mkdir(flintDir, { recursive: true })
+      }
+      await safeAtomicWrite(
+        path.join(flintDir, 'detected-environment.json'),
+        JSON.stringify(environment, null, 2),
+      )
+    } catch (err) {
+      console.error(`${BRAND.logPrefix} FORGE.1: smart-open: Failed to write detected-environment.json:`, err)
+    }
+
+    activeProjectRoot = projectPath
+    return { projectPath, environment, source }
   })
 
   handlers.set('project:reindex', async () => {
@@ -2565,10 +2847,46 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
         `Only these tools can be called from Glass: ${RENDERER_ALLOWED_MCP_TOOLS.join(', ')}`,
       )
     }
-    return mcp.callTool(
-      toolName,
-      (args ?? {}) as Record<string, unknown>,
-    )
+
+    // MINT.5 Phase 3 — per-tool argument validation gate (web parity mirror of
+    // electron/preload.ts). W5: both bridges now consume validateMcpToolArgs()
+    // from shared/ipc-validators.ts so the gate logic cannot drift.
+    const resolvedArgs = (args ?? {}) as Record<string, unknown>
+    const gateResult = validateMcpToolArgs(toolName, resolvedArgs)
+    if (!gateResult.ok) {
+      return gateResult.envelope
+    }
+
+    // BETA.TEL — emit tool-name only; never args. Privacy contract enforced
+    // by the discriminated-union signature.
+    webEmit('mcp.tool_called', { toolName })
+
+    // BETA.TEL — emit audit completion when an audit-shaped tool finishes.
+    const isAuditTool = toolName === 'audit_ui_component' || toolName === 'flint_audit' || toolName === 'flint_swarm_audit_fix'
+    const auditStart = isAuditTool ? Date.now() : 0
+    const result = await mcp.callTool(toolName, gateResult.args)
+    if (isAuditTool) {
+      // Best-effort parse; default to zeros if shape is unfamiliar.
+      let fileCount = 0
+      let violationCount = 0
+      try {
+        const text = (result as { content?: Array<{ text?: string }> }).content?.[0]?.text ?? '{}'
+        const jsonEnd = text.lastIndexOf('}')
+        const jsonText = jsonEnd !== -1 ? text.slice(0, jsonEnd + 1) : text
+        const parsed = JSON.parse(jsonText) as { fileCount?: number; mithrilCount?: number; a11yCount?: number; violations?: unknown[] }
+        fileCount = typeof parsed.fileCount === 'number' ? parsed.fileCount : 1
+        violationCount =
+          (typeof parsed.mithrilCount === 'number' ? parsed.mithrilCount : 0) +
+          (typeof parsed.a11yCount === 'number' ? parsed.a11yCount : 0) +
+          (Array.isArray(parsed.violations) ? parsed.violations.length : 0)
+      } catch { /* fallthrough */ }
+      webEmit('audit.completed', {
+        fileCount,
+        violationCount,
+        durationMs: Date.now() - auditStart,
+      })
+    }
+    return result
   })
 
   handlers.set('mcp:read-resource', async (uri: unknown) => {
@@ -3131,6 +3449,164 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     return rag.seedFromProject(activeProjectRoot)
   })
 
+  // ── BETA.TEL: Telemetry Consent (web parity, BLK-2 + BLK-3) ────────────────
+  //
+  // Mirror of electron/main.ts telemetry:get-consent + telemetry:set-consent.
+  // The web build has no app.getPath('userData'); consent is stored in
+  // os.homedir()/.flint/ which is the equivalent persistent config directory
+  // on the web server host.
+  //
+  // betaTelemetry.ts imports `electron/{net,app}` so it cannot be imported here.
+  // Web parity (per feedback_web_parity_drift.md) is provided by an inline
+  // emitter that mirrors the discriminated-union signature.
+
+  // Discriminated-union event signature — must stay in lockstep with the
+  // contract in .flint-context/contracts/BETA-TELEMETRY-WIRING.contract.ts.
+  // Adding a new event requires extending the contract first.
+  type WebTelemetryEvent =
+    | { name: 'app.launched';    payload: { locale: string } }
+    | { name: 'app.crashed';     payload: { message: string; stack: string } }
+    | { name: 'mcp.tool_called'; payload: { toolName: string } }
+    | { name: 'audit.completed'; payload: { fileCount: number; violationCount: number; durationMs: number } }
+    | { name: 'session.ended';   payload: { durationMs: number } }
+
+  const webTelemetryDir = path.join(os.homedir(), BRAND.configDir)
+  const webTelemetryQueuePath = () => path.join(webTelemetryDir, 'telemetry-queue.json')
+  const webTelemetryUrl = process.env.FLINT_TELEMETRY_URL ?? ''
+  const webTelemetrySecret = (process.env.FLINT_TELEMETRY_SECRET ?? '').trim()
+
+  // In-memory buffer; persisted on flush + before-shutdown only (matches
+  // betaTelemetry.ts's WARN-2 pattern).
+  let webTelemetryBuffer: Array<{ name: string; payload: unknown; ts: string }> = []
+  let webSessionStart = Date.now()
+  let webFlushTimer: ReturnType<typeof setInterval> | null = null
+
+  function redactWebStack(stack: string): string {
+    if (!stack) return ''
+    return stack
+      .replace(/\/Users\/[^/]+\//g, '<homedir>/')
+      .replace(/\/home\/[^/]+\//g, '<homedir>/')
+      .replace(/C:\\Users\\[^\\]+\\/g, '<homedir>/')
+  }
+
+  function webReadConsentState(): string {
+    try {
+      const p = path.join(webTelemetryDir, 'beta-consent.json')
+      if (existsSync(p)) {
+        const raw = JSON.parse(readFileSync(p, 'utf-8')) as { state?: string }
+        return typeof raw.state === 'string' ? raw.state : 'unset'
+      }
+    } catch { /* fall through */ }
+    return 'unset'
+  }
+
+  function webEmit<E extends WebTelemetryEvent>(name: E['name'], payload: E['payload']): void {
+    // Consent gate — only emit if user opted in.
+    if (webReadConsentState() !== 'accepted') return
+
+    const entry = {
+      name,
+      payload: name === 'app.crashed'
+        ? { ...(payload as { message: string; stack: string }), stack: redactWebStack((payload as { stack: string }).stack) }
+        : payload,
+      ts: new Date().toISOString(),
+    }
+    webTelemetryBuffer.push(entry)
+  }
+
+  async function webFlushTelemetry(): Promise<void> {
+    if (webTelemetryBuffer.length === 0) return
+    if (!webTelemetryUrl) {
+      // No sink configured — persist to disk so events aren't lost.
+      try {
+        if (!existsSync(webTelemetryDir)) mkdirSync(webTelemetryDir, { recursive: true })
+        writeFileSync(webTelemetryQueuePath(), JSON.stringify(webTelemetryBuffer, null, 2))
+      } catch { /* best-effort */ }
+      return
+    }
+    const batch = webTelemetryBuffer.slice()
+    try {
+      const headers: Record<string, string> = { 'content-type': 'application/json' }
+      if (webTelemetrySecret) headers['X-Flint-Secret'] = webTelemetrySecret
+      const res = await fetch(webTelemetryUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ events: batch }),
+      })
+      if (res.ok) {
+        webTelemetryBuffer = []
+      }
+      // On non-OK response, retain queue for next flush (mirrors
+      // betaTelemetry.ts WARN-1 / network-failure behavior).
+    } catch {
+      // Network error → retain queue; persist to disk as backstop.
+      try {
+        if (!existsSync(webTelemetryDir)) mkdirSync(webTelemetryDir, { recursive: true })
+        writeFileSync(webTelemetryQueuePath(), JSON.stringify(webTelemetryBuffer, null, 2))
+      } catch { /* best-effort */ }
+    }
+  }
+
+  /** Web-build telemetry boot — mirrors Electron's startTelemetry(). */
+  function startTelemetry(): void {
+    webSessionStart = Date.now()
+    // Hydrate queue from disk if present (post-crash recovery).
+    try {
+      if (existsSync(webTelemetryQueuePath())) {
+        const raw = JSON.parse(readFileSync(webTelemetryQueuePath(), 'utf-8')) as unknown
+        if (Array.isArray(raw)) {
+          webTelemetryBuffer = raw as typeof webTelemetryBuffer
+        }
+      }
+    } catch { /* malformed queue → treat as empty */ }
+
+    webEmit('app.launched', { locale: process.env.LANG?.split('.')[0] ?? 'en' })
+
+    if (webFlushTimer) clearInterval(webFlushTimer)
+    webFlushTimer = setInterval(() => { void webFlushTelemetry() }, 60_000)
+  }
+  startTelemetry()
+
+  {
+    const webConsentDir = path.join(os.homedir(), BRAND.configDir)
+    const webConsentPath = () => path.join(webConsentDir, 'beta-consent.json')
+
+    function webReadConsent(): { state: string; decidedAt?: string; sessionId: string } {
+      try {
+        if (existsSync(webConsentPath())) {
+          const raw = JSON.parse(readFileSync(webConsentPath(), 'utf-8')) as Record<string, unknown>
+          if (raw && typeof raw.state === 'string' && typeof raw.sessionId === 'string') {
+            return raw as { state: string; decidedAt?: string; sessionId: string }
+          }
+        }
+      } catch { /* fall through */ }
+      const fresh = { state: 'unset', sessionId: randomUUID() }
+      try {
+        if (!existsSync(webConsentDir)) mkdirSync(webConsentDir, { recursive: true })
+        writeFileSync(webConsentPath(), JSON.stringify(fresh, null, 2))
+      } catch { /* best-effort */ }
+      return fresh
+    }
+
+    handlers.set('telemetry:get-consent', async () => {
+      return webReadConsent()
+    })
+
+    handlers.set('telemetry:set-consent', async (payload: unknown) => {
+      const p = payload as { state?: string }
+      if (p?.state !== 'accepted' && p?.state !== 'declined') {
+        throw new Error('telemetry:set-consent — state must be "accepted" or "declined"')
+      }
+      const current = webReadConsent()
+      const next = { ...current, state: p.state, decidedAt: new Date().toISOString() }
+      try {
+        if (!existsSync(webConsentDir)) mkdirSync(webConsentDir, { recursive: true })
+        writeFileSync(webConsentPath(), JSON.stringify(next, null, 2))
+      } catch { /* best-effort */ }
+      return next
+    })
+  }
+
   // ── Beta ───────────────────────────────────────────────────────────────────
 
   handlers.set('beta:get-info', async () => ({
@@ -3161,7 +3637,12 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
   handlers.set('beta:load-demo-project', async (payload?: { demoName?: string }) => {
     try {
       const demoName = payload?.demoName
-      const resourcesBase = path.resolve(__dirname, '..', 'build-resources')
+      // When spawned by Electron, FLINT_RESOURCES_PATH points to
+      // process.resourcesPath, where electron-builder's extraResources rule
+      // copies build-resources/. The relative fallback is for `npm run dev:web`.
+      const resourcesBase = process.env.FLINT_RESOURCES_PATH
+        ? path.join(process.env.FLINT_RESOURCES_PATH, 'build-resources')
+        : path.resolve(__dirname, '..', 'build-resources')
 
       // If a named demo is requested, look in build-resources/demos/<demoName>/
       // Fall back to build-resources/demo-project/ for the default case.
@@ -4070,6 +4551,301 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     })
   }
 
+  // ── Phase 0: Coverage Honesty — flint:getCoverageSummary ─────────────────
+  //
+  // Mirror of the electron/main.ts ipcMain.handle('flint:getCoverageSummary')
+  // handler. Reads `.flint/coverage-cache.json` written by debtReportService
+  // during the last debt scan. Falls back to ZERO_COVERAGE_SUMMARY when:
+  //   - The cache file does not exist yet (pre-first-scan)
+  //   - The cache file is corrupt JSON (log at debug, don't crash)
+  //
+  // Response is runtime-validated via Zod before return (Design by Contract).
+
+  handlers.set('flint:getCoverageSummary', async () => {
+    let result: CoverageSummary = ZERO_COVERAGE_SUMMARY
+
+    const cachePath = path.join(activeProjectRoot, '.flint', 'coverage-cache.json')
+    try {
+      const raw = await fs.readFile(cachePath, 'utf-8')
+      result = JSON.parse(raw) as CoverageSummary
+    } catch (err) {
+      // Pre-first-scan (ENOENT) or corrupt cache — fall back to zero state.
+      // Log at debug level only; do not surface noise to the user.
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        console.debug('[flint:getCoverageSummary] cache read failed, using zero state:', err)
+      }
+    }
+
+    // Runtime validation: postcondition check at the IPC boundary.
+    return ipcSchemas['flint:getCoverageSummary'].response.parse(result)
+  })
+
+  // ── RUNTIME.1: axe-core Runtime Adapter (web-parity) ─────────────────────
+  //
+  // APPEND ONLY. Mirror of the electron/main.ts `runtime:run-axe` handler.
+  // In the web build we launch a headless Playwright chromium page (same
+  // pattern as thumbnailService) with network disabled via route interception,
+  // inject axe-core, run axe.run(), and return the normalized result.
+  //
+  // The IPC handler is ALWAYS callable regardless of the runtime.axe.enabled
+  // feature flag — only the UI surfaces are gated. This lets tests and
+  // scripted callers invoke the adapter freely.
+  //
+  // Expected axe-core version is pinned at 4.10.3. On mismatch the response
+  // resolves with status="version-mismatch" rather than throwing.
+
+  const EXPECTED_AXE_VERSION_WEB = '4.10.3'
+
+  async function loadAxeBundleWeb(): Promise<string | null> {
+    try {
+      // `require.resolve` would work here in CJS but we're in ESM. Use the
+      // dynamic import trick: point Node at the package's main export and read
+      // its on-disk location. If unavailable, return null (handler emits
+      // status=error with code=axe-core-missing).
+      const candidates = [
+        path.join(process.cwd(), 'node_modules', 'axe-core', 'axe.min.js'),
+        path.join(__dirname, '..', 'node_modules', 'axe-core', 'axe.min.js'),
+        path.join(__dirname, '..', '..', 'node_modules', 'axe-core', 'axe.min.js'),
+      ]
+      for (const candidate of candidates) {
+        if (existsSync(candidate)) {
+          return await fs.readFile(candidate, 'utf8')
+        }
+      }
+      return null
+    } catch {
+      return null
+    }
+  }
+
+  async function loadPlaywrightForRuntime(): Promise<any | null> {
+    try {
+      const pw = await import('playwright')
+      return pw.chromium ?? null
+    } catch {
+      return null
+    }
+  }
+
+  handlers.set('runtime:run-axe', async (rawPayload: unknown) => {
+    const startedAt = Date.now()
+    const parsed = ipcSchemas['runtime:run-axe'].payload.safeParse(rawPayload)
+    if (!parsed.success) {
+      return ipcSchemas['runtime:run-axe'].response.parse({
+        status: 'error',
+        timestamp: new Date().toISOString(),
+        axeVersion: EXPECTED_AXE_VERSION_WEB,
+        nodeCount: 0,
+        durationMs: Date.now() - startedAt,
+        violations: [],
+        error: {
+          code: 'invalid-payload',
+          message: parsed.error.issues.map((i) => i.message).join('; '),
+        },
+      })
+    }
+    const { previewHtml, rules } = parsed.data
+
+    // Empty-preview sentinel
+    if (!previewHtml || previewHtml.trim().length === 0) {
+      return ipcSchemas['runtime:run-axe'].response.parse({
+        status: 'no-preview',
+        timestamp: new Date().toISOString(),
+        axeVersion: EXPECTED_AXE_VERSION_WEB,
+        nodeCount: 0,
+        durationMs: Date.now() - startedAt,
+        violations: [],
+      })
+    }
+
+    const axeSource = await loadAxeBundleWeb()
+    if (!axeSource) {
+      return ipcSchemas['runtime:run-axe'].response.parse({
+        status: 'error',
+        timestamp: new Date().toISOString(),
+        axeVersion: EXPECTED_AXE_VERSION_WEB,
+        nodeCount: 0,
+        durationMs: Date.now() - startedAt,
+        violations: [],
+        error: {
+          code: 'axe-core-missing',
+          message:
+            'axe-core bundle not found. Run `npm install axe-core@4.10.3` from the project root.',
+        },
+      })
+    }
+
+    const chromium = await loadPlaywrightForRuntime()
+    if (!chromium) {
+      return ipcSchemas['runtime:run-axe'].response.parse({
+        status: 'error',
+        timestamp: new Date().toISOString(),
+        axeVersion: EXPECTED_AXE_VERSION_WEB,
+        nodeCount: 0,
+        durationMs: Date.now() - startedAt,
+        violations: [],
+        error: {
+          code: 'playwright-missing',
+          message:
+            'Playwright chromium is not installed. Run `npm install playwright` from the project root.',
+        },
+      })
+    }
+
+    let browser: any = null
+    try {
+      browser = await chromium.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-dev-shm-usage'],
+      })
+      const context = await browser.newContext()
+      // Commandment 4: block all network during audit.
+      await context.route('**/*', (route: any) => {
+        const url = route.request().url()
+        if (url.startsWith('data:') || url.startsWith('about:') || url.startsWith('file:')) {
+          route.continue()
+          return
+        }
+        route.abort()
+      })
+      const page = await context.newPage()
+      const dataUrl = `data:text/html;charset=utf-8;base64,${Buffer.from(previewHtml, 'utf8').toString('base64')}`
+      await page.goto(dataUrl, { waitUntil: 'load' })
+      await page.addScriptTag({ content: axeSource })
+      const sandboxResult: any = await page.evaluate(
+        ({ expectedVersion, ruleFilter }: { expectedVersion: string; ruleFilter: string[] | null }) => {
+          const w = window as any
+          if (!w.axe || typeof w.axe.run !== 'function') {
+            return { __runtimeError: 'axe-bootstrap-failed' }
+          }
+          const actualVersion = w.axe.version || 'unknown'
+          if (actualVersion !== expectedVersion) {
+            return { __versionMismatch: true, actualVersion }
+          }
+          const opts = ruleFilter && ruleFilter.length > 0
+            ? { runOnly: { type: 'rule', values: ruleFilter } }
+            : {}
+          return w.axe.run(document, opts).then((r: any) => ({
+            __ok: true,
+            actualVersion,
+            violations: r.violations || [],
+            passes: (r.passes || []).length,
+            incomplete: (r.incomplete || []).length,
+            inapplicable: (r.inapplicable || []).length,
+          }))
+        },
+        { expectedVersion: EXPECTED_AXE_VERSION_WEB, ruleFilter: rules ?? null }
+      )
+
+      if (sandboxResult?.__versionMismatch) {
+        return ipcSchemas['runtime:run-axe'].response.parse({
+          status: 'version-mismatch',
+          timestamp: new Date().toISOString(),
+          axeVersion: sandboxResult.actualVersion ?? 'unknown',
+          nodeCount: 0,
+          durationMs: Date.now() - startedAt,
+          violations: [],
+          error: {
+            code: 'axe-version-mismatch',
+            message: `Expected axe-core ${EXPECTED_AXE_VERSION_WEB}, got ${sandboxResult.actualVersion}.`,
+          },
+        })
+      }
+
+      if (sandboxResult?.__runtimeError || !sandboxResult?.__ok) {
+        return ipcSchemas['runtime:run-axe'].response.parse({
+          status: 'error',
+          timestamp: new Date().toISOString(),
+          axeVersion: EXPECTED_AXE_VERSION_WEB,
+          nodeCount: 0,
+          durationMs: Date.now() - startedAt,
+          violations: [],
+          error: {
+            code: 'axe-run-failed',
+            message: sandboxResult?.__runtimeError ?? 'Unknown sandbox error',
+          },
+        })
+      }
+
+      // Normalize axe results via the shared axeRuleMap.
+      let mapFn: (id: string) => string | null
+      try {
+        const mod = await import('../flint-mcp/src/core/axeRuleMap.js')
+        mapFn = mod.mapAxeRuleToWardenRule
+      } catch {
+        mapFn = () => null
+      }
+
+      const axeImpactToSeverity = (impact: string | null | undefined):
+        | 'critical' | 'warning' | 'info' | 'advisory' => {
+        switch (impact) {
+          case 'critical': return 'critical'
+          case 'serious': return 'critical'
+          case 'moderate': return 'warning'
+          case 'minor': return 'info'
+          default: return 'advisory'
+        }
+      }
+
+      const normalized: any[] = []
+      let nodeIndex = 0
+      for (const v of sandboxResult.violations || []) {
+        const mapped = mapFn(v.id)
+        const ruleId = mapped ?? `RUNTIME-${v.id}`
+        const severity = axeImpactToSeverity(v.impact)
+        const wcag = (v.tags || []).find((t: string) => t.startsWith('wcag')) ?? ''
+        for (const node of v.nodes || []) {
+          const elementId = Array.isArray(node.target) && typeof node.target[0] === 'string'
+            ? node.target[0]
+            : `runtime-node-${nodeIndex}`
+          nodeIndex += 1
+          normalized.push({
+            ruleId,
+            elementId,
+            message: v.help || v.description || `axe violation: ${v.id}`,
+            severity,
+            wcag,
+            fixable: false,
+            explanation: v.description,
+            recovery: node.failureSummary,
+          })
+        }
+      }
+
+      const nodeCount =
+        (sandboxResult.passes ?? 0) +
+        (sandboxResult.incomplete ?? 0) +
+        (sandboxResult.inapplicable ?? 0) +
+        normalized.length
+
+      return ipcSchemas['runtime:run-axe'].response.parse({
+        status: normalized.length > 0 ? 'violations' : 'passed',
+        timestamp: new Date().toISOString(),
+        axeVersion: sandboxResult.actualVersion ?? EXPECTED_AXE_VERSION_WEB,
+        nodeCount,
+        durationMs: Date.now() - startedAt,
+        violations: normalized,
+      })
+    } catch (err) {
+      return ipcSchemas['runtime:run-axe'].response.parse({
+        status: 'error',
+        timestamp: new Date().toISOString(),
+        axeVersion: EXPECTED_AXE_VERSION_WEB,
+        nodeCount: 0,
+        durationMs: Date.now() - startedAt,
+        violations: [],
+        error: {
+          code: 'sandbox-failed',
+          message: err instanceof Error ? err.message : String(err),
+        },
+      })
+    } finally {
+      if (browser) {
+        try { await browser.close() } catch { /* best-effort teardown */ }
+      }
+    }
+  })
+
   // ── Start Server ───────────────────────────────────────────────────────────
 
   return new Promise((resolve) => {
@@ -4083,6 +4859,11 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
         server,
         wss,
         close: async () => {
+          // BETA.TEL — final session telemetry before teardown.
+          webEmit('session.ended', { durationMs: Date.now() - webSessionStart })
+          if (webFlushTimer) { clearInterval(webFlushTimer); webFlushTimer = null }
+          await webFlushTelemetry().catch(() => {})
+
           if (autopilotWatcher) { clearInterval(autopilotWatcher); autopilotWatcher = null }
           const ideStop = (globalThis as Record<string, unknown>).__flintIDEFileSyncStop
           if (typeof ideStop === 'function') (ideStop as () => void)()

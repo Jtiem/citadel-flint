@@ -57,8 +57,8 @@ describe('useGovernanceDelta', () => {
         renderHook(() => useGovernanceDelta())
 
         await waitFor(() => {
-            expect(window.flintAPI.baseline.isSet).toHaveBeenCalledTimes(1)
-            expect(window.flintAPI.baseline.get).toHaveBeenCalledWith('/src/App.tsx')
+            expect(window.flintAPI.baseline!.isSet).toHaveBeenCalledTimes(1)
+            expect(window.flintAPI.baseline!.get).toHaveBeenCalledWith('/src/App.tsx')
         })
     })
 
@@ -68,9 +68,9 @@ describe('useGovernanceDelta', () => {
         renderHook(() => useGovernanceDelta())
 
         await waitFor(() => {
-            expect(window.flintAPI.baseline.isSet).toHaveBeenCalledTimes(1)
+            expect(window.flintAPI.baseline!.isSet).toHaveBeenCalledTimes(1)
         })
-        expect(window.flintAPI.baseline.get).not.toHaveBeenCalled()
+        expect(window.flintAPI.baseline!.get).not.toHaveBeenCalled()
     })
 
     it('reloads baseline entries when activeFilePath changes', async () => {
@@ -79,7 +79,7 @@ describe('useGovernanceDelta', () => {
         renderHook(() => useGovernanceDelta())
 
         await waitFor(() => {
-            expect(window.flintAPI.baseline.get).toHaveBeenCalledWith('/src/App.tsx')
+            expect(window.flintAPI.baseline!.get).toHaveBeenCalledWith('/src/App.tsx')
         })
 
         act(() => {
@@ -87,7 +87,7 @@ describe('useGovernanceDelta', () => {
         })
 
         await waitFor(() => {
-            expect(window.flintAPI.baseline.get).toHaveBeenCalledWith('/src/Button.tsx')
+            expect(window.flintAPI.baseline!.get).toHaveBeenCalledWith('/src/Button.tsx')
         })
     })
 
@@ -157,7 +157,7 @@ describe('useGovernanceDelta', () => {
             await result.current.setBaseline()
         })
 
-        expect(window.flintAPI.baseline.set).toHaveBeenCalledTimes(1)
+        expect(window.flintAPI.baseline!.set).toHaveBeenCalledTimes(1)
         expect(result.current.isBaselineSet).toBe(true)
         expect(result.current.baselineEntries).toHaveLength(1)
         expect(result.current.baselineStatus).toBe('idle')
@@ -171,7 +171,7 @@ describe('useGovernanceDelta', () => {
             await result.current.setBaseline()
         })
 
-        expect(window.flintAPI.baseline.set).not.toHaveBeenCalled()
+        expect(window.flintAPI.baseline!.set).not.toHaveBeenCalled()
     })
 
     it('clearBaseline: calls api.clear and resets state', async () => {
@@ -188,7 +188,7 @@ describe('useGovernanceDelta', () => {
             await result.current.clearBaseline()
         })
 
-        expect(window.flintAPI.baseline.clear).toHaveBeenCalledTimes(1)
+        expect(window.flintAPI.baseline!.clear).toHaveBeenCalledTimes(1)
         expect(result.current.isBaselineSet).toBe(false)
         expect(result.current.baselineEntries).toHaveLength(0)
         expect(result.current.baselineStatus).toBe('idle')

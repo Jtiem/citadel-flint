@@ -21,6 +21,12 @@ export type SourceAuthority =
     | 'Section 508'
     | 'Flint Design System'
     | 'Custom'
+    // RUNTIME.1 (appended 2026-04-18) — findings produced by the axe-core
+    // DOM-layer runtime adapter. Consumers that render authority as a string
+    // handle this value without code change; dedup logic in
+    // useMergedA11yFindings collapses AST + runtime pairs into multi-authority
+    // rows when (mappedWardenRuleId, elementId) matches.
+    | 'runtime-dom'
 
 /**
  * Provenance metadata for a single governance rule.
@@ -201,7 +207,7 @@ export interface MutationFilters {
  * - 'human'     — direct UI interaction in Flint Glass
  * - 'agent'     — AI agent call via MCP tool (flint_ast_mutate)
  * - 'auto-heal' — IngestionAuditor tier-1 heal pass
- * - 'auto-fix'  — flint_fix tool or GovernanceOverlay auto-fix
+ * - 'auto-fix'  — flint_fix tool or GovernanceDashboard auto-fix
  * - 'import'    — bulk import / scaffolding operation
  */
 export type ProvenanceSource = 'human' | 'agent' | 'auto-heal' | 'auto-fix' | 'import'

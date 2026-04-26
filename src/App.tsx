@@ -9,8 +9,8 @@ import { vueAdapter } from './core/adapters/VueAdapter'
 import { svelteAdapter } from './core/adapters/SvelteAdapter'
 LanguageRegistry.register(['ts', 'tsx', 'js', 'jsx'], reactAdapter)
 LanguageRegistry.register(['html'], htmlAdapter)
-LanguageRegistry.register(['vue'], vueAdapter)
-LanguageRegistry.register(['svelte'], svelteAdapter)
+LanguageRegistry.register(['vue'], vueAdapter as unknown as Parameters<typeof LanguageRegistry.register>[1])
+LanguageRegistry.register(['svelte'], svelteAdapter as unknown as Parameters<typeof LanguageRegistry.register>[1])
 // ─────────────────────────────────────────────────────────────────────────────
 import { XYCanvas } from './components/editor/XYCanvas'
 import { LayerTree } from './components/ui/LayerTree'
@@ -43,11 +43,13 @@ import { LaunchScreen } from './components/ui/LaunchScreen'
 import { tryAutoResume } from './lib/autoResume'
 import { SetupWizard } from './components/ui/SetupWizard'
 import { BetaWelcome, shouldShowBetaWelcome } from './components/ui/BetaWelcome'
+import { TelemetryConsentDialog } from './components/ui/TelemetryConsentDialog'
 import { FocusTrap } from './components/ui/FocusTrap'
 import { TabUnlockTooltip } from './components/ui/TabUnlockTooltip'
 import { TAB_NARRATION } from '../docs/contracts/sprint-clarity-2.contract'
 import { useContextSync } from './hooks/useContextSync'
 import { useMCPEventListener } from './hooks/useMCPEventListener'
+import { useAutoTabSwitch } from './hooks/useAutoTabSwitch'
 import { useAutopilot } from './hooks/useAutopilot'
 import { useIDEFileSync } from './hooks/useIDEFileSync'
 import { useTokenUsage } from './hooks/useTokenUsage'
@@ -90,8 +92,9 @@ function findPrimaryFile(tree: FileTreeNode): string | null {
 
 function App() {
     const [leftTab, setLeftTab] = useState<'layers' | 'components' | 'assets'>('layers')
-    const rightTab    = useCanvasStore((s) => s.rightTab)
-    const setRightTab = useCanvasStore((s) => s.setRightTab)
+    const rightTab          = useCanvasStore((s) => s.rightTab)
+    const setRightTab       = useCanvasStore((s) => s.setRightTab)
+    const markTabOverridden = useCanvasStore((s) => s.markTabOverridden)
     const governanceRuleFilter = useCanvasStore((s) => s.governanceRuleFilter)
     const [ipcStatus, setIpcStatus] = useState<string>('Connecting…')
     const [ipcOk, setIpcOk] = useState<boolean>(false)
@@ -137,6 +140,11 @@ function App() {
     // Default to done (no blank flash). The useEffect below flips this to false
     // only when we confirm this is a beta build AND the welcome hasn't been shown.
     const [betaWelcomeDone, setBetaWelcomeDone] = useState(true)
+    // ── BETA.TEL: Telemetry consent gate ──────────────────────────────────────
+    // null  = not yet checked (IPC in-flight)
+    // true  = dialog should be visible (consent.state === 'unset')
+    // false = dialog dismissed or consent already decided
+    const [showTelemetryConsent, setShowTelemetryConsent] = useState<boolean | null>(null)
     // ── Auto-resume gate (LAUNCH.2) ──────────────────────────────────────────
     // Tracks whether we've attempted to restore the last session.
     // null = not checked yet, true = attempted (regardless of outcome)
@@ -218,17 +226,22 @@ function App() {
     // 3 s after the user has deliberately chosen a tab.
     const lastManualTabSwitchRef = useRef<number>(0)
 
-    // Wrap setRightTab so manual tab clicks record the timestamp and mark seen.
+    // Wrap setRightTab so manual tab clicks record the timestamp, mark seen,
+    // and set userOverrodeTab so useAutoTabSwitch respects the user's choice.
+    // INSPECTOR.1 Group C: markTabOverridden() is called here (manual click path).
+    // useAutoTabSwitch calls setRightTab directly (programmatic path) — it does
+    // NOT call markTabOverridden, so the flag stays false unless the user acts.
     const handleSetRightTab = useCallback((tab: typeof rightTab) => {
         lastManualTabSwitchRef.current = Date.now()
         markTabSeen(tab)
         setRightTab(tab)
-    }, [markTabSeen, setRightTab])
+        markTabOverridden()  // INSPECTOR.1: flag this as a user-initiated switch
+    }, [markTabSeen, setRightTab, markTabOverridden])
 
     const activeFileName = activeFilePath ? activeFilePath.split('/').pop() ?? null : null
 
     // ── Notes tab: selected node for annotation context ───────────────────────
-    const selectedNodeId = useEditorStore((s) => s.selectedNode)
+    const selectedNodeId = useEditorStore((s) => s.selectedNodeId)
 
     // ── T2.7: Annotation count badge ─────────────────────────────────────────
     const annotations = useAnnotations()
@@ -236,11 +249,6 @@ function App() {
         () => annotations.filter((a) => a.status === 'open').length,
         [annotations],
     )
-
-    // ── T2.3/Governance tab: violation selectors ─────────────────────────────
-    const mithrilViolations = useCanvasStore((s) => s.mithrilViolations)
-    const a11yViolations    = useCanvasStore((s) => s.a11yViolations)
-    const governanceIssueCount = mithrilViolations.length + Object.keys(a11yViolations).length
 
     // ── Run Audit header button ───────────────────────────────────────────────
     const [isAuditingGlobal, setIsAuditingGlobal] = useState(false)
@@ -252,6 +260,11 @@ function App() {
         catch (err) { console.warn('[Flint] App: global audit failed', err) }
         finally { setIsAuditingGlobal(false) }
     }, [])
+
+    // ── INSPECTOR.1: Auto tab switch on selection (Group C) ──────────────────
+    // Watches activeSelection; null→id transitions switch to Properties tab
+    // unless the user manually overrode the tab this session.
+    useAutoTabSwitch()
 
     // ── Context Flint (Phase 1A) ─────────────────────────────────────────────
     useContextSync()
@@ -342,6 +355,21 @@ function App() {
     // ── Shared hydrate helper ─────────────────────────────────────────────────
     const hydrateWorkspace = async (tree: FileTreeNode) => {
         setWorkspaceFiles(tree)
+        // Seed the design token store from the project's DTCG file before any
+        // component renders, so LivePreview's CSS var injection has the right
+        // values. Falls back to baseline tokens if the project ships no DTCG.
+        try {
+            const result = await window.flintAPI.tokens.seedFromProject(tree.path)
+            if (result.source === 'none') {
+                const tokens = useTokenStore.getState().tokens
+                if (tokens.length === 0) {
+                    const { seedTokens } = await import('./core/seedTokens')
+                    await seedTokens()
+                }
+            }
+        } catch (err) {
+            console.warn('[Flint] tokens.seedFromProject failed:', err)
+        }
         const primaryPath = findPrimaryFile(tree)
         if (primaryPath) await setActiveFile(primaryPath)
     }
@@ -708,7 +736,7 @@ function App() {
                         setDemoLoadError('Demo loading is not available in this environment')
                     } else {
                         try {
-                            const result = await window.flintAPI.beta.loadDemoProject('a11y-audit')
+                            const result = await window.flintAPI.beta.loadDemoProject('multi-component-app')
                             if (result && 'projectPath' in result) {
                                 const tree = await window.flintAPI.project.openPath(result.projectPath)
                                 if (tree) {
@@ -752,6 +780,33 @@ function App() {
                 }
             })
             .catch((err) => console.warn('[Flint] App: beta info check failed', err))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
+
+    // ── BETA.TEL: Read consent state on mount ────────────────────────────────
+    // Reads the persisted consent record via IPC. If state === 'unset', the
+    // dialog becomes visible. If the IPC is not wired yet (Group A not landed)
+    // or throws, we default to not showing the dialog — privacy-safe fallback.
+    useEffect(() => {
+        const api = window.flintAPI as unknown as Record<string, unknown> & typeof window.flintAPI
+        const telemetryApi = api?.telemetry as
+            | { getConsent?: () => Promise<{ state: string }> }
+            | undefined
+        if (typeof telemetryApi?.getConsent !== 'function') {
+            // IPC not wired yet — skip silently
+            setShowTelemetryConsent(false)
+            return
+        }
+        void telemetryApi
+            .getConsent!()
+            .then((record) => {
+                setShowTelemetryConsent(record.state === 'unset')
+            })
+            .catch((err) => {
+                console.warn('[Flint] App: telemetry.getConsent failed', err)
+                // On IPC failure, default to not showing the dialog
+                setShowTelemetryConsent(false)
+            })
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
@@ -814,9 +869,11 @@ function App() {
                         ? () => window.flintAPI.project.getActiveRoot!()
                         : null,
                     notify: (opts) => pushNotification({
+                        type: 'info',
+                        title: opts.message.slice(0, 80),
                         message: opts.message,
                         severity: opts.severity,
-                        autoDismiss: opts.autoDismiss,
+                        autoDismissMs: (opts as { autoDismiss?: number }).autoDismiss ?? 0,
                     }),
                     // shouldContinue: abort resume if the user already opened
                     // something while we were awaiting (race fix Code M2).
@@ -916,7 +973,7 @@ function App() {
                 buildId={betaInfo.buildId}
                 daysRemaining={betaInfo.daysRemaining}
                 onTryDemo={async () => {
-                    const result = await window.flintAPI.beta?.loadDemoProject('a11y-audit')
+                    const result = await window.flintAPI.beta?.loadDemoProject('multi-component-app')
                     if (result && 'projectPath' in result) {
                         const tree = await window.flintAPI.project.openPath(result.projectPath)
                         if (tree) {
@@ -953,6 +1010,7 @@ function App() {
         return (
             <>
                 <LaunchScreen
+                    onNewProject={() => handleNewProject()}
                     onOpenFolder={() => handleOpenFolder()}
                     onOpenRecent={(p) => handleOpenRecent(p)}
                     onLoadDemo={(demoName) => handleLoadDemo(demoName)}
@@ -967,7 +1025,7 @@ function App() {
     // GLASS.2.2: When any modal is open, the main app content is aria-hidden
     // so screen readers focus on the dialog. Modals render as siblings outside
     // the aria-hidden wrapper via a React Fragment.
-    const isAnyModalOpen = showExportModal || showGovernancePanel || showSetupWizardModal
+    const isAnyModalOpen = showExportModal || showGovernancePanel || showSetupWizardModal || showTelemetryConsent === true
 
     return (
         <>
@@ -1419,6 +1477,13 @@ function App() {
             <FocusTrap>
                 <SetupWizard onComplete={() => setShowSetupWizardModal(false)} />
             </FocusTrap>
+        )}
+        {/* BETA.TEL: Telemetry consent gate — shown once on first launch when
+             consent.state === 'unset'. Dismisses on Accept or Decline. */}
+        {showTelemetryConsent === true && (
+            <TelemetryConsentDialog
+                onDecided={() => setShowTelemetryConsent(false)}
+            />
         )}
         </>
     )

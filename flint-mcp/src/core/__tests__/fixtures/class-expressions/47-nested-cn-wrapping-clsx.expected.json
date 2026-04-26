@@ -1,0 +1,8 @@
+[
+  {
+    "utility": "cn",
+    "definite": ["base", "inner-a", "inner-b"],
+    "possible": [],
+    "unresolvable": false
+  }
+]

@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { ComponentPanel } from '../ComponentPanel'
 import { useComponentCardStore } from '../../../store/componentCardStore'
 import { useCanvasStore } from '../../../store/canvasStore'
@@ -173,7 +173,7 @@ describe('ComponentPanel', () => {
         fireEvent.click(insertBtn)
 
         // Verify injectComponent was called via applyBatch
-        const state = useEditorStore.getState()
+        useEditorStore.getState()
         // injectComponent delegates to applyBatch; since the mock setup
         // doesn't run the real store, we check the mock was called.
         // The store action runs synchronously — read rawCode to verify.

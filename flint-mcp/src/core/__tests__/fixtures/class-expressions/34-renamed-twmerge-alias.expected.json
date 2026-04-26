@@ -1,0 +1,8 @@
+[
+  {
+    "utility": "twMerge",
+    "definite": ["bg-red-500", "bg-blue-500"],
+    "possible": [],
+    "unresolvable": false
+  }
+]

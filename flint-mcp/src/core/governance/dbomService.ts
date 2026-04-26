@@ -19,8 +19,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import BetterSqlite3 from 'better-sqlite3'
 import { generateDBOM as generateCoreDBOM } from '../dbom/generator.js'
+import { computeHealthScore } from '../../../../shared/healthScore.js'
+import type { DBOMViolation, DBOMA11yViolation } from '../dbom/types.js'
 import { buildComplianceSummary } from './ruleProvenanceRegistry.js'
-import { loadProjectContext } from '../projectContext.js'
 import type { DesignBillOfMaterials } from '../dbom/types.js'
 import type {
     DBOM,
@@ -29,12 +30,47 @@ import type {
     DBOMComponentEntry,
     DBOMComponentProvenance,
     DBOMPosture,
-    SourceAuthority,
 } from './types.js'
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const FLINT_VERSION = '1.0.0'
+
+// ── Per-component health (extracted for parity-test exercise) ───────────────
+
+/**
+ * Compute the per-component DBOM health score from raw violation arrays.
+ *
+ * This is the EXACT computation `generateDBOM` performs when assembling each
+ * `DBOMComponentEntry.auditResult.score`. It is exported so the COUNSEL.1
+ * cross-surface parity test can exercise this production code path directly.
+ * Without it, the parity test would call `computeHealthScore` itself and would
+ * not catch a regression that re-inlined the bucketing or formula here.
+ *
+ * Bucketing rules (per Commandment 5 + COUNSEL.1):
+ *   - critical = a11y violations + Mithril violations w/ severity 'critical'
+ *   - amber    = Mithril violations w/ severity 'amber'
+ *   - advisory = Mithril violations w/ neither 'critical' nor 'amber' severity
+ *   - override = 0 (per-component scores cannot see live overrides)
+ */
+export function computePerComponentHealth(
+    mithrilViolations: ReadonlyArray<DBOMViolation>,
+    a11yViolations: ReadonlyArray<DBOMA11yViolation>,
+): { score: number; grade: 'A' | 'B' | 'C' | 'D' | 'F' } {
+    const criticals =
+        a11yViolations.length +
+        mithrilViolations.filter((v) => v.severity === 'critical').length
+    const amber = mithrilViolations.filter((v) => v.severity === 'amber').length
+    const advisory = mithrilViolations.filter(
+        (v) => v.severity !== 'critical' && v.severity !== 'amber',
+    ).length
+    return computeHealthScore({
+        criticalCount: criticals,
+        amberCount: amber,
+        advisoryCount: advisory,
+        overrideCount: 0,
+    })
+}
 
 // ── Provenance helpers ───────────────────────────────────────────────────────
 
@@ -162,7 +198,7 @@ function inferComponentSource(
  *   - 'unknown'    — token is not used anywhere (dead token)
  */
 function classifyTokenCompliance(
-    tokenPath: string,
+    _tokenPath: string,
     tokenType: string,
     usedInFiles: string[],
     coreDBOM: DesignBillOfMaterials,
@@ -333,12 +369,11 @@ export async function generateDBOM(
     // ── 3. Build component entries with provenance ───────────────────────────
     const components: DBOMComponentEntry[] = coreDBOM.components.map((comp) => {
         const totalViolations = comp.violations.length + comp.a11yViolations.length
-        // Per-component health: 100 - (criticals * 10 + warnings * 3)
-        const criticals =
-            comp.a11yViolations.length +
-            comp.violations.filter((v) => v.severity === 'critical').length
-        const warnings = comp.violations.filter((v) => v.severity === 'amber').length
-        const score = Math.max(0, Math.min(100, 100 - (criticals * 10 + warnings * 3)))
+        // COUNSEL.1: per-component score is extracted to exported
+        // `computePerComponentHealth` so the parity test exercises this exact
+        // production code path. Inlining the math here would silently bypass
+        // the parity test — divergence C regression.
+        const { score } = computePerComponentHealth(comp.violations, comp.a11yViolations)
 
         let provenance: DBOMComponentProvenance | undefined
         if (includeProvenance) {

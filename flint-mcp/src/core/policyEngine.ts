@@ -14,8 +14,6 @@ import { applyHealthcareEscalation } from './domains/healthcare.js'
 import { applyFintechEscalation } from './domains/fintech.js'
 import { applyGovernmentEscalation } from './domains/government.js'
 import { REGISTRY as ERROR_REGISTRY } from './errorTaxonomy.js'
-import type { FlintPolicy } from './config.js'
-import { DEFAULT_POLICY } from './config.js'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

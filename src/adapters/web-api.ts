@@ -10,6 +10,7 @@
  */
 
 import { useNotificationStore } from '../store/notificationStore'
+import { validateIPC, mcpCallToolSchema } from '../../shared/ipc-validators'
 
 // ── MCP connection failure toast (P0) ─────────────────────────────────────────
 // Only fire once per page load — reconnect attempts should not spam the user.
@@ -296,6 +297,13 @@ export function createWebFlintAPI() {
         invoke('tokens:update', tokenPath, updates) as Promise<{ changes: number }>,
       delete: (id: number) => invoke('tokens:delete', id) as Promise<{ changes: number }>,
       clearAll: () => invoke('tokens:clear-all') as Promise<{ changes: number }>,
+      seedFromProject: (projectRoot: string) =>
+        invoke('tokens:seed-from-project', projectRoot) as Promise<{
+          seeded: number
+          source: 'project' | 'none'
+          sourcePath?: string
+          error?: string
+        }>,
       clearOverride: (flintId: string) => invoke('tokens:clear-override', flintId) as Promise<void>,
       upsertOverride: (flintId: string, propertyKey: string, propertyValue: string) =>
         invoke('tokens:upsert-override', flintId, propertyKey, propertyValue) as Promise<void>,
@@ -410,14 +418,18 @@ export function createWebFlintAPI() {
         invoke('project:initialize', payload) as Promise<unknown>,
       openPath: (folderPath: string) => invoke('project:openPath', folderPath) as Promise<unknown>,
       resetToDemo: (targetPath: string) => invoke('project:reset-to-demo', targetPath) as Promise<unknown>,
-      createScratchpad: () => invoke('project:create-scratchpad') as Promise<unknown>,
+      createScratchpad: (payload?: { libraryDefault?: string }) =>
+        invoke('project:create-scratchpad', payload) as Promise<unknown>,
       reindex: () => invoke('project:reindex') as Promise<{ components: number; ragChunks: number }>,
       findRootForFile: (filePath: string) => invoke('project:findRootForFile', filePath) as Promise<string | null>,
       getHealthGrade: (projectPath: string) => invoke('project:get-health-grade', projectPath) as Promise<{ grade: string; score: number; updatedAt: string } | null>,
       detectEnvironment: () => invoke('project:detect-environment') as Promise<unknown>,
-      autoConfigureProject: () => invoke('project:auto-configure') as Promise<{ configured: boolean; library: string | null; reindexed: boolean }>,
+      autoConfigureProject: (payload?: { overrides?: { framework?: string; componentLibrary?: string; cssFramework?: string } }) =>
+        invoke('project:auto-configure', payload) as Promise<{ configured: boolean; library: string | null; reindexed: boolean }>,
       runBaseline: () => invoke('project:run-baseline') as Promise<{ violations: number; grade: string; score: number; filesAudited: number } | null>,
       getActiveRoot: () => invoke('project:get-active-root') as Promise<{ projectRoot: string }>,
+      /** FORGE.1: Smart-open — folder path or git URL heuristic-routed to detect-environment. */
+      smartOpen: (input: string) => invoke('project:smart-open', { input }) as Promise<{ projectPath: string; environment: unknown; source: 'folder' | 'git-clone' }>,
       onBaselineProgress: (callback: (progress: { current: number; total: number; phase: string }) => void): (() => void) =>
         subscribe('flint:baseline-progress', callback as (...args: unknown[]) => void),
     },
@@ -495,8 +507,17 @@ export function createWebFlintAPI() {
 
     // ── MCP integration ─────────────────────────────────────────────────────
     mcp: {
-      callTool: (name: string, args: Record<string, unknown>) =>
-        invoke('mcp:call-tool', name, args) as Promise<unknown>,
+      callTool: (name: string, args: Record<string, unknown>) => {
+        // MINT.5 Phase 2 consensus FIX-4 (Security WARN-1):
+        // Validate [name, args] against mcpCallToolSchema before dispatch.
+        // Matches electron/preload.ts — web parity is inherited.
+        try {
+          validateIPC('mcp:call-tool', [name, args], mcpCallToolSchema)
+        } catch {
+          return Promise.reject(new Error('Invalid MCP tool call — request rejected by the Glass sandbox.'))
+        }
+        return invoke('mcp:call-tool', name, args) as Promise<unknown>
+      },
       readResource: (uri: string) => invoke('mcp:read-resource', uri) as Promise<unknown>,
       status: () => invoke('mcp:status') as Promise<{ connected: boolean; serverPid: number | null }>,
       reconnect: () => invoke('mcp:reconnect') as Promise<void>,
@@ -680,5 +701,48 @@ export function createWebFlintAPI() {
 
     // ── Workspace rescan ────────────────────────────────────────────────────
     rescanWorkspace: () => invoke('workspace:rescan') as Promise<unknown>,
+
+    // ── Phase 0: Coverage Honesty ────────────────────────────────────────────
+    coverage: {
+      getSummary: () => invoke('flint:getCoverageSummary') as Promise<import('../../shared/coverage-types').CoverageSummary>,
+    },
+
+    // ── RUNTIME.1: axe-core Runtime Adapter ──────────────────────────────────
+    //
+    // Web-parity mirror of window.flintAPI.runtime from the Electron preload.
+    // Routes through the shared `/api/ipc` channel — the server runs axe via
+    // a headless Playwright chromium page (see server/index.ts handler).
+    runtime: {
+      runAxe: (request: {
+        previewHtml: string
+        previewUrl?: string
+        rules?: string[]
+      }) =>
+        invoke('runtime:run-axe', request) as Promise<{
+          status:
+            | 'idle'
+            | 'running'
+            | 'passed'
+            | 'violations'
+            | 'no-preview'
+            | 'version-mismatch'
+            | 'error'
+          timestamp: string
+          axeVersion: string
+          nodeCount: number
+          durationMs: number
+          violations: Array<{
+            ruleId: string
+            elementId: string
+            message: string
+            severity: 'critical' | 'warning' | 'info' | 'advisory'
+            wcag: string
+            fixable: boolean
+            explanation?: string
+            recovery?: string
+          }>
+          error?: { code: string; message: string }
+        }>,
+    },
   }
 }

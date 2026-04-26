@@ -1,0 +1,8 @@
+[
+  {
+    "utility": "clsx",
+    "definite": ["foo"],
+    "possible": ["baz"],
+    "unresolvable": false
+  }
+]

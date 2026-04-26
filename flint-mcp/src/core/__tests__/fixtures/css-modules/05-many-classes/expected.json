@@ -1,0 +1,24 @@
+{
+  "imports": [
+    {
+      "bindingName": "s",
+      "modulePath": "style.module.css",
+      "resolved": true,
+      "failureReason": null,
+      "namedImports": [],
+      "classBindings_keys": [
+        "base",
+        "small",
+        "medium",
+        "large",
+        "primary",
+        "secondary",
+        "danger",
+        "outline",
+        "ghost",
+        "loading",
+        "disabled"
+      ]
+    }
+  ]
+}

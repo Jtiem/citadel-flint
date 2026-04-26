@@ -14,7 +14,7 @@
  *   testBoundaries: 'tokens:create', 'tokens:update', 'tokens:create parity'
  */
 
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { sanitizeTokenValue, sanitizeTokenDescription } from '../../shared/tokenValueSanitizer'
 import { validateTokenPath, TokenPathValidationError } from '../../shared/tokenPath'
 

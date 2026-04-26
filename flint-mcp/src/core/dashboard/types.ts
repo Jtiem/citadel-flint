@@ -6,6 +6,10 @@
  * Report) and the Glass Governance Dashboard.
  */
 
+import type { CoverageSummary } from '../../../../shared/coverage-types.js'
+
+export type { CoverageSummary }
+
 // ── DebtReport ────────────────────────────────────────────────────────────────
 
 /**
@@ -13,9 +17,17 @@
  * MithrilLinter (color, typography, spacing, shadow, opacity drift) and
  * A11yLinter (WCAG 2.1 AA rules) across all scanned source files.
  *
- * healthScore is computed as:
- *   clamp(100 - mithrilCount × 5 - a11yCount × 10, 0, 100)
- *   (matches GovernanceDashboard formula; overrideCount is 0 for file scans)
+ * healthScore is computed by the canonical formula in
+ * `shared/healthScore.ts::computeHealthScore`:
+ *   clamp(100
+ *       - criticalCount × 10
+ *       - amberCount    × 3
+ *       - advisoryCount × 1
+ *       - overrideCount × 3,
+ *     0, 100)
+ * Grade bands: A ≥ 90 · B ≥ 80 · C ≥ 70 · D ≥ 60 · F < 60.
+ * For project file scans `overrideCount` is fixed at 0; live overrides are
+ * sourced from `flint://overrides` and recomputed client-side when needed.
  */
 export interface DebtReport {
     /** Aggregate health score, 0-100. */
@@ -53,6 +65,12 @@ export interface DebtReport {
         weighted: number
         weights: { coercive: number; normative: number; advisory: number; recency: number }
     }
+    /**
+     * Phase 0 — Coverage Honesty.
+     * Per-file CoverageVerdict aggregate. Informational — does NOT affect
+     * healthScore or grade. Present on all reports generated after Phase 0.
+     */
+    coverage?: CoverageSummary
 }
 
 // ── DebtHistoryEntry ──────────────────────────────────────────────────────────
@@ -95,4 +113,9 @@ export interface DashboardData {
     lastSyncAt?: string | null
     /** Number of unresolved sync conflicts. */
     pendingConflicts?: number
+    /**
+     * Phase 0 — Coverage Honesty.
+     * Governed-surface-area summary for this dashboard snapshot. Informational.
+     */
+    coverage?: CoverageSummary
 }

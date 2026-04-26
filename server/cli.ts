@@ -35,10 +35,9 @@ function readVersion(): string {
 // Simple argv parser — no external dependency needed for these flags.
 
 const VALID_DEMO_NAMES = new Set([
-  'token-drift',
-  'a11y-audit',
-  'design-system-migration',
   'multi-component-app',
+  'dashboard-before',
+  'dashboard-after',
 ])
 
 function parseArgs(argv: string[]): {
@@ -64,7 +63,7 @@ function parseArgs(argv: string[]): {
     port: 4201,
     open: true,   // default: auto-open browser
     demo: false,
-    demoName: 'token-drift',  // default demo name
+    demoName: 'multi-component-app',  // default demo name
     help: false,
     version: false,
     init: false,
@@ -162,16 +161,16 @@ Options:
   --open, -o             Open browser automatically (default: true)
   --no-open              Suppress automatic browser launch
   --demo, -d [name]      Load demo project (skips --project requirement)
-                         Valid names: token-drift (default), a11y-audit,
-                           design-system-migration, multi-component-app
+                         Valid names: multi-component-app (default),
+                           dashboard-before, dashboard-after
   --init                 Write default config files to --project path and exit
   --version, -v          Print version and exit
   --help, -h             Show this help message
 
 Examples:
   npx flint-glass --demo
-  npx flint-glass --demo a11y-audit
-  npx flint-glass --demo design-system-migration
+  npx flint-glass --demo dashboard-before
+  npx flint-glass --demo dashboard-after
   npx flint-glass --project ~/my-app
   npx flint-glass --project ./my-project --port 3000 --no-open
 `)

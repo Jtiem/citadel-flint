@@ -1,0 +1,28 @@
+{
+  "//": [
+    "Test-only TSC project — relaxes ONE flag vs tsconfig.app.json:",
+    "  - noUnusedParameters: false (mock fn signatures need unused params to satisfy interface shapes)",
+    "noUnusedLocals stays ON to catch the 'imported a sanitizer but forgot to call it'",
+    "class of test bug (security review 2026-04-25, WARN-3).",
+    "Production code (tsconfig.app.json + tsconfig.node.json) keeps both flags ON.",
+    "Do not move test files OUT of this config or tighten these flags without",
+    "auditing every existing test for fallout."
+  ],
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.tests.tsbuildinfo",
+    "noUnusedParameters": false,
+    "types": ["vite/client", "node"]
+  },
+  "include": [
+    "src/**/__tests__/**/*.ts",
+    "src/**/__tests__/**/*.tsx",
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "electron/**/__tests__/**/*.ts",
+    "electron/**/*.test.ts",
+    "shared/**/__tests__/**/*.ts",
+    "shared/**/*.test.ts"
+  ],
+  "exclude": []
+}

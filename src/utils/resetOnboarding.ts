@@ -7,7 +7,8 @@
  * Exported for use by the CommandPalette "Reset tips" action.
  */
 
-import { ONBOARDING_STORAGE_KEY } from '../components/ui/OnboardingOverlay'
+// Mirrors the literal in OnboardingOverlay.tsx; no public export upstream.
+const ONBOARDING_STORAGE_KEY = 'flint-onboarding-complete'
 
 /** localStorage key used by DemoWalkthrough. */
 const DEMO_WALKTHROUGH_KEY = 'flint-demo-walkthrough-complete'

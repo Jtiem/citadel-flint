@@ -13,7 +13,7 @@ const noop = () => {}
 const sampleEvents: McpActivityEvent[] = [
     { id: '1', title: 'Mutation applied', type: 'mutation', severity: 'info' },
     { id: '2', title: 'Violation detected', message: 'color-drift in Button', type: 'violation', severity: 'warning' },
-    { id: '3', title: 'Sync completed', type: 'sync', severity: 'info' },
+    { id: '3', title: 'Sync completed', type: 'override', severity: 'info' },
 ]
 
 describe('McpActivityAccordion', () => {
@@ -88,7 +88,7 @@ describe('McpActivityAccordion', () => {
             <McpActivityAccordion
                 isOpen={true}
                 onToggle={noop}
-                events={[{ id: '1', title: 'Sync done', type: 'sync', severity: 'info' }]}
+                events={[{ id: '1', title: 'Sync done', type: 'override', severity: 'info' }]}
                 onUndo={noop}
             />,
         )

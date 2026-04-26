@@ -111,25 +111,6 @@ function scorePaletteRolePath(tokenPath: string, role: string): number {
 }
 
 /**
- * Detect a semantic role from a token path using priority scoring.
- * Returns { role, score } or null. Unlike the shared detectSemanticRole helper
- * this is private to muiAdapter and scores rather than first-match.
- */
-function detectPrioritizedRole(tokenPath: string): { role: string; score: number } | null {
-    const roles = ['primary', 'secondary', 'success', 'warning', 'error', 'info', 'surface', 'background', 'text', 'muted']
-    let best: { role: string; score: number } | null = null
-    for (const role of roles) {
-        const score = scorePaletteRolePath(tokenPath, role)
-        if (score >= 0) {
-            if (!best || score > best.score) {
-                best = { role, score }
-            }
-        }
-    }
-    return best
-}
-
-/**
  * Check if a radius token path is a full-round / pill radius that should NOT
  * be used as the global borderRadius default.
  */

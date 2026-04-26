@@ -13,7 +13,7 @@
  *   7. localStorage unavailable — shouldShow defaults to false (fail-safe)
  */
 
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { useOnboardingTooltip } from '../useOnboardingTooltip'
 

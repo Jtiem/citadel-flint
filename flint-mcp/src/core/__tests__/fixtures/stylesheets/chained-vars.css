@@ -1,0 +1,19 @@
+/**
+ * Chained CSS variable fixture.
+ * Tests cssCustomPropertyMap fallback-chain walking.
+ *
+ * Chains:
+ *   --a → var(--b, #ffff00)   [--b present in map, so --a resolves to value of --b]
+ *   --b → var(--c, #ff0000)   [--c present in map, so --b resolves to value of --c]
+ *   --c → #0000ff             [literal — terminal]
+ *
+ *   --d → var(--e, #aabbcc)   [--e NOT in map, so falls back to #aabbcc]
+ *   --x → var(--missing)      [--missing NOT in map, no fallback → resolves to null]
+ */
+:root {
+  --a: var(--b, #ffff00);
+  --b: var(--c, #ff0000);
+  --c: #0000ff;
+  --d: var(--e, #aabbcc);
+  --x: var(--missing);
+}

@@ -1,0 +1,14 @@
+/* SCSS variable — ignored by postcss-modules, but classes still resolve */
+$brand-color: #0066cc;
+$spacing-unit: 8px;
+
+.tokenBox {
+  padding: $spacing-unit * 2;
+  background-color: $brand-color;
+  color: #ffffff;
+}
+
+.tokenBoxSmall {
+  padding: $spacing-unit;
+  font-size: 0.875rem;
+}

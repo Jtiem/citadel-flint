@@ -1,0 +1,8 @@
+[
+  {
+    "utility": "cva",
+    "definite": ["font-semibold"],
+    "possible": ["bg-zinc-100", "text-zinc-900", "bg-red-500", "text-white", "border", "border-zinc-200"],
+    "unresolvable": false
+  }
+]

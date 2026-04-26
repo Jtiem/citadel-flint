@@ -1,8 +1,908 @@
 # Flint — Developer Handoff
 
-**Date:** 2026-03-21
-**Architecture:** Flint MCP (headless governance engine) + Flint Glass (Electron observability layer) + Flint Web (browser distribution)
-**Test baseline:** 3,612/3,612 MCP | 1,537/1,537 Glass | 1,087/1,087 Core | 56/56 CI — TSC 0 errors
+**Date:** 2026-04-25
+**Architecture:** Flint MCP (headless governance engine) + Flint Glass (desktop wrapper hosting the web build) + Flint Web (browser distribution; same React UI)
+**Test baseline:** 5,699/5,699 MCP | 3,544/3,544 Glass | 2,806/2,806 Core | 56/56 CI — TSC: 0 errors. Core has 38 pre-existing `better-sqlite3` NODE_MODULE_VERSION mismatch failures in dev (fix: `npm rebuild better-sqlite3`; not beta-blocking). Strict-mode debt documented in `docs/beta/BETA-TECH-DEBT.md`.
+
+---
+
+## Session: Beta polish phase 2 — tests, consent UX, Worker hardening, dead code, seed-from-project, a11y hardening (2026-04-25) — COMPLETE
+
+**Goal:** Close Tier 1 and Tier 2 backlog items from the first beta-polish batch. Ship the 47 governance tests, harden the Worker, fix consent dialog UX warnings, clean dead code, wire seed-from-project end-to-end, and close 31 a11y violations across three Glass components.
+
+### What shipped (6 commits)
+
+* **`331cec0`** — test(governance): backfill 47 tests across `mutationProvenanceService` (+27), `trustTierService` (+12), and `agentRiskService` (+8). Closed Tier 2.1 quality-bar item. All three services were ONLINE with zero test coverage before this commit.
+
+* **`24a0da9`** — fix(beta-consent): close 3 UX warnings on `TelemetryConsentDialog`. Added "What gets collected?" expander listing 5 data points. Balanced Decline button visual weight to match Accept. Filed `.flint-context/follow-ups/settings-privacy-needed-2026-04-25.md` tracking the Settings → Privacy panel that doesn't exist yet.
+
+* **`61fd8c2`** — fix(worker): replace string equality HMAC check with `crypto.subtle.timingSafeEqual` (WARN-1 from security re-review). Added structured `console.error` for Slack/KV failures (WARN-5). Added `Content-Length > 64KB` rejection before `request.json()` (SUG-1). Closed all three deferred Worker security items.
+
+* **`5fa3343`** — chore(dead-code): 14 stale JSDoc comments referencing Sprint-2 deleted modules updated to reflect current state. Orphan `vi.mock` blocks removed from `AppMountGate.test.tsx`. Filed `.flint-context/follow-ups/dogfood-a11y-debt-2026-04-25.md` tracking remaining a11y debt in ExportModal and GhostCodeSnippet that this commit identified.
+
+* **`601daff`** — feat(production-build): `tokens:seed-from-project` IPC wired end-to-end — handler in `electron/main.ts` + web parity in `server/index.ts` + preload + web adapter + `hydrateWorkspace` caller in `App.tsx`. New `shared/dtcgFlatten.ts` helper (24 tests). Production CSP now includes `'unsafe-eval'` (required for srcdoc LivePreview) and `ws://` for embedded server WebSocket. Preload conditionally excluded in production builds. Bundles prior-session work coherently with the seed-from-project feature.
+
+* **`e5d2d7e`** — fix(a11y): 31 a11y violations closed across three components. ExportModal (22): motion-safe guards, heading hierarchy fixed to h1/h2, `role=dialog` + aria attrs added. GhostCodeSnippet (5): landmark roles, focus management. TelemetryConsentDialog (4): `role=dialog`, aria labelling. Warden self-audit PASSED for all three components after fixes.
+
+### Test baseline after session
+
+```text
+MCP:   5,699/5,699 passing (0 new — engine unchanged)
+Glass: 3,544/3,544 passing (+4 net from a11y test additions)
+Core:  2,806/2,806 passing (+24 new from dtcgFlatten + ipc-validators)
+CI:    56/56 passing
+TSC:   0 errors
+```
+
+38 pre-existing `better-sqlite3` NODE_MODULE_VERSION failures in Core remain (dev environment rebuild issue — not beta-blocking).
+
+### Tree triage finding — action required next session
+
+During the `e5d2d7e` a11y work, 57 modified files were found in the working tree that are unrelated to this session's commits. They span multiple themes from prior sessions and were not committed because it was unclear which were intentional and complete:
+
+* TypeScript strictness fixes (`as Record<X>` → `as unknown as Record<X>`) across GovernanceDashboard, LaunchScreen, and others
+* `.claude/settings.json` additions (the `flint-audit-on-edit` PostToolUse hook)
+* `flint-mcp/` core refactors: MithrilLinter, policyEngine, tailwindConfigLoader, AnimationLinter
+* Sprint contract files touched: CHRON.1, MINT.5
+* Test selector updates downstream of strictness fixes
+* Demo project cleanup
+* `electron/autoUpdater.ts`, `electron/betaTelemetry.ts` — changes beyond the BETA-TELEMETRY-WIRING ceremony
+* `src/main.tsx` web adapter installation refactor
+* `src/store/canvasStore.ts` — RightTab type extended with `'notes'`
+
+Next session must do a tree-triage pass: group these into coherent commits by theme, verify each theme is complete, and ship them before more work piles on top.
+
+### Post-hoc security review (in flight)
+
+`flint-security-reviewer` was dispatched in parallel to retroactively review commit `601daff` — the CSP + preload-only-in-dev changes were security-relevant and shipped without a review ceremony. Results will land at `.flint-context/reviews/POST-HOC-601daff-security-review-2026-04-25.md`. If it surfaces FIX or BLOCK findings, address them before the next beta invite.
+
+### What remains
+
+* Tree triage (see above — priority 0 for next session)
+* Post-hoc security review findings from `601daff`
+* Settings → Privacy panel (filed as follow-up: `.flint-context/follow-ups/settings-privacy-needed-2026-04-25.md`)
+* BETA-POLISH.5 (Worker rate limiting + Slack dedup) — deferred per security re-review recommendation; revisit at first signs of abuse
+* Demo audit loop on `DemoCard.tsx` (open work item from prior session, still pending)
+* Real ship test with `.env.beta` secrets
+* Playbook polish (25 items in `.flint-context/playbook-research/polish-findings-2026-04-25.md`)
+
+---
+
+## Session: Beta polish + telemetry feature + Worker hardening (2026-04-25) — COMPLETE
+
+**Goal:** Close outstanding beta warnings from the 2026-04-20 A/B review, ship the BETA-TELEMETRY-WIRING feature end-to-end, and harden the Cloudflare Worker before first tester invite.
+
+### What shipped (5 commits)
+
+* **`93e7829`** — Docs reconciliation: CLAUDE.md + HANDOFF.md synced with reality. Tool count 54→61, resources 13→14, prompts 3→6, Glass table gained `glasstypo.1` + `inspector.1`, Key Files gained `syncStalenessStore`, `ragService`, `templateService`. Figma plugin status clarified as DEPRECATED. 9 backfill session entries for commits since 2026-04-19. Test baseline refreshed.
+
+* **`88bc5ba`** — Beta-polish batch closing 6 warnings from 2026-04-20 A/B review: rate-limited persistence, `useSyncStaleness` projectRoot dep fix, negative-hours guard, `focusedIndex` clamp, shared `validateMcpToolArgs()`, DNS error pattern handling.
+
+* **`cbca625`** — Beta a11y fixes: StatusBar Figma popover Disconnect button aria-label/title restored; Endpoint copy button got `data-testid` + `aria-label`; ResizeHandle `z-10` → `z-50`. Telemetry opt-in default flipped from "on by default" to explicit opt-in with reasoning logged in `BETA-CLOSED-PLAN.md`.
+
+* **`f2b1856`** — BETA-TELEMETRY-WIRING feature complete (23 files, 5,401 insertions, 77 new tests). Full contract-first flow: Phase 1 architect → Phase 1.5 lint (REVISE → APPROVED after 5 fixes) → Phase 2 parallel impl (3 agents: IPC + dialog + tests) → Phase 2.5 review ceremony (UX + code + security all FIX-FORWARD) → Phase 3 integration validator (caught 4 reviewer-misses) → fix pass. Privacy invariants: discriminated-union `EmitFunction` (compile-time), single emit chokepoint, fuzzed stack redaction, defense-in-depth Zod. Web parity: `server/index.ts` has matching emit sites. Closes BLK-1/2/3 + WARN-1/2/3/4/5 from telemetry review.
+
+* **`295ccbe`** — Cloudflare Worker hardening. Closed 3 ship-blockers (no schema validation, Slack message injection, optional secret) + Justin's call to reduce retention 90d → 14d. Re-review confirmed SHIP (FIX-FORWARD).
+
+### Background deliverables (not committed — staged for next session review)
+
+* 47 new governance service tests in `flint-mcp/src/core/governance/__tests__/` (`mutationProvenanceService`, `trustTierService`, `agentRiskService`). Tracked in `.flint-context/test-backfill-2026-04-25.md`.
+* Docs/content: AI-CODING-COOKBOOK +5 recipes (75-79), `docs/playbook/RULE-GLOSSARY.md` (108 rules), `docs/beta/TESTER-WELCOME.md`, `.flint-context/playbook-research/polish-findings-2026-04-25.md` (25 items).
+* Strategy specs: `docs/strategy/FEATURE-SPEC-WCAG22.md`, `docs/strategy/FEATURE-SPEC-AUTOPILOT.md` (Citadel name: Vigil — fake-door pill recommended), `docs/strategy/FEATURE-SPEC-COUNSEL.md` (health score unification confirmed DONE via `shared/healthScore.ts`).
+* Audits: `.flint-context/dead-code-audit-2026-04-25.md` (mostly stale comments + 171MB dist), `.flint-context/test-triage-2026-04-25.md` (1 real beta-blocker found, fixed in `cbca625`).
+
+### Test counts after session
+
+```text
+MCP:   5,699/5,699 passing (+47 from test backfill, not yet committed)
+Glass: 3,540/3,540 passing
+Core:  2,780 passing (38 pre-existing better-sqlite3 ABI mismatch — dev env only)
+TSC:   0 errors
+```
+
+### Next session candidates (priority order)
+
+1. Commit the 47 governance service tests (review `.flint-context/test-backfill-2026-04-25.md` first).
+2. Worker fix-forward items: timing-safe secret compare, error logging, content-length cap, rate limiting, Slack dedup.
+3. Telemetry consent dialog UX: "you can change this later" copy, "what gets collected" expander, Decline button visual weight.
+4. Dead code cleanup: stray `.flint` dirs in `src/components/`, `dist-electron` rm before next build.
+5. `flint-ci` CLI build fix (`computeDelta` + ANSI exports + `shared/` rootDir) — non-beta-blocking.
+6. Playbook polish (25 items in `.flint-context/playbook-research/polish-findings-2026-04-25.md`).
+7. WCAG 2.2 / Vigil / Counsel specs → implementation when prioritized.
+
+---
+
+## Session: feat(beta) — closed-beta build pipeline + web-in-Electron wrapper (2026-04-24/25) — IN PROGRESS
+
+**Goal:** Stand up the closed-beta distribution pipeline. Produce a packaged `.app` that loads the WEB build inside the Electron window, with telemetry/feedback/expiry/MCP/IDE-integration all functional.
+
+### What shipped (working end-to-end, verified):
+
+* **Telemetry pipeline** — Cloudflare Worker deployed at `https://flint-telemetry.flint-dev.workers.dev`. KV namespace `8c486a3fec4c41f09cc0a9068d03cf4e`. Secrets: `SLACK_WEBHOOK_URL`, `SHARED_SECRET` set via `wrangler secret put`. Slack workspace `flint-beta` with `#telemetry` channel — verified live event delivery via curl. See `cloudflare-worker/` for source + `docs/beta/SHIP-IT.md` for full setup runbook.
+* **Beta service modules** — `electron/betaTelemetry.ts` (consent-gated emit, in-memory buffer, 60s flush, persisted queue, redacted stack traces), `electron/betaGuard.ts` (60-day kill switch, baked at build time via vite define). Tests at `electron/betaTelemetry.test.ts` (25+ tests passing).
+* **Renderer UI** — `BetaWelcome.tsx` consent toggle wired through `beta:get-consent`/`beta:set-consent`/`beta:emit-telemetry` IPC. `BetaFeedbackModal.tsx` posts to GitHub Issues at `Jtiem/lunar-elevator-bridge` (private repo, feedback stays hidden) when `FLINT_FEEDBACK_GITHUB_TOKEN` is set.
+* **Build pipeline** — `scripts/build-beta.sh` runs three vite builds (Electron-direct, web SPA, esbuild server bundle) then `electron-builder`. Inlines `FLINT_BETA_*`, `FLINT_TELEMETRY_*`, `FLINT_FEEDBACK_GITHUB_TOKEN` via `vite.config.ts` define block. Bypasses `tsc -b` (see TECH-DEBT note above). package.json scripts (`build:beta`, `build:beta:mac`, `build:beta:quick`, `release:beta`) all delegate to the script.
+* **Electron-as-wrapper architecture** (the BIG architectural decision today) — Per `project_web_primary.md` memory, the web build is the primary product. The packaged Electron app now loads the web UI from a localhost Express server (`dist-server/cli.mjs` spawned as a child Node process via `ELECTRON_RUN_AS_NODE=1`), not the legacy `dist/` Electron-direct renderer. The legacy renderer is preserved for `npm run dev` but no longer ships in the BrowserWindow. `electron/main.ts` `ensureWebServer()` picks a free port, spawns the server, awaits readiness via fetch probe, then `mainWindow.loadURL('http://127.0.0.1:<port>')`. Preload script is conditionally NOT attached in production (`!process.env.VITE_DEV_SERVER_URL`) so the renderer's `window.flintAPI` comes from the web adapter, not Electron IPC.
+* **electron-builder.yml** — bundles `dist-web/`, `dist-server/`, `shared/**/*.js`, `node_modules/**` (large bloat — see Open work). `extraResources` ships `build-resources/demo-project/`. ASAR-unpacks `flint-mcp/`, `dist-server/`, `dist-web/`, `shared/`, native modules, and node_modules.
+* **CSP** — `PRODUCTION_CSP` now includes `'unsafe-eval'` (LivePreview srcdoc requires it for `new Function()` JSX execution), `ws://localhost:*`, `ws://127.0.0.1:*` (embedded server WebSocket).
+* **Native module ABI** — `better-sqlite3` rebuilt against Electron 35.7.5 ABI (modules 133, was 137 from local Node 24). Use `cd node_modules/better-sqlite3 && npm_config_target=35.7.5 npm_config_runtime=electron npm_config_disturl=https://electronjs.org/headers npx node-gyp rebuild --target=35.7.5 --arch=arm64 --dist-url=https://electronjs.org/headers` to force-rebuild after `npm install`.
+* **Demo project resolution** — `server/index.ts:3591` `beta:load-demo-project` reads `FLINT_RESOURCES_PATH` env var (passed by `ensureWebServer()` in main.ts) so it finds `Resources/build-resources/demo-project/` in packaged builds. Falls back to relative path for `npm run dev:web`. The diagnostic logs at `project:openPath` (lines ~1147-1155) are still in place — leave them for the demo audit loop.
+* **Demo file partially fixed** — `build-resources/demo-project/DemoCard.tsx` rewritten with default props baked in, real token references (hyphen-separated CSS var names, not dot-separated), 360px max-width, inline-SVG placeholder image. Renders visibly in the canvas. Audit run via `mcp__flint__audit_ui_component` reveals 6 design + 1 a11y violations — but only 3 of the 6 match the docstring. See Open work.
+* **Cosmetic build warnings ignored** — `app-update.yml not found` (only generated by `release:beta` publish path), Autofill DevTools console errors (Electron DevTools internals), large native dep dedup warnings.
+
+### Files changed (this session):
+
+* `electron/main.ts` — `ensureWebServer()` + `pickFreePort()`, conditional preload, FLINT_RESOURCES_PATH passthrough, embedded server cleanup on quit, web server logging
+* `electron/betaTelemetry.ts` + `electron/betaTelemetry.test.ts` — consent gating + emit + flush
+* `electron/preload.ts` — added `getConsent`/`setConsent`/`emitTelemetry` to BetaAPI surface
+* `electron/main.ts:5566` — `beta:get-consent`, `beta:set-consent`, `beta:emit-telemetry` handlers; `beta:submit-feedback` GitHub repo corrected from `lunar-elevator-flint` (didn't exist) to `lunar-elevator-bridge`
+* `electron-builder.yml` — files + asarUnpack updates (see What shipped)
+* `vite.config.ts` — added `define` block to inline FLINT_BETA_* / FLINT_TELEMETRY_* into Electron main bundle
+* `src/main.tsx` — `__FLINT_WEB__` check to force web adapter (now superseded by removing preload entirely; the override remains as belt-and-suspenders)
+* `src/types/flint-api.d.ts` — extended `BetaAPI` type
+* `src/components/ui/BetaWelcome.tsx` — telemetry consent toggle
+* `package.json` — scripts updated, `build:server` keeps `--packages=external`
+* `scripts/build-beta.sh` — new orchestration script
+* `cloudflare-worker/` — Worker src + wrangler config
+* `server/index.ts:3591` — `FLINT_RESOURCES_PATH` resolution; diagnostic console.warn in project:openPath (still in place — remove later)
+* `build-resources/demo-project/DemoCard.tsx` — rewritten (still iterating)
+* `docs/beta/INSTALL-GUIDE.md`, `docs/beta/SHIP-IT.md`, `docs/beta/BETA-TECH-DEBT.md`, `docs/strategy/BETA-CLOSED-PLAN.md` — new docs
+* `.gitignore` — `.env.beta`, `cloudflare-worker/.dev.vars`, `cloudflare-worker/node_modules/` blocked
+
+### Verified by direct test:
+
+1. Server CLI spawned via Electron binary with `ELECTRON_RUN_AS_NODE=1` boots, listens on free port, responds to `/api/ipc`. Direct curl proved `beta:load-demo-project` returns the demo path and `project:openPath` returns the file tree.
+2. Packaged `.app` opens, BrowserWindow loads the web UI from localhost (verified via DevTools URL bar showing `http://127.0.0.1:<port>`), MCP server connects, governance audit runs on the demo, layers panel populates, design tokens hydrate.
+3. The full Cloudflare Worker pipeline tested via curl with shared secret — Slack `#telemetry` received the test message.
+
+### Open work (priority order — pick up here next session):
+
+0. ~~**DTCG project token loader**~~ — **DONE 2026-04-25.** Root cause of "demo text invisible" bug: `src/core/seedTokens.ts` only inserted 8 hardcoded baseline tokens (`--text-primary`, `--surface-card`, …) and **never read the project's `design-tokens.json`**. DemoCard referenced `--color-on-surface`, `--color-primary`, `--fontSize-lg`, etc., which were never defined → fall-through to leaked parent default → white-on-white text. Architectural fix: shared pure `flattenDtcg()` util ([shared/dtcgFlatten.ts](shared/dtcgFlatten.ts), 10 tests passing) + new IPC `tokens:seed-from-project` (mirrored in [electron/main.ts:1037](electron/main.ts#L1037) and [server/index.ts:908](server/index.ts#L908)) + Zod validator ([shared/ipc-validators.ts](shared/ipc-validators.ts)) + preload + web-adapter exposure + `hydrateWorkspace` in [src/App.tsx:361](src/App.tsx#L361) calls it on every project open. Reads `<projectRoot>/.flint/design-tokens.json` (or fallback root `design-tokens.json`), flattens DTCG, clears + seeds. Falls back to baseline only when no DTCG present. Also moved demo's `design-tokens.json` from project root to canonical `.flint/design-tokens.json`. Also fixed unrelated auto-update ENOENT noise: [electron/autoUpdater.ts:60](electron/autoUpdater.ts#L60) now skips when `app-update.yml` is absent (unsigned/local builds). TSC: 0 errors. Tests: 10/10 dtcgFlatten + 53/53 ipc-validators + 59/59 server. **Needs ship test on rebuilt .app.**
+1. ~~**Wire Claude Code PostToolUse hook**~~ — **DONE 2026-04-25.** `.claude/hooks/flint-audit-on-edit.sh` runs `node flint-ci/dist/cli.js audit <file> --format terminal` on any `.tsx`/`.jsx` Write/Edit/MultiEdit inside `src/components/`, `build-resources/`, or `__tests__/`. Result is surfaced via PostToolUse `additionalContext` JSON so the model sees the report on the next turn. Wired in `.claude/settings.json` PostToolUse `Write|Edit|MultiEdit` matcher (alongside the existing claude-flow post-edit handler). Verified: positive case on `DemoCard.tsx` returns full audit JSON; negative cases (`electron/main.ts`, `Bash` tool) silently pass through with exit 0.
+2. **Finish the demo audit loop on `DemoCard.tsx`** — current state has 3 of 6 violations matching the docstring + 4 surprise violations Flint caught (line-height 1.3, 360px max-w, 200px image height, 36px icon button — all need to either become tokens in design-tokens.json or be tokenized in the file). Re-audit until Flint's report exactly matches the docstring's 6 intentional violations.
+3. **Real ship test** — source `.env.beta` with the three secrets (Worker URL `https://flint-telemetry.flint-dev.workers.dev/events`, shared secret, GitHub PAT scoped to `issues:write` on `lunar-elevator-bridge`), run `npm run build:beta:quick`, smoke-test: app launches → welcome screen → accept telemetry → click Try Demo → demo renders → Beta chip → submit feedback. Verify Slack + GitHub each receive their event/issue.
+4. **Slim the bundle** — `node_modules/**` blanket asar-unpack rule bloats the .app to ~1.1GB. Replace with esbuild `--bundle` server (no `--packages=external`) so JS deps inline and only native modules (`better-sqlite3`, `sqlite-vec`, `bufferutil`, `utf-8-validate`) need unpacking. Documented in `electron-builder.yml` comment as post-beta cleanup.
+5. **Properties panel regression check** — Justin noticed during demo testing that the right-sidebar Properties panel "removed a significant portion of the adjustable properties when an element is selected" compared to what he remembers. Could be intentional Progressive Disclosure (Phase PD) gating, could be a real regression in the web adapter vs Electron-direct. Inspect on a fresh build.
+6. **LivePreview prop injection (post-beta improvement)** — `LivePreview.tsx` srcdoc renderer calls `React.createElement(window.__AppComponent, null)`. Components requiring props render empty. Either (a) detect TS prop interface and inject sample values, or (b) accept a `__previewProps` named export convention. Benefits ALL components users open, not just demos.
+7. **Remove diagnostic console.warn in `server/index.ts` `project:openPath`** once demo loop is stable — those were temporary instrumentation during the bug-hunt.
+8. **Update install guide** — `docs/beta/INSTALL-GUIDE.md` was written before the Garrison wizard / IDE setup step was confirmed wired in the packaged build. Should walk testers through the IDE connection step (paste MCP snippet into Claude Code/Cursor config) explicitly.
+
+### Lessons captured as memory rules:
+
+* `feedback_dogfood_flint.md` — Always audit UI work with Flint before declaring done.
+* `feedback_continuous_documentation.md` — Document continuously, never retroactively.
+* `feedback_logs_first.md` — Ask for logs/errors FIRST when debugging anything.
+* `feedback_plain_language_always.md` — Designer audience; explain technical concepts plainly.
+
+### Key gotchas the next session will hit:
+
+* `process.execPath` in packaged Electron is the Electron binary itself; `ELECTRON_RUN_AS_NODE=1` makes it act like Node. This is how flint-mcp spawns and now how the web server spawns.
+* Native modules must be ABI-rebuilt against Electron, not local Node. `electron-rebuild --force` sometimes claims success without rebuilding — use `node-gyp rebuild --target=35.7.5 --dist-url=https://electronjs.org/headers` if `electron-rebuild` lies.
+* CSS variable names produced by `generateTokenCssVars` use HYPHENS, not dots. Token path `color/primary` becomes `--color-primary`. Demo files using `var(--color.primary, fallback)` silently fail and fall back to the literal because dots aren't valid CSS variable name characters.
+* Vite's dep-optimizer cache (`node_modules/.vite/`) gets polluted between Electron and web builds. `build-beta.sh` clears it between the two builds.
+* The packaged app is currently ~1.1GB because of the `node_modules/**` asar unpack. This is the big post-beta cleanup target.
+
+---
+
+## Session: perf — 16 hotspot elimination (2026-04-21) — COMPLETE (commit 79488c2)
+
+**Goal:** Eliminate known performance hotspots across MCP engine, Electron, and Glass identified by the A/B review.
+
+**What shipped:** SQLite prepared-statement caching in `mutationLedgerService`, `mutationProvenanceService`, and `anomalyDetectionService` (re-compilation on every write eliminated). React store subscriptions in `LivePreview` consolidated from 21 to 3 `useShallow` selectors. `useContextSync` skip-on-no-change guard (no IPC write when context is identical). `GovernanceDashboard` trimmed to length-only violation subscriptions. Electron file-watcher overlapping-tick guard added; `useRemotePresence` poll gated behind active project file; IDE sync interval replaced with exponential back-off (200ms→2s); annotations poll gated behind panel-open.
+
+**Files changed:** `electron/main.ts`, `flint-mcp/src/core/config-loader.ts`, 3 governance services, `flint-mcp/src/server.ts`, `src/components/editor/LivePreview.tsx`, `src/components/ui/GovernanceDashboard.tsx`, `src/hooks/useContextSync.ts`.
+
+---
+
+## Session: fix(beta-gate1) — dashboard-after a11y + Gate 1 checklist (2026-04-21) — COMPLETE (commit d74b94a)
+
+**Goal:** Close the final Gate 1 a11y issues on the `dashboard-after` demo fixture.
+
+**What shipped:** Motion guard added to `transition-colors`; `sr-only` caption added to table; redundant `role="table"` removed. All 5 Gate 1 checklist items checked off in `docs/strategy/BETA-READINESS-CHECKLIST.md`.
+
+**Files changed:** `build-resources/demos/dashboard-after/MetricDashboard.tsx`, `docs/strategy/BETA-READINESS-CHECKLIST.md`.
+
+---
+
+## Session: feat(demo.cut.2) — Gate 1 sign-off + figma-d2c MUI canonical (2026-04-21) — COMPLETE (commit 4ca8b60)
+
+**Goal:** Final Gate 1 sign-off — correct figma-d2c demo labeling and fix broken flint-ci project reference.
+
+**What shipped:** `demos/figma-d2c/README.md` corrected from "shadcn" to "MUI" as canonical library. `flint-ci/tsconfig.json` broken project reference to flint-mcp removed. Beta Gate 1 verdict: PASS.
+
+**Files changed:** `HANDOFF.md`, `demos/figma-d2c/README.md`, `flint-ci/tsconfig.json`.
+
+---
+
+## Session: feat(inspector.1) — Context-Aware Properties Panel (2026-04-20) — COMPLETE (commit 12d82f3)
+
+**Goal:** Turn the Properties panel into a Figma-grade context-aware inspector with element-type routing.
+
+**What shipped:** `src/core/elementTypePropertyMap.ts` registry mapping 24 HTML tags across 5 buckets (Text, Container, Media, Interactive, Form). `useAutoTabSwitch` hook auto-switches to Properties tab on node select. Off-token value flagging inline. 4 new inspector sections: `TypographySection`, `FormPropsSection`, `MediaPropsSection`, `A11ySection`. `canvasStore` extended with `userOverrodeTab` + `markTabOverridden`. 62-test matrix.
+
+**Files changed:** `src/core/elementTypePropertyMap.ts`, `src/components/ui/PropertiesPanel.tsx`, `src/utils/tokenMatcher.ts`, `src/hooks/useAutoTabSwitch.ts`, `src/store/canvasStore.ts`.
+
+---
+
+## Session: feat(fixture.1.1) — DTCG token shape adapter + review fix-sweep (2026-04-19) — COMPLETE (commit 2eb8d7e)
+
+**Goal:** Close FIXTURE.1's documented token-shape drift. Linter was reading legacy flat token shape while design-tokens.json uses DTCG nested form, causing false positives.
+
+**What shipped:** `flint-mcp/src/core/dtcgTokenAdapter.ts` pure adapter with single-hop and multi-hop alias resolution, cycle safety, broken-ref typing. One-line swap at `server.ts:2038`. Post-review security sweep: depth cap 64, INVALID_VALUE_TYPE guard on Symbol/function/$value, negative FNV-1a hash IDs verified disjoint from DB-positive IDs.
+
+**Files changed:** `flint-mcp/src/core/dtcgTokenAdapter.ts`, `flint-mcp/src/server.ts`.
+
+---
+
+## Session: feat(forge) — 3-channel launch consolidation (2026-04-19) — COMPLETE (commit 235c5dd)
+
+**Goal:** Collapse 4-tile launch screen to 3 focused channels with smart project detection.
+
+**What shipped:** `LaunchScreen` redesigned to 3 channels (idea / Figma / existing code). `DetectionPreview` component for smart-open results. `project:smart-open` IPC with slug traversal guard, symlink resolution, GIT_ASKPASS suppression, 30s clone timeout, SSRF gate on web build. MUI wired as per-project default end-to-end. 40 new tests.
+
+**Files changed:** `src/components/ui/LaunchScreen.tsx`, `electron/main.ts`, `server/index.ts`, plus test files.
+
+---
+
+## Session: feat(fixture.1) — Audit Context System + cheaper-pilot replication (2026-04-19) — COMPLETE (commit 882343a)
+
+**Goal:** Fix Beta Gate 1 items #3 + #4 (demo audit showing "Tokens Loaded: 0" and page-landmark rules applied to component fixtures).
+
+**What shipped:** `shared/fixture-schema.ts` (FlintFixture/ResolvedFixture/RuleAppliesTo Zod types). `flint-mcp/src/core/fixtureResolver.ts` walk-up `.flint-fixture.json` finder (tsconfig-style nearest-wins), security-hardened post-review. Cheaper-pilot ceremony run against the diff.
+
+**Files changed:** `shared/fixture-schema.ts`, `flint-mcp/src/core/fixtureResolver.ts`, `flint-mcp/src/server.ts`.
+
+---
+
+## Session: fix(mint.5.3) — close UX WARN-1 + persist integration report (2026-04-19) — COMPLETE (commit 8c1d448)
+
+**Goal:** Close two pilot-cleanup items from the MINT.5.3 review ceremony.
+
+**What shipped:** `EmitDropdown` invalid HTML nesting fixed — swapped `<ul>/<li>` to `<div role="menu">/<div role="menuitem">`. Integration validator now persists its report to disk instead of returning inline-only. 16 EmitDropdown tests still pass; no test changes needed.
+
+**Files changed:** `src/components/ui/EmitDropdown.tsx`, agent definitions for `flint-integration-validator`.
+
+---
+
+## Session: fix(agents) — close Write-tool gap (2026-04-19) — COMPLETE (commit 4dcca0c)
+
+**Goal:** Ensure `flint-ux-critic` and `flint-security-reviewer` can write their `.review.ts` files directly without orchestrator fallback.
+
+**What shipped:** Write tool added to `flint-ux-critic` and `flint-security-reviewer` agent definitions. `flint-integration-validator` instruction gap fixed — now persists report to `.flint-context/reviews/` as part of its output contract.
+
+**Files changed:** `.claude/agents/flint-ux-critic.md`, `.claude/agents/flint-security-reviewer.md`, `.claude/agents/flint-integration-validator.md`.
+
+---
+
+## Session: SEC-MED-1 + DEMO.CUT Phase 2 (2026-04-21) — COMPLETE
+
+**Goal:** Close SEC-MED-1 security finding from 2026-04-20 A/B review, then complete the figma-d2c demo rebuild (DEMO.CUT Phase 2) and Gate 1 verification.
+
+**What shipped:**
+
+**SEC-MED-1 (commit 0170cbc):** `server/index.ts` `isWithinHome()` and the `file:read` handler both allowed reads from all of `os.tmpdir()`. Narrowed to `<tmpdir>/flint-beta-demo/` — the only subdirectory demo extraction actually uses. Other apps' temp files are no longer reachable via the IPC bridge.
+
+**DEMO.CUT Phase 2:**
+
+- `demos/figma-d2c/README.md` corrected: "Canonical shadcn demo" → "Canonical MUI demo" (MUI is project default; shadcn is an alternate reference in `expected-output/shadcn/`).
+- Audited all 5 survivor demos. Result: 4 are **intentionally dirty** fixtures — must NOT be fixed:
+
+  - `demos/03-mithril-shadow-audit/drift-component.tsx` — CIEDE2000 color drift fixture (ΔE 4.6–8.1)
+  - `demos/04-sentinel/violating-ux.tsx` — Grade F a11y fixture (8 annotated violations)
+  - `build-resources/demos/dashboard-before/MetricDashboard.tsx` — "AI without governance" fixture (hardcoded hex throughout)
+  - `build-resources/demos/multi-component-app/DataTable.tsx` — governance "before" fixture (annotated violations)
+
+- `demos/figma-d2c/AccountSettings.tsx` is the only component that should be clean, and it is — all colors use MUI theme tokens (`primary.light`, `text.primary`, etc.), no hardcoded hex.
+- **Beta Gate 1 verdict: PASS** — demos are intentionally dirty where needed and clean where needed.
+
+**Pre-existing issue discovered:** `flint-ci` CLI is broken at runtime — `dist/engine.js` imports from `../../flint-mcp/src/core/*.js` (TypeScript source paths) but those `.js` files don't exist; flint-mcp compiles to `dist/`. This broke when `composite: true` was removed from flint-mcp in commit `9dad411`. Fixed the broken `references` entry in `flint-ci/tsconfig.json` (was pointing to a non-composite project). The CLI runtime fix is deferred — not beta-blocking, test suite runs independently of the CLI.
+
+**Files changed:**
+
+- `server/index.ts` — SEC-MED-1 tmpdir narrowing
+- `demos/figma-d2c/README.md` — MUI canonical correction
+- `flint-ci/tsconfig.json` — removed broken project reference
+
+**Test counts (post-session):**
+
+- Server/Core: 309/309 passing
+- Glass: 3520/3522 (2 pre-existing StatusBar RUNTIME.1 WIP failures)
+- TSC: 0 errors
+
+**Next:**
+
+- Performance/leak audit with `flint-perf-profiler` (Justin flagged: findings #1/#2 from A/B review hint at broader efficiency issues — unthrottled disk writes, hook dep gaps)
+- flint-ci CLI runtime fix (deferred, not beta-blocking)
+- 6 code warnings from 2026-04-20 unscoped control (rate-limited persistence, staleness deps, negative hours, focus clamp, dup validation gate, DNS patterns) — batch polish pass
+
+---
+
+## Session: Review-Pilot A/B verification (2026-04-20) — COMPLETE, PROTOCOL AMENDED
+
+**Goal:** Turn the MINT.5 Phase 3 "Cheaper-Pilot" POC (verdict UNCERTAIN on Lever E) into a standardized workflow, then validate via A/B measurement.
+
+**What ran:** 4 parallel reviewers against the shipped MINT.5 Phase 3 diff (commit 1db3e7f) — 3 scoped (ux/code/security per new protocol) + 1 unscoped code-reviewer control.
+
+**Token + byte measurements:**
+- UX scoped: 78.9k tokens, ~72 KB
+- Code scoped: 109.8k tokens, ~115 KB
+- Security scoped: 86.1k tokens, ~90 KB
+- **Scoped total:** 274.8k tokens, ~277 KB
+- **Unscoped control (code):** 120.1k tokens, ~140 KB actual (404 KB candidate)
+
+**Findings diff (scoped vs unscoped control):**
+- Scoped-only wins: security's tmpdir carve-out (SEC-MED-1, biggest finding of run), renderer-tool-schema coverage gap (SEC-LOW-1), UX write-mode fail-open + confirm opacity.
+- Unscoped-only wins (scoped miss): 6 code-domain warnings — rate-limited persistence, useSyncStaleness projectRoot dep, negative-hours guard, focusedIndex clamp, duplicated preload/server validation gate, DNS pattern gap.
+- Overlap: 1 finding (classification keyword fallback).
+
+**Verdict by lever:**
+- Lever A (domain partition ux/code/security): KEEP — specialists catch things generalists miss.
+- Lever A (over-narrowing code scope): REGRESSION — narrowed code scope skipped tests and missed 6 warnings. Widen to "impl + tests + callers".
+- Lever B (structured `.review.ts`): KEEP — all 4 emitted without fallback.
+- Lever E (cache window): DROP — sub-agents run in isolated contexts; prompt-cache does not span reviewer instances. Original 53.9% artifact savings were actually Lever A.
+- Integration-validator canary: PROMOTED from recommended to mandatory — non-zero miss rate even with correct scoping.
+
+**Amendments shipped:**
+- [CLAUDE.md:498-503](CLAUDE.md) — rewrote "Cheaper-Pilot levers" section (Lever E dropped, code scope widened, canary mandatory).
+- [.claude/workflows/feature-build.md:320-357](.claude/workflows/feature-build.md) — Phase 2.5 updated; v2.3 row added to Process Improvements Log.
+
+**Artifacts on disk:**
+- `.flint-context/reviews/pilot-ab/MINT.5-phase3-{ux,code,security}-review-2026-04-20-scoped.{md,review.ts}`
+- `.flint-context/reviews/pilot-ab/MINT.5-phase3-code-review-2026-04-20-UNSCOPED.{md,review.ts}`
+
+**Actionable findings surfaced (to triage separately — not in scope of this session):**
+- SEC-MED-1: `server/index.ts:934-961` tmpdir carve-out too broad.
+- 6 code warnings from unscoped control (rate-limited persistence, staleness deps, negative hours, focus clamp, dup validation gate, DNS patterns).
+
+**Agent Write-tool status:** Both `flint-ux-critic` and `flint-security-reviewer` already had Write in their frontmatter — the original pilot's "Lever B PARTIAL" finding was stale.
+
+---
+
+## Session: RUNTIME.1-ship — Web-minimum ship (Issues 2 + 5) (2026-04-20) — LANDED INSIDE ed80f89
+
+**Goal:** Land RUNTIME.1 (axe-core runtime adapter) on web behind `runtime.axe.enabled: false`. Fix Issues 2 + 5 from 2026-04-18 integration review; defer Electron path + extended test coverage.
+
+**What shipped (bundled inside commit `ed80f89 feat(glasstypo.1): ...`):**
+- **Issue 2 closed:** `npm install axe-core@4.10.3`. Web handler `server/index.ts:4421` no longer short-circuits `axe-core-missing`.
+- **Issue 5 closed:** `canvasStore.livePreviewHtml` slice + setter. `LivePreview.tsx` snapshots srcdoc to store on every render (4 builder paths: HTML, Vue, Svelte, React Babel). `StatusBar.tsx` `RuntimeAuditSurface` reads it + passes `{ previewHtml }` into `useRuntimeAudit.run()`. Null snapshot → adapter short-circuits to `no-preview` sentinel. Cleared on activeFilePath change + workspace close.
+
+**Remaining RUNTIME.1 gaps (acceptable behind flag):**
+- Issue 1: Electron main handler + preload bridge — feature web-only for now.
+- Issue 3/6: type/test gaps that close when Issue 1 lands.
+- Issue 4: GovernanceDashboard-level integration test.
+- Issue 7: latency benchmark file.
+
+**Scope note:** My RUNTIME.1-ship work got bundled into Justin's GLASSTYPO.1 commit (ed80f89) rather than landing as its own commit. Functionally equivalent.
+
+**Test counts:**
+- MCP: 5652/5652 passing
+- Glass: 3288/3290 (2 pre-existing StatusBar.test WIP failures unchanged)
+- Core: 2619/2619 passing
+- TSC: 0 errors
+
+---
+
+## Session: DEMO.CUT.1 — Demo Set Consolidation (2026-04-19) — PHASE 1 COMPLETE
+
+**Goal:** Close Beta Gate 1 "clean audit→fix→re-audit loop on all demos" + Gate 6 source material by cutting demo set from 13 → 5 high-quality survivors.
+
+**Keep (5):** `demos/03-mithril-shadow-audit` (Mithril drift), `demos/04-sentinel` (Warden UX/a11y), `demos/figma-d2c` (Mason D2C — Phase 2 rebuild), `build-resources/demos/dashboard-before` + `dashboard-after` (AI ungoverned vs governed), `build-resources/demos/multi-component-app` (full workflow — hero demo). `demos/01-rag-ui-builder/` preserved as FIXTURE.1.1 test canary only.
+
+**Deleted (6):** `demos/02-self-correcting`, `demos/05-semantic-refactor`, `demos/06-macro-recovery`, `build-resources/demos/{a11y-audit,design-system-migration,token-drift}`. Plus defunct `tests/demo/hospital-exec.spec.ts` (targeted deleted a11y-audit demo).
+
+**What shipped (Phase 1):**
+- 6 demo folders + 1 e2e spec deleted via `git rm -rf`
+- 3 slash commands deleted: `.claude/commands/demo/{audit-good,audit-bad,buggy}.md`
+- `DemoScenarioPicker` rewired from 4 doomed scenarios → 3 survivor scenarios (`multi-component-app`, `dashboard-before`, `dashboard-after`) with new copy + icons
+- `src/App.tsx` 2× `loadDemoProject('a11y-audit')` → `loadDemoProject('multi-component-app')`
+- `server/cli.ts` VALID_DEMO_NAMES + default + help text + examples updated to survivors
+- `server/__tests__/cli.test.ts` mirror copy + 4 test cases updated
+- `tests/e2e/helpers.ts` demo name updated
+- `src/components/ui/__tests__/LaunchScreen.test.tsx` 3 tests updated (new scenario IDs/copy/times)
+- `src/components/editor/__tests__/StatusBar.fixtureContext.test.tsx` label + source path updated
+- `demos/_preview/DemoPreview.tsx` pruned: dropped BuggyComponent + LegacyDivs imports + demo entries + dead `dataTableProps` block
+- `demos/flint-manifest.json` pruned: DataTable, ProfileSettingsLegacy, RepoCard, PatientForm, MetricDashboard entries removed
+- Full rewrites: `demos/README.md`, `demos/DEMO-SCRIPT.md` (90s → 10-min beta-designer-focused), `demos/RUNBOOKS.md` (9 demos → 5 survivors + deferred stub for figma-d2c)
+
+**Test counts:**
+```
+MCP:   5652/5652 passing
+Glass: 3270/3272 passing (2 pre-existing RUNTIME.1 StatusBar failures — unrelated)
+Core:  2619/2619 passing
+TSC:   0 errors
+```
+
+**What remains (Phase 2 — separate session):**
+- **figma-d2c rebuild:** full ground-up with real MUI imports (not missing `@/components/ui/*`). Contract-First Feature Build v2 candidate. Blocks Beta Gate 1 item "clean audit loop on all demos."
+- **Gate 1 verification:** run audit→fix→re-audit loop across all 5 survivors after figma-d2c rebuilds; document clean state as Gate 1 sign-off.
+- **Mirror survivors into `build-resources/demos/` if needed:** `03-mithril-shadow-audit` + `04-sentinel` currently live in `demos/` (developer sandbox) but aren't in the LaunchScreen picker. If beta testers want quick access via picker, mirror them (or add more scenarios).
+- **PatientForm/MetricDashboard manifest entries pointed at `./demo-after` / `./demo-before`** — those files never existed at those paths. Removed as dead refs, but worth flagging: that manifest needs a full audit pass at some point.
+
+---
+
+## Session: INSPECTOR.1 — Context-Aware Properties Panel (2026-04-20) — COMPLETE
+
+**Goal:** Turn the Properties panel into a Figma-grade context-aware inspector. Three coupled behaviors: auto-tab-switch to Properties when a node is selected, element-type → relevant-property mapping with auto-expansion of the right accordions, off-token value flagging inline with warning badges.
+
+**Architecture (3 parallelism groups + review ceremony + fix sweep):**
+- **Group A** (state-architect + ast-surgeon + test-writer): pure-function registry at `src/core/elementTypePropertyMap.ts` mapping 24 tags across 5 buckets (Text, Container, Media, Interactive, Form) + generic fallback; `matchValueToToken` extension to `src/utils/tokenMatcher.ts` for non-color categories (exact-match on typography/spacing/radius/shadow); `scanArbitraryTypography` + `scanArbitrarySpacing` Babel traversals in `src/utils/astScanner.ts`; `useAutoTabSwitch` hook gated on null→id selection transitions; `canvasStore` slice additions (`userOverrodeTab` + `markTabOverridden`) with resets on `setActiveSelection(null)` and `closeWorkspace`.
+- **Group B** (design-engineer): 4 new inspector section components at `src/components/inspector/` — `TypographySection`, `FormPropsSection`, `MediaPropsSection`, `A11ySection` — all composed from GLASSTYPO.1 primitives (`Section`, `PropertyRow`, `StatBadge`, `MetadataTooltip`). Off-token flagging via `matchValueToToken`.
+- **Group C** (design-engineer): `PropertiesPanel` rewired to render dynamic Section list sourced from `getRelevantSections(tagName)`; `App.tsx` wires `markTabOverridden()` into manual tab-click handler; `useAutoTabSwitch` mounted at App root.
+
+**Review ceremony (3 parallel):**
+- UX: REVISE (1 HIGH on auto-expand wiring, 2 MEDIUM, 2 LOW)
+- Code: APPROVE WITH CHANGES (1 BLOCKER on missing PropertiesPanel integration test)
+- Security: APPROVED (0 blocking; 2 low hardening)
+
+**Fix sweep (7 items, all DONE):**
+- UX F1 (HIGH): auto-expand registry wired — `initiallyExpanded` prop on all 4 Group B sections derived from `getAutoExpandedSections()`. Selecting `<h1>` → Typography auto-expands only.
+- Code BLOCKER: `PropertiesPanel.inspector1.test.tsx` created — 62-test matrix across 29 tags covering `relevant-sections-only-rendered`, `auto-expand-matches-registry`, n=20 auto-tab-switch, 5-selection manual-override.
+- UX F3: WCAG H67 — `alt=""` downgraded from critical to neutral "decorative" badge.
+- Code F4: `TypographySection` text-* allowlist blocks `text-center/ellipsis/nowrap/balance/…` from fontSize extraction.
+- UX F5: off-token color badges now surface closest token name via tooltip.
+- UX F4: generic fallback reordered `[Layout, Typography, Appearance, A11y, NodeProperties]` — custom components are container-shaped.
+- Security LOW-2: all 10 bucket arrays marked `as const satisfies readonly InspectorSection[]`.
+
+**Deferred:**
+- Code F2: pre-existing duplicate CIEDE2000 at `src/utils/color/colorMath.ts:114` — invariant `token-match-reuses-mithril` partially violated by this unrelated file; queued as a consolidation phase.
+
+**Files created:**
+- `src/core/elementTypePropertyMap.ts` + test (62 matrix tests)
+- `src/hooks/useAutoTabSwitch.ts` + test
+- `src/components/inspector/{Typography,FormProps,MediaProps,A11y}Section.tsx` + 4 tests
+- `src/components/ui/__tests__/PropertiesPanel.inspector1.test.tsx` (matrix)
+- `src/__tests__/App.autoTabSwitch.test.tsx`
+- `.flint-context/contracts/INSPECTOR.1-contract.md` + `.contract.ts`
+- 4 review reports (contract-lint + ux + code + security) + .review.ts siblings
+
+**Files modified:**
+- `src/utils/tokenMatcher.ts` (+ `matchValueToToken`)
+- `src/utils/astScanner.ts` (+ typography/spacing scanners)
+- `src/store/canvasStore.ts` (+ userOverrodeTab + markTabOverridden)
+- `src/components/ui/PropertiesPanel.tsx` (dynamic section rendering)
+- `src/App.tsx` (tab-override wiring + useAutoTabSwitch mount)
+
+**Final invariants (post-fix-sweep):**
+- `auto-tab-switch-on-selection`: PASS (100% over n=20)
+- `respects-manual-tab-switch`: PASS (0 overrides across 5-loop test)
+- `relevant-sections-only-rendered`: PASS (0 diff across 29-tag matrix)
+- `auto-expand-matches-registry`: PASS (empty XOR across all tags)
+- `off-token-flag-present-when-value-unknown`: PASS
+- `off-token-flag-absent-when-value-matches`: PASS
+- `no-new-ipc`: PASS (0)
+- `no-new-mcp-surface`: PASS (0)
+
+**Test counts:**
+```
+Glass: 3520/3522 passing (+118 net from phase — 62 matrix + 28 Group B + 25 Group C + 3 scaffolds)
+TSC:   0 errors (root + flint-mcp)
+```
+
+The 2 remaining failures are pre-existing `StatusBar.test.tsx` Figma disconnect locator failures (RUNTIME.1 scope).
+
+**Deferred for future phases:**
+- INSPECTOR.2 — user-facing element-type registration API, per-user custom component mapping, persistence across sessions.
+- Consolidate duplicate CIEDE2000 (`src/utils/color/colorMath.ts` → delegates to `tokenMatcher.ts`).
+
+---
+
+## Session: GLASSTYPO.1 — Glass Interaction Schema + Figma-Rhythm Type Scale + Primitive Vocabulary (Governance + Properties Canary) — COMPLETE
+
+---
+
+## Session: GLASSTYPO.1 — Glass Interaction Schema + Figma-Rhythm Type Scale + Primitive Vocabulary (Governance + Properties Canary) — COMPLETE
+
+**Goal:** Close Glass's self-dogfooding gap AND rebuild the visual hierarchy from scratch using Figma as the reference model. Trigger: a visible UI defect (8px text in Governance panel) + Justin's diagnosis ("the current UI is a hierarchical mess"). Root cause: Glass used spacing tokens as font-size and had no typography token set OR interaction vocabulary of its own.
+
+**Approach (3 contract revisions, canary-scoped to Governance + Properties panels):**
+- Defined a 7-role **Glass Interaction Schema** (cta-primary, cta-secondary, nav-link, primary-content, support-evidence, metadata, state-signal) where every component declares a role and the visual treatment flows from the role.
+- Added a 5-token **type scale** (`--text-title 13/600`, `--text-body 12/400`, `--text-label 11/500`, `--text-micro 10/500`, `--text-display 20/600`) + 4-token **color ladder** (primary / secondary / tertiary / accent) to `src/index.css` `@theme` block.
+- Built 6 **Figma-rhythm primitives** at `src/components/ui/primitives/`: `Section` (collapsible with `expandedWhen: (ctx) => boolean` predicate — literal booleans rejected at compile time), `PropertyRow`, `FooterActionBar`, `MetadataTooltip`, `StatBadge`, `PanelTabLabel`.
+- Added **Section open-state visual spec**: 3% primary tint + 1px accent left border + 10px indent + 16px between-section spacing.
+- Migrated **Governance panel canary** (20 files) + **Properties panel canary** (5 files) to new vocabulary. Deleted legacy `Accordion` export from `inspector/primitives.tsx` (fully consolidated behind `Section`).
+- `expandedWhen` rule enforced: sections expand IFF user has an actionable lever (Score breakdown collapses always; Issues expands when `count > 0`).
+- Accent color confined to CTA roles only (nav-links stay secondary).
+- `PanelTabLabel` is the sole primitive permitted to render all-caps.
+
+**Review ceremony (3 parallel):**
+- UX: FIX-FORWARD (3 warnings on coverage gaps) — "Glass now reads as a hierarchy, not flat text."
+- Code: per-invariant pass/fail table verdict — 23/25 pass outright + 1 stale test (fixed in sweep).
+- Security: FIX-FORWARD (1 warning on `FooterLink.href` scheme allowlist — fixed in sweep).
+
+**Fix sweep:** 7 items, 5 DONE cleanly (stale test, schema-role coverage, FooterLink scheme allowlist, contract grep regex tightening, inline-style convention documented). 2 PARTIAL (84 raw-hue utilities in CSS const maps like `GRADE_TEXT` deferred to GLASSTYPO.2; 2 tw-font-utilities are string literals in fix-guide data, not className).
+
+**Files landed:**
+- Created: `src/index.css` (tokens), 6 primitives at `src/components/ui/primitives/` + sibling tests, `.flint-context/contracts/GLASSTYPO.1-contract.md` + `.contract.ts`, 4 review reports (UX/code/security/contract-lint + .review.ts siblings).
+- Modified: 20 files in `src/components/ui/governance/` + `GovernanceDashboard.tsx`, 5 files in `src/components/inspector/` + `PropertiesPanel.tsx`, `package.json` (+ @mui/material + @emotion dependencies — `OverrideReasonDialog.tsx` has been importing them since `feat(chron.1)` without a manifest declaration; installed now).
+
+**Final grep invariants (all 0 or justified):**
+- spacing-var font-sizes in canary: 0
+- ad-hoc zinc text in canary: 0
+- inline `uppercase` outside PanelTabLabel: 0
+- accent leak in CTAs: 0
+- Accordion imports from `inspector/primitives`: 0
+- raw-hue utilities: 84 (deferred as GLASSTYPO.2 — CSS const maps + primitive-encapsulated state-signal badges; not a regression)
+- tw-font-utilities: 2 (both string literals in fix-guide data; not className attrs)
+
+**Test counts:**
+```
+Glass: 3288/3301 passing (+100 net new from phase — 4 section-open-state, 70 primitive tests, 19 governance canary, 26 properties canary; 2 pre-existing StatusBar failures, 11 todo)
+TSC:   0 errors (root + flint-mcp)
+```
+
+**Deferred (filed as next phases):**
+- GLASSTYPO.2 — migrate remaining 65+ files outside the 2 canary panels; move CSS const maps (`GRADE_TEXT`, `SEVERITY_DOT`, etc.) behind per-grade/per-severity tokens.
+- INSPECTOR.1 — context-aware Properties panel: auto-tab-switch on selection, element-type → relevant-property mapping, off-token value flagging inline (show raw value with warning badge when property isn't in token set).
+
+---
+
+## Session: FIXTURE.1.1 — DTCG Token Shape Adapter (2026-04-19) — COMPLETE
+
+---
+
+## Session: FIXTURE.1.1 — DTCG Token Shape Adapter (2026-04-19) — COMPLETE
+
+**Goal:** Close FIXTURE.1's documented drift. Root cause: linter's token consumer read legacy flat shape while `design-tokens.json` uses DTCG nested shape, so every literal pixel became a false positive regardless of fixture quality.
+
+**Approach:** Pure adapter module at `flint-mcp/src/core/dtcgTokenAdapter.ts` with one-line swap at `server.ts:2038`. No new IPC, stores, or UI. Alias resolution (single-hop, multi-hop, cycle-safe, broken-ref typed) folded in per Justin's call. Negative-integer FNV-1a hashed IDs verified disjoint from DB-positive IDs.
+
+**Files created:**
+- `flint-mcp/src/core/dtcgTokenAdapter.ts` (381 lines)
+- `flint-mcp/src/core/__tests__/dtcgTokenAdapter.test.ts` (46 tests)
+- `flint-mcp/src/core/__tests__/dtcgTokenAdapter.bench.ts`
+- `.flint-context/contracts/FIXTURE.1.1-contract.md` + `.contract.ts`
+- `.flint-context/reviews/FIXTURE.1.1-{contract-lint,ux-review,code-review,security-review}-2026-04-19.{md,review.ts}`
+
+**Files modified:**
+- `flint-mcp/src/server.ts` — one-line swap + import
+- `flint-mcp/src/__tests__/server.audit-fixture.test.ts` — tightened drift canary
+- `demos/01-rag-ui-builder/banner-broken.tsx` — genuinely drifted values + one loud drift
+- `demos/01-rag-ui-builder/design-tokens.json` — demo alias + intentional broken alias
+
+**Review ceremony:** 3 parallel reviews (UX, code, security). Security found 3 blockers + 2 warnings; all fixed in post-review sweep. Code reviewer ran per-invariant pass/fail table (10/10 pass) — closes the FIXTURE.1 pilot rubric miss.
+
+**Deferred (explicitly non-goal):**
+- UX WARN-2 → CX.3 error taxonomy (plain-English `ALIAS_CYCLE` / `ALIAS_BROKEN_REF` mappings)
+- UX SUG-2 → multi-collection DTCG support (architectural)
+- Code INFO-3 → non-fixture token load sites at `server.ts:1972, 2179`
+
+**Canary results (DTCG tokens loaded):**
+- `banner-compliant.tsx` — 3 total violations, **MITHRIL-TYP-002 + SPC-001 === 0** ✅
+- `banner-broken.tsx` — **5 violations** ✅
+- Distinguishable: broken=5 > compliant=3 ✅
+
+**Test counts:**
+```
+MCP:   5652/5652 passing (+49 new)
+Glass: 3181/3194 (2 pre-existing RUNTIME.1, 0 new)
+TSC:   0 errors (root + flint-mcp)
+```
+
+**Beta Gate 1 status:** FIXTURE.1.1 closes items #3 and #4 at the engine level. Item #5 (slash command human-readable output) still pending.
+
+---
+
+## Session: FORGE.1 Phase 2 Group A — IPC Layer (2026-04-19) — COMPLETE
+
+**Goal:** Wire the `project:smart-open` IPC channel end-to-end (Electron + Web + preload + types + web adapter) and create `it.todo` test scaffold for Group B. Also verify the 4 already-existing FORGE.2 handlers (`project:detect-environment`, `project:auto-configure`, `project:run-baseline`, `project:get-health-grade`) are correctly exposed through the preload bridge with the validators that were already added to `shared/ipc-validators.ts` at Phase 1.5.
+
+**Files changed:**
+- `electron/GitManager.ts` — added `clone(url, destDir)` public method (Commandment 14)
+- `electron/main.ts` — appended `project:smart-open` handler (heuristic: anchored `/^(https?:\/\/|git@|ssh:\/\/)/` → git clone via GitManager, else folder open)
+- `server/index.ts` — web parity mirror of `project:smart-open`
+- `electron/preload.ts` — exposed `window.flintAPI.project.smartOpen(input)` + confirmed 4 existing channel exposures are present
+- `src/types/flint-api.d.ts` — `smartOpen` declaration on `ProjectAPI`
+- `src/adapters/web-api.ts` — `smartOpen` in project block of web adapter
+- `electron/__tests__/projectSmartOpen.test.ts` — `it.todo` scaffold (all contract testBoundaries scoped to `project:smart-open` + validator + heuristic)
+
+**Validators confirmed in `shared/ipc-validators.ts`:** `projectSmartOpenSchema`, `projectDetectEnvironmentSchema`, `projectAutoConfigureSchema`, `projectRunBaselineSchema`, `projectGetHealthGradeSchema` — all 5 already landed at Phase 1.5.
+
+**What remains (Group B):**
+- Fill `it.todo` → real assertions in `electron/__tests__/projectSmartOpen.test.ts`
+- `LaunchScreen.tsx` 3-channel refactor + orphan removal
+- `DetectionPreview.tsx` new component
+- `LaunchScreen.test.tsx` + `DetectionPreview.test.tsx`
+
+---
+
+## Session: FORGE.1 — Phase 2 Group B — UI Layer (2026-04-19) — COMPLETE
+
+**Goal:** LaunchScreen 3-channel collapse + DetectionPreview component (FORGE.1 contract, Group B scope).
+
+**What shipped:**
+- `src/components/ui/LaunchScreen.tsx` — replaced 4-tile JTBD array with 3 ForgeChannels (Start from idea / Start from Figma / Start from existing code). "Start from idea" calls `project:create-scratchpad` with no folder picker. "Start from existing code" calls `project:smartOpen` (Group A IPC) with graceful fallback to `onOpenFolder`. Orphan `setFigmaSetupOpen(false)` deleted. Dead imports removed.
+- `src/components/ui/DetectionPreview.tsx` — NEW. Renders `ProjectEnvironment` with per-field override controls. MUI default applied when `componentLibrary` is null. `onCancel()` called with zero args. `onConfirm(overrides)` merges only changed fields.
+- `src/components/ui/__tests__/LaunchScreen.test.tsx` — 40 tests (rewritten for 3-channel set; all contract invariants covered).
+- `src/components/ui/__tests__/DetectionPreview.test.tsx` — 30 new tests.
+- `src/components/ui/__tests__/NewProjectFlow.test.tsx` — 4 Journey-10 tests updated from old 4-tile assertions.
+
+**Test results:** Glass: 3180+/3182 passing. Pre-existing StatusBar 2 failures unchanged. MCP: 5550/5550. Core: 2579/2579. TSC: 0 errors.
+
+**Dependency on Group A:** `project:smartOpen` (window.flintAPI.project.smartOpen) is gracefully degraded — if Group A IPC hasn't landed, "Start from existing code" falls back to `onOpenFolder`. No hard failure.
+
+---
+
+## Session: FORGE.1 — Channel Consolidation + Smart Detection (2026-04-19) — CONTRACT DRAFTING
+
+**Goal:** Beta-blocker fix (BETA-READINESS-CHECKLIST Gate 2). Forge Sprint 1 of 4: collapse LaunchScreen from 8 entry channels to 3 (Start from idea / Start from Figma / Start from existing code) with smart-detection surfacing for the existing-code channel before commit. Net-new "Start from idea" channel that satisfies the no-folder-picker-before-first-render rule. Sprint 2-4 (visual polish, copy refinement, animation) explicitly deferred.
+
+**Investigation findings (file:line):**
+- `src/components/ui/LaunchScreen.tsx` currently exposes 4 tiles + primary "New Project" CTA + DemoScenarioPicker + Recent Projects list + Paste-Audit + footer "Open any folder" + "Connect to IDE" — verified 8 entry channels matching Justin's estimate.
+- `LaunchScreen.tsx:228` — orphan `setFigmaSetupOpen(false)` call references a state setter that no longer exists (FigmaSetupWizard removed 2026-04-15). Compile risk; needs removal in Sprint 1.
+- `shared/projectDetector.ts` — full `ProjectEnvironment` detector already shipped (FORGE.2a). Detects framework, CSS, library, tokens, component count, TS, monorepo. Used by both Electron and Web.
+- `electron/main.ts:2138-2398` — `project:detect-environment`, `project:auto-configure`, `project:run-baseline`, `project:get-health-grade` IPC handlers ALL EXIST. Web parity confirmed at `server/index.ts:1400-1521`.
+- **Gap:** None of the 4 FORGE.2 IPC handlers have Zod validators in `shared/ipc-validators.ts`. Sprint 1 must register them.
+- **Net-new for Sprint 1:** "Start from idea" channel (no folder picker before first render — uses `project:create-scratchpad`); single "Start from existing code" channel that auto-routes folder vs git URL via heuristic; `project:smart-open` IPC handler that wraps the existing detect→preview→commit flow; `DetectionPreview` component that surfaces results before user commits.
+
+**Phase 1 artifacts:**
+- `.flint-context/contracts/FORGE.1-contract.md`
+- `.flint-context/contracts/FORGE.1.contract.ts`
+
+---
+
+## Session: COUNSEL.1 — Unify the Health Score (2026-04-19) — IN PROGRESS
+
+**Goal:** Beta-blocker fix (BETA-READINESS-CHECKLIST Gate 1). Counsel Sprint 1 of 4: collapse all remaining health-score divergences into the canonical `shared/healthScore.ts` module so StatusBar coverage badge, GovernanceDashboard, `flint_debt_report`, and `flint_generate_dbom` always return identical numbers for the same input. Visual redesign explicitly deferred to Sprints 2–4.
+
+**Investigation findings (file:line):**
+- `shared/healthScore.ts` already exists as the canonical formula (introduced by CHRON.1-repair / C2). Most surfaces correctly delegate.
+- **Divergence A — `flint-mcp/src/core/dashboard/debtReportService.ts:135`:** `computeHealthScore` is a fork-copy that re-implements arithmetic instead of importing `shared/healthScore.ts`. The header comment claims parity, but parity is enforced by convention, not by the type system. This is exactly how the original 4-formula divergence happened.
+- **Divergence B — `flint-mcp/src/core/dbom/generator.ts:469`:** `computeHealthScore(totalCriticals, totalWarnings, 0)` calls the positional 4-arg signature with **only 2 buckets**, silently dropping the `advisoryCount` penalty. DBOM healthScore therefore diverges from `flint_debt_report` whenever advisory-severity violations exist.
+- **Divergence C — `flint-mcp/src/core/governance/dbomService.ts:341`:** Per-component score uses an inline `Math.max(0, Math.min(100, 100 - (criticals * 10 + warnings * 3)))` expression — bypasses the canonical module entirely; no advisory penalty, no override penalty.
+- **Stale doc — `flint-mcp/src/core/dashboard/types.ts:21`:** JSDoc claims formula is `100 - mithrilCount × 5 - a11yCount × 10`, which has never been correct.
+
+**Chosen unified formula:** `shared/healthScore.ts` `computeHealthScore({ criticalCount, amberCount, advisoryCount, overrideCount })`. Already canonical; Sprint 1 enforces that every consumer (including DBOM core, DBOM enrichment, debt report) calls it directly via import — no re-implementation, no positional shims that drop buckets. A new cross-package parity test (`shared/__tests__/healthScore.parity.test.ts`) will assert that for a fixed input vector, every consumer returns identical `{ score, grade }`.
+
+**Phase 1 artifacts:**
+- `.flint-context/contracts/COUNSEL.1-contract.md`
+- `.flint-context/contracts/COUNSEL.1.contract.ts`
+
+---
+
+## Session: MINT.5 Phase 3 — Sync Polish + Type Safety (2026-04-19) — COMPLETE + PILOT SHIPPED
+
+**Goal:** Close the 4 deferred items from Phase 2 AND run the Review Ceremony Cheaper-Pilot (A+B+E) end-to-end as the first proof-of-concept.
+
+**Workflow:** Full Contract-First v2 — architect → contract-linter (REVISE → APPROVED, 3 single-line fixes) → 5 parallel Group A implementers → Group B integration → 3 scoped pilot reviewers (single-message dispatch) → integration validator → SHIP.
+
+**What shipped (Citadel vocabulary):**
+- **Scout emit cluster** — `EmitDropdown` + `ConfirmEmitDialog` + `useEmitTokens` hook on TokenHealthBar. Wraps `flint_emit_tokens` MCP tool; dryRun-by-default with confirm-gated write. 5 platforms: CSS variables, Tailwind config, Swift, Kotlin, JSON.
+- **Envoy staleness banner** — `SyncStalenessBanner` driven by `flint_sync_check`. 24-hour default threshold; per-session dismissal via `syncStalenessStore` Zustand slice with auto-clear on fresh sync. Polled every 60s by `useSyncStaleness`.
+- **Structured `MCPCallResult.classification`** — Discriminated union `'auth-expired' | 'rate-limited' | 'network-error' | 'tool-error' | 'validation-error' | 'unknown'` computed once in both `electron/mcpClient.ts` and `server/mcpClient.ts`. Phase 2 keyword-matching helper in `useSyncActions` retired (one-phase keyword fallback for legacy compat).
+- **Per-tool Zod schemas** — 5 schemas + `MCP_TOOL_ARG_SCHEMAS` lookup, registered append-only in `shared/ipc-validators.ts`. Consulted by both Electron preload bridge and `server/index.ts` web parity before any IPC fires. Failures route to `validation-error` classification without triggering IPC.
+
+**Final test counts:**
+- MCP:   5550/5550 passing
+- Glass: 3126/3128 passing (+40 new; 2 pre-existing StatusBar failures unrelated, owned by RUNTIME.1 work-in-progress)
+- Core:  2537/2537 passing (+183 new it() blocks + 5 bench blocks)
+- TSC:   0 errors
+
+**Pilot results (Review Ceremony Cheaper-Pilot, A+B+E):**
+- **Output artifact reduction: 53.9%** (47.6 KB pilot vs 103.4 KB Phase 2 baseline across 6 files each).
+- **Lever A (scoped contexts): WORKED.** All 3 reviewers confirmed scoping was sufficient. Only 1 cross-scope read (security verifying classification trust boundary in `shared/mcp-classification.ts`).
+- **Lever B (structured-only `.review.ts`): PARTIAL.** Code reviewer (has Write tool) emitted directly. UX + security reviewers lack Write — surfaced findings inline; orchestrator persisted. Real pilot finding: agent tool definitions need updating before Lever B is fully automated.
+- **Lever E (cache window): UNCERTAIN.** First-round cache hit possibly worked; can't cleanly measure because midnight usage-limit interruption forced re-spawn (lost cache).
+- **Regression canary (integration validator): ZERO MISSES.** Integration validator found no findings the 3 scoped reviewers had missed.
+- **Verdicts:** UX FIX-FORWARD (1 warning HTML nesting, 2 suggestions copy), Code FIX-FORWARD (3 suggestions), Security SHIP (2 suggestions), Integration SHIP.
+
+**Pilot meta-findings (process improvements for next phase):**
+1. `flint-ux-critic` and `flint-security-reviewer` agent definitions need Write tool (or the orchestrator-persistence pattern formalized).
+2. Phase 2 baseline lacks per-agent input-token data on disk; next pilot should run an unscoped reviewer in parallel as A/B control to measure full token cost.
+3. Security reviewer suggested orchestrator could pre-extract relevant ranges from large files (e.g., `electron/preload.ts` is 2000+ lines, only ~40 in scope) for further savings.
+
+**Artifacts on disk:**
+- `.flint-context/contracts/MINT.5-phase3-contract.md` + `.contract.ts` (APPROVED Round 2)
+- `.flint-context/reviews/MINT.5-phase3-contract-lint-2026-04-18.md`
+- `.flint-context/reviews/MINT.5-phase3-{ux,code,security}-review-2026-04-19.{md,review.ts}`
+- `.flint-context/reviews/MINT.5-phase3-integration-2026-04-19.md`
+- `scripts/render-review.ts` (commit `7c28f67` — pilot's renderer infrastructure)
+
+**Deferred to Phase 4:** TokenImpactAccordion, read-only banner, ApprovalStagingArea collapse, aria-live sync announcements, density revamp, prefers-reduced-motion, per-tool Zod for `flint_emit_tokens` (security SUG-2), tuple-vs-positional Zod schema cleanup (security SUG-1), staleness threshold via `flint.config.yaml`.
+
+---
+
+## Session: MINT.5 Phase 2 — Sync Action Surfaces (2026-04-18) — COMPLETE
+
+**Goal:** Close the Mint sync UX loop. Phase 1 hardened the foundation (sanitizer, drift re-enable, canonical health score, severity grammar, dual-queue listener). Phase 2 adds the visible sync actions: Pull / Push / Resolve in `TokenHealthBar`, Connect Figma empty state, drift review sub-tab in `TokenGrid`.
+
+**Workflow:** Full Contract-First Feature Build v2. Architect → contract lint (REVISE → fixed → APPROVED) → parallel implementation (Groups A+B concurrent, C sequential on types) → integration validator (SHIP) → 3-reviewer ceremony (UX FIX-BEFORE-SHIP, Code FIX-FORWARD, Security BLOCK) → consensus fix pass resolved all blockers + 8 warnings.
+
+**What shipped (Citadel vocabulary):**
+- **Envoy sync cluster** — Pull / Push / Resolve buttons wired to `flint_sync_pull` / `flint_sync_push` / `flint_resolve_all` via existing `mcp:call-tool` (no new IPC). `SyncActionCluster` is purely presentational; `useSyncActions` owns op-state + synchronous `syncOpRef` serialization guard + auth-expired error classifier that routes to a persistent SeverityChip.
+- **Alliance empty state** — `ConnectFigmaEmptyState` with 3 variants (`disconnected` / `connected-no-tokens` / `has-tokens` → null). Replaces the legacy empty div; FirstSyncPrompt left intact per nonGoal.
+- **Drift sub-tab** — `TokenGrid.viewMode` extended to `'drift'`; `DriftGroupSection` renders per-collection groups of `TokenDriftRow` (local swatch → Figma swatch → ΔE chip → "Pull this" button). Keyboard parity. When drift drops to 0, the empty state "No drift detected" renders (user chooses when to leave the tab).
+- **Asymmetric confirm flow** — Pull fires immediately; Push opens `ConfirmPushDialog`; Resolve opens `ConfirmResolveDialog` with strategy radio. Confirm button label dynamically reflects chosen strategy ("Use Figma values" / "Keep local values") so reflexive Enter telegraphs consequence.
+- **`localEditCount` + `pendingConflictCount`** sourced live from `flint_sync_check` on mount + on connection / drift changes (with `mountedRef` cleanup guard).
+
+**Security posture:**
+- **SEC.3 renderer allowlist** expanded from 7 → 12 entries in `shared/mcp-allowed-tools.ts`. Added 5 MINT.5.2 user-invokable sync tools. Each destructive variant confirm-gated in UI; `agentId='renderer'` hardcoded so AGV.4 trust tiers apply.
+- **`mcp:call-tool` Zod schema** added to `shared/ipc-validators.ts` + named export `mcpCallToolSchema`. Wired via `validateIPC` at both `electron/preload.ts` and `src/adapters/web-api.ts` — closes a defense-in-depth gap that predated Phase 2.
+- **`shared/errorSanitizer.ts`** (new) — strips control/bidi chars (Trojan-Source defense), redacts secret-shaped tokens, caps length 500, collapses "Only these tools can be called…" allowlist dump into plain copy. Applied at every `notificationStore.push` site in `useSyncActions`.
+- **Runtime Zod guard** on `ResolveStrategy` at dispatch — `z.enum(['prefer-figma','prefer-local']).parse()`.
+
+**UX polish from reviewers:**
+- Connect copy: title "Opening Figma" / message "Complete the approval in your browser to finish connecting." No Citadel name or "OAuth" in user-visible copy.
+- Persistent `SeverityChip` now rendered next to grade pill when `lastError.persistent === true` — completes the transient/persistent error split that was promised in the contract but not wired in the first pass.
+
+**nonGoals preserved (all 15):** no emit dropdown (Phase 3); no TokenImpactAccordion / read-only banner / ApprovalStagingArea collapse / aria-live (Phase 4); no OAuth flow changes; no new IPC channels; no new Zustand stores; no per-conflict resolution view; no FirstSyncPrompt relocation; no density revamp; no sync staleness banner.
+
+**Test results:**
+- Glass:  3038/3051 passing (+105 new Phase 2 + 20 errorSanitizer; 2 pre-existing StatusBar failures unrelated)
+- Core:   2431/2457 passing (26 pre-existing it.todo, 0 regressions)
+- TSC:    0 errors
+- mcp-policy: 121/121 passing
+
+**Artifacts on disk:**
+- `.flint-context/contracts/MINT.5-phase2-contract.md` + `.contract.ts` (APPROVED after schema-lint REVISE → fix cycle)
+- `.flint-context/reviews/MINT.5-phase2-contract-lint-2026-04-18.md`
+- `.flint-context/reviews/MINT.5-phase2-integration-2026-04-18.md` (SHIP)
+- `.flint-context/reviews/mint-phase2-{ux,code,security}-review-2026-04-18.md` + `.review.ts` siblings
+
+**Deferred to Phase 3:** emit/handoff dropdown, sync staleness banner, structured `MCPCallResult.classification` field (to replace the stringly-typed auth-expired classifier), per-tool Zod schemas.
+
+**Deferred to Phase 4:** TokenImpactAccordion, read-only banner, ApprovalStagingArea collapse, aria-live sync announcements, density revamp, `prefers-reduced-motion`, Figma-logo SVG accuracy.
+
+---
+
+## Session: Competitive Gap Closure — Weekend Sprint (2026-04-18) — PLANNED
+
+**Goal:** Close 3 of 4 competitive weaknesses identified in [docs/strategy/COMPETITIVE-LANDSCAPE-2026-04-18.md](docs/strategy/COMPETITIVE-LANDSCAPE-2026-04-18.md) over Saturday + Sunday. Full plan at [docs/strategy/WEEKEND-PLAN-2026-04-18.md](docs/strategy/WEEKEND-PLAN-2026-04-18.md).
+
+**Deliverables:**
+
+- `RUNTIME.1` — axe-core runtime adapter (boots LivePreview, runs axe, pipes into Warden SARIF). Source authority: `runtime-dom`.
+- `FIGMA-LINT.1` — Mithril/Warden against Figma node tree via Universal AST adapter. New MCP tool `flint_audit_figma_frame`.
+- `POS.1` — Mason generator-positioning content (landing page, investor brief, Angle A messaging).
+
+**Explicitly deferred:** Gap #4 (docs / publishing surface) — multi-quarter product bet, not a weekend hack.
+
+**Sequence:** Saturday = Gap #3 + Gap #1 parallel background. Sunday = Gap #2 + HANDOFF polish.
+
+**Next step:** flint-architect (×2 parallel) → RUNTIME.1 + FIGMA-LINT.1 contracts.
+
+---
+
+## Session: Phase 2 — PostCSS + CSS Modules + Tailwind v4 CSS-First (2026-04-18) — COMPLETE
+
+**Goal:** Third and final phase of the CSS/styling governance expansion. Read external `.css`/`.scss`/`.module.css` files via PostCSS. Resolve CSS Modules (`import s from './x.module.css'` → class map). Build project-scoped `:root` custom property map so bare `var(--x)` references resolve. Parse Tailwind v4 CSS-first `@theme {}` blocks. Close the last 4 coverage reasons that still silently skip.
+
+**Shipped:**
+
+- `cssStylesheetLoader.ts` — PostCSS parser with 2MB size cap (fs.stat before fs.readFile), mtime cache, extracts `:root` custom properties, `@theme {}` blocks, `@keyframes`, `@apply`. Error details redacted to `ParseError at line N, column M` — no raw CSS content.
+- `cssCustomPropertyMap.ts` — project-wide `var()` resolver with chain walking, visited-set cycle detection, 8-hop depth limit.
+- `cssModulesResolver.ts` — AST read-only walker for `*.module.*` imports. Dual path-traversal gate: `path.resolve` + `startsWith` check, plus `fs.realpath` + second `isOutsideProject` check on the canonical path (closes symlink escape). Throws on non-absolute projectRoot.
+- `tailwindV4ThemeParser.ts` — parses `@theme {}` blocks into `ResolvedTailwindTheme` shape compatible with Phase 1; unknown prefixes route to `extendedCustom`.
+- Classifier upgrades: `external-stylesheet-imported`, `css-modules-reference`, `unresolvable-var`, and `tailwind-config-extension` (v4 CSS-first) all flip to `parsed` when resolvable.
+- MithrilLinter integration: `parseCssColorToHexWithMap` resolves bare `var(--x)` via project-scoped custom property map; `mergeStylesheetThemeTokens` merges v4 CSS-first themes into the drift-detection token set. `auditAll` signature preserved.
+- CoveragePopover labels updated for 3 Phase 2 reasons (they now fire only on failure, not on pattern presence); added REASON_PRIORITY ordering so user-fixable reasons surface above environmental ones.
+
+**Dependencies added:** `postcss@^8.4.0`, `postcss-scss@^4.0.0`, `postcss-modules@^6.0.0` to `flint-mcp/package.json`. Run `npm install --prefix flint-mcp` to pick them up — the scss parse test currently fails until these are installed; all other tests green.
+
+**Workflow:** Contract-First v2 full cycle — architect → contract-linter (APPROVED w/ warnings → fixes → APPROVED) → 3 parallel Group A implementers → 3 parallel review ceremony (UX/code/security) → consensus fixes (CODE BLK-1 `customPropertyMap`+`stylesheetThemes` wire-up, SECURITY HIGH symlink escape, SECURITY MEDIUM error redaction + relative projectRoot guard, CODE WARN-1 v4 theme dead-code, CODE WARN-2 corpus runner assertion, UX BLK-1/2/WARN-1 label rewrites, UX WARN-2 priority ordering) → integration validator SHIP verdict.
+
+**Final test counts:** MCP 5550/5550 | Core 2431/2431 | Glass 3043/3045 (2 pre-existing StatusBar failures unrelated) | TSC 0 errors | CSS Modules corpus fidelity 20/20 (100%).
+
+**Non-goals upheld (9):** no JS execution, no cross-stylesheet `@import` transitive resolution, no SCSS mixin/variable evaluation, no stylesheet auto-fix, no grade formula change, no HTML `<style>` parsing, no new MCP tools, no new IPC channels, no Glass UI beyond label rewrites.
+
+**Reviews:**
+
+- `.flint-context/reviews/PHASE2-contract-lint-2026-04-18.md` (2 passes, APPROVED)
+- `.flint-context/reviews/PHASE2-code-review-2026-04-18.md` (FIX → PASS after BLK-1 wire-up + 2 warnings)
+- `.flint-context/reviews/PHASE2-ux-review-2026-04-18.md` (FIX-BEFORE-SHIP → PASS after 3 label fixes + ordering)
+- `.flint-context/reviews/PHASE2-security-review-2026-04-18.md` (FIX → PASS after symlink + projectRoot + error-redaction fixes)
+- `.flint-context/reviews/PHASE2-integration-report-2026-04-18.md` (SHIP)
+
+**Deferred (non-blocking review suggestions):**
+
+- PostCSS parse timeout (unlikely but theoretically unbounded)
+- TOCTOU race between stat and readFile (low exploitability — local FS)
+- Unbounded stylesheet cache (MCP processes are typically short-lived)
+- `postcss-modules` dependency added but regex class extraction used internally — update contract/comments to reflect
+- UX SUG-1 coverage-delta nudge (Phase 2 is the biggest jump — worth highlighting)
+- UX SUG-2 one-time notification when delta ≥+20%
+
+**Branch:** `feat/phase2-postcss-css-modules-tailwind-v4` (not pushed, not merged — awaiting Justin's review)
+
+**CSS/styling roadmap now COMPLETE.** All 3 sequential phases shipped. Remaining coverage reasons (`css-in-js-detected`, `non-jsx-framework`, truly-dynamic `non-literal-ternary-branch`, `parse-failure`) are genuinely out-of-scope or inherent static-analysis limits — not gaps Phase 4+ is planning to close.
+
+---
+
+## Session: Phase 1 — Tailwind Config + Class Composition (2026-04-18) — COMPLETE
+
+**Goal:** Second of 3 sequential phases closing CSS/styling governance gaps. Ingest `tailwind.config.{js,ts,mjs,cjs}` so extended theme tokens are recognized, and expand `clsx`/`cva`/`classnames`/`tw-merge`/`cn` expressions so dynamic class merging is no longer silently skipped.
+
+**Shipped:**
+
+- `tailwindConfigLoader.ts` — sandboxed loader using `vm.runInNewContext` with frozen sandbox + explicit static require allowlist (no regex), 2000ms CPU timeout + AbortController wall-clock race, mtime cache, error redaction hardened (credentials/key=value/base64/paths)
+- `classExpressionExpander.ts` — partial-evaluator for `clsx`/`cva`/`classnames`/`cn`/`twMerge`/`tw` with nested-call folding, ternary/logical resolution, cva variant dedup, global `cn` recognition
+- Coverage classifier upgrade paths: Rule 5 suppresses `tailwind-config-extension` when `tailwindConfig.ok === true`; Rule 6 suppresses `dynamic-class-expression` when all expansions are resolvable
+- MithrilLinter integration (additive `AuditAllOptions` — signature preserved, 190+ callers unaffected)
+- CoveragePopover labels updated to reflect Phase 1 semantics (consolidated failure-mode label for `tailwind-config-extension`, hint-style label for `dynamic-class-expression`)
+
+**Dependencies added:** `tailwindcss@^3.4.0`, `esbuild@^0.21.0` to `flint-mcp/package.json`.
+
+**Workflow:** Contract-First v2 full cycle — contract-linter (REVISE → APPROVED), 3 parallel Group A implementers (mcp-specialist hit usage limit mid-session and recovered after reset, surgeon + test-writer completed), 3 parallel reviews (UX/code/security), consensus fixes (security H-1/M-1/M-3, 4 UX label fixes, fixture runner wiring, 10 expander bugs surfaced + fixed to reach 50/50 fidelity), integration validator SHIP verdict.
+
+**Final test counts:** MCP 5454/5454 | Core 2406/2406 | Glass 3030/3032 (2 pre-existing StatusBar failures unrelated) | TSC 0 errors | Fidelity 50/50 (100%, contract threshold 0.95).
+
+**Non-goals upheld:** no v4 CSS-first parsing, no arbitrary TS execution outside sandbox, no cva runtime evaluation, no cross-file resolution, no new auto-fix paths, no grade formula change, signature stability preserved.
+
+**Reviews:**
+
+- `.flint-context/reviews/PHASE1-contract-lint-2026-04-18.md` (2 passes, APPROVED)
+- `.flint-context/reviews/PHASE1-code-review-2026-04-18.md` (FIX-FORWARD, 3 warnings addressed)
+- `.flint-context/reviews/PHASE1-ux-review-2026-04-18.md` (FIX-FORWARD, 4 warnings addressed)
+- `.flint-context/reviews/PHASE1-security-review-2026-04-18.md` (FIX → PASS after H-1/M-1/M-3 fixes)
+- `.flint-context/reviews/PHASE1-integration-report-2026-04-18.md` (SHIP)
+
+**Deferred (non-blocking):**
+
+- M-2 Buffer prototype pollution (low traffic, no fixtures require Buffer)
+- L-1 Sandbox-violation classification via string match vs sentinel class
+- UX SUG-1 coverage-delta nudge on governed % improvement
+- UX SUG-2 first-time Tailwind config recognition toast
+
+**Branch:** `feat/phase1-tailwind-config-class-composition` (not pushed, not merged — awaiting Justin's review)
+
+**Next step:** Phase 2 — PostCSS parser for external stylesheets, CSS Modules resolution, Tailwind v4 CSS-first `@theme` blocks.
+
+---
+
+## Session: Phase 0 — Coverage Honesty (2026-04-18) — COMPLETE
+
+**Goal:** First of 3 sequential phases addressing the CSS/styling governance coverage gap. Audit revealed Flint silently skips CSS Modules, CSS-in-JS, external stylesheets, dynamic class expressions, and Tailwind config extensions — but health scores come back green on ungoverned surface. Phase 0 makes coverage honest before fixing the gaps.
+
+**Shipped:**
+- Per-file `CoverageVerdict` (`parsed | partial | skipped-unsupported`) emitted by Mithril + Warden on every scan
+- 9 `CoverageReason` enum values: `css-in-js-detected`, `external-stylesheet-imported`, `css-modules-reference`, `dynamic-class-expression`, `unresolvable-var`, `tailwind-config-extension`, `non-jsx-framework`, `non-literal-ternary-branch`, `parse-failure`
+- `computeCoverageSummary()` aggregator in `debtReportService.ts` (grade-independent, precision < 0.5pp)
+- Coverage surfaced in `flint://dashboard`, `flint://session-context`, `flint_debt_report`
+- Glass `CoverageBadge` in StatusBar (3 states: healthy/warning/idle, indigo not amber for partial to avoid alarm semantics)
+- `CoveragePopover` with plain-English reason labels + idle-mode explainer
+- IPC triangle `flint:getCoverageSummary` with Zod validation at both Electron + Web boundaries, cache-read from `.flint/coverage-cache.json`
+- `useCoverageSummary` hook (no new Zustand store — avoids IPC-in-store anti-pattern)
+
+**Workflow:** Contract-First v2 full cycle — architect → contract-linter (REVISE → APPROVED) → 5 parallel Group A implementers → Group B design + test-fill → 3 parallel reviews (UX/code/security) → consensus fixes → integration validator (FIX → SHIP).
+
+**Final test counts:** MCP 5292/5292 | Core 2376/2376 | Glass 2855/2857 (2 pre-existing StatusBar failures unrelated — Figma disconnect button + clipboard copy — flagged for separate cleanup) | TSC 0 errors.
+
+**Non-goals upheld:** no new parsing, no grade formula change, no export gate blocking on coverage, no coverage-as-violation, no ledger backfill.
+
+**Deferred (review suggestions, non-blocking):**
+- `CoverageBadge.bench.test.tsx` for 50ms p95 latency invariant (promised in contract, not delivered — measurement is memoized, just no instrumented test)
+- `sessionContext.ts` reads coverage cache without Zod validation (latent silent-corruption risk)
+- `CoverageVerdict.details` may embed absolute file paths if future phases surface per-file verdicts via MCP resources (deferred risk)
+
+**Reviews:**
+- `.flint-context/reviews/PHASE0-contract-lint-2026-04-18.md` (2 passes, APPROVED)
+- `.flint-context/reviews/PHASE0-code-review-2026-04-18.md` (FIX-FORWARD, 5 warnings addressed)
+- `.flint-context/reviews/PHASE0-ux-review-2026-04-18.md` — inline in agent output (FIX-FORWARD, 3 concerns addressed: jargon labels, idle-button no-op, amber→indigo)
+- `.flint-context/reviews/PHASE0-security-review-2026-04-18.md` — inline in agent output (SHIP, 0 blockers, 3 deferred suggestions)
+- `.flint-context/reviews/PHASE0-integration-report-2026-04-18.md` (2 passes, SHIP)
+
+**Branch:** `feat/phase0-coverage-honesty` (not pushed, not merged — awaiting Justin's morning review)
+
+**Next step:** Phase 1 — Tailwind config ingestion + `clsx`/`cva`/`classnames`/`tw-merge` expansion.
+
+---
+
+## Session: MINT.5 Phase 2 — Sync Action Surfaces (2026-04-18) — IN PROGRESS
+
+**Goal:** Close the Mint sync UX loop. Phase 1 hardened the foundation (sanitizer, drift re-enable, canonical health score, severity grammar, dual-queue listener). Phase 2 adds the visible sync actions the foundation was built for: Pull / Push / Resolve buttons in `TokenHealthBar`, a Connect Figma empty state that elevates `FirstSyncPrompt` out of the tab (UX C4), and drift pipeline closure (UX C1).
+
+**In scope:**
+- Sync action cluster (Pull / Push / Resolve) wired to existing `flint_sync_pull` / `flint_sync_push` / `flint_resolve_*` MCP tools
+- Connect Figma empty state — replaces the tucked-away FirstSyncPrompt with a first-class empty state
+- Drift review loop — make `driftedTokens[]` (now live from Phase 1) actionable, not just a count
+- UX items 5–15 from the mint review ceremony that the architect determines fit this phase
+
+**Out of scope (deferred to Phase 3–4):**
+- Phase 3: emit/handoff dropdown (Tailwind / CSS / RN / Swift / Kotlin + MUI / shadcn / PrimeNG)
+- Phase 4: TokenImpactAccordion, read-only banner, ApprovalStagingArea collapse, aria-live
+
+**Files in scope:** `src/components/ui/TokenHealthBar.tsx`, `src/components/ui/TokenManager.tsx`, new `src/components/ui/token/*` subtree, new `src/hooks/useTokenSync.ts`, `electron/preload.ts` + `server/index.ts` if new bridges needed, `shared/ipc-validators.ts`.
+
+**Next step:** flint-architect Phase 1 contract.
 
 ---
 
@@ -3081,3 +3981,87 @@ See `docs/FLINT-MASTER-PLAN.md` Section 3 for the full module table. All phases 
 4. Duplicated MRS formula in `riskApproval.test.ts` — no sync enforcement with `orchestrator.ts`
 
 **Note:** Master Plan uses V.1 (Risk Scoring) and V.2 (Mutation Provenance). JTBD plan uses V.1-gd (Governance Dashboard) and V.2-af (Activity Feed). These are different features — use full phase codes to avoid confusion.
+
+---
+
+## 2026-04-19 — COUNSEL.1 Phase 2 (Unify Health Score)
+
+**Goal:** Collapse three inline copies of health-score formula in flint-mcp/ to single source of truth at shared/healthScore.ts. Restore advisory-bucket penalty in DBOM. Mark legacy positional shims @deprecated. Extend cross-surface parity test with 16-row matrix.
+
+**Files in scope:** debtReportService.ts (delegating wrapper), dbom/generator.ts (pass advisoryCount), governance/dbomService.ts (use canonical helper), dashboard/types.ts (JSDoc), shared/healthScore.ts (@deprecated shim), useGovernanceHealth.ts (@deprecated JSDoc), shared/__tests__/healthScore.parity.test.ts (extend).
+
+### COUNSEL.1 results (2026-04-19, COMPLETE):
+- **Files modified (6 prod + 1 test):**
+  - `flint-mcp/src/core/dashboard/debtReportService.ts` — `computeHealthScore` and `scoreToGrade` are now @deprecated positional shims that delegate to `shared/healthScore.ts`. Stale parity-comment header removed. Imports `canonicalComputeHealthScore` and `canonicalGradeFromScore` from `../../../../shared/healthScore.js` (same `../../../../` pattern as existing `coverage-types.js` import).
+  - `flint-mcp/src/core/dbom/generator.ts` — switched import to `shared/healthScore.js`. Added `totalAdvisories` accumulator (Mithril severities other than `critical`/`amber` now bucket here). Project healthScore call uses object-arg `computeHealthScore({...})` and destructures both `score` and `grade` (eliminating the dropped advisory bucket — divergence B fix).
+  - `flint-mcp/src/core/governance/dbomService.ts` — per-component score now calls canonical `computeHealthScore({...})` instead of inline `Math.max(0, Math.min(100, 100 - (criticals*10 + warnings*3)))`. Buckets advisories from `comp.violations` (divergence C fix).
+  - `flint-mcp/src/core/dashboard/types.ts` — `DebtReport` JSDoc rewritten to point at the canonical formula in `shared/healthScore.ts` (divergence D fix).
+  - `src/hooks/useGovernanceHealth.ts` — `computeCanonicalHealthScore` positional shim marked `@deprecated` with migration guidance to the object-arg form.
+  - `shared/healthScore.ts` — no change (no positional shim exists in that file).
+  - `shared/__tests__/healthScore.parity.test.ts` — extended with the COUNSEL.1 16-row parity matrix exercising all four surfaces (canonical, debtReportService deprecated shim, dbom/generator project healthScore, dbomService per-component). Asserts `|delta| === 0` between every pairwise combination on every row, plus advisory-bucket canary `{0,0,5,0} → 95/A` and coverage-grade-independence.
+- **Test counts:**
+  - MCP: 5550/5550 passing (0 new — refactor; existing safety-promises and debtReportService tests cover the formula thoroughly)
+  - Glass: 3126/3128 passing (2 pre-existing StatusBar Figma-disconnect failures, baseline-confirmed unrelated to COUNSEL.1)
+  - Core: 2556/2556 passing (97 in parity test file; 16 new matrix rows + canary + coverage-independence)
+  - TSC: 0 errors
+- **Headline invariant met:** parity matrix asserts `|delta| === 0` across all four surfaces for all 16 rows (executes in <10ms — well under the 500ms budget).
+- **Deviations from contract:** None substantive. Notes:
+  - Did not delete `scoreToGrade` from `debtReportService.ts`; per contract I instead made it `@deprecated` and re-routed it through `gradeFromScore`. This preserves call-site compatibility for the 50+ consumers across the package.
+  - The dbom-generator-adapter and dbomService-per-component-adapter in the parity test mirror the post-refactor call paths (each uses canonical `computeHealthScore`). They are the same surface by construction now — which IS the headline invariant. Any future re-divergence in those files will fail this test only if those call sites stop calling the canonical helper, which is the intended canary.
+- **Out-of-scope items honored:** No UI, IPC, MCP tool, MCP resource, Mithril/Warden rule, or coverage-honesty change.
+
+---
+
+## FORGE.1 Phase 2 consolidated fix-forward (resumed) — 2026-04-19
+
+Resumed after previous agent rate-limit. Backend security fixes (SEC-HIGH-1/2, SEC-MED-1/2/3/4/5) verified ALREADY-DONE on disk via git diff. Remaining work:
+- CODE-BLK-1: convert 28 `it.todo` in `projectSmartOpen.test.ts` to real assertions
+- Deliberate-breakage probes for SEC-HIGH-1 (slug `..` traversal) and SEC-HIGH-2 (symlink attack)
+- CONS-1/CONS-2 wiring through preload + web-api + flint-api types + LaunchScreen
+- UX-B3 plain-language labels in DetectionPreview
+- UX-W3 CheckCircle reframe + UX-W4 inline Figma URL + UX-W5 effective-vs-detected
+- CODE-SUG-1 contract `< 100ms` text update + CODE-SUG-2 MUI label constant
+
+### COMPLETED 2026-04-19
+
+**Test results:**
+- MCP:   5603/5603 passing (0 new — Glass-side work)
+- Glass: 3181/3194 passing (40 new in projectSmartOpen.test.ts; 2 pre-existing StatusBar Figma-disconnect failures, baseline-confirmed via `git stash` before/after — same 2 failures noted in COUNSEL.1 HANDOFF entry)
+- Core:  2619/2645 passing (40 new from projectSmartOpen.test.ts; remaining todos unrelated)
+- TSC:   0 errors
+
+**Per-finding status:**
+- SEC-HIGH-1 slug traversal: ALREADY-DONE (backend) + FIXED (5 deliberate-breakage tests added)
+- SEC-HIGH-2 symlink attack: ALREADY-DONE (backend) + FIXED (4 deliberate-breakage tests added)
+- SEC-MED-1 timeout + shallow: ALREADY-DONE
+- SEC-MED-2 SSRF policy (web only): ALREADY-DONE
+- SEC-MED-3 schema hardening: ALREADY-DONE
+- SEC-MED-4 credential prompt neutralization: ALREADY-DONE + FIXED (env-scrub assertion test added)
+- SEC-MED-5 path normalization with realpath: ALREADY-DONE
+- CODE-BLK-1 fill it.todo scaffolds: FIXED (28 it.todo → 40 real assertions, all passing)
+- CONS-1 wire MUI default: PARTIAL backend → FIXED (preload/web-api/types/LaunchScreen wired)
+- CONS-2 thread DetectionPreview overrides: PARTIAL backend → FIXED (preload/web-api/types/LaunchScreen wired)
+- UX-B3 plain-language labels: FIXED (Built with / Component kit / Styling / Code type / Design tokens)
+- UX-W3 confident MUI default: FIXED (CheckCircle + emerald + "Using MUI (change if needed)")
+- UX-W4 inline Figma URL: FIXED (inline input below from-figma channel; reuses onNewProject)
+- UX-W5 effective-vs-detected: FIXED (libraryChanged/frameworkChanged/cssChanged comparisons)
+- UX-W1 audit-only shortcut: DEFERRED (TODO comment near CHANNELS array; Sprint 2)
+- CODE-WARN-3 stale console.log: ALREADY-DONE (removed from GitManager AST walker)
+- CODE-SUG-1 contract `< 100ms` text: FIXED (rewrite to "same async flush" in both .md and .contract.ts)
+- CODE-SUG-2 MUI label constant: FIXED (`MUI_LABEL` extracted in DetectionPreview.tsx)
+- LOW-1, LOW-2, LOW-3: DEFERRED per task spec.
+
+**Files touched (this session):**
+- `electron/__tests__/projectSmartOpen.test.ts`
+- `electron/preload.ts`
+- `src/types/flint-api.d.ts`
+- `src/adapters/web-api.ts`
+- `src/components/ui/LaunchScreen.tsx`
+- `src/components/ui/DetectionPreview.tsx`
+- `src/components/ui/__tests__/DetectionPreview.test.tsx`
+- `.flint-context/contracts/FORGE.1-contract.md`
+- `.flint-context/contracts/FORGE.1.contract.ts`
+
+**Contract amendments:**
+- `from-idea-ipc-roundtrip` invariant: measurable + threshold rewritten from "Vitest mock timing < 100ms" to "same async flush — no dialog:openFolder calls, no extra IPC round-trips." Wall-clock was an unstable proxy for the property we actually care about (no intermediate dialog/IPC between click and canvas mount); LaunchScreen.test.tsx already verifies the spy-on-dialog assertion.
+

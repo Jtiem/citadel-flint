@@ -40,6 +40,20 @@ export interface ValidateFilePathOptions {
    */
   allowedExtensions: readonly string[]
   /**
+   * Optional additional allowed root directories (absolute paths). A path that
+   * resolves under any of these roots passes the scope check even when it lives
+   * outside `homeDir`.
+   *
+   * Primary use case: `os.tmpdir()` for `beta:load-demo-project`, which
+   * extracts a demo project into a temp directory and then needs file:read
+   * access to the extracted files. The caller is responsible for passing
+   * `realpathSync(os.tmpdir())` if the platform symlinks tmp (macOS does:
+   * `/tmp` → `/private/var/folders/...`).
+   *
+   * Keep this list tight — each entry is an implicit privilege grant.
+   */
+  extraAllowedRoots?: readonly string[]
+  /**
    * Optional self-hosting guard.  Called with the resolved canonical path after
    * all other checks pass.  Throw to reject the path.
    *
@@ -57,7 +71,7 @@ export class FilePathValidationError extends Error {
 }
 
 export function validateFilePath(opts: ValidateFilePathOptions): string {
-  const { filePath, homeDir, allowedExtensions, selfHostCheck } = opts
+  const { filePath, homeDir, allowedExtensions, extraAllowedRoots, selfHostCheck } = opts
 
   if (typeof filePath !== 'string' || filePath.length === 0) {
     throw new FilePathValidationError('filePath must be a non-empty string')
@@ -92,7 +106,15 @@ export function validateFilePath(opts: ValidateFilePathOptions): string {
   // The path must be INSIDE the home directory — not the home directory itself.
   // Allowing the homeDir itself (`real === homeDir`) would let a caller read or
   // write the home dir as if it were a file, which is never valid.
-  if (!real.startsWith(homeSep)) {
+  // Alternatively, the path may live under one of the explicit extraAllowedRoots
+  // (typically os.tmpdir() for beta:load-demo-project).
+  const withinHome = real.startsWith(homeSep)
+  const withinExtraRoot = (extraAllowedRoots ?? []).some((root) => {
+    if (!root) return false
+    const rootSep = root.endsWith(path.sep) ? root : root + path.sep
+    return real === root || real.startsWith(rootSep)
+  })
+  if (!withinHome && !withinExtraRoot) {
     throw new FilePathValidationError(
       'path outside user home directory is not permitted'
     )

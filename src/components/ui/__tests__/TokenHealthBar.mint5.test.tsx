@@ -92,8 +92,8 @@ describe('MINT.5 — TokenHealthBar uses <SeverityChip> not ad-hoc colored spans
         render(<TokenHealthBar {...BASE_PROPS} health={makeHealth({ dead: 3 })} />)
         const chip = screen.getByTestId('health-chip-dead')
         expect(chip).toBeTruthy()
-        // advisory palette
-        expect(chip.className).toContain('zinc-400')
+        // GLASSTYPO.1: advisory text color migrated to --text-secondary CSS var
+        expect(chip.className).toContain('color:var(--text-secondary)')
         expect(chip.textContent).toContain('dead')
     })
 
@@ -117,7 +117,8 @@ describe('MINT.5 — TokenHealthBar uses <SeverityChip> not ad-hoc colored spans
         render(<TokenHealthBar {...BASE_PROPS} health={makeHealth({ scaleGaps: 4 })} />)
         const chip = screen.getByTestId('health-chip-scale-gaps')
         expect(chip).toBeTruthy()
-        expect(chip.className).toContain('zinc-400')
+        // GLASSTYPO.1: advisory text color migrated to --text-secondary CSS var
+        expect(chip.className).toContain('color:var(--text-secondary)')
         expect(chip.textContent).toContain('scale gap')
     })
 
@@ -149,7 +150,7 @@ describe('MINT.5 — TokenHealthBar drift pill migration (syncStatuses removal)'
         render(
             <TokenHealthBar
                 {...BASE_PROPS}
-                // @ts-expect-error - deprecated prop intentionally passed to verify it's ignored
+                // @ts-ignore - deprecated prop intentionally passed to verify it's ignored
                 syncStatuses={['drifted', 'drifted', 'drifted']}
                 health={makeHealth({ drifted: 0 })}
                 figmaConnected={true}
@@ -233,7 +234,6 @@ describe('MINT.5 — TokenGrid: dead-token badge uses SeverityChip severity="adv
     // align with the contract testBoundaries.
 
     it('contract boundary satisfied: dead badge class comes from advisory SeverityChip palette', async () => {
-        const { render: r, screen: s } = await import('@testing-library/react')
         const { UsageBadge } = await import('../TokenGrid').then(m => {
             // UsageBadge is not exported — verify via rendering the dead-token-badge
             return { UsageBadge: null }

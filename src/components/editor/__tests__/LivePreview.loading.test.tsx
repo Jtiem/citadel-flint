@@ -11,7 +11,7 @@
  *   GLASS.3.1D — "Quick Load" / "Load Demo" hidden in production
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { render, screen, act, waitFor, fireEvent } from '@testing-library/react'
 import { LivePreview } from '../LivePreview'
 import { useEditorStore } from '../../../store/editorStore'
@@ -444,7 +444,6 @@ describe('LivePreview — empty-source sentinel suppression', () => {
   })
 
   it('does not write srcdoc (no "No default export found." flash) for empty-source', async () => {
-    let iframeSrcdocWrites = 0
     ;(window as any).flintAPI.transformCode = vi.fn().mockResolvedValue({
       js: null,
       error: 'empty source',

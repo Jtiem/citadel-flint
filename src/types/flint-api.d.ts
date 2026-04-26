@@ -39,6 +39,7 @@ export interface ServerStatus {
 export type TokenType =
     | 'color'
     | 'dimension'
+    | 'fontSize'
     | 'fontFamily'
     | 'fontWeight'
     | 'lineHeight'
@@ -168,6 +169,24 @@ export interface TokensAPI {
 
     /** Deletes ALL tokens from the database. Returns the number of removed rows. */
     clearAll: () => Promise<{ changes: number }>
+
+    /**
+     * Reads `<projectRoot>/.flint/design-tokens.json` (or fallback
+     * `<projectRoot>/design-tokens.json`), flattens the W3C DTCG token tree,
+     * clears the existing token store, and seeds the project's tokens.
+     *
+     * Returns `source: 'project'` when a DTCG file was found and seeded, or
+     * `source: 'none'` when no file existed (the renderer should then fall
+     * back to baseline tokens via `seedTokens()`).
+     */
+    seedFromProject: (
+        projectRoot: string,
+    ) => Promise<{
+        seeded: number
+        source: 'project' | 'none'
+        sourcePath?: string
+        error?: string
+    }>
 
     /**
      * Removes the `component_overrides` row associated with `flintId`.
@@ -532,7 +551,7 @@ export interface ProjectAPI {
      *
      * One click → canvas. No dialogs.
      */
-    createScratchpad: () => Promise<FileTreeNode>
+    createScratchpad: (payload?: { libraryDefault?: string }) => Promise<FileTreeNode>
 
     /**
      * CK.3: Re-scans the active project for React components via Babel AST,
@@ -570,7 +589,13 @@ export interface ProjectAPI {
      * was detected) and flint_reindex_registry. All MCP calls are best-effort.
      * Returns { configured: false } when MCP is not connected or no project is open.
      */
-    autoConfigureProject: () => Promise<{ configured: boolean; library: string | null; reindexed: boolean }>
+    autoConfigureProject: (payload?: {
+        overrides?: {
+            framework?: string
+            componentLibrary?: string
+            cssFramework?: string
+        }
+    }) => Promise<{ configured: boolean; library: string | null; reindexed: boolean }>
 
     /**
      * FORGE.4b: Reads the cached debt snapshot for a project and returns
@@ -601,6 +626,27 @@ export interface ProjectAPI {
      * Returns an unsubscribe function for useEffect cleanup.
      */
     onBaselineProgress?: (callback: (data: { phase: string; percent: number }) => void) => () => void
+
+    /**
+     * FORGE.1: "Start from existing code" smart-open channel.
+     *
+     * Accepts either an absolute folder path or a git URL (https://, git@, ssh://).
+     * The main process heuristic-routes:
+     *   - git URL  → git clone via GitManager (Commandment 14) → detect environment
+     *   - folder   → detect environment directly
+     *
+     * The caller renders DetectionPreview from the returned environment before
+     * calling project:auto-configure to commit the configuration.
+     *
+     * @param input — Absolute folder path or git URL. Validated by projectSmartOpenSchema (min 1).
+     * @returns SmartOpenResult with projectPath, detected environment, and routing source.
+     */
+    smartOpen: (input: string) => Promise<{
+        projectPath: string
+        /** Full ProjectEnvironment — typed as unknown here; callers narrow at DetectionPreview boundary. */
+        environment: ProjectEnvironment
+        source: 'folder' | 'git-clone'
+    }>
 }
 
 /** IPC surface for native OS menu events pushed by the main process. */
@@ -910,10 +956,37 @@ export interface MCPEvent {
     filePath?: string
 }
 
+/**
+ * Discriminated union for MCP call result classification (MINT.5 Phase 3).
+ * Computed in `electron/mcpClient.ts` and `server/mcpClient.ts` before the
+ * result reaches any renderer consumer. Single source in `shared/mcp-classification.ts`.
+ *
+ * - `'auth-expired'`     — Figma OAuth token expired or revoked.
+ * - `'rate-limited'`     — Upstream API rate limit hit (429 / too many requests).
+ * - `'network-error'`    — Network unreachable, DNS failure, ECONNREFUSED.
+ * - `'tool-error'`       — Tool ran but returned isError=true with a domain message.
+ * - `'validation-error'` — Renderer preload Zod gate rejected the call (no IPC fired).
+ * - `'unknown'`          — No classifier matched, or the call succeeded.
+ */
+export type MCPCallClassification =
+    | 'auth-expired'
+    | 'rate-limited'
+    | 'network-error'
+    | 'tool-error'
+    | 'validation-error'
+    | 'unknown'
+
 /** Result of an MCP tool call — mirrors MCP CallToolResult schema. */
 export interface MCPCallResult {
     content: Array<{ type: string; text?: string }>
     isError?: boolean
+    /**
+     * Structured classification of the result (MINT.5 Phase 3).
+     * Optional so legacy code paths that haven't been updated degrade gracefully.
+     * Main process attaches `'unknown'` for success, a specific class for errors.
+     * Phase 4 will tighten this to required.
+     */
+    classification?: MCPCallClassification
 }
 
 /** Result of reading an MCP resource — mirrors MCP ReadResourceResult schema. */
@@ -1184,6 +1257,21 @@ export interface EnrichedContext extends FlintContext {
     activeOverrideCount: number
     /** ISO 8601 UTC timestamp of when this enriched snapshot was assembled. */
     enrichedAt: string
+
+    // ── RUNTIME.1: Feature flag surface ───────────────────────────────────────
+    //
+    // Session-context surface for feature flags. Piggybacks on the existing
+    // `flint_get_context` channel rather than adding a new IPC per flag
+    // (contract decision #7). Missing key → treated as false (safe default).
+    /**
+     * Feature flag payload. Each entry is read by a corresponding `use*Flag`
+     * hook in the renderer. Absence of a key is always treated as `false`
+     * to preserve the safe-default posture.
+     */
+    features?: {
+        /** RUNTIME.1 `runtime.axe.enabled` — hidden by default on first ship. */
+        runtimeAxeEnabled?: boolean
+    }
 }
 
 // ── Phase CV2.3: Component Cards on Canvas ────────────────────────────────────
@@ -1609,6 +1697,72 @@ export interface DesignToCodeAPI {
     apply: (request: D2CApplyRequest) => Promise<D2CApplyResult>
 }
 
+// ── Phase 0: Coverage Honesty types (renderer-side mirror of shared/coverage-types.ts) ─
+//
+// These are renderer-side mirrors of shared/coverage-types.ts. They must be
+// kept in sync manually — cross-boundary imports are prohibited in ambient
+// declaration files. If CoverageReason values are added to the shared type,
+// add them here too.
+
+/** Structured reason a file could not be fully governed. */
+export type CoverageReason =
+    | 'css-in-js-detected'
+    | 'external-stylesheet-imported'
+    | 'css-modules-reference'
+    | 'dynamic-class-expression'
+    | 'unresolvable-var'
+    | 'tailwind-config-extension'
+    | 'non-jsx-framework'
+    | 'non-literal-ternary-branch'
+
+/** Per-reason count map. Every CoverageReason key is present; absent reasons report 0. */
+export type SkippedFilesByReason = Record<CoverageReason, number>
+
+/**
+ * Aggregate coverage shape returned by `flint:getCoverageSummary`, the
+ * `flint_debt_report` MCP tool, `flint://dashboard`, and `flint://session-context`.
+ *
+ * Coverage is informational — it does NOT affect the A-F debt grade.
+ */
+export interface CoverageSummary {
+    /** Governed-surface percentage: (parsedFiles / totalFiles) * 100, rounded to 1 dp. */
+    governedSurfacePercent: number
+    /** Every file the classifier saw, regardless of outcome. */
+    totalFiles: number
+    /** Count of files with status === 'parsed'. */
+    parsedFiles: number
+    /** Count of files with status === 'partial'. */
+    partialFiles: number
+    /** Count of files with status === 'skipped-unsupported'. */
+    skippedFiles: number
+    /** Files that were partial OR skipped, grouped by primary reason. */
+    skippedFilesByReason: SkippedFilesByReason
+    /** ISO 8601 UTC timestamp the summary was generated. */
+    timestamp: string
+}
+
+// ── BETA.TEL: Telemetry Consent Types ────────────────────────────────────────
+
+/** Consent state machine — matches betaTelemetry.ts on the main process side. */
+export type ConsentState = 'unset' | 'accepted' | 'declined'
+
+/**
+ * Persisted consent record returned from `window.flintAPI.telemetry.getConsent()`.
+ * `state === 'unset'` means the user has never been prompted.
+ */
+export interface ConsentRecord {
+    state: ConsentState
+    /** ISO 8601; absent until the user accepts or declines. */
+    decidedAt?: string
+    /** UUID v4 — stable for the life of the install. */
+    sessionId: string
+}
+
+/** Payload for `window.flintAPI.telemetry.setConsent()`. */
+export interface TelemetrySetConsentPayload {
+    state: 'accepted' | 'declined'
+}
+
 export interface FlintAPI {
     /** Health-check: verifies the IPC flint is functional. */
     ping: () => Promise<string>
@@ -1788,7 +1942,7 @@ export interface FlintAPI {
      * Returns a chronological list of up to 50 shadow commits that have touched
      * `filePath` in the local git repository.
      *
-     * Used by `RecoveryPanel` to populate the file's Time Machine timeline.
+     * Used by future Command Palette Time Machine entry to populate the file's timeline.
      * Returns an empty array when the file is not tracked by git.
      */
     gitLog: (filePath: string) => Promise<GitLogEntry[]>
@@ -1911,7 +2065,7 @@ export interface FlintAPI {
 
     /**
      * Returns all unresolved deferred violations (resolved_at IS NULL).
-     * Used by GovernanceOverlay to show "Deferred" badges.
+     * Used by GovernanceDashboard to show "Deferred" badges.
      */
     getDeferredViolations?: () => Promise<DeferredViolationRow[]>
 
@@ -1919,6 +2073,30 @@ export interface FlintAPI {
      * Resolves a previously deferred violation by setting resolved_at.
      */
     resolveDeferredViolation?: (file: string, ruleId: string, nodeId?: string) => Promise<void>
+
+    // ── BETA.TEL: Telemetry Consent (BLK-3) ─────────────────────────────────
+
+    /**
+     * Telemetry consent API — read/write the user's opt-in decision.
+     *
+     * All consent operations go through IPC; the renderer never touches
+     * the userData/ directory directly (Commandment 14 / Bypass Prohibition).
+     *
+     * TelemetryConsentDialog calls `setConsent` on Accept/Decline.
+     * App.tsx calls `getConsent` on mount to decide whether to show the dialog.
+     */
+    telemetry: {
+        /**
+         * Returns the current consent record.
+         * `state === 'unset'` means the user has not yet been asked.
+         */
+        getConsent: () => Promise<ConsentRecord>
+        /**
+         * Persists the user's accept or decline decision.
+         * Returns the updated ConsentRecord with `decidedAt` stamped.
+         */
+        setConsent: (payload: TelemetrySetConsentPayload) => Promise<ConsentRecord>
+    }
 
     // ── Beta Distribution ────────────────────────────────────────────────────
 
@@ -2051,7 +2229,7 @@ export interface FlintAPI {
     /** Loads governance rule overrides from .flint/rule-overrides.json. */
     getRuleOverrides?: () => Promise<{ version: 1; rules: Record<string, unknown> } | null>
 
-    // ── ActivityFeed file navigation (optional) ──────────────────────────────
+    // ── MCP event listener file navigation (optional) ────────────────────────
 
     /** Opens a file in the host IDE / canvas. Optional. */
     openFile?: (filePath: string) => void
@@ -2105,6 +2283,85 @@ export interface FlintAPI {
      * gracefully.
      */
     rescanWorkspace?: () => Promise<FileTreeNode | null>
+
+    // ── Phase 0: Coverage Honesty ──────────────────────────────────────────────
+
+    /**
+     * Coverage observability API — returns the aggregate CoverageSummary for
+     * the current project. Consumed by the StatusBar CoverageBadge via the
+     * `useCoverageSummary` hook.
+     *
+     * The hook calls `getSummary()` on mount and on every `mcp-event` push
+     * message with `eventType === "debt-scan-complete"` (existing channel —
+     * no new IPC surface). Coverage is derived, not stored in Zustand.
+     *
+     * Until the real DebtReportService integration lands, returns a zero-state
+     * (totalFiles === 0, governedSurfacePercent === 0).
+     */
+    coverage: {
+        /**
+         * Returns the current CoverageSummary from the main-process
+         * DebtReportService. Channel: `flint:getCoverageSummary`.
+         * No payload. Response is Zod-validated at the IPC boundary.
+         */
+        getSummary: () => Promise<CoverageSummary>
+    }
+
+    /**
+     * RUNTIME.1 — axe-core Runtime Adapter surface.
+     *
+     * Exposes a single method for invoking the DOM-layer accessibility audit.
+     * The primary LivePreview CSP is NEVER modified by the sandbox; a separate
+     * BrowserWindow (Electron) or Playwright chromium page (web) hosts axe.
+     *
+     * The handler is always live regardless of the `runtime.axe.enabled`
+     * feature flag — only the UI surfaces (StatusBar pill + GovernanceDashboard
+     * accordion) are flag-gated on first ship.
+     *
+     * Contract:  .flint-context/contracts/RUNTIME.1-contract.md
+     * Validator: shared/ipc-validators.ts runtimeRunAxePayloadSchema
+     */
+    runtime: {
+        /**
+         * Run the axe-core DOM audit against a preview HTML document.
+         *
+         * @param request.previewHtml — full HTML document to audit. Empty string
+         *                              short-circuits to `{ status: 'no-preview' }`.
+         * @param request.previewUrl  — optional URL-ish string for logging. Never
+         *                              fetched — the sandbox has network blocked.
+         * @param request.rules       — optional axe rule-ID filter. When absent,
+         *                              runs all enabled rules from the bundled tag set.
+         */
+        runAxe: (request: {
+            previewHtml: string
+            previewUrl?: string
+            rules?: string[]
+        }) => Promise<{
+            status:
+                | 'idle'
+                | 'running'
+                | 'passed'
+                | 'violations'
+                | 'no-preview'
+                | 'version-mismatch'
+                | 'error'
+            timestamp: string
+            axeVersion: string
+            nodeCount: number
+            durationMs: number
+            violations: Array<{
+                ruleId: string
+                elementId: string
+                message: string
+                severity: 'critical' | 'warning' | 'info' | 'advisory'
+                wcag: string
+                fixable: boolean
+                explanation?: string
+                recovery?: string
+            }>
+            error?: { code: string; message: string }
+        }>
+    }
 }
 
 // ── Phase Q: Asset metadata types ─────────────────────────────────────────────
@@ -2142,6 +2399,7 @@ export type SourceAuthority =
     | 'SOC2'
     | 'FDA SaMD'
     | 'HIPAA'
+    | 'Section 508'
     | 'Flint Design System'
     | 'Custom'
 
@@ -2195,6 +2453,10 @@ export interface ProvenanceInfo {
     agentId?: string
     /** ISO timestamp of the mutation. */
     timestamp: string
+    /** Optional source file path for the mutation. */
+    filePath?: string
+    /** Optional rule identifier the mutation addressed. */
+    ruleId?: string
 }
 
 // ── COUNSEL.3.3: Anomaly Alert ──────────────────────────────────────────────

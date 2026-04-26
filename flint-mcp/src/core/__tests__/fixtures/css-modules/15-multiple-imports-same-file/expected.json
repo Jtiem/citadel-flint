@@ -1,0 +1,20 @@
+{
+  "imports": [
+    {
+      "bindingName": "layout",
+      "modulePath": "layout.module.css",
+      "resolved": true,
+      "failureReason": null,
+      "namedImports": [],
+      "classBindings_keys": ["grid", "sidebar", "main"]
+    },
+    {
+      "bindingName": "typo",
+      "modulePath": "typography.module.css",
+      "resolved": true,
+      "failureReason": null,
+      "namedImports": [],
+      "classBindings_keys": ["heading", "body", "caption"]
+    }
+  ]
+}

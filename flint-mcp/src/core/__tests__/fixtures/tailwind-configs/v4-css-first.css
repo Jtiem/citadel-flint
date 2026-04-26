@@ -1,0 +1,29 @@
+/* Tailwind v4 CSS-first @theme block.
+   This project has no tailwind.config.js — design tokens are declared
+   directly in CSS. The tailwindConfigLoader must detect this pattern
+   and return { ok: false, error: 'v4-css-first-unsupported' }.
+
+   Phase 2 will add a CSS parser to handle this format. */
+
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #0066cc;
+  --color-primary-dark: #004499;
+  --color-secondary: #6b7280;
+  --color-brand-accent: #f97316;
+
+  --font-family-sans: "Inter", sans-serif;
+  --font-size-2xs: 0.625rem;
+
+  --spacing-18: 4.5rem;
+  --spacing-gutter: 1.5rem;
+
+  --shadow-card: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+}
+
+@layer base {
+  body {
+    font-family: var(--font-family-sans);
+  }
+}

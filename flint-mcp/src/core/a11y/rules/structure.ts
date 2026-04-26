@@ -33,6 +33,7 @@ const rule008: A11yRule = {
     level: 'A',
     category: 'structure',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: table accessibility is component-safe
     description: '<table> elements must have an accessible summary.',
 
     visitElement(path, _context) {
@@ -71,6 +72,7 @@ const rule009: A11yRule = {
     level: 'A',
     category: 'structure',
     severity: 'critical',
+    appliesTo: 'document', // FIXTURE.1: <html lang> only exists in a full-page document
     description: '<html> must have a lang attribute.',
 
     visitElement(path, _context) {
@@ -125,6 +127,7 @@ const rule010: A11yRule = {
     level: 'A',
     category: 'structure',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: heading order can be checked within a component subtree
     description: 'Heading levels must not be skipped.',
 
     visitElement(path, context) {
@@ -167,6 +170,7 @@ const rule015: A11yRule = {
     level: 'A',
     category: 'structure',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: list structure is component-safe
     description: '<ul> and <ol> direct children must be <li> elements.',
 
     visitElement(path, _context) {
@@ -213,6 +217,7 @@ const rule016: A11yRule = {
     level: 'A',
     category: 'structure',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: dl structure is component-safe
     description: '<dl> direct children must be <dt> or <dd> elements.',
 
     visitElement(path, _context) {
@@ -259,6 +264,7 @@ const rule017: A11yRule = {
     level: 'A',
     category: 'structure',
     severity: 'critical',
+    appliesTo: 'document', // FIXTURE.1: single-h1 is a page-level document concern
     description: 'The page must have exactly one <h1> element.',
 
     auditDocument(context): A11yViolationDetail[] {
@@ -316,6 +322,7 @@ const rule101: A11yRule = {
     level: 'A',
     category: 'structure',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: dialog a11y is component-safe
     description:
         'Components classified as dialog/modal must have aria-modal="true" or role="dialog" ' +
         'to communicate their modal nature to assistive technologies.',
@@ -392,6 +399,7 @@ const rule102: A11yRule = {
     level: 'A',
     category: 'structure',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: nav-role on a component is component-safe
     description:
         'Components classified as navigation must use a <nav> element or role="navigation" ' +
         'to be identified as a navigation landmark by assistive technologies.',
@@ -454,6 +462,7 @@ const rule103: A11yRule = {
     level: 'A',
     category: 'structure',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: form landmark is component-safe
     description:
         'Components classified as forms must use a <form> element or role="form" ' +
         'to communicate form semantics to assistive technologies.',

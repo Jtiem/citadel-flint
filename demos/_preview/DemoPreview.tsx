@@ -1,10 +1,8 @@
 import React, { Component, useState } from 'react';
 import BannerCompliant from '../01-rag-ui-builder/banner-compliant';
 import BannerBroken from '../01-rag-ui-builder/banner-broken';
-import BuggyComponent from '../02-self-correcting/buggy-component';
 import DriftComponent from '../03-mithril-shadow-audit/drift-component';
 import ViolatingUX from '../04-sentinel/violating-ux';
-import LegacyDivs from '../05-semantic-refactor/legacy-divs';
 
 class DemoErrorBoundary extends Component<
   { name: string; children: React.ReactNode },
@@ -38,17 +36,6 @@ const bannerProps = {
   body: 'Ship AI-generated UI code with confidence. Flint enforces design systems, accessibility, and brand compliance at the AST level.',
   ctaText: 'Learn More',
   onCta: () => alert('CTA clicked'),
-};
-
-const dataTableProps = {
-  rows: [
-    { id: '1', name: 'Alice Johnson', status: 'active' as const, lastModified: '2024-03-15', owner: 'alice@acme.com' },
-    { id: '2', name: 'Bob Smith', status: 'pending' as const, lastModified: '2024-03-12', owner: 'bob@acme.com' },
-    { id: '3', name: 'Carol White', status: 'inactive' as const, lastModified: '2024-02-28', owner: 'carol@acme.com' },
-    { id: '4', name: 'Dave Brown', status: 'active' as const, lastModified: '2024-03-10', owner: 'dave@acme.com' },
-  ],
-  pageSize: 10,
-  onRowClick: (row: { name: string }) => alert(`Clicked: ${row.name}`),
 };
 
 // Drift component: featured Pro plan — always highlighted so drift colors are always visible.
@@ -109,18 +96,6 @@ const demos: DemoEntry[] = [
     ),
   },
   {
-    id: 'buggy',
-    label: 'Data Table (Buggy)',
-    badge: 'blocked',
-    render: () => (
-      <DemoErrorBoundary name="DataTable">
-        <div className="w-full max-w-2xl bg-white rounded-lg overflow-hidden">
-          <BuggyComponent {...dataTableProps} />
-        </div>
-      </DemoErrorBoundary>
-    ),
-  },
-  {
     id: 'drift',
     label: 'Pricing (Color Drift)',
     badge: 'blocked',
@@ -143,18 +118,6 @@ const demos: DemoEntry[] = [
       <DemoErrorBoundary name="ViolatingUX">
         <div className="w-full">
           <ViolatingUX />
-        </div>
-      </DemoErrorBoundary>
-    ),
-  },
-  {
-    id: 'legacy-divs',
-    label: 'Profile (Div Soup)',
-    badge: 'blocked',
-    render: () => (
-      <DemoErrorBoundary name="LegacyDivs">
-        <div className="w-full max-w-2xl">
-          <LegacyDivs />
         </div>
       </DemoErrorBoundary>
     ),

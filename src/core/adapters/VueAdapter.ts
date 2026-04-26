@@ -26,7 +26,7 @@
  * Renderer Process only — no Node.js imports.
  */
 
-import type { IFlintAdapter } from './types'
+import type { IFlintAdapter, BatchSideEffect } from './types'
 import type { ASTMutation, InverseMutation } from '../ASTService'
 import type { VisualLayer } from '../ast-parser'
 import {
@@ -265,7 +265,7 @@ export class VueAdapter implements IFlintAdapter {
     applyMutationBatch(
         code: string,
         mutations: ASTMutation[]
-    ): { code: string; inversions: InverseMutation[] } {
+    ): { code: string; inversions: InverseMutation[]; sideEffects: BatchSideEffect[] } {
         // Each mutation re-parses from the current (mutated) `code` so offsets
         // are always fresh. This is slightly less efficient but simpler and
         // correct for arbitrary batches.
@@ -478,7 +478,7 @@ export class VueAdapter implements IFlintAdapter {
             }
         }
 
-        return { code: current, inversions }
+        return { code: current, inversions, sideEffects: [] }
     }
 
     nodeExists(code: string, flintId: string): boolean {

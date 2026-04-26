@@ -64,7 +64,7 @@ describe('GovernanceDashboard — COUNSEL.4 Brilliant Moments', () => {
         useTokenStore.setState({ tokens: [], isLoading: false, error: null })
         useCanvasStore.setState({ mithrilViolations: [], a11yViolations: {}, overridesExist: false })
         useEditorStore.setState({ linterWarnings: new Map() })
-        ;(window.flintAPI as Record<string, unknown>).baseline = {
+        ;(window.flintAPI as unknown as Record<string, unknown>).baseline = {
             isSet: vi.fn().mockResolvedValue(false),
             get: vi.fn().mockResolvedValue([]),
             set: vi.fn().mockResolvedValue(undefined),
@@ -149,13 +149,13 @@ describe('GovernanceDashboard — COUNSEL.4 Brilliant Moments', () => {
 
     describe('COUNSEL.4.2 — Compliance Trajectory', () => {
         it('renders sparkline with trend label when 2+ health history entries exist', async () => {
-            ;(window.flintAPI.governance as Record<string, unknown>).getHealthHistory =
+            ;(window.flintAPI.governance as unknown as Record<string, unknown>).getHealthHistory =
                 vi.fn().mockResolvedValue([
                     { date: '2026-04-08T10:00:00Z', score: 70, grade: 'C' },
                     { date: '2026-04-09T10:00:00Z', score: 80, grade: 'B' },
                     { date: '2026-04-10T10:00:00Z', score: 90, grade: 'A' },
                 ])
-            ;(window.flintAPI.governance as Record<string, unknown>).recordHealth =
+            ;(window.flintAPI.governance as unknown as Record<string, unknown>).recordHealth =
                 vi.fn().mockResolvedValue(undefined)
             seedTokens([makeToken()])
             const w = makeLinterWarning({ id: 'spark-1' })
@@ -171,12 +171,12 @@ describe('GovernanceDashboard — COUNSEL.4 Brilliant Moments', () => {
         })
 
         it('shows "Stable" trend label when score delta is small', async () => {
-            ;(window.flintAPI.governance as Record<string, unknown>).getHealthHistory =
+            ;(window.flintAPI.governance as unknown as Record<string, unknown>).getHealthHistory =
                 vi.fn().mockResolvedValue([
                     { date: '2026-04-09T10:00:00Z', score: 85, grade: 'B' },
                     { date: '2026-04-10T10:00:00Z', score: 86, grade: 'B' },
                 ])
-            ;(window.flintAPI.governance as Record<string, unknown>).recordHealth =
+            ;(window.flintAPI.governance as unknown as Record<string, unknown>).recordHealth =
                 vi.fn().mockResolvedValue(undefined)
             seedTokens([makeToken()])
             const w = makeLinterWarning({ id: 'stable-1' })
@@ -189,7 +189,7 @@ describe('GovernanceDashboard — COUNSEL.4 Brilliant Moments', () => {
         })
 
         it('shows empty state message when no health history exists', async () => {
-            ;(window.flintAPI.governance as Record<string, unknown>).getHealthHistory =
+            ;(window.flintAPI.governance as unknown as Record<string, unknown>).getHealthHistory =
                 vi.fn().mockResolvedValue([])
             seedTokens([makeToken()])
             const w = makeLinterWarning({ id: 'empty-spark' })
@@ -198,7 +198,9 @@ describe('GovernanceDashboard — COUNSEL.4 Brilliant Moments', () => {
             await waitFor(() => {
                 expect(screen.getByTestId('sparkline-empty')).toBeTruthy()
             })
-            expect(screen.getByTestId('sparkline-empty').textContent).toContain('Tracking starts after first audit')
+            // GLASSTYPO.1: "Tracking starts after first audit" moved to MetadataTooltip (passive info).
+            // Inline text now reads "No history yet" — tooltip carries the explanation.
+            expect(screen.getByTestId('sparkline-empty').textContent).toContain('No history yet')
         })
     })
 
@@ -287,7 +289,7 @@ describe('GovernanceDashboard — COUNSEL.4 Brilliant Moments', () => {
 
     describe('COUNSEL.4.1 — Token Change Impact Preview', () => {
         it('shows token impact section in More Details when sync violations exist', async () => {
-            ;(window.flintAPI.governance as Record<string, unknown>).previewTokenImpact =
+            ;(window.flintAPI.governance as unknown as Record<string, unknown>).previewTokenImpact =
                 vi.fn().mockResolvedValue({ affectedFiles: 4, estimatedImpact: 'medium' })
             seedTokens([makeToken()])
             const syncWarning = makeLinterWarning({
@@ -304,7 +306,7 @@ describe('GovernanceDashboard — COUNSEL.4 Brilliant Moments', () => {
         })
 
         it('shows "Preview impact" button inside token impact accordion', async () => {
-            ;(window.flintAPI.governance as Record<string, unknown>).previewTokenImpact =
+            ;(window.flintAPI.governance as unknown as Record<string, unknown>).previewTokenImpact =
                 vi.fn().mockResolvedValue({ affectedFiles: 3, estimatedImpact: 'high' })
             seedTokens([makeToken()])
             const syncWarning = makeLinterWarning({
@@ -327,7 +329,7 @@ describe('GovernanceDashboard — COUNSEL.4 Brilliant Moments', () => {
         })
 
         it('token impact text mentions Mithril violations and file count', async () => {
-            ;(window.flintAPI.governance as Record<string, unknown>).previewTokenImpact =
+            ;(window.flintAPI.governance as unknown as Record<string, unknown>).previewTokenImpact =
                 vi.fn().mockResolvedValue({ affectedFiles: 5, estimatedImpact: 'high' })
             seedTokens([makeToken()])
             const syncWarning = makeLinterWarning({
@@ -361,7 +363,7 @@ describe('GovernanceDashboard — COUNSEL.4 Brilliant Moments', () => {
             // still calls refresh() lazily on first open, but the override map
             // needs the data eagerly. One mount-time fetch is expected.
             const mockGetAuditLog = vi.fn().mockResolvedValue([])
-            ;(window.flintAPI.governance as Record<string, unknown>).getAuditLog = mockGetAuditLog
+            ;(window.flintAPI.governance as unknown as Record<string, unknown>).getAuditLog = mockGetAuditLog
             seedTokens([makeToken()])
             render(<GovernanceDashboard />)
             await waitFor(() => {
@@ -378,7 +380,7 @@ describe('GovernanceDashboard — COUNSEL.4 Brilliant Moments', () => {
             const mockGetAuditLog = vi.fn().mockResolvedValue([
                 { id: 1, timestamp: '2026-04-10T12:00:00Z', action: 'audit', filePath: '/src/App.tsx', description: 'Ran audit' },
             ])
-            ;(window.flintAPI.governance as Record<string, unknown>).getAuditLog = mockGetAuditLog
+            ;(window.flintAPI.governance as unknown as Record<string, unknown>).getAuditLog = mockGetAuditLog
             seedTokens([makeToken()])
             const w = makeLinterWarning({ id: 'log-1' })
             useEditorStore.setState({ linterWarnings: new Map([['log-1', w]]) })
@@ -397,7 +399,7 @@ describe('GovernanceDashboard — COUNSEL.4 Brilliant Moments', () => {
                 { id: 1, timestamp: '2026-04-10T12:00:00Z', action: 'fix', filePath: '/src/App.tsx', description: 'Fixed color drift' },
                 { id: 2, timestamp: '2026-04-10T11:00:00Z', action: 'audit', filePath: '/src/Btn.tsx', description: 'Ran governance audit' },
             ]
-            ;(window.flintAPI.governance as Record<string, unknown>).getAuditLog =
+            ;(window.flintAPI.governance as unknown as Record<string, unknown>).getAuditLog =
                 vi.fn().mockResolvedValue(entries)
             seedTokens([makeToken()])
             const w = makeLinterWarning({ id: 'log-icon-1' })
@@ -413,7 +415,7 @@ describe('GovernanceDashboard — COUNSEL.4 Brilliant Moments', () => {
         })
 
         it('shows empty state when no audit events exist', async () => {
-            ;(window.flintAPI.governance as Record<string, unknown>).getAuditLog =
+            ;(window.flintAPI.governance as unknown as Record<string, unknown>).getAuditLog =
                 vi.fn().mockResolvedValue([])
             seedTokens([makeToken()])
             const w = makeLinterWarning({ id: 'log-empty-1' })
@@ -437,7 +439,7 @@ describe('GovernanceDashboard — COUNSEL.4 Brilliant Moments', () => {
                 filePath: `/src/File${i}.tsx`,
                 description: `Audit event ${i + 1}`,
             }))
-            ;(window.flintAPI.governance as Record<string, unknown>).getAuditLog =
+            ;(window.flintAPI.governance as unknown as Record<string, unknown>).getAuditLog =
                 vi.fn().mockResolvedValue(entries)
             seedTokens([makeToken()])
             const w = makeLinterWarning({ id: 'log-more-1' })
@@ -455,7 +457,7 @@ describe('GovernanceDashboard — COUNSEL.4 Brilliant Moments', () => {
             const entries = [
                 { id: 1, timestamp: '2026-04-10T12:00:00Z', action: 'fix', filePath: '/src/App.tsx', description: 'Fixed issue' },
             ]
-            ;(window.flintAPI.governance as Record<string, unknown>).getAuditLog =
+            ;(window.flintAPI.governance as unknown as Record<string, unknown>).getAuditLog =
                 vi.fn().mockResolvedValue(entries)
             seedTokens([makeToken()])
             const w = makeLinterWarning({ id: 'log-nomore-1' })

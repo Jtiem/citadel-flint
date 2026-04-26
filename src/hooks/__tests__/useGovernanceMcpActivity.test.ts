@@ -15,7 +15,7 @@
 import { describe, it, expect } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { useGovernanceMcpActivity } from '../useGovernanceMcpActivity'
-import { useNotificationStore } from '../../store/notificationStore'
+import { useNotificationStore, type Notification } from '../../store/notificationStore'
 
 type NotificationType = 'mutation' | 'violation' | 'sync' | 'error' | 'info'
 
@@ -29,7 +29,7 @@ interface MockNotification {
 }
 
 function seedHistory(notifications: MockNotification[]) {
-    useNotificationStore.setState({ history: notifications })
+    useNotificationStore.setState({ history: notifications as unknown as Notification[] })
 }
 
 describe('useGovernanceMcpActivity', () => {
@@ -122,7 +122,7 @@ describe('useGovernanceMcpActivity', () => {
         act(() => {
             useNotificationStore.setState({
                 history: [
-                    { id: 'new-1', type: 'mutation', title: 'New fix', message: 'A fix was applied', severity: 'info' },
+                    { id: 'new-1', type: 'mutation', title: 'New fix', message: 'A fix was applied', severity: 'info', autoDismissMs: 0, timestamp: Date.now() },
                 ],
             })
         })

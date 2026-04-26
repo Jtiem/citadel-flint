@@ -171,10 +171,25 @@ function generateId(): string {
 
 export class AnomalyDetectionService {
     private readonly db: Database.Database
+    private readonly stmtInsertAnomaly: ReturnType<Database.Database['prepare']>
+    private readonly stmtGetHistory: ReturnType<Database.Database['prepare']>
 
     constructor(db: Database.Database) {
         this.db = db
         this.db.exec(INIT_SQL)
+        this.stmtInsertAnomaly = this.db.prepare(`
+            INSERT INTO anomaly_history (
+                id, type, severity, detected_at, observed_value,
+                baseline_mean, baseline_stddev, threshold, message,
+                project_root, agent_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `)
+        this.stmtGetHistory = this.db.prepare(`
+            SELECT * FROM anomaly_history
+            WHERE project_root = ?
+            ORDER BY detected_at DESC
+            LIMIT ?
+        `)
     }
 
     // -------------------------------------------------------------------------
@@ -356,15 +371,7 @@ export class AnomalyDetectionService {
      * @param limit        Maximum rows (default: 50).
      */
     getAnomalyHistory(projectRoot: string, limit = 50): Anomaly[] {
-        const rows = this.db
-            .prepare(`
-                SELECT * FROM anomaly_history
-                WHERE project_root = ?
-                ORDER BY detected_at DESC
-                LIMIT ?
-            `)
-            .all(projectRoot, limit) as AnomalyRow[]
-
+        const rows = this.stmtGetHistory.all([projectRoot, limit]) as AnomalyRow[]
         return rows.map(rowToAnomaly)
     }
 
@@ -398,13 +405,7 @@ export class AnomalyDetectionService {
     }
 
     private persistAnomaly(anomaly: Anomaly): void {
-        this.db.prepare(`
-            INSERT INTO anomaly_history (
-                id, type, severity, detected_at, observed_value,
-                baseline_mean, baseline_stddev, threshold, message,
-                project_root, agent_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
+        this.stmtInsertAnomaly.run([
             anomaly.id,
             anomaly.type,
             anomaly.severity,
@@ -416,7 +417,7 @@ export class AnomalyDetectionService {
             anomaly.message,
             anomaly.projectRoot,
             anomaly.agentId,
-        )
+        ])
     }
 
     private getDailyCounts(

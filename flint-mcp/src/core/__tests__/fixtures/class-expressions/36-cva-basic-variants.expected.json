@@ -1,0 +1,8 @@
+[
+  {
+    "utility": "cva",
+    "definite": ["rounded-md", "px-4", "py-2"],
+    "possible": ["bg-primary-500", "text-white", "bg-gray-500"],
+    "unresolvable": false
+  }
+]

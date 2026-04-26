@@ -165,7 +165,7 @@ export async function tryAutoResume(deps: AutoResumeDeps): Promise<void> {
         // File gone, IPC unavailable, or self-hosting guard threw.
         // Show a toast so the user knows why their file didn't reopen,
         // then clear the stale entry and continue.
-        const code = (err as NodeJS.ErrnoException)?.code ?? 'unknown'
+        const code = (err as { code?: string })?.code ?? 'unknown'
         console.warn('[Flint] tryAutoResume: lastActiveFile no longer accessible:', code)
 
         // Retrieve lastFile for the toast basename — re-read from store.

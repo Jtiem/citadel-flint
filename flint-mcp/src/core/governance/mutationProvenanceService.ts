@@ -5,7 +5,7 @@
  *   - 'human'     — direct Flint Glass UI interaction
  *   - 'agent'     — AI agent via flint_ast_mutate MCP tool
  *   - 'auto-heal' — IngestionAuditor tier-1 heal pass
- *   - 'auto-fix'  — flint_fix tool or GovernanceOverlay auto-fix
+ *   - 'auto-fix'  — flint_fix tool or GovernanceDashboard auto-fix
  *   - 'import'    — bulk import / scaffolding operation
  *
  * Uses better-sqlite3 (synchronous API). Constructor accepts a Database
@@ -113,10 +113,66 @@ const ALL_SOURCES: ProvenanceSource[] = ['human', 'agent', 'auto-heal', 'auto-fi
 
 export class MutationProvenanceService {
     private readonly db: Database.Database
+    private readonly stmtInsert: ReturnType<Database.Database['prepare']>
+    private readonly stmtGetOne: ReturnType<Database.Database['prepare']>
+    private readonly stmtGetBySource: ReturnType<Database.Database['prepare']>
+    private readonly stmtTotal: ReturnType<Database.Database['prepare']>
+    private readonly stmtBySource: ReturnType<Database.Database['prepare']>
+    private readonly stmtLast24h: ReturnType<Database.Database['prepare']>
+    private readonly stmtTopAgents: ReturnType<Database.Database['prepare']>
+    private readonly stmtPrune: ReturnType<Database.Database['prepare']>
 
     constructor(db: Database.Database) {
         this.db = db
         this.db.exec(INIT_SQL)
+        this.stmtInsert = this.db.prepare(`
+            INSERT INTO mutation_provenance (
+                mutation_id,
+                timestamp,
+                provenance_source,
+                provenance_agent_id,
+                provenance_session_id,
+                provenance_reasoning,
+                provenance_confidence
+            ) VALUES (
+                ?,
+                COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                ?, ?, ?, ?, ?
+            )
+        `)
+        this.stmtGetOne = this.db.prepare(
+            'SELECT * FROM mutation_provenance WHERE mutation_id = ?',
+        )
+        this.stmtGetBySource = this.db.prepare(`
+            SELECT * FROM mutation_provenance
+            WHERE provenance_source = ?
+            ORDER BY timestamp DESC
+            LIMIT ?
+        `)
+        this.stmtTotal = this.db.prepare(
+            'SELECT COUNT(*) AS cnt FROM mutation_provenance',
+        )
+        this.stmtBySource = this.db.prepare(`
+            SELECT provenance_source, COUNT(*) AS cnt
+            FROM mutation_provenance
+            GROUP BY provenance_source
+        `)
+        this.stmtLast24h = this.db.prepare(`
+            SELECT COUNT(*) AS cnt
+            FROM mutation_provenance
+            WHERE timestamp >= ?
+        `)
+        this.stmtTopAgents = this.db.prepare(`
+            SELECT provenance_agent_id, COUNT(*) AS cnt
+            FROM mutation_provenance
+            WHERE provenance_agent_id IS NOT NULL
+            GROUP BY provenance_agent_id
+            ORDER BY cnt DESC
+            LIMIT 5
+        `)
+        this.stmtPrune = this.db.prepare(
+            'DELETE FROM mutation_provenance WHERE timestamp < ?',
+        )
     }
 
     // -------------------------------------------------------------------------
@@ -143,21 +199,7 @@ export class MutationProvenanceService {
         confidence?: number | null,
         timestamp?: string,
     ): void {
-        this.db.prepare(`
-            INSERT INTO mutation_provenance (
-                mutation_id,
-                timestamp,
-                provenance_source,
-                provenance_agent_id,
-                provenance_session_id,
-                provenance_reasoning,
-                provenance_confidence
-            ) VALUES (
-                ?,
-                COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-                ?, ?, ?, ?, ?
-            )
-        `).run(
+        this.stmtInsert.run([
             mutationId,
             timestamp ?? null,
             source,
@@ -165,7 +207,7 @@ export class MutationProvenanceService {
             sessionId ?? null,
             reasoning ?? null,
             confidence ?? null,
-        )
+        ])
     }
 
     /**
@@ -183,26 +225,10 @@ export class MutationProvenanceService {
             timestamp?: string
         }>,
     ): void {
-        const stmt = this.db.prepare(`
-            INSERT INTO mutation_provenance (
-                mutation_id,
-                timestamp,
-                provenance_source,
-                provenance_agent_id,
-                provenance_session_id,
-                provenance_reasoning,
-                provenance_confidence
-            ) VALUES (
-                ?,
-                COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-                ?, ?, ?, ?, ?
-            )
-        `)
-
         const insertMany = this.db.transaction(
             (rows: typeof entries) => {
                 for (const row of rows) {
-                    stmt.run(
+                    this.stmtInsert.run([
                         row.mutationId,
                         row.timestamp ?? null,
                         row.source,
@@ -210,7 +236,7 @@ export class MutationProvenanceService {
                         row.sessionId ?? null,
                         row.reasoning ?? null,
                         row.confidence ?? null,
-                    )
+                    ])
                 }
             },
         )
@@ -227,10 +253,7 @@ export class MutationProvenanceService {
      * Returns null if no provenance has been recorded for that mutationId.
      */
     getProvenance(mutationId: string): MutationProvenance | null {
-        const row = this.db
-            .prepare('SELECT * FROM mutation_provenance WHERE mutation_id = ?')
-            .get(mutationId) as ProvenanceRow | undefined
-
+        const row = this.stmtGetOne.get(mutationId) as ProvenanceRow | undefined
         return row !== undefined ? rowToProvenance(row) : null
     }
 
@@ -244,15 +267,7 @@ export class MutationProvenanceService {
      * @param limit   Maximum rows to return (default: 100).
      */
     getProvenanceBySource(source: ProvenanceSource, limit = 100): MutationProvenance[] {
-        const rows = this.db
-            .prepare(`
-                SELECT * FROM mutation_provenance
-                WHERE provenance_source = ?
-                ORDER BY timestamp DESC
-                LIMIT ?
-            `)
-            .all(source, limit) as ProvenanceRow[]
-
+        const rows = this.stmtGetBySource.all([source, limit]) as ProvenanceRow[]
         return rows.map(rowToProvenance)
     }
 
@@ -268,20 +283,10 @@ export class MutationProvenanceService {
      *   - top-5 agent IDs by mutation volume
      */
     getProvenanceSummary(): ProvenanceSummary {
-        // Total count
-        const totalRow = this.db
-            .prepare('SELECT COUNT(*) AS cnt FROM mutation_provenance')
-            .get() as { cnt: number }
+        const totalRow = this.stmtTotal.get([]) as { cnt: number }
         const total = totalRow.cnt
 
-        // Count by source
-        const sourceRows = this.db
-            .prepare(`
-                SELECT provenance_source, COUNT(*) AS cnt
-                FROM mutation_provenance
-                GROUP BY provenance_source
-            `)
-            .all() as Array<{ provenance_source: string; cnt: number }>
+        const sourceRows = this.stmtBySource.all([]) as Array<{ provenance_source: string; cnt: number }>
 
         const bySource: Record<ProvenanceSource, number> = {
             human: 0,
@@ -297,28 +302,11 @@ export class MutationProvenanceService {
             }
         }
 
-        // Last 24 hours
         const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
-        const last24hRow = this.db
-            .prepare(`
-                SELECT COUNT(*) AS cnt
-                FROM mutation_provenance
-                WHERE timestamp >= ?
-            `)
-            .get(since24h) as { cnt: number }
+        const last24hRow = this.stmtLast24h.get([since24h]) as { cnt: number }
         const last24hCount = last24hRow.cnt
 
-        // Top 5 agents (exclude null agent_id)
-        const agentRows = this.db
-            .prepare(`
-                SELECT provenance_agent_id, COUNT(*) AS cnt
-                FROM mutation_provenance
-                WHERE provenance_agent_id IS NOT NULL
-                GROUP BY provenance_agent_id
-                ORDER BY cnt DESC
-                LIMIT 5
-            `)
-            .all() as Array<{ provenance_agent_id: string; cnt: number }>
+        const agentRows = this.stmtTopAgents.all([]) as Array<{ provenance_agent_id: string; cnt: number }>
 
         const topAgents = agentRows.map((row) => ({
             agentId: row.provenance_agent_id,
@@ -389,9 +377,7 @@ export class MutationProvenanceService {
      * (ISO 8601 UTC). Returns the number of rows deleted.
      */
     pruneProvenance(olderThan: string): number {
-        const result = this.db
-            .prepare('DELETE FROM mutation_provenance WHERE timestamp < ?')
-            .run(olderThan)
+        const result = this.stmtPrune.run(olderThan)
         return result.changes
     }
 }

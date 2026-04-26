@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { BRAND, ipcChannel } from '../shared/brand.ts'
+import { validateIPC, mcpCallToolSchema, validateMcpToolArgs, projectSmartOpenSchema, telemetrySetConsentPayloadSchema, telemetryGetConsentResponseSchema } from '../shared/ipc-validators.ts'
 
 /**
  * The Preload Flint — all communication between the React Renderer
@@ -129,6 +130,17 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
         /** Deletes ALL tokens from the database. Returns the number of removed rows. */
         clearAll: (): Promise<{ changes: number }> =>
             ipcRenderer.invoke('tokens:clear-all'),
+
+        /**
+         * Reads <projectRoot>/.flint/design-tokens.json (or fallback
+         * <projectRoot>/design-tokens.json), flattens DTCG, clears the store, and
+         * seeds. Returns { seeded, source, sourcePath?, error? } so the renderer
+         * can fall back to baseline tokens when source==='none'.
+         */
+        seedFromProject: (
+            projectRoot: string,
+        ): Promise<{ seeded: number; source: 'project' | 'none'; sourcePath?: string; error?: string }> =>
+            ipcRenderer.invoke('tokens:seed-from-project', projectRoot),
 
         /**
          * Removes the `component_overrides` row associated with `flintId`.
@@ -504,10 +516,10 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
          * with no folder picker dialog. Returns the FileTreeNode tree rooted
          * at the new project directory.
          */
-        createScratchpad: (): Promise<{
+        createScratchpad: (payload?: { libraryDefault?: string }): Promise<{
             name: string; path: string; type: 'file' | 'directory'; children?: unknown[]
         }> =>
-            ipcRenderer.invoke('project:create-scratchpad'),
+            ipcRenderer.invoke('project:create-scratchpad', payload),
 
         /**
          * CK.3: Re-scans the active project for React components, merges the
@@ -533,8 +545,14 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
          * flint_set_library (if a library was detected) and flint_reindex_registry.
          * All MCP calls are best-effort. Returns whether configuration succeeded.
          */
-        autoConfigureProject: (): Promise<{ configured: boolean; library: string | null; reindexed: boolean }> =>
-            ipcRenderer.invoke('project:auto-configure'),
+        autoConfigureProject: (payload?: {
+            overrides?: {
+                framework?: string
+                componentLibrary?: string
+                cssFramework?: string
+            }
+        }): Promise<{ configured: boolean; library: string | null; reindexed: boolean }> =>
+            ipcRenderer.invoke('project:auto-configure', payload),
 
         /**
          * FORGE.4b: Reads the cached debt snapshot for a project and returns
@@ -567,6 +585,29 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
                 ipcRenderer.removeListener('project:baseline-progress', listener)
             }
         },
+
+        /**
+         * FORGE.1: "Start from existing code" channel.
+         *
+         * Accepts either an absolute folder path or a git URL (https://, git@, ssh://).
+         * The main process heuristic-routes:
+         *   - git URL → git clone via GitManager (Commandment 14) → detect
+         *   - folder path → detect directly
+         *
+         * Returns the resolved project path, the detected ProjectEnvironment,
+         * and a `source` field indicating which routing path was taken.
+         *
+         * Payload is validated against `projectSmartOpenSchema` (z.object({ input: z.string().min(1) }))
+         * before the IPC call is made.
+         */
+        smartOpen: (input: string): Promise<{
+            projectPath: string
+            environment: unknown
+            source: 'folder' | 'git-clone'
+        }> => {
+            projectSmartOpenSchema.parse({ input })
+            return ipcRenderer.invoke('project:smart-open', { input })
+        },
     },
 
     /**
@@ -597,7 +638,7 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
      * `filePath` in the local git repository. Each entry exposes the abbreviated
      * hash, the commit message, and a Unix timestamp (seconds since epoch).
      *
-     * Used by RecoveryPanel to populate the file's Time Machine timeline.
+     * Used by future Command Palette Time Machine entry to populate the file's timeline.
      *
      * Returns an empty array when the file is not tracked by git or the repo
      * does not exist yet.
@@ -794,8 +835,32 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
      *   renderer → preload → main → mcpClient → stdio → MCP server child process
      */
     mcp: {
-        callTool: (name: string, args: Record<string, unknown>): Promise<unknown> =>
-            ipcRenderer.invoke('mcp:call-tool', name, args),
+        callTool: (name: string, args: Record<string, unknown>): Promise<unknown> => {
+            // MINT.5 Phase 2 consensus FIX-4 (Security WARN-1):
+            // Validate the [name, args] tuple against mcpCallToolSchema at the
+            // preload bridge — Design by Contract at the process boundary.
+            // On validation failure we throw a SANITIZED message (no Zod
+            // internals leaked) because the error flows into user-visible
+            // toasts via useSyncActions.
+            try {
+                validateIPC('mcp:call-tool', [name, args], mcpCallToolSchema)
+            } catch {
+                throw new Error('Invalid MCP tool call — request rejected by the Glass sandbox.')
+            }
+
+            // MINT.5 Phase 3 — per-tool argument validation gate (W5 helper).
+            // Single source of truth: validateMcpToolArgs() lives in
+            // shared/ipc-validators.ts and is consumed identically here and in
+            // server/index.ts. On validation failure we short-circuit with the
+            // validation-error envelope — ipcRenderer.invoke is NOT called
+            // (invariant: validation-gate-zero-network).
+            const gateResult = validateMcpToolArgs(name, args)
+            if (!gateResult.ok) {
+                return Promise.resolve(gateResult.envelope)
+            }
+
+            return ipcRenderer.invoke('mcp:call-tool', name, args)
+        },
 
         readResource: (uri: string): Promise<unknown> =>
             ipcRenderer.invoke('mcp:read-resource', uri),
@@ -1596,4 +1661,48 @@ contextBridge.exposeInMainWorld(BRAND.apiName, {
      */
     rescanWorkspace: (): Promise<unknown> =>
         ipcRenderer.invoke('workspace:rescan'),
+
+    // ── Phase 0: Coverage Honesty ────────────────────────────────────────────
+
+    /**
+     * Returns the aggregate CoverageSummary for the current project.
+     *
+     * The StatusBar CoverageBadge calls this on mount and on every
+     * `mcp-event` push message with `eventType === "debt-scan-complete"`.
+     * Until the DebtReportService integration lands, the handler returns a
+     * zero-state summary (totalFiles === 0, governedSurfacePercent === 0).
+     *
+     * No payload required — the main process owns the current project root.
+     */
+    coverage: {
+        getSummary: (): Promise<import('../shared/coverage-types.ts').CoverageSummary> =>
+            ipcRenderer.invoke('flint:getCoverageSummary'),
+    },
+
+    // ── BETA.TEL: Telemetry Consent (BLK-3) ──────────────────────────────────
+    //
+    // All consent reads/writes go through this surface — the renderer never
+    // touches userData/ directly (Commandment 14 / Bypass Prohibition).
+    // Zod validators applied at the bridge (Commandment 16 / v2.1 hardening).
+
+    telemetry: {
+        /**
+         * Returns the current consent record without mutation.
+         * `state: 'unset'` means the user has never been asked.
+         */
+        getConsent: async (): Promise<{ state: 'unset' | 'accepted' | 'declined'; decidedAt?: string; sessionId: string }> => {
+            const raw = await ipcRenderer.invoke('telemetry:get-consent')
+            return telemetryGetConsentResponseSchema.parse(raw)
+        },
+
+        /**
+         * Persists an accept/decline decision and returns the updated record.
+         * Zod validates the payload before it crosses the process boundary.
+         */
+        setConsent: async (payload: { state: 'accepted' | 'declined' }): Promise<{ state: 'unset' | 'accepted' | 'declined'; decidedAt?: string; sessionId: string }> => {
+            const validated = telemetrySetConsentPayloadSchema.parse(payload)
+            const raw = await ipcRenderer.invoke('telemetry:set-consent', validated)
+            return telemetryGetConsentResponseSchema.parse(raw)
+        },
+    },
 })

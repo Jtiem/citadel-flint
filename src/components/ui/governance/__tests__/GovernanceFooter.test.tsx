@@ -35,7 +35,9 @@ describe('GovernanceFooter', () => {
         render(
             <GovernanceFooter visible={true} onManageRules={onManageRules} />
         )
-        fireEvent.click(screen.getByTestId('manage-rules-link'))
+        // Click the button inside the testid wrapper (FooterLink renders a <button>)
+        const wrapper = screen.getByTestId('manage-rules-link')
+        fireEvent.click(wrapper.querySelector('button') ?? wrapper)
         expect(onManageRules).toHaveBeenCalledOnce()
     })
 
@@ -51,7 +53,8 @@ describe('GovernanceFooter', () => {
         render(
             <GovernanceFooter visible={true} onPolicySettings={onPolicySettings} />
         )
-        fireEvent.click(screen.getByTestId('policy-settings-link'))
+        const wrapper = screen.getByTestId('policy-settings-link')
+        fireEvent.click(wrapper.querySelector('button') ?? wrapper)
         expect(onPolicySettings).toHaveBeenCalledOnce()
     })
 

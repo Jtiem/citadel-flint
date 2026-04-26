@@ -24,7 +24,7 @@
  * Additional read-oriented / report-generation tools included because
  * Glass panels legitimately invoke them:
  *   - flint_status: health check for status indicators
- *   - flint_audit: governance audit (GovernanceOverlay, ExportModal pre-flight)
+ *   - flint_audit: governance audit (GovernanceDashboard, ExportModal pre-flight)
  *   - flint_debt_report: health score (GovernanceDashboard)
  *   - flint_query_registry: component search (Asset Management Hub)
  *   - flint_accessibility_report: VPAT report (ExportModal compliance section)

@@ -1,0 +1,8 @@
+[
+  {
+    "utility": "clsx",
+    "definite": ["panel"],
+    "possible": ["panel-hidden"],
+    "unresolvable": false
+  }
+]

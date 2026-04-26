@@ -63,9 +63,9 @@ describe('GovernanceDashboard — Actionable (GLASS.1e)', () => {
             rightTab: 'governance',
         })
         // Mock baseline API as undefined (not available in test environment)
-        ;(window.flintAPI as Record<string, unknown>).baseline = undefined
+        ;(window.flintAPI as unknown as Record<string, unknown>).baseline = undefined
         // Mock MCP API
-        ;(window.flintAPI as Record<string, unknown>).mcp = {
+        ;(window.flintAPI as unknown as Record<string, unknown>).mcp = {
             callTool: vi.fn().mockResolvedValue({ content: [{ type: 'text', text: '{}' }] }),
             readResource: vi.fn(),
             status: vi.fn().mockResolvedValue({ connected: true, serverPid: 123 }),

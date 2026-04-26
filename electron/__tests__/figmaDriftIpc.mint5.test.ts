@@ -15,7 +15,7 @@
  *   Risk: R4 (main-thread stall on oversized file)
  */
 
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import type { TokenDrift } from '../../.flint-context/contracts/MINT.5-phase1.contract'
 
 // ── Reproduced handler logic ──────────────────────────────────────────────────
@@ -155,11 +155,11 @@ function makeFsStub(opts: {
     fileContent?: string
 }): FsStub {
     return {
-        stat: async (p: string) => {
+        stat: async (_p: string) => {
             if (opts.fileMissing) return null
             return { size: opts.fileSize ?? (opts.fileContent?.length ?? 0) }
         },
-        readFile: async (p: string) => {
+        readFile: async (_p: string) => {
             if (opts.fileMissing) throw new Error('ENOENT')
             return opts.fileContent ?? '{}'
         },

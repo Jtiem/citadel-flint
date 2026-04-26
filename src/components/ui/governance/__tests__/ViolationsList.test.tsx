@@ -57,6 +57,9 @@ function makeMithrilCard(id: string): MithrilCardData {
         deferReason: '',
         deferDuration: '1 day',
         navigationIndex: null,
+        overrideReason: null,
+        overrideActor: null,
+        overrideTimestamp: null,
     }
 }
 
@@ -88,6 +91,9 @@ function makeA11yCard(id: string, index: number): A11yCardData {
         deferReason: '',
         deferDuration: '1 day',
         navigationIndex: null,
+        overrideReason: null,
+        overrideActor: null,
+        overrideTimestamp: null,
     }
 }
 

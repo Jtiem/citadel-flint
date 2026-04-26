@@ -1,0 +1,13 @@
+{
+  "_note": "Empty module — no class selectors. postcss-modules returns no exports. The resolver correctly reports resolved: false with no-classes-exported because there are zero classes to bind to.",
+  "imports": [
+    {
+      "bindingName": "s",
+      "modulePath": "style.module.css",
+      "resolved": false,
+      "failureReason": "no-classes-exported",
+      "namedImports": [],
+      "classBindings_keys": []
+    }
+  ]
+}

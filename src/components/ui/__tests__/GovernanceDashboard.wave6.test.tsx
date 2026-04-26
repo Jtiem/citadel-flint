@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { GovernanceDashboard } from '../GovernanceDashboard'
 import { useTokenStore } from '../../../store/tokenStore'
 import { useCanvasStore } from '../../../store/canvasStore'
@@ -70,7 +70,7 @@ describe('GovernanceDashboard — Wave 6', () => {
         useTokenStore.setState({ tokens: [], isLoading: false, error: null })
         useCanvasStore.setState({ mithrilViolations: [], a11yViolations: {} })
         useEditorStore.setState({ linterWarnings: new Map() })
-        ;(window.flintAPI as Record<string, unknown>).baseline = {
+        ;(window.flintAPI as unknown as Record<string, unknown>).baseline = {
             isSet: vi.fn().mockResolvedValue(false),
             get: vi.fn().mockResolvedValue([]),
             set: vi.fn().mockResolvedValue(undefined),

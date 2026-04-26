@@ -1,0 +1,8 @@
+[
+  {
+    "utility": "cva",
+    "definite": ["relative", "overflow-hidden", "rounded-lg"],
+    "possible": ["shadow-none", "shadow-sm", "shadow-md"],
+    "unresolvable": false
+  }
+]

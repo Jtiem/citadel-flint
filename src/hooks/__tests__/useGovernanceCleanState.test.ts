@@ -142,7 +142,7 @@ describe('useGovernanceCleanState', () => {
     it('rewindToClean: pushes success notification on success', async () => {
         ;(window.flintAPI.governance.getLastCleanState as ReturnType<typeof vi.fn>)
             .mockResolvedValue({ timestamp: '2026-04-12T10:00:00.000Z', score: 98 })
-        vi.mocked(applyUndo).mockResolvedValueOnce(undefined)
+        vi.mocked(applyUndo).mockResolvedValueOnce(true)
 
         const { result } = renderHook(() => useGovernanceCleanState({ score: 70 }))
         await waitFor(() => { expect(result.current.canRewind).toBe(true) })

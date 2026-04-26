@@ -22,7 +22,7 @@
  * Renderer Process only — no Node.js imports.
  */
 
-import type { IFlintAdapter } from './types'
+import type { IFlintAdapter, BatchSideEffect } from './types'
 import type { ASTMutation, InverseMutation } from '../ASTService'
 import type { VisualLayer } from '../ast-parser'
 
@@ -236,13 +236,13 @@ export class SvelteAdapter implements IFlintAdapter {
     applyMutationBatch(
         code: string,
         mutations: ASTMutation[]
-    ): { code: string; inversions: InverseMutation[] } {
+    ): { code: string; inversions: InverseMutation[]; sideEffects: BatchSideEffect[] } {
         // Snapshot inverse: restoring to `code` is always safe.
         const inversions: InverseMutation[] = mutations.map(() => ({
             op: 'restoreCode' as const,
             code,
         }))
-        return { code, inversions }
+        return { code, inversions, sideEffects: [] }
     }
 
     /**

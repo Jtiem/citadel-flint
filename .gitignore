@@ -38,6 +38,8 @@ shared/*.d.ts.map
 .flint/mcp-events.jsonl.bak
 **/.flint/telemetry-events.jsonl
 **/.flint/telemetry-events.jsonl.bak
+.flint/ide-active-file.json
+.flint/context.json
 
 # Storybook (stale template — revive or delete later)
 src/stories/

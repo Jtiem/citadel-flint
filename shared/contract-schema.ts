@@ -137,6 +137,25 @@ export interface TestBoundary {
   then: string;
 }
 
+/**
+ * Pre-v2.1 test boundary shape. Predates the 2026-04-17 hardening that
+ * required `given/when/then` on every entry. Use ONLY for historical
+ * contracts that shipped before the hardening — `flint-contract-linter`
+ * still rejects this shape on new contracts. New contracts MUST use
+ * `TestBoundary` + `FlintContract`. See `LegacyFlintContract` below.
+ */
+export interface LegacyTestBoundary {
+  target: string;
+  kind: 'ipc-handler' | 'store-action' | 'component' | 'service' | 'hook';
+  behavior: string;
+  assertion: string;
+  edgeCases: string[];
+  /** Optional even on legacy entries — included if the architect wrote them. */
+  given?: string;
+  when?: string;
+  then?: string;
+}
+
 // ─── Invariants ─────────────────────────────────────────────────────
 
 /**
@@ -200,6 +219,33 @@ export interface FlintContract {
    * Required (min 1). Most Phase 2 scope creep starts with an empty nonGoals list.
    */
   nonGoals: string[];
+}
+
+/**
+ * Pre-v2.1 contract shape. Use ONLY on historical contracts authored
+ * before the 2026-04-17 hardening. Identical to `FlintContract` except
+ * the v2.1-added required fields are relaxed:
+ *   - `meta.audience` optional (added 2026-04-17)
+ *   - `IPCChannelContract.validator` optional (added 2026-04-17)
+ *   - `testBoundaries` may use `LegacyTestBoundary` (no required given/when/then)
+ *
+ * New contracts MUST use `FlintContract`.
+ */
+export interface LegacyContractMeta extends Omit<ContractMeta, 'audience'> {
+  audience?: Audience;
+}
+export interface LegacyIPCChannelContract extends Omit<IPCChannelContract, 'validator'> {
+  validator?: string | null;
+}
+export interface LegacyFlintContract
+  extends Omit<FlintContract, 'meta' | 'ipc' | 'testBoundaries' | 'invariants' | 'nonGoals'> {
+  meta: LegacyContractMeta;
+  ipc: LegacyIPCChannelContract[];
+  testBoundaries: LegacyTestBoundary[];
+  /** Optional in legacy — v2.1 made this required (min 1). */
+  invariants?: Invariant[];
+  /** Optional in legacy — v2.1 made this required (min 1). */
+  nonGoals?: string[];
 }
 
 // ─── Contract File Helpers ──────────────────────────────────────────

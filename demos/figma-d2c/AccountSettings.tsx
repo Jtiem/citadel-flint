@@ -1,119 +1,195 @@
-// AccountSettings.tsx — Generated from Figma via Flint D2C pipeline
+// AccountSettings.tsx — Generated from Figma via Flint D2C pipeline (Mason)
 // Source: figma.com/design/vjl1FUdEAYouaXZQByCiZd node 4007:1808
-// Library: shadcn/ui
+// Library: Material UI (MUI) — project default
+// Variants preserved at demos/figma-d2c/expected-output/{mui,shadcn,tailwind}/
 
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Separator } from "@/components/ui/separator"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Textarea } from "@/components/ui/textarea"
+import Avatar from "@mui/material/Avatar"
+import Badge from "@mui/material/Badge"
+import Box from "@mui/material/Box"
+import Button from "@mui/material/Button"
+import Card from "@mui/material/Card"
+import CardContent from "@mui/material/CardContent"
+import CardHeader from "@mui/material/CardHeader"
+import Chip from "@mui/material/Chip"
+import Divider from "@mui/material/Divider"
+import FormControl from "@mui/material/FormControl"
+import InputLabel from "@mui/material/InputLabel"
+import MenuItem from "@mui/material/MenuItem"
+import Select, { SelectChangeEvent } from "@mui/material/Select"
+import Stack from "@mui/material/Stack"
+import Tab from "@mui/material/Tab"
+import Tabs from "@mui/material/Tabs"
+import TextField from "@mui/material/TextField"
+import Typography from "@mui/material/Typography"
+import { useState } from "react"
 
 export function AccountSettings() {
+  const [activeTab, setActiveTab] = useState(0)
+  const [timezone, setTimezone] = useState("ct")
+  const [language, setLanguage] = useState("en")
+
+  function handleTabChange(_event: React.SyntheticEvent, newValue: number) {
+    setActiveTab(newValue)
+  }
+
+  function handleTimezoneChange(event: SelectChangeEvent) {
+    setTimezone(event.target.value)
+  }
+
+  function handleLanguageChange(event: SelectChangeEvent) {
+    setLanguage(event.target.value)
+  }
+
   return (
-    <div className="flex flex-col gap-6 w-[640px]">
-      <h2 className="text-2xl font-extrabold tracking-tight text-foreground">
+    <Stack spacing={3} sx={{ width: 640 }}>
+      {/* Page title */}
+      <Typography variant="h5" fontWeight={800} color="text.primary">
         Account Settings
-      </h2>
+      </Typography>
 
       {/* Profile Card */}
-      <Card>
-        <CardContent className="flex gap-3 items-center p-6">
-          <Avatar className="h-16 w-16 border-2 border-primary">
-            <AvatarFallback className="bg-primary/10 text-primary text-xl font-semibold">
+      <Card variant="outlined">
+        <CardContent>
+          <Stack direction="row" alignItems="center" spacing={2}>
+            <Avatar
+              sx={{
+                width: 64,
+                height: 64,
+                bgcolor: "primary.light",
+                color: "primary.main",
+                border: "2px solid",
+                borderColor: "primary.main",
+                fontSize: 20,
+                fontWeight: 600,
+              }}
+            >
               JT
-            </AvatarFallback>
-          </Avatar>
-          <div className="flex flex-col gap-0.5">
-            <p className="text-lg font-semibold text-foreground">Justin Tiemann</p>
-            <p className="text-sm font-medium text-muted-foreground">justin@example.com</p>
-          </div>
-          <Badge variant="outline" className="bg-emerald-500/12 text-emerald-700 border-0 ml-1">
-            Pro
-          </Badge>
+            </Avatar>
+            <Box>
+              <Typography variant="subtitle1" fontWeight={600} color="text.primary">
+                Justin Tiemann
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                justin@example.com
+              </Typography>
+            </Box>
+            <Chip
+              label="Pro"
+              size="small"
+              sx={{
+                ml: 1,
+                bgcolor: "success.light",
+                color: "success.dark",
+                fontWeight: 500,
+              }}
+            />
+          </Stack>
         </CardContent>
       </Card>
 
       {/* Tabs */}
-      <Tabs defaultValue="profile">
-        <TabsList>
-          <TabsTrigger value="profile">Profile</TabsTrigger>
-          <TabsTrigger value="security">Security</TabsTrigger>
-          <TabsTrigger value="notifications">Notifications</TabsTrigger>
-        </TabsList>
+      <Tabs
+        value={activeTab}
+        onChange={handleTabChange}
+        aria-label="Account settings navigation"
+        sx={{ borderBottom: 1, borderColor: "divider" }}
+      >
+        <Tab label="Profile" id="tab-profile" aria-controls="panel-profile" />
+        <Tab label="Security" id="tab-security" aria-controls="panel-security" />
+        <Tab label="Notifications" id="tab-notifications" aria-controls="panel-notifications" />
       </Tabs>
 
       {/* Profile Information Card */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Profile Information</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-6">
-          <div className="flex gap-4">
-            <div className="flex-1 flex flex-col gap-1">
-              <Label htmlFor="displayName">Display Name</Label>
-              <Input id="displayName" placeholder="Justin Tiemann" />
-            </div>
-            <div className="flex-1 flex flex-col gap-1">
-              <Label htmlFor="email">Email Address</Label>
-              <Input id="email" placeholder="justin@example.com" />
-            </div>
-          </div>
+      <Card
+        variant="outlined"
+        role="tabpanel"
+        id="panel-profile"
+        aria-labelledby="tab-profile"
+      >
+        <CardHeader title="Profile Information" titleTypographyProps={{ variant: "subtitle1" }} />
+        <CardContent>
+          <Stack spacing={3}>
+            {/* Name + email row */}
+            <Stack direction="row" spacing={2}>
+              <TextField
+                id="displayName"
+                label="Display Name"
+                placeholder="Justin Tiemann"
+                fullWidth
+                size="small"
+                inputProps={{ "aria-label": "Display name" }}
+              />
+              <TextField
+                id="email"
+                label="Email Address"
+                type="email"
+                placeholder="justin@example.com"
+                fullWidth
+                size="small"
+                inputProps={{ "aria-label": "Email address" }}
+              />
+            </Stack>
 
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="bio">Bio</Label>
-            <Textarea
+            {/* Bio */}
+            <TextField
               id="bio"
+              label="Bio"
               placeholder="UX designer building the future of agentic design tools."
-              className="min-h-[100px]"
+              multiline
+              rows={4}
+              fullWidth
+              size="small"
+              inputProps={{ "aria-label": "Bio" }}
             />
-          </div>
 
-          <Separator />
+            <Divider />
 
-          <div className="flex gap-4">
-            <div className="flex-1 flex flex-col gap-1">
-              <Label>Timezone</Label>
-              <Select defaultValue="ct">
-                <SelectTrigger>
-                  <SelectValue placeholder="Select timezone" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ct">Central (CT)</SelectItem>
-                  <SelectItem value="et">Eastern (ET)</SelectItem>
-                  <SelectItem value="pt">Pacific (PT)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex-1 flex flex-col gap-1">
-              <Label>Language</Label>
-              <Select defaultValue="en">
-                <SelectTrigger>
-                  <SelectValue placeholder="Select language" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="en">English</SelectItem>
-                  <SelectItem value="es">Spanish</SelectItem>
-                  <SelectItem value="fr">French</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
+            {/* Locale row */}
+            <Stack direction="row" spacing={2}>
+              <FormControl fullWidth size="small">
+                <InputLabel id="timezone-label">Timezone</InputLabel>
+                <Select
+                  labelId="timezone-label"
+                  id="timezone"
+                  value={timezone}
+                  label="Timezone"
+                  onChange={handleTimezoneChange}
+                >
+                  <MenuItem value="ct">Central (CT)</MenuItem>
+                  <MenuItem value="et">Eastern (ET)</MenuItem>
+                  <MenuItem value="pt">Pacific (PT)</MenuItem>
+                </Select>
+              </FormControl>
+              <FormControl fullWidth size="small">
+                <InputLabel id="language-label">Language</InputLabel>
+                <Select
+                  labelId="language-label"
+                  id="language"
+                  value={language}
+                  label="Language"
+                  onChange={handleLanguageChange}
+                >
+                  <MenuItem value="en">English</MenuItem>
+                  <MenuItem value="es">Spanish</MenuItem>
+                  <MenuItem value="fr">French</MenuItem>
+                </Select>
+              </FormControl>
+            </Stack>
+          </Stack>
         </CardContent>
       </Card>
 
       {/* Action Buttons */}
-      <div className="flex gap-4">
-        <Button variant="destructive">Delete Account</Button>
-        <div className="flex-1 flex gap-4 justify-end">
-          <Button variant="outline">Cancel</Button>
-          <Button>Save Changes</Button>
-        </div>
-      </div>
-    </div>
+      <Stack direction="row" alignItems="center" spacing={2}>
+        <Button variant="contained" color="error">
+          Delete Account
+        </Button>
+        <Box sx={{ flex: 1 }} />
+        <Button variant="outlined">Cancel</Button>
+        <Button variant="contained" color="primary">
+          Save Changes
+        </Button>
+      </Stack>
+    </Stack>
   )
 }

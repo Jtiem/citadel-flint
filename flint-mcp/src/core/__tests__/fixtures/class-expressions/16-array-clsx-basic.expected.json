@@ -1,0 +1,8 @@
+[
+  {
+    "utility": "clsx",
+    "definite": ["flex", "items-center"],
+    "possible": [],
+    "unresolvable": false
+  }
+]

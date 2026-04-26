@@ -21,6 +21,7 @@ const rule050: A11yRule = {
     level: 'A',
     category: 'landmarks',
     severity: 'critical',
+    appliesTo: 'document', // FIXTURE.1: landmark presence is a document-level concern
     description: 'The page must have a <main> element or an element with role="main".',
 
     auditDocument(context): A11yViolationDetail[] {
@@ -54,6 +55,7 @@ const rule051: A11yRule = {
     level: 'A',
     category: 'landmarks',
     severity: 'warning',
+    appliesTo: 'document', // FIXTURE.1: nav-presence is a document-level concern
     description: 'The page should have a <nav> element or an element with role="navigation".',
 
     auditDocument(context): A11yViolationDetail[] {
@@ -87,6 +89,7 @@ const rule052: A11yRule = {
     level: 'A',
     category: 'landmarks',
     severity: 'critical',
+    appliesTo: 'document', // FIXTURE.1: multiple-main is a document-level structural concern
     description: '<main> must not appear more than once per page.',
 
     auditDocument(context): A11yViolationDetail[] {
@@ -119,6 +122,7 @@ const rule053: A11yRule = {
     level: 'A',
     category: 'landmarks',
     severity: 'critical',
+    appliesTo: 'section', // FIXTURE.1: duplicate landmarks matter when composing page sections
     description: 'Multiple landmarks of the same type must have distinct aria-labels.',
 
     auditDocument(context): A11yViolationDetail[] {

@@ -1,0 +1,8 @@
+[
+  {
+    "utility": "clsx",
+    "definite": ["p-4", "mx-auto", "max-w-2xl", "bg-white", "shadow-md"],
+    "possible": [],
+    "unresolvable": false
+  }
+]

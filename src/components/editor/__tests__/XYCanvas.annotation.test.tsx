@@ -31,7 +31,7 @@ function makeAnnotation(overrides: Partial<FlintAnnotation> = {}): FlintAnnotati
         id: `ann-${++_id}`,
         nodeId: 'live-preview',
         filePath: '/project/src/App.tsx',
-        type: 'comment',
+        type: 'note',
         author: 'test-user',
         body: 'Test annotation',
         status: 'open',

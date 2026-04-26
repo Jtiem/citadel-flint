@@ -6,6 +6,9 @@
  * standalone — no cross-boundary imports.
  */
 
+import type { CoverageSummary } from '../../shared/coverage-types.js'
+export type { CoverageSummary }
+
 // ── Token types ─────────────────────────────────────────────────────────────
 
 export type TokenType =
@@ -297,6 +300,12 @@ export interface SessionContext {
     nextStep?: string
     /** Contextually suggested MCP tools based on project state */
     suggestedTools?: Array<{ tool: string; reason: string }>
+    /**
+     * Phase 0 — Coverage Honesty.
+     * Governed-surface-area summary. Informational — does NOT affect healthScore/grade.
+     * Present after the first debt scan completes for this session.
+     */
+    coverage?: CoverageSummary
 }
 
 // ── Phase ACX: ComplexityAssessment ─────────────────────────────────────────

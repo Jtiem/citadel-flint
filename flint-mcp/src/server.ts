@@ -14,8 +14,13 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { parse } from "@babel/parser";
 import _generate from "@babel/generator";
-import { auditAll } from "./core/MithrilLinter.js";
-import { A11yLinter } from "./core/A11yLinter.js";
+import { auditAll, auditAllWithSurface } from "./core/MithrilLinter.js";
+import { A11yLinter, auditWithSurface } from "./core/A11yLinter.js";
+// ── FIXTURE.1 imports (append-only) ──────────────────────────────────────────
+import { resolveFixture } from "./core/fixtureResolver.js";
+import type { FlintFixtureSurface } from "../../shared/fixture-schema.js";
+// ── FIXTURE.1.1 import (append-only) ─────────────────────────────────────────
+import { normalizeTokenShape } from "./core/dtcgTokenAdapter.js";
 import { HydroPasteEngine } from "./core/hydroPaste.js";
 import { moveNode, injectComponent, applyTokenFix, assembleLayout, deleteNode, updateProp, updateClassName, updateTextContent, wrapNode, emitImport, emitHook, emitHandler, emitCallback, emitConditional, emitMap, composeSlot } from "./core/ast-modifier.js";
 import { TelemetryLogger } from "./core/telemetry.js";
@@ -438,6 +443,21 @@ function getSyncHistoryService(projectRoot: string): SyncHistoryService {
 /** Active project configuration — initialised in runServer() */
 let flintConfig: FlintConfig = DEFAULT_CONFIG;
 
+// PERF-LOW-11: Mithril audit result cache. Since auditAll/auditAllWithSurface are
+// pure functions (no class instance), we cache their output keyed by a hash of the
+// source file content + token fingerprint. TTL: 60 seconds.
+interface MithrilAuditCacheEntry {
+    warnings: Map<string, import('./types.js').LinterWarning>
+    cachedAt: number
+}
+const _mithrilAuditCache = new Map<string, MithrilAuditCacheEntry>()
+const MITHRIL_CACHE_TTL_MS = 60_000
+
+function getMithrilCacheKey(source: string, tokenCount: number, policyJson: string): string {
+    const hash = crypto.createHash('sha1').update(source).digest('hex').slice(0, 16)
+    return `${hash}:${tokenCount}:${crypto.createHash('sha1').update(policyJson).digest('hex').slice(0, 8)}`
+}
+
 // ---------------------------------------------------------------------------
 // Strategy 1: The Greeter — context-aware welcome message
 // ---------------------------------------------------------------------------
@@ -465,7 +485,7 @@ export function detectReturningUser(projectRoot: string): boolean {
  * Returns a reasonable static count derived from the CLAUDE.md tool table (54 registered).
  * This is intentionally static — the count is known at build time and avoids circular deps.
  */
-const REGISTERED_TOOL_COUNT = 59;
+const REGISTERED_TOOL_COUNT = 61;
 
 /**
  * Build the MCP server instructions string.
@@ -2017,17 +2037,55 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                     }
                 }
 
+                // ── FIXTURE.1: resolve per-directory audit context ──────────
+                let fixtureContext: { label?: string; source: string | null } | null = null;
+                let fixtureSurface: FlintFixtureSurface | undefined;
+                try {
+                    const resolvedFixture = resolveFixture(componentPath, componentProjectRoot);
+                    if (resolvedFixture.source !== null) {
+                        fixtureContext = { label: resolvedFixture.fixture.label, source: resolvedFixture.source };
+                    } else {
+                        fixtureContext = null;
+                    }
+                    fixtureSurface = resolvedFixture.fixture.surface;
+                    // Override tokens from fixture-declared path if it resolves successfully
+                    if (resolvedFixture.resolvedTokensPath && resolvedFixture.resolvedTokensPath !== tokensPath) {
+                        try {
+                            const rawFixtureTokens = JSON.parse(fs.readFileSync(resolvedFixture.resolvedTokensPath, "utf-8"));
+                            tokens = normalizeTokenShape(rawFixtureTokens).tokens;
+                        } catch {
+                            auditWarnings.push(`Fixture tokens file could not be read — using project default tokens.`);
+                        }
+                    }
+                } catch (fixtureErr: any) {
+                    auditWarnings.push(`Fixture resolution failed: ${fixtureErr?.message ?? 'unknown error'}`);
+                }
+                // ── end FIXTURE.1 ────────────────────────────────────────────
+
                 const policyOpts = {
                     deltaE_threshold: resolved.mithril.deltaE_threshold,
                     deltaE_critical_threshold: resolved.mithril.deltaE_critical_threshold,
                     ...(auditRegistry && { registry: auditRegistry }),
                 };
-                const mithrilWarnings = resolved.mithril.mode !== 'off'
-                    ? auditAll(ast as any, tokens, policyOpts)
-                    : new Map();
+                // PERF-LOW-11: check Mithril audit cache before running the full
+                // visitor suite. Key: sha1(source) + tokenCount + sha1(policyJson).
+                let mithrilWarnings: Map<string, import('./types.js').LinterWarning>
+                if (resolved.mithril.mode !== 'off') {
+                    const policyJson = JSON.stringify(policyOpts)
+                    const mithrilCacheKey = getMithrilCacheKey(code, tokens.length, policyJson)
+                    const mithrilCached = _mithrilAuditCache.get(mithrilCacheKey)
+                    if (mithrilCached !== undefined && Date.now() - mithrilCached.cachedAt < MITHRIL_CACHE_TTL_MS) {
+                        mithrilWarnings = mithrilCached.warnings
+                    } else {
+                        mithrilWarnings = auditAllWithSurface(ast as any, tokens, fixtureSurface, policyOpts)
+                        _mithrilAuditCache.set(mithrilCacheKey, { warnings: mithrilWarnings, cachedAt: Date.now() })
+                    }
+                } else {
+                    mithrilWarnings = new Map()
+                }
                 const a11yResult = resolved.a11y.mode !== 'off'
-                    ? A11yLinter.auditStructured(ast as any, componentPath)
-                    : { filePath: componentPath, totalRules: 0, passed: 0, failed: 0, compliancePercent: 100, violations: [], criterionResults: [], fixableCount: 0, timestamp: new Date().toISOString() };
+                    ? auditWithSurface(ast as any, componentPath, fixtureSurface)
+                    : { filePath: componentPath, totalRules: 0, passed: 0, failed: 0, compliancePercent: 100, violations: [], criterionResults: [], fixableCount: 0, timestamp: new Date().toISOString() } as any;
 
                 const mithrilCount = mithrilWarnings.size;
                 const a11yCount = a11yResult.violations.length;
@@ -2103,9 +2161,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 const warningNote = auditWarnings.length > 0
                     ? `\n\nWarnings:\n${auditWarnings.map(w => `• ${w}`).join("\n")}`
                     : "";
+                // FIXTURE.1: include fixture context in response (null-safe)
+                const fixtureNote = fixtureContext
+                    ? `\n\nAudit context: ${fixtureContext.label ?? path.basename(fixtureContext.source ?? 'fixture')} (${fixtureSurface ?? 'component'} surface)`
+                    : "";
                 return finishAudit({
                     content: [
-                        { type: "text", text: `${finalSummary}\n\nRecommendation: ${auditRecommendation}\n\n${finalFormatted}${warningNote}` },
+                        { type: "text", text: `${finalSummary}\n\nRecommendation: ${auditRecommendation}\n\n${finalFormatted}${warningNote}${fixtureNote}` },
                     ],
                 });
             } catch (err: any) {
@@ -2641,8 +2703,21 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 projectRoot: string;
             };
             const swarmResult = await handleFlintSwarmAuditFix(swarmArgs, flintConfig);
+            const swarmFileTable = swarmResult.fileReports.length > 0
+                ? `| File | Before | After | Fixed |\n|------|--------|-------|-------|\n` +
+                  swarmResult.fileReports.map(r =>
+                      `| ${path.basename(r.filePath)} | ${r.violationsBefore} | ${r.violationsAfter} | ${r.fixed ? '✓' : '—'} |`
+                  ).join('\n')
+                : '_No files with violations._';
+            const swarmMarkdown =
+                `## Flint Sweep Result\n\n` +
+                `${swarmResult.summary}\n\n` +
+                `**Recommendation:** ${swarmResult.recommendation}\n\n` +
+                `### Files Scanned: ${swarmResult.filesScanned} · Violations: ${swarmResult.totalViolations} · Fixes Applied: ${swarmResult.fixesApplied}\n\n` +
+                `${swarmFileTable}\n\n` +
+                `**Health:** ${swarmResult.healthBefore} → ${swarmResult.healthAfter}`;
             return {
-                content: [{ type: "text", text: JSON.stringify(swarmResult, null, 2) }],
+                content: [{ type: "text", text: swarmMarkdown }],
             };
         }
 

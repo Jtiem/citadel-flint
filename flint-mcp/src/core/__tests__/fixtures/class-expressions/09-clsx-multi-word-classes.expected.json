@@ -1,0 +1,8 @@
+[
+  {
+    "utility": "clsx",
+    "definite": ["inline-flex", "items-center", "justify-center", "whitespace-nowrap", "rounded-md", "text-sm", "font-medium"],
+    "possible": [],
+    "unresolvable": false
+  }
+]

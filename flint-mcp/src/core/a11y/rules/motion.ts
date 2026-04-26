@@ -25,6 +25,7 @@ const rule090: A11yRule = {
     level: 'AAA',
     category: 'motion',
     severity: 'warning',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description:
         'Tailwind animate-* classes must be guarded with motion-safe: or motion-reduce: ' +
         'to respect the prefers-reduced-motion media query.',
@@ -77,6 +78,7 @@ const rule091: A11yRule = {
     level: 'A',
     category: 'motion',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description:
         '<video> elements must have a controls attribute unless they are purely decorative ' +
         '(muted + autoplay, no audio track).',
@@ -137,6 +139,7 @@ const rule092: A11yRule = {
     level: 'A',
     category: 'motion',
     severity: 'critical',
+    appliesTo: 'any', // FIXTURE.1: component-safe
     description: '<audio> elements must have a controls attribute.',
 
     visitElement(path, _context) {

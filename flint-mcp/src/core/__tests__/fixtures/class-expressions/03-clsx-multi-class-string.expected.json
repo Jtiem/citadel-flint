@@ -1,0 +1,8 @@
+[
+  {
+    "utility": "clsx",
+    "definite": ["px-4", "py-2", "text-sm", "font-medium"],
+    "possible": [],
+    "unresolvable": false
+  }
+]

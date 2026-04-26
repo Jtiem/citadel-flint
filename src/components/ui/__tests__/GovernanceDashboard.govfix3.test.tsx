@@ -45,7 +45,7 @@ describe('GovernanceDashboard — GOV-FIX-3 no-token state shows no score', () =
     beforeEach(() => {
         // Ensure empty token store and baseline API absent
         useTokenStore.setState({ tokens: [], isLoading: false, error: null })
-        ;(window.flintAPI as Record<string, unknown>).baseline = undefined
+        ;(window.flintAPI as unknown as Record<string, unknown>).baseline = undefined
     })
 
     describe('when tokenCount is 0 (no design system connected)', () => {
@@ -56,7 +56,7 @@ describe('GovernanceDashboard — GOV-FIX-3 no-token state shows no score', () =
             })
             // The SVG score text "100" must not be in the document
             // We check textContent of the entire body to catch SVG text nodes
-            const bodyText = document.body.textContent ?? ''
+            void (document.body.textContent ?? '')
             // Must not contain "100" as a standalone number from the score ring
             // (the empty state message may contain other numbers — we check the SVG role)
             const scoreRing = screen.queryByRole('img', { name: /Health score/i })

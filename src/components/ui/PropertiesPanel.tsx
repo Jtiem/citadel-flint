@@ -26,36 +26,43 @@
  * Renderer Process only — no Node.js imports.
  */
 
-import { useState, useCallback, startTransition } from 'react'
-import { AlertTriangle, Lock, Type, Image as ImageIcon, Box, LayoutTemplate, SlidersHorizontal } from 'lucide-react'
-import { useEditorStore } from '../../store/editorStore'
-import { useCanvasStore } from '../../store/canvasStore'
-import { useTokenStore } from '../../store/tokenStore'
-import { useIsNodeLocked } from '../../hooks/useRemotePresence'
-import type { LinterWarning } from '../../types/flint-api'
-import { ClassBuilder } from '../inspector/ClassBuilder'
-import { LayoutPanel } from '../inspector/LayoutPanel'
-import { DriftDetector } from '../inspector/DriftDetector'
-import { Accordion } from '../inspector/primitives'
-import { MITHRIL_THRESHOLD } from '../../core/MithrilLinter'
-import { tokenToClass } from '../../utils/classMapper'
-import type { TokenType } from '../../types/flint-api'
-import type { VisualLayer } from '../../core/ast-parser'
-import { AnnotationList } from './AnnotationList'
+import { useState, useCallback, startTransition } from 'react';
+import { AlertTriangle, Lock, Type, Image as ImageIcon, Box, LayoutTemplate, SlidersHorizontal } from 'lucide-react';
+import { useEditorStore } from '../../store/editorStore';
+import { useCanvasStore } from '../../store/canvasStore';
+import { useTokenStore } from '../../store/tokenStore';
+import { useIsNodeLocked } from '../../hooks/useRemotePresence';
+import type { LinterWarning } from '../../types/flint-api';
+import { ClassBuilder } from '../inspector/ClassBuilder';
+import { LayoutPanel } from '../inspector/LayoutPanel';
+import { DriftDetector } from '../inspector/DriftDetector';
+import Section from '../ui/primitives/Section';
+import { MITHRIL_THRESHOLD } from '../../core/MithrilLinter';
+import { tokenToClass } from '../../utils/classMapper';
+import type { TokenType } from '../../types/flint-api';
+import type { VisualLayer } from '../../core/ast-parser';
+import { AnnotationList } from './AnnotationList';
+// INSPECTOR.1 Group C: element-type registry + new inspector sections
+import {
+  getRelevantSections,
+  getAutoExpandedSections,
+  type InspectorSection,
+} from '../../core/elementTypePropertyMap';
+import TypographySection from '../inspector/TypographySection';
+import FormPropsSection from '../inspector/FormPropsSection';
+import MediaPropsSection from '../inspector/MediaPropsSection';
+import A11ySection from '../inspector/A11ySection';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /** Recursively searches the visual tree for a layer matching `id`. */
-function findLayer(
-    layers: VisualLayer[],
-    id: string
-): VisualLayer | undefined {
-    for (const layer of layers) {
-        if (layer.id === id) return layer
-        const found = findLayer(layer.children, id)
-        if (found !== undefined) return found
-    }
-    return undefined
+function findLayer(layers: VisualLayer[], id: string): VisualLayer | undefined {
+  for (const layer of layers) {
+    if (layer.id === id) return layer;
+    const found = findLayer(layer.children, id);
+    if (found !== undefined) return found;
+  }
+  return undefined;
 }
 
 /**
@@ -64,14 +71,14 @@ function findLayer(
  * Used to check for Mithril drift after a commit.
  */
 function extractArbitraryHexColors(className: string): string[] {
-    const colors: string[] = []
-    // Match patterns like bg-[#abc], text-[#aabbcc], border-[#abc123]
-    const re = /\[#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})\]/g
-    let m: RegExpExecArray | null
-    while ((m = re.exec(className)) !== null) {
-        colors.push(`#${m[1]}`)
-    }
-    return colors
+  const colors: string[] = [];
+  // Match patterns like bg-[#abc], text-[#aabbcc], border-[#abc123]
+  const re = /\[#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})\]/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(className)) !== null) {
+    colors.push(`#${m[1]}`);
+  }
+  return colors;
 }
 
 /**
@@ -80,8 +87,8 @@ function extractArbitraryHexColors(className: string): string[] {
  * Returns null when no matching class is found.
  */
 function findHardcodedClassForHex(className: string, hexColor: string): string | null {
-    const lowerHex = hexColor.toLowerCase()
-    return className.split(/\s+/).find((c) => c.toLowerCase().includes(`[${lowerHex}]`)) ?? null
+  const lowerHex = hexColor.toLowerCase();
+  return className.split(/\s+/).find(c => c.toLowerCase().includes(`[${lowerHex}]`)) ?? null;
 }
 
 /**
@@ -90,71 +97,68 @@ function findHardcodedClassForHex(className: string, hexColor: string): string |
  * Returns "" when the bracket index cannot be found.
  */
 function extractClassPrefix(hardcodedClass: string): string {
-    // Strip variant chain (hover:, focus:, etc.) to isolate the utility
-    const utility = hardcodedClass.split(':').pop() ?? hardcodedClass
-    const bracketIdx = utility.indexOf('[')
-    return bracketIdx > 0 ? utility.slice(0, bracketIdx) : ''
+  // Strip variant chain (hover:, focus:, etc.) to isolate the utility
+  const utility = hardcodedClass.split(':').pop() ?? hardcodedClass;
+  const bracketIdx = utility.indexOf('[');
+  return bracketIdx > 0 ? utility.slice(0, bracketIdx) : '';
 }
-
 function getIconForTag(tagName: string) {
-    switch (tagName.toLowerCase()) {
-        case 'img': return <ImageIcon className="h-3.5 w-3.5 text-amber-400" />
-        case 'span':
-        case 'p':
-        case 'h1':
-        case 'h2':
-        case 'h3':
-        case 'h4':
-        case 'h5':
-        case 'h6':
-        case 'a':
-        case 'label':
-        case 'button': return <Type className="h-3.5 w-3.5 text-blue-400" />
-        case 'svg':
-        case 'path': return <Box className="h-3.5 w-3.5 text-purple-400" />
-        default: return <LayoutTemplate className="h-3.5 w-3.5 text-gray-400" />
-    }
+  switch (tagName.toLowerCase()) {
+    case 'img':
+      return <ImageIcon className="h-3.5 w-3.5 text-amber-400" />;
+    case 'span':
+    case 'p':
+    case 'h1':
+    case 'h2':
+    case 'h3':
+    case 'h4':
+    case 'h5':
+    case 'h6':
+    case 'a':
+    case 'label':
+    case 'button':
+      return <Type className="h-3.5 w-3.5 text-blue-400" />;
+    case 'svg':
+    case 'path':
+      return <Box className="h-3.5 w-3.5 text-purple-400" />;
+    default:
+      return <LayoutTemplate className="h-3.5 w-3.5 text-gray-400" />;
+  }
 }
 
 // ── Mithril Perceptual Drift Badge + Violation Card ───────────────────────────
 
 /** ΔE threshold for escalating amber → red (Critical Violation). */
-const DRIFT_CRITICAL_THRESHOLD = 10.0
-
+const DRIFT_CRITICAL_THRESHOLD = 10.0;
 interface AmberPulseProps {
-    deltaE: number
-    tokenName: string
+  deltaE: number;
+  tokenName: string;
 }
 
 /**
  * Compact inline ΔE badge used inside `MithrilViolationCard`.
  * Amber for ΔE 2–10, Red for ΔE > 10.
  */
-function AmberPulse({ deltaE, tokenName }: AmberPulseProps) {
-    const isCritical = deltaE > DRIFT_CRITICAL_THRESHOLD
-    return (
-        <span
-            className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] transition-colors ${isCritical
-                ? 'border-red-700/60 bg-red-900/30 text-red-400'
-                : 'border-amber-700/60 bg-amber-900/30 text-amber-400'
-                }`}
-            title={`Perceptual Drift: ${deltaE.toFixed(1)}. Closest Token: ${tokenName}.`}
-        >
+function AmberPulse({
+  deltaE,
+  tokenName
+}: AmberPulseProps) {
+  // @schemaRole state-signal — ΔE badge signals current perceptual drift state
+  const isCritical = deltaE > DRIFT_CRITICAL_THRESHOLD;
+  return <span data-schema-role="state-signal" className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono transition-colors ${isCritical ? 'border-red-700/60 bg-red-900/30 text-red-400' : 'border-amber-700/60 bg-amber-900/30 text-amber-400'}`} style={{ fontSize: 'var(--text-micro)' }} title={`Perceptual Drift: ${deltaE.toFixed(1)}. Closest Token: ${tokenName}.`}>
             <AlertTriangle className="h-2.5 w-2.5 shrink-0" />
             ΔE {deltaE.toFixed(1)}
-        </span>
-    )
+        </span>;
 }
-
 interface MithrilViolationCardProps {
-    deltaE: number
-    tokenName: string
-    /** Offending arbitrary-value hex colour, e.g. "#ef4343". */
-    hexColor: string
-    /** Closest token's hex value, e.g. "#ef4444". */
-    tokenValue: string
-    /** Called when the user clicks Auto-Fix. */
-    onAutoFix: () => void
+  deltaE: number;
+  tokenName: string;
+  /** Offending arbitrary-value hex colour, e.g. "#ef4343". */
+  hexColor: string;
+  /** Closest token's hex value, e.g. "#ef4444". */
+  tokenValue: string;
+  /** Called when the user clicks Auto-Fix. */
+  onAutoFix: () => void;
 }
 
 /**
@@ -166,16 +170,20 @@ interface MithrilViolationCardProps {
  *   - Side-by-side colour swatches: current hex → nearest token hex + path
  *   - "Auto-Fix" button that calls back to replace the offending class via AST
  */
-function MithrilViolationCard({ deltaE, tokenName, hexColor, tokenValue, onAutoFix }: MithrilViolationCardProps) {
-    const isCritical = deltaE > DRIFT_CRITICAL_THRESHOLD
-    const borderClass = isCritical ? 'border-red-900/50' : 'border-amber-900/50'
-    const bgClass = isCritical ? 'bg-red-950/20' : 'bg-amber-950/20'
-    const btnBorder = isCritical ? 'border-red-700/50' : 'border-amber-700/50'
-    const btnBg = isCritical ? 'bg-red-900/20 hover:bg-red-900/40' : 'bg-amber-900/20 hover:bg-amber-900/40'
-    const btnText = isCritical ? 'text-red-300' : 'text-amber-300'
-
-    return (
-        <div className={`flex flex-col gap-2 border-b ${borderClass} ${bgClass} px-3 py-2`}>
+function MithrilViolationCard({
+  deltaE,
+  tokenName,
+  hexColor,
+  tokenValue,
+  onAutoFix
+}: MithrilViolationCardProps) {
+  const isCritical = deltaE > DRIFT_CRITICAL_THRESHOLD;
+  const borderClass = isCritical ? 'border-red-900/50' : 'border-amber-900/50';
+  const bgClass = isCritical ? 'bg-red-950/20' : 'bg-amber-950/20';
+  const btnBorder = isCritical ? 'border-red-700/50' : 'border-amber-700/50';
+  const btnBg = isCritical ? 'bg-red-900/20 hover:bg-red-900/40' : 'bg-amber-900/20 hover:bg-amber-900/40';
+  const btnText = isCritical ? 'text-red-300' : 'text-amber-300';
+  return <div className={`flex flex-col gap-2 border-b ${borderClass} ${bgClass} px-3 py-2`}>
             {/* Header: icon + label + ΔE badge */}
             <div className="flex items-center gap-2">
                 <AlertTriangle className={`h-3 w-3 shrink-0 ${isCritical ? 'text-red-400' : 'text-amber-400'}`} />
@@ -186,467 +194,530 @@ function MithrilViolationCard({ deltaE, tokenName, hexColor, tokenValue, onAutoF
             </div>
 
             {/* Colour comparison: current hex → token hex + path */}
-            <div className="flex items-center gap-1.5 text-[10px] text-gray-400">
-                <div
-                    className="h-3.5 w-3.5 shrink-0 rounded-sm border border-gray-700"
-                    style={{ backgroundColor: hexColor }}
-                    title={`Current: ${hexColor}`}
-                />
-                <span className="font-mono text-gray-500">{hexColor}</span>
-                <span className="text-zinc-500">→</span>
-                <div
-                    className="h-3.5 w-3.5 shrink-0 rounded-sm border border-gray-700"
-                    style={{ backgroundColor: tokenValue }}
-                    title={`Token: ${tokenValue}`}
-                />
-                <span className="min-w-0 truncate font-mono text-gray-500" title={tokenName}>{tokenName}</span>
+            <div className="flex items-center gap-1.5" style={{ fontSize: 'var(--text-micro)', color: 'var(--text-secondary)' }}>
+                <div className="h-3.5 w-3.5 shrink-0 rounded-sm border border-zinc-700" style={{
+        backgroundColor: hexColor
+      }} title={`Current: ${hexColor}`} />
+                <span className="font-mono" style={{ color: 'var(--text-tertiary)' }}>{hexColor}</span>
+                <span style={{ color: 'var(--text-tertiary)' }}>→</span>
+                <div className="h-3.5 w-3.5 shrink-0 rounded-sm border border-zinc-700" style={{
+        backgroundColor: tokenValue
+      }} title={`Token: ${tokenValue}`} />
+                <span className="min-w-0 truncate font-mono" style={{ color: 'var(--text-tertiary)' }} title={tokenName}>{tokenName}</span>
             </div>
 
-            {/* Auto-Fix button */}
-            <button
-                type="button"
-                onClick={onAutoFix}
-                className={`w-full rounded border ${btnBorder} ${btnBg} ${btnText} py-0.5 text-[10px] font-medium transition-colors`}
-            >
+            {/* Auto-Fix button — @schemaRole cta-secondary: resolves a drift warning, not the panel's headline action */}
+            <button data-schema-role="cta-secondary" type="button" onClick={onAutoFix} className={`w-full rounded border ${btnBorder} ${btnBg} ${btnText} py-0.5 font-medium transition-colors`} style={{ fontSize: 'var(--text-micro)' }}>
                 Auto-Fix → {tokenName}
             </button>
-        </div>
-    )
+        </div>;
 }
 
 // ── Read-only / Editable property row ─────────────────────────────────────────
 
 interface EditablePropRowProps {
-    label: string
-    value: string
-    onCommit: (newValue: string) => void
+  label: string;
+  value: string;
+  onCommit: (newValue: string) => void;
 }
-
-function EditablePropRow({ label, value, onCommit }: EditablePropRowProps) {
-    const [editing, setEditing] = useState(false)
-    const [draft, setDraft] = useState(value)
-
-    function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-        if (e.key === 'Enter') {
-            onCommit(draft)
-            setEditing(false)
-        } else if (e.key === 'Escape') {
-            setDraft(value)
-            setEditing(false)
-        }
+function EditablePropRow({
+  label,
+  value,
+  onCommit
+}: EditablePropRowProps) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') {
+      onCommit(draft);
+      setEditing(false);
+    } else if (e.key === 'Escape') {
+      setDraft(value);
+      setEditing(false);
     }
-
-    return (
-        <div className="flex flex-col gap-0.5 px-3 py-1.5">
-            <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-400">
+  }
+  // @schemaRole support-evidence — editable AST property row
+  return <div className="flex flex-col gap-0.5 px-3 py-1.5">
+            <span
+              data-schema-role="support-evidence"
+              className="font-medium"
+              style={{ fontSize: 'var(--text-label)', color: 'var(--text-secondary)' }}
+            >
                 {label}
             </span>
-            {editing ? (
-                <input
-                    autoFocus
-                    value={draft}
-                    onChange={(e) => setDraft(e.target.value)}
-                    onBlur={() => {
-                        onCommit(draft)
-                        setEditing(false)
-                    }}
-                    onKeyDown={handleKeyDown}
-                    className="break-all rounded border border-indigo-500/50 bg-gray-800/80 px-1.5 py-0.5 font-mono text-[11px] leading-tight text-gray-100 outline-none"
-                />
-            ) : (
-                <span
-                    className="break-all cursor-text font-mono text-[11px] leading-tight text-gray-300 hover:text-white"
-                    title="Click to edit"
-                    onClick={() => {
-                        setDraft(value)
-                        setEditing(true)
-                    }}
-                >
-                    {value || <span className="text-zinc-500 italic">empty</span>}
-                </span>
-            )}
-        </div>
-    )
+            {editing ? <input autoFocus value={draft} onChange={e => setDraft(e.target.value)} onBlur={() => {
+      onCommit(draft);
+      setEditing(false);
+    }} onKeyDown={handleKeyDown} className="break-all rounded border border-indigo-500/50 bg-zinc-800/80 px-1.5 py-0.5 font-mono leading-tight outline-none" style={{ fontSize: 'var(--text-body)', color: 'var(--text-primary)' }} aria-label="[NEEDS LABEL]" /> : <span className="break-all cursor-text font-mono leading-tight hover:text-white" style={{ fontSize: 'var(--text-body)', color: 'var(--text-secondary)' }} title="Click to edit" onClick={() => {
+      setDraft(value);
+      setEditing(true);
+    }}>
+                    {value || <span className="italic" style={{ color: 'var(--text-tertiary)' }}>empty</span>}
+                </span>}
+        </div>;
 }
 
 // ── Node properties grid ───────────────────────────────────────────────────────
 
 interface NodePropertiesProps {
-    layer: VisualLayer
-    nodeId: string
-    onCommitStyle: (value: string) => void
-    onCommitText: (value: string) => void
-    onCommitProp: (propName: string, value: string | undefined) => void
+  layer: VisualLayer;
+  nodeId: string;
+  onCommitStyle: (value: string) => void;
+  onCommitText: (value: string) => void;
+  onCommitProp: (propName: string, value: string | undefined) => void;
 }
-
-function NodeProperties({ layer, onCommitStyle, onCommitText, onCommitProp }: NodePropertiesProps) {
-    const [addingProp, setAddingProp] = useState(false)
-    const [newPropName, setNewPropName] = useState('')
-
-    const hasAnyProp =
-        layer.style !== undefined ||
-        layer.textContent !== undefined ||
-        (layer.props && Object.keys(layer.props).length > 0)
-
-    return (
-        <div className="flex flex-col divide-y divide-gray-800/60">
-            {!hasAnyProp && (
-                <div className="px-3 py-2 text-[11px] text-zinc-500">
+function NodeProperties({
+  layer,
+  onCommitStyle,
+  onCommitText,
+  onCommitProp
+}: NodePropertiesProps) {
+  const [addingProp, setAddingProp] = useState(false);
+  const [newPropName, setNewPropName] = useState('');
+  const hasAnyProp = layer.style !== undefined || layer.textContent !== undefined || layer.props && Object.keys(layer.props).length > 0;
+  // @schemaRole support-evidence — read-only AST property grid
+  return <div className="flex flex-col divide-y divide-zinc-800/60">
+            {!hasAnyProp && <div className="px-3 py-2" style={{ fontSize: 'var(--text-body)', color: 'var(--text-tertiary)' }}>
                     No readable props on this element.
-                </div>
-            )}
-            {layer.style !== undefined && (
-                <EditablePropRow
-                    label="style"
-                    value={layer.style}
-                    onCommit={onCommitStyle}
-                />
-            )}
-            {layer.textContent !== undefined && (
-                <EditablePropRow
-                    label="text"
-                    value={layer.textContent}
-                    onCommit={onCommitText}
-                />
-            )}
-            {layer.props && Object.entries(layer.props).map(([propName, propValue]) => (
-                <EditablePropRow
-                    key={propName}
-                    label={propName}
-                    value={typeof propValue === 'boolean' ? (propValue ? 'true' : 'false') : propValue}
-                    onCommit={(val) => {
-                        onCommitProp(propName, val)
-                    }}
-                />
-            ))}
+                </div>}
+            {layer.style !== undefined && <EditablePropRow label="style" value={layer.style} onCommit={onCommitStyle} />}
+            {layer.textContent !== undefined && <EditablePropRow label="text" value={layer.textContent} onCommit={onCommitText} />}
+            {layer.props && Object.entries(layer.props).map(([propName, propValue]) => <EditablePropRow key={propName} label={propName} value={typeof propValue === 'boolean' ? propValue ? 'true' : 'false' : propValue} onCommit={val => {
+      onCommitProp(propName, val);
+    }} />)}
 
             <div className="px-3 py-2">
-                {addingProp ? (
-                    <div className="flex items-center gap-2">
-                        <input
-                            autoFocus
-                            placeholder="prop name..."
-                            value={newPropName}
-                            onChange={(e) => setNewPropName(e.target.value)}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter' && newPropName.trim()) {
-                                    onCommitProp(newPropName.trim(), 'true')
-                                    setAddingProp(false)
-                                    setNewPropName('')
-                                } else if (e.key === 'Escape') {
-                                    setAddingProp(false)
-                                    setNewPropName('')
-                                }
-                            }}
-                            onBlur={() => {
-                                setAddingProp(false)
-                                setNewPropName('')
-                            }}
-                            className="flex-1 rounded border border-indigo-500/50 bg-gray-800/80 px-2 py-1 font-mono text-[10px] text-gray-100 outline-none"
-                        />
-                    </div>
-                ) : (
-                    <button
-                        type="button"
-                        onClick={() => setAddingProp(true)}
-                        className="text-[10px] font-medium text-indigo-400 transition-colors hover:text-indigo-300"
-                    >
+                {addingProp ? <div className="flex items-center gap-2">
+                        <input autoFocus placeholder="prop name..." value={newPropName} onChange={e => setNewPropName(e.target.value)} onKeyDown={e => {
+          if (e.key === 'Enter' && newPropName.trim()) {
+            onCommitProp(newPropName.trim(), 'true');
+            setAddingProp(false);
+            setNewPropName('');
+          } else if (e.key === 'Escape') {
+            setAddingProp(false);
+            setNewPropName('');
+          }
+        }} onBlur={() => {
+          setAddingProp(false);
+          setNewPropName('');
+        }} className="flex-1 rounded border border-indigo-500/50 bg-zinc-800/80 px-2 py-1 font-mono outline-none" style={{ fontSize: 'var(--text-micro)', color: 'var(--text-primary)' }} aria-label="[NEEDS LABEL]" />
+                    </div> : (
+                    /* @schemaRole cta-secondary — adds a prop, a secondary action */
+                    <button data-schema-role="cta-secondary" type="button" onClick={() => setAddingProp(true)} className="font-medium transition-colors" style={{ fontSize: 'var(--text-micro)', color: 'var(--text-accent)' }}>
                         + Add Prop
                     </button>
-                )}
+                    )}
             </div>
-        </div>
-    )
+        </div>;
+}
+
+// ── INSPECTOR.1: Section display name map ────────────────────────────────────
+
+const SECTION_TITLES: Record<InspectorSection, string> = {
+  Typography:     'Typography',
+  Layout:         'Layout',
+  Appearance:     'Appearance',
+  MediaProps:     'Media',
+  FormProps:      'Form',
+  A11y:           'Accessibility',
+  NodeProperties: 'Element Properties',
+};
+
+/**
+ * Renders the ordered, element-type-aware list of inspector sections for
+ * `layer`. Each section is gated by `getRelevantSections(tagName)` and
+ * expands automatically only if listed in `getAutoExpandedSections(tagName)`.
+ *
+ * Sections that have their own internal Section wrapper (TypographySection,
+ * FormPropsSection, MediaPropsSection, A11ySection) render bare (no double
+ * Section wrapper). The Layout, Appearance, and NodeProperties sections are
+ * wrapped here because their underlying components (LayoutPanel, ClassBuilder,
+ * NodeProperties) don't self-wrap.
+ */
+function renderDynamicSections(
+  layer: VisualLayer,
+  nodeId: string,
+  onCommit: (className: string) => void,
+  onCommitStyle: (value: string) => void,
+  onCommitText: (value: string) => void,
+  onCommitProp: (propName: string, value: string | undefined) => void,
+): React.ReactNode {
+  const tagName = layer.tagName ?? 'unknown';
+  const relevant = getRelevantSections(tagName);
+  const autoExpanded = new Set(getAutoExpandedSections(tagName));
+
+  return relevant.map((section, idx) => {
+    const title = SECTION_TITLES[section];
+    // First section does not carry stack spacing (panel header already provides gap)
+    const stackItem = idx > 0;
+    const isExpanded = autoExpanded.has(section);
+    const expandedWhen = isExpanded ? () => true as boolean : () => false as boolean;
+
+    switch (section) {
+      case 'Typography':
+        return (
+          <TypographySection
+            key={section}
+            layer={layer}
+            onCommit={onCommit}
+            initiallyExpanded={isExpanded}
+          />
+        );
+
+      case 'Layout':
+        // LayoutPanel has its own header; wrap in a Section so it participates in
+        // the collapse/expand rhythm.
+        return (
+          <Section
+            key={section}
+            title={title}
+            schemaRole="primary-content"
+            expandedWhen={expandedWhen}
+            stackItem={stackItem}
+          >
+            <LayoutPanel className={layer.className ?? ''} onChange={onCommit} />
+          </Section>
+        );
+
+      case 'Appearance':
+        // ClassBuilder owns the Appearance section; wrap in a Section.
+        return (
+          <Section
+            key={section}
+            title={title}
+            schemaRole="primary-content"
+            expandedWhen={expandedWhen}
+            stackItem={stackItem}
+          >
+            <ClassBuilder className={layer.className ?? ''} onCommit={onCommit} />
+          </Section>
+        );
+
+      case 'MediaProps':
+        return (
+          <MediaPropsSection
+            key={section}
+            layer={layer}
+            onCommitProp={onCommitProp}
+            initiallyExpanded={isExpanded}
+          />
+        );
+
+      case 'FormProps':
+        return (
+          <FormPropsSection
+            key={section}
+            layer={layer}
+            onCommitProp={onCommitProp}
+            initiallyExpanded={isExpanded}
+          />
+        );
+
+      case 'A11y':
+        return (
+          <A11ySection
+            key={section}
+            layer={layer}
+            onCommitProp={onCommitProp}
+            initiallyExpanded={isExpanded}
+          />
+        );
+
+      case 'NodeProperties':
+        // NodeProperties starts collapsed per ODQ-3 (not in any bucket's autoExpand).
+        // It is never the "primary" section for any element type — users open it
+        // when they explicitly want the raw AST prop grid.
+        return (
+          <Section
+            key={section}
+            title={title}
+            schemaRole="primary-content"
+            expandedWhen={() => isExpanded}
+            stackItem={stackItem}
+          >
+            <NodeProperties
+              layer={layer}
+              nodeId={nodeId}
+              onCommitStyle={onCommitStyle}
+              onCommitText={onCommitText}
+              onCommitProp={onCommitProp}
+            />
+          </Section>
+        );
+
+      default:
+        return null;
+    }
+  });
 }
 
 // ── PropertiesPanel ───────────────────────────────────────────────────────────
 
 export function PropertiesPanel() {
-    // Canvas selection (from CANVAS_CLICK) takes precedence; Layer Tree selection
-    // (editorStore.selectedNodeId) is the fallback for keyboard/tree-row selection.
-    const activeSelection = useCanvasStore((s) => s.activeSelection)
-    const selectedNodeId = useEditorStore((state) => state.selectedNodeId)
-    const effectiveId = activeSelection ?? selectedNodeId
+  // Canvas selection (from CANVAS_CLICK) takes precedence; Layer Tree selection
+  // (editorStore.selectedNodeId) is the fallback for keyboard/tree-row selection.
+  const activeSelection = useCanvasStore(s => s.activeSelection);
+  const selectedNodeId = useEditorStore(state => state.selectedNodeId);
+  const effectiveId = activeSelection ?? selectedNodeId;
+  const visualTree = useEditorStore(state => state.visualTree);
+  const applyBatch = useEditorStore(state => state.applyBatch);
+  const getNearestToken = useTokenStore(s => s.getNearestToken);
+  const setMithrilViolations = useCanvasStore(s => s.setMithrilViolations);
+  const setOverridesExist = useCanvasStore(s => s.setOverridesExist);
+  const setLinterWarning = useEditorStore(s => s.setLinterWarning);
+  const clearLinterWarning = useEditorStore(s => s.clearLinterWarning);
 
-    const visualTree = useEditorStore((state) => state.visualTree)
-    const applyBatch = useEditorStore((state) => state.applyBatch)
+  // Phase C.2: AST Conflict Arbiter — block editing when a remote user holds this node.
+  const isNodeLocked = useIsNodeLocked(effectiveId);
+  const selectedLayer = effectiveId !== null ? findLayer(visualTree, effectiveId) : undefined;
 
-    const getNearestToken = useTokenStore((s) => s.getNearestToken)
-    const setMithrilViolations = useCanvasStore((s) => s.setMithrilViolations)
-    const setOverridesExist = useCanvasStore((s) => s.setOverridesExist)
-    const setLinterWarning = useEditorStore((s) => s.setLinterWarning)
-    const clearLinterWarning = useEditorStore((s) => s.clearLinterWarning)
+  // Track whether the ClassBuilder is in a Mithril Violation state locally.
+  // This drives the amber glow on the wrapper.
+  const [hasAmberViolation, setHasAmberViolation] = useState(false);
+  // Full violation context — drives MithrilViolationCard and the Auto-Fix action.
+  const [driftResult, setDriftResult] = useState<{
+    deltaE: number;
+    tokenName: string;
+    tokenValue: string;
+    hexColor: string;
+    hardcodedClass: string;
+    tokenClass: string;
+  } | null>(null);
 
-    // Phase C.2: AST Conflict Arbiter — block editing when a remote user holds this node.
-    const isNodeLocked = useIsNodeLocked(effectiveId)
-
-    const selectedLayer =
-        effectiveId !== null
-            ? findLayer(visualTree, effectiveId)
-            : undefined
-
-    // Track whether the ClassBuilder is in a Mithril Violation state locally.
-    // This drives the amber glow on the wrapper.
-    const [hasAmberViolation, setHasAmberViolation] = useState(false)
-    // Full violation context — drives MithrilViolationCard and the Auto-Fix action.
-    const [driftResult, setDriftResult] = useState<{
-        deltaE: number
-        tokenName: string
-        tokenValue: string
-        hexColor: string
-        hardcodedClass: string
-        tokenClass: string
-    } | null>(null)
-
-    /**
-     * Checks the newly committed className for Mithril drift.
-     *
-     * For each arbitrary-value hex color found in `newClassName`, we find the
-     * NEAREST token (minimum ΔE). A class is only a Mithril Violation if its
-     * nearest token is still > 2.0 away — i.e. there is no perceptually close
-     * token it could be replaced with. We report the worst offender so the
-     * MithrilViolationCard can show the exact hex, target token, and ΔE, and
-     * offer a one-click Auto-Fix.
-     */
-    const checkMithrilDrift = useCallback(
-        (newClassName: string, nodeId: string) => {
-            const arbitraryColors = extractArbitraryHexColors(newClassName)
-
-            if (arbitraryColors.length === 0) {
-                setHasAmberViolation(false)
-                setDriftResult(null)
-                setMithrilViolations([])
-                return
-            }
-
-            // Find the worst-case nearest-token drift across all hex colors.
-            // "Worst" = the color whose closest token is still farthest away.
-            let worst: {
-                deltaE: number
-                tokenName: string
-                tokenValue: string
-                tokenType: string
-                hexColor: string
-            } | null = null
-
-            for (const hexColor of arbitraryColors) {
-                const result = getNearestToken(hexColor)
-                if (result !== null && (worst === null || result.deltaE > worst.deltaE)) {
-                    worst = {
-                        deltaE: result.deltaE,
-                        tokenName: result.tokenName,
-                        tokenValue: result.tokenValue,
-                        tokenType: result.tokenType,
-                        hexColor,
-                    }
-                }
-            }
-
-            const isViolating = worst !== null && worst.deltaE > MITHRIL_THRESHOLD
-            setHasAmberViolation(isViolating)
-
-            if (isViolating && worst !== null) {
-                // Build the Auto-Fix payload: find the exact class containing the
-                // offending hex and derive the token replacement using classMapper.
-                const hardcodedClass = findHardcodedClassForHex(newClassName, worst.hexColor) ?? worst.hexColor
-                const prefix = extractClassPrefix(hardcodedClass)
-                const tokenClass = prefix !== ''
-                    ? tokenToClass(worst.tokenName, worst.tokenType as TokenType, prefix)
-                    : worst.tokenName
-                setDriftResult({
-                    deltaE: worst.deltaE,
-                    tokenName: worst.tokenName,
-                    tokenValue: worst.tokenValue,
-                    hexColor: worst.hexColor,
-                    hardcodedClass,
-                    tokenClass,
-                })
-                setMithrilViolations([nodeId])
-                // Persist to the rich linterWarnings map so LayerTree, Export Gate,
-                // and any future consumers have immediate pre-commit feedback.
-                const severity: LinterWarning['severity'] = worst.deltaE > 10 ? 'critical' : 'amber'
-                setLinterWarning(nodeId, {
-                    id: nodeId,
-                    type: 'color-drift',
-                    severity,
-                    value: worst.deltaE,
-                    message: `ΔE ${worst.deltaE.toFixed(1)} – use ${worst.tokenName}`,
-                    nearestToken: worst.tokenName,
-                    nearestTokenValue: worst.tokenValue,
-                })
-            } else {
-                setDriftResult(null)
-                setMithrilViolations([])
-                clearLinterWarning(nodeId)
-            }
-        },
-        [getNearestToken, setMithrilViolations, setLinterWarning, clearLinterWarning]
-    )
-
-    /**
-     * Commits a className change via applyBatch (routes through historyStore).
-     * The AST re-render is wrapped in startTransition so React keeps the UI
-     * responsive; the Mithril drift check runs synchronously outside it.
-     */
-    function handleCommit(newClassName: string): void {
-        if (effectiveId === null) return
-        // Phase C.2: hard block — cannot edit a remotely locked node.
-        if (isNodeLocked) return
-        startTransition(() => {
-            applyBatch([{ op: 'updateClassName', nodeId: effectiveId, className: newClassName }])
-        })
-        checkMithrilDrift(newClassName, effectiveId)
+  /**
+   * Checks the newly committed className for Mithril drift.
+   *
+   * For each arbitrary-value hex color found in `newClassName`, we find the
+   * NEAREST token (minimum ΔE). A class is only a Mithril Violation if its
+   * nearest token is still > 2.0 away — i.e. there is no perceptually close
+   * token it could be replaced with. We report the worst offender so the
+   * MithrilViolationCard can show the exact hex, target token, and ΔE, and
+   * offer a one-click Auto-Fix.
+   */
+  const checkMithrilDrift = useCallback((newClassName: string, nodeId: string) => {
+    const arbitraryColors = extractArbitraryHexColors(newClassName);
+    if (arbitraryColors.length === 0) {
+      setHasAmberViolation(false);
+      setDriftResult(null);
+      setMithrilViolations([]);
+      return;
     }
 
-    /**
-     * Applies a one-click token fix via applyBatch, replacing the offending
-     * arbitrary-value hex class with the closest design-token class.
-     * Clears the violation state immediately — the hardcoded hex is gone.
-     */
-    function handleAutoFix(): void {
-        if (effectiveId === null || driftResult === null) return
-        startTransition(() => {
-            applyBatch([{
-                op: 'applyTokenFix',
-                nodeId: effectiveId,
-                hardcodedClass: driftResult.hardcodedClass,
-                tokenClass: driftResult.tokenClass,
-            }])
-        })
-        setHasAmberViolation(false)
-        setDriftResult(null)
-        setMithrilViolations([])
-        clearLinterWarning(effectiveId)
+    // Find the worst-case nearest-token drift across all hex colors.
+    // "Worst" = the color whose closest token is still farthest away.
+    let worst: {
+      deltaE: number;
+      tokenName: string;
+      tokenValue: string;
+      tokenType: string;
+      hexColor: string;
+    } | null = null;
+    for (const hexColor of arbitraryColors) {
+      const result = getNearestToken(hexColor);
+      if (result !== null && (worst === null || result.deltaE > worst.deltaE)) {
+        worst = {
+          deltaE: result.deltaE,
+          tokenName: result.tokenName,
+          tokenValue: result.tokenValue,
+          tokenType: result.tokenType,
+          hexColor
+        };
+      }
     }
-
-    /** Commits a style prop change via applyBatch and marks the node as overridden. */
-    function handleStyleCommit(value: string): void {
-        if (effectiveId === null) return
-        if (isNodeLocked) return
-        startTransition(() => {
-            applyBatch([{ op: 'updateProp', nodeId: effectiveId, propName: 'style', value }])
-        })
-        setOverridesExist(true)
-        if (typeof window !== 'undefined') {
-            void window.flintAPI.tokens.upsertOverride?.(effectiveId, 'style', value)
-        }
+    const isViolating = worst !== null && worst.deltaE > MITHRIL_THRESHOLD;
+    setHasAmberViolation(isViolating);
+    if (isViolating && worst !== null) {
+      // Build the Auto-Fix payload: find the exact class containing the
+      // offending hex and derive the token replacement using classMapper.
+      const hardcodedClass = findHardcodedClassForHex(newClassName, worst.hexColor) ?? worst.hexColor;
+      const prefix = extractClassPrefix(hardcodedClass);
+      const tokenClass = prefix !== '' ? tokenToClass(worst.tokenName, worst.tokenType as TokenType, prefix) : worst.tokenName;
+      setDriftResult({
+        deltaE: worst.deltaE,
+        tokenName: worst.tokenName,
+        tokenValue: worst.tokenValue,
+        hexColor: worst.hexColor,
+        hardcodedClass,
+        tokenClass
+      });
+      setMithrilViolations([nodeId]);
+      // Persist to the rich linterWarnings map so LayerTree, Export Gate,
+      // and any future consumers have immediate pre-commit feedback.
+      const severity: LinterWarning['severity'] = worst.deltaE > 10 ? 'critical' : 'amber';
+      setLinterWarning(nodeId, {
+        id: nodeId,
+        type: 'color-drift',
+        severity,
+        value: worst.deltaE,
+        message: `ΔE ${worst.deltaE.toFixed(1)} – use ${worst.tokenName}`,
+        nearestToken: worst.tokenName,
+        nearestTokenValue: worst.tokenValue
+      });
+    } else {
+      setDriftResult(null);
+      setMithrilViolations([]);
+      clearLinterWarning(nodeId);
     }
+  }, [getNearestToken, setMithrilViolations, setLinterWarning, clearLinterWarning]);
 
-    /** Commits a textContent change via applyBatch and marks the node as overridden. */
-    function handleTextCommit(value: string): void {
-        if (effectiveId === null) return
-        if (isNodeLocked) return
-        startTransition(() => {
-            applyBatch([{ op: 'updateProp', nodeId: effectiveId, propName: 'textContent', value }])
-        })
-        setOverridesExist(true)
-        if (typeof window !== 'undefined') {
-            void window.flintAPI.tokens.upsertOverride?.(effectiveId, 'textContent', value)
-        }
+  /**
+   * Commits a className change via applyBatch (routes through historyStore).
+   * The AST re-render is wrapped in startTransition so React keeps the UI
+   * responsive; the Mithril drift check runs synchronously outside it.
+   */
+  function handleCommit(newClassName: string): void {
+    if (effectiveId === null) return;
+    // Phase C.2: hard block — cannot edit a remotely locked node.
+    if (isNodeLocked) return;
+    startTransition(() => {
+      applyBatch([{
+        op: 'updateClassName',
+        nodeId: effectiveId,
+        className: newClassName
+      }]);
+    });
+    checkMithrilDrift(newClassName, effectiveId);
+  }
+
+  /**
+   * Applies a one-click token fix via applyBatch, replacing the offending
+   * arbitrary-value hex class with the closest design-token class.
+   * Clears the violation state immediately — the hardcoded hex is gone.
+   */
+  function handleAutoFix(): void {
+    if (effectiveId === null || driftResult === null) return;
+    startTransition(() => {
+      applyBatch([{
+        op: 'applyTokenFix',
+        nodeId: effectiveId,
+        hardcodedClass: driftResult.hardcodedClass,
+        tokenClass: driftResult.tokenClass
+      }]);
+    });
+    setHasAmberViolation(false);
+    setDriftResult(null);
+    setMithrilViolations([]);
+    clearLinterWarning(effectiveId);
+  }
+
+  /** Commits a style prop change via applyBatch and marks the node as overridden. */
+  function handleStyleCommit(value: string): void {
+    if (effectiveId === null) return;
+    if (isNodeLocked) return;
+    startTransition(() => {
+      applyBatch([{
+        op: 'updateProp',
+        nodeId: effectiveId,
+        propName: 'style',
+        value
+      }]);
+    });
+    setOverridesExist(true);
+    if (typeof window !== 'undefined') {
+      void window.flintAPI.tokens.upsertOverride?.(effectiveId, 'style', value);
     }
+  }
 
-    /** Commits an arbitrary prop change via applyBatch and marks the node as overridden. */
-    function handlePropCommit(propName: string, value: string | undefined): void {
-        if (effectiveId === null) return
-        if (isNodeLocked) return
-
-        let parsedValue: string | boolean | null = value === undefined ? null : value
-        if (value === 'true') parsedValue = true
-        if (value === 'false') parsedValue = false
-        // Empty string -> delete
-        if (value === '') parsedValue = null
-
-        startTransition(() => {
-            applyBatch([{ op: 'updateProp', nodeId: effectiveId, propName, value: parsedValue }])
-        })
-        setOverridesExist(true)
-        if (typeof window !== 'undefined') {
-            void window.flintAPI.tokens.upsertOverride?.(effectiveId, propName, value ?? '')
-        }
+  /** Commits a textContent change via applyBatch and marks the node as overridden. */
+  function handleTextCommit(value: string): void {
+    if (effectiveId === null) return;
+    if (isNodeLocked) return;
+    startTransition(() => {
+      applyBatch([{
+        op: 'updateProp',
+        nodeId: effectiveId,
+        propName: 'textContent',
+        value
+      }]);
+    });
+    setOverridesExist(true);
+    if (typeof window !== 'undefined') {
+      void window.flintAPI.tokens.upsertOverride?.(effectiveId, 'textContent', value);
     }
+  }
 
-    if (effectiveId === null || selectedLayer === undefined) {
-        return (
-            <div className="flex flex-col items-center justify-center px-6 py-12 text-center">
-                <SlidersHorizontal className="h-8 w-8 text-zinc-600 mb-3" />
-                <p className="text-sm text-zinc-400 leading-relaxed max-w-[240px]">
+  /** Commits an arbitrary prop change via applyBatch and marks the node as overridden. */
+  function handlePropCommit(propName: string, value: string | undefined): void {
+    if (effectiveId === null) return;
+    if (isNodeLocked) return;
+    let parsedValue: string | boolean | null = value === undefined ? null : value;
+    if (value === 'true') parsedValue = true;
+    if (value === 'false') parsedValue = false;
+    // Empty string -> delete
+    if (value === '') parsedValue = null;
+    startTransition(() => {
+      applyBatch([{
+        op: 'updateProp',
+        nodeId: effectiveId,
+        propName,
+        value: parsedValue
+      }]);
+    });
+    setOverridesExist(true);
+    if (typeof window !== 'undefined') {
+      void window.flintAPI.tokens.upsertOverride?.(effectiveId, propName, value ?? '');
+    }
+  }
+  if (effectiveId === null || selectedLayer === undefined) {
+    return <div className="flex flex-col items-center justify-center px-6 py-12 text-center">
+                <SlidersHorizontal className="h-8 w-8 mb-3" style={{ color: 'var(--text-tertiary)' }} />
+                <p className="leading-relaxed" style={{ fontSize: 'var(--text-body)', color: 'var(--text-secondary)' }}>
                     Click any element in the preview to inspect it.
                 </p>
-            </div>
-        )
-    }
-
-    return (
-        <div className="flex h-full flex-col gap-0">
-            {/* Phase C.2: Collaborator lock banner */}
-            {isNodeLocked && (
-                <div className="flex shrink-0 items-center gap-2 border-b border-blue-900/50 bg-blue-950/30 px-3 py-2">
+            </div>;
+  }
+  return <div className="flex h-full flex-col gap-0">
+            {/* Phase C.2: Collaborator lock banner — @schemaRole state-signal */}
+            {isNodeLocked && <div className="flex shrink-0 items-center gap-2 border-b border-blue-900/50 bg-blue-950/30 px-3 py-2">
                     <Lock className="h-3 w-3 shrink-0 text-blue-400" />
-                    <span className="text-[10px] font-semibold text-blue-400">
+                    <span data-schema-role="state-signal" className="font-semibold text-blue-400" style={{ fontSize: 'var(--text-micro)' }}>
                         Locked by a collaborator
                     </span>
-                    <span className="text-[10px] text-zinc-500">
+                    <span style={{ fontSize: 'var(--text-micro)', color: 'var(--text-tertiary)' }}>
                         — editing disabled until they release the node
                     </span>
-                </div>
-            )}
+                </div>}
 
-            {/* Header */}
-            <div className="group flex shrink-0 items-center justify-between border-b border-gray-800 bg-gray-900/40 px-3 py-2">
+            {/* Header — @schemaRole primary-content: the selected tag name is the main thing shown */}
+            <div className="group flex shrink-0 items-center justify-between border-b border-zinc-800 bg-zinc-900/40 px-3 py-2">
                 <div className="flex items-center gap-2">
                     {getIconForTag(selectedLayer.tagName)}
-                    <span className="font-mono text-[11px] font-semibold text-gray-200">
+                    <span data-schema-role="primary-content" className="font-mono font-semibold" style={{ fontSize: 'var(--text-body)', color: 'var(--text-primary)' }}>
                         {selectedLayer.tagName}
                     </span>
                 </div>
-                <span className="text-[10px] text-gray-500 font-mono opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+                <span data-schema-role="metadata" className="font-mono opacity-0 transition-opacity duration-150 group-hover:opacity-100" style={{ fontSize: 'var(--text-micro)', color: 'var(--text-tertiary)' }}>
                     L{selectedLayer.line}
                 </span>
             </div>
 
-            {/* Auto Layout controls */}
-            <div className="shrink-0">
-                <LayoutPanel
-                    className={selectedLayer.className ?? ''}
-                    onChange={handleCommit}
-                />
-            </div>
-
             {/* Token-driven class builder — Amber glow on Mithril Violation; dimmed when locked */}
-            <div
-                className={`flex flex-1 flex-col overflow-hidden transition-shadow duration-200 ${isNodeLocked
-                    ? 'pointer-events-none opacity-40'
-                    : hasAmberViolation
-                        ? 'ring-2 ring-inset ring-amber-500/70'
-                        : ''
-                    }`}
-            >
+            <div className={`flex flex-1 flex-col overflow-hidden transition-shadow duration-200 ${isNodeLocked ? 'pointer-events-none opacity-40' : hasAmberViolation ? 'ring-2 ring-inset ring-amber-500/70' : ''}`}>
                 {/* Mithril Violation card — visible when drift > MITHRIL_THRESHOLD */}
-                {driftResult !== null && (
-                    <MithrilViolationCard
-                        deltaE={driftResult.deltaE}
-                        tokenName={driftResult.tokenName}
-                        hexColor={driftResult.hexColor}
-                        tokenValue={driftResult.tokenValue}
-                        onAutoFix={handleAutoFix}
-                    />
-                )}
+                {driftResult !== null && <MithrilViolationCard deltaE={driftResult.deltaE} tokenName={driftResult.tokenName} hexColor={driftResult.hexColor} tokenValue={driftResult.tokenValue} onAutoFix={handleAutoFix} />}
                 <div className="min-h-0 flex-1 overflow-y-auto">
-                    <ClassBuilder
-                        className={selectedLayer.className ?? ''}
-                        onCommit={handleCommit}
-                    />
+                    {/* INSPECTOR.1 Group C: dynamic section list sourced from the element-type
+                        registry. Each section is wrapped in the Section primitive and rendered
+                        only when it is in the relevant list for this tagName.
 
-                    {/* Read-only / Editable AST property grid (bottom) */}
-                    <Accordion title="Element Properties" defaultOpen={false}>
-                        <NodeProperties
-                            layer={selectedLayer}
-                            nodeId={effectiveId}
-                            onCommitStyle={handleStyleCommit}
-                            onCommitText={handleTextCommit}
-                            onCommitProp={handlePropCommit}
-                        />
-                    </Accordion>
+                        Auto-expand rule (ODQ-3): exactly the primary section(s) declared in
+                        getAutoExpandedSections(tagName) start expanded; all others start
+                        collapsed. For generic/unknown tags all sections start collapsed.
+
+                        ClassBuilder (Appearance) is rendered inline before the dynamic
+                        sections because it contains its own scroll area and must remain
+                        at the top of the overflow-y container.
+
+                        DriftDetector placement is preserved below the dynamic sections
+                        (moved to the shrink-0 slot after the overflow container). */}
+                    {renderDynamicSections(
+                      selectedLayer,
+                      effectiveId,
+                      handleCommit,
+                      handleStyleCommit,
+                      handleTextCommit,
+                      handlePropCommit,
+                    )}
                 </div>
             </div>
 
@@ -659,6 +730,5 @@ export function PropertiesPanel() {
             <div className="shrink-0">
                 <AnnotationList nodeId={effectiveId} />
             </div>
-        </div>
-    )
+        </div>;
 }

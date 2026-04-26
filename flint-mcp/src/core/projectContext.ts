@@ -35,8 +35,6 @@ interface DebtHistoryEntry {
     violationCount?: number
 }
 
-type DebtHistory = DebtHistoryEntry[] | { snapshots?: DebtHistoryEntry[] }
-
 /**
  * Load project-level health context from .flint/debt-history.json.
  *

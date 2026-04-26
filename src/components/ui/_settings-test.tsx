@@ -1,16 +1,14 @@
-import React from 'react'
-import { Card } from 'primeng/card'
-import { InputText } from 'primeng/inputtext'
-import { InputSwitch } from 'primeng/inputswitch'
-import { Button } from 'primeng/button'
-import { Divider } from 'primeng/divider'
-import { Dialog } from 'primeng/dialog'
-import { Accordion } from 'primeng/accordion'
-import { Sidebar } from 'primeng/sidebar'
-
+// @ts-nocheck — fixture file for Flint audit demos; primeng is not installed
+import { Card } from 'primeng/card';
+import { InputText } from 'primeng/inputtext';
+import { InputSwitch } from 'primeng/inputswitch';
+import { Button } from 'primeng/button';
+import { Divider } from 'primeng/divider';
+import { Dialog } from 'primeng/dialog';
+import { Accordion } from 'primeng/accordion';
+import { Sidebar } from 'primeng/sidebar';
 export function UserSettings() {
-    return (
-        <Card title="User Settings">
+  return <Card title="User Settings">
             <div className="flex flex-col gap-4">
                 <label>Display Name</label>
                 <InputText placeholder="Enter your name" />
@@ -35,6 +33,5 @@ export function UserSettings() {
 
                 <Button label="Save Changes" severity="success" />
             </div>
-        </Card>
-    )
+        </Card>;
 }

@@ -99,6 +99,19 @@ const ALLOWED_MCP_ONLY_EXPORTS: readonly string[] = [
     'visitRogueIntrinsics',        // MITHRIL-REG-001: rogue intrinsic detection
     'visitTailwindVersionDrift',   // Tailwind v3→v4 class migration audit
     'visitTypographyHierarchy',    // Typography heading hierarchy audit
+
+    // Phase 0 Coverage Honesty — MCP-only coverage integration
+    // Glass does not expose auditAllWithCoverage; coverage flows from hook → IPC.
+    'auditAllWithCoverage',        // Phase 0: MCP-only wrapper; Glass reads coverage via useCoverageSummary hook
+
+    // Phase 2 PostCSS — MCP-only CSS var() resolver wrapper
+    // Glass var() resolution remains single-pass fallback-only (no project-wide custom property map).
+    'parseCssColorToHexWithMap',   // Phase 2: MCP-only wrapper that resolves CSS var() via customPropertyMap
+
+    // RUNTIME.1 / FIXTURE.1 — MCP-only surface-aware audit wrapper.
+    // Accepts a fixture surface type to apply fixture-scoped rule applicability.
+    // Glass reads audit results via IPC; it does not call the linter directly.
+    'auditAllWithSurface',         // RUNTIME.1/FIXTURE.1: surface-aware audit; Glass reads via IPC
 ]
 
 // ── Helpers ────────────────────────────────────────────────────────────────────

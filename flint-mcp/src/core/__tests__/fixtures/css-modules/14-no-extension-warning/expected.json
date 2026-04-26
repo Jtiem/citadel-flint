@@ -1,0 +1,4 @@
+{
+  "_note": "The import './style' has no .module.css extension. The resolver must NOT treat this as a CSS Modules import. The result should have an empty imports array.",
+  "imports": []
+}

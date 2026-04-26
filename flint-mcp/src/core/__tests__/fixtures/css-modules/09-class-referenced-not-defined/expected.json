@@ -1,0 +1,13 @@
+{
+  "_note": "resolved: true because the module file exists and parses successfully. classBindings only contains classes actually defined in the CSS — ghost is absent. Downstream classifiers may flag s.ghost as unresolved.",
+  "imports": [
+    {
+      "bindingName": "s",
+      "modulePath": "style.module.css",
+      "resolved": true,
+      "failureReason": null,
+      "namedImports": [],
+      "classBindings_keys": ["card", "header"]
+    }
+  ]
+}

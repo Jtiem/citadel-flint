@@ -1,392 +1,289 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { BRAND } from '../../../shared/brand'
-import {
-    CheckCircle,
-    XCircle,
-    ChevronRight,
-    ChevronLeft,
-    Loader2,
-    Copy,
-    Check,
-} from 'lucide-react'
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { BRAND } from '../../../shared/brand';
+import { CheckCircle, XCircle, ChevronRight, ChevronLeft, Loader2, Copy, Check } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface DetectedIDE {
-    name: 'Claude Code' | 'Cursor' | 'VS Code' | 'Antigravity'
-    settingsPath: string
-    detected: boolean
+  name: 'Claude Code' | 'Cursor' | 'VS Code' | 'Antigravity';
+  settingsPath: string;
+  detected: boolean;
 }
-
-type WizardStep = 'welcome' | 'ide-detect' | 'mcp-snippet' | 'verify' | 'done'
-type VerifyStatus = 'idle' | 'checking' | 'connected' | 'error'
-type WriteStatus = 'writing' | 'written' | 'error'
-
+type WizardStep = 'welcome' | 'ide-detect' | 'mcp-snippet' | 'verify' | 'done';
+type VerifyStatus = 'idle' | 'checking' | 'connected' | 'error';
+type WriteStatus = 'writing' | 'written' | 'error';
 export interface SetupWizardProps {
-    onComplete: () => void
+  onComplete: () => void;
 }
 
 // ── Step dot indices ──────────────────────────────────────────────────────────
 
-const STEP_ORDER: WizardStep[] = ['welcome', 'ide-detect', 'mcp-snippet', 'verify', 'done']
-
+const STEP_ORDER: WizardStep[] = ['welcome', 'ide-detect', 'mcp-snippet', 'verify', 'done'];
 function stepIndex(step: WizardStep): number {
-    return STEP_ORDER.indexOf(step)
+  return STEP_ORDER.indexOf(step);
 }
 
 // ── Config snippet builder ────────────────────────────────────────────────────
 
 function buildConfigSnippet(ideName: DetectedIDE['name'], mcpServerPath: string): string {
-    // VS Code and Cursor use mcp.servers; Claude Code and Antigravity use mcpServers
-    if (ideName === 'VS Code' || ideName === 'Cursor') {
-        return JSON.stringify(
-            {
-                'mcp.servers': {
-                    flint: {
-                        command: 'node',
-                        args: [mcpServerPath],
-                    },
-                },
-            },
-            null,
-            2,
-        )
+  // VS Code and Cursor use mcp.servers; Claude Code and Antigravity use mcpServers
+  if (ideName === 'VS Code' || ideName === 'Cursor') {
+    return JSON.stringify({
+      'mcp.servers': {
+        flint: {
+          command: 'node',
+          args: [mcpServerPath]
+        }
+      }
+    }, null, 2);
+  }
+  return JSON.stringify({
+    mcpServers: {
+      flint: {
+        command: 'node',
+        args: [mcpServerPath]
+      }
     }
-    return JSON.stringify(
-        {
-            mcpServers: {
-                flint: {
-                    command: 'node',
-                    args: [mcpServerPath],
-                },
-            },
-        },
-        null,
-        2,
-    )
+  }, null, 2);
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 // R-10: Progress dots with non-color distinction (filled checkmark / current ring / empty)
-function StepDots({ current }: { current: WizardStep }) {
-    const currentIdx = stepIndex(current)
-    return (
-        <div
-            className="flex items-center justify-center gap-2 pt-6"
-            aria-hidden="true"
-            data-testid="step-dots"
-        >
+function StepDots({
+  current
+}: {
+  current: WizardStep;
+}) {
+  const currentIdx = stepIndex(current);
+  return <div className="flex items-center justify-center gap-2 pt-6" aria-hidden="true" data-testid="step-dots">
             {STEP_ORDER.map((s, i) => {
-                const isCompleted = i < currentIdx
-                const isCurrent = i === currentIdx
-
-                if (isCompleted) {
-                    // Completed: solid indigo dot with checkmark inside
-                    return (
-                        <span
-                            key={s}
-                            data-step-state="completed"
-                            data-step-index={i + 1}
-                            className="flex h-4 w-4 items-center justify-center rounded-full bg-indigo-600 text-white"
-                        >
+      const isCompleted = i < currentIdx;
+      const isCurrent = i === currentIdx;
+      if (isCompleted) {
+        // Completed: solid indigo dot with checkmark inside
+        return <span key={s} data-step-state="completed" data-step-index={i + 1} className="flex h-4 w-4 items-center justify-center rounded-full bg-indigo-600 text-white">
                             <span className="text-[8px] font-bold leading-none">&#10003;</span>
-                        </span>
-                    )
-                }
-
-                if (isCurrent) {
-                    // Current: outlined ring with filled inner dot
-                    return (
-                        <span
-                            key={s}
-                            data-step-state="current"
-                            data-step-index={i + 1}
-                            className="flex h-4 w-4 items-center justify-center rounded-full border-2 border-indigo-500"
-                        >
+                        </span>;
+      }
+      if (isCurrent) {
+        // Current: outlined ring with filled inner dot
+        return <span key={s} data-step-state="current" data-step-index={i + 1} className="flex h-4 w-4 items-center justify-center rounded-full border-2 border-indigo-500">
                             <span className="h-1.5 w-1.5 rounded-full bg-indigo-500" />
-                        </span>
-                    )
-                }
+                        </span>;
+      }
 
-                // Future: hollow outlined ring
-                return (
-                    <span
-                        key={s}
-                        data-step-state="upcoming"
-                        data-step-index={i + 1}
-                        className="flex h-4 w-4 items-center justify-center rounded-full border border-zinc-600"
-                    />
-                )
-            })}
-        </div>
-    )
+      // Future: hollow outlined ring
+      return <span key={s} data-step-state="upcoming" data-step-index={i + 1} className="flex h-4 w-4 items-center justify-center rounded-full border border-zinc-600" />;
+    })}
+        </div>;
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function SetupWizard({ onComplete }: SetupWizardProps) {
-    const [step, setStep] = useState<WizardStep>('welcome')
-    // FORGE.1f: Focus management — ref for the step heading so we can move focus on transitions
-    const stepHeadingRef = useRef<HTMLHeadingElement>(null)
-    const [detectedIDEs, setDetectedIDEs] = useState<DetectedIDE[] | null>(null)
-    const [mcpServerPath, setMcpServerPath] = useState<string>('')
-    const [selectedIDE, setSelectedIDE] = useState<DetectedIDE | null>(null)
-    const [writeStatus, setWriteStatus] = useState<WriteStatus | null>(null)
-    const [writeError, setWriteError] = useState<string | null>(null)
-    const [verifyStatus, setVerifyStatus] = useState<VerifyStatus>('idle')
-    const [verifyError, setVerifyError] = useState<string | null>(null)
-    const [copied, setCopied] = useState(false)
-    const [attemptCount, setAttemptCount] = useState(0)
+export function SetupWizard({
+  onComplete
+}: SetupWizardProps) {
+  const [step, setStep] = useState<WizardStep>('welcome');
+  // FORGE.1f: Focus management — ref for the step heading so we can move focus on transitions
+  const stepHeadingRef = useRef<HTMLHeadingElement>(null);
+  const [detectedIDEs, setDetectedIDEs] = useState<DetectedIDE[] | null>(null);
+  const [mcpServerPath, setMcpServerPath] = useState<string>('');
+  const [selectedIDE, setSelectedIDE] = useState<DetectedIDE | null>(null);
+  const [writeStatus, setWriteStatus] = useState<WriteStatus | null>(null);
+  const [writeError, setWriteError] = useState<string | null>(null);
+  const [verifyStatus, setVerifyStatus] = useState<VerifyStatus>('idle');
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [attemptCount, setAttemptCount] = useState(0);
 
-    // R-4: Escape key blocked during active writes
-    useEffect(() => {
-        function handleKeyDown(e: KeyboardEvent) {
-            if (e.key === 'Escape') {
-                // Block dismissal while a write is in progress
-                if (writeStatus === 'writing') return
-                onComplete()
-                return
-            }
-            if (e.key === 'Enter') {
-                // Enter triggers the primary CTA for the current step.
-                const primary = document.querySelector<HTMLButtonElement>(
-                    '[data-wizard-primary]',
-                )
-                primary?.click()
-            }
-        }
-        window.addEventListener('keydown', handleKeyDown)
-        return () => window.removeEventListener('keydown', handleKeyDown)
-    }, [onComplete, writeStatus])
+  // R-4: Escape key blocked during active writes
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        // Block dismissal while a write is in progress
+        if (writeStatus === 'writing') return;
+        onComplete();
+        return;
+      }
+      if (e.key === 'Enter') {
+        // Enter triggers the primary CTA for the current step.
+        const primary = document.querySelector<HTMLButtonElement>('[data-wizard-primary]');
+        primary?.click();
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onComplete, writeStatus]);
 
-    // FORGE.1f: Move focus to the new step's heading on step transitions
-    useEffect(() => {
-        const t = setTimeout(() => {
-            stepHeadingRef.current?.focus()
-        }, 50)
-        return () => clearTimeout(t)
-    }, [step])
+  // FORGE.1f: Move focus to the new step's heading on step transitions
+  useEffect(() => {
+    const t = setTimeout(() => {
+      stepHeadingRef.current?.focus();
+    }, 50);
+    return () => clearTimeout(t);
+  }, [step]);
 
-    // ── IDE detection (runs when entering ide-detect step) ───────────────────
-    useEffect(() => {
-        if (step !== 'ide-detect') return
-        if (detectedIDEs !== null) return // already fetched
+  // ── IDE detection (runs when entering ide-detect step) ───────────────────
+  useEffect(() => {
+    if (step !== 'ide-detect') return;
+    if (detectedIDEs !== null) return; // already fetched
 
-        window.flintAPI.setup
-            ?.detectIDEs()
-            .then(
-                (result: {
-                    ides: DetectedIDE[]
-                    mcpServerPath: string
-                }) => {
-                    setDetectedIDEs(result.ides)
-                    setMcpServerPath(result.mcpServerPath)
-                    // Auto-select first detected IDE, or none
-                    const firstDetected = result.ides.find((ide) => ide.detected) ?? null
-                    setSelectedIDE(firstDetected)
-                },
-            )
-            .catch((err) => {
-                console.warn('[Flint] SetupWizard: IDE detection failed', err)
-                // On IPC failure, show empty list so user can skip
-                setDetectedIDEs([])
-            })
-    }, [step, detectedIDEs])
+    window.flintAPI.setup?.detectIDEs().then((result: {
+      ides: DetectedIDE[];
+      mcpServerPath: string;
+    }) => {
+      setDetectedIDEs(result.ides);
+      setMcpServerPath(result.mcpServerPath);
+      // Auto-select first detected IDE, or none
+      const firstDetected = result.ides.find(ide => ide.detected) ?? null;
+      setSelectedIDE(firstDetected);
+    }).catch(err => {
+      console.warn('[Flint] SetupWizard: IDE detection failed', err);
+      // On IPC failure, show empty list so user can skip
+      setDetectedIDEs([]);
+    });
+  }, [step, detectedIDEs]);
 
-    // R-1: NO auto-write useEffect. Write is triggered by user clicking "Install MCP Config".
+  // R-1: NO auto-write useEffect. Write is triggered by user clicking "Install MCP Config".
 
-    // ── Navigation helpers ────────────────────────────────────────────────────
-    const goBack = useCallback(() => {
-        const idx = stepIndex(step)
-        if (idx > 0) setStep(STEP_ORDER[idx - 1])
-    }, [step])
+  // ── Navigation helpers ────────────────────────────────────────────────────
+  const goBack = useCallback(() => {
+    const idx = stepIndex(step);
+    if (idx > 0) setStep(STEP_ORDER[idx - 1]);
+  }, [step]);
+  const goNext = useCallback(() => {
+    const idx = stepIndex(step);
+    if (idx < STEP_ORDER.length - 1) setStep(STEP_ORDER[idx + 1]);
+  }, [step]);
 
-    const goNext = useCallback(() => {
-        const idx = stepIndex(step)
-        if (idx < STEP_ORDER.length - 1) setStep(STEP_ORDER[idx + 1])
-    }, [step])
+  // R-1: User-initiated MCP config write
+  const handleInstall = useCallback(async () => {
+    if (!selectedIDE) return;
+    setWriteStatus('writing');
+    setWriteError(null);
+    try {
+      await window.flintAPI.setup.writeMCPConfig(selectedIDE.name, selectedIDE.settingsPath, mcpServerPath);
+      setWriteStatus('written');
+    } catch (err) {
+      setWriteStatus('error');
+      setWriteError(err instanceof Error ? err.message : 'Unknown error writing config.');
+    }
+  }, [selectedIDE, mcpServerPath]);
 
-    // R-1: User-initiated MCP config write
-    const handleInstall = useCallback(async () => {
-        if (!selectedIDE) return
-        setWriteStatus('writing')
-        setWriteError(null)
+  // R-2: Copy config snippet to clipboard
+  const handleCopySnippet = useCallback(async () => {
+    if (!selectedIDE) return;
+    const snippet = buildConfigSnippet(selectedIDE.name, mcpServerPath);
+    await navigator.clipboard.writeText(snippet);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, [selectedIDE, mcpServerPath]);
+
+  // ── Verify connection ─────────────────────────────────────────────────────
+  // The MCP server is an internal child process that may still be booting
+  // when this runs (cold start loads ~78 ESM imports + SQLite + rules).
+  // Retry up to 6 times with 2s spacing (12s total) before giving up.
+  // A 30s wall-clock timeout aborts the entire sequence if nothing succeeds.
+  const handleVerify = useCallback(async () => {
+    setVerifyStatus('checking');
+    setVerifyError(null);
+    setAttemptCount(0);
+    const MAX_ATTEMPTS = 6;
+    const RETRY_DELAY_MS = 2_000;
+    const TOTAL_TIMEOUT_MS = 30_000;
+
+    // Sentinel promise — resolves to 'timeout' after TOTAL_TIMEOUT_MS
+    let timeoutId: ReturnType<typeof setTimeout>;
+    const timeoutPromise = new Promise<'timeout'>(resolve => {
+      timeoutId = setTimeout(() => resolve('timeout'), TOTAL_TIMEOUT_MS);
+    });
+    const runAttempts = async (): Promise<'connected' | 'exhausted'> => {
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        setAttemptCount(attempt);
         try {
-            await window.flintAPI.setup.writeMCPConfig(
-                selectedIDE.name,
-                selectedIDE.settingsPath,
-                mcpServerPath,
-            )
-            setWriteStatus('written')
-        } catch (err) {
-            setWriteStatus('error')
-            setWriteError(err instanceof Error ? err.message : 'Unknown error writing config.')
-        }
-    }, [selectedIDE, mcpServerPath])
-
-    // R-2: Copy config snippet to clipboard
-    const handleCopySnippet = useCallback(async () => {
-        if (!selectedIDE) return
-        const snippet = buildConfigSnippet(selectedIDE.name, mcpServerPath)
-        await navigator.clipboard.writeText(snippet)
-        setCopied(true)
-        setTimeout(() => setCopied(false), 2000)
-    }, [selectedIDE, mcpServerPath])
-
-    // ── Verify connection ─────────────────────────────────────────────────────
-    // The MCP server is an internal child process that may still be booting
-    // when this runs (cold start loads ~78 ESM imports + SQLite + rules).
-    // Retry up to 6 times with 2s spacing (12s total) before giving up.
-    // A 30s wall-clock timeout aborts the entire sequence if nothing succeeds.
-    const handleVerify = useCallback(async () => {
-        setVerifyStatus('checking')
-        setVerifyError(null)
-        setAttemptCount(0)
-
-        const MAX_ATTEMPTS = 6
-        const RETRY_DELAY_MS = 2_000
-        const TOTAL_TIMEOUT_MS = 30_000
-
-        // Sentinel promise — resolves to 'timeout' after TOTAL_TIMEOUT_MS
-        let timeoutId: ReturnType<typeof setTimeout>
-        const timeoutPromise = new Promise<'timeout'>((resolve) => {
-            timeoutId = setTimeout(() => resolve('timeout'), TOTAL_TIMEOUT_MS)
-        })
-
-        const runAttempts = async (): Promise<'connected' | 'exhausted'> => {
-            for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-                setAttemptCount(attempt)
-
-                try {
-                    const result = await window.flintAPI.mcp?.callTool('flint_status', {})
-                    if (result && typeof result === 'object') {
-                        return 'connected'
-                    }
-                } catch {
-                    // Server still booting — wait and retry (unless last attempt)
-                    if (attempt < MAX_ATTEMPTS) {
-                        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS))
-                        continue
-                    }
-                }
-            }
-            return 'exhausted'
-        }
-
-        const outcome = await Promise.race([runAttempts(), timeoutPromise])
-        clearTimeout(timeoutId!)
-
-        if (outcome === 'connected') {
-            setVerifyStatus('connected')
-            return
-        }
-
-        // Timed out before all retries exhausted
-        if (outcome === 'timeout') {
-            setVerifyStatus('error')
-            setVerifyError(
-                'Connection timed out. Try restarting your IDE and clicking "Test Connection" again.',
-            )
-            return
-        }
-
-        // All attempts exhausted — check status for a better error message
-        setVerifyStatus('error')
-        try {
-            const status = await window.flintAPI.mcp?.status?.()
-            if (status && !status.connected) {
-                setVerifyError(
-                    'Flint is starting but not ready yet. ' +
-                    'Wait a few seconds and try again, or check the console for errors.',
-                )
-            } else {
-                setVerifyError(
-                    'Could not connect to Flint. Make sure your IDE has the correct config file.',
-                )
-            }
+          const result = await window.flintAPI.mcp?.callTool('flint_status', {});
+          if (result && typeof result === 'object') {
+            return 'connected';
+          }
         } catch {
-            setVerifyError(
-                'Could not connect to Flint. ' +
-                'Try restarting the app, or check the developer console for errors.',
-            )
+          // Server still booting — wait and retry (unless last attempt)
+          if (attempt < MAX_ATTEMPTS) {
+            await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+            continue;
+          }
         }
-    }, [])
+      }
+      return 'exhausted';
+    };
+    const outcome = await Promise.race([runAttempts(), timeoutPromise]);
+    clearTimeout(timeoutId!);
+    if (outcome === 'connected') {
+      setVerifyStatus('connected');
+      return;
+    }
 
-    // ── Complete first launch (only called from the done step) ────────────────
-    const handleDone = useCallback(async () => {
-        await window.flintAPI.setup?.completeFirstLaunch()
-        onComplete()
-    }, [onComplete])
+    // Timed out before all retries exhausted
+    if (outcome === 'timeout') {
+      setVerifyStatus('error');
+      setVerifyError('Connection timed out. Try restarting your IDE and clicking "Test Connection" again.');
+      return;
+    }
 
-    // ── Shared card wrapper ───────────────────────────────────────────────────
-    const canGoBack = step !== 'welcome' && step !== 'done'
+    // All attempts exhausted — check status for a better error message
+    setVerifyStatus('error');
+    try {
+      const status = await window.flintAPI.mcp?.status?.();
+      if (status && !status.connected) {
+        setVerifyError('Flint is starting but not ready yet. ' + 'Wait a few seconds and try again, or check the console for errors.');
+      } else {
+        setVerifyError('Could not connect to Flint. Make sure your IDE has the correct config file.');
+      }
+    } catch {
+      setVerifyError('Could not connect to Flint. ' + 'Try restarting the app, or check the developer console for errors.');
+    }
+  }, []);
 
-    // Config snippet for preview / copy (computed when we have both IDE and path)
-    const configSnippet =
-        selectedIDE && mcpServerPath
-            ? buildConfigSnippet(selectedIDE.name, mcpServerPath)
-            : ''
+  // ── Complete first launch (only called from the done step) ────────────────
+  const handleDone = useCallback(async () => {
+    await window.flintAPI.setup?.completeFirstLaunch();
+    onComplete();
+  }, [onComplete]);
 
-    return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950">
-            <div
-                role="dialog"
-                aria-labelledby="setup-wizard-heading"
-                aria-modal="true"
-                className="w-full max-w-lg rounded-xl border border-zinc-800 bg-zinc-900 p-8 shadow-2xl"
-            >
+  // ── Shared card wrapper ───────────────────────────────────────────────────
+  const canGoBack = step !== 'welcome' && step !== 'done';
+
+  // Config snippet for preview / copy (computed when we have both IDE and path)
+  const configSnippet = selectedIDE && mcpServerPath ? buildConfigSnippet(selectedIDE.name, mcpServerPath) : '';
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950">
+            <div role="dialog" aria-labelledby="setup-wizard-heading" aria-modal="true" className="w-full max-w-lg rounded-xl border border-zinc-800 bg-zinc-900 p-8 shadow-2xl">
                 {/* Back button */}
-                {canGoBack && (
-                    <button
-                        type="button"
-                        onClick={goBack}
-                        className="mb-4 flex items-center gap-1 text-xs text-zinc-500 transition-colors hover:text-zinc-300"
-                    >
+                {canGoBack && <button type="button" onClick={goBack} className="mb-4 flex items-center gap-1 text-xs text-zinc-500 transition-colors hover:text-zinc-300">
                         <ChevronLeft size={12} />
                         Back
-                    </button>
-                )}
+                    </button>}
 
                 {/* ── Step: Welcome ─────────────────────────────────────── */}
-                {step === 'welcome' && (
-                    <div className="flex flex-col gap-6">
+                {step === 'welcome' && <div className="flex flex-col gap-6">
                         <div className="flex flex-col gap-2">
-                            <h1
-                                id="setup-wizard-heading"
-                                ref={stepHeadingRef}
-                                tabIndex={-1}
-                                className="text-2xl font-bold text-zinc-100 outline-none"
-                            >
+                            <h1 id="setup-wizard-heading" ref={stepHeadingRef} tabIndex={-1} className="text-2xl font-bold text-zinc-100 outline-none">
                                 Get {BRAND.product} running in 2 minutes
                             </h1>
                             <p className="text-sm text-zinc-400">
                                 {BRAND.product} connects to your IDE. We&apos;ll help you set it up.
                             </p>
                         </div>
-                        <button
-                            data-wizard-primary
-                            type="button"
-                            onClick={goNext}
-                            className="flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
-                        >
+                        <button data-wizard-primary type="button" onClick={goNext} className="flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500">
                             Let's go
                             <ChevronRight size={14} />
                         </button>
                         <StepDots current={step} />
-                    </div>
-                )}
+                    </div>}
 
                 {/* ── Step: IDE Detection ───────────────────────────────── */}
-                {step === 'ide-detect' && (
-                    <div className="flex flex-col gap-6">
+                {step === 'ide-detect' && <div className="flex flex-col gap-6">
                         <div className="flex flex-col gap-2">
-                            <h2
-                                id="setup-wizard-heading"
-                                ref={stepHeadingRef}
-                                tabIndex={-1}
-                                className="text-xl font-bold text-zinc-100 outline-none"
-                            >
+                            <h2 id="setup-wizard-heading" ref={stepHeadingRef} tabIndex={-1} className="text-xl font-bold text-zinc-100 outline-none">
                                 Which IDE do you use?
                             </h2>
                             <p className="text-sm text-zinc-400">
@@ -394,89 +291,50 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                             </p>
                         </div>
 
-                        {detectedIDEs === null ? (
-                            <div className="flex items-center justify-center py-8">
+                        {detectedIDEs === null ? <div className="flex items-center justify-center py-8">
                                 <Loader2 size={24} className="animate-spin text-zinc-500" />
-                            </div>
-                        ) : (
-                            <div className="flex flex-col gap-2">
-                                {detectedIDEs.map((ide) => {
-                                    const isSelected = selectedIDE?.name === ide.name
-                                    return (
-                                        <button
-                                            key={ide.name}
-                                            type="button"
-                                            aria-pressed={isSelected}
-                                            onClick={() => {
-                                                setSelectedIDE(ide)
-                                                // R-6: Reset write status when IDE selection changes
-                                                setWriteStatus(null)
-                                                setWriteError(null)
-                                            }}
-                                            className={`flex items-center justify-between rounded-lg border p-3 text-left transition-colors ${
-                                                isSelected
-                                                    ? 'border-indigo-500/60 bg-indigo-900/20'
-                                                    : 'border-zinc-700 hover:border-zinc-600 hover:bg-zinc-800/40'
-                                            }`}
-                                        >
+                            </div> : <div className="flex flex-col gap-2">
+                                {detectedIDEs.map(ide => {
+            const isSelected = selectedIDE?.name === ide.name;
+            return <button key={ide.name} type="button" aria-pressed={isSelected} onClick={() => {
+              setSelectedIDE(ide);
+              // R-6: Reset write status when IDE selection changes
+              setWriteStatus(null);
+              setWriteError(null);
+            }} className={`flex items-center justify-between rounded-lg border p-3 text-left transition-colors ${isSelected ? 'border-indigo-500/60 bg-indigo-900/20' : 'border-zinc-700 hover:border-zinc-600 hover:bg-zinc-800/40'}`}>
                                             <span className="text-sm font-medium text-zinc-100">
                                                 {ide.name}
                                             </span>
-                                            {ide.detected ? (
-                                                <span className="flex items-center gap-1 text-xs text-emerald-400">
+                                            {ide.detected ? <span className="flex items-center gap-1 text-xs text-emerald-400">
                                                     <CheckCircle size={12} />
                                                     Found
-                                                </span>
-                                            ) : (
-                                                <span className="text-xs text-zinc-500">
+                                                </span> : <span className="text-xs text-zinc-500">
                                                     — Not found
-                                                </span>
-                                            )}
-                                        </button>
-                                    )
-                                })}
-                                {detectedIDEs.length === 0 && (
-                                    <p className="py-4 text-center text-sm text-zinc-500">
+                                                </span>}
+                                        </button>;
+          })}
+                                {detectedIDEs.length === 0 && <p className="py-4 text-center text-sm text-zinc-500">
                                         No IDEs detected. You can still set up manually.
-                                    </p>
-                                )}
-                            </div>
-                        )}
+                                    </p>}
+                            </div>}
 
                         <div className="flex flex-col gap-3">
-                            <button
-                                data-wizard-primary
-                                type="button"
-                                onClick={goNext}
-                                disabled={selectedIDE === null}
-                                className="flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-40"
-                            >
+                            <button data-wizard-primary type="button" onClick={goNext} disabled={selectedIDE === null} className="flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-40">
                                 Continue
                                 <ChevronRight size={14} />
                             </button>
-                            <button
-                                type="button"
-                                onClick={onComplete}
-                                className="text-center text-xs text-zinc-500 underline transition-colors hover:text-zinc-400"
-                            >
+                            <button type="button" onClick={onComplete} className="text-center text-xs text-zinc-500 underline transition-colors hover:text-zinc-400">
                                 Skip setup
                             </button>
                         </div>
 
                         <StepDots current={step} />
-                    </div>
-                )}
+                    </div>}
 
                 {/* ── Step: MCP Config (consent-first) ─────────────────── */}
-                {step === 'mcp-snippet' && selectedIDE && (
-                    <div className="flex flex-col gap-6">
+                {step === 'mcp-snippet' && selectedIDE && <div className="flex flex-col gap-6">
                         <div className="flex flex-col gap-2">
-                            <h2
-                                id="setup-wizard-heading"
-                                ref={stepHeadingRef}
-                                tabIndex={-1}
-                                className="text-xl font-bold text-zinc-100 outline-none"
-                            >
+                            <h2 id="setup-wizard-heading" ref={stepHeadingRef} tabIndex={-1} className="text-xl font-bold text-zinc-100 outline-none">
                                 Connecting {BRAND.product} to {selectedIDE.name}
                             </h2>
                             <p className="text-sm text-zinc-400">
@@ -493,26 +351,18 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                         </pre>
 
                         {/* R-9: aria-live assertive so screen readers announce error/status changes immediately */}
-                        <div
-                            aria-live="assertive"
-                            className="min-h-[72px] rounded-lg border border-zinc-700 bg-zinc-950 px-4 py-4"
-                        >
+                        <div aria-live="assertive" className="min-h-[var(--spacing.12, 48px)] rounded-lg border border-zinc-700 bg-zinc-950 px-4 py-4">
                             {/* Pre-install: show prompt to click Install */}
-                            {writeStatus === null && (
-                                <p className="text-center text-sm text-zinc-500">
+                            {writeStatus === null && <p className="text-center text-sm text-zinc-500">
                                     Review the config above, then click "Add to editor".
-                                </p>
-                            )}
+                                </p>}
 
-                            {writeStatus === 'writing' && (
-                                <div className="flex items-center justify-center gap-3 text-zinc-400">
+                            {writeStatus === 'writing' && <div className="flex items-center justify-center gap-3 text-zinc-400">
                                     <Loader2 size={18} className="animate-spin" />
                                     <span className="text-sm">Installing…</span>
-                                </div>
-                            )}
+                                </div>}
 
-                            {writeStatus === 'written' && (
-                                <div className="flex flex-col items-center gap-2 text-center">
+                            {writeStatus === 'written' && <div className="flex flex-col items-center gap-2 text-center">
                                     <div className="flex items-center gap-2 text-emerald-400">
                                         <CheckCircle size={18} />
                                         <span className="text-sm font-medium">Config written</span>
@@ -520,12 +370,10 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                                     <p className="font-mono text-xs text-zinc-500">
                                         {selectedIDE.settingsPath}
                                     </p>
-                                </div>
-                            )}
+                                </div>}
 
                             {/* R-2: Error state with copy-paste fallback */}
-                            {writeStatus === 'error' && (
-                                <div className="flex flex-col gap-3">
+                            {writeStatus === 'error' && <div className="flex flex-col gap-3">
                                     <div className="flex items-center justify-center gap-2 text-red-400">
                                         <XCircle size={18} />
                                         <span className="text-sm font-medium">Write failed</span>
@@ -538,105 +386,57 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                                         </code>{' '}
                                         manually.
                                     </p>
-                                    <button
-                                        type="button"
-                                        onClick={handleCopySnippet}
-                                        className="flex items-center justify-center gap-2 rounded-lg border border-zinc-700/50 px-3 py-1.5 text-xs text-zinc-300 transition-colors hover:border-zinc-600 hover:text-zinc-100"
-                                    >
-                                        {copied ? (
-                                            <>
+                                    <button type="button" onClick={handleCopySnippet} className="flex items-center justify-center gap-2 rounded-lg border border-zinc-700/50 px-3 py-1.5 text-xs text-zinc-300 transition-colors hover:border-zinc-600 hover:text-zinc-100">
+                                        {copied ? <>
                                                 <Check size={12} className="text-emerald-400" />
                                                 Copied
-                                            </>
-                                        ) : (
-                                            <>
+                                            </> : <>
                                                 <Copy size={12} />
                                                 Copy config snippet
-                                            </>
-                                        )}
+                                            </>}
                                     </button>
-                                </div>
-                            )}
+                                </div>}
                         </div>
 
                         <div className="flex flex-col gap-3">
                             {/* R-1: Install button — only triggers write on click */}
-                            {writeStatus === null && (
-                                <button
-                                    data-wizard-primary
-                                    type="button"
-                                    onClick={handleInstall}
-                                    className="flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
-                                >
+                            {writeStatus === null && <button data-wizard-primary type="button" onClick={handleInstall} className="flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500">
                                     Add to editor
                                     <ChevronRight size={14} />
-                                </button>
-                            )}
+                                </button>}
 
                             {/* Writing: disabled Install button with spinner */}
-                            {writeStatus === 'writing' && (
-                                <button
-                                    data-wizard-primary
-                                    type="button"
-                                    disabled
-                                    className="flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white opacity-50 cursor-not-allowed"
-                                >
+                            {writeStatus === 'writing' && <button data-wizard-primary type="button" disabled className="flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white opacity-50 cursor-not-allowed">
                                     <Loader2 size={14} className="animate-spin" />
                                     Installing…
-                                </button>
-                            )}
+                                </button>}
 
                             {/* R-3: Continue after success advances to verify, not done */}
-                            {writeStatus === 'written' && (
-                                <button
-                                    data-wizard-primary
-                                    type="button"
-                                    onClick={goNext}
-                                    className="flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
-                                >
+                            {writeStatus === 'written' && <button data-wizard-primary type="button" onClick={goNext} className="flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500">
                                     Continue
                                     <ChevronRight size={14} />
-                                </button>
-                            )}
+                                </button>}
 
-                            {writeStatus === 'error' && (
-                                <button
-                                    data-wizard-primary
-                                    type="button"
-                                    onClick={() => {
-                                        setWriteStatus(null)
-                                        setWriteError(null)
-                                    }}
-                                    className="flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
-                                >
+                            {writeStatus === 'error' && <button data-wizard-primary type="button" onClick={() => {
+            setWriteStatus(null);
+            setWriteError(null);
+          }} className="flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500">
                                     Retry
-                                </button>
-                            )}
+                                </button>}
 
                             {/* R-3: Skip advances to verify (not done) */}
-                            <button
-                                type="button"
-                                onClick={goNext}
-                                className="text-center text-xs text-zinc-500 underline transition-colors hover:text-zinc-400"
-                            >
+                            <button type="button" onClick={goNext} className="text-center text-xs text-zinc-500 underline transition-colors hover:text-zinc-400">
                                 Skip
                             </button>
                         </div>
 
                         <StepDots current={step} />
-                    </div>
-                )}
+                    </div>}
 
                 {/* ── Step: Verify Connection ───────────────────────────── */}
-                {step === 'verify' && (
-                    <div className="flex flex-col gap-6">
+                {step === 'verify' && <div className="flex flex-col gap-6">
                         <div className="flex flex-col gap-2">
-                            <h2
-                                id="setup-wizard-heading"
-                                ref={stepHeadingRef}
-                                tabIndex={-1}
-                                className="text-xl font-bold text-zinc-100 outline-none"
-                            >
+                            <h2 id="setup-wizard-heading" ref={stepHeadingRef} tabIndex={-1} className="text-xl font-bold text-zinc-100 outline-none">
                                 Test your connection
                             </h2>
                             {/* R-5: Accurate copy — this tests the internal MCP connection */}
@@ -647,104 +447,53 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                         </div>
 
                         {/* Verify status display */}
-                        <div
-                            aria-live="assertive"
-                            className="flex min-h-[56px] flex-col items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-950 px-4 py-3"
-                        >
-                            {verifyStatus === 'idle' && (
-                                <p className="text-sm text-zinc-500">
+                        <div aria-live="assertive" className="flex min-h-[var(--spacing.12, 48px)] flex-col items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-950 px-4 py-3">
+                            {verifyStatus === 'idle' && <p className="text-sm text-zinc-500">
                                     Click "Test Connection" to verify
-                                </p>
-                            )}
-                            {verifyStatus === 'checking' && (
-                                <>
+                                </p>}
+                            {verifyStatus === 'checking' && <>
                                     <div className="flex items-center gap-2 text-zinc-400">
                                         <Loader2 size={16} className="animate-spin" />
                                         <span className="text-sm">Connecting…</span>
                                     </div>
-                                    {attemptCount > 2 && (
-                                        <p
-                                            data-testid="attempt-count"
-                                            className="text-xs text-zinc-500"
-                                        >
+                                    {attemptCount > 2 && <p data-testid="attempt-count" className="text-xs text-zinc-500">
                                             Still trying… (attempt {attemptCount}/6)
-                                        </p>
-                                    )}
-                                </>
-                            )}
-                            {verifyStatus === 'connected' && (
-                                <div className="flex items-center gap-2 text-emerald-400">
+                                        </p>}
+                                </>}
+                            {verifyStatus === 'connected' && <div className="flex items-center gap-2 text-emerald-400">
                                     <CheckCircle size={16} />
                                     <span className="text-sm font-medium">{BRAND.product} is live</span>
-                                </div>
-                            )}
-                            {verifyStatus === 'error' && (
-                                <div className="flex items-start gap-2 text-red-400">
+                                </div>}
+                            {verifyStatus === 'error' && <div className="flex items-start gap-2 text-red-400">
                                     <XCircle size={16} className="mt-0.5 shrink-0" />
                                     <span className="text-sm">{verifyError}</span>
-                                </div>
-                            )}
+                                </div>}
                         </div>
 
                         <div className="flex flex-col gap-3">
-                            {verifyStatus !== 'connected' && (
-                                <button
-                                    data-wizard-primary
-                                    type="button"
-                                    onClick={handleVerify}
-                                    disabled={verifyStatus === 'checking'}
-                                    className="flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-40"
-                                >
+                            {verifyStatus !== 'connected' && <button data-wizard-primary type="button" onClick={handleVerify} disabled={verifyStatus === 'checking'} className="flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-40">
                                     {verifyStatus === 'error' ? 'Try Again' : 'Test Connection'}
-                                </button>
-                            )}
-                            {verifyStatus === 'connected' && (
-                                <button
-                                    data-wizard-primary
-                                    type="button"
-                                    onClick={goNext}
-                                    className="flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
-                                >
+                                </button>}
+                            {verifyStatus === 'connected' && <button data-wizard-primary type="button" onClick={goNext} className="flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500">
                                     Continue
                                     <ChevronRight size={14} />
-                                </button>
-                            )}
+                                </button>}
                             {/* Show "Skip for now" as a more prominent escape hatch after 2 attempts */}
-                            {verifyStatus === 'checking' && attemptCount > 2 ? (
-                                <button
-                                    data-testid="skip-for-now"
-                                    type="button"
-                                    onClick={goNext}
-                                    className="text-center text-xs text-zinc-400 underline transition-colors hover:text-zinc-200"
-                                >
+                            {verifyStatus === 'checking' && attemptCount > 2 ? <button data-testid="skip-for-now" type="button" onClick={goNext} className="text-center text-xs text-zinc-400 underline transition-colors hover:text-zinc-200">
                                     Skip for now →
-                                </button>
-                            ) : (
-                                <button
-                                    type="button"
-                                    onClick={goNext}
-                                    className="text-center text-xs text-zinc-500 underline transition-colors hover:text-zinc-400"
-                                >
+                                </button> : <button type="button" onClick={goNext} className="text-center text-xs text-zinc-500 underline transition-colors hover:text-zinc-400">
                                     Skip
-                                </button>
-                            )}
+                                </button>}
                         </div>
 
                         <StepDots current={step} />
-                    </div>
-                )}
+                    </div>}
 
                 {/* ── Step: Done ────────────────────────────────────────── */}
-                {step === 'done' && (
-                    <div className="flex flex-col gap-6">
+                {step === 'done' && <div className="flex flex-col gap-6">
                         <div className="flex flex-col items-center gap-3 py-4 text-center">
                             <CheckCircle size={48} className="text-emerald-400" />
-                            <h2
-                                id="setup-wizard-heading"
-                                ref={stepHeadingRef}
-                                tabIndex={-1}
-                                className="text-2xl font-bold text-zinc-100 outline-none"
-                            >
+                            <h2 id="setup-wizard-heading" ref={stepHeadingRef} tabIndex={-1} className="text-2xl font-bold text-zinc-100 outline-none">
                                 You're ready.
                             </h2>
                             <p className="text-sm text-zinc-400">
@@ -754,20 +503,13 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                         </div>
 
                         {/* R-3: Only the done step's primary button calls handleDone */}
-                        <button
-                            data-wizard-primary
-                            type="button"
-                            onClick={handleDone}
-                            className="flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
-                        >
+                        <button data-wizard-primary type="button" onClick={handleDone} className="flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500">
                             Start building
                             <ChevronRight size={14} />
                         </button>
 
                         <StepDots current={step} />
-                    </div>
-                )}
+                    </div>}
             </div>
-        </div>
-    )
+        </div>;
 }

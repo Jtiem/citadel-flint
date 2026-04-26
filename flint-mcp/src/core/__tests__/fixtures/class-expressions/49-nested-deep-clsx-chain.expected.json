@@ -1,0 +1,8 @@
+[
+  {
+    "utility": "clsx",
+    "definite": ["root", "level1", "level2", "deep"],
+    "possible": [],
+    "unresolvable": false
+  }
+]

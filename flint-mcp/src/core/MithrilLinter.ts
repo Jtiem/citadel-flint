@@ -30,12 +30,36 @@ import { checkSyncViolations, type DesignTokenFileEntry } from './sync/syncViola
 import { hexToLab, deltaE2000, computeContrastRatio } from './colorMath.js'
 import { TW_V3_TO_V4_MAP } from './tailwindMigrator.js'
 import type { TailwindVersion } from './tailwindVersionResolver.js'
-import { visitDarkModeSafety, projectHasDarkMode } from './darkModeSafety.js'
+import { visitDarkModeSafety } from './darkModeSafety.js'
 import { visitFluidOpportunities, type FluidSuggestionMode } from './fluidInterpolator.js'
 import { validateComposition } from './compositionValidator.js'
 import { detectHydrationViolations, type HydrationOptions } from './hydrationLinter.js'
 import { visitMotionDrift } from './AnimationLinter.js'
 import type { MotionToken } from '../types.js'
+import { classifyCoverage } from './coverageClassifier.js'
+import type { CoverageVerdict } from '../shared/coverageTypes.js'
+import type { ResolvedTailwindTheme } from './tailwindConfigLoader.js'
+
+/**
+ * Phase 1 — ExpandedClassExpression
+ * Defined here so MithrilLinter has no dependency on classExpressionExpander.
+ * The expander implements this interface and callers pass the result in.
+ */
+export interface ExpandedClassExpression {
+    /** Classes that are ALWAYS applied regardless of runtime state. */
+    definite: readonly string[]
+    /** Classes that MAY be applied depending on runtime conditionals. */
+    possible: readonly string[]
+    /**
+     * True if any argument could not be fully evaluated.
+     * When true, coverage classifier retains dynamic-class-expression.
+     */
+    unresolvable: boolean
+    /** Which utility produced this expansion. */
+    utility: string
+    /** 1-based line number of the call expression. */
+    line: number
+}
 
 // CJS/ESM interop
 const traverse =
@@ -122,6 +146,18 @@ export interface PolicyOptions {
     deltaE_critical_threshold?: number
     /** Per-rule policy modes from POL.1. 'off' skips the visitor, 'advisory' downgrades severity. */
     ruleModes?: Record<string, 'blocking' | 'advisory' | 'off'>
+    /**
+     * Phase 1 (internal): Set of known Tailwind utility class strings from tailwindConfigLoader.
+     * When a class is in this set, drift detection is short-circuited.
+     * Populated by auditAll from AuditAllOptions.tailwindTheme — do not set directly.
+     */
+    _knownTailwindClasses?: ReadonlySet<string>
+    /**
+     * Phase 2 (internal): Project-wide CSS custom property map propagated from AuditAllOptions.
+     * Used by checkStyleProps / parseCssColorToHexWithMap to resolve bare var(--x) references.
+     * Populated by auditAll — do not set directly.
+     */
+    _customPropertyMap?: ReadonlyMap<string, string>
 }
 
 interface TokenMatch {
@@ -334,12 +370,54 @@ export function parseCssColorToHex(value: string): string | null {
         }
         return null
     }
+    // NOTE: bare var(--x) with no fallback resolves to null here.
+    // Use parseCssColorToHexWithMap to also consult a customPropertyMap.
 
     // CSS named colors (16 basic set)
     const named = CSS_NAMED_COLORS[trimmed.toLowerCase()]
     if (named !== undefined) return named
 
     return null
+}
+
+/**
+ * Phase 2 variant of parseCssColorToHex that also consults a customPropertyMap when
+ * a bare var(--x) reference has no inline literal fallback.
+ *
+ * Resolution chain (depth-limited to 8 hops, visited set prevents cycles):
+ *  1. Try parseCssColorToHex (handles literals, rgb/hsl, fallback vars).
+ *  2. If still null and value is a bare var(--x), look up --x in customPropertyMap.
+ *  3. Recurse on the mapped value (may itself be var(--y) or a literal).
+ *  4. If chain doesn't resolve to a literal, returns null (safe — no false drift).
+ */
+export function parseCssColorToHexWithMap(
+    value: string,
+    customPropertyMap: ReadonlyMap<string, string> | undefined,
+    _visited: ReadonlySet<string> = new Set(),
+    _depth: number = 0,
+): string | null {
+    // First try the standard resolver (handles literals, fallbacks).
+    const standard = parseCssColorToHex(value)
+    if (standard !== null) return standard
+
+    // Bail out if no map, max depth reached, or value isn't a bare var()
+    if (customPropertyMap === undefined || _depth >= 8) return null
+    const trimmed = value.trim()
+    if (!/^var\s*\(/i.test(trimmed)) return null
+
+    // Extract property name from bare var(--x) — no fallback (fallback already handled above)
+    const bareVarMatch = /^var\(\s*(--[\w-]+)\s*\)$/.exec(trimmed)
+    if (bareVarMatch === null) return null
+
+    const propName = bareVarMatch[1]
+    if (_visited.has(propName)) return null // cycle guard
+
+    const mapped = customPropertyMap.get(propName)
+    if (mapped === undefined) return null
+
+    const nextVisited = new Set(_visited)
+    nextVisited.add(propName)
+    return parseCssColorToHexWithMap(mapped.trim(), customPropertyMap, nextVisited, _depth + 1)
 }
 
 // ── Language-agnostic style prop checker ──────────────────────────────────────
@@ -391,8 +469,9 @@ export function checkStyleProps(
         if (INLINE_COLOR_PROPS.has(prop) && stringValue !== null) {
             const colMode = options?.ruleModes?.['MITHRIL-IST-COL']
             if (colMode === 'off') continue
-            const hexVal = parseCssColorToHex(stringValue)
-            if (hexVal === null) continue // var(), named color, currentColor → skip
+            // Phase 2: use the map-aware resolver so bare var(--x) can be looked up
+            const hexVal = parseCssColorToHexWithMap(stringValue, options?._customPropertyMap)
+            if (hexVal === null) continue // unresolvable var(), currentColor → skip
             const match = findClosestToken(hexVal, tokens)
             if (match === null) continue // no color tokens — can't evaluate
             if (match.deltaE <= threshold) continue
@@ -594,7 +673,12 @@ export function visitClassNames(ast: File, tokens: DesignToken[], options?: Poli
             let worstMatch: TokenMatch | null = null
             let worstHex: string | null = null
 
+            const knownClasses = options?._knownTailwindClasses
+
             for (const cls of classStr.split(/\s+/)) {
+                // Phase 1: if the class is a known Tailwind theme utility, skip drift check
+                if (knownClasses !== undefined && knownClasses.has(cls)) continue
+
                 const m = ARBITRARY_COLOR_RE.exec(cls)
                 if (m?.groups?.hex === undefined) continue
                 const match = findClosestToken(m.groups.hex, colorTokens)
@@ -1439,7 +1523,7 @@ function buildIntrinsicToRegistryMap(
 function buildPropHints(
     intrinsicTag: string,
     attrs: t.JSXAttribute[],
-    registryEntry: ComponentEntry,
+    _registryEntry: ComponentEntry,
 ): string[] {
     const hints: string[] = []
 
@@ -1454,7 +1538,6 @@ function buildPropHints(
     }
 
     const translations = attrTranslations[intrinsicTag] ?? {}
-    const registryProps = registryEntry.props ?? {}
 
     for (const attr of attrs) {
         if (!t.isJSXIdentifier(attr.name)) continue
@@ -1868,6 +1951,202 @@ export interface AuditAllOptions extends PolicyOptions {
     motionTokens?: MotionToken[]
     /** P5: Explicit flag that the project uses a motion language (forces motion audit even with no tokens). */
     projectHasMotionConfig?: boolean
+    /**
+     * Phase 1 (PHASE1-TailwindConfig): Resolved Tailwind theme from tailwindConfigLoader.
+     * When provided, Mithril:
+     *   1. Treats `knownClasses` membership as "not drift" for color-drift checks.
+     *   2. Merges color/dimension/fontFamily/etc. entries into the token set.
+     */
+    tailwindTheme?: ResolvedTailwindTheme
+    /**
+     * Phase 1 (PHASE1-ClassComposition): Expanded class expressions from classExpressionExpander.
+     * When provided, Mithril checks `definite ∪ possible` classes for drift violations.
+     */
+    classExpansions?: readonly ExpandedClassExpression[]
+    /**
+     * Phase 2 (PHASE2-PostCSS): Project-wide CSS custom property map from cssCustomPropertyMap.
+     * When provided, Mithril's `var(--x)` resolver consults this map when a bare reference
+     * has no inline literal fallback.
+     */
+    customPropertyMap?: ReadonlyMap<string, string>
+    /**
+     * Phase 2 (PHASE2-PostCSS): Partial theme sections parsed from `@theme {}` blocks in CSS.
+     * These are merged with `tailwindTheme` so Tailwind v4 CSS-first configs feed the same
+     * drift-detection pipeline as Phase 1 JS configs.
+     */
+    stylesheetThemes?: ReadonlyArray<Partial<Record<string, Record<string, string>>>>
+}
+
+/**
+ * Phase 1 internal: Merge ResolvedTailwindTheme sections into a DesignToken[].
+ * Creates synthetic tokens from the theme that the existing CIEDE2000 matchers consume.
+ */
+function mergeThemeTokens(
+    tokens: DesignToken[],
+    theme: ResolvedTailwindTheme,
+): DesignToken[] {
+    const merged = [...tokens]
+    const existingPaths = new Set(tokens.map((t) => t.token_path))
+
+    function makeThemeToken(
+        tokenPath: string,
+        tokenType: DesignToken['token_type'],
+        tokenValue: string,
+    ): DesignToken {
+        return {
+            id: 0,
+            token_path: tokenPath,
+            token_type: tokenType,
+            token_value: tokenValue,
+            description: null,
+            collection_name: 'tailwind',
+            mode: 'default',
+        }
+    }
+
+    const sectionTokenTypes: Array<[keyof ResolvedTailwindTheme['sections'], DesignToken['token_type'], string]> = [
+        ['colors', 'color', 'tailwind'],
+        ['spacing', 'dimension', 'tailwind.spacing'],
+        ['fontFamily', 'fontFamily', 'tailwind.fontFamily'],
+        ['fontSize', 'dimension', 'tailwind.fontSize'],
+        ['fontWeight', 'fontWeight', 'tailwind.fontWeight'],
+        ['boxShadow', 'shadow', 'tailwind.shadow'],
+        ['opacity', 'opacity', 'tailwind.opacity'],
+    ]
+
+    for (const [section, tokenType, prefix] of sectionTokenTypes) {
+        const sectionData = theme.sections[section]
+        if (sectionData === undefined) continue
+        for (const [key, value] of Object.entries(sectionData)) {
+            const tp = section === 'colors' ? `tailwind.${key}` : `${prefix}.${key}`
+            if (!existingPaths.has(tp)) {
+                merged.push(makeThemeToken(tp, tokenType, value))
+                existingPaths.add(tp)
+            }
+        }
+    }
+
+    return merged
+}
+
+/**
+ * Phase 2 internal: Merge CSS @theme block sections (from cssStylesheetLoader) into
+ * a DesignToken[]. The section keys map the same way as tailwindTheme sections so the
+ * CIEDE2000 matchers work without any additional plumbing.
+ *
+ * Only string-valued entries are added. Empty or duplicate paths are skipped.
+ */
+function mergeStylesheetThemeTokens(
+    tokens: DesignToken[],
+    stylesheetThemes: ReadonlyArray<Partial<Record<string, Record<string, string>>>>,
+): DesignToken[] {
+    const merged = [...tokens]
+    const existingPaths = new Set(tokens.map((t) => t.token_path))
+
+    // Map section names → DesignToken token_type (mirrors Phase 1 sectionTokenTypes)
+    const sectionTypeMap: Record<string, DesignToken['token_type']> = {
+        colors: 'color',
+        spacing: 'dimension',
+        fontFamily: 'fontFamily',
+        fontSize: 'dimension',
+        fontWeight: 'fontWeight',
+        boxShadow: 'shadow',
+        opacity: 'opacity',
+    }
+
+    for (const theme of stylesheetThemes) {
+        for (const [sectionName, sectionData] of Object.entries(theme)) {
+            if (sectionData === undefined) continue
+            const tokenType: DesignToken['token_type'] = sectionTypeMap[sectionName] ?? 'color'
+            for (const [key, value] of Object.entries(sectionData)) {
+                if (typeof value !== 'string' || value.length === 0) continue
+                const tp = sectionName === 'colors'
+                    ? `stylesheet.${key}`
+                    : `stylesheet.${sectionName}.${key}`
+                if (!existingPaths.has(tp)) {
+                    merged.push({
+                        id: 0,
+                        token_path: tp,
+                        token_type: tokenType,
+                        token_value: value,
+                        description: null,
+                        collection_name: 'stylesheet',
+                        mode: 'default',
+                    })
+                    existingPaths.add(tp)
+                }
+            }
+        }
+    }
+
+    return merged
+}
+
+/**
+ * Phase 1 internal: Run drift checks on classExpansion definite ∪ possible classes.
+ * Returns MITHRIL-COL warnings for arbitrary hex colors with high ΔE.
+ */
+function auditExpandedClasses(
+    expansions: readonly ExpandedClassExpression[],
+    tokens: DesignToken[],
+    options?: AuditAllOptions,
+): Map<string, LinterWarning> {
+    const warnings = new Map<string, LinterWarning>()
+    const colMode = options?.ruleModes?.['MITHRIL-COL']
+    if (colMode === 'off') return warnings
+
+    const threshold = options?.deltaE_threshold ?? MITHRIL_THRESHOLD
+    const criticalThreshold = options?.deltaE_critical_threshold ?? 10
+    const colorTokens = tokens.filter((tok) => tok.token_type === 'color')
+    if (colorTokens.length === 0) return warnings
+
+    const knownClasses = options?._knownTailwindClasses
+
+    for (const expansion of expansions) {
+        const allClasses = [...expansion.definite, ...expansion.possible]
+
+        let worstDelta = 0
+        let worstMatch: TokenMatch | null = null
+
+        for (const cls of allClasses) {
+            if (knownClasses !== undefined && knownClasses.has(cls)) continue
+
+            const m = ARBITRARY_COLOR_RE.exec(cls)
+            if (m?.groups?.hex === undefined) continue
+
+            const match = findClosestToken(m.groups.hex, colorTokens)
+            if (match !== null && match.deltaE > worstDelta) {
+                worstDelta = match.deltaE
+                worstMatch = match
+            }
+        }
+
+        if (worstDelta <= threshold) continue
+
+        const warningId = `expanded-${expansion.utility}-${expansion.line}`
+        const colSeverity: LinterWarning['severity'] = colMode === 'advisory'
+            ? 'advisory'
+            : severity(worstDelta, criticalThreshold)
+
+        if (!warnings.has(warningId)) {
+            warnings.set(warningId, {
+                id: warningId,
+                type: 'color-drift',
+                severity: colSeverity,
+                value: worstDelta,
+                line: expansion.line,
+                message: worstMatch !== null
+                    ? `MITHRIL-COL: ΔE ${worstDelta.toFixed(1)} in ${expansion.utility}() expansion – use ${worstMatch.tokenPath}`
+                    : `MITHRIL-COL: ΔE ${worstDelta.toFixed(1)} in ${expansion.utility}() expansion – no matching token`,
+                nearestToken: worstMatch?.tokenPath ?? null,
+                nearestTokenValue: worstMatch?.tokenValue ?? null,
+                ruleId: 'MITHRIL-COL',
+                ...taxonomyFields('MITHRIL-COL'),
+            })
+        }
+    }
+
+    return warnings
 }
 
 /**
@@ -1883,14 +2162,42 @@ export function auditAll(ast: File, tokens: DesignToken[], options?: AuditAllOpt
     // no visitor registered in this linter (e.g. MITHRIL-SPC-TOUCH).
     reconcileDeferredRules(options?.ruleModes)
 
+    // Phase 1: build working token set + options with knownClasses short-circuit
+    let workingTokens = tokens
+    let workingOptions: AuditAllOptions | undefined = options
+
+    if (options?.tailwindTheme !== undefined) {
+        workingTokens = mergeThemeTokens(tokens, options.tailwindTheme)
+        workingOptions = {
+            ...options,
+            _knownTailwindClasses: options.tailwindTheme.knownClasses,
+        }
+    }
+
+    // Phase 2: merge stylesheetThemes (CSS @theme blocks) into the token set.
+    // This mirrors Phase 1's tailwindTheme merge so v4 CSS-first configs feed the
+    // same CIEDE2000 drift pipeline. Must happen BEFORE any visitor runs.
+    if (options?.stylesheetThemes !== undefined && options.stylesheetThemes.length > 0) {
+        workingTokens = mergeStylesheetThemeTokens(workingTokens, options.stylesheetThemes)
+    }
+
+    // Phase 2: thread customPropertyMap into PolicyOptions so checkStyleProps can
+    // resolve bare var(--x) references via parseCssColorToHexWithMap.
+    if (options?.customPropertyMap !== undefined) {
+        workingOptions = {
+            ...(workingOptions ?? options),
+            _customPropertyMap: options.customPropertyMap,
+        }
+    }
+
     const merged = new Map<string, LinterWarning>()
 
     for (const visit of [
-        () => visitClassNames(ast, tokens, options),
-        () => visitTypography(ast, tokens, options),
-        () => visitSpacing(ast, tokens, options),
-        () => visitShadows(ast, tokens, options),
-        () => visitOpacity(ast, tokens, options),
+        () => visitClassNames(ast, workingTokens, workingOptions),
+        () => visitTypography(ast, workingTokens, workingOptions),
+        () => visitSpacing(ast, workingTokens, workingOptions),
+        () => visitShadows(ast, workingTokens, workingOptions),
+        () => visitOpacity(ast, workingTokens, workingOptions),
     ]) {
         for (const [id, warning] of visit()) {
             if (!merged.has(id)) merged.set(id, warning)
@@ -1898,36 +2205,44 @@ export function auditAll(ast: File, tokens: DesignToken[], options?: AuditAllOpt
     }
 
     // visitInlineStyles returns { warnings, coverage } — unpack warnings only for merge
-    const { warnings: inlineWarnings } = visitInlineStyles(ast, tokens, options)
+    const { warnings: inlineWarnings } = visitInlineStyles(ast, workingTokens, workingOptions)
     for (const [id, warning] of inlineWarnings) {
         if (!merged.has(id)) merged.set(id, warning)
     }
 
+    // Phase 1: Audit expanded class expressions (definite ∪ possible from clsx/cva/cn)
+    if (workingOptions?.classExpansions && workingOptions.classExpansions.length > 0) {
+        const expandedWarnings = auditExpandedClasses(workingOptions.classExpansions, workingTokens, workingOptions)
+        for (const [id, warning] of expandedWarnings) {
+            if (!merged.has(id)) merged.set(id, warning)
+        }
+    }
+
     // visitLocalTokenObjects — 7th visitor (Phase 2: MITHRIL-DTO-001)
-    const dtoWarnings = visitLocalTokenObjects(ast, tokens, options)
+    const dtoWarnings = visitLocalTokenObjects(ast, workingTokens, workingOptions)
     for (const [id, warning] of dtoWarnings) {
         if (!merged.has(id)) merged.set(id, warning)
     }
 
     // CR-SEAL: REG-001 — Registry membership audit for JSX elements
-    if (options?.registry && Object.keys(options.registry).length > 0) {
-        const regWarnings = visitRegistryUsage(ast, options.registry, options)
+    if (workingOptions?.registry && Object.keys(workingOptions.registry).length > 0) {
+        const regWarnings = visitRegistryUsage(ast, workingOptions.registry, workingOptions)
         for (const [id, warning] of regWarnings) {
             if (!merged.has(id)) merged.set(id, warning)
         }
     }
 
     // P2: Rogue intrinsic detection — MITHRIL-REG-001
-    if (options?.registryEntries && options.registryEntries.length > 0) {
-        const rogueWarnings = visitRogueIntrinsics(ast, options.registryEntries, options)
+    if (workingOptions?.registryEntries && workingOptions.registryEntries.length > 0) {
+        const rogueWarnings = visitRogueIntrinsics(ast, workingOptions.registryEntries, workingOptions)
         for (const [id, warning] of rogueWarnings) {
             if (!merged.has(id)) merged.set(id, warning)
         }
     }
 
     // P1c: Tailwind version drift checking
-    if (options?.tailwindVersion) {
-        const twWarnings = visitTailwindVersionDrift(ast, options.tailwindVersion, options)
+    if (workingOptions?.tailwindVersion) {
+        const twWarnings = visitTailwindVersionDrift(ast, workingOptions.tailwindVersion, workingOptions)
         for (const [id, warning] of twWarnings) {
             if (!merged.has(id)) merged.set(id, warning)
         }
@@ -1935,9 +2250,9 @@ export function auditAll(ast: File, tokens: DesignToken[], options?: AuditAllOpt
 
     // P1d: Dark mode safety checking (skips automatically if no dark mode tokens exist)
     {
-        const darkWarnings = visitDarkModeSafety(ast, tokens, {
-            ...options,
-            requiresDarkMode: options?.requiresDarkMode,
+        const darkWarnings = visitDarkModeSafety(ast, workingTokens, {
+            ...workingOptions,
+            requiresDarkMode: workingOptions?.requiresDarkMode,
         })
         for (const [id, warning] of darkWarnings) {
             if (!merged.has(id)) merged.set(id, warning)
@@ -1947,8 +2262,8 @@ export function auditAll(ast: File, tokens: DesignToken[], options?: AuditAllOpt
     // P6: Fluid interpolator — MITHRIL-FLUID-001 (advisory)
     {
         const fluidWarnings = visitFluidOpportunities(ast, {
-            ...options,
-            fluidSuggestions: options?.fluidSuggestions,
+            ...workingOptions,
+            fluidSuggestions: workingOptions?.fluidSuggestions,
         })
         for (const [id, warning] of fluidWarnings) {
             if (!merged.has(id)) merged.set(id, warning)
@@ -1956,10 +2271,10 @@ export function auditAll(ast: File, tokens: DesignToken[], options?: AuditAllOpt
     }
 
     // P4: Hydration linting — HYDRATION-001
-    if (typeof options?.source === 'string' && options.source.length > 0) {
-        const hydrationWarnings = detectHydrationViolations(options.source, {
-            ...(options.hydrationOptions ?? {}),
-            ruleModes: options.ruleModes,
+    if (typeof workingOptions?.source === 'string' && workingOptions.source.length > 0) {
+        const hydrationWarnings = detectHydrationViolations(workingOptions.source, {
+            ...(workingOptions.hydrationOptions ?? {}),
+            ruleModes: workingOptions.ruleModes,
         })
         for (const warning of hydrationWarnings) {
             if (!merged.has(warning.id)) merged.set(warning.id, warning)
@@ -1968,15 +2283,15 @@ export function auditAll(ast: File, tokens: DesignToken[], options?: AuditAllOpt
 
     // P3: Typography hierarchy — MITHRIL-TYP-HIERARCHY
     {
-        const hierarchyWarnings = visitTypographyHierarchy(ast, options)
+        const hierarchyWarnings = visitTypographyHierarchy(ast, workingOptions)
         for (const [id, warning] of hierarchyWarnings) {
             if (!merged.has(id)) merged.set(id, warning)
         }
     }
 
     // P2.5: Composition validation — MITHRIL-COMP-001/002/003
-    if (options?.compositionRegistry && Object.keys(options.compositionRegistry).length > 0) {
-        const compWarnings = validateComposition(ast, options.compositionRegistry, options)
+    if (workingOptions?.compositionRegistry && Object.keys(workingOptions.compositionRegistry).length > 0) {
+        const compWarnings = validateComposition(ast, workingOptions.compositionRegistry, workingOptions)
         for (const [id, warning] of compWarnings) {
             if (!merged.has(id)) merged.set(id, warning)
         }
@@ -1986,9 +2301,9 @@ export function auditAll(ast: File, tokens: DesignToken[], options?: AuditAllOpt
     // The visitor self-skips when there are no motion tokens, no explicit
     // motion config, and no motion usage in the source.
     {
-        const motionWarnings = visitMotionDrift(ast, options?.motionTokens ?? [], {
-            ...options,
-            projectHasMotionConfig: options?.projectHasMotionConfig,
+        const motionWarnings = visitMotionDrift(ast, workingOptions?.motionTokens ?? [], {
+            ...workingOptions,
+            projectHasMotionConfig: workingOptions?.projectHasMotionConfig,
         })
         for (const w of motionWarnings) {
             if (!merged.has(w.id)) merged.set(w.id, w)
@@ -1996,9 +2311,9 @@ export function auditAll(ast: File, tokens: DesignToken[], options?: AuditAllOpt
     }
 
     // SYNC.3: Append sync violations when syncDb is available
-    if (options?.syncDb && options.projectRoot) {
-        const syncMode = options.ruleModes?.['SYNC-001']
-        const orphanMode = options.ruleModes?.['SYNC-002']
+    if (workingOptions?.syncDb && workingOptions.projectRoot) {
+        const syncMode = workingOptions.ruleModes?.['SYNC-001']
+        const orphanMode = workingOptions.ruleModes?.['SYNC-002']
         if (syncMode !== 'off' || orphanMode !== 'off') {
             const localTokens: DesignTokenFileEntry[] = tokens.map((t) => ({
                 token_path: t.token_path,
@@ -2007,9 +2322,9 @@ export function auditAll(ast: File, tokens: DesignToken[], options?: AuditAllOpt
             }))
             const syncWarnings = checkSyncViolations(
                 localTokens,
-                options.syncDb,
-                options.projectRoot,
-                options.deltaE_threshold,
+                workingOptions.syncDb,
+                workingOptions.projectRoot,
+                workingOptions.deltaE_threshold,
             )
             for (const warning of syncWarnings) {
                 // Respect per-rule off mode
@@ -2028,4 +2343,107 @@ export function auditAll(ast: File, tokens: DesignToken[], options?: AuditAllOpt
     }
 
     return merged
+}
+
+// ── Phase 0 — Coverage Honesty ────────────────────────────────────────────────
+
+/**
+ * Result shape for `auditAllWithCoverage`. Backward-compatible with all existing
+ * `auditAll` callers because it extends the Map rather than replacing the return type.
+ */
+export interface AuditAllWithCoverageResult {
+    /** The merged Mithril warnings map — identical to the `auditAll` return value. */
+    warnings: Map<string, LinterWarning>
+    /** Per-file coverage verdict. Computed once; pass to A11yLinter to avoid re-classification. */
+    coverage: CoverageVerdict
+}
+
+/**
+ * Run all Mithril visitors and also classify the file's coverage surface.
+ *
+ * Equivalent to `auditAll` but returns a structured result with both the
+ * warnings map and the `CoverageVerdict`. Callers should pass the verdict to
+ * `A11yLinter.auditStructured({ preComputedCoverage })` to avoid a second
+ * Babel traversal for classification.
+ *
+ * `options.filePath` is used for framework/extension detection. When omitted,
+ * the file is treated as a generic TypeScript/JSX file.
+ *
+ * `options.source` is used for supplemental classifier checks. When omitted,
+ * an empty string is passed (classification still works via AST traversal).
+ *
+ * Invariant: `coverage.status === 'parsed'` iff `coverage.reason === null`.
+ * Does NOT emit coverage as a violation (non-goal #4 of Phase 0).
+ */
+export function auditAllWithCoverage(
+    ast: File,
+    tokens: DesignToken[],
+    options?: AuditAllOptions & {
+        /** File path for coverage classification (framework/extension detection). */
+        filePath?: string
+        /** Full source text for supplemental classifier checks. */
+        source?: string
+        /**
+         * When true and the file uses Tailwind classes, coverage reason is
+         * `tailwind-config-extension` (partial).
+         */
+        tailwindConfigUnparsed?: boolean
+    },
+): AuditAllWithCoverageResult {
+    const warnings = auditAll(ast, tokens, options)
+
+    const coverage = classifyCoverage({
+        filePath: options?.filePath ?? 'unknown',
+        source: options?.source ?? '',
+        ast,
+        tailwindConfigUnparsed: options?.tailwindConfigUnparsed,
+    })
+
+    return { warnings, coverage }
+}
+
+// ── FIXTURE.1 — Mithril surface applicability filter (append-only) ───────────
+//
+// Added by flint-ast-surgeon. RUNTIME.1 and FIGMA-LINT.1 append their own
+// sections after this one. Do NOT restructure the existing auditAll visitors.
+
+import type { FlintFixtureSurface as _FlintFixtureSurface } from '../../../shared/fixture-schema.js'
+import { ruleMatchesSurface as _mithrilRuleMatchesSurface } from '../../../shared/fixture-schema.js'
+import { MITHRIL_APPLIES_TO } from './mithrilAppliesTo.js'
+
+/**
+ * FIXTURE.1 — Mithril surface-aware audit.
+ *
+ * Delegates to `auditAllWithCoverage` (or `auditAll` when no coverage is
+ * needed) then silently removes warnings from rules whose `appliesTo` in
+ * `MITHRIL_APPLIES_TO` does not match the fixture surface.
+ *
+ * Because all Mithril rules are `'any'` in FIXTURE.1, this filter currently
+ * passes every warning through unchanged. The wrapper is established here so
+ * future re-classifications only require an update to `mithrilAppliesTo.ts`.
+ *
+ * @param ast      Babel AST.
+ * @param tokens   Design tokens.
+ * @param surface  Fixture surface. When undefined, all rules run (legacy).
+ * @param options  AuditAllOptions (passed through to auditAll unchanged).
+ */
+export function auditAllWithSurface(
+    ast: File,
+    tokens: DesignToken[],
+    surface: _FlintFixtureSurface | undefined,
+    options?: AuditAllOptions,
+): Map<string, LinterWarning> {
+    const warnings = auditAll(ast, tokens, options)
+    if (!surface) return warnings
+
+    const filtered = new Map<string, LinterWarning>()
+    for (const [id, warning] of warnings) {
+        const appliesTo = warning.ruleId ? MITHRIL_APPLIES_TO[warning.ruleId] : undefined
+        // Single-source predicate (FIXTURE.1-CODE-002 — de-duplicated from A11yLinter)
+        if (_mithrilRuleMatchesSurface(appliesTo, surface)) {
+            filtered.set(id, warning)
+        }
+        // else: silently skipped — no log, no suppressed entry
+    }
+    return filtered
 }

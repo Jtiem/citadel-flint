@@ -14,7 +14,6 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { DemoWalkthrough } from '../DemoWalkthrough'
 
 const STORAGE_KEY = 'flint-demo-walkthrough-complete'
-const TOTAL_STEPS = 5
 
 describe('DemoWalkthrough', () => {
     beforeEach(() => {

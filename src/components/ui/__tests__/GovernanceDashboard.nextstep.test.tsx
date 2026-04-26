@@ -55,7 +55,7 @@ function seedState(opts: {
 }) {
     const { mithrilCount = 0, a11yCount = 0, overrideCount = 0 } = opts
     useTokenStore.setState({ tokens: [makeToken()], isLoading: false, error: null })
-    useEditorStore.setState({ linterWarnings: makeMithrilWarnings(mithrilCount) })
+    useEditorStore.setState({ linterWarnings: new Map(makeMithrilWarnings(mithrilCount).map((w) => [w.id, w])) })
     useCanvasStore.setState({
         a11yViolations: makeA11yViolations(a11yCount),
         overridesExist: overrideCount > 0,
@@ -84,9 +84,9 @@ async function getNextStepText(): Promise<string> {
 describe('GovernanceDashboard — Next Step coaching sentence', () => {
     beforeEach(() => {
         useTokenStore.setState({ tokens: [], isLoading: false, error: null })
-        useEditorStore.setState({ linterWarnings: [] })
+        useEditorStore.setState({ linterWarnings: new Map() })
         useCanvasStore.setState({ a11yViolations: {}, overridesExist: false })
-        ;(window.flintAPI as Record<string, unknown>).baseline = undefined
+        ;(window.flintAPI as unknown as Record<string, unknown>).baseline = undefined
     })
 
     it('shows "perfect" variant when score is 100', async () => {

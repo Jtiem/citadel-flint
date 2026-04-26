@@ -13,8 +13,16 @@ directories:
 # (vite, tailwindcss, typescript, eslint, vitest, etc.) are excluded by default.
 files:
   - dist/**/*
+  - dist-web/**/*
+  - dist-server/**/*
   - dist-electron/**/*
   - flint-mcp/dist/**/*
+  # shared/ contains compiled .js files (brand, contract-schema, fixture-schema,
+  # ipc-validators, etc.) that flint-mcp/dist imports via relative paths.
+  # Without this line, shared/ is excluded entirely and MCP crashes on launch
+  # with ERR_MODULE_NOT_FOUND for shared/fixture-schema.js.
+  - shared/**/*.js
+  - shared/**/*.json
   - flint-mcp/package.json
   # flint-mcp is spawned as a child process (ELECTRON_RUN_AS_NODE=1) which
   # cannot read from ASAR. Its node_modules must be included so they can be
@@ -69,6 +77,21 @@ asarUnpack:
   # Therefore the ENTIRE flint-mcp directory (code + all dependencies) must
   # be unpacked so the child process can resolve imports normally.
   - "flint-mcp/**"
+  # The embedded web server (dist-server/cli.mjs) is also spawned as a Node
+  # child process with ELECTRON_RUN_AS_NODE=1 — same constraint as flint-mcp.
+  # dist-web/ is the SPA the server serves; express.static needs real fs.
+  - "dist-server/**"
+  - "dist-web/**"
+  # flint-mcp/dist/* imports `../../../shared/<file>.js` relative paths.
+  # Since flint-mcp/ is unpacked, shared/ MUST also be unpacked or the
+  # relative path resolves to a non-existent location.
+  - "shared/**"
+  # The spawned web server needs ALL its transitive deps (express, ws,
+  # @babel/*, bindings via better-sqlite3, etc.) readable at runtime. Child
+  # Node processes can't transparently read from inside app.asar, so the full
+  # node_modules tree must be unpacked. This bloats the .dmg significantly —
+  # post-beta cleanup: bundle the server with esbuild to slim down.
+  - "node_modules/**"
   # Native modules used by the Electron main process also need full unpacking
   # (the .node binary AND the JS wrapper + package.json for ESM resolution).
   - "node_modules/better-sqlite3/**"

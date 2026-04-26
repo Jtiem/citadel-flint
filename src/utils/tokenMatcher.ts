@@ -20,6 +20,43 @@
 
 import type { DesignToken } from '../types/flint-api'
 
+// ── matchValueToToken types ───────────────────────────────────────────────────
+
+/**
+ * Which token category to resolve the value against.
+ * Matches TokenMatchCategory in INSPECTOR.1.contract.ts.
+ */
+export type TokenMatchCategory =
+    | 'color'
+    | 'fontSize'
+    | 'fontFamily'
+    | 'fontWeight'
+    | 'lineHeight'
+    | 'letterSpacing'
+    | 'spacing'
+    | 'borderRadius'
+
+export interface TokenMatchResult {
+    /**
+     * True when the value is within the token set.
+     * For 'color': deltaE < SYSTEMIZABLE_THRESHOLD.
+     * For all other categories: string equality against token_value.
+     */
+    inTokenSet: boolean
+    /**
+     * Closest token name (token_path), even when inTokenSet is false.
+     * null when the category has no tokens loaded.
+     */
+    nearestTokenName: string | null
+    /**
+     * CIEDE2000 deltaE for the 'color' category.
+     * 0 when value exactly matches a token for other categories.
+     * Infinity when no near token exists for other categories.
+     * null when the category has no tokens loaded.
+     */
+    deltaE: number | null
+}
+
 // ── Thresholds ────────────────────────────────────────────────────────────────
 
 /** ΔE2000 < this value: colors are perceptually indistinguishable. */
@@ -174,6 +211,89 @@ export interface TokenMatch {
     deltaE: number
     /** True when deltaE < SYSTEMIZABLE_THRESHOLD (2.0). */
     systemizable: boolean
+}
+
+// ── Category → token_type mapping ────────────────────────────────────────────
+
+/**
+ * Maps a TokenMatchCategory to the token_type string stored in DesignToken.
+ * The 'color' category is handled separately via CIEDE2000; all others use
+ * exact string equality against token_value.
+ */
+const CATEGORY_TO_TOKEN_TYPE: Record<Exclude<TokenMatchCategory, 'color'>, string> = {
+    fontSize:      'fontSize',
+    fontFamily:    'fontFamily',
+    fontWeight:    'fontWeight',
+    lineHeight:    'lineHeight',
+    letterSpacing: 'letterSpacing',
+    spacing:       'dimension',
+    borderRadius:  'dimension',
+}
+
+// ── matchValueToToken ─────────────────────────────────────────────────────────
+
+/**
+ * Single shared resolver for inspector off-token detection.
+ *
+ * For 'color': delegates to CIEDE2000 via findClosestToken.
+ * For all other categories: performs exact string equality against token_value
+ * for tokens of the matching token_type. The nearest token is the first exact
+ * match; when no exact match exists the nearest is the first token in the set
+ * (deterministic ordering — tokens appear in insertion order from the store).
+ *
+ * Contract: this function MUST NOT re-implement CIEDE2000. The color path
+ * delegates entirely to findClosestToken to satisfy invariant
+ * `token-match-reuses-mithril`.
+ *
+ * Pure function — reads `tokens` argument, no store access, no IPC.
+ */
+export function matchValueToToken(
+    value: string,
+    category: TokenMatchCategory,
+    tokens: DesignToken[],
+): TokenMatchResult {
+    // ── Color: delegate to CIEDE2000 ─────────────────────────────────────────
+    if (category === 'color') {
+        const match = findClosestToken(value, tokens)
+        if (match === null) {
+            return { inTokenSet: false, nearestTokenName: null, deltaE: null }
+        }
+        return {
+            inTokenSet: match.systemizable,
+            nearestTokenName: match.tokenPath,
+            deltaE: match.deltaE,
+        }
+    }
+
+    // ── Non-color: categorical exact-match ───────────────────────────────────
+    const tokenType = CATEGORY_TO_TOKEN_TYPE[category]
+    const categoryTokens = tokens.filter((t) => t.token_type === tokenType)
+
+    if (categoryTokens.length === 0) {
+        return { inTokenSet: false, nearestTokenName: null, deltaE: null }
+    }
+
+    // Normalize for comparison: trim whitespace, lowercase for case-insensitive
+    // categories (fontFamily, fontWeight). fontSize/spacing values like "14px"
+    // are compared as-is (case-sensitive is fine since they're numeric strings).
+    const normalised = value.trim()
+
+    for (const token of categoryTokens) {
+        if (token.token_value.trim() === normalised) {
+            return {
+                inTokenSet: true,
+                nearestTokenName: token.token_path,
+                deltaE: 0,
+            }
+        }
+    }
+
+    // No exact match — return first token as nearest (deterministic), off-token
+    return {
+        inTokenSet: false,
+        nearestTokenName: categoryTokens[0]?.token_path ?? null,
+        deltaE: Infinity,
+    }
 }
 
 /**

@@ -25,7 +25,7 @@ describe('useGovernanceCoverage', () => {
     })
 
     it('returns empty jurisdictionCoverage when store is empty array', () => {
-        useGovernanceStore.setState({ jurisdictionCoverage: [] })
+        useGovernanceStore.setState({ jurisdictionCoverage: [] as unknown as Record<string, { covered: number; total: number }> })
         const { result } = renderHook(() => useGovernanceCoverage())
         expect(result.current.jurisdictionCoverage).toEqual([])
     })

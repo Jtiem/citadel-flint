@@ -1,0 +1,13 @@
+{
+  "_note": "SECURITY-CRITICAL: The import resolves to a path outside projectRoot. The resolver must return path-outside-project WITHOUT making any fs.readFile or fs.access call on the target path. This test must verify that no disk read occurred.",
+  "imports": [
+    {
+      "bindingName": "s",
+      "modulePath": "../../../../../etc/passwd.module.css",
+      "resolved": false,
+      "failureReason": "path-outside-project",
+      "namedImports": [],
+      "classBindings_keys": []
+    }
+  ]
+}

@@ -52,14 +52,15 @@ export interface ConfigLoaderOptions {
  */
 export class ConfigPathSandboxError extends Error {
     readonly code = 'FLINT_CONFIG_PATH_SANDBOX' as const
-    constructor(
-        readonly attemptedRef: string,
-        readonly resolvedPath: string
-    ) {
+    readonly attemptedRef: string
+    readonly resolvedPath: string
+    constructor(attemptedRef: string, resolvedPath: string) {
         super(
             `[Flint Config] extends path '${attemptedRef}' resolves outside projectRoot: ${resolvedPath}`
         )
         this.name = 'ConfigPathSandboxError'
+        this.attemptedRef = attemptedRef
+        this.resolvedPath = resolvedPath
     }
 }
 
@@ -69,11 +70,13 @@ export class ConfigPathSandboxError extends Error {
  */
 export class ConfigValidationError extends Error {
     readonly code = 'FLINT_CONFIG_VALIDATION' as const
-    constructor(readonly errors: Array<{ path: string; message: string }>) {
+    readonly errors: Array<{ path: string; message: string }>
+    constructor(errors: Array<{ path: string; message: string }>) {
         super(
             `[Flint Config] validation failed:\n` +
             errors.map((e) => `  - ${e.path}: ${e.message}`).join('\n')
         )
+        this.errors = errors
         this.name = 'ConfigValidationError'
     }
 }
@@ -130,6 +133,17 @@ function emitConfigEvent(
 const __filename_ = fileURLToPath(import.meta.url)
 const PACKAGE_ROOT = path.resolve(path.dirname(__filename_), '..', '..')
 const PRESETS_DIR = path.join(PACKAGE_ROOT, 'presets')
+
+// ── Config mtime cache (PERF-LOW-10) ───────────────────────────────────────
+// Avoids re-reading and re-parsing flint.config.yaml on every tool call.
+// Keyed by projectRoot. Invalidated whenever the file's mtime changes.
+
+interface ConfigCacheEntry {
+    mtimeMs: number
+    config: FlintConfig
+}
+
+const configCache = new Map<string, ConfigCacheEntry>()
 
 // ── Project root resolution ─────────────────────────────────────────────────
 
@@ -754,6 +768,21 @@ export function loadConfig(
     projectRoot: string,
     options?: ConfigLoaderOptions
 ): FlintConfig {
+    // PERF-LOW-10: return cached config when the yaml file's mtime is unchanged.
+    // Skip caching in strict mode (CI) to ensure fresh validation.
+    if (!options?.strict) {
+        const yamlPath = path.join(projectRoot, 'flint.config.yaml')
+        try {
+            const { mtimeMs } = fs.statSync(yamlPath)
+            const cached = configCache.get(projectRoot)
+            if (cached !== undefined && cached.mtimeMs === mtimeMs) {
+                return cached.config
+            }
+        } catch {
+            // yaml file doesn't exist — fall through to normal loading
+        }
+    }
+
     let policy: FlintPolicy
     let yamlConfig: FlintProjectConfig | null = null
 
@@ -796,11 +825,24 @@ export function loadConfig(
         }
     }
 
-    return {
+    const result: FlintConfig = {
         projectRoot,
         domains,
         policy,
     }
+
+    // PERF-LOW-10: store result in cache with current yaml mtime.
+    if (!options?.strict) {
+        const yamlPath = path.join(projectRoot, 'flint.config.yaml')
+        try {
+            const { mtimeMs } = fs.statSync(yamlPath)
+            configCache.set(projectRoot, { mtimeMs, config: result })
+        } catch {
+            // yaml file missing — no cache entry
+        }
+    }
+
+    return result
 }
 
 /**

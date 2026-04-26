@@ -1,0 +1,31 @@
+.responsiveBtn {
+  padding: 0.5rem 1rem;
+  font-size: 1rem;
+}
+
+@media (max-width: 640px) {
+  .responsiveBtn {
+    padding: 0.375rem 0.75rem;
+    font-size: 0.875rem;
+    width: 100%;
+  }
+}
+
+@media (min-width: 1024px) {
+  .responsiveBtn {
+    padding: 0.625rem 1.25rem;
+    font-size: 1.125rem;
+  }
+}
+
+.stack {
+  display: flex;
+  flex-direction: row;
+  gap: 0.5rem;
+}
+
+@media (max-width: 640px) {
+  .stack {
+    flex-direction: column;
+  }
+}

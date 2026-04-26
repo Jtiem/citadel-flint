@@ -14,7 +14,7 @@ Two components:
 
 Flint MCP does all the work. Flint Glass reads MCP Resources to display state and calls MCP Tools to trigger actions. Glass owns zero business logic. Chat lives in the host IDE (Claude Code, Cursor, VS Code). Flint Glass is the observability layer, not a chat host.
 
-**Figma Integration:** Figma MCP is the **only** Figma integration path. The custom Figma plugin (`figma-plugin/`) was deprecated and deleted on 2026-04-15. Do not reference, recreate, or suggest the Figma plugin. The ingestion server (`localhost:4545`) remains as an internal API but is not a product feature — do not surface it in UI or documentation. Use `/figma <url>` for design-to-code, `/connect` for OAuth setup, and `/tokens` for token sync.
+**Figma Integration:** Figma MCP is the **only** Figma integration path. The custom Figma plugin (`figma-plugin/`) was deprecated on 2026-04-15 (directory retained for historical reference, unmaintained). Do not reference, recreate, or suggest the Figma plugin. The ingestion server (`localhost:4545`) remains as an internal API but is not a product feature — do not surface it in UI or documentation. Use `/figma <url>` for design-to-code, `/connect` for OAuth setup, and `/tokens` for token sync.
 
 ## Feature Names (The Citadel)
 
@@ -95,7 +95,7 @@ Any feature crossing this boundary needs an IPC channel via `contextBridge`.
 
 ## MCP Surface
 
-### Tools (54 registered)
+### Tools (61 registered)
 
 All tools registered in `flint-mcp/src/server.ts`:
 
@@ -155,8 +155,15 @@ All tools registered in `flint-mcp/src/server.ts`:
 | `flint_pack_import` | GPX — import governance pack with conflict detection |
 | `flint_pack_rollback` | GPX — rollback a previously imported pack |
 | `flint_defer_violation` | Defer a violation for later resolution (snooze) |
+| `flint_list_rule_packs` | List available governance rule packs by domain and jurisdiction |
+| `flint_enable_pack` | Enable a governance rule pack by adding its preset |
+| `flint_disable_pack` | Disable a governance rule pack by removing its preset |
+| `flint_set_rule_mode` | Set per-rule enforcement mode (coercive/normative/advisory/off) |
+| `flint_compliance_coverage` | Per-jurisdiction rule coverage analysis (WCAG 2.2, HIPAA, etc.) |
+| `flint_quickstart` | Scaffold a demo component with intentional violations for first-time users |
+| `flint_drift_trend` | Design system compliance trending — weekly violations, fix rate, repeat offenders |
 
-### Resources (13 registered)
+### Resources (14 registered)
 
 | URI | What it exposes |
 |-----|----------------|
@@ -172,15 +179,19 @@ All tools registered in `flint-mcp/src/server.ts`:
 | `flint://overrides` | Current override count and summary by rule/session |
 | `flint://agent-risk` | Per-agent risk posture and escalation status |
 | `flint://anomalies` | Current anomaly count and latest detected anomalies from statistical baseline |
+| `flint://governance/trends` | Drift trending — weekly violation counts, fix rate, repeat offender files, adoption score, and alerts |
 | `flint://figma-connection` | Active Figma connection status for the project |
 
-### Prompts (3 registered)
+### Prompts (6 registered)
 
 | Prompt | Purpose |
 |--------|---------|
 | `flint-intent-composer` | UX/UI Architecture Sentinel persona for design-to-code translation |
 | `flint-sentinel` | Domain-configurable governance engine persona |
 | `flint-workflow-guide` | Step-by-step workflow guidance for new MCP clients discovering Flint |
+| `flint-quick-audit` | Audit the current file for governance violations (design tokens, accessibility, brand compliance) |
+| `flint-fix-all` | Audit and auto-fix all governance violations in the current file |
+| `flint-onboard-project` | First-time project setup — index design system, run baseline audit, and get a governance health score |
 
 ## Module Status
 
@@ -247,6 +258,8 @@ All tools registered in `flint-mcp/src/server.ts`:
 | Web Build (Express+WS server, 94 IPC handlers, `web-api.ts` adapter) | WEB | **ONLINE** |
 | Progressive Disclosure (tab unlock, empty states, contextual tooltips, status bar gating) | PD | **ONLINE** |
 | Governance Education (plain-language labels, "Why?" rows, glossary, rule descriptions) | EDU | **ONLINE** |
+| Glass Interaction Schema (6 primitives: Section, PropertyRow, FooterActionBar, MetadataTooltip, StatBadge, PanelTabLabel; Figma-rhythm type scale + color ladder) | GLASSTYPO.1 | **ONLINE** |
+| Context-Aware Properties Panel (element-type registry mapping 24 tags, auto-tab-switch on node select, off-token value flagging inline) | INSPECTOR.1 | **ONLINE** |
 
 ### Collaboration + Sync
 
@@ -352,6 +365,9 @@ All tools registered in `flint-mcp/src/server.ts`:
 | Rule Pack Registry (10 packs, 64 rules, domain/jurisdiction grouping) | ERM.1 | **ONLINE** |
 | Rule Pack MCP Tools (list, enable, disable, set_mode, compliance_coverage) | ERM.1 | **ONLINE** |
 | Enterprise Rule Management Glass UI (catalog, profiles, coverage, inheritance) | ERM.3 | **ONLINE** |
+| Coverage Honesty (per-file `CoverageVerdict`, 9 reason codes, `governedSurfacePercent`, StatusBar `CoverageBadge` + `CoveragePopover`) | PHASE0 | **ONLINE** |
+| Tailwind Config Ingestion (sandboxed `vm.runInNewContext` loader, explicit require allowlist, `resolveConfig` + `knownClasses` set, mtime cache) | PHASE1 | **ONLINE** |
+| Class Composition Expansion (partial-evaluator for `clsx`/`cva`/`classnames`/`cn`/`twMerge`/`tw` with nested-call folding and cva variant dedup) | PHASE1 | **ONLINE** |
 
 ### Stores
 
@@ -369,6 +385,7 @@ All tools registered in `flint-mcp/src/server.ts`:
 | `annotationStore` | Annotation CRUD, fs.watch push sync, rendering state |
 | `importSummaryStore` | Ingestion heal summary, tier-2 snap resolution, undo-all-heals |
 | `componentCardStore` | Component card grid state (Build/Govern canvas modes), card positions, selection, category overrides |
+| `syncStalenessStore` | Per-session Envoy staleness banner dismissal (not persisted) |
 
 ## The 16 Commandments
 
@@ -492,6 +509,13 @@ Single-file bug fixes and cosmetic changes are exempt from the Contract-First fl
 
 **End-of-round review ceremony** — Before marking any phase COMPLETE, run 3 independent parallel reviews (UX, code, security) that write full findings to `.flint-context/reviews/<phase>-{ux,code,security}-review-<date>.md`. Surface these reports to the user directly — paste key findings in chat. The user makes all grade threshold calls. Reviewers do not assign letter grades — verdicts are derived from finding-severity counts via `deriveVerdict()` in [shared/review-schema.ts](shared/review-schema.ts). Each reviewer now writes a `.review.ts` sibling alongside the markdown; `ReviewFinding` requires `evidence[]` with file:line citations, and `aggregateConsensus()` surfaces parallel-reviewer disagreement as information rather than synthesizing it away. Do not mark work COMPLETE until the user has seen the findings and approved the threshold.
 
+**Cheaper-Pilot levers (standardized 2026-04-20 after MINT.5 Phase 3 POC + A/B verification)** — Apply on every review ceremony.
+
+* **Lever A — Domain partition (mandatory).** Split the ceremony into 3 domain reviewers: UX (components/hooks/stores the designer touches), Code (all modified implementation files **PLUS their test files and direct callers**), Security (IPC/preload/allowlist/validators + anything crossing the process boundary). The A/B measurement confirmed the domain split finds things no single generalist reviewer catches (e.g. security's tmpdir carve-out). Do NOT narrow the code reviewer's scope below "all modified impl + tests + callers" — the A/B showed a narrowed code scope misses ~6 warnings per phase.
+* **Lever B — Structured-only output.** Every reviewer emits BOTH a markdown report AND a sibling `.review.ts` with typed `ReviewFinding[]`. `flint-ux-critic`, `flint-code-reviewer`, and `flint-security-reviewer` all have Write — no orchestrator-persistence fallback. Missing `.review.ts` = incomplete ceremony.
+* **Parallel dispatch.** Send all 3 reviewer tool-calls in a single message. This is about wall-clock latency, not cache sharing — sub-agents run in isolated contexts so prompt-cache does NOT span reviewer boundaries. (Lever E from the original pilot dropped 2026-04-20 after A/B — the claimed cache savings were actually Lever A savings.)
+* **Regression canary (mandatory, not optional).** Always run `flint-integration-validator` after the 3 scoped reviewers. A/B measurement showed a non-zero miss rate even with correct scoping; the canary is the backstop. If it surfaces findings the scoped reviewers missed, widen scope for next phase and log the miss in HANDOFF.md.
+
 **Git ceremonies** are handled by `flint-git-guru` at every phase boundary. It manages branch naming (`feat/<phase>-<desc>`), conventional commit messages, pre-commit validation, and PR creation. Never commit without running the pre-commit gate (TSC + relevant test suites).
 
 ## Feature Budget Framework
@@ -555,6 +579,10 @@ Do not port designer features to the extension or developer features to Glass un
 | `flint-mcp/src/core/tailwindMigrator.ts` | EXP.3 — Tailwind v3→v4 AST class migration engine |
 | `flint-mcp/src/core/a11y/rules/` | Warden rules — 50 WCAG 2.1 AA rules (9 modules: names-labels, keyboard, structure, aria, landmarks, contrast, forms, live-regions, motion) |
 | `flint-mcp/src/core/htmlIntrinsics.ts` | Canonical HTML intrinsic element set shared by MithrilLinter, hydroPaste, and orchestrator |
+| `flint-mcp/src/core/coverageClassifier.ts` | Phase 0 — per-file `CoverageVerdict` with 9 reason codes; Phase 1 upgrade paths suppress verdicts when config/expansion resolves |
+| `flint-mcp/src/core/tailwindConfigLoader.ts` | Phase 1 — sandboxed `vm.runInNewContext` loader for `tailwind.config.*`, explicit require allowlist, mtime cache, error redaction |
+| `flint-mcp/src/core/classExpressionExpander.ts` | Phase 1 — partial-evaluator for `clsx`/`cva`/`classnames`/`cn`/`twMerge`/`tw` call sites; returns `{ definite, possible, unresolvable }` |
+| `flint-mcp/src/core/dashboard/debtReportService.ts` | Phase 0 — `computeCoverageSummary()` aggregation, writes `.flint/coverage-cache.json`, governed-surface-% in debt report |
 | `flint-mcp/src/core/hydroPaste.ts` | Mason — Figma-to-JSX transform engine (component classification + code generation) |
 | `flint-mcp/src/core/figmaMcpParser.ts` | Figma MCP `get_design_context` response parser |
 | `flint-mcp/src/core/figmaJsxTransformer.ts` | Figma node tree → JSX AST transformer |
@@ -584,6 +612,8 @@ Do not port designer features to the extension or developer features to Glass un
 | `electron/consensusGateService.ts` | V.4 — Multi-agent epistemic consensus gate evaluation |
 | `electron/mrsEngine.ts` | MRS risk scoring engine (Electron-side) |
 | `electron/figmaOAuth.ts` | Alliance — Figma OAuth flow handler |
+| `electron/ragService.ts` | Offline RAG pipeline; 384-dim embeddings via @huggingface/transformers; `vec_design_system` virtual table |
+| `electron/templateService.ts` | Project scaffolding; copies bundled templates with path-traversal prevention |
 
 ### Glass UI
 | File | Role |

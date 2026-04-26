@@ -1,0 +1,13 @@
+{
+  "_note": "SCSS module with nested &:hover rules. postcss-scss walks the AST and exposes top-level class selectors. Nested rules are walked but the parent class is the one that appears in the classBindings.",
+  "imports": [
+    {
+      "bindingName": "s",
+      "modulePath": "card.module.scss",
+      "resolved": true,
+      "failureReason": null,
+      "namedImports": [],
+      "classBindings_keys": ["card", "cardHeader", "cardBody", "cardFooter"]
+    }
+  ]
+}

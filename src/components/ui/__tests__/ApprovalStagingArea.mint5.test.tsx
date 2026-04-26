@@ -17,7 +17,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, act } from '@testing-library/react'
 import { ApprovalStagingArea } from '../ApprovalStagingArea'
 import type { PendingToken } from '../../../types/flint-api'
-import type { TokenApprovedEvent } from '../../../.flint-context/contracts/MINT.5-phase1.contract'
+import type { TokenApprovedEvent } from '../../../../.flint-context/contracts/MINT.5-phase1.contract'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

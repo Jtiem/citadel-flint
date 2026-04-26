@@ -85,12 +85,32 @@ function extractRuleId(message: string): string {
 }
 
 /**
- * Computes health score from violation counts.
- * Formula: 100 - (critical * 10) - (warning * 1) - (advisory * 0.5), clamped [0, 100].
- * Note: the spec uses different weights than debtReportService (which uses critical*10, warning*3, info*1).
- * The init runner spec explicitly states: critical=10, warning=1, advisory=0.5.
+ * Init-time health heuristic — DELIBERATELY DIVERGENT from the canonical
+ * project health score in `shared/healthScore.ts::computeHealthScore`.
+ *
+ * Formula: clamp(100 - critical*10 - warning*1 - advisory*0.5, 0, 100)
+ *
+ * Why it diverges from the canonical formula (carve-out, COUNSEL.1 contract §13):
+ *   - This runs ONCE during `flint init` against a freshly-onboarded project
+ *     that has not yet been touched by Flint. The canonical weights
+ *     (amber×3, advisory×1, override×3) would deterministically push every
+ *     real-world project to "F" on first contact and turn the Forge welcome
+ *     experience into a wall of red. The init spec explicitly chose softer
+ *     weights so the first audit can produce an informative score without
+ *     punishing the user for pre-Flint code.
+ *   - It does NOT feed any persisted surface (dashboard, DBOM, debt report,
+ *     CI gate) — those all read from the canonical formula. The init score is
+ *     printed to stdout and returned in `InitResult.healthScore` for the
+ *     welcome banner only.
+ *   - The parameter name `warning` (vs. canonical `amber`) is preserved
+ *     because the canonical "amber" bucket and this heuristic's "warning"
+ *     bucket are not the same thing semantically (canonical = severity
+ *     bucket; init = "any non-critical Mithril result").
+ *
+ * If you are looking for the project health score, you almost certainly want
+ * `computeHealthScore` from `shared/healthScore.ts`, not this function.
  */
-export function computeInitHealthScore(
+export function computeInitHeuristic(
     critical: number,
     warning: number,
     advisory: number,
@@ -98,6 +118,14 @@ export function computeInitHealthScore(
     const raw = 100 - (critical * 10) - (warning * 1) - (advisory * 0.5)
     return Math.max(0, Math.min(100, Math.round(raw)))
 }
+
+/**
+ * @deprecated Renamed to `computeInitHeuristic` to make non-equivalence with
+ * the canonical project health score explicit. This alias preserves the old
+ * symbol for one release. New callers must use `computeInitHeuristic` and
+ * understand it is an init-time onboarding heuristic, not a project score.
+ */
+export const computeInitHealthScore = computeInitHeuristic
 
 /**
  * Maps a health score (0-100) to a letter grade.
@@ -409,7 +437,7 @@ export async function runInit(options: InitOptions): Promise<InitResult> {
             }
         }
 
-        healthScore = computeInitHealthScore(
+        healthScore = computeInitHeuristic(
             violationCounts.critical,
             violationCounts.warning,
             violationCounts.advisory,

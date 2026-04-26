@@ -8,7 +8,7 @@
  * Only depends on @babel/types which is available in both contexts.
  */
 
-import type { File, JSXElement } from '@babel/types'
+import type { JSXElement } from '@babel/types'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

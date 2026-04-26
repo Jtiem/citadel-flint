@@ -20,7 +20,7 @@
  * sync announcements (A9). See contract .md for full list.
  */
 
-import type { FlintContract } from '../../shared/contract-schema.js'
+import type { LegacyFlintContract } from '../../shared/contract-schema.js'
 import type { HealthGrade, HealthScoreInput } from '../../shared/healthScore.js'
 import type { SanitizeReasonResult } from '../../shared/reasonSanitizer.js'
 
@@ -355,7 +355,7 @@ export interface TokensUpdateResponse {
 
 // ─── Contract Metadata ─────────────────────────────────────────────────────────
 
-export const CONTRACT: FlintContract = {
+export const CONTRACT: LegacyFlintContract = {
     meta: {
         name: 'MINT.5-phase1-MintFoundation',
         phase: 'MINT.5.1',

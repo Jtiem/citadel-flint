@@ -392,7 +392,7 @@ describe('COUNSEL.3.2 — Provenance chip text format', () => {
             getNodeName: (id: string) => `<div #${id.slice(0, 6)}>`,
             activeFilePath: '/src/App.tsx',
         }
-        render(<ViolationCard {...a11yProps} />)
+        render(<ViolationCard {...(a11yProps as unknown as Parameters<typeof ViolationCard>[0])} />)
         expect(screen.getByTestId('provenance-chip-a11y-node-def456')).toBeDefined()
     })
 })

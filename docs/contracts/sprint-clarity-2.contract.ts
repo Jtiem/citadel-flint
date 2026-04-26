@@ -8,10 +8,10 @@
  */
 
 import type {
-    FlintContract,
-    ContractMeta,
+    LegacyFlintContract,
+    LegacyContractMeta,
+    LegacyTestBoundary,
     ImpactEntry,
-    TestBoundary,
     RiskEntry,
     ComponentContract,
 } from '../../shared/contract-schema'
@@ -130,7 +130,7 @@ export type SuggestTools = (context: {
 
 // ─── Contract Metadata ─────────────────────────────────────────────────────
 
-const meta: ContractMeta = {
+const meta: LegacyContractMeta = {
     name: 'Sprint-Clarity-2',
     phase: 'CLARITY-2',
     status: 'APPROVED',
@@ -177,7 +177,7 @@ const components: ComponentContract[] = [
     },
 ]
 
-const testBoundaries: TestBoundary[] = [
+const testBoundaries: LegacyTestBoundary[] = [
     // Item 1
     {
         target: 'computeNextStep',
@@ -294,7 +294,7 @@ const risks: RiskEntry[] = [
     },
 ]
 
-export const CONTRACT: FlintContract = {
+export const CONTRACT: LegacyFlintContract = {
     meta,
     impact,
     ipc: [], // No new IPC channels

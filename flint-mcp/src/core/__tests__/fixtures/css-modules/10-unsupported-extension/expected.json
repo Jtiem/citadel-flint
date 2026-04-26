@@ -1,0 +1,14 @@
+{
+  "_note": "LESS module: postcss can parse basic LESS syntax without postcss-less because LESS at-variable declarations and basic nesting often parse without crashing. If postcss-less is installed, full LESS parsing succeeds. If it is NOT installed, the result depends on the CSS content: plain selectors will still be extracted. This fixture documents the actual behavior: the LESS file has only standard-looking CSS class rules (the @variable and &:hover nesting may or may not cause a parse error). Accept either outcome.",
+  "_behavior": "implementation-dependent: resolved:true if the LESS file parses gracefully; resolved:false with module-parse-error if postcss cannot handle the LESS @variable syntax",
+  "imports": [
+    {
+      "bindingName": "s",
+      "modulePath": "style.module.less",
+      "resolved": true,
+      "failureReason": null,
+      "namedImports": [],
+      "classBindings_keys": ["button"]
+    }
+  ]
+}

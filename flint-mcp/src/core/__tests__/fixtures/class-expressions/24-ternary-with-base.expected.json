@@ -1,0 +1,8 @@
+[
+  {
+    "utility": "clsx",
+    "definite": ["btn"],
+    "possible": ["btn-primary", "btn-secondary"],
+    "unresolvable": false
+  }
+]
