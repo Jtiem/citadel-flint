@@ -22,6 +22,11 @@ import { BrowserWindow } from 'electron'
 import { transformSync } from '@babel/core'
 import _traverse from '@babel/traverse'
 import * as t from '@babel/types'
+// See electron/main.ts head comment — direct plugin imports avoid Babel's
+// string-name resolver failing across asar boundaries. Types come from
+// shared/babel-plugins.d.ts (no @types package exists on npm).
+import babelPluginTransformTypescript from '@babel/plugin-transform-typescript'
+import babelPluginTransformReactJsx from '@babel/plugin-transform-react-jsx'
 
 // CJS/ESM interop (matches other Flint AST files)
 const traverse =
@@ -110,8 +115,8 @@ export function transformVisualSource(source: string): { js: string | null; erro
         const result = transformSync(source, {
             filename: 'VisualComponent.tsx',
             plugins: [
-                ['@babel/plugin-transform-typescript', { isTSX: true, allExtensions: true }],
-                ['@babel/plugin-transform-react-jsx', { runtime: 'classic' }],
+                [babelPluginTransformTypescript, { isTSX: true, allExtensions: true }],
+                [babelPluginTransformReactJsx, { runtime: 'classic' }],
             ],
             configFile: false,
             babelrc: false,

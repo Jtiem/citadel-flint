@@ -166,6 +166,14 @@ async function scanDirectory(dirPath: string): Promise<FileTreeNode> {
 }
 import { promisify } from 'node:util'
 import { transformSync } from '@babel/core'
+// Import Babel plugins by reference, not by string name. Babel's string-name
+// resolver looks for plugins relative to the calling file's dirname; inside
+// a packaged app.asar that lookup doesn't reliably cross into
+// app.asar.unpacked/node_modules/, even when the plugin is unpacked. Importing
+// the plugin function directly bypasses Babel's resolver — Vite/Node handles
+// the lookup via the asar shim correctly. (Beta-blocker fix 2026-04-26.)
+import babelPluginTransformTypescript from '@babel/plugin-transform-typescript'
+import babelPluginTransformReactJsx from '@babel/plugin-transform-react-jsx'
 
 const execFileAsync = promisify(execFile)
 
@@ -666,9 +674,9 @@ ipcMain.handle('code:transform', (_event, code: unknown): { js: string | null; e
             filename: 'App.tsx',
             sourceType: 'module',
             plugins: [
-                ['@babel/plugin-transform-typescript', { isTSX: true, allExtensions: true }],
+                [babelPluginTransformTypescript, { isTSX: true, allExtensions: true }],
                 injectFlintIdPlugin,
-                ['@babel/plugin-transform-react-jsx', { runtime: 'classic' }],
+                [babelPluginTransformReactJsx, { runtime: 'classic' }],
             ],
             configFile: false,
             babelrc: false,

@@ -24,6 +24,11 @@ import path from 'node:path'
 import { readFile, mkdir, unlink, readdir } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { transformSync } from '@babel/core'
+// See electron/main.ts head comment — direct plugin imports avoid Babel's
+// string-name resolver failing across asar boundaries. Types come from
+// shared/babel-plugins.d.ts (no @types package exists on npm).
+import babelPluginTransformTypescript from '@babel/plugin-transform-typescript'
+import babelPluginTransformReactJsx from '@babel/plugin-transform-react-jsx'
 import type { FileTransactionManager } from './FileTransactionManager.js'
 
 // ── Preview-vendor file cache ─────────────────────────────────────────────────
@@ -239,8 +244,8 @@ function transformComponentSource(source: string): { js: string | null; error: s
         const result = transformSync(source, {
             filename: 'Component.tsx',
             plugins: [
-                ['@babel/plugin-transform-typescript', { isTSX: true, allExtensions: true }],
-                ['@babel/plugin-transform-react-jsx', { runtime: 'classic' }],
+                [babelPluginTransformTypescript, { isTSX: true, allExtensions: true }],
+                [babelPluginTransformReactJsx, { runtime: 'classic' }],
             ],
             configFile: false,
             babelrc: false,

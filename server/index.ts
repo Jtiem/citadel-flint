@@ -36,6 +36,10 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import Database from 'better-sqlite3'
 import { transformSync } from '@babel/core'
+// See electron/main.ts head comment — direct plugin imports avoid Babel's
+// string-name resolver failing across asar boundaries.
+import babelPluginTransformTypescript from '@babel/plugin-transform-typescript'
+import babelPluginTransformReactJsx from '@babel/plugin-transform-react-jsx'
 import {
   jsxAttribute,
   jsxIdentifier,
@@ -1093,9 +1097,9 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
         filename: 'App.tsx',
         sourceType: 'module',
         plugins: [
-          ['@babel/plugin-transform-typescript', { isTSX: true, allExtensions: true }],
+          [babelPluginTransformTypescript, { isTSX: true, allExtensions: true }],
           injectFlintIdPlugin,
-          ['@babel/plugin-transform-react-jsx', { runtime: 'classic' }],
+          [babelPluginTransformReactJsx, { runtime: 'classic' }],
         ],
         configFile: false,
         babelrc: false,

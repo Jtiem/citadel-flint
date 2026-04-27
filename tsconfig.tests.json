@@ -22,7 +22,8 @@
     "electron/**/__tests__/**/*.ts",
     "electron/**/*.test.ts",
     "shared/**/__tests__/**/*.ts",
-    "shared/**/*.test.ts"
+    "shared/**/*.test.ts",
+    "shared/**/*.d.ts"
   ],
   "exclude": []
 }
