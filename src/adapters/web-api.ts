@@ -608,6 +608,13 @@ export function createWebFlintAPI() {
     resolveDeferredViolation: (file: string, ruleId: string, nodeId?: string) =>
       invoke('governance:resolve-deferred-violation', file, ruleId, nodeId) as Promise<void>,
 
+    // ── Beta telemetry consent ──────────────────────────────────────────────
+    telemetry: {
+      getConsent: () => invoke('telemetry:get-consent') as Promise<import('../types/flint-api').ConsentRecord>,
+      setConsent: (payload: { state: 'accepted' | 'declined' }) =>
+        invoke('telemetry:set-consent', payload) as Promise<import('../types/flint-api').ConsentRecord>,
+    },
+
     // ── Beta (mostly no-ops in web) ─────────────────────────────────────────
     beta: {
       getInfo: () => Promise.resolve({ buildId: 'web', expiryDate: null, daysRemaining: null, isBeta: false }),

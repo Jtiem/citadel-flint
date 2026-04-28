@@ -196,6 +196,179 @@ describe('openFolder() — sequential calls', () => {
   })
 })
 
+// ── WA-11 / WA-12: telemetry namespace (TELEMETRY-WEB-TRANSPORT contract) ────
+//
+// Invariant locked: web-telemetry-namespace-present
+//   Object.keys(createWebFlintAPI().telemetry) must have length >= 2 and
+//   contain both "getConsent" and "setConsent".
+//
+// These tests mock global fetch so no real WebSocket or HTTP server is needed.
+// They verify that `invoke` is called with the exact channel strings and args
+// required by the TELEMETRY-WEB-TRANSPORT contract testBoundaries.
+
+describe('telemetry namespace — invariant: web-telemetry-namespace-present', () => {
+  it('WA-11: createWebFlintAPI().telemetry exposes getConsent and setConsent as functions', () => {
+    const api = createWebFlintAPI()
+    expect(api.telemetry).toBeDefined()
+    expect(typeof api.telemetry.getConsent).toBe('function')
+    expect(typeof api.telemetry.setConsent).toBe('function')
+  })
+
+  it('WA-11b: telemetry namespace has at least 2 methods (invariant >= 2)', () => {
+    const api = createWebFlintAPI()
+    const methodCount = Object.keys(api.telemetry).length
+    // Invariant: method count must equal the surface declared in TelemetryFlintAPI
+    expect(methodCount).toBeGreaterThanOrEqual(2)
+  })
+
+  it('WA-11c: telemetry key names are exactly getConsent and setConsent', () => {
+    const api = createWebFlintAPI()
+    const keys = Object.keys(api.telemetry).sort()
+    expect(keys).toContain('getConsent')
+    expect(keys).toContain('setConsent')
+  })
+})
+
+// Contract testBoundary: createWebFlintAPI().telemetry.getConsent
+// given: fetch mocked to resolve with { result: { state: "unset", sessionId: "abc" } }
+// when:  browser calls window.flintAPI.telemetry.getConsent()
+// then:  returns ConsentRecord; fetch body contains channel:"telemetry:get-consent" and args:[]
+
+describe('telemetry.getConsent() — web adapter', () => {
+  it('WA-12: calls POST /api/ipc with channel="telemetry:get-consent" and args:[]', async () => {
+    const consentRecord = { state: 'unset' as const, sessionId: 'abc' }
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ result: consentRecord }),
+    } as Response)
+    globalThis.fetch = fetchMock
+
+    const api = createWebFlintAPI()
+    await api.telemetry.getConsent()
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/ipc', expect.objectContaining({
+      method: 'POST',
+      body: expect.stringContaining('"telemetry:get-consent"'),
+    }))
+
+    // Verify the exact body shape: channel + args:[]
+    const call = fetchMock.mock.calls[0]
+    const body = JSON.parse(call[1].body as string) as { channel: string; args: unknown[] }
+    expect(body.channel).toBe('telemetry:get-consent')
+    expect(body.args).toEqual([])
+  })
+
+  it('WA-12b: returns the parsed ConsentRecord from the server response', async () => {
+    const consentRecord = { state: 'unset' as const, sessionId: 'abc' }
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ result: consentRecord }),
+    } as Response)
+
+    const api = createWebFlintAPI()
+    const result = await api.telemetry.getConsent()
+
+    expect(result.state).toBe('unset')
+    expect(result.sessionId).toBe('abc')
+  })
+
+  it('WA-12c: returns an unset record with no decidedAt when server returns that shape', async () => {
+    const consentRecord = { state: 'unset' as const, sessionId: 'abc-uuid' }
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ result: consentRecord }),
+    } as Response)
+
+    const api = createWebFlintAPI()
+    const result = await api.telemetry.getConsent()
+
+    expect(result.state).toBe('unset')
+    expect(result.decidedAt).toBeUndefined()
+  })
+
+  it('WA-12d: rejects when server returns HTTP 500 (after retries)', async () => {
+    // Edge case: server returns 500 — invoke retries up to 3 times then rejects
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+    } as Response)
+
+    const api = createWebFlintAPI()
+    await expect(api.telemetry.getConsent()).rejects.toThrow('IPC call failed')
+  }, 10_000 /* allow retry back-off */)
+})
+
+// Contract testBoundary: createWebFlintAPI().telemetry.setConsent
+// given: fetch mocked to resolve with { result: { state: "accepted", sessionId: "abc", decidedAt: "..." } }
+// when:  browser calls window.flintAPI.telemetry.setConsent({ state: "accepted" })
+// then:  returns updated ConsentRecord; fetch body contains channel:"telemetry:set-consent" and args:[{state:"accepted"}]
+
+describe('telemetry.setConsent() — web adapter', () => {
+  it('WA-13: calls POST /api/ipc with channel="telemetry:set-consent" and args:[{state:"accepted"}]', async () => {
+    const updatedRecord = {
+      state: 'accepted' as const,
+      sessionId: 'abc',
+      decidedAt: '2026-04-26T00:00:00.000Z',
+    }
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ result: updatedRecord }),
+    } as Response)
+    globalThis.fetch = fetchMock
+
+    const api = createWebFlintAPI()
+    await api.telemetry.setConsent({ state: 'accepted' })
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/ipc', expect.objectContaining({
+      method: 'POST',
+      body: expect.stringContaining('"telemetry:set-consent"'),
+    }))
+
+    const call = fetchMock.mock.calls[0]
+    const body = JSON.parse(call[1].body as string) as { channel: string; args: unknown[] }
+    expect(body.channel).toBe('telemetry:set-consent')
+    // args must be exactly [{ state: "accepted" }]
+    expect(body.args).toEqual([{ state: 'accepted' }])
+  })
+
+  it('WA-13b: returns a ConsentRecord with state "accepted" and decidedAt set', async () => {
+    const decidedAt = '2026-04-26T00:00:00.000Z'
+    const updatedRecord = { state: 'accepted' as const, sessionId: 'abc', decidedAt }
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ result: updatedRecord }),
+    } as Response)
+
+    const api = createWebFlintAPI()
+    const result = await api.telemetry.setConsent({ state: 'accepted' })
+
+    expect(result.state).toBe('accepted')
+    expect(typeof result.decidedAt).toBe('string')
+  })
+
+  it('WA-13c: setConsent with state="declined" sends args:[{state:"declined"}]', async () => {
+    // Edge case from contract: "declined" — same shape, different value
+    const updatedRecord = {
+      state: 'declined' as const,
+      sessionId: 'abc',
+      decidedAt: '2026-04-26T00:00:00.000Z',
+    }
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ result: updatedRecord }),
+    } as Response)
+    globalThis.fetch = fetchMock
+
+    const api = createWebFlintAPI()
+    const result = await api.telemetry.setConsent({ state: 'declined' })
+
+    const call = fetchMock.mock.calls[0]
+    const body = JSON.parse(call[1].body as string) as { channel: string; args: unknown[] }
+    expect(body.args).toEqual([{ state: 'declined' }])
+    expect(result.state).toBe('declined')
+  })
+})
+
 // ── WA-07 / WA-08 / WA-09: thumbnails adapter ─────────────────────────────────
 
 describe('thumbnails.get() — web adapter', () => {

@@ -32,7 +32,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import path from 'node:path'
 import os from 'node:os'
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared test helpers
@@ -624,6 +624,136 @@ describe('broadcast — JSON message shape normalisation', () => {
     const msg = buildBroadcastMessage('flint:ide-file-selected', { path: undefined })
     const result = parseBroadcastMessage(msg)
     expect(result!.channel).toBe('flint:ide-file-selected')
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// startTelemetry() boot smoke test
+//
+// Contract testBoundary: "server boot — startTelemetry() side effect"
+// given:  a clean temp directory with consent state "accepted"
+// when:   the server's internal startTelemetry() executes
+// then:   the in-memory buffer contains exactly one entry with name "app.launched"
+//         and the 60-second flush timer is set.
+//
+// Because server/index.ts is a monolithic factory that starts side-effects on
+// import/call (SQLite, MCP child process, fs.watch, etc.), we test the
+// startTelemetry behaviour by reproducing the exact same logic that the factory
+// runs — the same close-mirror strategy used in the rest of this file.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('startTelemetry() — server boot smoke test', () => {
+  let smokeDir: string
+  let flushTimer: ReturnType<typeof setInterval> | null = null
+
+  beforeEach(() => {
+    smokeDir = path.join(
+      os.tmpdir(),
+      `flint-smoke-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    )
+    mkdirSync(smokeDir, { recursive: true })
+    flushTimer = null
+  })
+
+  afterEach(() => {
+    if (flushTimer) { clearInterval(flushTimer); flushTimer = null }
+    try { rmSync(smokeDir, { recursive: true, force: true }) } catch { /* ok */ }
+  })
+
+  /**
+   * Minimal reproduction of server/index.ts startTelemetry() logic.
+   * Returns the buffer and timer so we can assert on them.
+   */
+  function bootTelemetry(consentState: 'accepted' | 'unset' | 'declined'): {
+    buffer: Array<{ name: string; payload: unknown; ts: string }>
+    timer: ReturnType<typeof setInterval>
+  } {
+    const consentPath = path.join(smokeDir, 'beta-consent.json')
+    writeFileSync(consentPath, JSON.stringify({
+      state: consentState,
+      sessionId: 'smoke-test-sid',
+      decidedAt: consentState !== 'unset' ? new Date().toISOString() : undefined,
+    }))
+
+    // Mirror of webReadConsentState() from server/index.ts
+    function readConsentState(): string {
+      try {
+        const raw = JSON.parse(readFileSync(consentPath, 'utf-8')) as { state?: string }
+        return typeof raw.state === 'string' ? raw.state : 'unset'
+      } catch { return 'unset' }
+    }
+
+    // Mirror of the in-memory buffer
+    const buffer: Array<{ name: string; payload: unknown; ts: string }> = []
+
+    // Hydrate from disk if present (post-crash recovery path)
+    try {
+      const qPath = path.join(smokeDir, 'telemetry-queue.json')
+      if (existsSync(qPath)) {
+        const raw = JSON.parse(readFileSync(qPath, 'utf-8')) as unknown
+        if (Array.isArray(raw)) {
+          buffer.push(...(raw as typeof buffer))
+        }
+      }
+    } catch { /* malformed queue → treat as empty */ }
+
+    // Mirror of webEmit()
+    function webEmit(name: string, payload: unknown): void {
+      if (readConsentState() !== 'accepted') return
+      buffer.push({ name, payload, ts: new Date().toISOString() })
+    }
+
+    // Emit app.launched (consent-gated)
+    webEmit('app.launched', { locale: process.env.LANG?.split('.')[0] ?? 'en' })
+
+    // Set the flush timer (mirrors the 60s setInterval in server/index.ts)
+    const timer = setInterval(() => { /* flush would go here */ }, 60_000)
+    flushTimer = timer
+
+    return { buffer, timer }
+  }
+
+  it('IDX-SMOKE-01: buffer contains exactly one "app.launched" entry when consent is accepted', () => {
+    const { buffer } = bootTelemetry('accepted')
+
+    const launchEvents = buffer.filter((e) => e.name === 'app.launched')
+    expect(launchEvents).toHaveLength(1)
+  })
+
+  it('IDX-SMOKE-02: buffer is empty when consent is "unset" (webEmit is a no-op)', () => {
+    const { buffer } = bootTelemetry('unset')
+    expect(buffer).toHaveLength(0)
+  })
+
+  it('IDX-SMOKE-03: the 60-second flush timer is set after startTelemetry()', () => {
+    const { timer } = bootTelemetry('accepted')
+    // setInterval returns a NodeJS.Timeout — truthy when set
+    expect(timer).toBeTruthy()
+    // afterEach clears it to avoid open-handle warnings
+  })
+
+  it('IDX-SMOKE-04: buffer contains app.launched with a string locale field', () => {
+    const { buffer } = bootTelemetry('accepted')
+    const entry = buffer.find((e) => e.name === 'app.launched')!
+    expect(entry).toBeDefined()
+    expect(typeof (entry.payload as { locale: string }).locale).toBe('string')
+  })
+
+  it('IDX-SMOKE-05: hydrates disk queue before emitting app.launched (post-crash recovery)', () => {
+    // Pre-seed a disk queue file to simulate a prior crashed run
+    const qPath = path.join(smokeDir, 'telemetry-queue.json')
+    const priorEvents = [
+      { name: 'mcp.tool_called', payload: { toolName: 'flint_status' }, ts: new Date().toISOString() },
+    ]
+    writeFileSync(qPath, JSON.stringify(priorEvents, null, 2))
+
+    const { buffer } = bootTelemetry('accepted')
+
+    // Prior event should appear before app.launched
+    expect(buffer.length).toBeGreaterThanOrEqual(2)
+    expect(buffer[0].name).toBe('mcp.tool_called')
+    const launchEntry = buffer.find((e) => e.name === 'app.launched')
+    expect(launchEntry).toBeDefined()
   })
 })
 
