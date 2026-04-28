@@ -1,6 +1,6 @@
 {
   "name": "@flint-gov/mcp",
-  "version": "1.0.0",
+  "version": "0.3.0-beta.1",
   "description": "Flint governance engine — design system, accessibility, and brand compliance enforcement via Model Context Protocol",
   "main": "index.js",
   "type": "module",
