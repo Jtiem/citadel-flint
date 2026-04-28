@@ -35,7 +35,8 @@
     "build:web": "vite build --config vite.config.web.ts --mode production",
     "start:web": "npm rebuild better-sqlite3 2>/dev/null; npx tsx server/cli.ts --open",
     "build:server": "node_modules/.bin/esbuild server/cli.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist-server/cli.mjs --packages=external --log-level=warning",
-    "build:dist": "npm run build:web && npm run build:server"
+    "build:dist": "npm run build:web && npm run build:server",
+    "validators:check": "node scripts/check-ipc-validators-parity.js"
   },
   "bin": {
     "flint-glass": "./bin/flint-glass.js"
