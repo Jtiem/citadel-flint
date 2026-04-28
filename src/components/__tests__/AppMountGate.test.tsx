@@ -112,14 +112,15 @@ vi.mock('../../components/ui/SetupWizard', () => ({
     ),
 }))
 
-// Stub BetaWelcome — shouldShowBetaWelcome returns false in tests (no beta env var)
-vi.mock('../../components/ui/BetaWelcome', () => ({
-    BetaWelcome: ({ onSkip }: { onSkip: () => void }) => (
-        <div data-testid="beta-welcome">
-            <button onClick={onSkip}>Skip</button>
+// Stub HelloFlintWelcome — hasSeenHelloWelcome returns true in tests so the
+// welcome gate is skipped and AppMountGate tests reach LaunchScreen / workspace.
+vi.mock('../../components/ui/HelloFlintWelcome', () => ({
+    HelloFlintWelcome: ({ onComplete }: { onComplete: () => void }) => (
+        <div data-testid="hello-flint-welcome">
+            <button onClick={onComplete}>Complete</button>
         </div>
     ),
-    shouldShowBetaWelcome: () => false,
+    hasSeenHelloWelcome: () => true,
 }))
 
 // Mock components added after initial test authoring
@@ -180,6 +181,21 @@ const POPULATED_TREE: FileTreeNode = {
     ],
 }
 
+// ── Module-level setup ────────────────────────────────────────────────────────
+// HELLO-FLINT-A (Group A3): Add the `hello` namespace to every mock API instance
+// so App's alreadyConnected useEffect resolves cleanly without reaching the IPC.
+// The HelloFlintWelcome vi.mock above makes hasSeenHelloWelcome() return true,
+// which prevents the welcome gate from blocking LaunchScreen / workspace tests.
+beforeEach(() => {
+    if ((window as any).flintAPI && !(window as any).flintAPI.hello) {
+        ;(window as any).flintAPI.hello = {
+            alreadyConnected: vi.fn().mockResolvedValue({ connected: true, editors: ['cursor'] }),
+            detectEditors: vi.fn().mockResolvedValue({ editors: [], mcpServerPath: '', platform: 'darwin' }),
+            writeMcpConfigBulk: vi.fn().mockResolvedValue({ written: [], failed: [] }),
+        }
+    }
+})
+
 // ── Suite ─────────────────────────────────────────────────────────────────────
 
 describe('App — LaunchScreen mount gate (Journey 1, Step 1.1)', () => {
@@ -189,7 +205,14 @@ describe('App — LaunchScreen mount gate (Journey 1, Step 1.1)', () => {
         // setup.ts, but we augment it here to add the missing removeChangedListener
         // and to ensure annotations.onChanged is callable.
         resetAllStores()
-        ;(window as any).flintAPI = createMockFlintAPI()
+        ;(window as any).flintAPI = {
+            ...createMockFlintAPI(),
+            hello: {
+                alreadyConnected: vi.fn().mockResolvedValue({ connected: true, editors: ['cursor'] }),
+                detectEditors: vi.fn().mockResolvedValue({ editors: [], mcpServerPath: '', platform: 'darwin' }),
+                writeMcpConfigBulk: vi.fn().mockResolvedValue({ written: [], failed: [] }),
+            },
+        }
     })
 
     // ── Test 1 ────────────────────────────────────────────────────────────────
@@ -298,7 +321,14 @@ describe('App — LaunchScreen mount gate (Journey 1, Step 1.1)', () => {
 describe('App — Demo-first onboarding gate (WS1)', () => {
     beforeEach(() => {
         resetAllStores()
-        ;(window as any).flintAPI = createMockFlintAPI()
+        ;(window as any).flintAPI = {
+            ...createMockFlintAPI(),
+            hello: {
+                alreadyConnected: vi.fn().mockResolvedValue({ connected: true, editors: ['cursor'] }),
+                detectEditors: vi.fn().mockResolvedValue({ editors: [], mcpServerPath: '', platform: 'darwin' }),
+                writeMcpConfigBulk: vi.fn().mockResolvedValue({ written: [], failed: [] }),
+            },
+        }
     })
 
     // ── WS1 test 1 ────────────────────────────────────────────────────────────
@@ -404,7 +434,14 @@ describe('App — Demo-first onboarding gate (WS1)', () => {
 describe('App — Sprint 4 UI polish (S4.3 / S4.6 / S4.10 / S4.15)', () => {
     beforeEach(() => {
         resetAllStores()
-        ;(window as any).flintAPI = createMockFlintAPI()
+        ;(window as any).flintAPI = {
+            ...createMockFlintAPI(),
+            hello: {
+                alreadyConnected: vi.fn().mockResolvedValue({ connected: true, editors: ['cursor'] }),
+                detectEditors: vi.fn().mockResolvedValue({ editors: [], mcpServerPath: '', platform: 'darwin' }),
+                writeMcpConfigBulk: vi.fn().mockResolvedValue({ written: [], failed: [] }),
+            },
+        }
     })
 
     // ── S4.3: FileExplorer never visible in Glass ─────────────────────────────
@@ -574,7 +611,14 @@ describe('App — Sprint 4 UI polish (S4.3 / S4.6 / S4.10 / S4.15)', () => {
 describe('App — auto-resume LaunchScreen loop regression (LAUNCH.2)', () => {
     beforeEach(() => {
         resetAllStores()
-        ;(window as any).flintAPI = createMockFlintAPI()
+        ;(window as any).flintAPI = {
+            ...createMockFlintAPI(),
+            hello: {
+                alreadyConnected: vi.fn().mockResolvedValue({ connected: true, editors: ['cursor'] }),
+                detectEditors: vi.fn().mockResolvedValue({ editors: [], mcpServerPath: '', platform: 'darwin' }),
+                writeMcpConfigBulk: vi.fn().mockResolvedValue({ written: [], failed: [] }),
+            },
+        }
     })
 
     // ── Regression test 1 ─────────────────────────────────────────────────────

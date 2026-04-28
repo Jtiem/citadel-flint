@@ -10,7 +10,14 @@
  */
 
 import { useNotificationStore } from '../store/notificationStore'
-import { validateIPC, mcpCallToolSchema } from '../../shared/ipc-validators'
+import {
+  validateIPC,
+  mcpCallToolSchema,
+  helloDetectEditorsSchema,
+  helloWriteMcpConfigBulkSchema,
+  helloWriteMcpConfigBulkResponseSchema,
+  helloAlreadyConnectedSchema,
+} from '../../shared/ipc-validators'
 
 // ── MCP connection failure toast (P0) ─────────────────────────────────────────
 // Only fire once per page load — reconnect attempts should not spam the user.
@@ -637,6 +644,43 @@ export function createWebFlintAPI() {
       onDownloadProgress: (_cb: unknown): (() => void) => () => {},
       onUpdateDownloaded: (_cb: unknown): (() => void) => () => {},
       onError: (_cb: unknown): (() => void) => () => {},
+    },
+
+    // ── Hello, Flint — IDE auto-connect (HELLO-FLINT-PHASE-A) ──────────────────
+    // Each method validates payload before invoke() and parses the response
+    // through the registered Zod schema — no `as Promise<T>` casts (W-1 fix).
+    hello: {
+      /**
+       * Detects installed editors (Claude Code, Cursor, VS Code) by probing
+       * known filesystem paths. Returns exactly 3 DetectedEditor entries.
+       */
+      detectEditors: async () => {
+        const raw = await invoke('hello:detect-editors')
+        return helloDetectEditorsSchema.parse(raw)
+      },
+
+      /**
+       * Writes the Flint MCP entry into one or more editors' config files
+       * atomically, preserving every other existing MCP server entry.
+       */
+      writeMcpConfigBulk: async (payload: {
+        editors: Array<'claude-code' | 'cursor' | 'vscode'>
+        mcpServerPath: string
+      }) => {
+        const valid = helloWriteMcpConfigBulkSchema.parse(payload)
+        const raw = await invoke('hello:write-mcp-config-bulk', valid)
+        return helloWriteMcpConfigBulkResponseSchema.parse(raw)
+      },
+
+      /**
+       * Checks whether any editor already has a Flint MCP entry configured.
+       * Used as a fast-path check on HelloFlintWelcome mount — if connected,
+       * the screen is skipped silently.
+       */
+      alreadyConnected: async () => {
+        const raw = await invoke('hello:already-connected')
+        return helloAlreadyConnectedSchema.parse(raw)
+      },
     },
 
     // ── Setup wizard ────────────────────────────────────────────────────────

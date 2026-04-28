@@ -276,6 +276,62 @@ export const ipcSchemas = {
     response: z.unknown(),
   },
 
+  // ── HELLO-FLINT-PHASE-A: Welcome Screen + Smart IDE Auto-Connect ──────────
+  //
+  // Three channels for the Hello, Flint welcome surface.
+  // Registered IN the registry so createValidatedInvoker / web-api.ts can
+  // dispatch them through the standard validated pipeline (fixes BLK-INT-3).
+  //
+  // hello:detect-editors     — void payload, DetectEditorsResponse
+  // hello:write-mcp-config-bulk — WriteMcpConfigBulkPayload, WriteMcpConfigBulkResponse
+  // hello:already-connected  — void payload, AlreadyConnectedResponse
+
+  'hello:detect-editors': {
+    payload: z.undefined(),
+    response: z.object({
+      editors: z.array(z.object({
+        editor: z.enum(['claude-code', 'cursor', 'vscode']),
+        present: z.boolean(),
+        configPath: z.string().nullable(),
+      })),
+      mcpServerPath: z.string(),
+      platform: z.enum(['darwin', 'linux', 'win32']),
+    }),
+  },
+
+  'hello:write-mcp-config-bulk': {
+    /**
+     * editors: non-empty array of editor names (1..3; handler dedupes).
+     * mcpServerPath: absolute path string, min 1 char.
+     * Both constraints now enforced at the Zod level (fixes WARN-1).
+     */
+    payload: z.object({
+      editors: z.array(z.enum(['claude-code', 'cursor', 'vscode'])).min(1).max(3),
+      mcpServerPath: z.string().min(1),
+    }),
+    response: z.object({
+      written: z.array(z.object({
+        editor: z.enum(['claude-code', 'cursor', 'vscode']),
+        configPath: z.string(),
+        preservedEntries: z.number(),
+      })),
+      failed: z.array(z.object({
+        editor: z.enum(['claude-code', 'cursor', 'vscode']),
+        reason: z.string(),
+        code: z.enum(['malformed-config', 'unexpected-schema']).optional(),
+        detail: z.string().optional(),
+      })),
+    }),
+  },
+
+  'hello:already-connected': {
+    payload: z.undefined(),
+    response: z.object({
+      connected: z.boolean(),
+      editors: z.array(z.enum(['claude-code', 'cursor', 'vscode'])),
+    }),
+  },
+
 } satisfies Record<string, { payload: z.ZodType; response: z.ZodType }>;
 
 // ─── Named Zod Exports (referenced by contract `validator` fields) ─
@@ -590,6 +646,31 @@ export const telemetrySetConsentPayloadSchema = z.object({
 })
 
 // ─── End of BETA.TEL additions ────────────────────────────────────────────────
+
+// ─── HELLO-FLINT-PHASE-A: Named aliases (registered in ipcSchemas above) ───────
+//
+// The schemas are defined INSIDE ipcSchemas (fixes BLK-INT-3).
+// These named exports are aliases that point into the registry so the
+// Phase 1.5 contract linter's grep and any direct import still work.
+//
+// Pattern matches Phase 0 / RUNTIME.1 aliases above.
+
+/** HELLO-FLINT-A — response validator for `hello:detect-editors`. */
+export const helloDetectEditorsSchema = ipcSchemas['hello:detect-editors'].response;
+
+/**
+ * HELLO-FLINT-A — payload validator for `hello:write-mcp-config-bulk`.
+ * Enforces: editors min 1, max 3; mcpServerPath min 1 char (WARN-1 fix).
+ */
+export const helloWriteMcpConfigBulkSchema = ipcSchemas['hello:write-mcp-config-bulk'].payload;
+
+/** HELLO-FLINT-A — response validator for `hello:write-mcp-config-bulk`. */
+export const helloWriteMcpConfigBulkResponseSchema = ipcSchemas['hello:write-mcp-config-bulk'].response;
+
+/** HELLO-FLINT-A — response validator for `hello:already-connected`. */
+export const helloAlreadyConnectedSchema = ipcSchemas['hello:already-connected'].response;
+
+// ─── End of HELLO-FLINT-PHASE-A additions ────────────────────────────────────
 
 /**
  * Creates a validated IPC invoker for use in preload.ts.

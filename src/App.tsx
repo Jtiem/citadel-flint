@@ -42,7 +42,8 @@ import { MithrilProvider } from './components/mithril/MithrilProvider'
 import { LaunchScreen } from './components/ui/LaunchScreen'
 import { tryAutoResume } from './lib/autoResume'
 import { SetupWizard } from './components/ui/SetupWizard'
-import { BetaWelcome, shouldShowBetaWelcome } from './components/ui/BetaWelcome'
+import { HelloFlintWelcome, hasSeenHelloWelcome as getHasSeenHelloWelcome } from './components/ui/HelloFlintWelcome'
+// HELLO-FLINT-A: BetaWelcome replaced by HelloFlintWelcome (Group A3 fully wired)
 import { TelemetryConsentDialog } from './components/ui/TelemetryConsentDialog'
 import { FocusTrap } from './components/ui/FocusTrap'
 import { TabUnlockTooltip } from './components/ui/TabUnlockTooltip'
@@ -136,10 +137,23 @@ function App() {
     const [demoAutoLoaded, setDemoAutoLoaded] = useState(false)
     // WS1: SetupWizard as a modal (deferred, not blocking)
     const [showSetupWizardModal, setShowSetupWizardModal] = useState(false)
-    // ── Beta Welcome gate ──────────────────────────────────────────────────────
-    // Default to done (no blank flash). The useEffect below flips this to false
-    // only when we confirm this is a beta build AND the welcome hasn't been shown.
-    const [betaWelcomeDone, setBetaWelcomeDone] = useState(true)
+    // ── Hello, Flint welcome gate (HELLO-FLINT-A / Group A3) ─────────────────
+    // Initialized from localStorage so returning users skip the screen instantly.
+    // The alreadyConnected fast-path useEffect (below) can also flip this to true
+    // before any JSX renders, satisfying the < 250ms invariant.
+    const HELLO_WELCOME_KEY = 'flint:has-seen-hello-welcome:v1'
+    const [hasSeenWelcome, setHasSeenWelcomeRaw] = useState<boolean>(() => {
+        // Primary source: the component's own STORAGE_KEY via exported helper
+        if (getHasSeenHelloWelcome()) return true
+        // Secondary source: this gate's own versioned key (persisted by this effect)
+        try { return localStorage.getItem(HELLO_WELCOME_KEY) === 'true' } catch { return false }
+    })
+    const setHasSeenWelcome = useCallback((value: boolean) => {
+        setHasSeenWelcomeRaw(value)
+        if (value) {
+            try { localStorage.setItem(HELLO_WELCOME_KEY, 'true') } catch { /* quota / private */ }
+        }
+    }, [])
     // ── BETA.TEL: Telemetry consent gate ──────────────────────────────────────
     // null  = not yet checked (IPC in-flight)
     // true  = dialog should be visible (consent.state === 'unset')
@@ -767,16 +781,39 @@ function App() {
     // WS1: Error string when demo project load fails (surfaces to LaunchScreen)
     const [demoLoadError, setDemoLoadError] = useState<string | null>(null)
 
-    // ── Beta Welcome check (runs once after setup wizard resolves) ────────────
-    // Defaults to done=true so non-beta builds never flash. Only flips to false
-    // when we confirm this is a beta build AND the welcome hasn't been shown.
+    // ── HELLO-FLINT-A: alreadyConnected fast-path (Group A3) ─────────────────
+    // Satisfies the contract's < 250ms invariant: before any gate renders, ask
+    // whether any editor already has a flint MCP entry. If yes, skip the welcome
+    // screen entirely and never show it. Runs once on mount.
     useEffect(() => {
-        if (!shouldShowBetaWelcome()) return
+        if (typeof window.flintAPI?.hello?.alreadyConnected !== 'function') {
+            // IPC not wired yet (web-api Group A2 not landed) — skip silently
+            // but do NOT flip hasSeenWelcome — we still want to show the screen
+            // if the beta check (below) activates it.
+            return
+        }
+        void window.flintAPI.hello.alreadyConnected()
+            .then((result) => {
+                if (result.connected) setHasSeenWelcome(true)
+            })
+            .catch((err) => {
+                console.warn('[Flint] App: alreadyConnected check failed', err)
+                // Privacy-safe fallback: show the welcome on failure
+            })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
+
+    // ── Beta info fetch (runs once on mount) ──────────────────────────────────
+    // Fetches beta build metadata for display in the HelloFlintWelcome footer
+    // (buildId, daysRemaining). This effect ONLY populates the betaInfo state
+    // slot — it does NOT touch hasSeenWelcome. The welcome gate is a one-way
+    // ratchet owned by HelloFlintWelcome's onComplete/onSkip paths and the
+    // alreadyConnected fast-path above.
+    useEffect(() => {
         window.flintAPI.beta?.getInfo()
             .then((info) => {
                 if (info.isBeta) {
                     setBetaInfo({ buildId: info.buildId, daysRemaining: info.daysRemaining })
-                    setBetaWelcomeDone(false)
                 }
             })
             .catch((err) => console.warn('[Flint] App: beta info check failed', err))
@@ -829,7 +866,7 @@ function App() {
     const _autoResumeStarted = useRef(false)
 
     useEffect(() => {
-        if (setupComplete !== true || !betaWelcomeDone) return
+        if (setupComplete !== true || !hasSeenWelcome) return
         if (autoResumeChecked) return
         if (workspaceFiles) {
             // Already hydrated by the WS1 demo-load effect — skip the resume
@@ -891,7 +928,7 @@ function App() {
             }
         })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [setupComplete, betaWelcomeDone])
+    }, [setupComplete, hasSeenWelcome])
 
     // ── IDE.2: React to external project-open events (demo script, CLI curl) ─────
     // When the server's active project changes via an external HTTP call (not
@@ -966,25 +1003,31 @@ function App() {
     // and LaunchScreen (rendered as a non-blocking modal).
     // (setupComplete === true is guaranteed by the timeout fallback useEffect above)
 
-    // ── Beta Welcome gate ─────────────────────────────────────────────────────
-    if (!betaWelcomeDone && betaInfo) {
+    // ── Telemetry Consent gate (must appear before BetaWelcome) ──────────────
+    // Privacy promise: testers see this BEFORE the Welcome screen, matching
+    // docs/beta/INSTALL-GUIDE.md and docs/strategy/BETA-CLOSED-PLAN.md.
+    // Renders only the dialog on a full-bleed backdrop. Once the user decides,
+    // the standard gates (BetaWelcome, RestoringSplash, LaunchScreen) resume.
+    if (showTelemetryConsent === true) {
         return (
-            <BetaWelcome
-                buildId={betaInfo.buildId}
-                daysRemaining={betaInfo.daysRemaining}
-                onTryDemo={async () => {
-                    const result = await window.flintAPI.beta?.loadDemoProject('multi-component-app')
-                    if (result && 'projectPath' in result) {
-                        const tree = await window.flintAPI.project.openPath(result.projectPath)
-                        if (tree) {
-                            setBetaWelcomeDone(true)
-                            await hydrateWorkspace(tree as FileTreeNode)
-                        }
-                    } else {
-                        setBetaWelcomeDone(true)
-                    }
-                }}
-                onSkip={() => setBetaWelcomeDone(true)}
+            <TelemetryConsentDialog
+                onDecided={() => setShowTelemetryConsent(false)}
+            />
+        )
+    }
+
+    // ── Hello, Flint welcome gate (HELLO-FLINT-A) ────────────────────────────
+    // First-launch experience: smart IDE auto-connect + welcome.
+    // Skipped silently if Flint is already connected to at least one editor
+    // (alreadyConnected fast-path useEffect above). Skipped if the user has
+    // already completed or dismissed this welcome (hasSeenWelcome flag, backed
+    // by localStorage key flint:has-seen-hello-welcome:v1).
+    if (!hasSeenWelcome) {
+        return (
+            <HelloFlintWelcome
+                buildId={betaInfo?.buildId}
+                daysRemaining={betaInfo?.daysRemaining ?? null}
+                onComplete={() => setHasSeenWelcome(true)}
             />
         )
     }
@@ -1025,7 +1068,7 @@ function App() {
     // GLASS.2.2: When any modal is open, the main app content is aria-hidden
     // so screen readers focus on the dialog. Modals render as siblings outside
     // the aria-hidden wrapper via a React Fragment.
-    const isAnyModalOpen = showExportModal || showGovernancePanel || showSetupWizardModal || showTelemetryConsent === true
+    const isAnyModalOpen = showExportModal || showGovernancePanel || showSetupWizardModal
 
     return (
         <>
@@ -1478,14 +1521,7 @@ function App() {
                 <SetupWizard onComplete={() => setShowSetupWizardModal(false)} />
             </FocusTrap>
         )}
-        {/* BETA.TEL: Telemetry consent gate — shown once on first launch when
-             consent.state === 'unset'. Dismisses on Accept or Decline. */}
-        {showTelemetryConsent === true && (
-            <TelemetryConsentDialog
-                onDecided={() => setShowTelemetryConsent(false)}
-            />
-        )}
-        </>
+</>
     )
 }
 

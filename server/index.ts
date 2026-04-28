@@ -49,6 +49,8 @@ import type { JSXOpeningElement } from '@babel/types'
 import type { NodePath } from '@babel/traverse'
 import { fileURLToPath } from 'node:url'
 import { createPreviewServer } from './services/previewServer.js'
+import { detectInstalled, getMCPServerPath } from './services/ideDetection.js'
+import { writeBulk as writeMcpConfigBulk, checkAlreadyConnected } from './services/mcpConfigWriter.js'
 import { ideFileSyncTick, type IDEFileSyncState } from './ideFileSyncTick.js'
 import { detectProjectEnvironment, type DetectorFS } from '../shared/projectDetector.js'
 import { validateFilePath as sharedValidateFilePath } from '../shared/validateFilePath.js'
@@ -3216,37 +3218,43 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
   // ── Setup Wizard ───────────────────────────────────────────────────────────
 
   handlers.set('setup:detect-ides', async () => {
+    // Delegate to the new ideDetection service (HELLO-FLINT-PHASE-A refactor).
+    // Shape is transformed back to the legacy `ides[]` format expected by
+    // the existing SetupWizard component so there's no breaking change for
+    // the legacy reset-state path.
     const home = os.homedir()
-    const claudeSettingsPath = path.join(home, '.claude', 'settings.json')
-    const claudeMcpPath = path.join(home, '.claude', 'mcp.json')
+    const detection = detectInstalled()
+
+    // Legacy Antigravity entry (not in the new hello:detect-editors surface)
+    const antigravityPath = path.join(home, '.gemini', 'antigravity', 'mcp_config.json')
+    const antigravityDetected = existsSync(
+      path.join(home, 'Library', 'Application Support', 'Antigravity', 'User', 'settings.json'),
+    )
 
     const ides = [
       {
         name: 'Claude Code',
-        settingsPath: existsSync(claudeMcpPath) ? claudeMcpPath : claudeSettingsPath,
-        detected: existsSync(claudeSettingsPath) || existsSync(claudeMcpPath),
+        settingsPath: detection.editors[0].configPath ?? path.join(home, '.claude', 'settings.json'),
+        detected: detection.editors[0].present,
       },
       {
         name: 'Antigravity',
-        settingsPath: path.join(home, '.gemini', 'antigravity', 'mcp_config.json'),
-        detected: existsSync(path.join(home, 'Library', 'Application Support', 'Antigravity', 'User', 'settings.json')),
+        settingsPath: antigravityPath,
+        detected: antigravityDetected,
       },
       {
         name: 'Cursor',
-        settingsPath: path.join(home, 'Library', 'Application Support', 'Cursor', 'User', 'settings.json'),
-        detected: existsSync(path.join(home, 'Library', 'Application Support', 'Cursor', 'User', 'settings.json')),
+        settingsPath: detection.editors[1].configPath ?? path.join(home, 'Library', 'Application Support', 'Cursor', 'User', 'settings.json'),
+        detected: detection.editors[1].present,
       },
       {
         name: 'VS Code',
-        settingsPath: path.join(home, 'Library', 'Application Support', 'Code', 'User', 'settings.json'),
-        detected: existsSync(path.join(home, 'Library', 'Application Support', 'Code', 'User', 'settings.json')),
+        settingsPath: detection.editors[2].configPath ?? path.join(home, 'Library', 'Application Support', 'Code', 'User', 'settings.json'),
+        detected: detection.editors[2].present,
       },
     ]
 
-    // Resolve the MCP server path the same way Electron does.
-    // In dev: <repo-root>/flint-mcp/dist/server.js
-    const mcpServerPath = path.resolve(__dirname, '..', 'flint-mcp', 'dist', 'server.js')
-    return { ides, mcpServerPath }
+    return { ides, mcpServerPath: detection.mcpServerPath }
   })
 
   handlers.set('setup:check-first-launch', async () => {
@@ -3315,6 +3323,80 @@ export async function startServer(options: StartServerOptions): Promise<ServerIn
     } catch (err) {
       console.error(`${BRAND.logPrefix} setup:write-mcp-config failed:`, err)
       return { written: false }
+    }
+  })
+
+  // ── Hello, Flint — IDE auto-connect (HELLO-FLINT-PHASE-A) ─────────────────
+
+  handlers.set('hello:detect-editors', async () => {
+    try {
+      return detectInstalled()
+    } catch (err) {
+      // Return a safe stub rather than a 500 so the renderer can still show
+      // the manual-snippet fallback path.
+      console.error(`${BRAND.logPrefix} hello:detect-editors failed:`, err)
+      return {
+        editors: [
+          { editor: 'claude-code', present: false, configPath: null },
+          { editor: 'cursor', present: false, configPath: null },
+          { editor: 'vscode', present: false, configPath: null },
+        ],
+        mcpServerPath: getMCPServerPath(),
+        platform: process.platform as 'darwin' | 'linux' | 'win32',
+      }
+    }
+  })
+
+  handlers.set('hello:write-mcp-config-bulk', async (rawPayload: unknown) => {
+    // Validate payload with Zod schema
+    const { helloWriteMcpConfigBulkSchema } = await import('../shared/ipc-validators.js')
+    const parseResult = helloWriteMcpConfigBulkSchema.safeParse(rawPayload)
+    if (!parseResult.success) {
+      const issues = parseResult.error.issues
+        .map((i) => `${i.path.join('.')}: ${i.message}`)
+        .join('; ')
+      throw new Error(`hello:write-mcp-config-bulk validation failed: ${issues}`)
+    }
+    const payload = parseResult.data
+
+    // Verify the renderer-supplied mcpServerPath matches the server-computed one.
+    // This prevents path-injection via a stale or crafted renderer payload.
+    const canonicalMcpPath = getMCPServerPath()
+    if (payload.mcpServerPath !== canonicalMcpPath) {
+      throw new Error('hello:write-mcp-config-bulk: mcpServerPath mismatch — rejected')
+    }
+
+    // Resolve config paths for each requested editor from the detection service.
+    const detection = detectInstalled()
+    const editorConfigPaths = new Map<string, string>()
+    for (const entry of detection.editors) {
+      if (entry.configPath) {
+        editorConfigPaths.set(entry.editor, entry.configPath)
+      }
+    }
+
+    return writeMcpConfigBulk(
+      payload,
+      editorConfigPaths as Map<import('./services/ideDetection.js').EditorName, string>,
+      activeProjectRoot,
+    )
+  })
+
+  handlers.set('hello:already-connected', async () => {
+    try {
+      const detection = detectInstalled()
+      const editorConfigPaths = new Map<string, string>()
+      for (const entry of detection.editors) {
+        if (entry.configPath) {
+          editorConfigPaths.set(entry.editor, entry.configPath)
+        }
+      }
+      return checkAlreadyConnected(
+        editorConfigPaths as Map<import('./services/ideDetection.js').EditorName, string>,
+      )
+    } catch {
+      // Best-effort — failures mean we can't confirm connected status.
+      return { connected: false, editors: [] }
     }
   })
 

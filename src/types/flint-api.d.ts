@@ -2114,6 +2114,62 @@ export interface FlintAPI {
      */
     autoUpdate?: AutoUpdateAPI
 
+    // ── HELLO-FLINT-PHASE-A: Welcome Screen + Smart IDE Auto-Connect ─────────
+
+    /**
+     * Hello, Flint IPC surface — IDE detection, atomic MCP config write,
+     * already-connected fast-path check. Web-transport-first (server/index.ts).
+     * These channels replace the multi-step SetupWizard for the first-launch
+     * experience. The legacy setup:* channels remain for the menu "Reset State" path.
+     */
+    hello: {
+        /**
+         * Detects installed editors (Claude Code, Cursor, VS Code) by probing
+         * known filesystem paths on macOS. Returns exactly 3 DetectedEditor entries
+         * in fixed order. Non-darwin platforms return present:false for all entries.
+         */
+        detectEditors: () => Promise<{
+            editors: Array<{
+                editor: 'claude-code' | 'cursor' | 'vscode'
+                present: boolean
+                configPath: string | null
+            }>
+            mcpServerPath: string
+            platform: 'darwin' | 'linux' | 'win32'
+        }>
+
+        /**
+         * Writes the Flint MCP entry into one or more editors' config files
+         * atomically via FileTransactionManager (Commandment 14).
+         * Preserves every other existing MCP server entry.
+         * Returns written/failed split for partial-success transparency.
+         */
+        writeMcpConfigBulk: (payload: {
+            editors: Array<'claude-code' | 'cursor' | 'vscode'>
+            mcpServerPath: string
+        }) => Promise<{
+            written: Array<{
+                editor: 'claude-code' | 'cursor' | 'vscode'
+                configPath: string
+                preservedEntries: number
+            }>
+            failed: Array<{
+                editor: 'claude-code' | 'cursor' | 'vscode'
+                reason: string
+            }>
+        }>
+
+        /**
+         * Checks whether any editor already has a Flint MCP entry.
+         * Used as the fast-path on HelloFlintWelcome mount — resolves connected:true
+         * means the screen can be skipped silently.
+         */
+        alreadyConnected: () => Promise<{
+            connected: boolean
+            editors: Array<'claude-code' | 'cursor' | 'vscode'>
+        }>
+    }
+
     // ── ONBOARD.1: First-Launch Setup Wizard ─────────────────────────────────
 
     /**
