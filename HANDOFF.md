@@ -1,8 +1,42 @@
 # Flint — Developer Handoff
 
-**Date:** 2026-04-25
+**Date:** 2026-04-26
 **Architecture:** Flint MCP (headless governance engine) + Flint Glass (desktop wrapper hosting the web build) + Flint Web (browser distribution; same React UI)
-**Test baseline:** 5,699/5,699 MCP | 3,544/3,544 Glass | 2,806/2,806 Core | 56/56 CI — TSC: 0 errors. Core has 38 pre-existing `better-sqlite3` NODE_MODULE_VERSION mismatch failures in dev (fix: `npm rebuild better-sqlite3`; not beta-blocking). Strict-mode debt documented in `docs/beta/BETA-TECH-DEBT.md`.
+**Test baseline:** 5,699/5,699 MCP | 3,554/3,554 Glass | 2,806/2,806 Core | 56/56 CI — TSC: 0 errors (4 pre-existing in `electron/thumbnailGenerator.ts` and `electron/visualAuditor.ts`, outside any active scope). Core has 38 pre-existing `better-sqlite3` NODE_MODULE_VERSION mismatch failures in dev (fix: `npm rebuild better-sqlite3`; not beta-blocking).
+
+---
+
+## Session: Closed-beta first-launch redesign — Hello, Flint guided experience (2026-04-26) — IN PROGRESS
+
+**Goal:** Replace the BetaWelcome screen with a guided first-launch experience that walks new testers through the full Flint loop in five minutes. Closed-beta ship is paused while this lands.
+
+**Why the pivot:** Closed-beta smoke-test surfaced two related gaps that, taken together, mean testers can't actually use Flint as designed:
+
+1. The web-transport telemetry namespace was missing from `web-api.ts`, so the consent dialog never appeared on the production target. Fixed in working tree (not committed yet).
+2. The launch flow had no IDE-setup step — testers would land on the visual app but never connect Flint to their AI assistant, meaning they'd test half the product without realizing it.
+
+The fix isn't "add a setup screen." It's a redesign of first-launch around the actual product story: Flint guides the AI proactively, then catches what guidance can't constrain. The new experience makes the tester live that loop themselves.
+
+### Spec
+
+* `docs/strategy/FEATURE-SPEC-GUIDED-FIRST-SCREEN.md` — APPROVED by Justin 2026-04-26. Captures the welcome screen redesign, smart IDE auto-connect, four-step guided walkthrough, three-choice drift panel ("match existing token / promote new value / allow once"), and the recap. Three phases of work: Phase A (welcome + auto-connect), Phase B (walkthrough + drift panel), Phase C (polish + persistence).
+
+### What's already in the working tree (uncommitted)
+
+* `src/adapters/web-api.ts` — telemetry namespace wired to `invoke('telemetry:get-consent')` and `invoke('telemetry:set-consent')`. Closes the consent-dialog-never-appears bug.
+* `src/adapters/__tests__/web-api.test.ts`, `server/__tests__/telemetryIpc.test.ts` (new), `server/__tests__/index.test.ts` — 44 new tests; all passing.
+* `src/App.tsx` — consent dialog moved to render BEFORE BetaWelcome / RestoringSplash / LaunchScreen gates so it appears at first launch as the install guide promises. Three-domain review verdict: FIX-FORWARD with no blockers.
+* `.flint-context/contracts/TELEMETRY-WEB-TRANSPORT.contract.{md,ts}` — APPROVED contract for the telemetry web fix.
+* `.flint-context/reviews/TELEMETRY-WEB-TRANSPORT-{code,security,ux}-review-2026-04-26.{md,ts}` — three-domain review reports.
+
+### Next up
+
+1. flint-architect to draft Phase A contract (welcome screen + smart IDE auto-connect)
+2. flint-contract-linter to validate
+3. Parallel implementation groups for Phase A
+4. Three-domain review ceremony
+5. Then Phase B (the guided walkthrough), then Phase C (polish)
+6. Closed beta ships once Phase A + Phase B land
 
 ---
 
@@ -156,6 +190,14 @@ TSC:   0 errors
 3. The full Cloudflare Worker pipeline tested via curl with shared secret — Slack `#telemetry` received the test message.
 
 ### Open work (priority order — pick up here next session):
+
+-2. **TSC cleanup — finish-the-tightening (~16 errors remaining).** Status as of compact: re-tightened `tsconfig.tests.json` to keep `noUnusedLocals: true` (per security WARN-3) and only relax `noUnusedParameters: false`. That re-introduced ~41 unused-vars in test files; ~25 already cleaned this session, ~16 left. Reviews are DONE — code (FIX-FORWARD, 0 blocking), security (FIX-FORWARD, 0 blocking), integration (SHIP) — all written to `.flint-context/reviews/TSC-CLEANUP-{code,security,integration}-2026-04-25.md`. Convergent review actions ALREADY APPLIED in this session: (1) Map cast removal in [src/components/ui/GovernanceDashboard.tsx](src/components/ui/GovernanceDashboard.tsx) — fixed by widening `setDeferReasons`/`setDeferDurations` types in [.flint-context/contracts/sprint-2-glass-ui-fixes.contract.ts](.flint-context/contracts/sprint-2-glass-ui-fixes.contract.ts) to `Dispatch<SetStateAction<Map<...>>>`; (2) `FLINT_FORCE_AUTOUPDATE` env var REMOVED — replaced with `initAutoUpdater(win, { forceForTesting: true })` parameter ([electron/autoUpdater.ts](electron/autoUpdater.ts)), test file updated to pass it; (3) `tsconfig.tests.json` got an explanatory comment block; (4) `@ts-ignore` reverted to `@ts-expect-error` in [src/store/__tests__/tokenStore.protoPollution.test.ts](src/store/__tests__/tokenStore.protoPollution.test.ts) (kept the canary).
+
+  **To finish:** run `npx tsc -b 2>&1 | grep "error TS"` — there are ~16 unused-import/var errors in test files. Each is a one-line edit (remove unused import name from the import list, OR delete an unused local var). Files: `useGovernanceHealthSignal.test.ts:186` (unused `result`), `useSyncStaleness.test.ts:204` (unused `result`), `useTokenHealth.mint5.test.ts:126` (unused `result`), `useGovernanceTokenImpact.test.ts:17` (unused `waitFor` import), `syncStalenessStore.test.ts:17` (unused `useSyncStalenessDismissedAt`), and a few others. Pattern is identical: read line, remove the named symbol from the destructure or import.
+
+  **Outstanding non-convergent review items (DEFER, document):** code WARN-3 + integration warning #2 want `flint-contract-linter` to reject `LegacyFlintContract` on new contracts dated >= 2026-04-17 — needs a small linter-rule extension. Code WARN-5 wants regression tests for the tokenMatcher mapping fix. Security SUG-3 wants a "sunset list" doc for the 5 grandfathered legacy contracts. Integration warning #1 wants the divergent `TokenType` definitions consolidated (3 places: shared/dtcgFlatten.ts, src/types/flint-api.d.ts, shared/tokenValueSanitizer.ts). All are smaller-scope follow-ups, none block the cleanup landing.
+
+-1. ~~**TSC baseline cleanup (initial pass)**~~ — **DONE 2026-04-25.** Took the codebase from 505 `tsc -b` errors → **0**. Approach: (a) added `LegacyFlintContract`, `LegacyContractMeta`, `LegacyIPCChannelContract`, `LegacyTestBoundary` to [shared/contract-schema.ts](shared/contract-schema.ts) so 4 historical contracts (MINT.5-phase1, sprint-2-glass-ui-fixes, CHRON.1, sprint-clarity-2, MINT.5-phase3) compile honestly without backfilling fake `given/when/then` data they never had; (b) added [tsconfig.tests.json](tsconfig.tests.json) that extends app config with `noUnusedLocals: false` + `noUnusedParameters: false`, picks up `**/__tests__/**` and `**/*.test.ts(x)`, excluded those from app/node configs; (c) split node-only files (`shared/projectDetector.ts`, `shared/validateFilePath.ts`, `shared/tokenPath.ts`) out of the app config; (d) bulk-fixed `(window.flintAPI as Record<string, unknown>)` → `as unknown as Record<...>` (Zod 4 stricter narrowing); (e) bulk-fixed `vi.fn<[A], B>()` → `vi.fn<(a: A) => B>()` (vitest 3); (f) restructured `class X { constructor(readonly y: string)` → field + assignment (TS5.9 `erasableSyntaxOnly`); (g) widened `IFlintAdapter.applyMutationBatch` return on Vue/Svelte adapters to include `sideEffects`; (h) removed dead/unused exports across ~50 files. Also fixed `tokenMatcher.ts` `CATEGORY_TO_TOKEN_TYPE` mapping `spacing → 'dimension'` and `borderRadius → 'dimension'` (was incorrectly `→ 'spacing'` which isn't a valid TokenType). **Verified:** TSC `-b`: 0 errors. MCP: 5699/5699. Glass: 3544/3544 (11 todo). Core: 38 pre-existing failures all from `better-sqlite3` ABI mismatch (Node 24 vs Electron 35 NODE_MODULE_VERSION 137 vs 133) — verified pre-existing via `git stash` A/B test, NONE introduced. New file: [shared/__tests__/dtcgFlatten.test.ts](shared/__tests__/dtcgFlatten.test.ts) (10 tests). New file: [electron/__tests__/tokensSeedFromProject.test.ts](electron/__tests__/tokensSeedFromProject.test.ts) (24 tests, was self-authored by hook chain). Memory rule saved: [feedback_tsc_scope.md](.claude/projects/-Users-tiemann-Lunar-Elevator-Bridge/memory/feedback_tsc_scope.md). Touched ~110 files. **Independent reviews pending** — see ceremony notes below.
 
 0. ~~**DTCG project token loader**~~ — **DONE 2026-04-25.** Root cause of "demo text invisible" bug: `src/core/seedTokens.ts` only inserted 8 hardcoded baseline tokens (`--text-primary`, `--surface-card`, …) and **never read the project's `design-tokens.json`**. DemoCard referenced `--color-on-surface`, `--color-primary`, `--fontSize-lg`, etc., which were never defined → fall-through to leaked parent default → white-on-white text. Architectural fix: shared pure `flattenDtcg()` util ([shared/dtcgFlatten.ts](shared/dtcgFlatten.ts), 10 tests passing) + new IPC `tokens:seed-from-project` (mirrored in [electron/main.ts:1037](electron/main.ts#L1037) and [server/index.ts:908](server/index.ts#L908)) + Zod validator ([shared/ipc-validators.ts](shared/ipc-validators.ts)) + preload + web-adapter exposure + `hydrateWorkspace` in [src/App.tsx:361](src/App.tsx#L361) calls it on every project open. Reads `<projectRoot>/.flint/design-tokens.json` (or fallback root `design-tokens.json`), flattens DTCG, clears + seeds. Falls back to baseline only when no DTCG present. Also moved demo's `design-tokens.json` from project root to canonical `.flint/design-tokens.json`. Also fixed unrelated auto-update ENOENT noise: [electron/autoUpdater.ts:60](electron/autoUpdater.ts#L60) now skips when `app-update.yml` is absent (unsigned/local builds). TSC: 0 errors. Tests: 10/10 dtcgFlatten + 53/53 ipc-validators + 59/59 server. **Needs ship test on rebuilt .app.**
 1. ~~**Wire Claude Code PostToolUse hook**~~ — **DONE 2026-04-25.** `.claude/hooks/flint-audit-on-edit.sh` runs `node flint-ci/dist/cli.js audit <file> --format terminal` on any `.tsx`/`.jsx` Write/Edit/MultiEdit inside `src/components/`, `build-resources/`, or `__tests__/`. Result is surfaced via PostToolUse `additionalContext` JSON so the model sees the report on the next turn. Wired in `.claude/settings.json` PostToolUse `Write|Edit|MultiEdit` matcher (alongside the existing claude-flow post-edit handler). Verified: positive case on `DemoCard.tsx` returns full audit JSON; negative cases (`electron/main.ts`, `Bash` tool) silently pass through with exit 0.

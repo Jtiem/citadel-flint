@@ -52,7 +52,9 @@ After this, Flint launches normally by double-clicking it.
 
 Flint will show a consent dialog asking whether it can send anonymous usage events — tool names, audit counts, and crash reports. No file contents or design data are ever included. Accept or decline; either is fine, and you can change it later in Settings.
 
-After that, you land on the launch screen. Choose **Open Demo Project** to start with something ready to explore right away.
+After that, you land on the welcome screen — "Welcome to Flint." Click **Let's go →** and Flint will detect your installed code editors (Claude Code, Cursor, VS Code) and walk you through connecting in about a minute. Once that's done, you'll see a guided tour that shows you the full Flint loop end-to-end.
+
+If you'd rather poke around on your own first, the small **Skip — I'll find my way around** link below the welcome takes you straight into Flint without the setup. You can connect to your editor anytime later from the menu.
 
 ---
 

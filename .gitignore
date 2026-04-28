@@ -2,6 +2,7 @@ node_modules
 dist-electron
 dist
 dist-server
+dist-web/
 release/
 
 # OS files
